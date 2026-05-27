@@ -97,7 +97,7 @@
     "publish": {
       "provider": "github",
       "owner": "sahusgupta",
-      "repo": "TableTalk",
+      "repo": "TableTalk-Releases",
       "releaseType": "release"
     }
   }
