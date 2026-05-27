@@ -7,6 +7,13 @@ const nodemailer = require('nodemailer');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 const branding = require('../branding.config.json');
+const {
+  fetchPendingPlayerRequests,
+  isFirebaseConfigured,
+  markPlayerRequestApplied,
+  readStateFromFirebase,
+  writeStateToFirebase
+} = require('./firebaseSync.cjs');
 
 const isDev = process.env.ELECTRON_DEV === 'true';
 const updateCheckIntervalMs = 30 * 60 * 1000;
@@ -437,9 +444,216 @@ async function storeAnalyticalReport(report) {
   return { ok: true, id, accountKey, createdAt, deliveryStatus: delivery.status, backend: embeddedBackendStatus };
 }
 
+const activeWaitlistStatuses = new Set(['Interested', 'Confirmed Coming', 'Arrived']);
+const visibleTableStatuses = new Set(['Running', 'Forming', 'Paused']);
+
+function getPlayerLoyalty(clubId, lifetimeHours = 0) {
+  const hours = Math.max(0, Number(lifetimeHours) || 0);
+  if (hours >= 120) return { clubId, points: Math.floor(hours * 10), lifetimeHours: hours, tier: 'Anchor', nextTierAtHours: null };
+  if (hours >= 50) return { clubId, points: Math.floor(hours * 10), lifetimeHours: hours, tier: 'Preferred', nextTierAtHours: 120 };
+  if (hours >= 12) return { clubId, points: Math.floor(hours * 10), lifetimeHours: hours, tier: 'Regular', nextTierAtHours: 50 };
+  return { clubId, points: Math.floor(hours * 10), lifetimeHours: hours, tier: 'New', nextTierAtHours: 12 };
+}
+
+function isFutureDate(value) {
+  return Boolean(value && new Date(`${String(value).slice(0, 10)}T23:59:59`).getTime() >= Date.now());
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next.toISOString().slice(0, 10);
+}
+
+function mergeUnique(values) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function appendSyncNote(existing, note) {
+  if (!existing) return note;
+  if (existing.includes(note)) return existing;
+  return `${existing} | ${note}`;
+}
+
+function getInterestTime(interest) {
+  return interest.interestedAt || interest.timestamp || '';
+}
+
+function getWaitlistEntriesForGame(interests, clubId, gameId) {
+  return (interests || [])
+    .filter((interest) => interest.gameId === gameId && activeWaitlistStatuses.has(interest.status))
+    .sort((left, right) => getInterestTime(left).localeCompare(getInterestTime(right)))
+    .map((interest, index) => ({
+      id: interest.id,
+      clubId,
+      gameId,
+      playerId: interest.profileId,
+      playerName: interest.playerName,
+      status: interest.status,
+      position: index + 1,
+      requestedAt: getInterestTime(interest)
+    }));
+}
+
+function buildPlayerClubSnapshot(state, player) {
+  const clubId = getAccountKeyFromState(state);
+  const account = state.settings?.clubAccount || {};
+  const tables = (state.sessions || [])
+    .filter((session) => visibleTableStatuses.has(session.status))
+    .map((session) => ({
+      id: session.id,
+      gameId: session.gameId,
+      label: session.label,
+      status: session.status,
+      seatsFilled: Math.min(session.seatsFilled, session.maxSeats),
+      maxSeats: session.maxSeats,
+      availableSeats: Math.max(0, session.maxSeats - session.seatsFilled),
+      collectionMode: session.collectionMode || (session.timeFeeBased ? 'Time' : 'Drop'),
+      tags: session.tags || [],
+      startedAt: session.startedAt
+    }));
+  const waitlists = (state.games || []).flatMap((game) => getWaitlistEntriesForGame(state.interests || [], clubId, game.id));
+  const memberships = (state.profiles || [])
+    .filter((profile) => {
+      if (!player?.id && !player?.name) return true;
+      return profile.id === player.id || String(profile.name || '').toLowerCase() === String(player.name || '').toLowerCase();
+    })
+    .map((profile) => ({
+      id: `${clubId}:${profile.id}`,
+      clubId,
+      playerId: profile.id,
+      playerName: profile.name,
+      status: isFutureDate(profile.membershipExpirationDate) ? 'Active' : 'Expired',
+      joinedAt: profile.membershipStartDate || new Date().toISOString().slice(0, 10),
+      expiresAt: profile.membershipExpirationDate,
+      loyalty: getPlayerLoyalty(clubId, profile.totalTimePlayedHours || 0),
+      preferredGameIds: profile.preferredGameIds?.length ? profile.preferredGameIds : profile.preferredGameId ? [profile.preferredGameId] : [],
+      preferredStakes: profile.preferredStakes,
+      clubNote: profile.typicalAvailability
+    }));
+
+  return {
+    club: {
+      id: clubId,
+      name: account.clubName || 'Local Poker Club',
+      address: account.address,
+      phone: account.phone
+    },
+    games: (state.games || []).map((game) => {
+      const openTables = tables.filter((table) => table.gameId === game.id);
+      const gameWaitlist = waitlists.filter((entry) => entry.gameId === game.id);
+      return {
+        id: game.id,
+        name: game.name,
+        maxSeats: game.maxSeats,
+        openTables,
+        waitlistCount: gameWaitlist.length,
+        formingCount: openTables.filter((table) => table.status === 'Forming').length,
+        availableSeats: openTables.reduce((sum, table) => sum + table.availableSeats, 0)
+      };
+    }),
+    memberships,
+    waitlists,
+    generatedAt: new Date().toISOString()
+  };
+}
+
+function applyMembershipRequestToState(state, request) {
+  const accountKey = getAccountKeyFromState(state);
+  if (request.clubId !== accountKey) return state;
+  const player = request.player || {};
+  const existingProfile = (state.profiles || []).find(
+    (profile) => profile.id === player.id || String(profile.name || '').toLowerCase() === String(player.name || '').toLowerCase()
+  );
+  const membershipStartDate = String(request.requestedAt || new Date().toISOString()).slice(0, 10);
+  const membershipExpirationDate = addDays(membershipStartDate, 365);
+
+  if (existingProfile) {
+    return {
+      ...state,
+      profiles: state.profiles.map((profile) =>
+        profile.id === existingProfile.id
+          ? {
+              ...profile,
+              membershipStartDate: profile.membershipStartDate || membershipStartDate,
+              membershipExpirationDate: profile.membershipExpirationDate || membershipExpirationDate,
+              preferredGameId: player.preferredGameIds?.[0] || profile.preferredGameId,
+              preferredGameIds: mergeUnique([...(profile.preferredGameIds || []), ...(player.preferredGameIds || [])]),
+              preferredStakes: player.preferredStakes || profile.preferredStakes,
+              typicalAvailability: player.typicalAvailability || profile.typicalAvailability,
+              notes: appendSyncNote(profile.notes, `Player app: ${player.email || player.id}`)
+            }
+          : profile
+      )
+    };
+  }
+
+  return {
+    ...state,
+    profiles: [
+      ...(state.profiles || []),
+      {
+        id: player.id || crypto.randomUUID(),
+        name: player.name || 'Player',
+        birthday: '',
+        membershipStartDate,
+        membershipExpirationDate,
+        totalTimePlayedHours: 0,
+        lastSessionTimePlayedHours: 0,
+        commonlyPlaysWithProfileIds: [],
+        preferredGameId: player.preferredGameIds?.[0] || state.games?.[0]?.id || '',
+        preferredGameIds: player.preferredGameIds || [],
+        preferredStakes: player.preferredStakes || '',
+        typicalBuyInMin: 0,
+        typicalBuyInMax: 0,
+        willingnessToMove: false,
+        typicalAvailability: player.typicalAvailability || '',
+        preferredTags: [],
+        usualCompanions: [],
+        notes: `Player app: ${player.email || ''}${player.phone ? `, ${player.phone}` : ''}`.trim()
+      }
+    ]
+  };
+}
+
+function applyWaitlistRequestToState(state, request) {
+  const accountKey = getAccountKeyFromState(state);
+  if (request.clubId !== accountKey) return state;
+  const player = request.player || {};
+  const profile = (state.profiles || []).find(
+    (candidate) => candidate.id === player.id || String(candidate.name || '').toLowerCase() === String(player.name || '').toLowerCase()
+  );
+  const alreadyWaiting = (state.interests || []).some(
+    (interest) =>
+      interest.gameId === request.gameId &&
+      activeWaitlistStatuses.has(interest.status) &&
+      (interest.profileId === profile?.id || String(interest.playerName || '').toLowerCase() === String(player.name || '').toLowerCase())
+  );
+  if (alreadyWaiting) return state;
+  return {
+    ...state,
+    interests: [
+      ...(state.interests || []),
+      {
+        id: request.id || crypto.randomUUID(),
+        profileId: profile?.id || player.id,
+        playerName: player.name || 'Player',
+        gameId: request.gameId,
+        status: 'Interested',
+        timestamp: request.requestedAt || new Date().toISOString(),
+        interestedAt: request.requestedAt || new Date().toISOString(),
+        notes: request.note || 'Requested from player app'
+      }
+    ]
+  };
+}
+
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, {
     'content-type': 'application/json',
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'content-type',
     'cache-control': 'no-store'
   });
   response.end(JSON.stringify(payload));
@@ -461,6 +675,48 @@ function readRequestBody(request) {
   });
 }
 
+async function syncStateWithFirebaseRequests(state) {
+  if (!isFirebaseConfigured()) return state;
+  const accountKey = getAccountKeyFromState(state);
+  const pending = await fetchPendingPlayerRequests(accountKey);
+  let nextState = state;
+
+  for (const request of pending.membershipRequests) {
+    nextState = applyMembershipRequestToState(nextState, request);
+    await markPlayerRequestApplied(accountKey, 'membership', request.id);
+  }
+
+  for (const request of pending.waitlistRequests) {
+    nextState = applyWaitlistRequestToState(nextState, request);
+    await markPlayerRequestApplied(accountKey, 'waitlist', request.id);
+  }
+
+  return nextState;
+}
+
+async function loadStateWithFirebaseFallback(accountKey) {
+  const localRecord = readLocalDatabase(accountKey);
+  if (localRecord?.state) return localRecord;
+  if (!isFirebaseConfigured()) return localRecord;
+  return readStateFromFirebase(sanitizeAccountKey(accountKey));
+}
+
+async function saveStateEverywhere(state) {
+  const localResult = writeLocalDatabase(state);
+  if (!isFirebaseConfigured()) return localResult;
+  const accountKey = getAccountKeyFromState(state);
+  const publicSnapshot = buildPlayerClubSnapshot(state);
+  try {
+    writeStateToFirebase(accountKey, state, publicSnapshot).catch(() => undefined);
+  } catch {
+    // Cloud sync must never block local persistence.
+  }
+  return {
+    ...localResult,
+    firebase: { ok: true, engine: 'firebase', accountKey, pending: true }
+  };
+}
+
 function startEmbeddedBackend() {
   if (embeddedBackend) return;
 
@@ -468,17 +724,83 @@ function startEmbeddedBackend() {
     try {
       const remoteAddress = request.socket.remoteAddress;
       const isLoopback = remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
-      if (!isLoopback) {
+      const allowLanPlayerSync = process.env.TABLEMANAGER_PLAYER_SYNC_ALLOW_LAN === 'true';
+      if (!isLoopback && !allowLanPlayerSync) {
         sendJson(response, 403, { ok: false, error: 'Embedded backend only accepts loopback requests.' });
         return;
       }
 
-      if (request.method === 'GET' && request.url === '/health') {
+      if (request.method === 'OPTIONS') {
+        sendJson(response, 204, {});
+        return;
+      }
+
+      const requestUrl = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`);
+
+      if (request.method === 'GET' && requestUrl.pathname === '/health') {
         sendJson(response, 200, { ok: true, ...embeddedBackendStatus, reportCount: getReportCount() });
         return;
       }
 
-      if (request.method === 'POST' && request.url === '/analytical-reports') {
+      if (request.method === 'GET' && requestUrl.pathname === '/player/snapshot') {
+        const accountKey = sanitizeAccountKey(requestUrl.searchParams.get('accountKey') || '');
+        const record = await loadStateWithFirebaseFallback(accountKey);
+        if (!record?.state) {
+          sendJson(response, 404, { ok: false, error: 'No TableTalk club database is available yet.' });
+          return;
+        }
+        const syncedState = await syncStateWithFirebaseRequests(record.state);
+        if (syncedState !== record.state) {
+          await saveStateEverywhere(syncedState);
+        }
+        const player = {
+          id: requestUrl.searchParams.get('playerId') || '',
+          name: requestUrl.searchParams.get('playerName') || ''
+        };
+        sendJson(response, 200, {
+          ok: true,
+          accountKey: getAccountKeyFromState(syncedState),
+          savedAt: record.savedAt,
+          snapshot: buildPlayerClubSnapshot(syncedState, player)
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && requestUrl.pathname === '/player/membership-requests') {
+        const requestPayload = JSON.parse(await readRequestBody(request));
+        const record = await loadStateWithFirebaseFallback(requestPayload.clubId);
+        if (!record?.state) {
+          sendJson(response, 404, { ok: false, error: 'No matching club database was found for this membership request.' });
+          return;
+        }
+        const nextState = applyMembershipRequestToState(record.state, requestPayload);
+        await saveStateEverywhere(nextState);
+        sendJson(response, 201, {
+          ok: true,
+          accountKey: getAccountKeyFromState(nextState),
+          snapshot: buildPlayerClubSnapshot(nextState, requestPayload.player)
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && requestUrl.pathname === '/player/waitlist-requests') {
+        const requestPayload = JSON.parse(await readRequestBody(request));
+        const record = await loadStateWithFirebaseFallback(requestPayload.clubId);
+        if (!record?.state) {
+          sendJson(response, 404, { ok: false, error: 'No matching club database was found for this waitlist request.' });
+          return;
+        }
+        const nextState = applyWaitlistRequestToState(record.state, requestPayload);
+        await saveStateEverywhere(nextState);
+        sendJson(response, 201, {
+          ok: true,
+          accountKey: getAccountKeyFromState(nextState),
+          snapshot: buildPlayerClubSnapshot(nextState, requestPayload.player)
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && requestUrl.pathname === '/analytical-reports') {
         const body = await readRequestBody(request);
         const result = await storeAnalyticalReport(JSON.parse(body));
         sendJson(response, 201, result);
@@ -491,11 +813,14 @@ function startEmbeddedBackend() {
     }
   });
 
-  embeddedBackend.listen(0, '127.0.0.1', () => {
+  const configuredPort = Number(process.env.TABLEMANAGER_SYNC_PORT || process.env.TABLEMANAGER_BACKEND_PORT || 4629);
+  const configuredHost = process.env.TABLEMANAGER_SYNC_HOST || '127.0.0.1';
+
+  embeddedBackend.listen(configuredPort, configuredHost, () => {
     const address = embeddedBackend.address();
     embeddedBackendStatus = {
       running: true,
-      host: '127.0.0.1',
+      host: configuredHost,
       port: typeof address === 'object' && address ? address.port : 0,
       reportCount: getReportCount()
     };
@@ -554,11 +879,11 @@ ipcMain.handle('open-route-window', (_event, route) => {
   createWindow(normalizedRoute);
 });
 
-ipcMain.handle('load-state', () => readLocalDatabase());
+ipcMain.handle('load-state', async () => loadStateWithFirebaseFallback());
 
-ipcMain.handle('load-state-for-account', (_event, access) => readLocalDatabase(getAccountKeyFromAccess(access)));
+ipcMain.handle('load-state-for-account', async (_event, access) => loadStateWithFirebaseFallback(getAccountKeyFromAccess(access)));
 
-ipcMain.handle('save-state', (_event, state) => writeLocalDatabase(state));
+ipcMain.handle('save-state', async (_event, state) => saveStateEverywhere(state));
 
 ipcMain.handle('get-backend-status', () => ({ ...embeddedBackendStatus, reportCount: getReportCount() }));
 

@@ -9,5 +9,6 @@ out/
 download-dist/
 download-site/public/downloads/
 download-site/downloads/
+player-app/
 
 .vercel

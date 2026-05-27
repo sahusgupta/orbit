@@ -30,6 +30,7 @@ import {
   readBackupEnvelope,
   resolveGameId
 } from './lib/appCore';
+import { loadClubStateFromFirebase, saveClubStateToFirebase } from './lib/firebaseClubSync';
 import './styles.css';
 
 declare global {
@@ -908,7 +909,11 @@ function saveState(state: AppState) {
   const accountStorageKey = getStorageKeyForState(state);
   localStorage.setItem(accountStorageKey, JSON.stringify(state));
   localStorage.setItem(`${storageKey}:last-account`, accountStorageKey);
-  return window.tableManagerDesktop?.saveState(state) ?? Promise.resolve({ ok: true, path: 'browser-local-storage' });
+  const localSave = window.tableManagerDesktop?.saveState(state) ?? Promise.resolve({ ok: true, path: 'browser-local-storage' });
+  saveClubStateToFirebase(state).catch(() => undefined);
+  return localSave.then((result) => {
+    return { ...result, cloud: 'firebase-pending' };
+  });
 }
 
 function getDemand(game: GameConfig, interests: Interest[]) {
@@ -1611,6 +1616,7 @@ function App() {
     status: 'Confirmed Coming' as InterestStatus,
     notes: ''
   });
+  const [checkInSearch, setCheckInSearch] = useState('');
   const [newProfile, setNewProfile] = useState({
     name: '',
     birthday: '',
@@ -1723,6 +1729,22 @@ function App() {
       .slice(0, 4)
       .map((item: { profile: any; }) => item.profile);
   }, [state]);
+  const checkInMatches = useMemo(() => {
+    const queryParts = checkInSearch
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (!queryParts.length) return recentProfiles;
+    return state.profiles
+      .filter((profile) => {
+        const name = profile.name.toLowerCase();
+        const nameParts = name.split(/\s+/);
+        return queryParts.every((part) => name.includes(part) || nameParts.some((namePart) => namePart.startsWith(part)));
+      })
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .slice(0, 8);
+  }, [checkInSearch, recentProfiles, state.profiles]);
   const filteredProfiles = useMemo(() => {
     const query = profileSearch.trim().toLowerCase();
     if (!query) return state.profiles;
@@ -1754,6 +1776,42 @@ function App() {
   }, [state.profiles]);
 
   useEffect(() => {
+    const seenPlayers = new Set<string>();
+    const inClubPlayers = inClubInterests
+      .slice()
+      .sort((left, right) => left.timestamp.localeCompare(right.timestamp))
+      .filter((interest) => {
+        const key = interest.profileId || interest.playerName.toLowerCase();
+        if (seenPlayers.has(key)) return false;
+        seenPlayers.add(key);
+        return true;
+      });
+    if (inClubPlayers.length < 14) return;
+
+    const accountKey = getAccountKeyFromState(state);
+    const promptKey = `${storageKey}:two-table-prompt:${accountKey}:${inClubPlayers.length}`;
+    if (localStorage.getItem(promptKey)) return;
+
+    const gameCounts = new Map<string, number>();
+    inClubPlayers.forEach((interest) => gameCounts.set(interest.gameId, (gameCounts.get(interest.gameId) ?? 0) + 1));
+    const primaryGameId = [...gameCounts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? state.games[0]?.id;
+    const primaryGameName = state.games.find((game) => game.id === primaryGameId)?.name ?? 'the main game';
+    const preferredFirst = inClubPlayers
+      .slice()
+      .sort((left, right) => (right.gameId === primaryGameId ? 1 : 0) - (left.gameId === primaryGameId ? 1 : 0))
+      .slice(0, 14);
+    const tableOne = preferredFirst.filter((_, index) => index % 2 === 0).slice(0, 7);
+    const tableTwo = preferredFirst.filter((_, index) => index % 2 === 1).slice(0, 7);
+
+    localStorage.setItem(promptKey, nowIso());
+    window.alert(
+      `14 players are in the club. Consider forming two ${primaryGameName} tables.\n\n` +
+        `Table 1: ${tableOne.map((interest) => interest.playerName).join(', ')}\n\n` +
+        `Table 2: ${tableTwo.map((interest) => interest.playerName).join(', ')}`
+    );
+  }, [inClubInterests, state]);
+
+  useEffect(() => {
     window.tableManagerDesktop?.loadState().then((record) => {
       if (record?.state) {
         const next = normalizeState(record.state);
@@ -1763,6 +1821,23 @@ function App() {
         const accountStorageKey = getStorageKeyForState(next);
         localStorage.setItem(accountStorageKey, JSON.stringify(next));
         localStorage.setItem(`${storageKey}:last-account`, accountStorageKey);
+        loadClubStateFromFirebase<AppState>(getAccountKeyFromState(next))
+          .then((cloudRecord) => {
+            if (!cloudRecord?.state) {
+              saveClubStateToFirebase(next).catch(() => undefined);
+              return;
+            }
+            if (cloudRecord.savedAt && record.savedAt && cloudRecord.savedAt <= record.savedAt) return;
+            const cloudState = normalizeState(cloudRecord.state);
+            setUndoStack([]);
+            setState(cloudState);
+            setHasAuthenticated(hasPersistedSignIn(cloudState));
+            const cloudStorageKey = getStorageKeyForState(cloudState);
+            localStorage.setItem(cloudStorageKey, JSON.stringify(cloudState));
+            localStorage.setItem(`${storageKey}:last-account`, cloudStorageKey);
+            setSaveStatus({ state: 'saved', message: 'Synced from Firebase' });
+          })
+          .catch(() => undefined);
       }
     }).catch(() => undefined);
   }, []);
@@ -1885,7 +1960,7 @@ function App() {
     const existingProfile = state.profiles.find(
       (profile: { name: string; }) => profile.name.toLowerCase() === form.playerName.trim().toLowerCase()
     );
-    persist({
+    const nextState = promptDemandAction({
       ...state,
       interests: [
         {
@@ -1903,7 +1978,8 @@ function App() {
         },
         ...state.interests
       ]
-    }, true, { feature: 'Waitlist', action: 'Added interest', metadata: { status: form.status, gameId: form.gameId } });
+    }, form.gameId);
+    persist(nextState, true, { feature: 'Waitlist', action: 'Added interest', metadata: { status: form.status, gameId: form.gameId } });
     setForm({ ...form, playerName: '', notes: '' });
   };
 
@@ -1914,6 +1990,11 @@ function App() {
       status: 'Confirmed Coming',
       notes: profile.notes ? `Profile note: ${profile.notes}` : ''
     });
+  };
+
+  const checkInProfileFromSearch = (profile: PlayerProfile) => {
+    addProfileToClub(profile);
+    setCheckInSearch('');
   };
 
   const updateInterest = (id: string, patch: Partial<Interest>) => {
@@ -1927,7 +2008,7 @@ function App() {
             : patch.status && ['Declined', 'No-Show', 'Left Before Seated', 'Removed'].includes(patch.status)
               ? { closedAt: nowIso() }
               : {};
-    persist({
+    const nextState = {
       ...state,
       interests: state.interests.map((interest: { id: string; timestamp: any; manualEdits: any; }) =>
         interest.id === id
@@ -1943,7 +2024,15 @@ function App() {
             }
           : interest
       )
-    }, true, { feature: 'Waitlist', action: patch.status ? 'Updated status' : 'Edited interest', metadata: { status: patch.status ?? '', interestId: id } });
+    };
+    const changedInterest = nextState.interests.find((interest) => interest.id === id);
+    persist(
+      changedInterest && activeInterestStatuses.includes(changedInterest.status)
+        ? promptDemandAction(nextState, changedInterest.gameId)
+        : nextState,
+      true,
+      { feature: 'Waitlist', action: patch.status ? 'Updated status' : 'Edited interest', metadata: { status: patch.status ?? '', interestId: id } }
+    );
   };
 
   const updateInterestTimestamp = (id: string, key: 'interestedAt' | 'confirmedAt' | 'arrivedAt' | 'seatedAt' | 'closedAt', value: string) => {
@@ -2108,6 +2197,222 @@ function App() {
     const seats = Array.from({ length: session.maxSeats }, (_, index) => index + 1);
     if (requestedSeat && seats.includes(requestedSeat) && !occupiedSeats.has(requestedSeat)) return requestedSeat;
     return seats.find((seat) => !occupiedSeats.has(seat));
+  };
+
+  const findOpenSeatSession = (gameId?: string) => {
+    const candidates = state.sessions
+      .filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start')
+      .filter((session) => !gameId || session.gameId === gameId)
+      .filter((session) => Boolean(getAvailableSeatNumber(session)))
+      .sort((a, b) => {
+        const aRunning = a.status === 'Running' ? 0 : 1;
+        const bRunning = b.status === 'Running' ? 0 : 1;
+        return aRunning - bRunning || a.startedAt.localeCompare(b.startedAt);
+      });
+    return candidates[0];
+  };
+
+  const findAnyRunningOpenSeatSession = () =>
+    state.sessions
+      .filter((session) => session.status === 'Running' && Boolean(getAvailableSeatNumber(session)))
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt))[0];
+
+  const ensureInterestEntry = (
+    sourceState: AppState,
+    profile: PlayerProfile,
+    gameId: string,
+    status: InterestStatus,
+    note: string,
+    timestamp: string
+  ) => {
+    const existing = sourceState.interests.find(
+      (interest) =>
+        (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()) &&
+        interest.gameId === gameId &&
+        !['Declined', 'No-Show', 'Left Before Seated', 'Removed'].includes(interest.status)
+    );
+    if (existing) {
+      return sourceState.interests.map((interest) =>
+        interest.id === existing.id
+          ? {
+              ...interest,
+              status: interest.status === 'Seated' ? interest.status : status,
+              profileId: profile.id,
+              timestamp,
+              interestedAt: interest.interestedAt ?? timestamp,
+              arrivedAt: status === 'Arrived' ? interest.arrivedAt ?? timestamp : interest.arrivedAt,
+              notes: interest.notes || note
+            }
+          : interest
+      );
+    }
+    return [
+      {
+        id: uid(),
+        profileId: profile.id,
+        playerName: profile.name,
+        gameId,
+        status,
+        timestamp,
+        interestedAt: timestamp,
+        arrivedAt: status === 'Arrived' ? timestamp : undefined,
+        notes: note
+      },
+      ...sourceState.interests
+    ];
+  };
+
+  const buildSeatedState = (sourceState: AppState, session: GameSession, profile: PlayerProfile, seatNumber: number, note: string) => {
+    const timestamp = nowIso();
+    const timeMinutes = session.timeFeeBased || session.collectionMode === 'Time' ? 60 : 0;
+    const interests = ensureInterestEntry(sourceState, profile, session.gameId, 'Seated', note, timestamp).map((interest) =>
+      (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()) && interest.gameId === session.gameId
+        ? { ...interest, status: 'Seated' as InterestStatus, seatedAt: interest.seatedAt ?? timestamp, timestamp }
+        : interest
+    );
+    return {
+      ...sourceState,
+      interests,
+      sessions: sourceState.sessions.map((item) =>
+        item.id === session.id
+          ? { ...item, seatsFilled: Math.min(item.maxSeats, item.seatsFilled + 1), status: item.status === 'Forming' ? 'Running' : item.status }
+          : item
+      ),
+      playerSessions: [
+        ...sourceState.playerSessions,
+        {
+          id: uid(),
+          playerName: profile.name,
+          profileId: profile.id,
+          gameId: session.gameId,
+          tableId: session.id,
+          seatNumber,
+          seatedAt: timestamp,
+          timePurchasedMinutes: timeMinutes,
+          timeRemainingMinutes: timeMinutes,
+          lastTimeTickAt: timestamp,
+          timeFeeEnabled: session.timeFeeBased ?? (session.collectionMode === 'Time')
+        }
+      ],
+      playerLedger: [
+        {
+          id: uid(),
+          type: 'Check-In' as const,
+          profileId: profile.id,
+          playerName: profile.name,
+          tableId: session.id,
+          gameId: session.gameId,
+          timestamp,
+          note: `${note}: seat ${seatNumber}`
+        },
+        ...sourceState.playerLedger
+      ]
+    };
+  };
+
+  const getActiveInterestCount = (sourceState: AppState, gameId: string) =>
+    sourceState.interests.filter((interest) => interest.gameId === gameId && activeInterestStatuses.includes(interest.status)).length;
+
+  const addSessionToState = (sourceState: AppState, gameId: string, note = 'Table forming') => {
+    const game = sourceState.games.find((item) => item.id === gameId);
+    if (!game) return sourceState;
+    const collectionProfile = getCollectionProfile(sourceState, gameId);
+    const currentCount = sourceState.sessions.filter((session) => session.gameId === gameId && session.status !== 'Closed').length;
+    const timestamp = nowIso();
+    return {
+      ...sourceState,
+      sessions: [
+        ...sourceState.sessions,
+        {
+          id: uid(),
+          gameId,
+          label: currentCount ? `Table ${currentCount + 1}` : 'Main Table',
+          status: 'Forming' as GameStatus,
+          seatsFilled: 0,
+          maxSeats: game.maxSeats,
+          timeFeeBased: collectionProfile.collectionMode === 'Time',
+          collectionMode: collectionProfile.collectionMode,
+          tags: [],
+          startedAt: timestamp
+        }
+      ],
+      tableEvents: [
+        ...sourceState.tableEvents,
+        {
+          id: uid(),
+          type: 'Created' as TableEventType,
+          gameId,
+          timestamp,
+          playerCount: 0,
+          note
+        }
+      ]
+    };
+  };
+
+  const switchOpenTableToGame = (sourceState: AppState, targetGameId: string) => {
+    const targetGame = sourceState.games.find((game) => game.id === targetGameId);
+    const table = sourceState.sessions.find((session) => session.status === 'Running' && session.gameId !== targetGameId);
+    if (!targetGame || !table) return sourceState;
+    const collectionProfile = getCollectionProfile(sourceState, targetGameId);
+    const timestamp = nowIso();
+    return {
+      ...sourceState,
+      sessions: sourceState.sessions.map((session) =>
+        session.id === table.id
+          ? {
+              ...session,
+              gameId: targetGameId,
+              maxSeats: targetGame.maxSeats,
+              collectionMode: collectionProfile.collectionMode,
+              timeFeeBased: collectionProfile.collectionMode === 'Time',
+              manualEdits: markManualEdit(session.manualEdits, 'gameId')
+            }
+          : session
+      ),
+      playerSessions: sourceState.playerSessions.map((playerSession) =>
+        playerSession.tableId === table.id && !playerSession.leftAt
+          ? {
+              ...playerSession,
+              gameId: targetGameId,
+              timeFeeEnabled: collectionProfile.collectionMode === 'Time',
+              manualEdits: markManualEdit(playerSession.manualEdits, 'gameId')
+            }
+          : playerSession
+      ),
+      tableEvents: [
+        ...sourceState.tableEvents,
+        {
+          id: uid(),
+          type: 'Merged' as TableEventType,
+          gameId: targetGameId,
+          tableId: table.id,
+          timestamp,
+          playerCount: table.seatsFilled,
+          reason: 'game switched',
+          note: `${table.label} switched to ${targetGame.name}`
+        }
+      ]
+    };
+  };
+
+  const promptDemandAction = (sourceState: AppState, gameId: string) => {
+    const game = sourceState.games.find((item) => item.id === gameId);
+    if (!game) return sourceState;
+    const activeCount = getActiveInterestCount(sourceState, gameId);
+    if (activeCount <= 5) return sourceState;
+    const hasOpenTargetTable = sourceState.sessions.some(
+      (session) => session.gameId === gameId && session.status !== 'Closed' && session.status !== 'Failed to Start'
+    );
+    if (hasOpenTargetTable) return sourceState;
+    const choice = window.prompt(
+      `${activeCount} players now want ${game.name}. Type "start" to create a new ${game.name} table, "switch" to convert a running table to ${game.name}, or leave blank to skip.`,
+      'start'
+    );
+    if (!choice) return sourceState;
+    if (choice.trim().toLowerCase().startsWith('switch')) return switchOpenTableToGame(sourceState, gameId);
+    if (choice.trim().toLowerCase().startsWith('start')) return addSessionToState(sourceState, gameId, `Prompted by ${activeCount} interested players`);
+    return sourceState;
   };
 
   const getQuickSeatOptions = (session: GameSession) => {
@@ -2755,6 +3060,47 @@ function App() {
     });
   };
 
+  const addDemoProfile = () => {
+    const demoName = 'Demo Player';
+    const existingDemo = state.profiles.find((profile) => profile.name.toLowerCase() === demoName.toLowerCase());
+    if (existingDemo) {
+      setProfileSearch(demoName);
+      return;
+    }
+    const preferredGame = state.games[0] ?? { id: 'nlh-1-2', name: '1/2 NLH' };
+    const companionIds = state.profiles.slice(0, 2).map((profile) => profile.id);
+    persist({
+      ...state,
+      profiles: [
+        ...state.profiles,
+        {
+          id: memberId(),
+          name: demoName,
+          birthday: '1990-05-22',
+          membershipStartDate: todayDate(),
+          membershipExpirationDate: nextYearDate(),
+          totalTimePlayedHours: 56.5,
+          lastSessionTimePlayedHours: 4.25,
+          commonlyPlaysWithProfileIds: companionIds,
+          preferredGameId: preferredGame.id,
+          preferredGameIds: [preferredGame.id],
+          preferredStakes: preferredGame.name,
+          typicalBuyInMin: 200,
+          typicalBuyInMax: 700,
+          willingnessToMove: true,
+          typicalAvailability: 'Weeknights after 7, Sundays flexible',
+          preferredTags: ['Social', 'Action', 'Beginner-Friendly'],
+          usualCompanions: state.profiles
+            .slice(0, 2)
+            .map((profile) => profile.name)
+            .filter(Boolean),
+          notes: 'Demo profile for testing player app sync, loyalty, recommendations, and club add/remove flows.'
+        }
+      ]
+    }, true, { feature: 'Profiles', action: 'Added demo profile' });
+    setProfileSearch(demoName);
+  };
+
   const deleteProfile = (id: string) => {
     if (!window.confirm('Remove this profile? Existing sessions and interest entries will keep the player name.')) return;
     persist({
@@ -2909,36 +3255,58 @@ function App() {
   };
 
   const addProfileToClub = (profile: PlayerProfile) => {
+    const alreadySeated = state.playerSessions.some((session) => !session.leftAt && (session.profileId === profile.id || session.playerName.toLowerCase() === profile.name.toLowerCase()));
+    if (alreadySeated) {
+      window.alert(`${profile.name} is already seated.`);
+      return;
+    }
     const existingInterest = state.interests.find(
       (interest: { profileId: string; playerName: string; }) => interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()
     );
     const preferredGameId = profile.preferredGameIds[0] ?? state.games[0]?.id ?? 'nlh-1-2';
+    const preferredSession = findOpenSeatSession(preferredGameId);
+    const fallbackSession = preferredSession ? undefined : findAnyRunningOpenSeatSession();
+    let nextState = state;
 
-    if (existingInterest) {
-      updateInterest(existingInterest.id, {
-        status: 'Arrived',
-        gameId: existingInterest.gameId || preferredGameId,
-        profileId: profile.id
-      });
-      return;
+    if (preferredSession) {
+      const seatNumber = getAvailableSeatNumber(preferredSession);
+      if (seatNumber) {
+        nextState = buildSeatedState(nextState, preferredSession, profile, seatNumber, 'In club auto-seat');
+      }
+    } else if (fallbackSession) {
+      const fallbackSeatNumber = getAvailableSeatNumber(fallbackSession);
+      if (fallbackSeatNumber) {
+        nextState = {
+          ...nextState,
+          interests: ensureInterestEntry(nextState, profile, preferredGameId, 'Interested', 'Preferred game interest recorded while seated elsewhere', nowIso())
+        };
+        nextState = buildSeatedState(nextState, fallbackSession, profile, fallbackSeatNumber, 'In club fallback seat');
+      }
+    } else {
+      const timestamp = nowIso();
+      nextState = {
+        ...nextState,
+        interests: ensureInterestEntry(nextState, profile, existingInterest?.gameId || preferredGameId, 'Arrived', 'In club', timestamp),
+        playerLedger: [
+          {
+            id: uid(),
+            type: 'Check-In' as const,
+            profileId: profile.id,
+            playerName: profile.name,
+            gameId: existingInterest?.gameId || preferredGameId,
+            timestamp,
+            note: 'In club'
+          },
+          ...nextState.playerLedger
+        ]
+      };
     }
 
-    persist({
-      ...state,
-      interests: [
-        {
-          id: uid(),
-          profileId: profile.id,
-          playerName: profile.name,
-          gameId: preferredGameId,
-          status: 'Arrived',
-          timestamp: nowIso(),
-          interestedAt: nowIso(),
-          arrivedAt: nowIso(),
-          notes: 'In club'
-        },
-        ...state.interests
-      ]
+    nextState = promptDemandAction(nextState, preferredGameId);
+    persist(nextState, true, {
+      feature: 'Profiles',
+      action: preferredSession || fallbackSession ? 'Added in-club player to table' : 'Marked player in club',
+      metadata: { preferredGameId, seated: Boolean(preferredSession || fallbackSession) }
     });
   };
 
@@ -4315,6 +4683,28 @@ function App() {
           </button>
         </header>
 
+        <section className="profile-command-strip">
+          <article>
+            <span className="eyebrow">Directory health</span>
+            <strong>{state.profiles.length} profiles</strong>
+            <small>{inClubInterests.length} in club now</small>
+          </article>
+          <article>
+            <span className="eyebrow">Memberships</span>
+            <strong>{state.profiles.filter((profile) => isFutureDate(profile.membershipExpirationDate)).length} active</strong>
+            <small>{duplicateProfiles.length} duplicate group{duplicateProfiles.length === 1 ? '' : 's'}</small>
+          </article>
+          <div className="profile-command-actions">
+            <button className="secondary-button" onClick={addDemoProfile}>
+              <Plus size={17} />
+              Demo Profile
+            </button>
+            <button className="ghost-button" onClick={() => setProfileSearch('')}>
+              Clear Search
+            </button>
+          </div>
+        </section>
+
         <section className="profiles-layout">
           <section className="panel profile-directory-panel">
             <PanelTitle icon={<Users />} title="Player Directory" />
@@ -4347,6 +4737,9 @@ function App() {
                 const inClub = inClubInterests.some(
                   (interest: { profileId: any; playerName: string; }) => interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()
                 );
+                const seated = state.playerSessions.some(
+                  (session) => !session.leftAt && (session.profileId === profile.id || session.playerName.toLowerCase() === profile.name.toLowerCase())
+                );
                 return (
                   <article className="profile-card" key={profile.id}>
                     <div className="profile-card-main">
@@ -4355,7 +4748,7 @@ function App() {
                           <h3>{profile.name}</h3>
                           <p>{preferredGame || 'No preferred game'}</p>
                         </div>
-                        {inClub ? <span className="status-pill viable">In club</span> : null}
+                        {seated ? <span className="status-pill viable">Seated</span> : inClub ? <span className="status-pill viable">In club</span> : null}
                       </div>
                       <div className="profile-card-stats">
                         <span>Total <strong>{formatHours(profile.totalTimePlayedHours)}</strong></span>
@@ -4366,7 +4759,7 @@ function App() {
                     </div>
                     <div className="profile-actions">
                       <button className="secondary-button" onClick={() => (inClub ? removeProfileFromClub(profile) : addProfileToClub(profile))}>
-                        {inClub ? 'Leave' : 'In Club'}
+                        {inClub ? 'Remove' : 'Seat'}
                       </button>
                       <button className="icon-button danger" onClick={() => deleteProfile(profile.id)} title="Remove profile">
                         <Trash2 size={17} />
@@ -4403,13 +4796,19 @@ function App() {
 
             <section className="panel">
               <PanelTitle icon={<Plus />} title="Add Players" />
+              <div className="profile-form-hint">
+                <strong>Quick profile builder</strong>
+                <span>Create a usable player record for recommendations, waitlist matching, and loyalty tracking.</span>
+              </div>
               <form className="profile-form" onSubmit={addProfile}>
                 <input
+                  className="profile-form-name"
                   value={newProfile.name}
                   onChange={(event: { target: { value: any; }; }) => setNewProfile({ ...newProfile, name: event.target.value })}
                   placeholder="Player name"
                 />
                 <select
+                  className="profile-form-game"
                   value={newProfile.preferredGameId}
                   onChange={(event: { target: { value: any; }; }) =>
                     setNewProfile({
@@ -4461,6 +4860,7 @@ function App() {
                   title="Last session time played"
                 />
                 <select
+                  className="profile-form-companions"
                   multiple
                   value={newProfile.commonlyPlaysWithProfileIds}
                   onChange={(event) =>
@@ -4928,6 +5328,45 @@ function App() {
     );
   }
 
+  const liveFeedItems = [
+    ...state.playerLedger.map((entry) => {
+      const game = state.games.find((item) => item.id === entry.gameId);
+      const amount = entry.amount ? ` $${entry.amount.toLocaleString()}` : '';
+      return {
+        id: `ledger-${entry.id}`,
+        timestamp: entry.timestamp,
+        label: entry.type,
+        actor: entry.playerName,
+        detail: `${game?.name ?? 'Floor'}${amount}${entry.note ? ` - ${entry.note}` : ''}`,
+        kind: entry.type.toLowerCase().replace(/\s+/g, '-')
+      };
+    }),
+    ...state.tableEvents.map((event) => {
+      const game = state.games.find((item) => item.id === event.gameId);
+      return {
+        id: `table-${event.id}`,
+        timestamp: event.timestamp,
+        label: event.type,
+        actor: game?.name ?? 'Table',
+        detail: [event.note, event.reason, event.playerCount ? `${event.playerCount} players` : ''].filter(Boolean).join(' - '),
+        kind: 'table'
+      };
+    }),
+    ...state.dropLogs.map((drop) => {
+      const game = state.games.find((item) => item.id === drop.gameId);
+      return {
+        id: `drop-${drop.id}`,
+        timestamp: drop.timestamp,
+        label: 'Drop',
+        actor: game?.name ?? 'Table',
+        detail: `$${drop.amount.toLocaleString()}${drop.note ? ` - ${drop.note}` : ''}`,
+        kind: 'drop'
+      };
+    })
+  ]
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+    .slice(0, 18);
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -5373,6 +5812,28 @@ function App() {
           })() : null}
         </section>
 
+        <section className="panel floor-panel live-feed-panel">
+          <PanelTitle icon={<MessageCircle />} title="Live Feed" />
+          <div className="live-feed-list" aria-live="polite">
+            {liveFeedItems.length ? (
+              liveFeedItems.map((item) => (
+                <article className={`live-feed-item ${item.kind}`} key={item.id}>
+                  <div className="live-feed-dot" />
+                  <div>
+                    <div className="live-feed-head">
+                      <strong>{item.actor}</strong>
+                      <span>{formatClock(item.timestamp)}</span>
+                    </div>
+                    <p>{item.label}{item.detail ? ` - ${item.detail}` : ''}</p>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <p className="muted-copy">Live floor events will appear here.</p>
+            )}
+          </div>
+        </section>
+
         <section className={`panel floor-panel shown-interest-panel ${openPanels.formingGames ? '' : 'collapsed-panel'}`}>
           <PanelTitle icon={<Users />} title="Forming Games" collapsed={!openPanels.formingGames} onToggle={() => togglePanel('formingGames')} />
           {openPanels.formingGames ? <div className="forming-list">
@@ -5512,48 +5973,36 @@ function App() {
         </section>
 
         <section className={`panel floor-panel quick-add-panel ${openPanels.quickAdd ? '' : 'collapsed-panel'}`}>
-          <PanelTitle icon={<Plus />} title="Quick Add" collapsed={!openPanels.quickAdd} onToggle={() => togglePanel('quickAdd')} />
+          <PanelTitle icon={<Plus />} title="Check In" collapsed={!openPanels.quickAdd} onToggle={() => togglePanel('quickAdd')} />
           {openPanels.quickAdd ? <>
-          <form className="quick-form" onSubmit={addInterest}>
+          <div className="check-in-search">
             <input
-              value={form.playerName}
-              onChange={(event: { target: { value: any; }; }) => setForm({ ...form, playerName: event.target.value })}
-              placeholder="Player name"
+              value={checkInSearch}
+              onChange={(event) => setCheckInSearch(event.target.value)}
+              placeholder="Search first or last name"
             />
-            <select value={form.gameId} onChange={(event: { target: { value: any; }; }) => setForm({ ...form, gameId: event.target.value })}>
-              {state.games.map((game: { id: any; name: any; }) => (
-                <option key={game.id} value={game.id}>
-                  {game.name}
-                </option>
-              ))}
-            </select>
-            <select
-              value={form.status}
-              onChange={(event: { target: { value: string; }; }) => setForm({ ...form, status: event.target.value as InterestStatus })}
-            >
-              {statuses.map((status) => (
-                <option key={status}>{status}</option>
-              ))}
-            </select>
-            <input
-              value={form.notes}
-              onChange={(event: { target: { value: any; }; }) => setForm({ ...form, notes: event.target.value })}
-              placeholder="Optional note"
-            />
-            <button className="primary-button" type="submit">
-              <Plus size={18} />
-              Add
-            </button>
-          </form>
-          {state.settings.showRecentPlayers ? (
-            <div className="recent-player-row">
-              {recentProfiles.map((profile: { id: any; name: any; preferredGameIds?: string[]; preferredStakes?: string; typicalBuyInMin?: number; typicalBuyInMax?: number; willingnessToMove?: boolean; typicalAvailability?: string; usualCompanions?: string[]; preferredTags?: TableTag[]; notes?: string; }) => (
-                <button className="ghost-button" key={profile.id} onClick={() => quickFillProfile(profile)}>
-                  {profile.name}
-                </button>
-              ))}
+            <div className="check-in-results">
+              {checkInMatches.length ? (
+                checkInMatches.map((profile) => {
+                  const preferredGame = state.games.find((game) => game.id === profile.preferredGameId)?.name ?? profile.preferredStakes;
+                  const inClub = inClubInterests.some(
+                    (interest) => interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()
+                  );
+                  return (
+                    <button className="check-in-result" key={profile.id} onClick={() => checkInProfileFromSearch(profile)}>
+                      <span>
+                        <strong>{profile.name}</strong>
+                        <small>{preferredGame || 'No preferred game'}</small>
+                      </span>
+                      <em>{inClub ? 'In club' : 'Check in'}</em>
+                    </button>
+                  );
+                })
+              ) : (
+                <p className="muted-copy">No matching players.</p>
+              )}
             </div>
-          ) : null}
+          </div>
           </> : null}
         </section>
 
