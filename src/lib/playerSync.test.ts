@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyMembershipRequestToClubState,
+  applyPlayerProfileDocumentToClubState,
   applyWaitlistRequestToClubState,
   buildPlayerClubSnapshot,
   createMembershipRequest,
@@ -49,6 +50,30 @@ const state = {
       startedAt: '2026-05-20T00:00:00.000Z'
     }
   ],
+  playerSessions: [
+    {
+      id: 'seat-1',
+      playerName: 'Riley',
+      profileId: 'player-2',
+      gameId: 'nlh-1-2',
+      tableId: 'table-1'
+    },
+    {
+      id: 'seat-2',
+      playerName: 'Casey',
+      profileId: 'player-3',
+      gameId: 'nlh-1-2',
+      tableId: 'table-1'
+    },
+    {
+      id: 'seat-3',
+      playerName: 'Former Player',
+      profileId: 'player-4',
+      gameId: 'plo-1-2',
+      tableId: 'table-2',
+      leftAt: '2026-05-20T03:00:00.000Z'
+    }
+  ],
   interests: [
     {
       id: 'interest-2',
@@ -79,6 +104,8 @@ const state = {
       membershipStartDate: '2026-01-01',
       membershipExpirationDate: '2099-01-01',
       totalTimePlayedHours: 55,
+      commonlyPlaysWithProfileIds: ['player-2'],
+      usualCompanions: ['Casey'],
       preferredGameIds: ['nlh-1-2'],
       preferredStakes: '1/2'
     }
@@ -92,7 +119,11 @@ const state = {
     },
     pilotAccess: {
       licenseId: 'lucky-lodge'
-    }
+    },
+    staffAccounts: [
+      { id: 'admin-1', active: true },
+      { id: 'admin-2', active: false }
+    ]
   }
 };
 
@@ -105,12 +136,24 @@ describe('player sync snapshots', () => {
       id: 'nlh-1-2',
       availableSeats: 2,
       waitlistCount: 2,
-      formingCount: 0
+      formingCount: 0,
+      knownPlayersCount: 2
     });
     expect(snapshot.games[0].openTables).toHaveLength(1);
+    expect(snapshot.games[0].openTables[0].social).toMatchObject({
+      seatedPlayerCount: 2,
+      adminCount: 1,
+      knownPlayersCount: 2
+    });
     expect(snapshot.games[1]).toMatchObject({ availableSeats: 4, formingCount: 1 });
     expect(snapshot.waitlists.map((entry) => entry.playerName)).toEqual(['Alex', 'Riley']);
     expect(snapshot.memberships[0].loyalty).toMatchObject({ tier: 'Preferred', points: 550, nextTierAtHours: 120 });
+    expect(snapshot.social).toMatchObject({
+      activePlayerCount: 2,
+      adminCount: 1,
+      knownPlayersInHouse: 2,
+      waitlistCount: 2
+    });
   });
 
   it('derives stable club ids and loyalty tiers', () => {
@@ -171,7 +214,38 @@ describe('player sync snapshots', () => {
       playerName: 'Morgan',
       gameId: 'plo-1-2',
       status: 'Interested',
-      notes: 'Short-handed is fine'
+      notes: 'Waitlist requested from player app | Short-handed is fine'
+    });
+  });
+
+  it('merges Firebase player profile membership records into club profiles', () => {
+    const next = applyPlayerProfileDocumentToClubState(state, {
+      id: 'player-5',
+      uid: 'player-5',
+      name: 'Taylor',
+      email: 'taylor@example.com',
+      preferredGameIds: ['plo-1-2'],
+      preferredStakes: '1/2 PLO',
+      clubMemberships: {
+        'lucky-lodge': {
+          clubId: 'lucky-lodge',
+          status: 'Active',
+          requestedAt: '2026-05-21T12:00:00.000Z',
+          joinedAt: '2026-05-21',
+          expiresAt: '2027-05-21',
+          preferredGameIds: ['plo-1-2'],
+          preferredStakes: '1/2 PLO'
+        }
+      }
+    });
+
+    expect(next.profiles.find((profile) => profile.id === 'player-5')).toMatchObject({
+      name: 'Taylor',
+      membershipStartDate: '2026-05-21',
+      membershipExpirationDate: '2027-05-21',
+      preferredGameIds: ['plo-1-2'],
+      preferredStakes: '1/2 PLO',
+      notes: 'Player app: taylor@example.com'
     });
   });
 });

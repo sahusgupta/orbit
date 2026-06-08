@@ -39,6 +39,7 @@ export type PlayerSyncTable = {
   collectionMode: 'Time' | 'Drop';
   tags: string[];
   startedAt: string;
+  social: PlayerTableSocialSummary;
 };
 
 export type PlayerSyncGame = {
@@ -49,6 +50,20 @@ export type PlayerSyncGame = {
   waitlistCount: number;
   formingCount: number;
   availableSeats: number;
+  knownPlayersCount: number;
+};
+
+export type PlayerSocialSummary = {
+  activePlayerCount: number;
+  adminCount: number;
+  knownPlayersInHouse: number;
+  waitlistCount: number;
+};
+
+export type PlayerTableSocialSummary = {
+  seatedPlayerCount: number;
+  adminCount: number;
+  knownPlayersCount: number;
 };
 
 export type PlayerLoyalty = {
@@ -71,6 +86,22 @@ export type PlayerMembership = {
   preferredGameIds: string[];
   preferredStakes?: string;
   clubNote?: string;
+};
+
+export type PlayerClubMembershipRecord = {
+  clubId: string;
+  status: 'Requested' | 'Active' | 'Expired' | 'Denied';
+  requestedAt?: string;
+  joinedAt?: string;
+  expiresAt?: string;
+  preferredGameIds?: string[];
+  preferredStakes?: string;
+};
+
+export type PlayerProfileDocument = PlayerAccount & {
+  uid: string;
+  clubMemberships?: Record<string, PlayerClubMembershipRecord>;
+  updatedAt?: string;
 };
 
 export type PlayerClubSnapshot = {
@@ -163,9 +194,24 @@ type ManagementProfile = {
   notes?: string;
 };
 
+type ManagementPlayerSession = {
+  id: string;
+  playerName: string;
+  profileId?: string;
+  gameId: string;
+  tableId: string;
+  leftAt?: string;
+};
+
+type ManagementStaffAccount = {
+  id: string;
+  active?: boolean;
+};
+
 type ManagementClubState = {
   games: ManagementGame[];
   sessions: ManagementSession[];
+  playerSessions?: ManagementPlayerSession[];
   interests: ManagementInterest[];
   profiles: ManagementProfile[];
   settings?: {
@@ -180,6 +226,7 @@ type ManagementClubState = {
       issuedTo?: string;
       authorizationCode?: string;
     };
+    staffAccounts?: ManagementStaffAccount[];
   };
 };
 
@@ -226,20 +273,37 @@ export function buildPlayerClubSnapshot(
 ): PlayerClubSnapshot {
   const clubId = getClubIdFromState(state);
   const account = state.settings?.clubAccount;
+  const activePlayerSessions = (state.playerSessions ?? []).filter((session) => !session.leftAt);
+  const activeAdminCount = (state.settings?.staffAccounts ?? []).filter((staff) => staff.active !== false).length;
+  const requestingProfile = getRequestingProfile(state.profiles, player);
+  const knownProfileIds = new Set(requestingProfile?.commonlyPlaysWithProfileIds ?? []);
+  const knownPlayerNames = new Set(
+    (requestingProfile?.usualCompanions ?? []).map((name) => name.trim().toLowerCase()).filter(Boolean)
+  );
+  const isKnownPlayerSession = (session: ManagementPlayerSession) =>
+    Boolean((session.profileId && knownProfileIds.has(session.profileId)) || knownPlayerNames.has(session.playerName.trim().toLowerCase()));
   const tables = state.sessions
     .filter((session) => visibleTableStatuses.includes(session.status))
-    .map<PlayerSyncTable>((session) => ({
-      id: session.id,
-      gameId: session.gameId,
-      label: session.label,
-      status: session.status as PlayerSyncTable['status'],
-      seatsFilled: Math.min(session.seatsFilled, session.maxSeats),
-      maxSeats: session.maxSeats,
-      availableSeats: Math.max(0, session.maxSeats - session.seatsFilled),
-      collectionMode: session.collectionMode ?? (session.timeFeeBased ? 'Time' : 'Drop'),
-      tags: session.tags ?? [],
-      startedAt: session.startedAt
-    }));
+    .map<PlayerSyncTable>((session) => {
+      const seatedSessions = activePlayerSessions.filter((playerSession) => playerSession.tableId === session.id);
+      return {
+        id: session.id,
+        gameId: session.gameId,
+        label: session.label,
+        status: session.status as PlayerSyncTable['status'],
+        seatsFilled: Math.min(session.seatsFilled, session.maxSeats),
+        maxSeats: session.maxSeats,
+        availableSeats: Math.max(0, session.maxSeats - session.seatsFilled),
+        collectionMode: session.collectionMode ?? (session.timeFeeBased ? 'Time' : 'Drop'),
+        tags: session.tags ?? [],
+        startedAt: session.startedAt,
+        social: {
+          seatedPlayerCount: seatedSessions.length || Math.min(session.seatsFilled, session.maxSeats),
+          adminCount: activeAdminCount,
+          knownPlayersCount: seatedSessions.filter(isKnownPlayerSession).length
+        }
+      };
+    });
   const waitlists = state.games.flatMap((game) => getWaitlistEntriesForGame(state.interests, clubId, game.id));
   const memberships = state.profiles
     .filter((profile) => {
@@ -277,11 +341,18 @@ export function buildPlayerClubSnapshot(
         openTables,
         waitlistCount: gameWaitlist.length,
         formingCount: openTables.filter((table) => table.status === 'Forming').length,
-        availableSeats: openTables.reduce((sum, table) => sum + table.availableSeats, 0)
+        availableSeats: openTables.reduce((sum, table) => sum + table.availableSeats, 0),
+        knownPlayersCount: openTables.reduce((sum, table) => sum + table.social.knownPlayersCount, 0)
       };
     }),
     memberships,
     waitlists,
+    social: {
+      activePlayerCount: activePlayerSessions.length || tables.reduce((sum, table) => sum + table.seatsFilled, 0),
+      adminCount: activeAdminCount,
+      knownPlayersInHouse: activePlayerSessions.filter(isKnownPlayerSession).length,
+      waitlistCount: waitlists.length
+    },
     generatedAt: new Date().toISOString()
   };
 }
@@ -377,10 +448,83 @@ export function applyMembershipRequestToClubState(
   };
 }
 
+export function applyPlayerProfileDocumentToClubState(
+  state: ManagementClubState,
+  player: PlayerProfileDocument,
+  clubId = getClubIdFromState(state)
+): ManagementClubState {
+  const membership = player.clubMemberships?.[clubId];
+  if (!membership || membership.status === 'Denied') return state;
+
+  const existingProfile = state.profiles.find(
+    (profile) => profile.id === player.uid || profile.id === player.id || profile.name.toLowerCase() === player.name.toLowerCase()
+  );
+  const membershipStartDate = membership.joinedAt ?? membership.requestedAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
+  const membershipExpirationDate = membership.expiresAt ?? addDays(membershipStartDate, 365);
+  const preferredGameIds = membership.preferredGameIds?.length
+    ? membership.preferredGameIds
+    : player.preferredGameIds?.length
+      ? player.preferredGameIds
+      : [];
+
+  if (existingProfile) {
+    return {
+      ...state,
+      profiles: state.profiles.map((profile) =>
+        profile.id === existingProfile.id
+          ? {
+              ...profile,
+              id: player.uid || profile.id,
+              name: player.name || profile.name,
+              membershipStartDate: profile.membershipStartDate || membershipStartDate,
+              membershipExpirationDate: membership.status === 'Active' ? membershipExpirationDate : profile.membershipExpirationDate || membershipExpirationDate,
+              preferredGameId: preferredGameIds[0] ?? profile.preferredGameId,
+              preferredGameIds: mergeUnique([...(profile.preferredGameIds ?? []), ...preferredGameIds]),
+              preferredStakes: membership.preferredStakes ?? player.preferredStakes ?? profile.preferredStakes,
+              typicalAvailability: player.typicalAvailability ?? profile.typicalAvailability,
+              notes: appendSyncNote(profile.notes, `Player app: ${player.email}`)
+            }
+          : profile
+      )
+    };
+  }
+
+  return {
+    ...state,
+    profiles: [
+      ...state.profiles,
+      {
+        id: player.uid || player.id,
+        name: player.name,
+        birthday: '',
+        membershipStartDate,
+        membershipExpirationDate,
+        totalTimePlayedHours: 0,
+        lastSessionTimePlayedHours: 0,
+        commonlyPlaysWithProfileIds: [],
+        preferredGameId: preferredGameIds[0] ?? state.games[0]?.id ?? '',
+        preferredGameIds,
+        preferredStakes: membership.preferredStakes ?? player.preferredStakes ?? '',
+        typicalBuyInMin: 0,
+        typicalBuyInMax: 0,
+        willingnessToMove: false,
+        typicalAvailability: player.typicalAvailability ?? '',
+        preferredTags: [],
+        usualCompanions: [],
+        notes: `Player app: ${player.email}${membership.status === 'Requested' ? ' | Membership requested' : ''}`
+      }
+    ]
+  };
+}
+
 export function applyWaitlistRequestToClubState(state: ManagementClubState, request: PlayerWaitlistRequest): ManagementClubState {
   const clubId = getClubIdFromState(state);
   if (request.clubId !== clubId) return state;
 
+  const requestedTable = request.tableId
+    ? state.sessions.find((session) => session.id === request.tableId && session.status !== 'Closed' && session.status !== 'Failed to Start')
+    : undefined;
+  const requestedTableHasSeat = Boolean(requestedTable && requestedTable.seatsFilled < requestedTable.maxSeats);
   const profile = state.profiles.find(
     (candidate) => candidate.id === request.player.id || candidate.name.toLowerCase() === request.player.name.toLowerCase()
   );
@@ -401,10 +545,14 @@ export function applyWaitlistRequestToClubState(state: ManagementClubState, requ
         profileId: profile?.id ?? request.player.id,
         playerName: request.player.name,
         gameId: request.gameId,
-        status: 'Interested',
+        status: requestedTableHasSeat ? 'Arrived' : 'Interested',
         timestamp: request.requestedAt,
         interestedAt: request.requestedAt,
-        notes: request.note ?? 'Requested from player app'
+        arrivedAt: requestedTableHasSeat ? request.requestedAt : undefined,
+        notes: [
+          requestedTableHasSeat ? `Seat requested from player app for ${requestedTable?.label ?? 'open table'}` : 'Waitlist requested from player app',
+          request.note
+        ].filter(Boolean).join(' | ')
       }
     ]
   };
@@ -436,6 +584,12 @@ function getInterestTime(interest: ManagementInterest) {
 
 function mergeUnique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function getRequestingProfile(profiles: ManagementProfile[], player?: Pick<PlayerAccount, 'id' | 'name' | 'email'>) {
+  if (!player) return undefined;
+  const playerName = player.name.trim().toLowerCase();
+  return profiles.find((profile) => profile.id === player.id || profile.name.trim().toLowerCase() === playerName);
 }
 
 function appendSyncNote(existing: string | undefined, note: string) {

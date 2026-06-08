@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Clock, DollarSign, Plus, User, X } from 'lucide-react';
+import { Clock, DollarSign, Plus, X } from 'lucide-react';
 import { getTimerStatusFromSeconds } from '../lib/appCore';
 
 /**
@@ -54,6 +54,14 @@ const formatDuration = (seconds: number) => {
     ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
     : `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
 };
+
+const getInitials = (name: string) =>
+  name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || '?';
 
 function PlayerCard({ player, position, totalPositions, showTimeRemaining, isOpen, onToggle, onAddTime, onAddBuyIn, onRemovePlayer }: PlayerCardProps) {
   const [currentTime, setCurrentTime] = useState(Date.now());
@@ -111,7 +119,7 @@ function PlayerCard({ player, position, totalPositions, showTimeRemaining, isOpe
       <button className={`poker-seat-card-inner ${isOpen ? 'open' : ''}`} type="button" onClick={onToggle}>
         <div className="poker-seat-header">
           <div className="poker-seat-avatar">
-            <User size={17} />
+            <span>{getInitials(player.name)}</span>
           </div>
           <div className="poker-seat-name">
             <span>Seat {player.seatNumber ?? position + 1}</span>
@@ -124,7 +132,7 @@ function PlayerCard({ player, position, totalPositions, showTimeRemaining, isOpe
             <div className={`poker-seat-stat time-left ${timerStatus}`}>
               <div>
                 <Clock size={14} />
-                <span>Left</span>
+                <span>Time</span>
               </div>
               <span>{timeRemainingDisplay}</span>
             </div>

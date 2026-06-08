@@ -26,7 +26,7 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 app.commandLine.appendSwitch('disk-cache-size', '0');
 
 const windows = new Map();
-const validRoutes = new Set(['floor', 'builder', 'profiles', 'signals', 'summary', 'customization', 'kpis', 'pilot', 'outreach']);
+const validRoutes = new Set(['floor', 'table', 'builder', 'profiles', 'signals', 'summary', 'customization', 'kpis', 'pilot', 'outreach']);
 let database;
 let embeddedBackend;
 let embeddedBackendStatus = { running: false, host: '127.0.0.1', port: 0, reportCount: 0 };
@@ -498,20 +498,38 @@ function getWaitlistEntriesForGame(interests, clubId, gameId) {
 function buildPlayerClubSnapshot(state, player) {
   const clubId = getAccountKeyFromState(state);
   const account = state.settings?.clubAccount || {};
+  const activePlayerSessions = (state.playerSessions || []).filter((session) => !session.leftAt);
+  const activeAdminCount = (state.settings?.staffAccounts || []).filter((staff) => staff.active !== false).length;
+  const playerName = String(player?.name || '').trim().toLowerCase();
+  const requestingProfile = (state.profiles || []).find(
+    (profile) => profile.id === player?.id || String(profile.name || '').trim().toLowerCase() === playerName
+  );
+  const knownProfileIds = new Set(requestingProfile?.commonlyPlaysWithProfileIds || []);
+  const knownPlayerNames = new Set((requestingProfile?.usualCompanions || []).map((name) => String(name).trim().toLowerCase()).filter(Boolean));
+  const isKnownPlayerSession = (session) =>
+    Boolean((session.profileId && knownProfileIds.has(session.profileId)) || knownPlayerNames.has(String(session.playerName || '').trim().toLowerCase()));
   const tables = (state.sessions || [])
     .filter((session) => visibleTableStatuses.has(session.status))
-    .map((session) => ({
-      id: session.id,
-      gameId: session.gameId,
-      label: session.label,
-      status: session.status,
-      seatsFilled: Math.min(session.seatsFilled, session.maxSeats),
-      maxSeats: session.maxSeats,
-      availableSeats: Math.max(0, session.maxSeats - session.seatsFilled),
-      collectionMode: session.collectionMode || (session.timeFeeBased ? 'Time' : 'Drop'),
-      tags: session.tags || [],
-      startedAt: session.startedAt
-    }));
+    .map((session) => {
+      const seatedSessions = activePlayerSessions.filter((playerSession) => playerSession.tableId === session.id);
+      return {
+        id: session.id,
+        gameId: session.gameId,
+        label: session.label,
+        status: session.status,
+        seatsFilled: Math.min(session.seatsFilled, session.maxSeats),
+        maxSeats: session.maxSeats,
+        availableSeats: Math.max(0, session.maxSeats - session.seatsFilled),
+        collectionMode: session.collectionMode || (session.timeFeeBased ? 'Time' : 'Drop'),
+        tags: session.tags || [],
+        startedAt: session.startedAt,
+        social: {
+          seatedPlayerCount: seatedSessions.length || Math.min(session.seatsFilled, session.maxSeats),
+          adminCount: activeAdminCount,
+          knownPlayersCount: seatedSessions.filter(isKnownPlayerSession).length
+        }
+      };
+    });
   const waitlists = (state.games || []).flatMap((game) => getWaitlistEntriesForGame(state.interests || [], clubId, game.id));
   const memberships = (state.profiles || [])
     .filter((profile) => {
@@ -549,11 +567,18 @@ function buildPlayerClubSnapshot(state, player) {
         openTables,
         waitlistCount: gameWaitlist.length,
         formingCount: openTables.filter((table) => table.status === 'Forming').length,
-        availableSeats: openTables.reduce((sum, table) => sum + table.availableSeats, 0)
+        availableSeats: openTables.reduce((sum, table) => sum + table.availableSeats, 0),
+        knownPlayersCount: openTables.reduce((sum, table) => sum + table.social.knownPlayersCount, 0)
       };
     }),
     memberships,
     waitlists,
+    social: {
+      activePlayerCount: activePlayerSessions.length || tables.reduce((sum, table) => sum + table.seatsFilled, 0),
+      adminCount: activeAdminCount,
+      knownPlayersInHouse: activePlayerSessions.filter(isKnownPlayerSession).length,
+      waitlistCount: waitlists.length
+    },
     generatedAt: new Date().toISOString()
   };
 }
@@ -620,6 +645,10 @@ function applyWaitlistRequestToState(state, request) {
   const accountKey = getAccountKeyFromState(state);
   if (request.clubId !== accountKey) return state;
   const player = request.player || {};
+  const requestedTable = request.tableId
+    ? (state.sessions || []).find((session) => session.id === request.tableId && session.status !== 'Closed' && session.status !== 'Failed to Start')
+    : undefined;
+  const requestedTableHasSeat = Boolean(requestedTable && requestedTable.seatsFilled < requestedTable.maxSeats);
   const profile = (state.profiles || []).find(
     (candidate) => candidate.id === player.id || String(candidate.name || '').toLowerCase() === String(player.name || '').toLowerCase()
   );
@@ -639,10 +668,14 @@ function applyWaitlistRequestToState(state, request) {
         profileId: profile?.id || player.id,
         playerName: player.name || 'Player',
         gameId: request.gameId,
-        status: 'Interested',
+        status: requestedTableHasSeat ? 'Arrived' : 'Interested',
         timestamp: request.requestedAt || new Date().toISOString(),
         interestedAt: request.requestedAt || new Date().toISOString(),
-        notes: request.note || 'Requested from player app'
+        arrivedAt: requestedTableHasSeat ? request.requestedAt || new Date().toISOString() : undefined,
+        notes: [
+          requestedTableHasSeat ? `Seat requested from player app for ${requestedTable?.label || 'open table'}` : 'Waitlist requested from player app',
+          request.note
+        ].filter(Boolean).join(' | ')
       }
     ]
   };
@@ -696,9 +729,20 @@ async function syncStateWithFirebaseRequests(state) {
 
 async function loadStateWithFirebaseFallback(accountKey) {
   const localRecord = readLocalDatabase(accountKey);
-  if (localRecord?.state) return localRecord;
-  if (!isFirebaseConfigured()) return localRecord;
-  return readStateFromFirebase(sanitizeAccountKey(accountKey));
+  const record = localRecord?.state
+    ? localRecord
+    : isFirebaseConfigured()
+      ? await readStateFromFirebase(sanitizeAccountKey(accountKey))
+      : localRecord;
+  if (!record?.state) return record;
+  const syncedState = await syncStateWithFirebaseRequests(record.state);
+  if (syncedState === record.state) return record;
+  await saveStateEverywhere(syncedState);
+  return {
+    schemaVersion: record.schemaVersion || 4,
+    savedAt: new Date().toISOString(),
+    state: syncedState
+  };
 }
 
 async function saveStateEverywhere(state) {
@@ -909,6 +953,7 @@ function createWindow(route = 'floor') {
 
   const routeConfig = {
     floor: { width: 1280, height: 860, minWidth: 1040, minHeight: 720, title: branding.desktop.windowTitles.floor },
+    table: { width: 1440, height: 940, minWidth: 1180, minHeight: 760, title: 'Table View' },
     builder: { width: 920, height: 760, minWidth: 760, minHeight: 620, title: branding.desktop.windowTitles.builder },
     profiles: { width: 940, height: 760, minWidth: 760, minHeight: 620, title: branding.desktop.windowTitles.profiles },
     signals: { width: 980, height: 780, minWidth: 780, minHeight: 640, title: branding.desktop.windowTitles.signals },

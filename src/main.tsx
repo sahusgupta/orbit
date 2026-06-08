@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ChevronDown,
@@ -6,6 +6,7 @@ import {
   Clock,
   Download,
   Edit3,
+  Eye,
   KeyRound,
   LayoutDashboard,
   LockKeyhole,
@@ -30,7 +31,7 @@ import {
   readBackupEnvelope,
   resolveGameId
 } from './lib/appCore';
-import { loadClubStateFromFirebase, saveClubStateToFirebase } from './lib/firebaseClubSync';
+import { loadClubStateFromFirebase, saveClubStateToFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
 import './styles.css';
 
 declare global {
@@ -48,7 +49,7 @@ declare global {
   }
 }
 
-type AppRoute = 'floor' | 'builder' | 'profiles' | 'signals' | 'summary' | 'customization' | 'kpis';
+type AppRoute = 'floor' | 'table' | 'builder' | 'profiles' | 'signals' | 'summary' | 'customization' | 'kpis';
 type InterestStatus =
   | 'Interested'
   | 'Confirmed Coming'
@@ -905,12 +906,18 @@ function loadState(): AppState {
   }
 }
 
+function canUseRendererFirebaseAuth() {
+  return !window.tableManagerDesktop && window.location.protocol !== 'file:';
+}
+
 function saveState(state: AppState) {
   const accountStorageKey = getStorageKeyForState(state);
   localStorage.setItem(accountStorageKey, JSON.stringify(state));
   localStorage.setItem(`${storageKey}:last-account`, accountStorageKey);
   const localSave = window.tableManagerDesktop?.saveState(state) ?? Promise.resolve({ ok: true, path: 'browser-local-storage' });
-  saveClubStateToFirebase(state).catch(() => undefined);
+  if (canUseRendererFirebaseAuth()) {
+    saveClubStateToFirebase(state).catch(() => undefined);
+  }
   return localSave.then((result) => {
     return { ...result, cloud: 'firebase-pending' };
   });
@@ -1596,7 +1603,9 @@ function parseGroupMeMessages(text: string, games: GameConfig[]): GroupMeCandida
 function App() {
   const [state, setState] = useState<AppState>(() => loadState());
   const getRouteFromHash = (): AppRoute =>
-    window.location.hash.includes('profiles')
+    window.location.hash.includes('table')
+      ? 'table'
+      : window.location.hash.includes('profiles')
       ? 'profiles'
       : window.location.hash.includes('summary')
         ? 'summary'
@@ -1679,6 +1688,7 @@ function App() {
     kpis: false,
     quickAdd: false
   });
+  const stateRef = useRef(state);
   const [overviewTableId, setOverviewTableId] = useState('');
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [coordinationConfig, setCoordinationConfig] = useState({ gameId: 'nlh-1-2', seats: 10 });
@@ -1694,6 +1704,11 @@ function App() {
   const inClubInterests = useMemo(() => getInClubInterests(state), [state]);
   const overflowOpportunities = useMemo(() => getOverflowOpportunities(state), [state]);
   const balancePlans = useMemo(() => getBalancePlans(state), [state]);
+  const activeAccountKey = getAccountKeyFromState(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     const firstGameId = state.games[0]?.id;
@@ -1821,23 +1836,25 @@ function App() {
         const accountStorageKey = getStorageKeyForState(next);
         localStorage.setItem(accountStorageKey, JSON.stringify(next));
         localStorage.setItem(`${storageKey}:last-account`, accountStorageKey);
-        loadClubStateFromFirebase<AppState>(getAccountKeyFromState(next))
-          .then((cloudRecord) => {
-            if (!cloudRecord?.state) {
-              saveClubStateToFirebase(next).catch(() => undefined);
-              return;
-            }
-            if (cloudRecord.savedAt && record.savedAt && cloudRecord.savedAt <= record.savedAt) return;
-            const cloudState = normalizeState(cloudRecord.state);
-            setUndoStack([]);
-            setState(cloudState);
-            setHasAuthenticated(hasPersistedSignIn(cloudState));
-            const cloudStorageKey = getStorageKeyForState(cloudState);
-            localStorage.setItem(cloudStorageKey, JSON.stringify(cloudState));
-            localStorage.setItem(`${storageKey}:last-account`, cloudStorageKey);
-            setSaveStatus({ state: 'saved', message: 'Synced from Firebase' });
-          })
-          .catch(() => undefined);
+        if (canUseRendererFirebaseAuth()) {
+          loadClubStateFromFirebase<AppState>(getAccountKeyFromState(next))
+            .then((cloudRecord) => {
+              if (!cloudRecord?.state) {
+                saveClubStateToFirebase(next).catch(() => undefined);
+                return;
+              }
+              if (cloudRecord.savedAt && record.savedAt && cloudRecord.savedAt <= record.savedAt) return;
+              const cloudState = normalizeState(cloudRecord.state);
+              setUndoStack([]);
+              setState(cloudState);
+              setHasAuthenticated(hasPersistedSignIn(cloudState));
+              const cloudStorageKey = getStorageKeyForState(cloudState);
+              localStorage.setItem(cloudStorageKey, JSON.stringify(cloudState));
+              localStorage.setItem(`${storageKey}:last-account`, cloudStorageKey);
+              setSaveStatus({ state: 'saved', message: 'Synced from Firebase' });
+            })
+            .catch(() => undefined);
+        }
       }
     }).catch(() => undefined);
   }, []);
@@ -1888,6 +1905,34 @@ function App() {
     window.addEventListener('hashchange', syncRoute);
     return () => window.removeEventListener('hashchange', syncRoute);
   }, []);
+
+  useEffect(() => {
+    if (!activeAccountKey) return;
+    let cancelled = false;
+    const syncPlayerUpdates = () => {
+      const currentState = stateRef.current;
+      syncPlayerUpdatesToClubState<AppState>(currentState)
+        .then((nextState) => {
+          if (cancelled) return;
+          const latestState = stateRef.current;
+          const sameProfiles = JSON.stringify(nextState.profiles) === JSON.stringify(latestState.profiles);
+          const sameInterests = JSON.stringify(nextState.interests) === JSON.stringify(latestState.interests);
+          if (sameProfiles && sameInterests) return;
+          setUndoStack((current) => [latestState, ...current].slice(0, 20));
+          setState(nextState);
+          setSaveStatus({ state: 'saving', message: 'Syncing player updates...' });
+          saveState(nextState)
+            .then(() => setSaveStatus({ state: 'saved', message: 'Player updates synced' }))
+            .catch(() => setSaveStatus({ state: 'error', message: 'Player update sync failed' }));
+        })
+        .catch(() => undefined);
+    };
+    const unsubscribe = subscribeToPlayerRequestUpdates(activeAccountKey, syncPlayerUpdates);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [activeAccountKey]);
 
   const withUsageEvent = (next: AppState, usage?: UsageDescriptor): AppState => {
     if (!usage) return next;
@@ -3672,6 +3717,12 @@ function App() {
     window.location.hash = `/${target}`;
   };
 
+  const openTableView = (sessionId: string) => {
+    localStorage.setItem(`${storageKey}:table-view-session`, sessionId);
+    window.tableManagerDesktop?.openWindow('table').catch(() => undefined);
+    window.location.hash = '/table';
+  };
+
   const closeRoute = () => {
     window.location.hash = '/floor';
   };
@@ -5367,6 +5418,231 @@ function App() {
     .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
     .slice(0, 18);
 
+  if (route === 'table') {
+    const storedSessionId = localStorage.getItem(`${storageKey}:table-view-session`) ?? '';
+    const visibleSessions = state.sessions.filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start');
+    const tableSession = visibleSessions.find((session) => session.id === storedSessionId) ?? visibleSessions[0];
+    const tableGame = tableSession ? state.games.find((game) => game.id === tableSession.gameId) : undefined;
+    const seatedPlayers = tableSession
+      ? state.playerSessions.filter((playerSession) => playerSession.tableId === tableSession.id && !playerSession.leftAt)
+      : [];
+    const quickSeatDraft = tableSession ? quickSeatDrafts[tableSession.id] : undefined;
+    const quickSeatOptions = tableSession ? getQuickSeatOptions(tableSession) : [];
+    const isTimeCollection = Boolean(tableSession && (tableSession.collectionMode === 'Time' || tableSession.timeFeeBased));
+    const tableBuyIns = tableSession
+      ? state.buyIns.filter((buyIn) => buyIn.tableId === tableSession.id).slice(0, 10)
+      : [];
+    const tableWaitlist = tableSession
+      ? state.interests
+          .filter((interest) => interest.gameId === tableSession.gameId && activeInterestStatuses.includes(interest.status))
+          .sort((left, right) => left.interestedAt.localeCompare(right.interestedAt))
+      : [];
+    const pokerTablePlayers: PokerTablePlayer[] = seatedPlayers.map((playerSession, index) => {
+      const hours = getPlayerLoggedHours(state, playerSession);
+      const buyIns = getSessionBuyIns(state, playerSession);
+      const buyInTotal = buyIns.reduce((sum, buyIn) => sum + buyIn.amount, 0);
+      return {
+        id: playerSession.id,
+        seatNumber: playerSession.seatNumber ?? index + 1,
+        name: playerSession.playerName,
+        membershipId: playerSession.profileId ?? playerSession.id.slice(0, 8),
+        joinedAt: new Date(playerSession.seatedAt).getTime(),
+        hourlyTimeLimit: isTimeCollection ? Math.max(1, playerSession.timePurchasedMinutes ?? 60) : undefined,
+        timeRemainingSeconds: isTimeCollection ? getTimeRemainingSeconds(playerSession, clockNow) : undefined,
+        tonightHours: formatHours(hours.tonight),
+        totalHours: formatHours(hours.total),
+        buyInTotal,
+        recentBuyIns: buyIns.slice(0, 4).map((buyIn) => ({
+          id: buyIn.id,
+          label: `$${buyIn.amount.toLocaleString()} at ${formatClock(buyIn.timestamp)}${buyIn.note ? ` - ${buyIn.note}` : ''}`
+        }))
+      };
+    });
+
+    return (
+      <main className="table-view-shell">
+        <header className="table-view-topbar">
+          <button className="icon-button" onClick={closeRoute} title="Back to floor">
+            <X size={18} />
+          </button>
+          <div>
+            <span>{tableGame?.name ?? 'Table View'}</span>
+            <h1>{tableSession?.label ?? 'No Open Table'}</h1>
+          </div>
+          {tableSession ? (
+            <div className="table-view-stats">
+              <span>{tableSession.status}</span>
+              <strong>{seatedPlayers.length}/{tableSession.maxSeats}</strong>
+              <em>{isTimeCollection ? 'Time' : 'Drop'}</em>
+            </div>
+          ) : null}
+        </header>
+
+        {tableSession ? (
+          <section className="table-view-grid">
+            <aside className="table-view-buyins">
+              <div className="table-view-panel-title">
+                <span>Buy-in log</span>
+                <strong>${tableBuyIns.reduce((sum, buyIn) => sum + buyIn.amount, 0).toLocaleString()}</strong>
+              </div>
+              <div className="table-view-feed">
+                {tableBuyIns.length ? (
+                  tableBuyIns.map((buyIn) => (
+                    <article key={buyIn.id}>
+                      <strong>{buyIn.playerName}</strong>
+                      <span>${buyIn.amount.toLocaleString()}</span>
+                      <small>{formatClock(buyIn.timestamp)}</small>
+                    </article>
+                  ))
+                ) : (
+                  <p className="muted-copy">Buy-ins will appear here.</p>
+                )}
+              </div>
+            </aside>
+
+            <section className="table-view-stage">
+              <div className="table-view-stage-head">
+                <p>Click any open seat to seat the next player. Player controls remain available from the table.</p>
+                <button
+                  className="ghost-button"
+                  onClick={() => {
+                    const seatNumber = getAvailableSeatNumber(tableSession);
+                    if (!seatNumber) {
+                      window.alert('No open seats on this table.');
+                      return;
+                    }
+                    setQuickSeatDrafts((drafts) => ({
+                      ...drafts,
+                      [tableSession.id]: { seatNumber, playerName: '', sourceId: '', timeMinutes: isTimeCollection ? '60' : '' }
+                    }));
+                  }}
+                >
+                  Next seat
+                </button>
+              </div>
+              {quickSeatDraft ? (
+                <div className="seat-player-row quick-seat-row table-view-seat-row">
+                  <strong>Seat {quickSeatDraft.seatNumber}</strong>
+                  <select
+                    value={quickSeatDraft.sourceId}
+                    onChange={(event) => {
+                      const sourceId = event.target.value;
+                      const option = quickSeatOptions.find((item) => item.key === sourceId);
+                      setQuickSeatDrafts((drafts) => ({
+                        ...drafts,
+                        [tableSession.id]: {
+                          ...(drafts[tableSession.id] ?? quickSeatDraft),
+                          sourceId,
+                          playerName: option?.playerName ?? ''
+                        }
+                      }));
+                    }}
+                  >
+                    <option value="">Choose saved or waiting player</option>
+                    {quickSeatOptions.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={quickSeatDraft.playerName}
+                    onChange={(event) =>
+                      setQuickSeatDrafts((drafts) => ({
+                        ...drafts,
+                        [tableSession.id]: { ...(drafts[tableSession.id] ?? quickSeatDraft), sourceId: '', playerName: event.target.value }
+                      }))
+                    }
+                    placeholder="Or type player name"
+                  />
+                  {isTimeCollection ? (
+                    <input
+                      value={quickSeatDraft.timeMinutes}
+                      onChange={(event) => setQuickSeatDrafts((drafts) => ({ ...drafts, [tableSession.id]: { ...(drafts[tableSession.id] ?? quickSeatDraft), timeMinutes: event.target.value } }))}
+                      placeholder="Minutes"
+                      type="number"
+                      min="0"
+                    />
+                  ) : null}
+                  <button
+                    className="primary-button"
+                    onClick={() => {
+                      const selectedOption = quickSeatOptions.find((option) => option.key === quickSeatDraft.sourceId);
+                      seatPlayerAtTable(tableSession, quickSeatDraft.seatNumber, {
+                        playerName: quickSeatDraft.playerName || selectedOption?.playerName || '',
+                        profileId: selectedOption?.profileId,
+                        interestId: selectedOption?.interest?.id,
+                        initialTimeMinutes: Number(quickSeatDraft.timeMinutes)
+                      });
+                    }}
+                  >
+                    Seat
+                  </button>
+                </div>
+              ) : null}
+              <div className="table-view-table">
+                <PokerTable
+                  players={pokerTablePlayers}
+                  showTimeRemaining={isTimeCollection}
+                  maxPlayers={tableSession.maxSeats}
+                  selectedSeatNumber={quickSeatDraft?.seatNumber}
+                  onSeatClick={(seatNumber) =>
+                    setQuickSeatDrafts((drafts) => ({
+                      ...drafts,
+                      [tableSession.id]: { seatNumber, playerName: '', sourceId: '', timeMinutes: isTimeCollection ? '60' : '' }
+                    }))
+                  }
+                  onAddTime={(playerId, minutes) => {
+                    const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                    if (playerSession) addPlayerTime(playerSession, minutes);
+                  }}
+                  onAddBuyIn={(playerId, amount, note) => {
+                    const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                    if (playerSession) addBuyIn(playerSession, amount, note);
+                  }}
+                  onRemovePlayer={(playerId) => {
+                    const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                    if (playerSession) markPlayerSessionLeft(playerSession);
+                  }}
+                />
+              </div>
+            </section>
+
+            <aside className="table-view-waitlist">
+              <div className="table-view-panel-title">
+                <span>Waitlist</span>
+                <strong>{tableWaitlist.length}</strong>
+              </div>
+              <div className="table-view-waitlist-list">
+                {tableWaitlist.length ? (
+                  tableWaitlist.map((interest) => (
+                    <article key={interest.id}>
+                      <div>
+                        <strong>{interest.playerName}</strong>
+                        <span>{interest.status} - {minutesSince(interest.interestedAt)}m</span>
+                      </div>
+                      <button className="ghost-button" onClick={() => seatInterestAtTable(interest, tableSession.id)}>
+                        Seat
+                      </button>
+                    </article>
+                  ))
+                ) : (
+                  <p className="muted-copy">No players waiting for this game.</p>
+                )}
+              </div>
+            </aside>
+          </section>
+        ) : (
+          <section className="table-view-empty">
+            <h2>No open tables</h2>
+            <p>Create or run a table from the floor to use Table View.</p>
+            <button className="ghost-button" onClick={closeRoute}>Back to floor</button>
+          </section>
+        )}
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -5492,6 +5768,9 @@ function App() {
                       </button>
                       <button className="icon-button" onClick={() => recordTableEvent(session, 'Closed', 'Staff closed table')} title="Close table">
                         <X size={17} />
+                      </button>
+                      <button className="icon-button" onClick={() => openTableView(session.id)} title="Open table view">
+                        <Eye size={17} />
                       </button>
                     </div>
                     <div className="table-detail-panel">
@@ -5976,8 +6255,36 @@ function App() {
         </section>
 
         <section className={`panel floor-panel quick-add-panel ${openPanels.quickAdd ? '' : 'collapsed-panel'}`}>
-          <PanelTitle icon={<Plus />} title="Check In" collapsed={!openPanels.quickAdd} onToggle={() => togglePanel('quickAdd')} />
+          <PanelTitle icon={<Plus />} title="Quick Add" collapsed={!openPanels.quickAdd} onToggle={() => togglePanel('quickAdd')} />
           {openPanels.quickAdd ? <>
+          <form className="quick-form" onSubmit={addInterest}>
+            <input
+              value={form.playerName}
+              onChange={(event) => setForm({ ...form, playerName: event.target.value })}
+              placeholder="Player name"
+            />
+            <select value={form.gameId} onChange={(event) => setForm({ ...form, gameId: event.target.value })}>
+              {state.games.map((game) => (
+                <option key={game.id} value={game.id}>
+                  {game.name}
+                </option>
+              ))}
+            </select>
+            <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as InterestStatus })}>
+              {statuses.map((status) => (
+                <option key={status}>{status}</option>
+              ))}
+            </select>
+            <input
+              value={form.notes}
+              onChange={(event) => setForm({ ...form, notes: event.target.value })}
+              placeholder="Notes"
+            />
+            <button className="primary-button">
+              <Plus size={18} />
+              Add
+            </button>
+          </form>
           <div className="check-in-search">
             <input
               value={checkInSearch}

@@ -5,7 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 const repoRoot = process.cwd();
-const privateKeyPath = path.join(repoRoot, '.pilot-license-private-key.pem');
+const privateKeyPathCandidates = [
+  path.join(repoRoot, '.pilot-license-private-key.pem'),
+  path.join(repoRoot, 'pilot-keys', '.pilot-license-private-key.pem')
+];
+const privateKeyPath = privateKeyPathCandidates.find((candidate) => fs.existsSync(candidate));
 
 function canonicalPayload(payload) {
   return JSON.stringify(
@@ -38,6 +42,9 @@ function derToRawP256Signature(derSignature) {
 }
 
 function createPilotKey(tempDir) {
+  if (!privateKeyPath) {
+    throw new Error(`Missing private key. Checked: ${privateKeyPathCandidates.join(', ')}`);
+  }
   const payload = {
     authorizationCode: `TT-PILOT-STRESS-${crypto.randomBytes(8).toString('hex').toUpperCase()}`,
     expiresAt: '2026-08-01',
@@ -188,7 +195,7 @@ async function main() {
     });
     await dropTable.locator('.table-mode-control').getByRole('button', { name: 'Time fees', exact: true }).click();
     await expect(dropTable).toContainText('Time fees');
-    await expect(dropTable.locator('.poker-seat-card').filter({ hasText: 'Casey Drop' }).first()).toContainText('Left');
+    await expect(dropTable.locator('.poker-seat-card').filter({ hasText: 'Casey Drop' }).first()).toContainText('Time');
     await expect(dropTable.locator('.poker-seat-card').filter({ hasText: 'Casey Drop' }).first()).toContainText('0:00');
 
     const timeTable = await startGame(page, '1/2 PLO', ['Alex Time', 'Brooke Time']);
@@ -209,8 +216,8 @@ async function main() {
       'Imported NLH,NLH 1/2,1990-01-01,2026-01-01,2027-01-01\nImported PLO,1/2 PLO,1991-02-02,2026-01-01,2027-01-01'
     );
     await page.getByRole('button', { name: 'Import Pasted People' }).click();
-    await expect(page.locator('.profile-card').filter({ hasText: 'Imported NLH' })).toContainText('Preferred game: 1/2 NLH');
-    await expect(page.locator('.profile-card').filter({ hasText: 'Imported PLO' })).toContainText('Preferred game: 1/2 PLO');
+    await expect(page.locator('.profile-card').filter({ hasText: 'Imported NLH' })).toContainText('1/2 NLH');
+    await expect(page.locator('.profile-card').filter({ hasText: 'Imported PLO' })).toContainText('1/2 PLO');
     await expect(page.getByText('Unknown')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Close' }).click();
@@ -231,9 +238,9 @@ async function main() {
     await expect(page.getByText('Pilot access')).toHaveCount(0);
     const reloadedDropTable = page.locator('.active-game-card').filter({ hasText: '1/2 NLH' });
     const reloadedTimeTable = page.locator('.active-game-card').filter({ hasText: '1/2 PLO' });
-    await expect(reloadedDropTable).toContainText('2 seated players');
+    await expect(reloadedDropTable).toContainText('2/10');
     await expect(reloadedDropTable).toContainText('Time fees');
-    await expect(reloadedTimeTable).toContainText('2 seated players');
+    await expect(reloadedTimeTable).toContainText('2/10');
     await expect(reloadedTimeTable).toContainText('Time fees');
     await expect(page.getByText('Unknown')).toHaveCount(0);
 
