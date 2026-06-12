@@ -499,6 +499,27 @@ const getAccountKeyFromState = (state?: Partial<AppState>) =>
   'unlicensed-local';
 const getStorageKeyForState = (state?: Partial<AppState>) => `${storageKey}:${getAccountKeyFromState(state)}`;
 const getAuthStorageKey = (state?: Partial<AppState>) => `${storageKey}:auth:${getAccountKeyFromState(state)}`;
+const mergeSyncedList = <T extends { id?: string; name?: string; playerName?: string }>(latest: T[], synced: T[]) => {
+  const syncedByKey = new Map(
+    synced.map((item) => [
+      item.id || item.name?.trim().toLowerCase() || item.playerName?.trim().toLowerCase() || '',
+      item
+    ]).filter(([key]) => key)
+  );
+  const latestKeys = new Set<string>();
+  const merged = latest.map((item) => {
+    const key = item.id || item.name?.trim().toLowerCase() || item.playerName?.trim().toLowerCase() || '';
+    if (key) latestKeys.add(key);
+    return key && syncedByKey.has(key) ? syncedByKey.get(key)! : item;
+  });
+  return [
+    ...merged,
+    ...synced.filter((item) => {
+      const key = item.id || item.name?.trim().toLowerCase() || item.playerName?.trim().toLowerCase() || '';
+      return key && !latestKeys.has(key);
+    })
+  ];
+};
 const hasPersistedSignIn = (state: AppState) => {
   if (!isPilotAccessActive(state.settings.pilotAccess)) return false;
   try {
@@ -1648,6 +1669,7 @@ function App() {
   const [importText, setImportText] = useState('');
   const [summaryNotes, setSummaryNotes] = useState('');
   const [profileSearch, setProfileSearch] = useState('');
+  const [profileFormMessage, setProfileFormMessage] = useState('');
   const [groupMeText, setGroupMeText] = useState('');
   const [groupMeCandidates, setGroupMeCandidates] = useState<GroupMeCandidate[]>([]);
   const [staffFeedback, setStaffFeedback] = useState('');
@@ -1918,10 +1940,15 @@ function App() {
           const sameProfiles = JSON.stringify(nextState.profiles) === JSON.stringify(latestState.profiles);
           const sameInterests = JSON.stringify(nextState.interests) === JSON.stringify(latestState.interests);
           if (sameProfiles && sameInterests) return;
+          const mergedState = {
+            ...latestState,
+            profiles: mergeSyncedList(latestState.profiles, nextState.profiles),
+            interests: mergeSyncedList(latestState.interests, nextState.interests)
+          };
           setUndoStack((current) => [latestState, ...current].slice(0, 20));
-          setState(nextState);
+          setState(mergedState);
           setSaveStatus({ state: 'saving', message: 'Syncing player updates...' });
-          saveState(nextState)
+          saveState(mergedState)
             .then(() => setSaveStatus({ state: 'saved', message: 'Player updates synced' }))
             .catch(() => setSaveStatus({ state: 'error', message: 'Player update sync failed' }));
         })
@@ -2819,12 +2846,14 @@ function App() {
     if (!game) return;
     const collectionProfile = getCollectionProfile(state, gameId);
     const currentCount = state.sessions.filter((session: { gameId: string; status: string; }) => session.gameId === gameId && session.status !== 'Closed').length;
+    const sessionId = uid();
+    const defaultStartPlayerIds = getSeatOptions(gameId).slice(0, game.maxSeats).map((interest) => interest.id);
     persist({
       ...state,
       sessions: [
         ...state.sessions,
         {
-          id: uid(),
+          id: sessionId,
           gameId,
           label: currentCount ? `Table ${currentCount + 1}` : 'Main Table',
           status: 'Forming',
@@ -2848,6 +2877,9 @@ function App() {
         }
       ]
     }, true, { feature: 'Tables', action: 'Created forming table', metadata: { gameId } });
+    if (defaultStartPlayerIds.length) {
+      setStartPlayerDrafts((drafts) => ({ ...drafts, [sessionId]: defaultStartPlayerIds }));
+    }
   };
 
   const addPlannedSession = () => {
@@ -3050,7 +3082,17 @@ function App() {
 
   const addProfile = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!newProfile.name.trim()) return;
+    const profileName = newProfile.name.trim();
+    if (!profileName) {
+      setProfileFormMessage('Enter a player name before adding the profile.');
+      return;
+    }
+    const duplicate = state.profiles.find((profile) => profile.name.trim().toLowerCase() === profileName.toLowerCase());
+    if (duplicate) {
+      setProfileSearch(profileName);
+      setProfileFormMessage(`${profileName} already has a profile.`);
+      return;
+    }
     const preferredGame = state.games.find((game) => game.id === newProfile.preferredGameId);
     persist({
       ...state,
@@ -3058,7 +3100,7 @@ function App() {
         ...state.profiles,
         {
           id: memberId(),
-          name: newProfile.name.trim(),
+          name: profileName,
           birthday: newProfile.birthday,
           membershipStartDate: newProfile.membershipStartDate,
           membershipExpirationDate: newProfile.membershipExpirationDate,
@@ -3084,6 +3126,7 @@ function App() {
         }
       ]
     }, true, { feature: 'Profiles', action: 'Added profile', metadata: { preferredGameId: newProfile.preferredGameId } });
+    setProfileFormMessage(`${profileName} profile added.`);
     setNewProfile({
       name: '',
       birthday: '',
@@ -4936,6 +4979,7 @@ function App() {
                   Add
                 </button>
               </form>
+              {profileFormMessage ? <p className="profile-form-message">{profileFormMessage}</p> : null}
               <textarea
                 className="import-box"
                 value={importText}
@@ -5693,6 +5737,7 @@ function App() {
                 const seatedPlayers = state.playerSessions.filter((playerSession) => playerSession.tableId === session.id && !playerSession.leftAt);
                 const quickSeatDraft = quickSeatDrafts[session.id];
                 const quickSeatOptions = getQuickSeatOptions(session);
+                const selectedForStart = startPlayerDrafts[session.id] ?? [];
                 const isTimeCollection = session.collectionMode === 'Time' || session.timeFeeBased;
                 const tableDropTotal = state.dropLogs
                   .filter((drop) => drop.tableId === session.id)
@@ -5752,7 +5797,7 @@ function App() {
                         +
                       </button>
                       {session.status !== 'Running' ? (
-                        <button className="secondary-button" onClick={() => startSessionWithPlayers(session)}>Run</button>
+                        <button className="secondary-button" onClick={() => startSessionWithPlayers(session)}>Start Table</button>
                       ) : (
                         <button className="secondary-button" onClick={() => updateSession(session.id, { status: 'Paused' })}>Pause</button>
                       )}
@@ -5881,6 +5926,41 @@ function App() {
                             >
                               Cancel
                             </button>
+                          </div>
+                        </div>
+                      ) : null}
+                      {session.status !== 'Running' ? (
+                        <div className="start-table-panel">
+                          <div className="start-table-head">
+                            <strong>Select players to start this table</strong>
+                            <span>{selectedForStart.length}/{session.maxSeats} selected</span>
+                          </div>
+                          <div className="player-picker-list start-table-picker">
+                            {seatOptions.length ? (
+                              seatOptions.slice(0, session.maxSeats).map((interest) => (
+                                <label className="player-pick-row" key={interest.id}>
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedForStart.includes(interest.id)}
+                                    onChange={() => toggleStartPlayer(session.id, interest.id)}
+                                  />
+                                  <span>{interest.playerName}</span>
+                                  <small>{interest.status}</small>
+                                </label>
+                              ))
+                            ) : (
+                              <span className="muted-copy">No waiting or arrived players for this game yet. Add players from Waitlist or Profiles, or use the + seat control after starting.</span>
+                            )}
+                          </div>
+                          <div className="inline-actions">
+                            <button className="primary-button" onClick={() => startSessionWithPlayers(session)}>
+                              Start with selected
+                            </button>
+                            {selectedForStart.length ? (
+                              <button className="ghost-button" onClick={() => setStartPlayerDrafts((drafts) => ({ ...drafts, [session.id]: [] }))}>
+                                Clear
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                       ) : null}

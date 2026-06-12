@@ -42,9 +42,19 @@ Core readiness items now in the repo:
 
 ## Payments Boundary
 
-Stripe is reserved for a future premium tier inside this social/player app only. It should not be used for card-house operations, table actions, deposits, seat holds, memberships, or any management-app billing flow.
+Stripe is reserved for the Player Premium tier inside this social/player app only. It should not be used for card-house operations, table actions, deposits, seat holds, club memberships, or any management-app billing flow.
 
-Management-app payment/billing will be designed and implemented separately when its product model is defined. For now, the Stripe provider remains opt-in and inactive unless `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` is set.
+Player Premium should be configured as a Stripe subscription around `$12.99/mo` and gates grinder/table recommendations plus player-hosted game posting. Set `EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL` to the Stripe Checkout or Payment Link URL for that monthly subscription. Management-app payment/billing remains separate.
+
+To create the Stripe Product, recurring monthly Price, and subscription Payment Link from this repo, run:
+
+```powershell
+.\scripts\setup-player-premium-stripe.ps1 `
+  -SecretKey "sk_test_..." `
+  -PublishableKey "pk_test_..."
+```
+
+The setup script uses the secret key only for the Stripe API call. It writes only mobile-safe values to `.env`: `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL`, `EXPO_PUBLIC_PLAYER_PREMIUM_PRICE_ID`, and `EXPO_PUBLIC_PLAYER_PREMIUM_PRODUCT_ID`.
 
 ## Sync With Management Database
 

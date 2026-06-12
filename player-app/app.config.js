@@ -40,6 +40,9 @@ module.exports = () => ({
     googleWebClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '',
     googleIosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '',
     googleAndroidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '',
-    stripePublishableKey: process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || ''
+    stripePublishableKey: process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '',
+    playerPremiumCheckoutUrl: process.env.EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL || '',
+    playerPremiumPriceId: process.env.EXPO_PUBLIC_PLAYER_PREMIUM_PRICE_ID || '',
+    playerPremiumProductId: process.env.EXPO_PUBLIC_PLAYER_PREMIUM_PRODUCT_ID || ''
   }
 });
