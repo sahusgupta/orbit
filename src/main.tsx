@@ -3908,7 +3908,13 @@ function App() {
   };
 
   const loadExistingAccountState = async (access: PilotAccess) => {
-    const desktopRecord = await window.tableManagerDesktop?.loadStateForAccount(access);
+    let desktopRecord: { state?: Partial<AppState> } | undefined;
+    try {
+      desktopRecord = await window.tableManagerDesktop?.loadStateForAccount(access);
+    } catch {
+      // Cloud or desktop lookup failures should not block activation of a valid local pilot key.
+      desktopRecord = undefined;
+    }
     const localRecord = desktopRecord?.state
       ? desktopRecord
       : (() => {

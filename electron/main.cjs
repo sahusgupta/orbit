@@ -711,7 +711,12 @@ function readRequestBody(request) {
 async function syncStateWithFirebaseRequests(state) {
   if (!isFirebaseConfigured()) return state;
   const accountKey = getAccountKeyFromState(state);
-  const pending = await fetchPendingPlayerRequests(accountKey);
+  let pending;
+  try {
+    pending = await fetchPendingPlayerRequests(accountKey);
+  } catch {
+    return state;
+  }
   let nextState = state;
 
   for (const request of pending.membershipRequests) {
@@ -729,11 +734,14 @@ async function syncStateWithFirebaseRequests(state) {
 
 async function loadStateWithFirebaseFallback(accountKey) {
   const localRecord = readLocalDatabase(accountKey);
-  const record = localRecord?.state
-    ? localRecord
-    : isFirebaseConfigured()
-      ? await readStateFromFirebase(sanitizeAccountKey(accountKey))
-      : localRecord;
+  let record = localRecord;
+  if (!record?.state && isFirebaseConfigured()) {
+    try {
+      record = await readStateFromFirebase(sanitizeAccountKey(accountKey));
+    } catch {
+      record = localRecord;
+    }
+  }
   if (!record?.state) return record;
   const syncedState = await syncStateWithFirebaseRequests(record.state);
   if (syncedState === record.state) return record;
