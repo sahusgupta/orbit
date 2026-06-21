@@ -100,6 +100,26 @@ const seededState = {
       usualCompanions: [],
       preferredTags: [],
       notes: ''
+    },
+    {
+      id: 'profile-evan',
+      name: 'Evan Entry',
+      birthday: '',
+      membershipStartDate: '2026-01-01',
+      membershipExpirationDate: '2027-01-01',
+      totalTimePlayedHours: 2,
+      lastSessionTimePlayedHours: 0,
+      commonlyPlaysWithProfileIds: [],
+      preferredGameId: 'nlh-1-2',
+      preferredGameIds: ['nlh-1-2'],
+      preferredStakes: '1/2 NLH',
+      typicalBuyInMin: 200,
+      typicalBuyInMax: 500,
+      willingnessToMove: true,
+      typicalAvailability: '',
+      usualCompanions: [],
+      preferredTags: [],
+      notes: ''
     }
   ],
   interests: [
@@ -249,21 +269,20 @@ try {
   await tableCard.getByText('Bailey Button').waitFor({ timeout: 10000 });
 
   await tableCard.getByTitle('Add player to an open seat').click();
-  const quickSeat = tableCard.locator('.quick-seat-row');
-  await quickSeat.locator('select').selectOption('interest:interest-casey');
-  await quickSeat.locator('input[placeholder="Buy-in"]').fill('300');
-  await quickSeat.getByRole('button', { name: 'Seat + Buy-In' }).click();
+  let seatPicker = page.locator('.seat-picker-modal');
+  await seatPicker.getByRole('button', { name: /Casey Call/ }).click();
   await tableCard.getByText('Casey Call').waitFor({ timeout: 10000 });
 
   await tableCard.getByTitle('Add player to seat 10').click();
-  await quickSeat.locator('select').selectOption('interest:interest-dana');
-  await quickSeat.locator('input[placeholder="Buy-in"]').fill('450');
-  await quickSeat.getByRole('button', { name: 'Seat + Buy-In' }).click();
-  await tableCard.getByText('Dana Door').waitFor({ timeout: 10000 });
+  seatPicker = page.locator('.seat-picker-modal');
+  await seatPicker.getByRole('button', { name: /Evan Entry/ }).click();
+  await tableCard.getByText('Evan Entry').waitFor({ timeout: 10000 });
 
   await tableCard.getByTitle('Add player to an open seat').click();
-  await quickSeat.locator('select').selectOption('');
-  assert(await quickSeat.getByRole('button', { name: 'Seat + Buy-In' }).isDisabled(), 'Seat button should stay disabled until a checked-in player and buy-in are present.');
+  seatPicker = page.locator('.seat-picker-modal');
+  assert(await seatPicker.locator('.seat-picker-card').count() >= 1, 'Seat picker should show available player cards.');
+  assert(await tableCard.locator('.quick-seat-row').count() === 0, 'Legacy quick-seat dropdown row should not render.');
+  await seatPicker.getByTitle('Close player picker').click();
 
   await page.getByRole('button', { name: 'Profiles' }).click();
   await page.locator('input.profile-form-name').fill('Smoke New Player');
@@ -276,9 +295,8 @@ try {
   const activePlayerSessions = (finalState.playerSessions || []).filter((session) => !session.leftAt);
   assert(activePlayerSessions.length === 4, 'Expected four seated players after smoke flow.');
   assert(finalState.sessions?.[0]?.seatsFilled === activePlayerSessions.length, 'Expected table count to match active seated players.');
-  assert(activePlayerSessions.some((session) => session.playerName === 'Dana Door' && session.seatNumber === 10), 'Expected checked-in player to be seated at seat 10.');
-  assert((finalState.buyIns || []).some((buyIn) => buyIn.playerName === 'Casey Call' && buyIn.amount === 300), 'Expected Casey buy-in to be recorded.');
-  assert((finalState.buyIns || []).some((buyIn) => buyIn.playerName === 'Dana Door' && buyIn.amount === 450), 'Expected Dana buy-in to be recorded.');
+  assert(activePlayerSessions.some((session) => session.playerName === 'Evan Entry' && session.seatNumber === 10), 'Expected database player to be seated at seat 10.');
+  assert((finalState.interests || []).some((interest) => interest.playerName === 'Evan Entry' && interest.status === 'Seated'), 'Expected non-checked-in player to be checked in and seated.');
   assert((finalState.profiles || []).some((profile) => profile.name === 'Smoke New Player'), 'New player profile was not persisted.');
 
   console.log('Management core smoke passed: profile add, start table selection, and seating flows are functional.');

@@ -1215,6 +1215,7 @@ function createWindow(route = 'floor') {
   const mainWindow = new BrowserWindow({
     ...routeConfig,
     backgroundColor: branding.desktop.backgroundColor,
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

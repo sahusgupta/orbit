@@ -162,6 +162,12 @@ async function main() {
       targetPage.on('console', (message) => {
         if (message.type() === 'error') errors.push(message.text());
       });
+      targetPage.on('requestfailed', (request) => {
+        const failure = request.failure();
+        if (failure?.errorText?.includes('ERR_FILE_NOT_FOUND')) {
+          errors.push(`${failure.errorText}: ${request.url()}`);
+        }
+      });
     };
     attachErrorListeners(page);
 

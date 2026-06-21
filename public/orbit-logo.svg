@@ -1,5 +1,31 @@
-<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Orbit logo">
-  <circle cx="32" cy="32" r="17" stroke="currentColor" stroke-width="4"/>
-  <ellipse cx="32" cy="32" rx="26" ry="11" transform="rotate(-28 32 32)" stroke="currentColor" stroke-width="4"/>
-  <circle cx="51" cy="20" r="5" fill="currentColor"/>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Orbit logo">
+  <rect width="1024" height="1024" fill="#000000"/>
+  <defs>
+    <radialGradient id="ringSheen" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(356 748) rotate(-42) scale(660 180)">
+      <stop offset="0" stop-color="#8f8a86"/>
+      <stop offset="0.2" stop-color="#f7f4f2"/>
+      <stop offset="0.5" stop-color="#ffffff"/>
+      <stop offset="0.78" stop-color="#bdb7b4"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </radialGradient>
+    <radialGradient id="nodeSheen" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(756 422) rotate(43) scale(90)">
+      <stop offset="0" stop-color="#fffdfb"/>
+      <stop offset="0.52" stop-color="#eee9e6"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </radialGradient>
+    <filter id="softGlow" x="152" y="124" width="704" height="720" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feGaussianBlur in="SourceAlpha" stdDeviation="9" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 1 0 0 0 0 0.95 0 0 0 0 0.9 0 0 0 0.42 0"/>
+      <feBlend in2="BackgroundImageFix" result="glow"/>
+      <feBlend in="SourceGraphic" in2="glow" result="shape"/>
+    </filter>
+  </defs>
+  <g filter="url(#softGlow)">
+    <path d="M777.5 421.5C755.5 268.5 627.8 165.3 475.2 179.1C309 194.1 181.1 337.2 190.3 506.3C200 686.7 351.2 824.9 530.9 808.3C675.3 794.9 785.5 686.9 798.8 547.9" stroke="url(#ringSheen)" stroke-width="32" stroke-linecap="round"/>
+    <path d="M777.5 421.5C755.5 268.5 627.8 165.3 475.2 179.1C309 194.1 181.1 337.2 190.3 506.3C200 686.7 351.2 824.9 530.9 808.3C675.3 794.9 785.5 686.9 798.8 547.9" stroke="#ffffff" stroke-opacity="0.9" stroke-width="9" stroke-linecap="round"/>
+    <circle cx="774" cy="433" r="65" fill="url(#nodeSheen)" stroke="#ffffff" stroke-width="16"/>
+    <circle cx="774" cy="433" r="42" fill="none" stroke="#171717" stroke-width="9"/>
+    <path d="M857 463C870.2 463 880 452.9 880 440C880 452.9 889.8 463 903 463C889.8 463 880 473.1 880 486C880 473.1 870.2 463 857 463Z" fill="#ffffff"/>
+  </g>
 </svg>

@@ -404,11 +404,11 @@ type GroupMeCandidate = {
   sourceText: string;
 };
 
-type QuickSeatDraft = {
+type SeatPickerState = {
+  sessionId: string;
   seatNumber: number;
-  sourceId: string;
-  buyInAmount: string;
-  buyInNote: string;
+  search: string;
+  timeMinutes: string;
   error?: string;
 };
 
@@ -1762,7 +1762,7 @@ function App() {
   const [staffDraft, setStaffDraft] = useState<{ name: string; role: StaffRole; pin: string }>({ name: '', role: 'Floor', pin: '' });
   const [undoStack, setUndoStack] = useState<AppState[]>([]);
   const [eventDrafts, setEventDrafts] = useState<Record<string, { failReason: string; failNote: string; breakReason: string; breakNote: string }>>({});
-  const [quickSeatDrafts, setQuickSeatDrafts] = useState<Record<string, QuickSeatDraft>>({});
+  const [seatPicker, setSeatPicker] = useState<SeatPickerState | null>(null);
   const [startPlayerDrafts, setStartPlayerDrafts] = useState<Record<string, string[]>>({});
   const [buyInDrafts, setBuyInDrafts] = useState<Record<string, { amount: string; note: string }>>({});
   const [dropDrafts, setDropDrafts] = useState<Record<string, { amount: string; note: string }>>({});
@@ -2633,7 +2633,7 @@ function App() {
     return sourceState;
   };
 
-  const getQuickSeatOptions = (session: GameSession) => {
+  const getSeatPickerCandidates = (session: GameSession, query = '') => {
     const seatedProfileIds = new Set(
       state.playerSessions
         .filter((playerSession) => !playerSession.leftAt)
@@ -2646,117 +2646,106 @@ function App() {
         .map((playerSession) => playerSession.playerName.trim().toLowerCase())
         .filter(Boolean)
     );
-    return inClubInterests
-      .filter((interest) => interest.status === 'Arrived')
-      .filter((interest) => {
-        const profileId = interest.profileId;
-        const normalizedName = interest.playerName.trim().toLowerCase();
-        return !(profileId && seatedProfileIds.has(profileId)) && !seatedNames.has(normalizedName);
+    const queryParts = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return state.profiles
+      .filter((profile) => {
+        if (seatedProfileIds.has(profile.id) || seatedNames.has(profile.name.trim().toLowerCase())) return false;
+        if (!queryParts.length) return true;
+        const haystack = [
+          profile.name,
+          profile.preferredStakes,
+          profile.notes,
+          ...(profile.preferredGameIds || []).map((gameId) => state.games.find((game) => game.id === gameId)?.name || gameId)
+        ].join(' ').toLowerCase();
+        return queryParts.every((part) => haystack.includes(part));
       })
-      .map((interest) => {
-        const game = state.games.find((item) => item.id === interest.gameId);
-        const gameContext = game?.id === session.gameId ? game.name : `${game?.name ?? 'Unknown game'} preference`;
+      .map((profile) => {
+        const activeInterest = state.interests.find(
+          (interest) =>
+            (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()) &&
+            activeInterestStatuses.includes(interest.status)
+        );
+        const preferredGame = state.games.find((game) => game.id === (profile.preferredGameIds?.[0] || profile.preferredGameId));
+        const isCheckedIn = Boolean(activeInterest?.status === 'Arrived' || activeInterest?.status === 'Seated');
+        const gameContext = activeInterest
+          ? state.games.find((game) => game.id === activeInterest.gameId)?.name
+          : preferredGame?.name;
         return {
-          key: `interest:${interest.id}`,
-          label: `${interest.playerName} - in club / ${gameContext}`,
-          playerName: interest.playerName,
-          profileId: interest.profileId,
-          interest
+          profile,
+          activeInterest,
+          isCheckedIn,
+          gameContext: gameContext || state.games.find((game) => game.id === session.gameId)?.name || 'Any game'
         };
       })
-      .sort((a, b) => a.playerName.localeCompare(b.playerName));
+      .sort((left, right) => Number(right.isCheckedIn) - Number(left.isCheckedIn) || left.profile.name.localeCompare(right.profile.name));
   };
 
-  const setQuickSeatError = (sessionId: string, error: string) => {
-    setQuickSeatDrafts((drafts) => {
-      const current = drafts[sessionId];
-      return current ? { ...drafts, [sessionId]: { ...current, error } } : drafts;
-    });
+  const setSeatPickerError = (error: string) => {
+    setSeatPicker((current) => (current ? { ...current, error } : current));
   };
 
-  const openQuickSeatDraft = (session: GameSession, requestedSeatNumber?: number) => {
+  const openSeatPicker = (session: GameSession, requestedSeatNumber?: number) => {
     const seatNumber = getAvailableSeatNumber(session, requestedSeatNumber);
-    setQuickSeatDrafts((drafts) => ({
-      ...drafts,
-      [session.id]: {
-        seatNumber: seatNumber ?? 0,
-        sourceId: '',
-        buyInAmount: '',
-        buyInNote: '',
-        error: seatNumber ? undefined : 'Table full. No open seats remain.'
-      }
-    }));
+    setSeatPicker({
+      sessionId: session.id,
+      seatNumber: seatNumber ?? 0,
+      search: '',
+      timeMinutes: session.collectionMode === 'Time' || session.timeFeeBased ? '60' : '',
+      error: seatNumber ? undefined : 'Table full. No open seats remain.'
+    });
   };
 
-  const quickSeatCanSubmit = (draft?: QuickSeatDraft) =>
-    Boolean(draft && draft.seatNumber > 0 && draft.sourceId && Number(draft.buyInAmount) > 0);
-
-  const seatPlayerAtTable = (
-    session: GameSession,
-    seatNumber: number,
-    payload: { playerName: string; profileId?: string; interestId?: string; buyInAmount: number; buyInNote?: string }
-  ) => {
-    if (!payload.interestId || !payload.playerName.trim()) {
-      setQuickSeatError(session.id, 'Select a checked-in player before seating.');
+  const seatProfileAtTable = (session: GameSession, seatNumber: number, profile: PlayerProfile, initialTimeMinutes?: number) => {
+    if (!seatNumber) {
+      setSeatPickerError('Table full. No open seats remain.');
       return;
     }
-    if (!Number.isFinite(payload.buyInAmount) || payload.buyInAmount <= 0) {
-      setQuickSeatError(session.id, 'Enter the player buy-in before seating.');
-      return;
-    }
-    const result = seatPlayerInState(state, session.id, {
-      playerName: payload.playerName,
-      profileId: payload.profileId,
-      interestId: payload.interestId,
-      requestedSeatNumber: seatNumber,
-      note: 'Seated'
-    });
-    if (!result.ok) {
-      setQuickSeatError(session.id, result.error);
+    const isTimeCollection = session.collectionMode === 'Time' || session.timeFeeBased;
+    const timeMinutes = isTimeCollection ? Math.max(0, Number(initialTimeMinutes ?? 60)) : undefined;
+    if (isTimeCollection && (!Number.isFinite(timeMinutes) || timeMinutes <= 0)) {
+      setSeatPickerError('Enter the time this player bought before seating.');
       return;
     }
     const timestamp = nowIso();
-    const buyInNote = payload.buyInNote?.trim();
-    const stateWithBuyIn: AppState = {
-      ...result.state,
-      buyIns: [
-        {
-          id: uid(),
-          profileId: result.profileId,
-          playerName: result.playerName,
-          tableId: result.tableId,
-          gameId: result.gameId,
-          amount: payload.buyInAmount,
-          timestamp,
-          note: buyInNote
-        },
-        ...result.state.buyIns
-      ],
-      playerLedger: [
-        {
-          id: uid(),
-          type: 'Buy-In',
-          profileId: result.profileId,
-          playerName: result.playerName,
-          tableId: result.tableId,
-          gameId: result.gameId,
-          amount: payload.buyInAmount,
-          timestamp,
-          note: buyInNote
-        },
-        ...result.state.playerLedger
-      ]
-    };
-    persist(stateWithBuyIn, true, {
+    const alreadyInClub = state.interests.some(
+      (interest) =>
+        (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()) &&
+        activeInterestStatuses.includes(interest.status)
+    );
+    const checkedInState: AppState = alreadyInClub
+      ? state
+      : {
+          ...state,
+          interests: ensureInterestEntry(state, profile, session.gameId, 'Arrived', 'Checked in from table seat picker', timestamp)
+        };
+    const interest = checkedInState.interests.find(
+      (item) =>
+        item.gameId === session.gameId &&
+        activeInterestStatuses.includes(item.status) &&
+        (item.profileId === profile.id || item.playerName.toLowerCase() === profile.name.toLowerCase())
+    ) ?? checkedInState.interests.find(
+      (item) =>
+        activeInterestStatuses.includes(item.status) &&
+        (item.profileId === profile.id || item.playerName.toLowerCase() === profile.name.toLowerCase())
+    );
+    const result = seatPlayerInState(checkedInState, session.id, {
+      playerName: profile.name,
+      profileId: profile.id,
+      interestId: interest?.id,
+      requestedSeatNumber: seatNumber,
+      initialTimeMinutes: timeMinutes,
+      note: alreadyInClub ? 'Seated' : 'Checked in and seated'
+    });
+    if (!result.ok) {
+      setSeatPickerError(result.error);
+      return;
+    }
+    persist(result.state, true, {
       feature: 'Seating',
-      action: 'Seated player with buy-in',
-      metadata: { gameId: session.gameId, tableId: session.id, seatNumber: result.seatNumber, buyInAmount: payload.buyInAmount }
+      action: alreadyInClub ? 'Seated player' : 'Checked in and seated player',
+      metadata: { gameId: session.gameId, tableId: session.id, seatNumber: result.seatNumber, timeMinutes: timeMinutes ?? 0 }
     });
-    setQuickSeatDrafts((drafts) => {
-      const next = { ...drafts };
-      delete next[session.id];
-      return next;
-    });
+    setSeatPicker(null);
   };
 
   const seatInterestAtTable = (interest: Interest, tableId?: string, seatNumber?: number) => {
@@ -4212,7 +4201,11 @@ function App() {
             </div>
             <div>
               <div className="eyebrow">Create login</div>
-              <h1>{state.settings.clubAccount?.clubName || branding.product.name}</h1>
+              {state.settings.clubAccount?.clubName ? (
+                <h1>{state.settings.clubAccount.clubName}</h1>
+              ) : (
+                <img className="brand-logo access-brand-logo" src="./orbit-logo.svg" alt={branding.product.name} />
+              )}
               <p>Create the login used for this card house on this installation.</p>
             </div>
           </div>
@@ -4242,7 +4235,11 @@ function App() {
             </div>
             <div>
               <div className="eyebrow">Sign in</div>
-              <h1>{state.settings.clubAccount?.clubName || branding.product.name}</h1>
+              {state.settings.clubAccount?.clubName ? (
+                <h1>{state.settings.clubAccount.clubName}</h1>
+              ) : (
+                <img className="brand-logo access-brand-logo" src="./orbit-logo.svg" alt={branding.product.name} />
+              )}
               <p>Use the login created for this card house. Access remains limited by the pilot key expiration.</p>
             </div>
           </div>
@@ -4272,7 +4269,7 @@ function App() {
             </div>
             <div>
               <div className="eyebrow">Pilot access</div>
-              <h1>{branding.product.name}</h1>
+              <img className="brand-logo access-brand-logo" src="./orbit-logo.svg" alt={branding.product.name} />
               <p>Load your pilot key file, then register the club account that will use this installation.</p>
             </div>
           </div>
@@ -5582,6 +5579,72 @@ function App() {
     .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
     .slice(0, 18);
 
+  const seatPickerSession = seatPicker
+    ? state.sessions.find((session) => session.id === seatPicker.sessionId && session.status !== 'Closed' && session.status !== 'Failed to Start')
+    : undefined;
+  const seatPickerIsTimeCollection = Boolean(seatPickerSession && (seatPickerSession.collectionMode === 'Time' || seatPickerSession.timeFeeBased));
+  const seatPickerCandidates = seatPickerSession ? getSeatPickerCandidates(seatPickerSession, seatPicker?.search ?? '') : [];
+  const seatPickerGame = seatPickerSession ? state.games.find((game) => game.id === seatPickerSession.gameId) : undefined;
+  const seatPickerModal = seatPicker && seatPickerSession ? (
+    <div className="modal-backdrop seat-picker-backdrop" role="dialog" aria-modal="true" aria-label={`Seat ${seatPicker.seatNumber} player`}>
+      <section className="seat-picker-modal">
+        <div className="seat-picker-head">
+          <div>
+            <span>{seatPickerSession.label} - {seatPickerGame?.name ?? 'Table'}</span>
+            <h2>Seat {seatPicker.seatNumber}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={() => setSeatPicker(null)} title="Close player picker">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="seat-picker-controls">
+          <input
+            autoFocus
+            value={seatPicker.search}
+            onChange={(event) => setSeatPicker((current) => current ? { ...current, search: event.target.value, error: undefined } : current)}
+            placeholder="Search club database"
+          />
+          {seatPickerIsTimeCollection ? (
+            <label>
+              Time bought
+              <input
+                value={seatPicker.timeMinutes}
+                onChange={(event) => setSeatPicker((current) => current ? { ...current, timeMinutes: event.target.value, error: undefined } : current)}
+                type="number"
+                min="1"
+                step="1"
+              />
+            </label>
+          ) : null}
+        </div>
+        {seatPicker.error ? <div className="seat-picker-error">{seatPicker.error}</div> : null}
+        <div className="seat-picker-list">
+          {seatPickerCandidates.length ? (
+            seatPickerCandidates.map(({ profile, activeInterest, isCheckedIn, gameContext }) => (
+              <button
+                className="seat-picker-card"
+                key={profile.id}
+                type="button"
+                onClick={() => seatProfileAtTable(seatPickerSession, seatPicker.seatNumber, profile, Number(seatPicker.timeMinutes))}
+                disabled={!seatPicker.seatNumber}
+              >
+                <div className="seat-picker-avatar">{profile.name.slice(0, 1).toUpperCase()}</div>
+                <div>
+                  <strong>{profile.name}</strong>
+                  <span>{gameContext}</span>
+                  <small>{isCheckedIn ? `Checked in${activeInterest?.status ? ` - ${activeInterest.status}` : ''}` : 'Not checked in - will check in now'}</small>
+                </div>
+                <em>{formatHours(profile.totalTimePlayedHours || 0)}</em>
+              </button>
+            ))
+          ) : (
+            <p className="muted-copy">No available players match that search.</p>
+          )}
+        </div>
+      </section>
+    </div>
+  ) : null;
+
   if (route === 'table') {
     const storedSessionId = localStorage.getItem(`${storageKey}:table-view-session`) ?? '';
     const visibleSessions = state.sessions.filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start');
@@ -5590,8 +5653,6 @@ function App() {
     const seatedPlayers = tableSession
       ? state.playerSessions.filter((playerSession) => playerSession.tableId === tableSession.id && !playerSession.leftAt)
       : [];
-    const quickSeatDraft = tableSession ? quickSeatDrafts[tableSession.id] : undefined;
-    const quickSeatOptions = tableSession ? getQuickSeatOptions(tableSession) : [];
     const isTimeCollection = Boolean(tableSession && (tableSession.collectionMode === 'Time' || tableSession.timeFeeBased));
     const tableAverageStack = tableSession ? getAverageStackForTable(state, tableSession.id) : 0;
     const tableBuyIns = tableSession
@@ -5643,86 +5704,22 @@ function App() {
             </div>
           ) : null}
         </header>
+        {seatPickerModal}
 
         {tableSession ? (
           <section className="table-view-grid">
             <section className="table-view-stage">
               <div className="table-view-stage-head">
-                <p>Click any open seat, select a checked-in player, and record the buy-in.</p>
+                <p>Click any open seat and choose a player from the club database.</p>
                 <button
                   className="ghost-button"
                   onClick={() => {
-                    openQuickSeatDraft(tableSession);
+                    openSeatPicker(tableSession);
                   }}
                 >
                   Next seat
                 </button>
               </div>
-              {quickSeatDraft ? (
-                <div className="seat-player-row quick-seat-row table-view-seat-row">
-                  <strong>{quickSeatDraft.seatNumber ? `Seat ${quickSeatDraft.seatNumber}` : 'Table full'}</strong>
-                  <select
-                    value={quickSeatDraft.sourceId}
-                    disabled={!quickSeatDraft.seatNumber}
-                    onChange={(event) => {
-                      const sourceId = event.target.value;
-                      setQuickSeatDrafts((drafts) => ({
-                        ...drafts,
-                        [tableSession.id]: {
-                          ...(drafts[tableSession.id] ?? quickSeatDraft),
-                          sourceId,
-                          error: undefined
-                        }
-                      }));
-                    }}
-                  >
-                    <option value="">Select checked-in player</option>
-                    {quickSeatOptions.map((option) => (
-                      <option key={option.key} value={option.key}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={quickSeatDraft.buyInAmount}
-                    disabled={!quickSeatDraft.seatNumber}
-                    onChange={(event) => setQuickSeatDrafts((drafts) => ({
-                      ...drafts,
-                      [tableSession.id]: { ...(drafts[tableSession.id] ?? quickSeatDraft), buyInAmount: event.target.value, error: undefined }
-                    }))}
-                    placeholder="Buy-in"
-                    type="number"
-                    min="0"
-                    step="1"
-                  />
-                  <input
-                    value={quickSeatDraft.buyInNote}
-                    disabled={!quickSeatDraft.seatNumber}
-                    onChange={(event) => setQuickSeatDrafts((drafts) => ({
-                      ...drafts,
-                      [tableSession.id]: { ...(drafts[tableSession.id] ?? quickSeatDraft), buyInNote: event.target.value, error: undefined }
-                    }))}
-                    placeholder="Buy-in note"
-                  />
-                  <button
-                    className="primary-button"
-                    disabled={!quickSeatCanSubmit(quickSeatDraft)}
-                    onClick={() => {
-                      const selectedOption = quickSeatOptions.find((option) => option.key === quickSeatDraft.sourceId);
-                      seatPlayerAtTable(tableSession, quickSeatDraft.seatNumber, {
-                        playerName: selectedOption?.playerName || '',
-                        profileId: selectedOption?.profileId,
-                        interestId: selectedOption?.interest?.id,
-                        buyInAmount: Number(quickSeatDraft.buyInAmount),
-                        buyInNote: quickSeatDraft.buyInNote
-                      });
-                    }}
-                  >
-                    Seat + Buy-In
-                  </button>
-                  {quickSeatDraft.error ? <span className="quick-seat-error">{quickSeatDraft.error}</span> : null}
-                </div>
-              ) : null}
               <div className="table-view-table">
                 <div className="table-view-live-chat" aria-label="Live Chat">
                   <div className="table-view-panel-title">
@@ -5748,9 +5745,9 @@ function App() {
                     players={pokerTablePlayers}
                     showTimeRemaining={isTimeCollection}
                     maxPlayers={tableSession.maxSeats}
-                    selectedSeatNumber={quickSeatDraft?.seatNumber}
+                    selectedSeatNumber={seatPicker?.sessionId === tableSession.id ? seatPicker.seatNumber : undefined}
                     onSeatClick={(seatNumber) =>
-                      openQuickSeatDraft(tableSession, seatNumber)
+                      openSeatPicker(tableSession, seatNumber)
                     }
                     onAddTime={(playerId, minutes) => {
                       const playerSession = seatedPlayers.find((player) => player.id === playerId);
@@ -5809,7 +5806,7 @@ function App() {
       <header className="topbar">
         <div>
           <div className="eyebrow">{branding.product.tagline}</div>
-          <h1>{branding.product.name}</h1>
+          <img className="brand-logo topbar-logo" src="./orbit-logo.svg" alt={branding.product.name} />
         </div>
         <div className="topbar-actions">
           <span className={`save-status ${saveStatus.state}`}>{saveStatus.message}</span>
@@ -5835,6 +5832,7 @@ function App() {
           </button>
         </div>
       </header>
+      {seatPickerModal}
 
       <section className="minimal-dashboard dashboard-simple">
         <div className="dashboard-main-column">
@@ -5852,8 +5850,6 @@ function App() {
                 const health = getTableHealth(state, session);
                 const seatOptions = getSeatOptions(session.gameId);
                 const seatedPlayers = state.playerSessions.filter((playerSession) => playerSession.tableId === session.id && !playerSession.leftAt);
-                const quickSeatDraft = quickSeatDrafts[session.id];
-                const quickSeatOptions = getQuickSeatOptions(session);
                 const selectedForStart = startPlayerDrafts[session.id] ?? [];
                 const isTimeCollection = session.collectionMode === 'Time' || session.timeFeeBased;
                 const averageStack = getAverageStackForTable(state, session.id);
@@ -5899,7 +5895,7 @@ function App() {
                       <button
                         className="mini-button"
                         onClick={() => {
-                          openQuickSeatDraft(session);
+                          openSeatPicker(session);
                           setCollapsedTables((tables) => ({ ...tables, [session.id]: true }));
                         }}
                         title="Add player to an open seat"
@@ -5930,96 +5926,17 @@ function App() {
                     </div>
                     <div className="table-detail-panel">
                       <div className="seat-help-row">
-                        <span>Click an open seat, select a checked-in player, and record the buy-in.</span>
+                        <span>Click an open seat and choose a player from the club database.</span>
                         <button
                           className="ghost-button"
                           onClick={() => {
-                            openQuickSeatDraft(session);
+                            openSeatPicker(session);
                             setCollapsedTables((tables) => ({ ...tables, [session.id]: true }));
                           }}
                         >
                           Next open seat
                         </button>
                       </div>
-                      {quickSeatDraft ? (
-                        <div className="seat-player-row quick-seat-row">
-                          <strong>{quickSeatDraft.seatNumber ? `Seat ${quickSeatDraft.seatNumber}` : 'Table full'}</strong>
-                          <select
-                            value={quickSeatDraft.sourceId}
-                            disabled={!quickSeatDraft.seatNumber}
-                            onChange={(event: { target: { value: string; }; }) => {
-                              const sourceId = event.target.value;
-                              setQuickSeatDrafts((drafts) => ({
-                                ...drafts,
-                                [session.id]: {
-                                  ...(drafts[session.id] ?? quickSeatDraft),
-                                  sourceId,
-                                  error: undefined
-                                }
-                              }));
-                            }}
-                          >
-                            <option value="">Select checked-in player</option>
-                            {quickSeatOptions.map((option) => (
-                              <option key={option.key} value={option.key}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            value={quickSeatDraft.buyInAmount}
-                            disabled={!quickSeatDraft.seatNumber}
-                            onChange={(event) => setQuickSeatDrafts((drafts) => ({
-                              ...drafts,
-                              [session.id]: { ...(drafts[session.id] ?? quickSeatDraft), buyInAmount: event.target.value, error: undefined }
-                            }))}
-                            placeholder="Buy-in"
-                            type="number"
-                            min="0"
-                            step="1"
-                          />
-                          <input
-                            value={quickSeatDraft.buyInNote}
-                            disabled={!quickSeatDraft.seatNumber}
-                            onChange={(event) => setQuickSeatDrafts((drafts) => ({
-                              ...drafts,
-                              [session.id]: { ...(drafts[session.id] ?? quickSeatDraft), buyInNote: event.target.value, error: undefined }
-                            }))}
-                            placeholder="Buy-in note"
-                          />
-                          <div className="quick-seat-actions">
-                            <button
-                              className="primary-button"
-                              disabled={!quickSeatCanSubmit(quickSeatDraft)}
-                              onClick={() => {
-                                const selectedOption = quickSeatOptions.find((option) => option.key === quickSeatDraft.sourceId);
-                                seatPlayerAtTable(session, quickSeatDraft.seatNumber, {
-                                  playerName: selectedOption?.playerName || '',
-                                  profileId: selectedOption?.profileId,
-                                  interestId: selectedOption?.interest?.id,
-                                  buyInAmount: Number(quickSeatDraft.buyInAmount),
-                                  buyInNote: quickSeatDraft.buyInNote
-                                });
-                              }}
-                            >
-                              Seat + Buy-In
-                            </button>
-                            <button
-                              className="ghost-button"
-                              onClick={() =>
-                                setQuickSeatDrafts((drafts) => {
-                                  const next = { ...drafts };
-                                  delete next[session.id];
-                                  return next;
-                                })
-                              }
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                          {quickSeatDraft.error ? <span className="quick-seat-error">{quickSeatDraft.error}</span> : null}
-                        </div>
-                      ) : null}
                       {session.status !== 'Running' ? (
                         <div className="start-table-panel">
                           <div className="start-table-head">
@@ -6061,9 +5978,9 @@ function App() {
                             players={pokerTablePlayers}
                             showTimeRemaining={isTimeCollection}
                             maxPlayers={session.maxSeats}
-                            selectedSeatNumber={quickSeatDraft?.seatNumber}
+                            selectedSeatNumber={seatPicker?.sessionId === session.id ? seatPicker.seatNumber : undefined}
                             onSeatClick={(seatNumber) =>
-                              openQuickSeatDraft(session, seatNumber)
+                              openSeatPicker(session, seatNumber)
                             }
                             onAddTime={(playerId, minutes) => {
                               const playerSession = seatedPlayers.find((player) => player.id === playerId);

@@ -60,6 +60,7 @@
   "build": {
     "appId": "com.orbit.desktop",
     "productName": "Orbit",
+    "icon": "build/icon.ico",
     "asar": true,
     "directories": {
       "output": "release"
@@ -67,6 +68,8 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "build/icon.ico",
+      "build/icon.png",
       "branding.config.json",
       "package.json",
       "!out/**",
@@ -76,6 +79,7 @@
       "!download-site/downloads/**"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",

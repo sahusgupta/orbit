@@ -126,6 +126,17 @@ button {
   margin-top: 8px;
 }
 
+.brand-logo {
+  display: block;
+  object-fit: contain;
+}
+
+.access-brand-logo {
+  border-radius: 18px;
+  height: clamp(76px, 10vw, 112px);
+  width: clamp(76px, 10vw, 112px);
+}
+
 .access-icon {
   align-items: center;
   background: var(--primary-soft);
@@ -929,6 +940,157 @@ body.low-light .timestamp-grid {
 .seat-help-row span {
   font-size: 0.82rem;
   font-weight: 850;
+}
+
+.topbar-logo {
+  border-radius: 16px;
+  height: clamp(58px, 6vw, 82px);
+  margin-top: 6px;
+  width: clamp(58px, 6vw, 82px);
+}
+
+.seat-picker-backdrop {
+  align-items: center;
+  background: rgba(8, 13, 24, 0.62);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 80;
+}
+
+.seat-picker-modal {
+  background: #f8fafc;
+  border: 1px solid rgba(203, 213, 225, 0.8);
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgba(8, 13, 24, 0.35);
+  display: grid;
+  gap: 14px;
+  max-height: min(760px, calc(100vh - 48px));
+  max-width: 720px;
+  overflow: hidden;
+  padding: 18px;
+  width: min(720px, calc(100vw - 32px));
+}
+
+.seat-picker-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.seat-picker-head span {
+  color: var(--muted);
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 850;
+  margin-bottom: 3px;
+}
+
+.seat-picker-head h2 {
+  font-size: 1.45rem;
+  margin: 0;
+}
+
+.seat-picker-controls {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 160px);
+}
+
+.seat-picker-controls > input,
+.seat-picker-controls label input {
+  width: 100%;
+}
+
+.seat-picker-controls label {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.76rem;
+  font-weight: 900;
+  gap: 5px;
+}
+
+.seat-picker-error {
+  background: rgba(254, 226, 226, 0.8);
+  border: 1px solid rgba(220, 38, 38, 0.22);
+  border-radius: 12px;
+  color: var(--rose);
+  font-size: 0.84rem;
+  font-weight: 850;
+  padding: 9px 11px;
+}
+
+.seat-picker-list {
+  display: grid;
+  gap: 9px;
+  max-height: 500px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.seat-picker-card {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid rgba(203, 213, 225, 0.88);
+  border-radius: 14px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 12px;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  padding: 12px;
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.seat-picker-card:hover {
+  border-color: rgba(74, 92, 214, 0.42);
+  box-shadow: 0 12px 28px rgba(42, 55, 91, 0.12);
+  transform: translateY(-1px);
+}
+
+.seat-picker-avatar {
+  align-items: center;
+  background: var(--primary-soft);
+  border: 1px solid rgba(74, 92, 214, 0.22);
+  border-radius: 12px;
+  color: var(--primary-dark);
+  display: flex;
+  font-weight: 950;
+  height: 44px;
+  justify-content: center;
+  width: 44px;
+}
+
+.seat-picker-card strong,
+.seat-picker-card span,
+.seat-picker-card small {
+  display: block;
+}
+
+.seat-picker-card span,
+.seat-picker-card small {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+
+.seat-picker-card em {
+  background: rgba(237, 242, 248, 0.9);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-style: normal;
+  font-weight: 900;
+  padding: 6px 9px;
 }
 
 .quick-seat-row {

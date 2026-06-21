@@ -1799,10 +1799,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9fafb'
   },
   appBackdrop: {
-    ...StyleSheet.absoluteFill
+    ...StyleSheet.absoluteFillObject
   },
   animatedGradientRoot: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: '#0b1020',
     overflow: 'hidden'
   },
@@ -1814,7 +1814,7 @@ const styles = StyleSheet.create({
     width: '136%'
   },
   orbitPattern: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     opacity: 0.28
   },
   orbitHalo: {
@@ -1864,7 +1864,7 @@ const styles = StyleSheet.create({
     right: 118
   },
   gradientShade: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(16,23,39,0.24)'
   },
   shell: {
@@ -2899,7 +2899,7 @@ const styles = StyleSheet.create({
     position: 'relative'
   },
   liveMap: {
-    ...StyleSheet.absoluteFill
+    ...StyleSheet.absoluteFillObject
   },
   radiusRing: {
     borderColor: 'rgba(56,80,109,0.18)',
