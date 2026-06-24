@@ -39,7 +39,13 @@ app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 
 function getReceivedApiKey(request) {
-  return request.get('x-orbit-api-key') || request.get('authorization')?.replace(/^Bearer\s+/i, '') || request.query.apiKey;
+  return (
+    request.get('x-orbit-api-key') ||
+    request.get('x-orbit-auth-key') ||
+    request.get('x-orbit-client-key') ||
+    request.get('authorization')?.replace(/^Bearer\s+/i, '') ||
+    request.query.apiKey
+  );
 }
 
 function safeEqual(left, right) {
@@ -73,7 +79,11 @@ function requireDashboardAuth(request, response, next) {
   response.status(401).send('Authentication required.');
 }
 
-function requireApiKey(request, response, next) {
+function isPilotAuthorizationCode(value) {
+  return /^TT-PILOT-[A-F0-9]{24}$/i.test(String(value || '').trim());
+}
+
+function requireOwnerApiKey(request, response, next) {
   const configuredKey = process.env.ORBIT_CLIENT_API_KEY;
   if (!configuredKey) {
     response.status(500).json({ ok: false, error: 'ORBIT_CLIENT_API_KEY is not configured.' });
@@ -82,6 +92,34 @@ function requireApiKey(request, response, next) {
   const received = getReceivedApiKey(request);
   if (received !== configuredKey) {
     response.status(401).json({ ok: false, error: 'Invalid API key.' });
+    return;
+  }
+  request.orbitAuth = { type: 'owner-api-key' };
+  next();
+}
+
+function requireClientAuth(request, response, next) {
+  const configuredKey = process.env.ORBIT_CLIENT_API_KEY;
+  const received = getReceivedApiKey(request);
+  if (configuredKey && received === configuredKey) {
+    request.orbitAuth = { type: 'owner-api-key' };
+    next();
+    return;
+  }
+  if (isPilotAuthorizationCode(received)) {
+    request.orbitAuth = {
+      type: 'pilot-key',
+      accountKey: sanitizeAccountKey(received)
+    };
+    next();
+    return;
+  }
+  response.status(401).json({ ok: false, error: 'Invalid API key or pilot authorization code.' });
+}
+
+function blockLatestStateForPilotAuth(request, response, next) {
+  if (request.orbitAuth?.type === 'pilot-key') {
+    response.status(403).json({ ok: false, error: 'Pilot-authenticated clients must request their own venue state.' });
     return;
   }
   next();
@@ -101,21 +139,44 @@ app.get('/health', (_request, response) => {
   });
 });
 
-app.use(['/dashboard', '/dashboard.js', '/dashboard.css', '/dashboard/data', '/dashboard/events'], requireDashboardAuth);
-
-app.get('/dashboard', (_request, response) => {
+app.get('/dashboard', requireDashboardAuth, (_request, response) => {
   response.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));
 });
 
-app.get('/dashboard.js', (_request, response) => {
+app.get('/dashboard.js', requireDashboardAuth, (_request, response) => {
   response.sendFile(path.join(__dirname, '..', 'public', 'dashboard.js'));
 });
 
-app.get('/dashboard.css', (_request, response) => {
+app.get('/dashboard.css', requireDashboardAuth, (_request, response) => {
   response.sendFile(path.join(__dirname, '..', 'public', 'dashboard.css'));
 });
 
-app.use(requireApiKey);
+app.get('/dashboard/data', requireDashboardAuth, (_request, response) => {
+  response.json({
+    ok: true,
+    summary: getTelemetrySummary(),
+    clients: listClients(),
+    venues: listVenues(),
+    events: listTelemetryEvents({ limit: 200 }),
+    errors: listClientErrors({ limit: 100 })
+  });
+});
+
+app.get('/dashboard/events', requireDashboardAuth, (request, response) => {
+  response.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-store',
+    connection: 'keep-alive',
+    'access-control-allow-origin': '*'
+  });
+  response.write(`event: ready\ndata: ${JSON.stringify({ ok: true, startedAt })}\n\n`);
+  liveClients.add(response);
+  request.on('close', () => {
+    liveClients.delete(response);
+  });
+});
+
+app.use(requireClientAuth);
 
 function broadcastLive(type, payload) {
   const body = `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`;
@@ -149,11 +210,11 @@ app.post('/clients/error', asyncRoute(async (request, response) => {
   response.status(202).json({ ok: true, error });
 }));
 
-app.get('/clients', (_request, response) => {
+app.get('/clients', requireOwnerApiKey, (_request, response) => {
   response.json({ ok: true, clients: listClients() });
 });
 
-app.get('/clients/:deviceId', (request, response) => {
+app.get('/clients/:deviceId', requireOwnerApiKey, (request, response) => {
   const client = getClient(request.params.deviceId);
   if (!client) {
     response.status(404).json({ ok: false, error: 'Client not found.' });
@@ -162,7 +223,7 @@ app.get('/clients/:deviceId', (request, response) => {
   response.json({ ok: true, client, updateEvents: listClientUpdateEvents(request.params.deviceId) });
 });
 
-app.get('/telemetry/events', (request, response) => {
+app.get('/telemetry/events', requireOwnerApiKey, (request, response) => {
   response.json({
     ok: true,
     events: listTelemetryEvents({
@@ -173,7 +234,7 @@ app.get('/telemetry/events', (request, response) => {
   });
 });
 
-app.get('/telemetry/errors', (request, response) => {
+app.get('/telemetry/errors', requireOwnerApiKey, (request, response) => {
   response.json({
     ok: true,
     errors: listClientErrors({
@@ -184,36 +245,11 @@ app.get('/telemetry/errors', (request, response) => {
   });
 });
 
-app.get('/dashboard/data', (_request, response) => {
-  response.json({
-    ok: true,
-    summary: getTelemetrySummary(),
-    clients: listClients(),
-    venues: listVenues(),
-    events: listTelemetryEvents({ limit: 200 }),
-    errors: listClientErrors({ limit: 100 })
-  });
-});
-
-app.get('/dashboard/events', (request, response) => {
-  response.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-store',
-    connection: 'keep-alive',
-    'access-control-allow-origin': '*'
-  });
-  response.write(`event: ready\ndata: ${JSON.stringify({ ok: true, startedAt })}\n\n`);
-  liveClients.add(response);
-  request.on('close', () => {
-    liveClients.delete(response);
-  });
-});
-
-app.get('/venues', (_request, response) => {
+app.get('/venues', requireOwnerApiKey, (_request, response) => {
   response.json({ ok: true, venues: listVenues() });
 });
 
-app.get('/venues/:venueId/clients', (request, response) => {
+app.get('/venues/:venueId/clients', requireOwnerApiKey, (request, response) => {
   response.json({ ok: true, clients: listClients({ venueId: request.params.venueId }) });
 });
 
@@ -222,7 +258,7 @@ app.post('/state', asyncRoute(async (request, response) => {
   response.status(201).json({ ok: true, ...result });
 }));
 
-app.get('/state/latest', (request, response) => {
+app.get('/state/latest', blockLatestStateForPilotAuth, (request, response) => {
   const record = loadLatestState();
   if (!record) {
     response.status(404).json({ ok: false, error: 'No venue state found.' });
