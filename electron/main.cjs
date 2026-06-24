@@ -36,6 +36,8 @@ let clientHeartbeatTimer;
 let cachedDeviceId;
 let lastUpdateStatus = '';
 let lastUpdateEvent = '';
+let appStartedAt = new Date().toISOString();
+let lastUpdateProgressBucket = -1;
 
 function isRecord(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
@@ -278,6 +280,30 @@ function sendClientHeartbeat(overrides = {}) {
   postClientTelemetry('/clients/heartbeat', buildClientTelemetryPayload(overrides));
 }
 
+function sendClientEvent(event, category = 'usage', details = {}, overrides = {}) {
+  postClientTelemetry('/clients/event', buildClientTelemetryPayload({
+    event,
+    category,
+    details,
+    occurredAt: new Date().toISOString(),
+    ...overrides
+  }));
+}
+
+function sendClientError(error, source = 'main', details = {}) {
+  const message = error instanceof Error ? error.message : String(error || 'Unknown error');
+  const stack = details.rendererStack || (error instanceof Error ? error.stack || '' : '');
+  postClientTelemetry('/clients/error', buildClientTelemetryPayload({
+    message,
+    stack,
+    source,
+    route: details.route || '',
+    details,
+    occurredAt: new Date().toISOString(),
+    lastError: message
+  }));
+}
+
 function sendClientUpdateEvent(updateEvent, updateStatus, details = {}) {
   lastUpdateEvent = updateEvent;
   lastUpdateStatus = updateStatus;
@@ -291,6 +317,11 @@ function sendClientUpdateEvent(updateEvent, updateStatus, details = {}) {
 
 function startClientTelemetry() {
   sendClientHeartbeat();
+  sendClientEvent('app-opened', 'lifecycle', {
+    packaged: app.isPackaged,
+    startedAt: appStartedAt,
+    locale: app.getLocale()
+  });
   clientHeartbeatTimer = setInterval(() => sendClientHeartbeat(), 5 * 60 * 1000);
 }
 
@@ -1141,13 +1172,23 @@ function startAutoUpdates() {
     broadcastUpdateStatus({ state: 'current', version: info.version });
   });
   autoUpdater.on('download-progress', (progress) => {
+    const progressBucket = Math.floor(Math.round(progress.percent ?? 0) / 25);
+    if (progressBucket !== lastUpdateProgressBucket) {
+      lastUpdateProgressBucket = progressBucket;
+      sendClientEvent('update-download-progress', 'update', { percent: Math.round(progress.percent ?? 0) });
+    }
     broadcastUpdateStatus({ state: 'downloading', percent: Math.round(progress.percent ?? 0) });
   });
   autoUpdater.on('update-downloaded', (info) => {
+    lastUpdateProgressBucket = -1;
     sendClientUpdateEvent('update-downloaded', 'downloaded', { version: info.version });
     broadcastUpdateStatus({ state: 'downloaded', version: info.version });
   });
+  autoUpdater.on('before-quit-for-update', () => {
+    sendClientEvent('update-installing', 'update', { updateStatus: lastUpdateStatus, updateEvent: lastUpdateEvent });
+  });
   autoUpdater.on('error', (error) => {
+    lastUpdateProgressBucket = -1;
     const message = error instanceof Error ? error.message : 'Update check failed.';
     sendClientUpdateEvent('update-error', 'error', { message });
     broadcastUpdateStatus({ state: 'error', message });
@@ -1181,6 +1222,23 @@ ipcMain.handle('get-backend-status', async () =>
 );
 
 ipcMain.handle('submit-analytical-report', (_event, report) => submitAnalyticalReportApiFirst(report));
+
+ipcMain.handle('record-client-event', (_event, event, category, details, route) => {
+  sendClientEvent(event, category, details, { route });
+  return { ok: true };
+});
+
+ipcMain.handle('record-client-error', (_event, payload = {}) => {
+  sendClientError(new Error(payload.message || 'Renderer error'), payload.source || 'renderer', {
+    route: payload.route || '',
+    filename: payload.filename || '',
+    line: payload.line || 0,
+    column: payload.column || 0,
+    details: payload.details || null,
+    rendererStack: payload.stack || ''
+  });
+  return { ok: true };
+});
 
 function loadRoute(window, route) {
   if (isDev) {
@@ -1242,6 +1300,18 @@ function createWindow(route = 'floor') {
     }
   });
 
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    sendClientError(new Error(`Renderer process gone: ${details.reason}`), 'renderer-process', {
+      route,
+      reason: details.reason,
+      exitCode: details.exitCode
+    });
+  });
+
+  mainWindow.webContents.on('unresponsive', () => {
+    sendClientError(new Error('Renderer window became unresponsive'), 'renderer-process', { route });
+  });
+
   mainWindow.on('closed', () => {
     windows.delete(route);
   });
@@ -1257,6 +1327,7 @@ function createWindow(route = 'floor') {
 }
 
 app.whenReady().then(() => {
+  appStartedAt = new Date().toISOString();
   if (process.env.ORBIT_ENABLE_EMBEDDED_BACKEND === 'true') {
     startEmbeddedBackend();
   }
@@ -1302,6 +1373,11 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  sendClientEvent('app-closed', 'lifecycle', {
+    startedAt: appStartedAt,
+    uptimeSeconds: Math.round(process.uptime()),
+    openWindowCount: BrowserWindow.getAllWindows().length
+  });
   if (clientHeartbeatTimer) {
     clearInterval(clientHeartbeatTimer);
     clientHeartbeatTimer = undefined;
@@ -1318,5 +1394,13 @@ app.on('before-quit', () => {
     database.close();
     database = undefined;
   }
+});
+
+process.on('uncaughtException', (error) => {
+  sendClientError(error, 'main-uncaught-exception');
+});
+
+process.on('unhandledRejection', (reason) => {
+  sendClientError(reason instanceof Error ? reason : new Error(String(reason)), 'main-unhandled-rejection');
 });
 

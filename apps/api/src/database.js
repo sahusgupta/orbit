@@ -60,6 +60,41 @@ function getDatabase() {
       FOREIGN KEY (device_id) REFERENCES clients(device_id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS client_telemetry_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id TEXT NOT NULL,
+      venue_id TEXT NOT NULL,
+      event TEXT NOT NULL,
+      category TEXT NOT NULL,
+      route TEXT,
+      app_version TEXT,
+      platform TEXT,
+      details_json TEXT,
+      occurred_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS client_telemetry_events_occurred_at_idx ON client_telemetry_events (occurred_at);
+    CREATE INDEX IF NOT EXISTS client_telemetry_events_venue_id_idx ON client_telemetry_events (venue_id);
+
+    CREATE TABLE IF NOT EXISTS client_errors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id TEXT NOT NULL,
+      venue_id TEXT NOT NULL,
+      message TEXT NOT NULL,
+      source TEXT,
+      route TEXT,
+      stack TEXT,
+      app_version TEXT,
+      platform TEXT,
+      details_json TEXT,
+      occurred_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS client_errors_occurred_at_idx ON client_errors (occurred_at);
+    CREATE INDEX IF NOT EXISTS client_errors_venue_id_idx ON client_errors (venue_id);
+
     CREATE TABLE IF NOT EXISTS account_state (
       account_key TEXT PRIMARY KEY,
       venue_name TEXT,
@@ -179,7 +214,66 @@ function recordUpdateEvent(payload) {
     payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now,
     now
   );
+  recordTelemetryEvent({
+    ...payload,
+    event,
+    category: 'update',
+    details: payload.details || { status: payload.updateStatus || '' }
+  });
   return client;
+}
+
+function recordTelemetryEvent(payload) {
+  const client = upsertClient(payload);
+  const event = String(payload.event || payload.action || '').trim();
+  if (!event) throw new Error('event is required.');
+  const now = new Date().toISOString();
+  const occurredAt = payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now;
+  getDatabase().prepare(`
+    INSERT INTO client_telemetry_events (
+      device_id, venue_id, event, category, route, app_version, platform, details_json, occurred_at, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    client.deviceId,
+    client.venueId,
+    event,
+    String(payload.category || 'usage').trim(),
+    String(payload.route || '').trim(),
+    String(payload.appVersion || client.appVersion || '').trim(),
+    String(payload.platform || client.platform || '').trim(),
+    payload.details ? JSON.stringify(payload.details) : null,
+    occurredAt,
+    now
+  );
+  return listTelemetryEvents({ limit: 1 })[0];
+}
+
+function recordClientError(payload) {
+  const client = upsertClient({ ...payload, lastError: payload.message || payload.error || payload.lastError || '' });
+  const message = String(payload.message || payload.error || payload.lastError || '').trim();
+  if (!message) throw new Error('message is required.');
+  const now = new Date().toISOString();
+  const occurredAt = payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now;
+  getDatabase().prepare(`
+    INSERT INTO client_errors (
+      device_id, venue_id, message, source, route, stack, app_version, platform, details_json, occurred_at, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    client.deviceId,
+    client.venueId,
+    message.slice(0, 2000),
+    String(payload.source || '').trim(),
+    String(payload.route || '').trim(),
+    String(payload.stack || '').slice(0, 8000),
+    String(payload.appVersion || client.appVersion || '').trim(),
+    String(payload.platform || client.platform || '').trim(),
+    payload.details ? JSON.stringify(payload.details) : null,
+    occurredAt,
+    now
+  );
+  return listClientErrors({ limit: 1 })[0];
 }
 
 function mapClientRow(row) {
@@ -236,6 +330,96 @@ function listClientUpdateEvents(deviceId) {
       occurredAt: row.occurred_at,
       createdAt: row.created_at
     }));
+}
+
+function listTelemetryEvents(filters = {}) {
+  const params = [];
+  const where = [];
+  if (filters.venueId) {
+    where.push('venue_id = ?');
+    params.push(sanitizeAccountKey(filters.venueId));
+  }
+  if (filters.deviceId) {
+    where.push('device_id = ?');
+    params.push(String(filters.deviceId || '').trim());
+  }
+  const limit = Math.min(Math.max(Number(filters.limit || 200), 1), 1000);
+  return getDatabase()
+    .prepare(`
+      SELECT * FROM client_telemetry_events
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY occurred_at DESC
+      LIMIT ${limit}
+    `)
+    .all(...params)
+    .map((row) => ({
+      id: row.id,
+      deviceId: row.device_id,
+      venueId: row.venue_id,
+      event: row.event,
+      category: row.category,
+      route: row.route || '',
+      appVersion: row.app_version || '',
+      platform: row.platform || '',
+      details: row.details_json ? JSON.parse(row.details_json) : null,
+      occurredAt: row.occurred_at,
+      createdAt: row.created_at
+    }));
+}
+
+function listClientErrors(filters = {}) {
+  const params = [];
+  const where = [];
+  if (filters.venueId) {
+    where.push('venue_id = ?');
+    params.push(sanitizeAccountKey(filters.venueId));
+  }
+  if (filters.deviceId) {
+    where.push('device_id = ?');
+    params.push(String(filters.deviceId || '').trim());
+  }
+  const limit = Math.min(Math.max(Number(filters.limit || 100), 1), 500);
+  return getDatabase()
+    .prepare(`
+      SELECT * FROM client_errors
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY occurred_at DESC
+      LIMIT ${limit}
+    `)
+    .all(...params)
+    .map((row) => ({
+      id: row.id,
+      deviceId: row.device_id,
+      venueId: row.venue_id,
+      message: row.message,
+      source: row.source || '',
+      route: row.route || '',
+      stack: row.stack || '',
+      appVersion: row.app_version || '',
+      platform: row.platform || '',
+      details: row.details_json ? JSON.parse(row.details_json) : null,
+      occurredAt: row.occurred_at,
+      createdAt: row.created_at
+    }));
+}
+
+function getTelemetrySummary() {
+  const db = getDatabase();
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const clients = listClients();
+  const activeClients24h = clients.filter((client) => client.lastSeenAt >= since24h).length;
+  const eventCountRow = db.prepare('SELECT COUNT(*) AS count FROM client_telemetry_events').get();
+  const errorCountRow = db.prepare('SELECT COUNT(*) AS count FROM client_errors').get();
+  const tableStarts24h = db
+    .prepare("SELECT COUNT(*) AS count FROM client_telemetry_events WHERE event = 'table-started' AND occurred_at >= ?")
+    .get(since24h);
+  return {
+    clients: clients.length,
+    activeClients24h,
+    events: Number(eventCountRow?.count || 0),
+    errors: Number(errorCountRow?.count || 0),
+    tableStarts24h: Number(tableStarts24h?.count || 0)
+  };
 }
 
 function saveState(state) {
@@ -347,10 +531,15 @@ module.exports = {
   getClient,
   getDatabasePath,
   listClients,
+  listClientErrors,
   listClientUpdateEvents,
+  listTelemetryEvents,
   listVenues,
   loadLatestState,
   loadState,
+  getTelemetrySummary,
+  recordClientError,
+  recordTelemetryEvent,
   recordUpdateEvent,
   saveState,
   storeAnalyticalReport,
