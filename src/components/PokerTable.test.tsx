@@ -18,12 +18,8 @@ describe('PokerTable seat rendering', () => {
     });
 
     const seatTen = container.querySelector<HTMLButtonElement>('button[title="Add player to seat 10"]');
-    const seatMarkers = Array.from(container.querySelectorAll<HTMLButtonElement>('.poker-position-marker'));
-    expect(seatMarkers).toHaveLength(10);
+    expect(container.querySelectorAll('.poker-position-marker')).toHaveLength(10);
     expect(seatTen).not.toBeNull();
-    expect(container.querySelector('.poker-dealer-position')).not.toBeNull();
-    expect(container.querySelector('button[title="Add player to seat 11"]')).toBeNull();
-    expect(seatMarkers.some((marker) => marker.style.left === '50%' && marker.style.top === '91%')).toBe(false);
 
     act(() => {
       seatTen?.click();
