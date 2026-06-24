@@ -1,17 +1,17 @@
 {
   "product": {
-    "name": "TableTalk",
-    "tagline": "",
-    "description": "Desktop poker room coordination system for game formation, waitlists, and occupied seat-hour tracking.",
-    "pilotReportName": "TableTalk Pilot Report"
+    "name": "Orbit",
+    "tagline": "Live Poker, Connected.",
+    "description": "The operating system for live poker: connecting players, games, and card rooms with real-time demand, waitlist, table, rewards, and tournament visibility.",
+    "pilotReportName": "Orbit Pilot Report"
   },
   "desktop": {
-    "appId": "com.tabletalk.desktop",
-    "productName": "TableTalk",
-    "author": "TableTalk",
-    "backgroundColor": "#f5f2ec",
+    "appId": "com.orbit.desktop",
+    "productName": "Orbit",
+    "author": "Orbit",
+    "backgroundColor": "#0B1020",
     "windowTitles": {
-      "floor": "TableTalk",
+      "floor": "Orbit",
       "builder": "Build a Table",
       "profiles": "Profiles",
       "signals": "Interest Signals",
@@ -24,25 +24,25 @@
   "theme": {
     "fontFamily": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
     "default": {
-      "ink": "#172033",
-      "muted": "#667085",
-      "canvas": "#eef3fb",
+      "ink": "#0B1020",
+      "muted": "#64748B",
+      "canvas": "#F9FAFB",
       "panel": "rgba(255, 255, 255, 0.94)",
       "panelSolid": "#ffffff",
-      "line": "#dfe7f2",
-      "lineStrong": "#ccd8e8",
-      "primary": "#3346a8",
-      "primaryDark": "#25347c",
-      "primarySoft": "#e8ecff",
-      "teal": "#0f766e",
-      "tealSoft": "#e4f7f4",
-      "amber": "#b86b16",
-      "amberSoft": "#fff1dc",
+      "line": "#E2E8F0",
+      "lineStrong": "#CBD5E1",
+      "primary": "#4D7CFE",
+      "primaryDark": "#0B1020",
+      "primarySoft": "#EEF3FF",
+      "teal": "#2563EB",
+      "tealSoft": "#DBEAFE",
+      "amber": "#8B5CF6",
+      "amberSoft": "#F3E8FF",
       "rose": "#a33a3a",
       "roseSoft": "#fee7e7",
-      "backgroundStart": "#f7f9fe",
-      "backgroundAccentPrimary": "rgba(51, 70, 168, 0.11)",
-      "backgroundAccentSecondary": "rgba(15, 118, 110, 0.09)"
+      "backgroundStart": "#FFFFFF",
+      "backgroundAccentPrimary": "rgba(77, 124, 254, 0.12)",
+      "backgroundAccentSecondary": "rgba(139, 92, 246, 0.1)"
     },
     "lowLight": {
       "ink": "#e7ecf8",
@@ -52,29 +52,31 @@
       "panelSolid": "#151f33",
       "line": "#2b3853",
       "lineStrong": "#3d4b68",
-      "primary": "#8ea2ff",
-      "primaryDark": "#c7d2fe",
-      "primarySoft": "#243150",
-      "teal": "#7dd3c7",
-      "tealSoft": "#163f3c",
-      "amber": "#f8c06a",
-      "amberSoft": "#473318",
+      "primary": "#7DA0FF",
+      "primaryDark": "#DBEAFE",
+      "primarySoft": "#172554",
+      "teal": "#93C5FD",
+      "tealSoft": "#172554",
+      "amber": "#C4B5FD",
+      "amberSoft": "#2E1065",
       "rose": "#fda4af",
       "roseSoft": "#4b1f2a",
       "backgroundStart": "#111827",
-      "backgroundAccentPrimary": "rgba(142, 162, 255, 0.12)",
-      "backgroundAccentSecondary": "rgba(125, 211, 199, 0.1)"
+      "backgroundAccentPrimary": "rgba(77, 124, 254, 0.14)",
+      "backgroundAccentSecondary": "rgba(139, 92, 246, 0.12)"
     }
   },
   "language": {
     "preferredTerms": [
-      "coordination",
-      "visibility",
+      "connected operations",
+      "live visibility",
       "game formation",
-      "wait reduction",
+      "demand management",
+      "waitlist flow",
       "occupied seat-hours",
       "likely participant",
-      "table fit"
+      "table fit",
+      "player network"
     ],
     "blockedTerms": [
       "fish",

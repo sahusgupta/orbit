@@ -47,11 +47,11 @@ if (!installer && !zip) {
 }
 
 const manifest = {
-  productName: 'TableTalk',
+  productName: 'Orbit',
   version: packageJson.version,
   generatedAt: new Date().toISOString(),
-  installer: copyArtifact(installer, 'TableTalk-Setup.exe'),
-  zip: copyArtifact(zip, 'TableTalk-Windows-x64.zip')
+  installer: copyArtifact(installer, 'Orbit-Setup.exe'),
+  zip: copyArtifact(zip, 'Orbit-Windows-x64.zip')
 };
 
 fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);

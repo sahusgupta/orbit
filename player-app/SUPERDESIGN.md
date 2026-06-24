@@ -1,6 +1,6 @@
-# TableTalk Player Design Philosophy
+# Orbit Player Design Philosophy
 
-TableTalk Player is designed as a calm, mobile-first companion for poker players who want to find games, understand club activity, manage memberships, and join waitlists without feeling like they are using a casino dashboard. The visual language should feel clear, local, and trustworthy: closer to a premium coordination tool than a betting product.
+Orbit Player is designed as a calm, mobile-first companion for poker players who want to find games, understand club activity, manage memberships, and join waitlists without feeling like they are using a casino dashboard. The visual language should feel clear, local, and trustworthy: closer to a premium coordination tool than a betting product.
 
 The app should communicate three things at a glance:
 
@@ -34,39 +34,39 @@ The app uses rounded cards, pill buttons, animated press feedback, bottom tabs, 
 
 ## Core Color Scheme
 
-The player app uses a light, cool palette built around navy, teal, white glass surfaces, and selective warm accents.
+The player app uses a clean Orbit palette built around deep navy, electric blue, violet, white surfaces, and quiet slate neutrals.
 
 | Role | Color | Use |
 | --- | --- | --- |
-| Ink | `#102033` | Primary text, active tab text, important labels. |
-| Muted | `#667085` | Secondary text, supporting details, placeholders. |
-| Canvas | `#edf2f7` | Base screen background. |
-| Panel | `#fbfdff` | Solid card and account surfaces. |
-| Line | `#d8e1ea` | Borders, input outlines, dividers. |
-| Primary | `#17324f` | Main actions, home/club pins, hero surfaces. |
-| Primary Dark | `#10233a` | Deep text accents, shadows, progress fills. |
-| Primary Soft | `#e7eef8` | Soft buttons, badges, avatars, sync panels. |
-| Teal | `#0f766e` | Positive/active states, joined clubs, progress, eyebrow labels. |
-| Teal Soft | `#dff4ef` | Active tabs, preference bands, open/available states. |
-| Amber | `#b56a18` | Selected map pins and attention states. |
-| Amber Soft | `#fff0da` | Pending/waitlist/status pill backgrounds. |
-| Coral | `#c2413d` | Destructive or warning accents, used sparingly. |
+| Ink | `#0B1020` | Primary text, active tab text, important labels. |
+| Muted | `#64748B` | Secondary text, supporting details, placeholders. |
+| Canvas | `#F9FAFB` | Base screen background. |
+| Panel | `#FFFFFF` | Solid card and account surfaces. |
+| Line | `rgba(100,116,139,0.16)` | Borders, input outlines, dividers. |
+| Primary | `#4D7CFE` | Main actions, home/club pins, hero surfaces. |
+| Primary Dark | `#0B1020` | Deep text accents, shadows, progress fills. |
+| Primary Soft | `#EEF3FF` | Soft buttons, badges, avatars, sync panels. |
+| Blue | `#2563EB` | Positive/active states, joined clubs, progress, eyebrow labels. |
+| Blue Soft | `#DBEAFE` | Active tabs, preference bands, open/available states. |
+| Violet | `#8B5CF6` | Selected map pins and attention states. |
+| Violet Soft | `#F3E8FF` | Pending/waitlist/status pill backgrounds. |
+| Red | `#DC2626` | Destructive or warning accents, used sparingly. |
 
 ## Backgrounds
 
 The app should remain light by default. Main screens use a subtle gradient:
 
 ```text
-#f8fbff -> #eef7f3 -> #e7eef8
+#ffffff -> #f9fafb -> #eef3ff
 ```
 
 Onboarding uses a slightly brighter version:
 
 ```text
-#f9fbff -> #eef7f3 -> #f2f5fb
+#0B1020 -> #1E3A8A -> #4D7CFE
 ```
 
-These gradients should stay quiet. They are atmospheric support for white panels and navy/teal accents, not the visual centerpiece.
+These gradients should stay quiet. They are atmospheric support for white panels and Orbit blue/violet accents, not the visual centerpiece.
 
 ## Surface Language
 
@@ -78,24 +78,24 @@ Most app content lives on translucent white panels:
 - Onboarding step surfaces: `rgba(255,255,255,0.96)`
 - Inputs and chips: `rgba(255,255,255,0.92)`
 
-Borders are usually soft white or `#d8e1ea`. Shadows are navy-tinted with low opacity, creating elevation without heaviness. Rounded corners are generous on mobile: 18-30px for cards and panels, 999px for pills.
+Borders are usually soft white or `rgba(100,116,139,0.16)`. Shadows are navy-tinted with low opacity, creating elevation without heaviness. Rounded corners are generous on mobile: 18-30px for cards and panels, 999px for pills.
 
 ## Typography
 
 The app uses system-native sans-serif typography with a strong weight scale. Headings and key metrics are heavy and compact; supporting text is smaller, muted, and still fairly bold for readability on mobile.
 
 - Screen titles are large, dark, and heavy.
-- Eyebrows are teal, uppercase, and concise.
+- Eyebrows are Orbit blue, uppercase, and concise.
 - Card titles are bold and direct.
 - Status and pill text uses high font weight to remain legible at small sizes.
 - Letter spacing should remain `0`; the current style depends on weight and color, not tracking.
 
 ## Interaction Color Rules
 
-Primary actions use a navy-to-teal gradient:
+Primary actions use a navy-to-blue gradient:
 
 ```text
-#17324f -> #23645d
+#0B1020 -> #4D7CFE
 ```
 
 Disabled actions shift to slate:
@@ -104,7 +104,7 @@ Disabled actions shift to slate:
 #94a3b8 -> #7f8ea3
 ```
 
-Active selections usually use soft teal backgrounds with dark navy text. Pending or waitlist states use soft amber. Warning/destructive cues may use coral, but should not dominate the screen.
+Active selections usually use soft blue backgrounds with dark navy text. Pending or waitlist states use soft violet. Warning/destructive cues may use red, but should not dominate the screen.
 
 ## Components
 

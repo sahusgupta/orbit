@@ -53,7 +53,7 @@ export function readBackupEnvelope<TState = unknown>(input: unknown): BackupEnve
     return createBackupEnvelope(record as TState);
   }
 
-  throw new Error('Backup file does not look like a TableManager backup.');
+  throw new Error('Backup file does not look like an Orbit backup.');
 }
 
 type GameLookupItem = {

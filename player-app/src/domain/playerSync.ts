@@ -101,6 +101,11 @@ export type PlayerClubMembershipRecord = {
 export type PlayerProfileDocument = PlayerAccount & {
   uid: string;
   clubMemberships?: Record<string, PlayerClubMembershipRecord>;
+  premium?: {
+    status?: 'inactive' | 'pending' | 'active' | 'past_due' | 'canceled';
+    currentPeriodEnd?: string;
+  };
+  subscriptionStatus?: 'inactive' | 'pending' | 'active' | 'past_due' | 'canceled';
   updatedAt?: string;
 };
 
@@ -135,7 +140,7 @@ export type PlayerPrivateGameListing = {
   hostPlayerId: string;
   hostPlayerPath: string;
   hostPlayerName: string;
-  hostPlayerEmail: string;
+  hostPlayerEmail?: string;
   createdAt: string;
   status: 'Open' | 'Cancelled' | 'Closed';
 };

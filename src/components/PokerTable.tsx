@@ -84,7 +84,7 @@ function PlayerCard({ player, position, totalPositions, showTimeRemaining, isOpe
   const timeRemainingDisplay = formatDuration(timeRemainingSeconds);
   const timerStatus = getTimerStatusFromSeconds(timeRemainingSeconds);
   const isDense = totalPositions >= 8;
-  const seat = getSeatPosition(player.seatNumber ?? position + 1);
+  const seat = getSeatPosition(player.seatNumber ?? position + 1, totalPositions);
   const menuPositionClass = [
     seat.y > 58 ? 'above' : 'below',
     seat.x < 24 ? 'align-left' : seat.x > 76 ? 'align-right' : 'align-center'
@@ -209,12 +209,12 @@ function PlayerCard({ player, position, totalPositions, showTimeRemaining, isOpe
   );
 }
 
-const seatAngles = [125, 155, 185, 215, 245, 275, 305, 335, 25, 55];
-
-const getSeatPosition = (seatNumber: number) => {
-  const angle = (seatAngles[Math.max(1, Math.min(10, seatNumber)) - 1] * Math.PI) / 180;
+const getSeatPosition = (seatNumber: number, totalPositions: number) => {
+  const safeTotal = Math.max(1, totalPositions);
+  const normalizedSeat = Math.max(1, Math.min(safeTotal, seatNumber));
+  const angle = ((normalizedSeat - 1) / safeTotal) * Math.PI * 2 - Math.PI / 2;
   return {
-    x: 50 + 48 * Math.cos(angle),
+    x: 50 + 47 * Math.cos(angle),
     y: 50 + 41 * Math.sin(angle)
   };
 };
@@ -230,11 +230,12 @@ export default function PokerTable({
   onRemovePlayer
 }: PokerTableProps) {
   const [openPlayerId, setOpenPlayerId] = useState<string | null>(null);
-  const seatCount = Math.max(1, Math.min(10, maxPlayers));
+  const seatCount = Math.max(1, maxPlayers);
+  const tablePositionCount = seatCount + 1;
   const isDense = seatCount >= 8;
   const occupiedSeatNumbers = new Set(players.map((player, index) => player.seatNumber ?? index + 1));
   const orderedPlayers = [...players]
-    .slice(0, seatCount)
+    .filter((player, index) => (player.seatNumber ?? index + 1) <= seatCount)
     .sort((a, b) => (a.seatNumber ?? 99) - (b.seatNumber ?? 99));
 
   return (
@@ -251,7 +252,7 @@ export default function PokerTable({
 
                 {Array.from({ length: seatCount }).map((_, i) => {
                   const seatNumber = i + 1;
-                  const marker = getSeatPosition(i + 1);
+                  const marker = getSeatPosition(seatNumber, tablePositionCount);
                   const occupied = occupiedSeatNumbers.has(seatNumber);
                   return (
                     <button
@@ -279,7 +280,7 @@ export default function PokerTable({
             key={player.id}
             player={player}
             position={index}
-            totalPositions={seatCount}
+            totalPositions={tablePositionCount}
             showTimeRemaining={showTimeRemaining}
             isOpen={openPlayerId === player.id}
             onToggle={() => setOpenPlayerId((current) => (current === player.id ? null : player.id))}

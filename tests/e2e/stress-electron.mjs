@@ -96,16 +96,33 @@ async function quickAdd(page, playerName, gameName, status = 'Arrived') {
   await expect(page.locator('.waitlist-card').filter({ hasText: playerName })).toContainText(gameName);
 }
 
+async function pickStartPlayer(tableCard, playerName, selectedCount) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const checkbox = tableCard.locator('.player-pick-row').filter({ hasText: playerName }).locator('input[type="checkbox"]');
+      await checkbox.check({ force: true, timeout: 5000 });
+      await expect(tableCard.locator('.start-table-head')).toContainText(`${selectedCount}/`, { timeout: 5000 });
+      return;
+    } catch (error) {
+      if (attempt === 4) throw error;
+      await tableCard.locator('.start-table-panel').waitFor({ timeout: 5000 });
+    }
+  }
+}
+
 async function startGame(page, gameName, playerNames) {
   await clickPanel(page, 'Forming Games');
   const gameCard = page.locator('.forming-card').filter({ hasText: gameName });
   await gameCard.getByRole('button', { name: 'Form' }).click();
-  await gameCard.locator('summary', { hasText: 'Players' }).click();
-  for (const playerName of playerNames) {
-    await gameCard.locator('.player-pick-row').filter({ hasText: playerName }).locator('input[type="checkbox"]').check();
-  }
-  await gameCard.getByRole('button', { name: 'Select + Start' }).click();
   const tableCard = page.locator('.active-game-card').filter({ hasText: gameName });
+  await expect(tableCard.locator('.start-table-panel')).toBeVisible();
+  const selectedText = await tableCard.locator('.start-table-head').innerText();
+  if (!selectedText.includes(`${playerNames.length}/`)) {
+    for (const [index, playerName] of playerNames.entries()) {
+      await pickStartPlayer(tableCard, playerName, index + 1);
+    }
+  }
+  await tableCard.getByRole('button', { name: 'Start with selected' }).click();
   await expect(tableCard).toContainText('Running');
   await openTable(tableCard);
   for (const playerName of playerNames) {
@@ -144,6 +161,12 @@ async function main() {
       targetPage.on('pageerror', (error) => errors.push(error.message));
       targetPage.on('console', (message) => {
         if (message.type() === 'error') errors.push(message.text());
+      });
+      targetPage.on('requestfailed', (request) => {
+        const failure = request.failure();
+        if (failure?.errorText?.includes('ERR_FILE_NOT_FOUND')) {
+          errors.push(`${failure.errorText}: ${request.url()}`);
+        }
       });
     };
     attachErrorListeners(page);
