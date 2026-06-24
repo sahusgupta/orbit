@@ -56,7 +56,7 @@ describe('backup envelopes', () => {
   });
 
   it('rejects unrelated JSON', () => {
-    expect(() => readBackupEnvelope({ hello: 'world' })).toThrow(/TableManager backup/);
+    expect(() => readBackupEnvelope({ hello: 'world' })).toThrow(/Orbit backup/);
   });
 });
 

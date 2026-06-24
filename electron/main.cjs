@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const nodemailer = require('nodemailer');
+const os = require('os');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 const branding = require('../branding.config.json');
@@ -31,6 +32,12 @@ let database;
 let embeddedBackend;
 let embeddedBackendStatus = { running: false, host: '127.0.0.1', port: 0, reportCount: 0 };
 let updateCheckTimer;
+let clientHeartbeatTimer;
+let cachedDeviceId;
+let lastUpdateStatus = '';
+let lastUpdateEvent = '';
+let appStartedAt = new Date().toISOString();
+let lastUpdateProgressBucket = -1;
 
 function isRecord(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
@@ -63,6 +70,35 @@ function getDataPath() {
   return path.join(app.getPath('userData'), 'tablemanager.sqlite3');
 }
 
+function getDeviceIdPath() {
+  return path.join(app.getPath('userData'), 'orbit-device.json');
+}
+
+function getOrCreateDeviceId() {
+  if (cachedDeviceId) return cachedDeviceId;
+  const filePath = getDeviceIdPath();
+  try {
+    if (fs.existsSync(filePath)) {
+      const record = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      if (record?.deviceId) {
+        cachedDeviceId = String(record.deviceId);
+        return cachedDeviceId;
+      }
+    }
+  } catch {
+    // Device telemetry must never block desktop startup.
+  }
+
+  cachedDeviceId = crypto.randomUUID();
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify({ deviceId: cachedDeviceId, createdAt: new Date().toISOString() }, null, 2));
+  } catch {
+    // If persistence fails, the current process can still report with the generated id.
+  }
+  return cachedDeviceId;
+}
+
 function sanitizeAccountKey(value) {
   return String(value || '')
     .trim()
@@ -82,6 +118,211 @@ function getAccountKeyFromState(state) {
   if (pilotKey) return pilotKey;
   const club = state?.settings?.clubAccount;
   return sanitizeAccountKey(club?.email || club?.clubName || 'unlicensed-local') || 'unlicensed-local';
+}
+
+function getTelemetryVenueInfo() {
+  try {
+    const record = readLocalDatabase();
+    const state = record?.state;
+    return {
+      venueId: state ? getAccountKeyFromState(state) : 'unassigned',
+      venueName: state?.settings?.clubAccount?.clubName || ''
+    };
+  } catch {
+    return { venueId: 'unassigned', venueName: '' };
+  }
+}
+
+function getApiConfig() {
+  const apiUrl = (process.env.ORBIT_API_URL || 'http://127.0.0.1:4629').replace(/\/+$/, '');
+  const apiKey = process.env.ORBIT_CLIENT_API_KEY || '';
+  return { apiUrl, apiKey };
+}
+
+async function postClientTelemetry(pathname, payload) {
+  const { apiUrl, apiKey } = getApiConfig();
+  if (!apiKey || typeof fetch !== 'function') return;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2500);
+  try {
+    await fetch(`${apiUrl}${pathname}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-orbit-api-key': apiKey
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+  } catch (error) {
+    console.debug('[orbit-api] telemetry failed:', error instanceof Error ? error.message : 'request failed');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function requestOrbitApi(pathname, options = {}) {
+  const { apiUrl, apiKey } = getApiConfig();
+  if (!apiKey || typeof fetch !== 'function') return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 3500);
+  try {
+    const response = await fetch(`${apiUrl}${pathname}`, {
+      method: options.method || 'GET',
+      headers: {
+        'content-type': 'application/json',
+        'x-orbit-api-key': apiKey,
+        ...(options.headers || {})
+      },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: controller.signal
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.ok === false) {
+      throw new Error(payload?.error || `Orbit API returned ${response.status}`);
+    }
+    return payload;
+  } catch (error) {
+    console.debug('[orbit-api] request failed:', error instanceof Error ? error.message : 'request failed');
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function getRemoteBackendStatus() {
+  const { apiUrl, apiKey } = getApiConfig();
+  if (!apiKey || typeof fetch !== 'function') return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2500);
+  try {
+    const response = await fetch(`${apiUrl}/health`, { signal: controller.signal });
+    const payload = await response.json();
+    if (!response.ok || payload?.ok === false) throw new Error(payload?.error || `Orbit API returned ${response.status}`);
+    const parsed = new URL(apiUrl);
+    return {
+      running: true,
+      host: parsed.hostname,
+      port: Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80)),
+      reportCount: 0,
+      mode: 'api',
+      service: payload.service,
+      environment: payload.environment,
+      startedAt: payload.startedAt
+    };
+  } catch (error) {
+    console.debug('[orbit-api] health failed:', error instanceof Error ? error.message : 'request failed');
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function loadStateFromApi(accountKey) {
+  const pathname = accountKey ? `/state/${encodeURIComponent(sanitizeAccountKey(accountKey))}` : '/state/latest';
+  const payload = await requestOrbitApi(pathname);
+  if (!payload?.state) return null;
+  return {
+    schemaVersion: payload.schemaVersion || 1,
+    savedAt: payload.savedAt || new Date().toISOString(),
+    state: payload.state,
+    accountKey: payload.accountKey,
+    source: 'api'
+  };
+}
+
+async function saveStateToApi(state) {
+  const payload = await requestOrbitApi('/state', {
+    method: 'POST',
+    body: { state },
+    timeoutMs: 5000
+  });
+  if (!payload?.ok) return null;
+  return {
+    ok: true,
+    path: 'orbit-api',
+    engine: 'api',
+    accountKey: payload.accountKey,
+    savedAt: payload.savedAt
+  };
+}
+
+async function submitAnalyticalReportToApi(report) {
+  const payload = await requestOrbitApi('/analytical-reports', {
+    method: 'POST',
+    body: report,
+    timeoutMs: 5000
+  });
+  if (!payload?.ok) return null;
+  return {
+    ...payload,
+    backend: (await getRemoteBackendStatus()) || { running: true, host: 'api', port: 0, reportCount: 0, mode: 'api' }
+  };
+}
+
+function buildClientTelemetryPayload(overrides = {}) {
+  const venue = getTelemetryVenueInfo();
+  return {
+    ...venue,
+    deviceId: getOrCreateDeviceId(),
+    deviceName: os.hostname(),
+    appVersion: app.getVersion(),
+    platform: process.platform,
+    environment: process.env.NODE_ENV || (isDev ? 'development' : 'production'),
+    updateStatus: lastUpdateStatus,
+    updateEvent: lastUpdateEvent,
+    lastSeenAt: new Date().toISOString(),
+    ...overrides
+  };
+}
+
+function sendClientHeartbeat(overrides = {}) {
+  postClientTelemetry('/clients/heartbeat', buildClientTelemetryPayload(overrides));
+}
+
+function sendClientEvent(event, category = 'usage', details = {}, overrides = {}) {
+  postClientTelemetry('/clients/event', buildClientTelemetryPayload({
+    event,
+    category,
+    details,
+    occurredAt: new Date().toISOString(),
+    ...overrides
+  }));
+}
+
+function sendClientError(error, source = 'main', details = {}) {
+  const message = error instanceof Error ? error.message : String(error || 'Unknown error');
+  const stack = details.rendererStack || (error instanceof Error ? error.stack || '' : '');
+  postClientTelemetry('/clients/error', buildClientTelemetryPayload({
+    message,
+    stack,
+    source,
+    route: details.route || '',
+    details,
+    occurredAt: new Date().toISOString(),
+    lastError: message
+  }));
+}
+
+function sendClientUpdateEvent(updateEvent, updateStatus, details = {}) {
+  lastUpdateEvent = updateEvent;
+  lastUpdateStatus = updateStatus;
+  postClientTelemetry('/clients/update-event', buildClientTelemetryPayload({
+    updateEvent,
+    updateStatus,
+    details,
+    lastError: details.error || details.message || ''
+  }));
+}
+
+function startClientTelemetry() {
+  sendClientHeartbeat();
+  sendClientEvent('app-opened', 'lifecycle', {
+    packaged: app.isPackaged,
+    startedAt: appStartedAt,
+    locale: app.getLocale()
+  });
+  clientHeartbeatTimer = setInterval(() => sendClientHeartbeat(), 5 * 60 * 1000);
 }
 
 function getDatabase() {
@@ -361,7 +602,7 @@ function buildReportEmailText(report) {
   const features = Array.isArray(usage.features) ? usage.features.slice(0, 8) : [];
   const actions = Array.isArray(usage.actions) ? usage.actions.slice(0, 8) : [];
   return [
-    `TableManager report for ${report.account?.clubName || report.account?.accountName || 'Unknown club'}`,
+    `Orbit report for ${report.account?.clubName || report.account?.accountName || 'Unknown club'}`,
     `Generated: ${report.generatedAt}`,
     '',
     `Occupied seat-hours: ${operational.occupiedSeatHours ?? 0}`,
@@ -386,12 +627,12 @@ function buildReportEmailText(report) {
 
 async function sendReportEmail(report, emailTo) {
   const transport = getSmtpTransport();
-  const clubName = report.account?.clubName || report.account?.accountName || 'TableManager';
+  const clubName = report.account?.clubName || report.account?.accountName || 'Orbit';
   const generatedDate = String(report.generatedAt || new Date().toISOString()).slice(0, 10);
   await transport.sendMail({
     from: process.env.TABLEMANAGER_SMTP_FROM || process.env.TABLEMANAGER_SMTP_USER,
     to: emailTo,
-    subject: `TableManager report - ${clubName} - ${generatedDate}`,
+    subject: `Orbit report - ${clubName} - ${generatedDate}`,
     text: buildReportEmailText(report),
     attachments: [
       {
@@ -711,7 +952,12 @@ function readRequestBody(request) {
 async function syncStateWithFirebaseRequests(state) {
   if (!isFirebaseConfigured()) return state;
   const accountKey = getAccountKeyFromState(state);
-  const pending = await fetchPendingPlayerRequests(accountKey);
+  let pending;
+  try {
+    pending = await fetchPendingPlayerRequests(accountKey);
+  } catch {
+    return state;
+  }
   let nextState = state;
 
   for (const request of pending.membershipRequests) {
@@ -729,11 +975,14 @@ async function syncStateWithFirebaseRequests(state) {
 
 async function loadStateWithFirebaseFallback(accountKey) {
   const localRecord = readLocalDatabase(accountKey);
-  const record = localRecord?.state
-    ? localRecord
-    : isFirebaseConfigured()
-      ? await readStateFromFirebase(sanitizeAccountKey(accountKey))
-      : localRecord;
+  let record = localRecord;
+  if (!record?.state && isFirebaseConfigured()) {
+    try {
+      record = await readStateFromFirebase(sanitizeAccountKey(accountKey));
+    } catch {
+      record = localRecord;
+    }
+  }
   if (!record?.state) return record;
   const syncedState = await syncStateWithFirebaseRequests(record.state);
   if (syncedState === record.state) return record;
@@ -759,6 +1008,27 @@ async function saveStateEverywhere(state) {
     ...localResult,
     firebase: { ok: true, engine: 'firebase', accountKey, pending: true }
   };
+}
+
+async function loadStateApiFirst(accountKey) {
+  return (await loadStateFromApi(accountKey)) || loadStateWithFirebaseFallback(accountKey);
+}
+
+async function saveStateApiFirst(state) {
+  const apiResult = await saveStateToApi(state);
+  if (apiResult) {
+    try {
+      writeLocalDatabase(state);
+    } catch {
+      // Local cache writes are best-effort once the standalone API has accepted the state.
+    }
+    return apiResult;
+  }
+  return saveStateEverywhere(state);
+}
+
+async function submitAnalyticalReportApiFirst(report) {
+  return (await submitAnalyticalReportToApi(report)) || storeAnalyticalReport(report);
 }
 
 function startEmbeddedBackend() {
@@ -790,7 +1060,7 @@ function startEmbeddedBackend() {
         const accountKey = sanitizeAccountKey(requestUrl.searchParams.get('accountKey') || '');
         const record = await loadStateWithFirebaseFallback(accountKey);
         if (!record?.state) {
-          sendJson(response, 404, { ok: false, error: 'No TableTalk club database is available yet.' });
+          sendJson(response, 404, { ok: false, error: 'No Orbit club database is available yet.' });
           return;
         }
         const syncedState = await syncStateWithFirebaseRequests(record.state);
@@ -890,27 +1160,45 @@ function startAutoUpdates() {
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('checking-for-update', () => {
+    sendClientUpdateEvent('checking-for-update', 'checking');
     broadcastUpdateStatus({ state: 'checking' });
   });
   autoUpdater.on('update-available', (info) => {
+    sendClientUpdateEvent('update-available', 'available', { version: info.version });
     broadcastUpdateStatus({ state: 'available', version: info.version });
   });
   autoUpdater.on('update-not-available', (info) => {
+    sendClientUpdateEvent('update-not-available', 'current', { version: info.version });
     broadcastUpdateStatus({ state: 'current', version: info.version });
   });
   autoUpdater.on('download-progress', (progress) => {
+    const progressBucket = Math.floor(Math.round(progress.percent ?? 0) / 25);
+    if (progressBucket !== lastUpdateProgressBucket) {
+      lastUpdateProgressBucket = progressBucket;
+      sendClientEvent('update-download-progress', 'update', { percent: Math.round(progress.percent ?? 0) });
+    }
     broadcastUpdateStatus({ state: 'downloading', percent: Math.round(progress.percent ?? 0) });
   });
   autoUpdater.on('update-downloaded', (info) => {
+    lastUpdateProgressBucket = -1;
+    sendClientUpdateEvent('update-downloaded', 'downloaded', { version: info.version });
     broadcastUpdateStatus({ state: 'downloaded', version: info.version });
   });
+  autoUpdater.on('before-quit-for-update', () => {
+    sendClientEvent('update-installing', 'update', { updateStatus: lastUpdateStatus, updateEvent: lastUpdateEvent });
+  });
   autoUpdater.on('error', (error) => {
-    broadcastUpdateStatus({ state: 'error', message: error instanceof Error ? error.message : 'Update check failed.' });
+    lastUpdateProgressBucket = -1;
+    const message = error instanceof Error ? error.message : 'Update check failed.';
+    sendClientUpdateEvent('update-error', 'error', { message });
+    broadcastUpdateStatus({ state: 'error', message });
   });
 
   const checkForUpdates = () => {
     autoUpdater.checkForUpdatesAndNotify().catch((error) => {
-      broadcastUpdateStatus({ state: 'error', message: error instanceof Error ? error.message : 'Update check failed.' });
+      const message = error instanceof Error ? error.message : 'Update check failed.';
+      sendClientUpdateEvent('update-error', 'error', { message });
+      broadcastUpdateStatus({ state: 'error', message });
     });
   };
 
@@ -923,15 +1211,34 @@ ipcMain.handle('open-route-window', (_event, route) => {
   createWindow(normalizedRoute);
 });
 
-ipcMain.handle('load-state', async () => loadStateWithFirebaseFallback());
+ipcMain.handle('load-state', async () => loadStateApiFirst());
 
-ipcMain.handle('load-state-for-account', async (_event, access) => loadStateWithFirebaseFallback(getAccountKeyFromAccess(access)));
+ipcMain.handle('load-state-for-account', async (_event, access) => loadStateApiFirst(getAccountKeyFromAccess(access)));
 
-ipcMain.handle('save-state', async (_event, state) => saveStateEverywhere(state));
+ipcMain.handle('save-state', async (_event, state) => saveStateApiFirst(state));
 
-ipcMain.handle('get-backend-status', () => ({ ...embeddedBackendStatus, reportCount: getReportCount() }));
+ipcMain.handle('get-backend-status', async () =>
+  (await getRemoteBackendStatus()) || { ...embeddedBackendStatus, reportCount: getReportCount(), mode: embeddedBackendStatus.running ? 'legacy-embedded' : 'local-fallback' }
+);
 
-ipcMain.handle('submit-analytical-report', (_event, report) => storeAnalyticalReport(report));
+ipcMain.handle('submit-analytical-report', (_event, report) => submitAnalyticalReportApiFirst(report));
+
+ipcMain.handle('record-client-event', (_event, event, category, details, route) => {
+  sendClientEvent(event, category, details, { route });
+  return { ok: true };
+});
+
+ipcMain.handle('record-client-error', (_event, payload = {}) => {
+  sendClientError(new Error(payload.message || 'Renderer error'), payload.source || 'renderer', {
+    route: payload.route || '',
+    filename: payload.filename || '',
+    line: payload.line || 0,
+    column: payload.column || 0,
+    details: payload.details || null,
+    rendererStack: payload.stack || ''
+  });
+  return { ok: true };
+});
 
 function loadRoute(window, route) {
   if (isDev) {
@@ -966,6 +1273,7 @@ function createWindow(route = 'floor') {
   const mainWindow = new BrowserWindow({
     ...routeConfig,
     backgroundColor: branding.desktop.backgroundColor,
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -992,6 +1300,18 @@ function createWindow(route = 'floor') {
     }
   });
 
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    sendClientError(new Error(`Renderer process gone: ${details.reason}`), 'renderer-process', {
+      route,
+      reason: details.reason,
+      exitCode: details.exitCode
+    });
+  });
+
+  mainWindow.webContents.on('unresponsive', () => {
+    sendClientError(new Error('Renderer window became unresponsive'), 'renderer-process', { route });
+  });
+
   mainWindow.on('closed', () => {
     windows.delete(route);
   });
@@ -1007,7 +1327,11 @@ function createWindow(route = 'floor') {
 }
 
 app.whenReady().then(() => {
-  startEmbeddedBackend();
+  appStartedAt = new Date().toISOString();
+  if (process.env.ORBIT_ENABLE_EMBEDDED_BACKEND === 'true') {
+    startEmbeddedBackend();
+  }
+  startClientTelemetry();
   startAutoUpdates();
 
   Menu.setApplicationMenu(
@@ -1049,6 +1373,15 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  sendClientEvent('app-closed', 'lifecycle', {
+    startedAt: appStartedAt,
+    uptimeSeconds: Math.round(process.uptime()),
+    openWindowCount: BrowserWindow.getAllWindows().length
+  });
+  if (clientHeartbeatTimer) {
+    clearInterval(clientHeartbeatTimer);
+    clientHeartbeatTimer = undefined;
+  }
   if (updateCheckTimer) {
     clearInterval(updateCheckTimer);
     updateCheckTimer = undefined;
@@ -1061,5 +1394,13 @@ app.on('before-quit', () => {
     database.close();
     database = undefined;
   }
+});
+
+process.on('uncaughtException', (error) => {
+  sendClientError(error, 'main-uncaught-exception');
+});
+
+process.on('unhandledRejection', (reason) => {
+  sendClientError(reason instanceof Error ? reason : new Error(String(reason)), 'main-unhandled-rejection');
 });
 

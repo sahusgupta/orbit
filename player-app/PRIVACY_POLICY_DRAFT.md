@@ -1,8 +1,8 @@
-# TableTalk Player Privacy Policy Draft
+# Orbit Player Privacy Policy Draft
 
 Last updated: June 1, 2026
 
-TableTalk Player helps players discover participating poker clubs, running games, waitlists, memberships, and loyalty information.
+Orbit Player helps players discover participating poker clubs, running games, waitlists, memberships, and loyalty information.
 
 ## Information Collected
 

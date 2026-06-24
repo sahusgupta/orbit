@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type DimensionValue } from 'react-native';
+import { Animated, Easing, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type DimensionValue } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, PROVIDER_GOOGLE, Circle } from 'react-native-maps';
 import { LinearGradient } from 'expo-linear-gradient';
-import { StripeProvider } from '@stripe/stripe-react-native';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { PlayerAccount, PlayerClubMembershipRecord, PlayerClubSnapshot, PlayerPrivateGameListing, PlayerSyncGame, PlayerWaitlistEntry } from './domain/playerSync';
@@ -32,12 +31,14 @@ import {
   submitPrivateGameListing,
   submitWaitlistRequest,
   updatePlayerClubMembership
-} from './data/tableTalkSyncApi';
+} from './data/orbitSyncApi';
 
 WebBrowser.maybeCompleteAuthSession();
 
-type Screen = 'findGames' | 'clubs' | 'friends' | 'settings';
+type Screen = 'checkIn' | 'findGames' | 'clubs' | 'friends' | 'settings';
 type OnboardingStep = 0 | 1 | 2;
+type GameTypeFilter = 'all' | 'public' | 'private' | 'card-house' | 'home-game';
+type DistanceFilter = 5 | 10 | 20 | 50;
 
 type GameOpportunity = {
   club: PlayerClubSnapshot;
@@ -46,6 +47,10 @@ type GameOpportunity = {
   isJoined: boolean;
   isPreferred: boolean;
   score: number;
+  seatScore: number;
+  socialScore: number;
+  profileScore: number;
+  waitScore: number;
 };
 
 type PrivateGameDraft = {
@@ -57,6 +62,7 @@ type PrivateGameDraft = {
 };
 
 const tabs: Array<{ id: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
+  { id: 'checkIn', label: 'Check In', icon: 'location-outline' },
   { id: 'findGames', label: 'Find Games', icon: 'search-outline' },
   { id: 'clubs', label: 'Clubs', icon: 'business-outline' },
   { id: 'friends', label: 'Friends', icon: 'people-outline' },
@@ -88,7 +94,7 @@ const emptyPlayer: PlayerAccount = {
   email: '',
   phone: '',
   homeLocation: '',
-  searchRadiusMiles: 25,
+  searchRadiusMiles: 20,
   preferredGameIds: [],
   preferredStakes: '',
   typicalAvailability: ''
@@ -100,22 +106,32 @@ const emptyPrivateGameDraft: PrivateGameDraft = {
   seats: '6',
   note: ''
 };
-const legacyPlayerStorageKeys = ['tabletalk-player-account-v1'];
-const playerStorageKey = 'tabletalk-player-account-v2';
+const legacyPlayerStorageKeys = ['tabletalk-player-account-v1', 'tabletalk-player-account-v2'];
+const playerStorageKey = 'orbit-player-account-v1';
 const googleSignInDisabledStatus = 'Google sign-in is disabled right now.';
 // Stripe is reserved for the social/player app's future premium tier only.
 // Management-app billing must stay separate from this mobile premium surface.
-const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
+const playerPremiumCheckoutUrl = process.env.EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL || '';
+const premiumMonthlyPriceLabel = '$12.99/mo';
+const demoPremiumEnabled = __DEV__ || process.env.EXPO_PUBLIC_DEMO_PREMIUM === 'true';
 
 export default function PlayerApp() {
   const [hasAccount, setHasAccount] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(0);
-  const [screen, setScreen] = useState<Screen>('findGames');
+  const [screen, setScreen] = useState<Screen>('checkIn');
+  const [showHostScreen, setShowHostScreen] = useState(false);
+  const [showClubOperations, setShowClubOperations] = useState(false);
   const [gameQuery, setGameQuery] = useState('');
-  const [showPrivateGameComposer, setShowPrivateGameComposer] = useState(false);
+  const [gameTypeFilter, setGameTypeFilter] = useState<GameTypeFilter>('all');
+  const [stakesFilter, setStakesFilter] = useState('');
+  const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>(20);
+  const [fitScoreFilterEnabled, setFitScoreFilterEnabled] = useState(false);
+  const [checkedInClubIds, setCheckedInClubIds] = useState<Set<string>>(() => new Set());
   const [privateGameDraft, setPrivateGameDraft] = useState<PrivateGameDraft>(emptyPrivateGameDraft);
   const [privateGames, setPrivateGames] = useState<PlayerPrivateGameListing[]>([]);
   const [privateGameStatus, setPrivateGameStatus] = useState('');
+  const [premiumStatus, setPremiumStatus] = useState<'inactive' | 'pending' | 'active'>('inactive');
+  const [premiumMessage, setPremiumMessage] = useState('');
   const [player, setPlayer] = useState<PlayerAccount>(emptyPlayer);
   const [draftPlayer, setDraftPlayer] = useState<PlayerAccount>(emptyPlayer);
   const [accountLoaded, setAccountLoaded] = useState(false);
@@ -134,12 +150,20 @@ export default function PlayerApp() {
   const playerWaitlists = selectedClub.waitlists.filter((entry) => isPlayerWaitlistEntry(entry, player));
   const joinedClubIds = new Set(memberships.map((membership) => membership.clubId));
   const memberClubs = clubs.filter((club) => joinedClubIds.has(club.club.id));
-  const homeLocation = player.homeLocation?.trim() || 'your area';
-  const searchRadius = player.searchRadiusMiles ?? 25;
+  const searchRadius = distanceFilter;
+  const hasPaidPlayerPremium = premiumStatus === 'active';
+  const hasPlayerPremium = premiumStatus === 'active' || demoPremiumEnabled;
   const visiblePrivateGames = useMemo(() => {
     const query = gameQuery.trim().toLowerCase();
-    return privateGames.filter((game) => !query || `${game.name} ${game.location} ${game.note}`.toLowerCase().includes(query));
-  }, [gameQuery, privateGames]);
+    const stakesQuery = stakesFilter.trim().toLowerCase();
+    const typeAllowsPrivate = gameTypeFilter === 'all' || gameTypeFilter === 'private' || gameTypeFilter === 'home-game';
+    if (!typeAllowsPrivate) return [];
+    return privateGames.filter((game) => {
+      const haystack = `${game.name} ${game.location} ${game.note}`.toLowerCase();
+      return (!query || haystack.includes(query)) && (!stakesQuery || game.name.toLowerCase().includes(stakesQuery));
+    });
+  }, [gameQuery, gameTypeFilter, privateGames, stakesFilter]);
+  const hostedPrivateGames = useMemo(() => privateGames.filter((game) => game.hostPlayerId === player.id), [privateGames, player.id]);
 
   useEffect(() => onFirebasePlayerChanged(setFirebaseIdentity), []);
 
@@ -172,13 +196,14 @@ export default function PlayerApp() {
         };
         setPlayer(nextPlayer);
         setDraftPlayer(nextPlayer);
+        setPremiumStatus(profile.premium?.status === 'active' || profile.subscriptionStatus === 'active' ? 'active' : 'inactive');
         const clubIds = new Set(Object.entries(profile.clubMemberships ?? {}).filter(([, membership]) => membership.status === 'Active' || membership.status === 'Requested').map(([clubId]) => clubId));
         const firstClub = clubs.find((club) => clubIds.has(club.club.id));
         if (firstClub) {
           setSelectedClubId(firstClub.club.id);
-          setScreen('clubs');
+          setScreen('checkIn');
         } else {
-          setScreen('findGames');
+          setScreen('checkIn');
         }
       })
       .catch(() => undefined);
@@ -192,7 +217,7 @@ export default function PlayerApp() {
         const existingMembershipClub = result.clubs.find((club) => club.memberships.some((membership) => isPlayerMembership(membership, player)));
         setSelectedClubId((current) => existingMembershipClub?.club.id ?? result.clubs.find((club) => club.club.id === current)?.club.id ?? result.clubs[0]?.club.id ?? initialClubSnapshots[0].club.id);
         if (!hasRoutedFromMembershipSync.current) {
-          setScreen(existingMembershipClub ? 'clubs' : 'findGames');
+          setScreen('checkIn');
           hasRoutedFromMembershipSync.current = true;
         }
         setSyncStatus(`Synced ${result.clubs.length} card houses`);
@@ -221,33 +246,47 @@ export default function PlayerApp() {
 
   const opportunities = useMemo(() => {
     const query = gameQuery.trim().toLowerCase();
+    const stakesQuery = stakesFilter.trim().toLowerCase();
     return clubs
       .flatMap<GameOpportunity>((club) => {
         const distanceMiles = getClubDistance(club);
         const isJoined = joinedClubIds.has(club.club.id);
         return club.games
-          .filter((game) => !query || game.name.toLowerCase().includes(query))
+          .filter((game) => !query || `${game.name} ${club.club.name}`.toLowerCase().includes(query))
+          .filter((game) => !stakesQuery || game.name.toLowerCase().includes(stakesQuery))
+          .filter((game) => matchesGameTypeFilter(club, game, gameTypeFilter))
           .filter((game) => game.openTables.length || game.waitlistCount || game.formingCount)
           .map((game) => {
             const isPreferred = player.preferredGameIds.includes(game.id);
-            const memberBoost = isJoined ? 1000 : 0;
-            const preferredBoost = isPreferred ? 100 : 0;
-            const availabilityBoost = game.availableSeats * 8 + game.formingCount * 4;
+            const seatScore = game.availableSeats * 16 + game.formingCount * 7;
+            const socialScore = game.knownPlayersCount * 9 + (club.social?.knownPlayersInHouse ?? 0) * 3;
+            const profileScore = (isJoined ? 42 : 0) + (isPreferred ? 28 : 0);
+            const waitScore = Math.max(0, 18 - game.waitlistCount * 3);
             return {
               club,
               game,
               distanceMiles,
               isJoined,
               isPreferred,
-              score: memberBoost + preferredBoost + availabilityBoost - distanceMiles
+              seatScore,
+              socialScore,
+              profileScore,
+              waitScore,
+              score: seatScore + socialScore + profileScore + waitScore - distanceMiles * 2
             };
           });
       })
       .filter((item) => item.distanceMiles <= searchRadius)
       .sort((left, right) => {
+        if (fitScoreFilterEnabled && hasPaidPlayerPremium) return right.score - left.score || left.distanceMiles - right.distanceMiles;
         return right.score - left.score || left.distanceMiles - right.distanceMiles;
       });
-  }, [clubs, gameQuery, joinedClubIds, player.preferredGameIds, searchRadius]);
+  }, [clubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, hasPaidPlayerPremium, joinedClubIds, player.preferredGameIds, searchRadius, stakesFilter]);
+
+  const displayedOpportunities = useMemo(() => {
+    if (hasPlayerPremium) return opportunities;
+    return opportunities.slice().sort((left, right) => left.distanceMiles - right.distanceMiles || right.game.availableSeats - left.game.availableSeats);
+  }, [hasPlayerPremium, opportunities]);
 
   const finishAccount = (identity?: FirebasePlayerIdentity | null) => {
     const normalizedName = draftPlayer.name.trim() || identity?.name.trim() || '';
@@ -259,13 +298,13 @@ export default function PlayerApp() {
       id,
       name: normalizedName,
       email: normalizedEmail,
-      searchRadiusMiles: draftPlayer.searchRadiusMiles ?? 25,
+      searchRadiusMiles: draftPlayer.searchRadiusMiles ?? 20,
       preferredGameIds: draftPlayer.preferredGameIds.length ? draftPlayer.preferredGameIds : ['nlh-1-2']
     };
     setPlayer(nextPlayer);
     setDraftPlayer(nextPlayer);
     setHasAccount(true);
-    setScreen('findGames');
+    setScreen('checkIn');
     setSyncStatus(isSyncConfigured() ? 'Account ready - syncing from Firebase...' : 'Account ready - browsing demo club data.');
     if (identity) savePlayerProfile(nextPlayer).catch(() => undefined);
   };
@@ -281,10 +320,30 @@ export default function PlayerApp() {
     setDraftPlayer(demoPlayer);
     setPlayer(demoPlayer);
     setHasAccount(true);
-    setScreen('findGames');
+    setScreen('checkIn');
+  };
+
+  const openPremiumCheckout = async () => {
+    if (!playerPremiumCheckoutUrl) {
+      setPremiumMessage('Stripe checkout is not configured yet. Add EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL for the player premium plan.');
+      return;
+    }
+    setPremiumMessage('Opening Stripe checkout...');
+    setPremiumStatus('pending');
+    const result = await WebBrowser.openBrowserAsync(playerPremiumCheckoutUrl);
+    setPremiumMessage(
+      result.type === 'cancel'
+        ? 'Checkout was closed before premium was confirmed.'
+        : 'Checkout opened. Premium unlocks after Stripe confirms the subscription.'
+    );
   };
 
   const publishPrivateGame = async () => {
+    if (!hasPlayerPremium) {
+      setPrivateGameStatus('Player hosting requires Player Premium.');
+      setPremiumMessage('Upgrade to Player Premium to host private games.');
+      return;
+    }
     const name = privateGameDraft.name.trim();
     const location = privateGameDraft.location.trim();
     if (!name || !location) return;
@@ -299,7 +358,6 @@ export default function PlayerApp() {
       hostPlayerId: player.id,
       hostPlayerPath: `players/${player.id}`,
       hostPlayerName: player.name,
-      hostPlayerEmail: player.email,
       createdAt,
       status: 'Open'
     };
@@ -312,7 +370,6 @@ export default function PlayerApp() {
     setPrivateGames((current) => [result.game, ...current.filter((game) => game.id !== result.game.id)]);
     setPrivateGameStatus('Private game listed.');
     setPrivateGameDraft(emptyPrivateGameDraft);
-    setShowPrivateGameComposer(false);
   };
 
   const replaceSyncedClub = (snapshot: PlayerClubSnapshot) => {
@@ -359,6 +416,21 @@ export default function PlayerApp() {
       setSyncStatus(`Saved locally - ${result.error}`);
     }
     updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
+  };
+
+  const checkInToClub = (club: PlayerClubSnapshot) => {
+    setSelectedClubId(club.club.id);
+    setCheckedInClubIds((current) => new Set([...current, club.club.id]));
+  };
+
+  const openDirections = (club: PlayerClubSnapshot) => {
+    const destination = encodeURIComponent(club.club.address || club.club.name);
+    const url = Platform.select({
+      ios: `http://maps.apple.com/?daddr=${destination}`,
+      android: `google.navigation:q=${destination}`,
+      default: `https://www.google.com/maps/dir/?api=1&destination=${destination}`
+    });
+    if (url) Linking.openURL(url).catch(() => undefined);
   };
 
   const changeMembership = async (club: PlayerClubSnapshot, patch: Partial<PlayerClubMembershipRecord>) => {
@@ -426,8 +498,8 @@ export default function PlayerApp() {
         <View style={styles.shell}>
           <View style={styles.header}>
             <View>
-              <Text style={styles.eyebrow}>{opportunities.length} live seats</Text>
-              <Text style={styles.title}>{screen === 'findGames' ? `Games near ${homeLocation}` : tabs.find((tab) => tab.id === screen)?.label}</Text>
+              <Text style={styles.eyebrow}>{screen === 'checkIn' ? `${clubs.length} nearby clubs` : `${opportunities.length} live seats`}</Text>
+              <Text style={styles.title}>{screen === 'findGames' ? (showHostScreen ? 'Host a Game' : 'Find Games') : tabs.find((tab) => tab.id === screen)?.label}</Text>
             </View>
             <Pressable style={styles.avatar} onPress={() => setScreen('settings')}>
               <Text style={styles.avatarText}>{player.name.slice(0, 1)}</Text>
@@ -435,7 +507,18 @@ export default function PlayerApp() {
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-            {screen === 'findGames' ? (
+            {screen === 'checkIn' ? (
+              <>
+                <NearbyCheckInPanel
+                  clubs={clubs}
+                  checkedInClubIds={checkedInClubIds}
+                  onCheckIn={checkInToClub}
+                  onDirections={openDirections}
+                />
+              </>
+            ) : null}
+
+            {screen === 'findGames' && !showHostScreen ? (
               <>
                 <View style={styles.searchPanel}>
                   <View style={styles.searchInputRow}>
@@ -443,51 +526,103 @@ export default function PlayerApp() {
                     <TextInput
                       value={gameQuery}
                       onChangeText={setGameQuery}
-                      placeholder="Search games or stakes"
+                      placeholder="Filter games or stakes"
                       placeholderTextColor={colors.muted}
                       style={styles.searchInput}
                     />
                   </View>
-                  <Pressable style={styles.hostPrompt} onPress={() => setShowPrivateGameComposer((current) => !current)}>
+                  <GameFilterPanel
+                    gameType={gameTypeFilter}
+                    setGameType={setGameTypeFilter}
+                    stakes={stakesFilter}
+                    setStakes={setStakesFilter}
+                    distance={distanceFilter}
+                    setDistance={setDistanceFilter}
+                    fitScoreEnabled={fitScoreFilterEnabled}
+                    setFitScoreEnabled={setFitScoreFilterEnabled}
+                    premium={hasPaidPlayerPremium}
+                    onLockedFitScore={openPremiumCheckout}
+                  />
+                  <Pressable style={styles.hostPrompt} onPress={() => setShowHostScreen(true)}>
                     <View style={styles.hostPromptIcon}>
-                      <Ionicons name={showPrivateGameComposer ? 'close-outline' : 'add-outline'} size={18} color={colors.primary} />
+                      <Ionicons name="home-outline" size={18} color={colors.primary} />
                     </View>
                     <View style={styles.hostPromptCopy}>
-                      <Text style={styles.cardTitle}>{showPrivateGameComposer ? 'Close private game' : 'Start a private game'}</Text>
-                      <Text style={styles.muted}>List a home game for nearby players.</Text>
+                      <Text style={styles.cardTitle}>Host your own table</Text>
+                      <Text style={styles.muted}>Publish a private game for nearby players.</Text>
                     </View>
                   </Pressable>
                 </View>
 
-                {showPrivateGameComposer ? (
-                  <PrivateGameComposer
-                    draft={privateGameDraft}
-                    setDraft={setPrivateGameDraft}
-                    onPublish={publishPrivateGame}
-                  />
-                ) : null}
-                {privateGameStatus ? <Text style={styles.privateGameStatus}>{privateGameStatus}</Text> : null}
-
-                {visiblePrivateGames.map((game) => (
-                  <PrivateGameCard key={game.id} game={game} />
-                ))}
-
-                {opportunities.length ? opportunities.map((item) => (
+                {displayedOpportunities.length ? displayedOpportunities.map((item) => (
                   <OpportunityCard
                     key={`${item.club.club.id}:${item.game.id}`}
                     item={item}
+                    premium={hasPlayerPremium}
                     waitlistEntry={item.club.waitlists.find((entry) => isPlayerWaitlistEntry(entry, player) && entry.gameId === item.game.id)}
                     onSelectClub={() => {
                       setSelectedClubId(item.club.club.id);
                       setScreen('clubs');
                     }}
-                    onRequestMembership={() => requestMembership(item.club)}
+                    onDirections={() => openDirections(item.club)}
                     onWaitlist={() => joinWaitlist(item.club, item.game)}
                   />
                 )) : visiblePrivateGames.length ? null : (
                   <View style={styles.emptyState}>
                     <Text style={styles.cardTitle}>No games in range</Text>
-                    <Text style={styles.muted}>No published card house has a running game within your radius yet.</Text>
+                    <Text style={styles.muted}>No published game matches your current filters within {searchRadius} miles.</Text>
+                  </View>
+                )}
+
+                {visiblePrivateGames.length ? (
+                  <>
+                    <View style={styles.sectionHeader}>
+                      <Text style={styles.sectionTitle}>Private games nearby</Text>
+                      <Text style={styles.muted}>{visiblePrivateGames.length} open</Text>
+                    </View>
+                    {visiblePrivateGames.map((game) => (
+                      <PrivateGameCard key={game.id} game={game} />
+                    ))}
+                  </>
+                ) : null}
+              </>
+            ) : null}
+
+            {screen === 'findGames' && showHostScreen ? (
+              <>
+                <Pressable style={styles.inlineBackAction} onPress={() => setShowHostScreen(false)}>
+                  <Ionicons name="chevron-back" size={17} color={colors.primary} />
+                  <Text style={styles.inlineBackText}>Find Games</Text>
+                </Pressable>
+                {hasPlayerPremium ? (
+                  <>
+                    <HostControlPanel playerName={player.name} hostedCount={hostedPrivateGames.length} />
+                    <PrivateGameComposer
+                      draft={privateGameDraft}
+                      setDraft={setPrivateGameDraft}
+                      onPublish={publishPrivateGame}
+                    />
+                  </>
+                ) : (
+                  <PremiumPaywall
+                    title="Host Games with Premium"
+                    body="Player-hosted game posting is included with Player Premium, so your private table appears for nearby players."
+                    priceLabel={premiumMonthlyPriceLabel}
+                    message={premiumMessage || privateGameStatus}
+                    onUpgrade={openPremiumCheckout}
+                  />
+                )}
+                {privateGameStatus ? <Text style={styles.privateGameStatus}>{privateGameStatus}</Text> : null}
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Your posted games</Text>
+                  <Text style={styles.muted}>{hostedPrivateGames.length} open</Text>
+                </View>
+                {hostedPrivateGames.length ? hostedPrivateGames.map((game) => (
+                  <PrivateGameCard key={game.id} game={game} />
+                )) : (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.cardTitle}>No hosted games yet</Text>
+                    <Text style={styles.muted}>Post a game above and it will appear for nearby players in Find Games.</Text>
                   </View>
                 )}
               </>
@@ -497,8 +632,18 @@ export default function PlayerApp() {
               <>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Your clubs</Text>
-                  <Text style={styles.muted}>{memberClubs.length} active</Text>
+                  <Pressable style={styles.compactButton} onPress={() => setShowClubOperations((current) => !current)}>
+                    <Text style={styles.compactButtonText}>{showClubOperations ? 'Memberships' : 'Club View'}</Text>
+                  </Pressable>
                 </View>
+                {showClubOperations ? (
+                  <ClubOperationsView
+                    clubs={clubs}
+                    selectedClub={selectedClub}
+                    onSelectClub={setSelectedClubId}
+                  />
+                ) : (
+                  <>
                 {memberClubs.length ? memberClubs
                   .slice()
                   .sort((left, right) => getClubDistance(left) - getClubDistance(right))
@@ -559,6 +704,8 @@ export default function PlayerApp() {
                     <ClubHistoryPanel />
                   </>
                 ) : null}
+                  </>
+                )}
               </>
             ) : null}
 
@@ -597,6 +744,21 @@ export default function PlayerApp() {
                     <Text style={styles.muted}>{firebaseIdentity ? firebaseIdentity.email || firebaseIdentity.name : authStatus}</Text>
                   </View>
                 </View>
+                <View style={styles.googleAuthPanel}>
+                  <View style={styles.googleAuthIcon}>
+                    <Ionicons name={hasPlayerPremium ? 'diamond' : 'diamond-outline'} size={20} color={hasPlayerPremium ? colors.teal : colors.primaryDark} />
+                  </View>
+                  <View style={styles.googleAuthBody}>
+                    <Text style={styles.cardTitle}>{hasPlayerPremium ? 'Player Premium Active' : `Player Premium ${premiumMonthlyPriceLabel}`}</Text>
+                    <Text style={styles.muted}>{hasPlayerPremium ? 'Grinder recommendations and hosting are unlocked.' : 'Unlock grinder/table recommendations and player-hosted games.'}</Text>
+                  </View>
+                  {!hasPlayerPremium ? (
+                    <Pressable style={styles.compactButton} onPress={openPremiumCheckout}>
+                      <Text style={styles.compactButtonText}>Upgrade</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+                {premiumMessage ? <Text style={styles.privateGameStatus}>{premiumMessage}</Text> : null}
                 <Field label="Name" value={player.name} onChangeText={(name) => setPlayer((current) => ({ ...current, name }))} />
                 <Field label="Email" value={player.email} onChangeText={(email) => setPlayer((current) => ({ ...current, email }))} />
                 <Field
@@ -626,7 +788,15 @@ export default function PlayerApp() {
 
           <View style={styles.tabBar}>
             {tabs.map((tab) => (
-              <Pressable key={tab.id} onPress={() => setScreen(tab.id)} style={[styles.tab, screen === tab.id && styles.activeTab]}>
+              <Pressable
+                key={tab.id}
+                onPress={() => {
+                  setScreen(tab.id);
+                  if (tab.id !== 'findGames') setShowHostScreen(false);
+                  if (tab.id !== 'clubs') setShowClubOperations(false);
+                }}
+                style={[styles.tab, screen === tab.id && styles.activeTab]}
+              >
                 <Ionicons name={tab.icon} size={19} color={screen === tab.id ? colors.ink : '#6b7280'} />
                 <Text style={[styles.tabText, screen === tab.id && styles.activeTabText]}>{tab.label}</Text>
               </Pressable>
@@ -640,12 +810,7 @@ export default function PlayerApp() {
 }
 
 function StripeGate({ children }: { children: React.ReactElement }) {
-  if (!stripePublishableKey) return <>{children}</>;
-  return (
-    <StripeProvider publishableKey={stripePublishableKey}>
-      {children}
-    </StripeProvider>
-  );
+  return <>{children}</>;
 }
 
 function OnboardingFlow({
@@ -760,14 +925,14 @@ function AnimatedGradientBackground() {
 
   return (
     <View style={styles.animatedGradientRoot}>
-      <LinearGradient colors={['#26394f', '#38506d', '#0f766e', '#e7ebf0']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.appBackdrop} />
-      <View style={styles.pokerPattern} pointerEvents="none">
-        <View style={styles.tableHalo}>
-          <View style={styles.tableInnerRing} />
-          <View style={[styles.tableChip, styles.tableChipOne]} />
-          <View style={[styles.tableChip, styles.tableChipTwo]} />
-          <View style={[styles.tableChip, styles.tableChipThree]} />
-          <View style={[styles.tableChip, styles.tableChipFour]} />
+      <LinearGradient colors={['#0B1020', '#1E3A8A', '#4D7CFE', '#F9FAFB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.appBackdrop} />
+      <View style={styles.orbitPattern} pointerEvents="none">
+        <View style={styles.orbitHalo}>
+          <View style={styles.orbitRing} />
+          <View style={[styles.orbitNode, styles.orbitNodeOne]} />
+          <View style={[styles.orbitNode, styles.orbitNodeTwo]} />
+          <View style={[styles.orbitNode, styles.orbitNodeThree]} />
+          <View style={[styles.orbitNode, styles.orbitNodeFour]} />
         </View>
       </View>
       <Animated.View
@@ -789,7 +954,7 @@ function AnimatedGradientBackground() {
           }
         ]}
       >
-        <LinearGradient colors={['rgba(231,235,240,0)', 'rgba(231,235,240,0.5)', 'rgba(15,118,110,0.42)']} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }} style={styles.appBackdrop} />
+        <LinearGradient colors={['rgba(249,250,251,0)', 'rgba(249,250,251,0.46)', 'rgba(139,92,246,0.34)']} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }} style={styles.appBackdrop} />
       </Animated.View>
       <View style={styles.gradientShade} />
     </View>
@@ -1031,6 +1196,303 @@ function MapPicker({
   );
 }
 
+function NearbyCheckInPanel({
+  clubs,
+  checkedInClubIds,
+  onCheckIn,
+  onDirections
+}: {
+  clubs: PlayerClubSnapshot[];
+  checkedInClubIds: Set<string>;
+  onCheckIn: (club: PlayerClubSnapshot) => void;
+  onDirections: (club: PlayerClubSnapshot) => void;
+}) {
+  const nearbyClubs = clubs.slice().sort((left, right) => getClubDistance(left) - getClubDistance(right));
+  return (
+    <>
+      <MapPicker
+        locationLabel="Clubs near you"
+        radiusMiles={20}
+        onSelectLocation={() => undefined}
+      />
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Nearest clubs</Text>
+        <Text style={styles.muted}>Within 20 mi</Text>
+      </View>
+      {nearbyClubs.length ? nearbyClubs.map((club) => {
+        const checkedIn = checkedInClubIds.has(club.club.id);
+        const openSeats = club.games.reduce((sum, game) => sum + game.availableSeats, 0);
+        return (
+          <AnimatedSurface key={club.club.id} style={[styles.clubCard, checkedIn && styles.selectedCard]}>
+            <View style={[styles.clubAvatar, checkedIn && styles.clubAvatarActive]}>
+              <Text style={[styles.clubAvatarText, checkedIn && styles.clubAvatarTextActive]}>{club.club.name.slice(0, 1)}</Text>
+            </View>
+            <View style={styles.clubMain}>
+              <Text style={styles.cardTitle}>{club.club.name}</Text>
+              <Text style={styles.muted}>{getClubDistance(club).toFixed(1)} mi / {openSeats} seats / {club.social?.activePlayerCount ?? 0} players</Text>
+            </View>
+            <View style={styles.iconActionRow}>
+              <IconActionButton icon="navigate-outline" label={`Directions to ${club.club.name}`} onPress={() => onDirections(club)} />
+              <IconActionButton icon={checkedIn ? 'checkmark-circle' : 'enter-outline'} label={`Check in to ${club.club.name}`} onPress={() => onCheckIn(club)} active={checkedIn} />
+            </View>
+          </AnimatedSurface>
+        );
+      }) : (
+        <View style={styles.emptyState}>
+          <Text style={styles.cardTitle}>No clubs nearby</Text>
+          <Text style={styles.muted}>Published clubs will appear here when they are within your check-in area.</Text>
+        </View>
+      )}
+    </>
+  );
+}
+
+function GameFilterPanel({
+  gameType,
+  setGameType,
+  stakes,
+  setStakes,
+  distance,
+  setDistance,
+  fitScoreEnabled,
+  setFitScoreEnabled,
+  premium,
+  onLockedFitScore
+}: {
+  gameType: GameTypeFilter;
+  setGameType: (value: GameTypeFilter) => void;
+  stakes: string;
+  setStakes: (value: string) => void;
+  distance: DistanceFilter;
+  setDistance: (value: DistanceFilter) => void;
+  fitScoreEnabled: boolean;
+  setFitScoreEnabled: (value: boolean) => void;
+  premium: boolean;
+  onLockedFitScore: () => void;
+}) {
+  const typeOptions: Array<{ id: GameTypeFilter; label: string }> = [
+    { id: 'all', label: 'All' },
+    { id: 'public', label: 'Public' },
+    { id: 'private', label: 'Private' },
+    { id: 'card-house', label: 'Card house' },
+    { id: 'home-game', label: 'Home game' }
+  ];
+  return (
+    <View style={styles.filterPanel}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipRow}>
+        {typeOptions.map((option) => (
+          <Chip key={option.id} label={option.label} active={gameType === option.id} onPress={() => setGameType(option.id)} />
+        ))}
+      </ScrollView>
+      <View style={styles.filterGrid}>
+        <Field label="Stakes" value={stakes} onChangeText={setStakes} />
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>Distance</Text>
+          <View style={styles.distanceRow}>
+            {[5, 10, 20, 50].map((option) => (
+              <Pressable key={option} onPress={() => setDistance(option as DistanceFilter)} style={[styles.distanceChip, distance === option && styles.distanceChipActive]}>
+                <Text style={[styles.distanceChipText, distance === option && styles.distanceChipTextActive]}>{option}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      </View>
+      <Pressable
+        style={[styles.lockedFilterRow, fitScoreEnabled && premium && styles.lockedFilterRowActive]}
+        onPress={() => {
+          if (!premium) {
+            onLockedFitScore();
+            return;
+          }
+          setFitScoreEnabled(!fitScoreEnabled);
+        }}
+      >
+        <Ionicons name={premium ? 'analytics-outline' : 'lock-closed-outline'} size={16} color={premium ? colors.teal : colors.muted} />
+        <Text style={styles.lockedFilterText}>{premium ? 'Sort by fit score' : 'Fit score filter locked with Premium'}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function IconActionButton({
+  icon,
+  label,
+  onPress,
+  active,
+  disabled
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress?: () => void;
+  active?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      disabled={disabled}
+      onPress={onPress}
+      style={[styles.iconActionButton, active && styles.iconActionButtonActive, disabled && styles.iconActionButtonDisabled]}
+    >
+      <Ionicons name={icon} size={19} color={active ? '#ffffff' : disabled ? colors.muted : colors.primary} />
+    </Pressable>
+  );
+}
+
+function PremiumPaywall({
+  title,
+  body,
+  priceLabel,
+  message,
+  onUpgrade
+}: {
+  title: string;
+  body: string;
+  priceLabel: string;
+  message?: string;
+  onUpgrade: () => void;
+}) {
+  return (
+    <AnimatedSurface style={styles.paywallPanel}>
+      <View style={styles.paywallHeader}>
+        <View style={styles.paywallIcon}>
+          <Ionicons name="diamond-outline" size={21} color={colors.teal} />
+        </View>
+        <View style={styles.agentCopy}>
+          <Text style={styles.agentKicker}>Player Premium</Text>
+          <Text style={styles.cardTitle}>{title}</Text>
+          <Text style={styles.muted}>{body}</Text>
+        </View>
+      </View>
+      <View style={styles.priceRow}>
+        <Text style={styles.priceText}>{priceLabel}</Text>
+        <Text style={styles.muted}>monthly membership</Text>
+      </View>
+      <AnimatedButton variant="primary" onPress={onUpgrade} style={[styles.primaryButton, styles.fullWidthButton]}>
+        <Ionicons name="card-outline" size={18} color="#fff" />
+        <Text style={styles.primaryButtonText}>Continue with Stripe</Text>
+      </AnimatedButton>
+      {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
+    </AnimatedSurface>
+  );
+}
+
+function HostControlPanel({ playerName, hostedCount }: { playerName: string; hostedCount: number }) {
+  return (
+    <AnimatedSurface style={styles.agentPanel}>
+      <View style={styles.agentHeader}>
+        <View style={styles.agentIcon}>
+          <Ionicons name="home-outline" size={20} color={colors.teal} />
+        </View>
+        <View style={styles.agentCopy}>
+          <Text style={styles.agentKicker}>Player-hosted games</Text>
+          <Text style={styles.cardTitle}>{playerName ? `${playerName}'s host board` : 'Host board'}</Text>
+          <Text style={styles.muted}>Create a table, set the seat count, and publish it into the grinder feed.</Text>
+        </View>
+      </View>
+      <View style={styles.contextRow}>
+        <View style={styles.contextChip}>
+          <Ionicons name="radio-outline" size={13} color={colors.primary} />
+          <Text style={styles.contextText}>{hostedCount} live posts</Text>
+        </View>
+        <View style={styles.contextChip}>
+          <Ionicons name="people-outline" size={13} color={colors.primary} />
+          <Text style={styles.contextText}>Seats shown to players</Text>
+        </View>
+      </View>
+    </AnimatedSurface>
+  );
+}
+
+function ClubOperationsView({
+  clubs,
+  selectedClub,
+  onSelectClub
+}: {
+  clubs: PlayerClubSnapshot[];
+  selectedClub: PlayerClubSnapshot;
+  onSelectClub: (clubId: string) => void;
+}) {
+  const postedGames = selectedClub.games.length;
+  const postedSeats = selectedClub.games.reduce((sum, game) => sum + game.availableSeats, 0);
+  const runningTables = selectedClub.games.reduce((sum, game) => sum + game.openTables.length, 0);
+  return (
+    <>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.clubSwitcher}>
+        {clubs.map((club) => {
+          const selected = club.club.id === selectedClub.club.id;
+          return (
+            <Pressable key={club.club.id} onPress={() => onSelectClub(club.club.id)} style={[styles.clubSwitchChip, selected && styles.clubSwitchChipActive]}>
+              <Text style={[styles.clubSwitchText, selected && styles.clubSwitchTextActive]}>{club.club.name}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      <AnimatedSurface style={styles.agentPanel}>
+        <View style={styles.sectionHeader}>
+          <View>
+            <Text style={styles.agentKicker}>Club posting board</Text>
+            <Text style={styles.cardTitle}>{selectedClub.club.name}</Text>
+          </View>
+          <View style={styles.statusPill}>
+            <Text style={styles.statusText}>{postedSeats} seats</Text>
+          </View>
+        </View>
+        <View style={styles.summaryGrid}>
+          <Metric label="Posted games" value={postedGames.toString()} />
+          <Metric label="Open seats" value={postedSeats.toString()} />
+          <Metric label="Tables" value={runningTables.toString()} />
+          <Metric label="Waitlist" value={(selectedClub.social?.waitlistCount ?? 0).toString()} />
+        </View>
+      </AnimatedSurface>
+      {selectedClub.games.map((game) => (
+        <ClubPostedGameCard key={game.id} game={game} />
+      ))}
+      {!selectedClub.games.length ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.cardTitle}>No posted games</Text>
+          <Text style={styles.muted}>When this club publishes games from Orbit, they will appear here with seat counts.</Text>
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+function ClubPostedGameCard({ game }: { game: PlayerSyncGame }) {
+  return (
+    <AnimatedSurface style={styles.gameCard}>
+      <View style={styles.gameHeader}>
+        <View style={styles.feedAvatar}>
+          <Text style={styles.feedAvatarText}>{game.name.slice(0, 1)}</Text>
+        </View>
+        <View style={styles.gameTitleBlock}>
+          <Text style={styles.cardTitle}>{game.name}</Text>
+          <Text style={styles.muted}>{game.openTables.length} tables posted / {game.waitlistCount} waiting</Text>
+        </View>
+        <Text style={styles.tableSeats}>{game.availableSeats}</Text>
+      </View>
+      {game.openTables.map((table) => (
+        <View key={table.id} style={styles.tableRow}>
+          <View>
+            <Text style={styles.tableName}>{table.label}</Text>
+            <Text style={styles.muted}>{table.status} / {table.seatsFilled} of {table.maxSeats} seated / {table.collectionMode}</Text>
+          </View>
+          <Text style={styles.tableSeats}>{table.availableSeats}</Text>
+        </View>
+      ))}
+    </AnimatedSurface>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.metric}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={styles.metricValue}>{value}</Text>
+    </View>
+  );
+}
+
 function PrivateGameComposer({
   draft,
   setDraft,
@@ -1080,20 +1542,22 @@ function PrivateGameCard({ game }: { game: PlayerPrivateGameListing }) {
 
 function OpportunityCard({
   item,
+  premium,
   waitlistEntry,
   onSelectClub,
-  onRequestMembership,
+  onDirections,
   onWaitlist
 }: {
   item: GameOpportunity;
+  premium: boolean;
   waitlistEntry?: PlayerWaitlistEntry;
   onSelectClub: () => void;
-  onRequestMembership: () => void;
+  onDirections: () => void;
   onWaitlist: () => void;
 }) {
   const alreadyWaiting = Boolean(waitlistEntry);
-  const actionLabel = alreadyWaiting ? `Waitlist #${waitlistEntry?.position}` : item.isJoined ? 'Request Seat' : 'Request Club Access';
   const statusLabel = item.game.availableSeats ? `${item.game.availableSeats} open` : item.game.formingCount ? 'Forming' : 'Waitlist';
+  const recommendationLabel = item.score >= 80 ? 'Best play' : item.score >= 55 ? 'Strong option' : item.score >= 30 ? 'Watchlist' : 'Low edge';
   const feedMeta = [
     `${item.club.club.name}`,
     `${item.distanceMiles.toFixed(1)} mi`,
@@ -1116,15 +1580,46 @@ function OpportunityCard({
           <Text style={styles.statusText}>{statusLabel}</Text>
         </View>
       </View>
-      <AnimatedButton
-        variant="primary"
-        onPress={alreadyWaiting ? undefined : item.isJoined ? onWaitlist : onRequestMembership}
-        disabled={alreadyWaiting}
-        style={[styles.primaryButton, styles.fullWidthButton, alreadyWaiting && styles.disabledButton]}
-      >
-        <Ionicons name={item.isJoined ? 'time-outline' : 'add-circle-outline'} size={18} color="#fff" />
-        <Text style={styles.primaryButtonText}>{actionLabel}</Text>
-      </AnimatedButton>
+      {premium ? (
+        <>
+          <View style={styles.recommendationBand}>
+            <View style={styles.recommendationBadge}>
+              <Ionicons name="analytics-outline" size={14} color={colors.teal} />
+              <Text style={styles.recommendationBadgeText}>Grinder ranking: {recommendationLabel}</Text>
+            </View>
+            <Text style={styles.recommendationText}>{getRecommendationReason(item)}</Text>
+          </View>
+          <View style={styles.valueRow}>
+            <View style={styles.valuePill}>
+              <Ionicons name="speedometer-outline" size={13} color={colors.primaryDark} />
+              <Text style={styles.valuePillText}>{Math.round(item.score)} score</Text>
+            </View>
+            <View style={styles.valuePill}>
+              <Ionicons name="person-add-outline" size={13} color={colors.primaryDark} />
+              <Text style={styles.valuePillText}>{item.seatScore} table fit</Text>
+            </View>
+            <View style={styles.valuePill}>
+              <Ionicons name="heart-outline" size={13} color={colors.primaryDark} />
+              <Text style={styles.valuePillText}>{item.profileScore} profile</Text>
+            </View>
+          </View>
+        </>
+      ) : (
+        <View style={styles.lockedRecommendationBand}>
+          <Ionicons name="lock-closed-outline" size={15} color={colors.muted} />
+          <Text style={styles.lockedRecommendationText}>Premium unlocks grinder ranking and table fit analysis.</Text>
+        </View>
+      )}
+      <View style={styles.gameActionRow}>
+        <IconActionButton icon="navigate-outline" label={`Directions to ${item.club.club.name}`} onPress={onDirections} />
+        <IconActionButton
+          icon={alreadyWaiting ? 'checkmark-circle' : 'person-add-outline'}
+          label={alreadyWaiting ? `Already waitlisted at position ${waitlistEntry?.position}` : `Request a seat for ${item.game.name}`}
+          onPress={alreadyWaiting ? undefined : onWaitlist}
+          active={!alreadyWaiting}
+          disabled={alreadyWaiting}
+        />
+      </View>
     </AnimatedSurface>
   );
 }
@@ -1327,7 +1822,7 @@ function AnimatedButton({
         style={style}
       >
         {variant === 'primary' ? (
-          <LinearGradient colors={disabled ? ['#94a3b8', '#7f8ea3'] : ['#17324f', '#23645d']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.buttonGradient}>
+          <LinearGradient colors={disabled ? ['#94a3b8', '#7f8ea3'] : ['#0B1020', '#4D7CFE']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.buttonGradient}>
             {children}
           </LinearGradient>
         ) : (
@@ -1363,6 +1858,26 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
 
 function getClubDistance(club: PlayerClubSnapshot) {
   return clubDistanceMiles[club.club.id] ?? 18;
+}
+
+function matchesGameTypeFilter(club: PlayerClubSnapshot, game: PlayerSyncGame, filter: GameTypeFilter) {
+  if (filter === 'all') return true;
+  const text = `${club.club.name} ${game.name}`.toLowerCase();
+  if (filter === 'home-game') return text.includes('home');
+  if (filter === 'private') return text.includes('private');
+  if (filter === 'public') return !text.includes('private') && !text.includes('home');
+  return !text.includes('private') && !text.includes('home');
+}
+
+function getRecommendationReason(item: GameOpportunity) {
+  const reasons = [
+    item.game.availableSeats ? `${item.game.availableSeats} open seats` : item.game.formingCount ? 'forming table' : 'waitlist only',
+    item.isPreferred ? 'matches your profile' : '',
+    item.isJoined ? 'club access ready' : 'membership needed',
+    item.game.knownPlayersCount ? `${item.game.knownPlayersCount} familiar players` : '',
+    `${item.distanceMiles.toFixed(1)} mi away`
+  ].filter(Boolean);
+  return reasons.join(' / ');
 }
 
 function normalizedIdentity(value?: string) {
@@ -1406,32 +1921,32 @@ function togglePlayerGame(gameId: string, setPlayer: React.Dispatch<React.SetSta
 }
 
 const colors = {
-  ink: '#181716',
-  muted: '#73716b',
-  canvas: '#f4f4f1',
-  panel: '#fffefa',
-  line: 'rgba(24,23,22,0.09)',
-  primary: '#1d3b34',
-  primaryDark: '#142620',
-  primarySoft: '#edf4ef',
-  teal: '#157f6d',
-  tealSoft: '#e8f5f1',
-  amber: '#a15c1b',
-  amberSoft: '#fff4e2',
-  coral: '#b84a3f'
+  ink: '#0b1020',
+  muted: '#64748b',
+  canvas: '#f9fafb',
+  panel: '#ffffff',
+  line: 'rgba(100,116,139,0.16)',
+  primary: '#4d7cfe',
+  primaryDark: '#0b1020',
+  primarySoft: '#eef3ff',
+  teal: '#2563eb',
+  tealSoft: '#dbeafe',
+  amber: '#8b5cf6',
+  amberSoft: '#f3e8ff',
+  coral: '#dc2626'
 };
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fcfcfb'
+    backgroundColor: '#f9fafb'
   },
   appBackdrop: {
     ...StyleSheet.absoluteFillObject
   },
   animatedGradientRoot: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#26394f',
+    backgroundColor: '#0b1020',
     overflow: 'hidden'
   },
   gradientDriftLayer: {
@@ -1441,12 +1956,12 @@ const styles = StyleSheet.create({
     top: '-14%',
     width: '136%'
   },
-  pokerPattern: {
+  orbitPattern: {
     ...StyleSheet.absoluteFillObject,
-    opacity: 0.24
+    opacity: 0.28
   },
-  tableHalo: {
-    borderColor: 'rgba(255,255,255,0.34)',
+  orbitHalo: {
+    borderColor: 'rgba(255,255,255,0.32)',
     borderRadius: 999,
     borderWidth: 2,
     height: 260,
@@ -1456,38 +1971,38 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '-18deg' }],
     width: 420
   },
-  tableInnerRing: {
-    borderColor: 'rgba(15,118,110,0.36)',
+  orbitRing: {
+    borderColor: 'rgba(139,92,246,0.34)',
     borderRadius: 999,
-    borderWidth: 18,
+    borderWidth: 14,
     bottom: 28,
     left: 34,
     position: 'absolute',
     right: 34,
     top: 28
   },
-  tableChip: {
+  orbitNode: {
     backgroundColor: 'rgba(255,255,255,0.76)',
-    borderColor: 'rgba(38,57,79,0.22)',
+    borderColor: 'rgba(77,124,254,0.32)',
     borderRadius: 999,
     borderWidth: 3,
     height: 28,
     position: 'absolute',
     width: 28
   },
-  tableChipOne: {
+  orbitNodeOne: {
     left: 86,
     top: 18
   },
-  tableChipTwo: {
+  orbitNodeTwo: {
     right: 88,
     top: 34
   },
-  tableChipThree: {
+  orbitNodeThree: {
     bottom: 22,
     left: 132
   },
-  tableChipFour: {
+  orbitNodeFour: {
     bottom: 34,
     right: 118
   },
@@ -1504,7 +2019,7 @@ const styles = StyleSheet.create({
     width: '100%'
   },
   onboardingSafeArea: {
-    backgroundColor: '#26394f'
+    backgroundColor: '#0b1020'
   },
   onboardingShell: {
     flex: 1,
@@ -1802,6 +2317,138 @@ const styles = StyleSheet.create({
     gap: 9,
     padding: 10
   },
+  filterPanel: {
+    gap: 10
+  },
+  filterChipRow: {
+    gap: 8,
+    paddingRight: 8
+  },
+  filterGrid: {
+    gap: 10
+  },
+  distanceRow: {
+    flexDirection: 'row',
+    gap: 7
+  },
+  distanceChip: {
+    alignItems: 'center',
+    backgroundColor: '#f4f4f1',
+    borderColor: colors.line,
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 38,
+    justifyContent: 'center'
+  },
+  distanceChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
+  },
+  distanceChipText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '800'
+  },
+  distanceChipTextActive: {
+    color: '#ffffff'
+  },
+  lockedFilterRow: {
+    alignItems: 'center',
+    backgroundColor: '#f4f4f1',
+    borderColor: colors.line,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 40,
+    paddingHorizontal: 11
+  },
+  lockedFilterRowActive: {
+    backgroundColor: colors.tealSoft,
+    borderColor: 'rgba(21,127,109,0.24)'
+  },
+  lockedFilterText: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '800'
+  },
+  agentPanel: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 12,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.03,
+    shadowRadius: 12
+  },
+  agentHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 11
+  },
+  agentIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.tealSoft,
+    borderColor: 'rgba(21,127,109,0.12)',
+    borderRadius: 10,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: 'center',
+    width: 42
+  },
+  agentCopy: {
+    flex: 1,
+    gap: 3
+  },
+  agentKicker: {
+    color: colors.teal,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0,
+    textTransform: 'uppercase'
+  },
+  paywallPanel: {
+    backgroundColor: '#fbfffc',
+    borderColor: 'rgba(21,127,109,0.18)',
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 12,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.03,
+    shadowRadius: 12
+  },
+  paywallHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 11
+  },
+  paywallIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.tealSoft,
+    borderColor: 'rgba(21,127,109,0.15)',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: 'center',
+    width: 44
+  },
+  priceRow: {
+    alignItems: 'baseline',
+    flexDirection: 'row',
+    gap: 8
+  },
+  priceText: {
+    color: colors.ink,
+    fontSize: 24,
+    fontWeight: '900'
+  },
   searchInputRow: {
     alignItems: 'center',
     backgroundColor: '#f4f4f1',
@@ -1840,6 +2487,19 @@ const styles = StyleSheet.create({
   hostPromptCopy: {
     flex: 1,
     gap: 1
+  },
+  inlineBackAction: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    gap: 5,
+    minHeight: 36,
+    paddingHorizontal: 2
+  },
+  inlineBackText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '800'
   },
   contextRow: {
     flexDirection: 'row',
@@ -1903,6 +2563,29 @@ const styles = StyleSheet.create({
   clubMain: {
     flex: 1,
     gap: 4
+  },
+  iconActionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8
+  },
+  iconActionButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderColor: 'rgba(56,80,109,0.14)',
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: 'center',
+    width: 42
+  },
+  iconActionButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
+  },
+  iconActionButtonDisabled: {
+    backgroundColor: '#eeeeea',
+    borderColor: colors.line
   },
   emptyState: {
     backgroundColor: colors.panel,
@@ -1999,6 +2682,31 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 4
   },
+  clubSwitcher: {
+    gap: 8,
+    paddingRight: 16
+  },
+  clubSwitchChip: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 38,
+    paddingHorizontal: 12
+  },
+  clubSwitchChipActive: {
+    backgroundColor: colors.tealSoft,
+    borderColor: 'rgba(21,127,109,0.28)'
+  },
+  clubSwitchText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '800'
+  },
+  clubSwitchTextActive: {
+    color: colors.primary
+  },
   googleAuthPanel: {
     alignItems: 'center',
     backgroundColor: '#f6f6f3',
@@ -2076,6 +2784,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 12
   },
+  gameActionRow: {
+    flexDirection: 'row',
+    gap: 9,
+    justifyContent: 'flex-end'
+  },
   privateGameComposer: {
     backgroundColor: colors.panel,
     borderColor: colors.line,
@@ -2145,6 +2858,48 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     paddingHorizontal: 2
+  },
+  recommendationBand: {
+    backgroundColor: '#f4fbf8',
+    borderColor: 'rgba(21,127,109,0.12)',
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 7,
+    padding: 11
+  },
+  recommendationBadge: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    gap: 5
+  },
+  recommendationBadgeText: {
+    color: colors.teal,
+    fontSize: 12,
+    fontWeight: '900'
+  },
+  recommendationText: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18
+  },
+  lockedRecommendationBand: {
+    alignItems: 'center',
+    backgroundColor: '#f6f6f3',
+    borderColor: colors.line,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    padding: 11
+  },
+  lockedRecommendationText: {
+    color: colors.muted,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18
   },
   gameHeader: {
     alignItems: 'center',
@@ -2539,18 +3294,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     bottom: 18,
     flexDirection: 'row',
-    gap: 3,
-    left: 18,
-    padding: 6,
+    gap: 2,
+    left: 8,
+    padding: 5,
     position: 'absolute',
-    right: 18
+    right: 8
   },
   tab: {
     alignItems: 'center',
     borderRadius: 10,
     flex: 1,
-    gap: 3,
-    minHeight: 54,
+    gap: 2,
+    minHeight: 50,
     justifyContent: 'center'
   },
   activeTab: {
@@ -2558,10 +3313,11 @@ const styles = StyleSheet.create({
   },
   tabText: {
     color: colors.muted,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '900'
   },
   activeTabText: {
     color: colors.ink
   }
 });
+

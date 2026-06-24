@@ -2,7 +2,7 @@
 
 ## App Name
 
-TableTalk Player
+Orbit Player
 
 ## Subtitle
 
@@ -10,11 +10,11 @@ Find live poker games near you.
 
 ## Short Description
 
-See running tables, open seats, waitlists, club memberships, and loyalty progress from participating TableTalk clubs.
+See running tables, open seats, waitlists, club memberships, and loyalty progress from participating Orbit clubs.
 
 ## Full Description
 
-TableTalk Player helps poker players find the right game before they arrive. Browse participating clubs, see which games are running, check available seats, join waitlists, manage club memberships, and track loyalty progress by club.
+Orbit Player helps poker players find the right game before they arrive. Browse participating clubs, see which games are running, check available seats, join waitlists, manage club memberships, and track loyalty progress by club.
 
 Built for players who want less guessing and more playing:
 
@@ -25,7 +25,7 @@ Built for players who want less guessing and more playing:
 - Save game preferences and availability.
 - Track club-specific loyalty status.
 
-TableTalk Player syncs with participating clubs using TableTalk management tools.
+Orbit Player syncs with participating clubs using Orbit management tools.
 
 ## Keywords
 

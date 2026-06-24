@@ -6,7 +6,21 @@ import {
   signInWithCredential,
   type User
 } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, getFirestore, onSnapshot, runTransaction, serverTimestamp, setDoc, type QueryDocumentSnapshot, type Unsubscribe } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  getFirestore,
+  onSnapshot,
+  query,
+  runTransaction,
+  serverTimestamp,
+  setDoc,
+  where,
+  type QueryDocumentSnapshot,
+  type Unsubscribe
+} from 'firebase/firestore';
 import type {
   PlayerAccount,
   PlayerClubMembershipRecord,
@@ -222,11 +236,11 @@ export function subscribeToAllClubSnapshots(
             childState.games = snapshot.docs.map((gameDoc) => gameDoc.data() as PlayerClubSnapshot['games'][number]);
             updateClub();
           }),
-          onSnapshot(collection(db, 'clubs', clubDoc.id, 'memberships'), (snapshot) => {
+          onSnapshot(playerScopedCollection(clubDoc.id, 'memberships', player.id), (snapshot) => {
             childState.memberships = snapshot.docs.map((membershipDoc) => membershipDoc.data() as PlayerClubSnapshot['memberships'][number]);
             updateClub();
           }),
-          onSnapshot(collection(db, 'clubs', clubDoc.id, 'waitlists'), (snapshot) => {
+          onSnapshot(playerScopedCollection(clubDoc.id, 'waitlists', player.id), (snapshot) => {
             childState.waitlists = snapshot.docs.map((waitlistDoc) => waitlistDoc.data() as PlayerClubSnapshot['waitlists'][number]);
             updateClub();
           })
@@ -407,8 +421,8 @@ async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: 
   const club = clubDoc.data() as PublishedClubRecord;
   const [games, memberships, waitlists] = await Promise.all([
     getDocs(collection(db, 'clubs', clubDoc.id, 'games')),
-    getDocs(collection(db, 'clubs', clubDoc.id, 'memberships')),
-    getDocs(collection(db, 'clubs', clubDoc.id, 'waitlists'))
+    getDocs(playerScopedCollection(clubDoc.id, 'memberships', player.id)),
+    getDocs(playerScopedCollection(clubDoc.id, 'waitlists', player.id))
   ]);
   const snapshot: PlayerClubSnapshot = {
     club: {
@@ -502,7 +516,6 @@ function mergeClubSnapshots(clubs: PlayerClubSnapshot[]): PlayerClubSnapshot {
 }
 
 function filterSnapshotForPlayer(snapshot: PlayerClubSnapshot, player: Pick<PlayerAccount, 'id' | 'name'>): PlayerClubSnapshot {
-  if (!player.id && !player.name) return snapshot;
   const id = normalizeIdentity(player.id);
   const name = normalizeIdentity(player.name);
   return {
@@ -510,8 +523,16 @@ function filterSnapshotForPlayer(snapshot: PlayerClubSnapshot, player: Pick<Play
     memberships: snapshot.memberships.filter((membership) =>
       Boolean(id && normalizeIdentity(membership.playerId) === id) ||
       Boolean(name && normalizeIdentity(membership.playerName) === name)
+    ),
+    waitlists: snapshot.waitlists.filter((entry) =>
+      Boolean(id && normalizeIdentity(entry.playerId) === id) ||
+      Boolean(name && normalizeIdentity(entry.playerName) === name)
     )
   };
+}
+
+function playerScopedCollection(clubId: string, collectionName: 'memberships' | 'waitlists', playerId?: string) {
+  return query(collection(db, 'clubs', clubId, collectionName), where('playerId', '==', playerId || '__none__'));
 }
 
 function normalizeIdentity(value?: string) {

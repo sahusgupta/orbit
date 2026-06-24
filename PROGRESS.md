@@ -1,4 +1,4 @@
-# TableManager V1 Progress Checklist
+# Orbit V1 Progress Checklist
 
 Audit date: 2026-05-11
 Last updated: 2026-05-11
@@ -34,4 +34,3 @@ Recent movement:
 6. Improve GroupMe parsing after seeing real room message formats.
 7. Validate low-light mode and status colors in an actual room environment.
 8. Add more explicit recovery prompts after accidental app close if staff asks for them.
-

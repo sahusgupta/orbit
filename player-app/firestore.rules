@@ -11,6 +11,53 @@ service cloud.firestore {
         && request.auth.token.firebase.sign_in_provider == 'google.com';
     }
 
+    function isSelf(playerId) {
+      return isGoogleUser() && request.auth.uid == playerId;
+    }
+
+    function isClubAdmin(clubId) {
+      return isSignedIn()
+        && (
+          request.auth.token.admin == true
+          || request.auth.token.clubAdmin == true
+          || request.auth.token.clubId == clubId
+          || (request.auth.token.clubIds != null && request.auth.token.clubIds[clubId] == true)
+        );
+    }
+
+    function playerDocPath(playerId) {
+      return /databases/$(database)/documents/players/$(playerId);
+    }
+
+    function hasActivePlayerPremium(playerId) {
+      return isSelf(playerId)
+        && exists(playerDocPath(playerId))
+        && (
+          get(playerDocPath(playerId)).data.premium.status == 'active'
+          || get(playerDocPath(playerId)).data.subscriptionStatus == 'active'
+        );
+    }
+
+    function doesNotChangeServerManagedBilling() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'premium',
+        'stripeCustomerId',
+        'stripeSubscriptionId',
+        'subscriptionStatus',
+        'subscriptionCurrentPeriodEnd'
+      ]);
+    }
+
+    function hasNoServerManagedBilling() {
+      return !request.resource.data.keys().hasAny([
+        'premium',
+        'stripeCustomerId',
+        'stripeSubscriptionId',
+        'subscriptionStatus',
+        'subscriptionCurrentPeriodEnd'
+      ]);
+    }
+
     function isPendingPlayerRequest(clubId, requestType) {
       return request.resource.data.clubId == clubId
         && request.resource.data.type == requestType
@@ -47,83 +94,80 @@ service cloud.firestore {
     }
 
     match /clubStates/{clubId} {
-      allow read: if true;
-
-      // Pilot rule: desktop management currently publishes without Google Auth.
-      // Before public launch, replace broad writes with admin claims or Cloud Functions.
-      allow create, update: if true;
+      allow read, create, update: if isClubAdmin(clubId);
       allow delete: if false;
 
       match /membershipRequests/{requestId} {
-        allow create: if isPendingPlayerRequest(clubId, 'membership-request');
-        allow read: if true;
-        allow update: if marksRequestAppliedOnly();
+        allow create: if isPendingPlayerRequest(clubId, 'membership-request')
+          && isSelf(request.resource.data.player.id);
+        allow read: if isClubAdmin(clubId) || isSelf(resource.data.player.id);
+        allow update: if isClubAdmin(clubId) && marksRequestAppliedOnly();
         allow delete: if false;
       }
 
       match /waitlistRequests/{requestId} {
         allow create: if isPendingPlayerRequest(clubId, 'waitlist-request')
+          && isSelf(request.resource.data.player.id)
           && request.resource.data.gameId is string
           && request.resource.data.gameId.size() > 0;
-        allow read: if true;
-        allow update: if marksRequestAppliedOnly();
+        allow read: if isClubAdmin(clubId) || isSelf(resource.data.player.id);
+        allow update: if isClubAdmin(clubId) && marksRequestAppliedOnly();
         allow delete: if false;
       }
     }
 
     match /clubs/{clubId} {
       allow read: if true;
-
-      // Pilot rule: desktop management currently publishes without Google Auth.
-      // For public launch, restrict these writes with admin custom claims or
-      // route club publishing through Cloud Functions.
-      allow create, update: if true;
+      allow create, update: if isClubAdmin(clubId);
       allow delete: if false;
 
       match /games/{gameId} {
         allow read: if true;
-        allow create, update: if true;
-        allow delete: if true;
+        allow create, update, delete: if isClubAdmin(clubId);
       }
 
       match /memberships/{membershipId} {
-        allow read: if true;
-        allow create, update: if true;
-        allow delete: if true;
+        allow read: if isClubAdmin(clubId) || isSelf(resource.data.playerId);
+        allow create, update, delete: if isClubAdmin(clubId);
       }
 
       match /waitlists/{waitlistId} {
-        allow read: if true;
-        allow create, update: if true;
-        allow delete: if true;
+        allow read: if isClubAdmin(clubId) || isSelf(resource.data.playerId);
+        allow create, update, delete: if isClubAdmin(clubId);
       }
 
       match /membershipRequests/{requestId} {
-        allow create: if isPendingPlayerRequest(clubId, 'membership-request');
-        allow read: if true;
-        allow update: if marksRequestAppliedOnly();
+        allow create: if isPendingPlayerRequest(clubId, 'membership-request')
+          && isSelf(request.resource.data.player.id);
+        allow read: if isClubAdmin(clubId) || isSelf(resource.data.player.id);
+        allow update: if isClubAdmin(clubId) && marksRequestAppliedOnly();
         allow delete: if false;
       }
 
       match /waitlistRequests/{requestId} {
         allow create: if isPendingPlayerRequest(clubId, 'waitlist-request')
+          && isSelf(request.resource.data.player.id)
           && request.resource.data.gameId is string
           && request.resource.data.gameId.size() > 0;
-        allow read: if true;
-        allow update: if marksRequestAppliedOnly();
+        allow read: if isClubAdmin(clubId) || isSelf(resource.data.player.id);
+        allow update: if isClubAdmin(clubId) && marksRequestAppliedOnly();
         allow delete: if false;
       }
     }
 
     match /players/{playerId} {
-      allow create, update: if isGoogleUser() && request.auth.uid == playerId;
-      allow read: if isGoogleUser();
+      allow create: if isSelf(playerId) && hasNoServerManagedBilling();
+      allow update: if isSelf(playerId) && doesNotChangeServerManagedBilling();
+      allow read: if isSelf(playerId);
       allow delete: if false;
     }
 
     match /privateGames/{gameId} {
       allow read: if true;
-      allow create: if isPrivateGameListing(gameId);
+      allow create: if isPrivateGameListing(gameId)
+        && isSelf(request.resource.data.hostPlayerId)
+        && hasActivePlayerPremium(request.resource.data.hostPlayerId)
+        && !request.resource.data.keys().hasAny(['hostPlayerEmail']);
       allow update, delete: if false;
     }
   }

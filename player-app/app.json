@@ -1,21 +1,21 @@
 {
   "expo": {
-    "name": "TableTalk Player",
+    "name": "Orbit Player",
     "owner": "saussy",
-    "slug": "tabletalk-player",
-    "version": "0.1.0",
+    "slug": "orbit-player",
+    "version": "0.1.13",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "tabletalkplayer",
+    "scheme": "orbitplayer",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#e7ebf0"
+      "backgroundColor": "#F9FAFB"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.tabletalk.player",
+      "bundleIdentifier": "com.orbit.player",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
@@ -24,7 +24,7 @@
       }
     },
     "android": {
-      "package": "com.tabletalk.player",
+      "package": "com.orbit.player",
       "config": {
         "googleMaps": {
           "apiKey": "${GOOGLE_MAPS_ANDROID_API_KEY}"
@@ -32,7 +32,7 @@
       },
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#e7ebf0"
+        "backgroundColor": "#F9FAFB"
       }
     },
     "web": {

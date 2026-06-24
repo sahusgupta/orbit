@@ -1,8 +1,8 @@
 {
-  "name": "table-manager",
-  "version": "0.1.2",
-  "description": "Desktop poker room coordination system for game formation, waitlists, and occupied seat-hour tracking.",
-  "author": "TableManager",
+  "name": "table_manager",
+  "version": "0.1.13",
+  "description": "Connected live poker operations platform for demand, waitlists, tables, rewards, and tournaments.",
+  "author": "Orbit",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -14,6 +14,9 @@
     "download:stage": "node scripts/stage-download-site.cjs",
     "download:dev": "npm run download:stage && vite --config download-site/vite.config.mjs --host 127.0.0.1 --port 4174",
     "download:build": "npm run download:stage && vite build --config download-site/vite.config.mjs",
+    "api:install": "npm install --prefix apps/api --no-package-lock",
+    "api:dev": "npm run dev --prefix apps/api",
+    "api:start": "npm run start --prefix apps/api",
     "player:dev": "cd player-app && npm run start",
     "player:ios": "cd player-app && npm run ios",
     "player:android": "cd player-app && npm run android",
@@ -38,26 +41,26 @@
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",
     "electron-updater": "^6.8.3",
-    "exceljs": "^4.4.0",
+    "exceljs": "^3.4.0",
     "firebase": "^12.13.0",
     "lucide-react": "^0.468.0",
-    "nodemailer": "^8.0.7",
+    "nodemailer": "^9.0.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "typescript": "^5.9.2",
-    "vite": "^7.1.7"
+    "vite": "^7.3.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "electron": "^42.1.0",
     "electron-builder": "^26.8.1",
     "jsdom": "^29.1.1",
-    "vercel": "^54.2.0",
     "vitest": "^4.1.6"
   },
   "build": {
-    "appId": "com.tabletalk.desktop",
-    "productName": "TableTalk",
+    "appId": "com.orbit.desktop",
+    "productName": "Orbit",
+    "icon": "build/icon.ico",
     "asar": true,
     "directories": {
       "output": "release"
@@ -65,6 +68,8 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "build/icon.ico",
+      "build/icon.png",
       "branding.config.json",
       "package.json",
       "!out/**",
@@ -74,6 +79,7 @@
       "!download-site/downloads/**"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -100,8 +106,14 @@
     "publish": {
       "provider": "github",
       "owner": "sahusgupta",
-      "repo": "TableTalk-Releases",
+      "repo": "Orbit-Releases",
       "releaseType": "release"
+    }
+  },
+  "overrides": {
+    "uuid": "^11.1.1",
+    "vite": {
+      "esbuild": "^0.28.1"
     }
   }
 }
