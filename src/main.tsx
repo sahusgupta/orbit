@@ -45,6 +45,22 @@ declare global {
       saveState: (state: AppState) => Promise<{ ok: boolean; path: string; accountKey?: string }>;
       getBackendStatus: () => Promise<BackendStatus>;
       submitAnalyticalReport: (report: AnalyticalReportPayload) => Promise<ReportSubmissionResult>;
+      recordClientEvent: (
+        event: string,
+        category: string,
+        details?: Record<string, string | number | boolean | null>,
+        route?: AppRoute | 'access'
+      ) => Promise<{ ok: boolean }>;
+      recordClientError: (payload: {
+        message: string;
+        source?: string;
+        route?: AppRoute | 'access';
+        stack?: string;
+        filename?: string;
+        line?: number;
+        column?: number;
+        details?: Record<string, string | number | boolean | null>;
+      }) => Promise<{ ok: boolean }>;
     };
   }
 }
@@ -2027,24 +2043,75 @@ function App() {
     };
   }, [activeAccountKey]);
 
+  useEffect(() => {
+    const reportError = (payload: {
+      message: string;
+      source?: string;
+      stack?: string;
+      filename?: string;
+      line?: number;
+      column?: number;
+    }) => {
+      window.tableManagerDesktop?.recordClientError({ ...payload, route }).catch(() => undefined);
+    };
+    const onError = (event: ErrorEvent) => {
+      reportError({
+        message: event.message || 'Renderer error',
+        source: 'renderer-window-error',
+        stack: event.error?.stack || '',
+        filename: event.filename,
+        line: event.lineno,
+        column: event.colno
+      });
+    };
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      reportError({
+        message: reason instanceof Error ? reason.message : String(reason || 'Unhandled promise rejection'),
+        source: 'renderer-unhandled-rejection',
+        stack: reason instanceof Error ? reason.stack || '' : ''
+      });
+    };
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
+    };
+  }, [route]);
+
   const withUsageEvent = (next: AppState, usage?: UsageDescriptor): AppState => {
     if (!usage) return next;
     const activeStaff = next.settings.staffAccounts.find((staff) => staff.id === next.settings.activeStaffId);
+    const event: UsageEvent = {
+      id: uid(),
+      feature: usage.feature,
+      action: usage.action,
+      route: usage.route ?? route,
+      timestamp: nowIso(),
+      staffId: activeStaff?.id,
+      staffName: activeStaff?.name,
+      staffRole: activeStaff?.role,
+      accountKey: getAccountKeyFromState(next),
+      metadata: usage.metadata
+    };
+    window.tableManagerDesktop?.recordClientEvent(
+      usage.action.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'usage-event',
+      'usage',
+      {
+        feature: usage.feature,
+        action: usage.action,
+        accountKey: event.accountKey,
+        staffRole: activeStaff?.role ?? '',
+        staffName: activeStaff?.name ?? '',
+        ...(usage.metadata ?? {})
+      },
+      event.route
+    ).catch(() => undefined);
     return {
       ...next,
       usageEvents: [
-        {
-          id: uid(),
-          feature: usage.feature,
-          action: usage.action,
-          route: usage.route ?? route,
-          timestamp: nowIso(),
-          staffId: activeStaff?.id,
-          staffName: activeStaff?.name,
-          staffRole: activeStaff?.role,
-          accountKey: getAccountKeyFromState(next),
-          metadata: usage.metadata
-        },
+        event,
         ...(next.usageEvents ?? [])
       ].slice(0, 5000)
     };
@@ -2812,6 +2879,7 @@ function App() {
     });
     nextState = syncSessionSeatCount(nextState, session.id, { status: 'Running', startedAt: seatedAt });
     const table = nextState.sessions.find((item) => item.id === session.id);
+    const playerCount = table?.seatsFilled ?? alreadySeated.length + seatedNames.length;
     persist({
       ...nextState,
       tableEvents: [
@@ -2822,13 +2890,21 @@ function App() {
           gameId: session.gameId,
           tableId: session.id,
           timestamp: seatedAt,
-          playerCount: table?.seatsFilled ?? alreadySeated.length + seatedNames.length,
+          playerCount,
           note: seatedNames.length
             ? `Started with ${[...alreadySeated.map((player) => player.playerName), ...seatedNames].join(', ')}`
             : `Started with ${alreadySeated.map((player) => player.playerName).join(', ')}`
         }
       ]
     }, true, { feature: 'Tables', action: 'Started table', metadata: { gameId: session.gameId, players: selectedInterests.length } });
+    window.tableManagerDesktop?.recordClientEvent('table-started', 'tables', {
+      gameId: session.gameId,
+      tableId: session.id,
+      tableLabel: table?.label ?? session.label,
+      playerCount,
+      selectedPlayers: selectedInterests.length,
+      alreadySeated: alreadySeated.length
+    }, route).catch(() => undefined);
     if (skippedErrors.length) {
       setSaveStatus({ state: 'error', message: skippedErrors[0] });
     }

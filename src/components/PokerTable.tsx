@@ -231,6 +231,7 @@ export default function PokerTable({
 }: PokerTableProps) {
   const [openPlayerId, setOpenPlayerId] = useState<string | null>(null);
   const seatCount = Math.max(1, maxPlayers);
+  const tablePositionCount = seatCount + 1;
   const isDense = seatCount >= 8;
   const occupiedSeatNumbers = new Set(players.map((player, index) => player.seatNumber ?? index + 1));
   const orderedPlayers = [...players]
@@ -251,7 +252,7 @@ export default function PokerTable({
 
                 {Array.from({ length: seatCount }).map((_, i) => {
                   const seatNumber = i + 1;
-                  const marker = getSeatPosition(i + 1, seatCount);
+                  const marker = getSeatPosition(seatNumber, tablePositionCount);
                   const occupied = occupiedSeatNumbers.has(seatNumber);
                   return (
                     <button
@@ -279,7 +280,7 @@ export default function PokerTable({
             key={player.id}
             player={player}
             position={index}
-            totalPositions={seatCount}
+            totalPositions={tablePositionCount}
             showTimeRemaining={showTimeRemaining}
             isOpen={openPlayerId === player.id}
             onToggle={() => setOpenPlayerId((current) => (current === player.id ? null : player.id))}

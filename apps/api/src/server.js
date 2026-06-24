@@ -3,15 +3,21 @@ global.crypto = global.crypto || crypto.webcrypto;
 
 const cors = require('cors');
 const express = require('express');
+const path = require('path');
 const {
   closeDatabase,
   getClient,
   getDatabasePath,
+  getTelemetrySummary,
+  listClientErrors,
   listClients,
   listClientUpdateEvents,
+  listTelemetryEvents,
   listVenues,
   loadLatestState,
   loadState,
+  recordClientError,
+  recordTelemetryEvent,
   recordUpdateEvent,
   saveState,
   storeAnalyticalReport,
@@ -27,9 +33,45 @@ const {
 const app = express();
 const port = Number(process.env.API_PORT || 4629);
 const startedAt = new Date().toISOString();
+const liveClients = new Set();
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
+
+function getReceivedApiKey(request) {
+  return request.get('x-orbit-api-key') || request.get('authorization')?.replace(/^Bearer\s+/i, '') || request.query.apiKey;
+}
+
+function safeEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ''));
+  const rightBuffer = Buffer.from(String(right || ''));
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function requireDashboardAuth(request, response, next) {
+  const configuredPassword = process.env.ORBIT_DASHBOARD_PASSWORD || process.env.ORBIT_DASHBOARD_API_KEY || process.env.ORBIT_CLIENT_API_KEY;
+  const configuredUser = process.env.ORBIT_DASHBOARD_USER || 'orbit-admin';
+  if (!configuredPassword) {
+    response.status(500).send('Dashboard auth is not configured.');
+    return;
+  }
+
+  const header = request.get('authorization') || '';
+  const [scheme, credentials] = header.split(/\s+/, 2);
+  if (scheme?.toLowerCase() === 'basic' && credentials) {
+    const decoded = Buffer.from(credentials, 'base64').toString('utf8');
+    const separator = decoded.indexOf(':');
+    const username = separator >= 0 ? decoded.slice(0, separator) : '';
+    const password = separator >= 0 ? decoded.slice(separator + 1) : '';
+    if (safeEqual(username, configuredUser) && safeEqual(password, configuredPassword)) {
+      next();
+      return;
+    }
+  }
+
+  response.set('www-authenticate', 'Basic realm="Orbit Dashboard", charset="UTF-8"');
+  response.status(401).send('Authentication required.');
+}
 
 function requireApiKey(request, response, next) {
   const configuredKey = process.env.ORBIT_CLIENT_API_KEY;
@@ -37,7 +79,7 @@ function requireApiKey(request, response, next) {
     response.status(500).json({ ok: false, error: 'ORBIT_CLIENT_API_KEY is not configured.' });
     return;
   }
-  const received = request.get('x-orbit-api-key') || request.get('authorization')?.replace(/^Bearer\s+/i, '');
+  const received = getReceivedApiKey(request);
   if (received !== configuredKey) {
     response.status(401).json({ ok: false, error: 'Invalid API key.' });
     return;
@@ -59,16 +101,52 @@ app.get('/health', (_request, response) => {
   });
 });
 
+app.use(['/dashboard', '/dashboard.js', '/dashboard.css', '/dashboard/data', '/dashboard/events'], requireDashboardAuth);
+
+app.get('/dashboard', (_request, response) => {
+  response.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));
+});
+
+app.get('/dashboard.js', (_request, response) => {
+  response.sendFile(path.join(__dirname, '..', 'public', 'dashboard.js'));
+});
+
+app.get('/dashboard.css', (_request, response) => {
+  response.sendFile(path.join(__dirname, '..', 'public', 'dashboard.css'));
+});
+
 app.use(requireApiKey);
+
+function broadcastLive(type, payload) {
+  const body = `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`;
+  for (const client of liveClients) {
+    client.write(body);
+  }
+}
 
 app.post('/clients/heartbeat', asyncRoute(async (request, response) => {
   const client = upsertClient(request.body || {});
+  broadcastLive('client', client);
   response.status(202).json({ ok: true, client });
 }));
 
 app.post('/clients/update-event', asyncRoute(async (request, response) => {
   const client = recordUpdateEvent(request.body || {});
+  const event = listTelemetryEvents({ deviceId: client.deviceId, limit: 1 })[0];
+  if (event) broadcastLive('telemetry', event);
   response.status(202).json({ ok: true, client });
+}));
+
+app.post('/clients/event', asyncRoute(async (request, response) => {
+  const event = recordTelemetryEvent(request.body || {});
+  broadcastLive('telemetry', event);
+  response.status(202).json({ ok: true, event });
+}));
+
+app.post('/clients/error', asyncRoute(async (request, response) => {
+  const error = recordClientError(request.body || {});
+  broadcastLive('error', error);
+  response.status(202).json({ ok: true, error });
 }));
 
 app.get('/clients', (_request, response) => {
@@ -82,6 +160,53 @@ app.get('/clients/:deviceId', (request, response) => {
     return;
   }
   response.json({ ok: true, client, updateEvents: listClientUpdateEvents(request.params.deviceId) });
+});
+
+app.get('/telemetry/events', (request, response) => {
+  response.json({
+    ok: true,
+    events: listTelemetryEvents({
+      venueId: request.query.venueId,
+      deviceId: request.query.deviceId,
+      limit: request.query.limit
+    })
+  });
+});
+
+app.get('/telemetry/errors', (request, response) => {
+  response.json({
+    ok: true,
+    errors: listClientErrors({
+      venueId: request.query.venueId,
+      deviceId: request.query.deviceId,
+      limit: request.query.limit
+    })
+  });
+});
+
+app.get('/dashboard/data', (_request, response) => {
+  response.json({
+    ok: true,
+    summary: getTelemetrySummary(),
+    clients: listClients(),
+    venues: listVenues(),
+    events: listTelemetryEvents({ limit: 200 }),
+    errors: listClientErrors({ limit: 100 })
+  });
+});
+
+app.get('/dashboard/events', (request, response) => {
+  response.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-store',
+    connection: 'keep-alive',
+    'access-control-allow-origin': '*'
+  });
+  response.write(`event: ready\ndata: ${JSON.stringify({ ok: true, startedAt })}\n\n`);
+  liveClients.add(response);
+  request.on('close', () => {
+    liveClients.delete(response);
+  });
 });
 
 app.get('/venues', (_request, response) => {
