@@ -231,19 +231,34 @@ export function subscribeToAllClubSnapshots(
           latestClubs.set(clubDoc.id, buildPublishedClubSnapshot(clubDoc, childState.games, childState.memberships, childState.waitlists, player));
           emit();
         };
+        const handlePrivateCollectionError = () => {
+          updateClub();
+        };
         const unsubscribers = [
-          onSnapshot(collection(db, 'clubs', clubDoc.id, 'games'), (snapshot) => {
-            childState.games = snapshot.docs.map((gameDoc) => gameDoc.data() as PlayerClubSnapshot['games'][number]);
-            updateClub();
-          }),
-          onSnapshot(playerScopedCollection(clubDoc.id, 'memberships', player.id), (snapshot) => {
-            childState.memberships = snapshot.docs.map((membershipDoc) => membershipDoc.data() as PlayerClubSnapshot['memberships'][number]);
-            updateClub();
-          }),
-          onSnapshot(playerScopedCollection(clubDoc.id, 'waitlists', player.id), (snapshot) => {
-            childState.waitlists = snapshot.docs.map((waitlistDoc) => waitlistDoc.data() as PlayerClubSnapshot['waitlists'][number]);
-            updateClub();
-          })
+          onSnapshot(
+            collection(db, 'clubs', clubDoc.id, 'games'),
+            (snapshot) => {
+              childState.games = snapshot.docs.map((gameDoc) => gameDoc.data() as PlayerClubSnapshot['games'][number]);
+              updateClub();
+            },
+            handlePrivateCollectionError
+          ),
+          onSnapshot(
+            playerScopedCollection(clubDoc.id, 'memberships', player.id),
+            (snapshot) => {
+              childState.memberships = snapshot.docs.map((membershipDoc) => membershipDoc.data() as PlayerClubSnapshot['memberships'][number]);
+              updateClub();
+            },
+            handlePrivateCollectionError
+          ),
+          onSnapshot(
+            playerScopedCollection(clubDoc.id, 'waitlists', player.id),
+            (snapshot) => {
+              childState.waitlists = snapshot.docs.map((waitlistDoc) => waitlistDoc.data() as PlayerClubSnapshot['waitlists'][number]);
+              updateClub();
+            },
+            handlePrivateCollectionError
+          )
         ];
         childUnsubscribers.set(clubDoc.id, unsubscribers);
         updateClub();
