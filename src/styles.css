@@ -1771,6 +1771,17 @@ body.low-light .start-table-panel {
   justify-self: end;
 }
 
+.overview-player-row.all-time-row {
+  grid-template-columns: 78px minmax(0, 1fr) minmax(70px, auto) auto;
+}
+
+.overview-player-row small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
 .table-player-actions {
   display: grid;
   gap: 8px;

@@ -107,7 +107,7 @@
     "publish": {
       "provider": "github",
       "owner": "sahusgupta",
-      "repo": "Orbit-Releases",
+      "repo": "orbit",
       "releaseType": "release"
     }
   },
