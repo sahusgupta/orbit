@@ -28,6 +28,7 @@
     "stress:e2e": "node tests/e2e/stress-electron.mjs",
     "pilot:key": "node scripts/generate-pilot-key.cjs",
     "pilot:key:init": "node scripts/generate-pilot-key.cjs init",
+    "club:members": "node scripts/firestore-club-members.cjs",
     "package:win": "node scripts/prepare-builder-dist.cjs && npm run build && electron-builder --win --dir",
     "start": "npm run desktop",
     "prepackage": "npm run build",

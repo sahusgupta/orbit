@@ -1,9 +1,11 @@
 node_modules/
+.orbit/
 dist/
 release/
 *.log
 .pilot-license-private-key.pem
 *-pilot-key.json
+*-firebase-adminsdk-*.json
 
 out/
 download-dist/

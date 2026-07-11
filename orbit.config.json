@@ -1,0 +1,101 @@
+{
+  "sources": [
+    {
+      "name": "onboarding",
+      "path": "docs",
+      "source_type": "knowledge_base",
+      "access_scopes": ["engineering", "onboarding"]
+    },
+    {
+      "name": "frontend",
+      "path": "src",
+      "source_type": "codebase",
+      "access_scopes": ["engineering", "frontend"]
+    },
+    {
+      "name": "electron",
+      "path": "electron",
+      "source_type": "codebase",
+      "access_scopes": ["engineering", "desktop"]
+    },
+    {
+      "name": "api",
+      "path": "apps/api/src",
+      "source_type": "codebase",
+      "access_scopes": ["engineering", "backend"]
+    },
+    {
+      "name": "api-dashboard",
+      "path": "apps/api/public",
+      "source_type": "codebase",
+      "access_scopes": ["engineering", "backend"]
+    },
+    {
+      "name": "scripts",
+      "path": "scripts",
+      "source_type": "codebase",
+      "access_scopes": ["engineering", "operations"]
+    },
+    {
+      "name": "tests",
+      "path": "tests",
+      "source_type": "codebase",
+      "access_scopes": ["engineering", "qa"]
+    }
+  ],
+  "source_dir": ".",
+  "index_path": ".orbit/index.json",
+  "max_lines": 90,
+  "overlap_lines": 15,
+  "search_limit": 8,
+  "provider": "ollama",
+  "model": "llama3.1",
+  "retrieval_mode": "hybrid",
+  "embedding_provider": "local_bow",
+  "embedding_model": null,
+  "supported_extensions": [
+    ".md",
+    ".txt",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".cjs",
+    ".json",
+    ".css",
+    ".html"
+  ],
+  "ignored_dirs": [
+    ".git",
+    ".orbit",
+    ".vercel",
+    ".superdesign",
+    "node_modules",
+    "apps/api/node_modules",
+    "player-app",
+    "dist",
+    "build",
+    "release",
+    "out",
+    "download-dist",
+    "download-site/public/downloads",
+    "download-site/downloads",
+    "TableTalk-Releases"
+  ],
+  "ignored_files": [
+    "*.log",
+    "*-pilot-key.json",
+    "*-firebase-adminsdk-*.json",
+    ".pilot-license-private-key.pem",
+    "package-lock.json"
+  ],
+  "default_access_scopes": [
+    "engineering",
+    "onboarding",
+    "frontend",
+    "backend",
+    "desktop",
+    "operations",
+    "qa"
+  ],
+  "auth_token": null
+}

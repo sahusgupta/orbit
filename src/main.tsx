@@ -3570,37 +3570,70 @@ function App() {
     });
   };
 
+  const importedValue = (item: Record<string, unknown>, aliases: string[]) => {
+    const normalizedAliases = new Set(aliases.map((alias) => alias.toLowerCase().replace(/[^a-z0-9]/g, '')));
+    const match = Object.entries(item).find(([key]) => normalizedAliases.has(key.toLowerCase().replace(/[^a-z0-9]/g, '')));
+    return match?.[1];
+  };
+
+  const importedString = (item: Record<string, unknown>, aliases: string[], fallback = '') => {
+    const value = importedValue(item, aliases);
+    return value === undefined || value === null ? fallback : String(value).trim();
+  };
+
+  const importedDate = (item: Record<string, unknown>, aliases: string[], fallback: string) => {
+    const value = importedValue(item, aliases);
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const excelEpoch = Date.UTC(1899, 11, 30);
+      return new Date(excelEpoch + value * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    }
+    const text = value === undefined || value === null ? '' : String(value).trim();
+    if (!text) return fallback;
+    const parsed = new Date(text);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    return text.slice(0, 10);
+  };
+
+  const importedNumber = (item: Record<string, unknown>, aliases: string[], fallback = 0) => {
+    const value = Number(importedValue(item, aliases) ?? fallback);
+    return Number.isFinite(value) ? value : fallback;
+  };
+
   const profileFromImportedRecord = (item: Record<string, unknown>): PlayerProfile => {
-    const name = String(item.name ?? item.Name ?? item.playerName ?? item['Player Name'] ?? '').trim();
-    const preferredStakes = String(item.preferredStakes ?? item['Preferred Stakes'] ?? item.preferredGame ?? item['Preferred Game'] ?? '');
+    const firstName = importedString(item, ['firstName', 'First Name', 'first']);
+    const lastName = importedString(item, ['lastName', 'Last Name', 'last']);
+    const fullName = importedString(item, ['name', 'Name', 'playerName', 'Player Name', 'player', 'Player', 'customerName', 'Customer Name']);
+    const name = fullName || [firstName, lastName].filter(Boolean).join(' ');
+    const preferredStakes = importedString(item, ['preferredStakes', 'Preferred Stakes', 'preferredGame', 'Preferred Game', 'stakes', 'Game']);
     const preferredGameId = resolveGameId(
       state.games,
-      String(item.preferredGameId ?? item['Preferred Game Id'] ?? item.preferredGame ?? item['Preferred Game'] ?? preferredStakes),
+      importedString(item, ['preferredGameId', 'Preferred Game Id', 'preferredGame', 'Preferred Game', 'stakes', 'Game'], preferredStakes),
       resolveGameId(state.games, preferredStakes, state.games[0]?.id ?? '')
     );
-    const companionNames = String(item.usualCompanions ?? item.companions ?? item.Companions ?? '')
+    const companionNames = importedString(item, ['usualCompanions', 'companions', 'Companions', 'commonlyPlaysWith', 'Commonly Plays With'])
       .split(/[|;]/)
       .map((name) => name.trim())
       .filter(Boolean);
     return {
-      id: String(item.id ?? item.memberId ?? item.membershipId ?? memberId()),
+      id: importedString(item, ['id', 'ID', 'memberId', 'Member ID', 'membershipId', 'Membership ID', 'playerId', 'Player ID', 'cardNumber', 'Card Number', 'cardId', 'Card ID'], memberId()),
       name,
-      birthday: String(item.birthday ?? item.Birthday ?? ''),
-      membershipStartDate: String(item.membershipStartDate ?? item['Membership Start'] ?? todayDate()).slice(0, 10),
-      membershipExpirationDate: String(item.membershipExpirationDate ?? item['Membership Expiration'] ?? nextYearDate()).slice(0, 10),
-      totalTimePlayedHours: Number(item.totalTimePlayedHours ?? item.totalTimePlayed ?? 0),
-      lastSessionTimePlayedHours: Number(item.lastSessionTimePlayedHours ?? item.lastSessionTimePlayed ?? 0),
+      birthday: importedDate(item, ['birthday', 'Birthday', 'dob', 'DOB', 'dateOfBirth', 'Date of Birth'], ''),
+      membershipStartDate: importedDate(item, ['membershipStartDate', 'Membership Start', 'memberSince', 'Member Since', 'joinDate', 'Join Date', 'createdAt', 'Created At'], todayDate()),
+      membershipExpirationDate: importedDate(item, ['membershipExpirationDate', 'Membership Expiration', 'expiresAt', 'Expires At', 'expirationDate', 'Expiration Date', 'expiryDate', 'Expiry Date'], nextYearDate()),
+      totalTimePlayedHours: importedNumber(item, ['totalTimePlayedHours', 'totalTimePlayed', 'Total Time Played', 'lifetimeHours', 'Lifetime Hours']),
+      lastSessionTimePlayedHours: importedNumber(item, ['lastSessionTimePlayedHours', 'lastSessionTimePlayed', 'Last Session Time Played']),
       commonlyPlaysWithProfileIds: [],
       preferredGameId,
       preferredGameIds: preferredGameId ? [preferredGameId] : [],
       preferredStakes,
-      typicalBuyInMin: Number(item.typicalBuyInMin ?? item.buyInMin ?? 0),
-      typicalBuyInMax: Number(item.typicalBuyInMax ?? item.buyInMax ?? 0),
-      willingnessToMove: Boolean(item.willingnessToMove ?? item.moveTables ?? false),
-      typicalAvailability: String(item.typicalAvailability ?? item.availability ?? ''),
+      typicalBuyInMin: importedNumber(item, ['typicalBuyInMin', 'buyInMin', 'Buy In Min']),
+      typicalBuyInMax: importedNumber(item, ['typicalBuyInMax', 'buyInMax', 'Buy In Max']),
+      willingnessToMove: ['yes', 'true', 'y', '1'].includes(importedString(item, ['willingnessToMove', 'moveTables', 'Move Tables']).toLowerCase()),
+      typicalAvailability: importedString(item, ['typicalAvailability', 'availability', 'Availability']),
       preferredTags: Array.isArray(item.preferredTags) ? item.preferredTags as TableTag[] : [],
       usualCompanions: companionNames,
-      notes: String(item.notes ?? '')
+      notes: importedString(item, ['notes', 'Notes', 'note', 'Note'])
     };
   };
 
@@ -5188,7 +5221,7 @@ function App() {
                   Upload CSV / XLSX
                   <input
                     type="file"
-                    accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    accept=".csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     onChange={(event) => importProfileFile(event.target.files?.[0])}
                   />
                 </label>
