@@ -7,7 +7,8 @@ const { getAccountKeyFromState, sanitizeAccountKey, validateStatePayload } = req
 let database;
 
 function getDatabasePath() {
-  const configured = process.env.DATABASE_URL || 'file:./data/orbit-api.sqlite3';
+  const defaultDatabaseUrl = process.env.VERCEL ? 'file:/tmp/orbit-api.sqlite3' : 'file:./data/orbit-api.sqlite3';
+  const configured = process.env.DATABASE_URL || defaultDatabaseUrl;
   if (configured.startsWith('file:')) {
     return path.resolve(process.cwd(), configured.slice('file:'.length));
   }

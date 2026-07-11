@@ -23,21 +23,27 @@ All other endpoints require `x-orbit-api-key`.
 ## Environment Variables
 
 - `API_PORT`: API port, defaults to `4629`.
-- `ORBIT_CLIENT_API_KEY`: shared API key for installed desktop clients.
-- `DATABASE_URL`: SQLite path for local development, for example `file:./data/orbit-api.sqlite3`.
+- `ORBIT_CLIENT_API_KEY`: owner/shared service key. Desktop clients may also authenticate with their signed pilot key authorization code.
+- `DATABASE_URL`: SQLite path for local development, for example `file:./data/orbit-api.sqlite3`. On Vercel, the API defaults to `file:/tmp/orbit-api.sqlite3` when `DATABASE_URL` is unset.
 - `NODE_ENV`: `development`, `staging`, or `production`.
 
 The database layer is intentionally small and isolated in `src/database.js` so it can later be swapped for Postgres or Supabase.
+
+Vercel's deployment filesystem is read-only except for `/tmp`, so do not set `DATABASE_URL=file:./data/orbit-api.sqlite3` there. `/tmp` prevents startup crashes, but it is ephemeral; use a persistent database provider for production logs.
 
 ## Desktop Connection
 
 The Electron app reads:
 
 - `ORBIT_API_URL`, default `http://127.0.0.1:4629`
-- `ORBIT_CLIENT_API_KEY`
+- `ORBIT_CLIENT_API_KEY`, optional when the installation has an active pilot key
 - `NODE_ENV`
 
 On launch it creates or reuses a stable `deviceId`, then sends `POST /clients/heartbeat`. It repeats the heartbeat every five minutes. API failures are logged quietly and never block app startup.
+
+If `ORBIT_CLIENT_API_KEY` is not packaged with the app, Electron uses the activated card-house pilot `authorizationCode` as the client auth key. The API accepts these `TT-PILOT-...` authorization codes for client write/state/report operations, so existing card houses can connect on the next app launch with the key they already loaded.
+
+Owner/admin read endpoints such as `/clients`, `/venues`, and `/telemetry/*` still require the real `ORBIT_CLIENT_API_KEY`. The dashboard remains protected by `ORBIT_DASHBOARD_USER` and `ORBIT_DASHBOARD_PASSWORD`.
 
 Desktop state/report operations are API-first:
 

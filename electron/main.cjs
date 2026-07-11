@@ -133,9 +133,36 @@ function getTelemetryVenueInfo() {
   }
 }
 
+function getClientAuthKeyFromAccess(access) {
+  if (!isRecord(access)) return '';
+  return String(access.authorizationCode || '').trim();
+}
+
+function getClientAuthKeyFromState(state) {
+  return getClientAuthKeyFromAccess(state?.settings?.pilotAccess);
+}
+
+function getLocalClientAuthKey() {
+  try {
+    const record = readLocalDatabase();
+    return getClientAuthKeyFromState(record?.state);
+  } catch {
+    return '';
+  }
+}
+
+function getLocalAccountKey() {
+  try {
+    const record = readLocalDatabase();
+    return record?.state ? getAccountKeyFromState(record.state) : '';
+  } catch {
+    return '';
+  }
+}
+
 function getApiConfig() {
   const apiUrl = (process.env.ORBIT_API_URL || 'http://127.0.0.1:4629').replace(/\/+$/, '');
-  const apiKey = process.env.ORBIT_CLIENT_API_KEY || '';
+  const apiKey = process.env.ORBIT_CLIENT_API_KEY || getLocalClientAuthKey();
   return { apiUrl, apiKey };
 }
 
@@ -163,7 +190,8 @@ async function postClientTelemetry(pathname, payload) {
 
 async function requestOrbitApi(pathname, options = {}) {
   const { apiUrl, apiKey } = getApiConfig();
-  if (!apiKey || typeof fetch !== 'function') return null;
+  const authKey = options.authKey || apiKey;
+  if (!authKey || typeof fetch !== 'function') return null;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 3500);
   try {
@@ -171,7 +199,8 @@ async function requestOrbitApi(pathname, options = {}) {
       method: options.method || 'GET',
       headers: {
         'content-type': 'application/json',
-        'x-orbit-api-key': apiKey,
+        'x-orbit-api-key': authKey,
+        'x-orbit-auth-key': authKey,
         ...(options.headers || {})
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -218,9 +247,10 @@ async function getRemoteBackendStatus() {
   }
 }
 
-async function loadStateFromApi(accountKey) {
-  const pathname = accountKey ? `/state/${encodeURIComponent(sanitizeAccountKey(accountKey))}` : '/state/latest';
-  const payload = await requestOrbitApi(pathname);
+async function loadStateFromApi(accountKey, access) {
+  const resolvedAccountKey = sanitizeAccountKey(accountKey || getLocalAccountKey());
+  const pathname = resolvedAccountKey ? `/state/${encodeURIComponent(resolvedAccountKey)}` : '/state/latest';
+  const payload = await requestOrbitApi(pathname, { authKey: getClientAuthKeyFromAccess(access) || undefined });
   if (!payload?.state) return null;
   return {
     schemaVersion: payload.schemaVersion || 1,
@@ -235,6 +265,7 @@ async function saveStateToApi(state) {
   const payload = await requestOrbitApi('/state', {
     method: 'POST',
     body: { state },
+    authKey: getClientAuthKeyFromState(state) || undefined,
     timeoutMs: 5000
   });
   if (!payload?.ok) return null;
@@ -1010,8 +1041,8 @@ async function saveStateEverywhere(state) {
   };
 }
 
-async function loadStateApiFirst(accountKey) {
-  return (await loadStateFromApi(accountKey)) || loadStateWithFirebaseFallback(accountKey);
+async function loadStateApiFirst(accountKey, access) {
+  return (await loadStateFromApi(accountKey, access)) || loadStateWithFirebaseFallback(accountKey);
 }
 
 async function saveStateApiFirst(state) {
@@ -1213,7 +1244,7 @@ ipcMain.handle('open-route-window', (_event, route) => {
 
 ipcMain.handle('load-state', async () => loadStateApiFirst());
 
-ipcMain.handle('load-state-for-account', async (_event, access) => loadStateApiFirst(getAccountKeyFromAccess(access)));
+ipcMain.handle('load-state-for-account', async (_event, access) => loadStateApiFirst(getAccountKeyFromAccess(access), access));
 
 ipcMain.handle('save-state', async (_event, state) => saveStateApiFirst(state));
 

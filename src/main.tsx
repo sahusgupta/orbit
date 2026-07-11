@@ -6209,17 +6209,34 @@ function App() {
             onToggle={() => togglePanel('tableOverview')}
           />
           {openPanels.tableOverview ? (() => {
+            const allTimeOverviewId = 'all-time-overview';
             const openSessions = state.sessions.filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start');
+            const isAllTimeOverview = overviewTableId === allTimeOverviewId;
+            const openSessionsById = new Map(openSessions.map((session) => [session.id, session]));
             const selectedTable = openSessions.find((session) => session.id === overviewTableId) ?? openSessions[0];
             const selectedPlayers = selectedTable
               ? state.playerSessions.filter((playerSession) => playerSession.tableId === selectedTable.id && !playerSession.leftAt)
               : [];
+            const allTimePlayers = state.playerSessions
+              .filter((playerSession) => !playerSession.leftAt && openSessionsById.has(playerSession.tableId))
+              .map((playerSession) => {
+                const table = openSessionsById.get(playerSession.tableId);
+                const isTimeCollection = Boolean(table && (table.collectionMode === 'Time' || table.timeFeeBased || playerSession.timeFeeEnabled));
+                const remainingSeconds = getTimeRemainingSeconds(playerSession, clockNow);
+                return { playerSession, table, isTimeCollection, remainingSeconds };
+              })
+              .sort((left, right) => {
+                if (left.isTimeCollection !== right.isTimeCollection) return left.isTimeCollection ? -1 : 1;
+                if (left.isTimeCollection && right.isTimeCollection) return left.remainingSeconds - right.remainingSeconds;
+                return minutesSince(right.playerSession.seatedAt) - minutesSince(left.playerSession.seatedAt);
+              });
             const selectedIsTimeCollection = Boolean(selectedTable && (selectedTable.collectionMode === 'Time' || selectedTable.timeFeeBased));
             return (
               <div className="table-overview-content">
                 {openSessions.length ? (
                   <>
-                    <select value={selectedTable?.id ?? ''} onChange={(event) => setOverviewTableId(event.target.value)}>
+                    <select value={isAllTimeOverview ? allTimeOverviewId : selectedTable?.id ?? ''} onChange={(event) => setOverviewTableId(event.target.value)}>
+                      <option value={allTimeOverviewId}>All Players - Time Left</option>
                       {openSessions.map((session) => (
                         <option key={session.id} value={session.id}>
                           {session.label} - {state.games.find((game) => game.id === session.gameId)?.name ?? 'Unknown'}
@@ -6227,7 +6244,26 @@ function App() {
                       ))}
                     </select>
                     <div className="overview-player-list">
-                      {selectedPlayers.length ? (
+                      {isAllTimeOverview ? (
+                        allTimePlayers.length ? (
+                          allTimePlayers.map(({ playerSession, table, isTimeCollection, remainingSeconds }) => {
+                            const remainingMinutes = Math.ceil(remainingSeconds / 60);
+                            const timeStatus = isTimeCollection ? getTimeStatus(remainingMinutes) : 'off';
+                            return (
+                              <div className="overview-player-row all-time-row" key={playerSession.id}>
+                                <span>{table?.label ?? 'Table'} - Seat {playerSession.seatNumber ?? '-'}</span>
+                                <strong>{playerSession.playerName}</strong>
+                                <small>{state.games.find((game) => game.id === playerSession.gameId)?.name ?? 'Unknown'}</small>
+                                <em className={`time-left-pill ${timeStatus}`}>
+                                  {isTimeCollection ? formatTimeLeft(remainingSeconds) : 'No timer'}
+                                </em>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="muted-copy">No seated players on open tables.</p>
+                        )
+                      ) : selectedPlayers.length ? (
                         selectedPlayers.map((playerSession, index) => {
                           const remainingSeconds = getTimeRemainingSeconds(playerSession, clockNow);
                           const remainingMinutes = Math.ceil(remainingSeconds / 60);

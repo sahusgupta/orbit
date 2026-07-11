@@ -3,7 +3,7 @@ import { Animated, Easing, Linking, Platform, Pressable, ScrollView, StyleSheet,
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Marker, PROVIDER_GOOGLE, Circle } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, Circle } from './components/MapView';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -35,10 +35,11 @@ import {
 
 WebBrowser.maybeCompleteAuthSession();
 
-type Screen = 'checkIn' | 'findGames' | 'clubs' | 'friends' | 'settings';
-type OnboardingStep = 0 | 1 | 2;
+type Screen = 'findGames' | 'map' | 'clubs' | 'clubSignup' | 'friends' | 'settings';
+type OnboardingStep = 0 | 1 | 2 | 3;
 type GameTypeFilter = 'all' | 'public' | 'private' | 'card-house' | 'home-game';
 type DistanceFilter = 5 | 10 | 20 | 50;
+type ClubMembershipPlan = 'day' | 'monthly';
 
 type GameOpportunity = {
   club: PlayerClubSnapshot;
@@ -62,8 +63,8 @@ type PrivateGameDraft = {
 };
 
 const tabs: Array<{ id: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
-  { id: 'checkIn', label: 'Check In', icon: 'location-outline' },
   { id: 'findGames', label: 'Find Games', icon: 'search-outline' },
+  { id: 'map', label: 'Map', icon: 'map-outline' },
   { id: 'clubs', label: 'Clubs', icon: 'business-outline' },
   { id: 'friends', label: 'Friends', icon: 'people-outline' },
   { id: 'settings', label: 'Settings', icon: 'options-outline' }
@@ -82,8 +83,26 @@ const gamePreferenceOptions = [
 ];
 
 const clubDistanceMiles: Record<string, number> = {
-  'lucky-lodge': 4.2,
-  'river-room': 11.8
+  'test-club': 4.2,
+  'club-a': 8.4,
+  'club-b': 12.1,
+  'stress-room': 18
+};
+
+const clubCoordinates: Record<string, { latitude: number; longitude: number }> = {
+  'test-club': { latitude: 30.617, longitude: -96.334 },
+  'club-a': { latitude: 30.624, longitude: -96.346 },
+  'club-b': { latitude: 30.604, longitude: -96.361 },
+  'stress-room': { latitude: 30.636, longitude: -96.374 }
+};
+
+const findGamesClubOrder = ['test-club', 'club-a', 'club-b', 'stress-room'];
+const findGamesClubNames = ['test club', 'club a', 'club b', 'stress room'];
+
+const demoClubMembershipPrices: Record<string, { day: string; monthly: string }> = {
+  'lucky-lodge': { day: '$12 day pass', monthly: '$39/mo' },
+  'river-room': { day: '$15 day pass', monthly: '$49/mo' },
+  default: { day: '$10 day pass', monthly: '$35/mo' }
 };
 
 const homeCoordinate = { latitude: 30.613, longitude: -96.342 };
@@ -113,25 +132,28 @@ const googleSignInDisabledStatus = 'Google sign-in is disabled right now.';
 // Management-app billing must stay separate from this mobile premium surface.
 const playerPremiumCheckoutUrl = process.env.EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL || '';
 const premiumMonthlyPriceLabel = '$12.99/mo';
+const clubMembershipCheckoutUrl = process.env.EXPO_PUBLIC_CLUB_MEMBERSHIP_CHECKOUT_URL || '';
 const demoPremiumEnabled = __DEV__ || process.env.EXPO_PUBLIC_DEMO_PREMIUM === 'true';
 
 export default function PlayerApp() {
   const [hasAccount, setHasAccount] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(0);
-  const [screen, setScreen] = useState<Screen>('checkIn');
+  const [screen, setScreen] = useState<Screen>('findGames');
   const [showHostScreen, setShowHostScreen] = useState(false);
   const [showClubOperations, setShowClubOperations] = useState(false);
   const [gameQuery, setGameQuery] = useState('');
+  const [mapQuery, setMapQuery] = useState('');
   const [gameTypeFilter, setGameTypeFilter] = useState<GameTypeFilter>('all');
+  const [selectedFilterClubId, setSelectedFilterClubId] = useState('all');
   const [stakesFilter, setStakesFilter] = useState('');
   const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>(20);
   const [fitScoreFilterEnabled, setFitScoreFilterEnabled] = useState(false);
-  const [checkedInClubIds, setCheckedInClubIds] = useState<Set<string>>(() => new Set());
   const [privateGameDraft, setPrivateGameDraft] = useState<PrivateGameDraft>(emptyPrivateGameDraft);
   const [privateGames, setPrivateGames] = useState<PlayerPrivateGameListing[]>([]);
   const [privateGameStatus, setPrivateGameStatus] = useState('');
   const [premiumStatus, setPremiumStatus] = useState<'inactive' | 'pending' | 'active'>('inactive');
   const [premiumMessage, setPremiumMessage] = useState('');
+  const [clubMembershipMessage, setClubMembershipMessage] = useState('');
   const [player, setPlayer] = useState<PlayerAccount>(emptyPlayer);
   const [draftPlayer, setDraftPlayer] = useState<PlayerAccount>(emptyPlayer);
   const [accountLoaded, setAccountLoaded] = useState(false);
@@ -150,6 +172,7 @@ export default function PlayerApp() {
   const playerWaitlists = selectedClub.waitlists.filter((entry) => isPlayerWaitlistEntry(entry, player));
   const joinedClubIds = new Set(memberships.map((membership) => membership.clubId));
   const memberClubs = clubs.filter((club) => joinedClubIds.has(club.club.id));
+  const findGameClubs = useMemo(() => buildFindGameClubs(clubs), [clubs]);
   const searchRadius = distanceFilter;
   const hasPaidPlayerPremium = premiumStatus === 'active';
   const hasPlayerPremium = premiumStatus === 'active' || demoPremiumEnabled;
@@ -164,6 +187,15 @@ export default function PlayerApp() {
     });
   }, [gameQuery, gameTypeFilter, privateGames, stakesFilter]);
   const hostedPrivateGames = useMemo(() => privateGames.filter((game) => game.hostPlayerId === player.id), [privateGames, player.id]);
+  const mappedClubs = useMemo(() => {
+    const query = mapQuery.trim().toLowerCase();
+    return findGameClubs
+      .filter((club) => {
+        const haystack = `${club.club.name} ${club.club.address ?? ''} ${club.games.map((game) => game.name).join(' ')}`.toLowerCase();
+        return !query || haystack.includes(query);
+      })
+      .sort((left, right) => getClubDistance(left) - getClubDistance(right));
+  }, [findGameClubs, mapQuery]);
 
   useEffect(() => onFirebasePlayerChanged(setFirebaseIdentity), []);
 
@@ -201,9 +233,9 @@ export default function PlayerApp() {
         const firstClub = clubs.find((club) => clubIds.has(club.club.id));
         if (firstClub) {
           setSelectedClubId(firstClub.club.id);
-          setScreen('checkIn');
+          setScreen('findGames');
         } else {
-          setScreen('checkIn');
+          setScreen('findGames');
         }
       })
       .catch(() => undefined);
@@ -217,7 +249,7 @@ export default function PlayerApp() {
         const existingMembershipClub = result.clubs.find((club) => club.memberships.some((membership) => isPlayerMembership(membership, player)));
         setSelectedClubId((current) => existingMembershipClub?.club.id ?? result.clubs.find((club) => club.club.id === current)?.club.id ?? result.clubs[0]?.club.id ?? initialClubSnapshots[0].club.id);
         if (!hasRoutedFromMembershipSync.current) {
-          setScreen('checkIn');
+          setScreen('findGames');
           hasRoutedFromMembershipSync.current = true;
         }
         setSyncStatus(`Synced ${result.clubs.length} card houses`);
@@ -251,6 +283,7 @@ export default function PlayerApp() {
       .flatMap<GameOpportunity>((club) => {
         const distanceMiles = getClubDistance(club);
         const isJoined = joinedClubIds.has(club.club.id);
+        if (selectedFilterClubId !== 'all' && club.club.id !== selectedFilterClubId) return [];
         return club.games
           .filter((game) => !query || `${game.name} ${club.club.name}`.toLowerCase().includes(query))
           .filter((game) => !stakesQuery || game.name.toLowerCase().includes(stakesQuery))
@@ -281,7 +314,7 @@ export default function PlayerApp() {
         if (fitScoreFilterEnabled && hasPaidPlayerPremium) return right.score - left.score || left.distanceMiles - right.distanceMiles;
         return right.score - left.score || left.distanceMiles - right.distanceMiles;
       });
-  }, [clubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, hasPaidPlayerPremium, joinedClubIds, player.preferredGameIds, searchRadius, stakesFilter]);
+  }, [findGameClubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, hasPaidPlayerPremium, joinedClubIds, player.preferredGameIds, searchRadius, selectedFilterClubId, stakesFilter]);
 
   const displayedOpportunities = useMemo(() => {
     if (hasPlayerPremium) return opportunities;
@@ -291,7 +324,7 @@ export default function PlayerApp() {
   const finishAccount = (identity?: FirebasePlayerIdentity | null) => {
     const normalizedName = draftPlayer.name.trim() || identity?.name.trim() || '';
     const normalizedEmail = draftPlayer.email.trim() || identity?.email.trim() || '';
-    if (!normalizedName || !normalizedEmail) return;
+    if (!normalizedName || !isValidEmail(normalizedEmail) || !isValidPhoneNumber(draftPlayer.phone ?? '', true)) return;
     const id = identity?.uid || draftPlayer.id || `player_${normalizedEmail.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || Date.now()}`;
     const nextPlayer = {
       ...draftPlayer,
@@ -304,7 +337,7 @@ export default function PlayerApp() {
     setPlayer(nextPlayer);
     setDraftPlayer(nextPlayer);
     setHasAccount(true);
-    setScreen('checkIn');
+    setScreen('findGames');
     setSyncStatus(isSyncConfigured() ? 'Account ready - syncing from Firebase...' : 'Account ready - browsing demo club data.');
     if (identity) savePlayerProfile(nextPlayer).catch(() => undefined);
   };
@@ -312,7 +345,7 @@ export default function PlayerApp() {
   const completeAccount = async () => {
     const normalizedName = draftPlayer.name.trim();
     const normalizedEmail = draftPlayer.email.trim();
-    if (!normalizedName || !normalizedEmail) return;
+    if (!normalizedName || !isValidEmail(normalizedEmail) || !isValidPhoneNumber(draftPlayer.phone ?? '', true)) return;
     finishAccount(firebaseIdentity);
   };
 
@@ -320,7 +353,7 @@ export default function PlayerApp() {
     setDraftPlayer(demoPlayer);
     setPlayer(demoPlayer);
     setHasAccount(true);
-    setScreen('checkIn');
+    setScreen('findGames');
   };
 
   const openPremiumCheckout = async () => {
@@ -336,6 +369,33 @@ export default function PlayerApp() {
         ? 'Checkout was closed before premium was confirmed.'
         : 'Checkout opened. Premium unlocks after Stripe confirms the subscription.'
     );
+  };
+
+  const openClubSignup = (club: PlayerClubSnapshot) => {
+    setSelectedClubId(club.club.id);
+    setClubMembershipMessage('');
+    setScreen('clubSignup');
+  };
+
+  const startClubSignup = async (club: PlayerClubSnapshot, plan: ClubMembershipPlan) => {
+    setSelectedClubId(club.club.id);
+    setClubMembershipMessage('');
+    const prices = getClubMembershipPrices(club);
+    const planLabel = plan === 'day' ? prices.day : prices.monthly;
+    if (clubMembershipCheckoutUrl) {
+      const separator = clubMembershipCheckoutUrl.includes('?') ? '&' : '?';
+      const checkoutUrl = `${clubMembershipCheckoutUrl}${separator}clubId=${encodeURIComponent(club.club.id)}&clubName=${encodeURIComponent(club.club.name)}&plan=${encodeURIComponent(plan)}&priceLabel=${encodeURIComponent(planLabel)}&playerId=${encodeURIComponent(player.id)}&playerEmail=${encodeURIComponent(player.email)}`;
+      setClubMembershipMessage(`Opening ${planLabel} checkout for ${club.club.name}...`);
+      const result = await WebBrowser.openBrowserAsync(checkoutUrl);
+      setClubMembershipMessage(
+        result.type === 'cancel'
+          ? 'Checkout was closed. Sending your selected membership request so the club can follow up.'
+          : 'Membership checkout opened. Sending your selected request to the club.'
+      );
+    } else {
+      setClubMembershipMessage(`Demo mode: selected ${planLabel}. Sending your signup request to the club.`);
+    }
+    await requestMembership(club);
   };
 
   const publishPrivateGame = async () => {
@@ -418,11 +478,6 @@ export default function PlayerApp() {
     updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
   };
 
-  const checkInToClub = (club: PlayerClubSnapshot) => {
-    setSelectedClubId(club.club.id);
-    setCheckedInClubIds((current) => new Set([...current, club.club.id]));
-  };
-
   const openDirections = (club: PlayerClubSnapshot) => {
     const destination = encodeURIComponent(club.club.address || club.club.name);
     const url = Platform.select({
@@ -498,8 +553,8 @@ export default function PlayerApp() {
         <View style={styles.shell}>
           <View style={styles.header}>
             <View>
-              <Text style={styles.eyebrow}>{screen === 'checkIn' ? `${clubs.length} nearby clubs` : `${opportunities.length} live seats`}</Text>
-              <Text style={styles.title}>{screen === 'findGames' ? (showHostScreen ? 'Host a Game' : 'Find Games') : tabs.find((tab) => tab.id === screen)?.label}</Text>
+              <Text style={styles.eyebrow}>{`${opportunities.length} live seats`}</Text>
+              <Text style={styles.title}>{screen === 'clubSignup' ? 'Membership' : screen === 'findGames' ? (showHostScreen ? 'Host a Game' : 'Find Games') : tabs.find((tab) => tab.id === screen)?.label}</Text>
             </View>
             <Pressable style={styles.avatar} onPress={() => setScreen('settings')}>
               <Text style={styles.avatarText}>{player.name.slice(0, 1)}</Text>
@@ -507,17 +562,6 @@ export default function PlayerApp() {
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-            {screen === 'checkIn' ? (
-              <>
-                <NearbyCheckInPanel
-                  clubs={clubs}
-                  checkedInClubIds={checkedInClubIds}
-                  onCheckIn={checkInToClub}
-                  onDirections={openDirections}
-                />
-              </>
-            ) : null}
-
             {screen === 'findGames' && !showHostScreen ? (
               <>
                 <View style={styles.searchPanel}>
@@ -532,8 +576,11 @@ export default function PlayerApp() {
                     />
                   </View>
                   <GameFilterPanel
+                    clubs={findGameClubs}
                     gameType={gameTypeFilter}
                     setGameType={setGameTypeFilter}
+                    selectedClubId={selectedFilterClubId}
+                    setSelectedClubId={setSelectedFilterClubId}
                     stakes={stakesFilter}
                     setStakes={setStakesFilter}
                     distance={distanceFilter}
@@ -554,20 +601,20 @@ export default function PlayerApp() {
                   </Pressable>
                 </View>
 
-                {displayedOpportunities.length ? displayedOpportunities.map((item) => (
-                  <OpportunityCard
-                    key={`${item.club.club.id}:${item.game.id}`}
-                    item={item}
+                {displayedOpportunities.length ? (
+                  <OpportunitySectionList
+                    opportunities={displayedOpportunities}
                     premium={hasPlayerPremium}
-                    waitlistEntry={item.club.waitlists.find((entry) => isPlayerWaitlistEntry(entry, player) && entry.gameId === item.game.id)}
-                    onSelectClub={() => {
+                    player={player}
+                    onSelectClub={(item) => {
                       setSelectedClubId(item.club.club.id);
-                      setScreen('clubs');
+                      item.isJoined ? setScreen('clubs') : openClubSignup(item.club);
                     }}
-                    onDirections={() => openDirections(item.club)}
-                    onWaitlist={() => joinWaitlist(item.club, item.game)}
+                    onDirections={(club) => openDirections(club)}
+                    onWaitlist={(club, game) => joinWaitlist(club, game)}
+                    onJoinClub={(club) => openClubSignup(club)}
                   />
-                )) : visiblePrivateGames.length ? null : (
+                ) : visiblePrivateGames.length ? null : (
                   <View style={styles.emptyState}>
                     <Text style={styles.cardTitle}>No games in range</Text>
                     <Text style={styles.muted}>No published game matches your current filters within {searchRadius} miles.</Text>
@@ -586,6 +633,19 @@ export default function PlayerApp() {
                   </>
                 ) : null}
               </>
+            ) : null}
+
+            {screen === 'map' ? (
+              <MapExploreScreen
+                clubs={mappedClubs}
+                query={mapQuery}
+                setQuery={setMapQuery}
+                onDirections={openDirections}
+                onShowGames={(club) => {
+                  setSelectedFilterClubId(club.club.id);
+                  setScreen('findGames');
+                }}
+              />
             ) : null}
 
             {screen === 'findGames' && showHostScreen ? (
@@ -655,7 +715,9 @@ export default function PlayerApp() {
                     return (
                       <Pressable
                         key={club.club.id}
-                        onPress={() => setSelectedClubId(club.club.id)}
+                        onPress={() => {
+                          setSelectedClubId(club.club.id);
+                        }}
                         style={[styles.clubCard, isSelected && styles.selectedCard]}
                       >
                         <View style={[styles.clubAvatar, isSelected && styles.clubAvatarActive]}>
@@ -668,14 +730,14 @@ export default function PlayerApp() {
                           </Text>
                         </View>
                         <View style={styles.statusPill}>
-                          <Text style={styles.statusText}>{membership?.status ?? 'Member'}</Text>
+                          <Text style={styles.statusText}>{membership?.status ?? 'Join'}</Text>
                         </View>
                       </Pressable>
                     );
                   }) : (
                     <View style={styles.emptyState}>
                       <Text style={styles.cardTitle}>No club memberships yet</Text>
-                      <Text style={styles.muted}>When a card house adds your membership, it will show here.</Text>
+                      <Text style={styles.muted}>Join a card house from Find Games and your memberships will show here.</Text>
                     </View>
                   )}
 
@@ -699,6 +761,7 @@ export default function PlayerApp() {
                         joined={joinedClubIds.has(selectedClub.club.id)}
                         preferred={player.preferredGameIds.includes(game.id)}
                         onWaitlist={() => joinWaitlist(selectedClub, game)}
+                        onJoinClub={() => openClubSignup(selectedClub)}
                       />
                     ))}
                     <ClubHistoryPanel />
@@ -707,6 +770,16 @@ export default function PlayerApp() {
                   </>
                 )}
               </>
+            ) : null}
+
+            {screen === 'clubSignup' && selectedClub ? (
+              <ClubMembershipPlanScreen
+                club={selectedClub}
+                prices={getClubMembershipPrices(selectedClub)}
+                message={clubMembershipMessage}
+                onBack={() => setScreen('clubs')}
+                onSelectPlan={(plan) => startClubSignup(selectedClub, plan)}
+              />
             ) : null}
 
             {screen === 'friends' ? (
@@ -829,12 +902,16 @@ function OnboardingFlow({
   onUseDemo: () => void;
 }) {
   const stepOpacity = useRef(new Animated.Value(1)).current;
-  const finalStep = 2;
+  const finalStep = 3;
   const totalSteps = finalStep + 1;
-  const canComplete = Boolean(draftPlayer.name.trim() && draftPlayer.email.trim());
+  const phoneTrimmed = (draftPlayer.phone ?? '').trim();
+  const emailIsValid = isValidEmail(draftPlayer.email);
+  const phoneIsValid = !phoneTrimmed || isValidPhoneNumber(phoneTrimmed);
+  const canComplete = Boolean(draftPlayer.name.trim() && emailIsValid && phoneIsValid);
   const canContinue =
     onboardingStep === 0 ? Boolean(draftPlayer.name.trim()) :
-    onboardingStep === 1 ? Boolean(draftPlayer.email.trim()) :
+    onboardingStep === 1 ? emailIsValid :
+    onboardingStep === 2 ? phoneIsValid :
     true;
   const moveToStep = (step: OnboardingStep) => {
     Animated.timing(stepOpacity, {
@@ -875,9 +952,10 @@ function OnboardingFlow({
       <Text style={styles.onboardingTitle}>Find Your Game</Text>
 
       <AnimatedStepCard stepKey={onboardingStep} opacity={stepOpacity}>
-        {onboardingStep === 0 ? <NameStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} /> : null}
-        {onboardingStep === 1 ? <EmailStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} /> : null}
-        {onboardingStep === 2 ? <HomeAreaStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} /> : null}
+        {onboardingStep === 0 ? <NameStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={canSubmit ? submitStep : undefined} /> : null}
+        {onboardingStep === 1 ? <EmailStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={canSubmit ? submitStep : undefined} /> : null}
+        {onboardingStep === 2 ? <PhoneStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={submitStep} /> : null}
+        {onboardingStep === 3 ? <HomeAreaStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={canSubmit ? submitStep : undefined} /> : null}
       </AnimatedStepCard>
 
       <View style={styles.onboardingActions}>
@@ -1011,34 +1089,73 @@ function AnimatedStepCard({ stepKey, children, opacity }: { stepKey: number; chi
 
 function NameStep({
   draftPlayer,
-  setDraftPlayer
+  setDraftPlayer,
+  onSubmit
 }: {
   draftPlayer: PlayerAccount;
   setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
+  onSubmit?: () => void;
 }) {
   return (
-    <Field label="Name" tone="light" value={draftPlayer.name} onChangeText={(name) => setDraftPlayer((current) => ({ ...current, name }))} />
+    <Field label="Name" tone="light" value={draftPlayer.name} onChangeText={(name) => setDraftPlayer((current) => ({ ...current, name }))} onSubmit={onSubmit} />
   );
 }
 
 function EmailStep({
   draftPlayer,
-  setDraftPlayer
+  setDraftPlayer,
+  onSubmit
 }: {
   draftPlayer: PlayerAccount;
   setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
+  onSubmit?: () => void;
 }) {
   return (
-    <Field label="Email" tone="light" value={draftPlayer.email} onChangeText={(email) => setDraftPlayer((current) => ({ ...current, email }))} />
+    <Field
+      label="Email"
+      tone="light"
+      value={draftPlayer.email}
+      keyboardType="email-address"
+      onChangeText={(email) => setDraftPlayer((current) => ({ ...current, email }))}
+      onSubmit={onSubmit}
+      error={draftPlayer.email.trim() && !isValidEmail(draftPlayer.email) ? 'Enter a valid email like name@example.com.' : ''}
+    />
+  );
+}
+
+function PhoneStep({
+  draftPlayer,
+  setDraftPlayer,
+  onSubmit
+}: {
+  draftPlayer: PlayerAccount;
+  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
+  onSubmit?: () => void;
+}) {
+  return (
+    <View style={styles.optionalStep}>
+      <Field
+        label="Phone Number"
+        tone="light"
+        value={draftPlayer.phone ?? ''}
+        keyboardType="phone-pad"
+        onChangeText={(phone) => setDraftPlayer((current) => ({ ...current, phone }))}
+        onSubmit={onSubmit}
+        error={(draftPlayer.phone ?? '').trim() && !isValidPhoneNumber(draftPlayer.phone ?? '') ? 'Enter a valid 10-digit phone number, or leave it blank.' : ''}
+      />
+      <Text style={styles.optionalStepText}>Optional. Used for text updates about games and waitlists you sign up for.</Text>
+    </View>
   );
 }
 
 function HomeAreaStep({
   draftPlayer,
-  setDraftPlayer
+  setDraftPlayer,
+  onSubmit
 }: {
   draftPlayer: PlayerAccount;
   setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
+  onSubmit?: () => void;
 }) {
   return (
     <Field
@@ -1046,6 +1163,7 @@ function HomeAreaStep({
       tone="light"
       value={draftPlayer.homeLocation ?? ''}
       onChangeText={(homeLocation) => setDraftPlayer((current) => ({ ...current, homeLocation }))}
+      onSubmit={onSubmit}
     />
   );
 }
@@ -1196,6 +1314,99 @@ function MapPicker({
   );
 }
 
+function MapExploreScreen({
+  clubs,
+  query,
+  setQuery,
+  onDirections,
+  onShowGames
+}: {
+  clubs: PlayerClubSnapshot[];
+  query: string;
+  setQuery: (value: string) => void;
+  onDirections: (club: PlayerClubSnapshot) => void;
+  onShowGames: (club: PlayerClubSnapshot) => void;
+}) {
+  return (
+    <>
+      <View style={styles.searchPanel}>
+        <View style={styles.searchInputRow}>
+          <Ionicons name="search-outline" size={18} color={colors.muted} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search card houses, areas, or games"
+            placeholderTextColor={colors.muted}
+            style={styles.searchInput}
+          />
+        </View>
+      </View>
+      <View style={styles.mapCard}>
+        <View style={styles.mapCanvasLarge}>
+          <MapView
+            provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+            style={styles.liveMap}
+            initialRegion={{
+              latitude: homeCoordinate.latitude,
+              longitude: homeCoordinate.longitude,
+              latitudeDelta: 0.2,
+              longitudeDelta: 0.2
+            }}
+          >
+            <Circle
+              center={homeCoordinate}
+              radius={20 * 1609.34}
+              strokeColor="rgba(56,80,109,0.26)"
+              fillColor="rgba(56,80,109,0.06)"
+            />
+            {clubs.map((club) => (
+              <Marker
+                key={club.club.id}
+                coordinate={getClubCoordinate(club)}
+                title={club.club.name}
+                description={club.club.address}
+                onPress={() => onShowGames(club)}
+                pinColor={club.memberships.length ? colors.teal : colors.primary}
+              />
+            ))}
+          </MapView>
+        </View>
+        <View style={styles.mapFooter}>
+          <Text style={styles.cardTitle}>Explore card houses</Text>
+          <Text style={styles.muted}>Drag the map, tap a pin, or search by location and game.</Text>
+        </View>
+      </View>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Map Results</Text>
+        <Text style={styles.muted}>{clubs.length} places</Text>
+      </View>
+      {clubs.length ? clubs.map((club) => {
+        const openSeats = club.games.reduce((sum, game) => sum + game.availableSeats, 0);
+        return (
+          <View key={club.club.id} style={styles.clubCard}>
+            <View style={styles.clubAvatar}>
+              <Text style={styles.clubAvatarText}>{club.club.name.slice(0, 1)}</Text>
+            </View>
+            <View style={styles.clubMain}>
+              <Text style={styles.cardTitle}>{club.club.name}</Text>
+              <Text style={styles.muted}>{club.club.address ?? 'Address not published'} - {openSeats} open seats</Text>
+            </View>
+            <View style={styles.iconActionRow}>
+              <IconActionButton icon="navigate-outline" label={`Directions to ${club.club.name}`} onPress={() => onDirections(club)} />
+              <IconActionButton icon="list-outline" label={`View games at ${club.club.name}`} onPress={() => onShowGames(club)} />
+            </View>
+          </View>
+        );
+      }) : (
+        <View style={styles.emptyState}>
+          <Text style={styles.cardTitle}>No map results</Text>
+          <Text style={styles.muted}>Try searching by card house, area, address, or game name.</Text>
+        </View>
+      )}
+    </>
+  );
+}
+
 function NearbyCheckInPanel({
   clubs,
   checkedInClubIds,
@@ -1248,8 +1459,11 @@ function NearbyCheckInPanel({
 }
 
 function GameFilterPanel({
+  clubs,
   gameType,
   setGameType,
+  selectedClubId,
+  setSelectedClubId,
   stakes,
   setStakes,
   distance,
@@ -1259,8 +1473,11 @@ function GameFilterPanel({
   premium,
   onLockedFitScore
 }: {
+  clubs: PlayerClubSnapshot[];
   gameType: GameTypeFilter;
   setGameType: (value: GameTypeFilter) => void;
+  selectedClubId: string;
+  setSelectedClubId: (value: string) => void;
   stakes: string;
   setStakes: (value: string) => void;
   distance: DistanceFilter;
@@ -1284,6 +1501,20 @@ function GameFilterPanel({
           <Chip key={option.id} label={option.label} active={gameType === option.id} onPress={() => setGameType(option.id)} />
         ))}
       </ScrollView>
+      <View style={styles.field}>
+        <Text style={styles.fieldLabel}>Card House</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipRow}>
+          <Chip label="All houses" active={selectedClubId === 'all'} onPress={() => setSelectedClubId('all')} />
+          {clubs.map((club) => (
+            <Chip
+              key={club.club.id}
+              label={club.club.name}
+              active={selectedClubId === club.club.id}
+              onPress={() => setSelectedClubId(club.club.id)}
+            />
+          ))}
+        </ScrollView>
+      </View>
       <View style={styles.filterGrid}>
         <Field label="Stakes" value={stakes} onChangeText={setStakes} />
         <View style={styles.field}>
@@ -1540,26 +1771,90 @@ function PrivateGameCard({ game }: { game: PlayerPrivateGameListing }) {
   );
 }
 
+function OpportunitySectionList({
+  opportunities,
+  premium,
+  player,
+  onSelectClub,
+  onDirections,
+  onWaitlist,
+  onJoinClub
+}: {
+  opportunities: GameOpportunity[];
+  premium: boolean;
+  player: PlayerAccount;
+  onSelectClub: (item: GameOpportunity) => void;
+  onDirections: (club: PlayerClubSnapshot) => void;
+  onWaitlist: (club: PlayerClubSnapshot, game: PlayerSyncGame) => void;
+  onJoinClub: (club: PlayerClubSnapshot) => void;
+}) {
+  const sections = groupOpportunitiesByClub(opportunities);
+  return (
+    <>
+      {sections.map((section) => {
+        const totalOpenSeats = section.items.reduce((sum, item) => sum + item.game.availableSeats, 0);
+        const totalWaiting = section.items.reduce((sum, item) => sum + item.game.waitlistCount, 0);
+        return (
+          <View key={section.club.club.id} style={styles.clubFolder}>
+            <View style={styles.clubFolderHeader}>
+              <View style={styles.clubFolderAvatar}>
+                <Text style={styles.clubFolderAvatarText}>{section.club.club.name.slice(0, 1)}</Text>
+              </View>
+              <View style={styles.clubFolderCopy}>
+                <Text style={styles.cardTitle}>{section.club.club.name}</Text>
+                <Text style={styles.muted}>
+                  {section.items.length} games / {totalOpenSeats} open seats / {totalWaiting} waiting / {section.distanceMiles.toFixed(1)} mi
+                </Text>
+              </View>
+            </View>
+            <View style={styles.clubFolderGames}>
+              {section.items.map((item, index) => (
+                <OpportunityCard
+                  key={`${item.club.club.id}:${item.game.id}:${index}`}
+                  item={item}
+                  tableLabel={getOpportunityTableLabel(item, index)}
+                  premium={premium}
+                  waitlistEntry={item.club.waitlists.find((entry) => isPlayerWaitlistEntry(entry, player) && entry.gameId === item.game.id)}
+                  onSelectClub={() => onSelectClub(item)}
+                  onDirections={() => onDirections(item.club)}
+                  onWaitlist={() => onWaitlist(item.club, item.game)}
+                  onJoinClub={() => onJoinClub(item.club)}
+                />
+              ))}
+            </View>
+          </View>
+        );
+      })}
+    </>
+  );
+}
+
 function OpportunityCard({
   item,
+  tableLabel,
   premium,
   waitlistEntry,
   onSelectClub,
   onDirections,
-  onWaitlist
+  onWaitlist,
+  onJoinClub
 }: {
   item: GameOpportunity;
+  tableLabel?: string;
   premium: boolean;
   waitlistEntry?: PlayerWaitlistEntry;
   onSelectClub: () => void;
   onDirections: () => void;
   onWaitlist: () => void;
+  onJoinClub: () => void;
 }) {
   const alreadyWaiting = Boolean(waitlistEntry);
+  const needsMembership = !item.isJoined;
   const statusLabel = item.game.availableSeats ? `${item.game.availableSeats} open` : item.game.formingCount ? 'Forming' : 'Waitlist';
   const recommendationLabel = item.score >= 80 ? 'Best play' : item.score >= 55 ? 'Strong option' : item.score >= 30 ? 'Watchlist' : 'Low edge';
   const feedMeta = [
     `${item.club.club.name}`,
+    tableLabel ?? '',
     `${item.distanceMiles.toFixed(1)} mi`,
     `${item.game.waitlistCount} waiting`,
     item.game.knownPlayersCount ? `${item.game.knownPlayersCount} familiar` : '',
@@ -1573,7 +1868,7 @@ function OpportunityCard({
           <Text style={styles.feedAvatarText}>{item.club.club.name.slice(0, 1)}</Text>
         </View>
         <Pressable onPress={onSelectClub} style={styles.gameTitleBlock}>
-          <Text style={styles.cardTitle}>{item.game.name}</Text>
+          <Text style={styles.cardTitle}>{tableLabel ? `${item.game.name} - ${tableLabel}` : item.game.name}</Text>
           <Text style={styles.muted}>{feedMeta}</Text>
         </Pressable>
         <View style={[styles.statusPill, item.game.availableSeats > 0 && styles.openPill]}>
@@ -1613,9 +1908,9 @@ function OpportunityCard({
       <View style={styles.gameActionRow}>
         <IconActionButton icon="navigate-outline" label={`Directions to ${item.club.club.name}`} onPress={onDirections} />
         <IconActionButton
-          icon={alreadyWaiting ? 'checkmark-circle' : 'person-add-outline'}
-          label={alreadyWaiting ? `Already waitlisted at position ${waitlistEntry?.position}` : `Request a seat for ${item.game.name}`}
-          onPress={alreadyWaiting ? undefined : onWaitlist}
+          icon={alreadyWaiting ? 'checkmark-circle' : needsMembership ? 'card-outline' : 'person-add-outline'}
+          label={alreadyWaiting ? `Already waitlisted at position ${waitlistEntry?.position}` : needsMembership ? `Join ${item.club.club.name}` : `Request a seat for ${item.game.name}`}
+          onPress={alreadyWaiting ? undefined : needsMembership ? onJoinClub : onWaitlist}
           active={!alreadyWaiting}
           disabled={alreadyWaiting}
         />
@@ -1629,16 +1924,18 @@ function GameCard({
   waitlistEntry,
   joined,
   preferred,
-  onWaitlist
+  onWaitlist,
+  onJoinClub
 }: {
   game: PlayerSyncGame;
   waitlistEntry?: PlayerWaitlistEntry;
   joined: boolean;
   preferred: boolean;
   onWaitlist: () => void;
+  onJoinClub: () => void;
 }) {
   const alreadyWaiting = Boolean(waitlistEntry);
-  const canRequestSeat = joined && !alreadyWaiting;
+  const buttonAction = alreadyWaiting ? undefined : joined ? onWaitlist : onJoinClub;
   return (
     <AnimatedSurface style={styles.gameCard}>
       <View style={styles.gameHeader}>
@@ -1689,11 +1986,105 @@ function GameCard({
           <Text style={styles.tableSeats}>{table.availableSeats}</Text>
         </View>
       ))}
-      <AnimatedButton variant="primary" onPress={canRequestSeat ? onWaitlist : undefined} disabled={!canRequestSeat} style={[styles.primaryButton, styles.fullWidthButton, !canRequestSeat && styles.disabledButton]}>
-        <Ionicons name={joined ? 'time-outline' : 'add-circle-outline'} size={18} color="#fff" />
-        <Text style={styles.primaryButtonText}>{alreadyWaiting ? `Waitlist #${waitlistEntry?.position}` : joined ? 'Request Seat' : 'Members Only'}</Text>
+      <AnimatedButton variant="primary" onPress={buttonAction} disabled={alreadyWaiting} style={[styles.primaryButton, styles.fullWidthButton, alreadyWaiting && styles.disabledButton]}>
+        <Ionicons name={alreadyWaiting ? 'checkmark-circle' : joined ? 'time-outline' : 'card-outline'} size={18} color="#fff" />
+        <Text style={styles.primaryButtonText}>{alreadyWaiting ? `Waitlist #${waitlistEntry?.position}` : joined ? 'Request Seat' : 'Join Club'}</Text>
       </AnimatedButton>
     </AnimatedSurface>
+  );
+}
+
+function ClubMembershipPlanScreen({
+  club,
+  prices,
+  message,
+  onBack,
+  onSelectPlan
+}: {
+  club: PlayerClubSnapshot;
+  prices: { day: string; monthly: string };
+  message: string;
+  onBack: () => void;
+  onSelectPlan: (plan: ClubMembershipPlan) => void;
+}) {
+  return (
+    <View style={styles.membershipScreen}>
+      <Pressable style={styles.inlineBackAction} onPress={onBack}>
+        <Ionicons name="chevron-back" size={17} color={colors.primary} />
+        <Text style={styles.inlineBackText}>Clubs</Text>
+      </Pressable>
+      <View style={styles.membershipHero}>
+        <View style={styles.membershipHeroIcon}>
+          <Text style={styles.membershipHeroText}>{club.club.name.slice(0, 1)}</Text>
+        </View>
+        <View style={styles.membershipHeroCopy}>
+          <Text style={styles.agentKicker}>Card house access</Text>
+          <Text style={styles.membershipTitle}>{club.club.name}</Text>
+          <Text style={styles.muted}>Choose a demo access option. This sends your player profile to the card house and unlocks pending membership status for testing.</Text>
+        </View>
+      </View>
+
+      <View style={styles.planGrid}>
+        <MembershipPlanCard
+          icon="today-outline"
+          title="Day Pass"
+          price={prices.day}
+          body="Good for a quick visit, checking in, and requesting a seat today."
+          onPress={() => onSelectPlan('day')}
+        />
+        <MembershipPlanCard
+          icon="calendar-outline"
+          title="Monthly Membership"
+          price={prices.monthly}
+          body="Best for regular players who want ongoing access to this club."
+          onPress={() => onSelectPlan('monthly')}
+          featured
+        />
+      </View>
+
+      <View style={styles.membershipNote}>
+        <Ionicons name="information-circle-outline" size={17} color={colors.primary} />
+        <Text style={styles.lockedRecommendationText}>Demo prices are placeholders until each real card house connects its membership checkout.</Text>
+      </View>
+      {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
+    </View>
+  );
+}
+
+function MembershipPlanCard({
+  icon,
+  title,
+  price,
+  body,
+  featured,
+  onPress
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  price: string;
+  body: string;
+  featured?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.planCard, featured && styles.planCardFeatured]} onPress={onPress}>
+      <View style={styles.planCardHeader}>
+        <View style={[styles.planIcon, featured && styles.planIconFeatured]}>
+          <Ionicons name={icon} size={19} color={featured ? '#ffffff' : colors.primary} />
+        </View>
+        {featured ? (
+          <View style={styles.planBadge}>
+            <Text style={styles.planBadgeText}>Popular</Text>
+          </View>
+        ) : null}
+      </View>
+      <Text style={styles.cardTitle}>{title}</Text>
+      <Text style={styles.planPrice}>{price}</Text>
+      <Text style={styles.muted}>{body}</Text>
+      <View style={[styles.planButton, featured && styles.planButtonFeatured]}>
+        <Text style={[styles.planButtonText, featured && styles.planButtonTextFeatured]}>Choose {title}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -1833,17 +2224,37 @@ function AnimatedButton({
   );
 }
 
-function Field({ label, value, onChangeText, tone }: { label: string; value: string; onChangeText: (value: string) => void; tone?: 'light' }) {
+function Field({
+  label,
+  value,
+  onChangeText,
+  tone,
+  keyboardType,
+  onSubmit,
+  error
+}: {
+  label: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  tone?: 'light';
+  keyboardType?: React.ComponentProps<typeof TextInput>['keyboardType'];
+  onSubmit?: () => void;
+  error?: string;
+}) {
   return (
     <View style={styles.field}>
       <Text style={[styles.fieldLabel, tone === 'light' && styles.fieldLabelLight]}>{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
+        onSubmitEditing={onSubmit}
         placeholder={label}
         placeholderTextColor={tone === 'light' ? 'rgba(255,255,255,0.56)' : colors.muted}
-        style={[styles.input, tone === 'light' && styles.inputLight]}
+        returnKeyType={onSubmit ? 'next' : 'done'}
+        keyboardType={keyboardType}
+        style={[styles.input, tone === 'light' && styles.inputLight, Boolean(error) && styles.inputError]}
       />
+      {error ? <Text style={[styles.fieldError, tone === 'light' && styles.fieldErrorLight]}>{error}</Text> : null}
     </View>
   );
 }
@@ -1858,6 +2269,133 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
 
 function getClubDistance(club: PlayerClubSnapshot) {
   return clubDistanceMiles[club.club.id] ?? 18;
+}
+
+function getClubCoordinate(club: PlayerClubSnapshot) {
+  const known = clubCoordinates[club.club.id];
+  if (known) return known;
+  const seed = Array.from(club.club.id).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return {
+    latitude: homeCoordinate.latitude + ((seed % 17) - 8) * 0.006,
+    longitude: homeCoordinate.longitude + (((seed * 3) % 17) - 8) * 0.006
+  };
+}
+
+function findGamesClubKey(club: PlayerClubSnapshot) {
+  const normalizedId = normalizedIdentity(club.club.id).replace(/\s+/g, '-');
+  const normalizedName = normalizedIdentity(club.club.name);
+  const idIndex = findGamesClubOrder.indexOf(normalizedId);
+  if (idIndex >= 0) return findGamesClubOrder[idIndex];
+  const nameIndex = findGamesClubNames.indexOf(normalizedName);
+  return nameIndex >= 0 ? findGamesClubOrder[nameIndex] : '';
+}
+
+function isFindGamesClub(club: PlayerClubSnapshot) {
+  return Boolean(findGamesClubKey(club));
+}
+
+function compareFindGamesClubOrder(left: PlayerClubSnapshot, right: PlayerClubSnapshot) {
+  const leftIndex = findGamesClubOrder.indexOf(findGamesClubKey(left));
+  const rightIndex = findGamesClubOrder.indexOf(findGamesClubKey(right));
+  return leftIndex - rightIndex || left.club.name.localeCompare(right.club.name);
+}
+
+function buildFindGameClubs(clubs: PlayerClubSnapshot[]) {
+  const existing = new Map<string, PlayerClubSnapshot>();
+  clubs.filter(isFindGamesClub).forEach((club) => {
+    existing.set(findGamesClubKey(club), club);
+  });
+  return findGamesClubOrder.map((clubId) => existing.get(clubId) ?? createFindGameClubFixture(clubId));
+}
+
+function createFindGameClubFixture(clubId: string): PlayerClubSnapshot {
+  const names: Record<string, string> = {
+    'test-club': 'Test Club',
+    'club-a': 'Club A',
+    'club-b': 'Club B',
+    'stress-room': 'Stress Room'
+  };
+  const gameNames: Record<string, string[]> = {
+    'test-club': ['1/2 NLH', '1/3 NLH'],
+    'club-a': ['1/2 NLH', 'PLO'],
+    'club-b': ['1/3 NLH', 'Tournament'],
+    'stress-room': ['1/2 NLH', '2/5 NLH']
+  };
+  const games = (gameNames[clubId] ?? ['1/2 NLH']).map((name, index) => {
+    const availableSeats = clubId === 'stress-room' ? 10 : Math.max(1, 6 - index * 2);
+    const waitlistCount = clubId === 'stress-room' ? index : index + 1;
+    return {
+      id: `${clubId}-game-${index + 1}`,
+      name,
+      maxSeats: 10,
+      availableSeats,
+      waitlistCount,
+      formingCount: index === 1 ? 1 : 0,
+      knownPlayersCount: index,
+      openTables: [
+        {
+          id: `${clubId}-table-${index + 1}`,
+          gameId: `${clubId}-game-${index + 1}`,
+          label: `Table ${index + 1}`,
+          status: index === 1 ? 'Forming' as const : 'Running' as const,
+          seatsFilled: Math.max(0, 10 - availableSeats),
+          maxSeats: 10,
+          availableSeats,
+          collectionMode: index % 2 ? 'Time' as const : 'Drop' as const,
+          tags: ['Demo'],
+          startedAt: new Date(Date.now() - 1000 * 60 * (20 + index * 25)).toISOString(),
+          social: {
+            seatedPlayerCount: Math.max(0, 10 - availableSeats),
+            adminCount: 1,
+            knownPlayersCount: index
+          }
+        }
+      ]
+    };
+  });
+  return {
+    club: {
+      id: clubId,
+      name: names[clubId] ?? clubId,
+      address: `${clubId.replace(/-/g, ' ')} demo address`,
+      phone: '555-0100'
+    },
+    games,
+    memberships: [],
+    waitlists: [],
+    social: {
+      activePlayerCount: 8 + games.length,
+      adminCount: 1,
+      knownPlayersInHouse: 0,
+      waitlistCount: games.reduce((sum, game) => sum + game.waitlistCount, 0)
+    },
+    generatedAt: new Date().toISOString()
+  };
+}
+
+function getClubMembershipPrices(club: PlayerClubSnapshot) {
+  return demoClubMembershipPrices[club.club.id] ?? demoClubMembershipPrices.default;
+}
+
+function groupOpportunitiesByClub(opportunities: GameOpportunity[]) {
+  const folders = new Map<string, { club: PlayerClubSnapshot; distanceMiles: number; items: GameOpportunity[] }>();
+  opportunities.forEach((item) => {
+    const current = folders.get(item.club.club.id);
+    if (current) {
+      current.items.push(item);
+      current.distanceMiles = Math.min(current.distanceMiles, item.distanceMiles);
+      return;
+    }
+    folders.set(item.club.club.id, { club: item.club, distanceMiles: item.distanceMiles, items: [item] });
+  });
+  return Array.from(folders.values()).sort((left, right) => compareFindGamesClubOrder(left.club, right.club));
+}
+
+function getOpportunityTableLabel(item: GameOpportunity, index: number) {
+  const tableLabel = item.game.openTables[0]?.label?.trim();
+  if (!tableLabel) return `Table ${index + 1}`;
+  if (/^table\s+\d+/i.test(tableLabel)) return tableLabel;
+  return `Table ${index + 1}: ${tableLabel}`;
 }
 
 function matchesGameTypeFilter(club: PlayerClubSnapshot, game: PlayerSyncGame, filter: GameTypeFilter) {
@@ -1900,6 +2438,17 @@ function isPlayerWaitlistEntry(entry: PlayerWaitlistEntry, player: PlayerAccount
     (playerId && normalizedIdentity(entry.playerId) === playerId) ||
     (playerName && normalizedIdentity(entry.playerName) === playerName)
   );
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(value.trim());
+}
+
+function isValidPhoneNumber(value: string, optional = false) {
+  const trimmed = value.trim();
+  if (!trimmed) return optional;
+  const digits = trimmed.replace(/\D/g, '');
+  return digits.length === 10 || (digits.length === 11 && digits.startsWith('1'));
 }
 
 function toggleDraftGame(gameId: string, setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>) {
@@ -2142,6 +2691,16 @@ const styles = StyleSheet.create({
     minHeight: 86,
     paddingHorizontal: 0,
     paddingVertical: 0
+  },
+  optionalStep: {
+    gap: 10
+  },
+  optionalStepText: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    textAlign: 'center'
   },
   onboardingActions: {
     alignItems: 'center',
@@ -2784,6 +3343,45 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 12
   },
+  clubFolder: {
+    gap: 9
+  },
+  clubFolderHeader: {
+    alignItems: 'center',
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 70,
+    padding: 13,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.025,
+    shadowRadius: 12
+  },
+  clubFolderAvatar: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 999,
+    height: 42,
+    justifyContent: 'center',
+    width: 42
+  },
+  clubFolderAvatarText: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '900'
+  },
+  clubFolderCopy: {
+    flex: 1,
+    gap: 4
+  },
+  clubFolderGames: {
+    gap: 9,
+    paddingLeft: 10
+  },
   gameActionRow: {
     flexDirection: 'row',
     gap: 9,
@@ -2858,6 +3456,155 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     paddingHorizontal: 2
+  },
+  signupCard: {
+    backgroundColor: '#fbfffc',
+    borderColor: 'rgba(21,127,109,0.18)',
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 12,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.03,
+    shadowRadius: 12
+  },
+  signupHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 11
+  },
+  signupIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 12,
+    height: 42,
+    justifyContent: 'center',
+    width: 42
+  },
+  signupCopy: {
+    flex: 1,
+    gap: 4
+  },
+  membershipScreen: {
+    gap: 12
+  },
+  membershipHero: {
+    backgroundColor: '#fbfffc',
+    borderColor: 'rgba(21,127,109,0.18)',
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 13,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.03,
+    shadowRadius: 12
+  },
+  membershipHeroIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    height: 52,
+    justifyContent: 'center',
+    width: 52
+  },
+  membershipHeroText: {
+    color: '#ffffff',
+    fontSize: 22,
+    fontWeight: '900'
+  },
+  membershipHeroCopy: {
+    flex: 1,
+    gap: 5
+  },
+  membershipTitle: {
+    color: colors.ink,
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 0
+  },
+  planGrid: {
+    gap: 10
+  },
+  planCard: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 9,
+    padding: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.025,
+    shadowRadius: 12
+  },
+  planCardFeatured: {
+    backgroundColor: '#f4fbf8',
+    borderColor: 'rgba(21,127,109,0.24)'
+  },
+  planCardHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between'
+  },
+  planIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 12,
+    height: 40,
+    justifyContent: 'center',
+    width: 40
+  },
+  planIconFeatured: {
+    backgroundColor: colors.primary
+  },
+  planBadge: {
+    backgroundColor: colors.tealSoft,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5
+  },
+  planBadgeText: {
+    color: colors.teal,
+    fontSize: 12,
+    fontWeight: '900'
+  },
+  planPrice: {
+    color: colors.ink,
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: 0
+  },
+  planButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 10,
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: 12
+  },
+  planButtonFeatured: {
+    backgroundColor: colors.primary
+  },
+  planButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '900'
+  },
+  planButtonTextFeatured: {
+    color: '#ffffff'
+  },
+  membershipNote: {
+    alignItems: 'center',
+    backgroundColor: '#f6f6f3',
+    borderColor: colors.line,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    padding: 11
   },
   recommendationBand: {
     backgroundColor: '#f4fbf8',
@@ -3126,6 +3873,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative'
   },
+  mapCanvasLarge: {
+    aspectRatio: 1.15,
+    backgroundColor: colors.tealSoft,
+    borderColor: colors.line,
+    borderRadius: 10,
+    borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative'
+  },
   liveMap: {
     ...StyleSheet.absoluteFillObject
   },
@@ -3252,6 +4008,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     minHeight: 58,
     paddingHorizontal: 16,
+    textAlign: 'center'
+  },
+  inputError: {
+    borderColor: '#f59e0b'
+  },
+  fieldError: {
+    color: '#b45309',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17
+  },
+  fieldErrorLight: {
+    color: '#fde68a',
     textAlign: 'center'
   },
   chipRow: {
