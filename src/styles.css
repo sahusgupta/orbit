@@ -1701,6 +1701,23 @@ body.low-light .start-table-panel {
   grid-template-columns: minmax(96px, 0.7fr) minmax(0, 1fr) minmax(78px, auto);
 }
 
+.poker-seat-menu-row.move-player-row,
+.poker-seat-menu-row.seat-number-row {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.move-player-row label,
+.seat-number-row label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.move-player-row select,
+.seat-number-row select {
+  min-width: 0;
+}
+
 .poker-seat-menu-row input {
   min-height: 34px;
   padding: 6px 8px;
@@ -5443,4 +5460,3 @@ textarea:focus {
   outline: 1px solid rgba(255, 255, 255, 0.025);
   outline-offset: -4px;
 }
-

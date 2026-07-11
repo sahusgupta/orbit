@@ -425,6 +425,7 @@ type SeatPickerState = {
   seatNumber: number;
   search: string;
   timeMinutes: string;
+  initialBuyIn: string;
   error?: string;
 };
 
@@ -434,6 +435,7 @@ type SeatPlayerPayload = {
   interestId?: string;
   requestedSeatNumber?: number;
   initialTimeMinutes?: number;
+  initialBuyIn?: number;
   note?: string;
 };
 
@@ -1726,7 +1728,10 @@ function App() {
     playerName: '',
     gameId: 'nlh-1-2',
     status: 'Confirmed Coming' as InterestStatus,
-    notes: ''
+    notes: '',
+    tableId: '',
+    seatNumber: '',
+    initialBuyIn: ''
   });
   const [checkInSearch, setCheckInSearch] = useState('');
   const [newProfile, setNewProfile] = useState({
@@ -2161,17 +2166,67 @@ function App() {
 
   const addInterest = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!form.playerName.trim()) return;
+    const playerName = form.playerName.trim();
+    if (!playerName) return;
     const existingProfile = state.profiles.find(
-      (profile: { name: string; }) => profile.name.toLowerCase() === form.playerName.trim().toLowerCase()
+      (profile: { name: string; }) => profile.name.toLowerCase() === playerName.toLowerCase()
     );
+    if (form.status === 'Seated') {
+      const openSessions = getOpenSeatSessions(form.gameId);
+      const selectedOpenSession = form.tableId ? openSessions.find((session) => session.id === form.tableId) : undefined;
+      if (form.tableId && !selectedOpenSession) {
+        window.alert('Choose an open table for this game.');
+        return;
+      }
+      const openSession = selectedOpenSession ?? (
+        openSessions.length === 1
+          ? openSessions[0]
+          : undefined
+      );
+      if (!openSession && openSessions.length > 1) {
+        window.alert('Choose which table to seat this player at.');
+        return;
+      }
+      if (openSession) {
+        const requestedSeatNumber = form.seatNumber.trim() ? Number(form.seatNumber) : undefined;
+        const initialBuyIn = form.initialBuyIn.trim() ? Number(form.initialBuyIn) : undefined;
+        if (requestedSeatNumber !== undefined && (!Number.isInteger(requestedSeatNumber) || requestedSeatNumber <= 0)) {
+          window.alert('Enter a valid seat number.');
+          return;
+        }
+        if (initialBuyIn !== undefined && (!Number.isFinite(initialBuyIn) || initialBuyIn <= 0)) {
+          window.alert('Enter a valid initial buy-in amount.');
+          return;
+        }
+        const result = seatPlayerInState(state, openSession.id, {
+          playerName,
+          profileId: existingProfile?.id,
+          requestedSeatNumber,
+          initialBuyIn,
+          note: form.notes.trim() || 'Seated from Quick Add'
+        });
+        if (!result.ok) {
+          window.alert(result.error);
+          return;
+        }
+        persist(result.state, true, {
+          feature: 'Seating',
+          action: 'Quick seated player',
+          metadata: { gameId: openSession.gameId, tableId: openSession.id, seatNumber: result.seatNumber }
+        });
+        setForm({ ...form, playerName: '', notes: '', tableId: '', seatNumber: '', initialBuyIn: '' });
+        return;
+      }
+      window.alert('No open seats are available for that game.');
+      return;
+    }
     const nextState = promptDemandAction({
       ...state,
       interests: [
         {
           id: uid(),
           profileId: existingProfile?.id,
-          playerName: form.playerName.trim(),
+          playerName,
           gameId: form.gameId,
           status: form.status,
           notes: form.notes.trim(),
@@ -2185,7 +2240,7 @@ function App() {
       ]
     }, form.gameId);
     persist(nextState, true, { feature: 'Waitlist', action: 'Added interest', metadata: { status: form.status, gameId: form.gameId } });
-    setForm({ ...form, playerName: '', notes: '' });
+    setForm({ ...form, playerName: '', notes: '', tableId: '', seatNumber: '', initialBuyIn: '' });
   };
 
   const quickFillProfile = (profile: PlayerProfile) => {
@@ -2193,7 +2248,10 @@ function App() {
       playerName: profile.name,
       gameId: profile.preferredGameIds[0] ?? form.gameId,
       status: 'Confirmed Coming',
-      notes: profile.notes ? `Profile note: ${profile.notes}` : ''
+      notes: profile.notes ? `Profile note: ${profile.notes}` : '',
+      tableId: '',
+      seatNumber: '',
+      initialBuyIn: ''
     });
   };
 
@@ -2264,6 +2322,26 @@ function App() {
         session.id === sessionId ? { ...session, ...patch, manualEdits: markManualEdit(session.manualEdits, editKey) } : session
       )
     }, sessionId, editKey, 'Player session corrected'));
+  };
+
+  const changePlayerSeat = (playerSession: PlayerSession, seatNumber: number) => {
+    const table = state.sessions.find((session) => session.id === playerSession.tableId);
+    if (!table || !Number.isInteger(seatNumber) || seatNumber < 1 || seatNumber > table.maxSeats) {
+      window.alert('Choose a valid seat number.');
+      return;
+    }
+    const occupied = state.playerSessions.some(
+      (session) =>
+        session.id !== playerSession.id &&
+        session.tableId === playerSession.tableId &&
+        !session.leftAt &&
+        session.seatNumber === seatNumber
+    );
+    if (occupied) {
+      window.alert(`Seat ${seatNumber} is already occupied.`);
+      return;
+    }
+    updatePlayerSession(playerSession.id, { seatNumber }, 'seatNumber');
   };
 
   const setTableCollectionMode = (sessionId: string, collectionMode: 'Time' | 'Drop') => {
@@ -2403,7 +2481,10 @@ function App() {
         .filter((seat): seat is number => Number.isInteger(seat))
     );
     const seats = Array.from({ length: session.maxSeats }, (_, index) => index + 1);
-    if (requestedSeat && seats.includes(requestedSeat) && !occupiedSeats.has(requestedSeat)) return requestedSeat;
+    if (requestedSeat !== undefined) {
+      if (seats.includes(requestedSeat) && !occupiedSeats.has(requestedSeat)) return requestedSeat;
+      return undefined;
+    }
     return seats.find((seat) => !occupiedSeats.has(seat));
   };
 
@@ -2423,8 +2504,8 @@ function App() {
     )
   });
 
-  const findOpenSeatSession = (gameId?: string) => {
-    const candidates = state.sessions
+  const getOpenSeatSessions = (gameId?: string) =>
+    state.sessions
       .filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start')
       .filter((session) => !gameId || session.gameId === gameId)
       .filter((session) => Boolean(getAvailableSeatNumber(session)))
@@ -2433,8 +2514,8 @@ function App() {
         const bRunning = b.status === 'Running' ? 0 : 1;
         return aRunning - bRunning || a.startedAt.localeCompare(b.startedAt);
       });
-    return candidates[0];
-  };
+
+  const findOpenSeatSession = (gameId?: string) => getOpenSeatSessions(gameId)[0];
 
   const findAnyRunningOpenSeatSession = () =>
     state.sessions
@@ -2523,6 +2604,8 @@ function App() {
 
     const isTimeCollection = session.timeFeeBased || session.collectionMode === 'Time';
     const timeMinutes = isTimeCollection ? Math.max(0, Number(payload.initialTimeMinutes ?? 60)) : 0;
+    const initialBuyInAmount = Number(payload.initialBuyIn ?? 0);
+    const hasInitialBuyIn = Number.isFinite(initialBuyInAmount) && initialBuyInAmount > 0;
     const matchingInterest = interest ?? sourceState.interests.find(
       (item) =>
         item.gameId === session.gameId &&
@@ -2559,7 +2642,37 @@ function App() {
           timeFeeEnabled: session.timeFeeBased ?? (session.collectionMode === 'Time')
         }
       ],
+      buyIns: hasInitialBuyIn
+        ? [
+            {
+              id: uid(),
+              profileId,
+              playerName,
+              tableId: session.id,
+              gameId: session.gameId,
+              amount: initialBuyInAmount,
+              timestamp,
+              note: 'Initial buy-in'
+            },
+            ...sourceState.buyIns
+          ]
+        : sourceState.buyIns,
       playerLedger: [
+        ...(hasInitialBuyIn
+          ? [
+              {
+                id: uid(),
+                type: 'Buy-In' as const,
+                profileId,
+                playerName,
+                tableId: session.id,
+                gameId: session.gameId,
+                amount: initialBuyInAmount,
+                timestamp,
+                note: 'Initial buy-in'
+              }
+            ]
+          : []),
         {
           id: uid(),
           type: 'Check-In' as const,
@@ -2758,11 +2871,18 @@ function App() {
       seatNumber: seatNumber ?? 0,
       search: '',
       timeMinutes: session.collectionMode === 'Time' || session.timeFeeBased ? '60' : '',
+      initialBuyIn: '',
       error: seatNumber ? undefined : 'Table full. No open seats remain.'
     });
   };
 
-  const seatProfileAtTable = (session: GameSession, seatNumber: number, profile: PlayerProfile, initialTimeMinutes?: number) => {
+  const seatProfileAtTable = (
+    session: GameSession,
+    seatNumber: number,
+    profile: PlayerProfile,
+    initialTimeMinutes?: number,
+    initialBuyIn?: number
+  ) => {
     if (!seatNumber) {
       setSeatPickerError('Table full. No open seats remain.');
       return;
@@ -2771,6 +2891,10 @@ function App() {
     const timeMinutes = isTimeCollection ? Math.max(0, Number(initialTimeMinutes ?? 60)) : undefined;
     if (isTimeCollection && (!Number.isFinite(timeMinutes) || timeMinutes <= 0)) {
       setSeatPickerError('Enter the time this player bought before seating.');
+      return;
+    }
+    if (initialBuyIn !== undefined && (!Number.isFinite(initialBuyIn) || initialBuyIn <= 0)) {
+      setSeatPickerError('Enter a valid initial buy-in amount.');
       return;
     }
     const timestamp = nowIso();
@@ -2801,6 +2925,7 @@ function App() {
       interestId: interest?.id,
       requestedSeatNumber: seatNumber,
       initialTimeMinutes: timeMinutes,
+      initialBuyIn,
       note: alreadyInClub ? 'Seated' : 'Checked in and seated'
     });
     if (!result.ok) {
@@ -2810,6 +2935,53 @@ function App() {
     persist(result.state, true, {
       feature: 'Seating',
       action: alreadyInClub ? 'Seated player' : 'Checked in and seated player',
+      metadata: { gameId: session.gameId, tableId: session.id, seatNumber: result.seatNumber, timeMinutes: timeMinutes ?? 0 }
+    });
+    setSeatPicker(null);
+  };
+
+  const seatTypedNameAtTable = (
+    session: GameSession,
+    seatNumber: number,
+    playerName: string,
+    initialTimeMinutes?: number,
+    initialBuyIn?: number
+  ) => {
+    const trimmedName = playerName.trim();
+    if (!trimmedName) {
+      setSeatPickerError('Search or enter a player name before seating.');
+      return;
+    }
+    if (!seatNumber) {
+      setSeatPickerError('Table full. No open seats remain.');
+      return;
+    }
+    const isTimeCollection = session.collectionMode === 'Time' || session.timeFeeBased;
+    const timeMinutes = isTimeCollection ? Math.max(0, Number(initialTimeMinutes ?? 60)) : undefined;
+    if (isTimeCollection && (!Number.isFinite(timeMinutes) || timeMinutes <= 0)) {
+      setSeatPickerError('Enter the time this player bought before seating.');
+      return;
+    }
+    if (initialBuyIn !== undefined && (!Number.isFinite(initialBuyIn) || initialBuyIn <= 0)) {
+      setSeatPickerError('Enter a valid initial buy-in amount.');
+      return;
+    }
+    const existingProfile = state.profiles.find((profile) => profile.name.toLowerCase() === trimmedName.toLowerCase());
+    const result = seatPlayerInState(state, session.id, {
+      playerName: trimmedName,
+      profileId: existingProfile?.id,
+      requestedSeatNumber: seatNumber,
+      initialTimeMinutes: timeMinutes,
+      initialBuyIn,
+      note: existingProfile ? 'Seated from table picker' : 'Seated by typed name'
+    });
+    if (!result.ok) {
+      setSeatPickerError(result.error);
+      return;
+    }
+    persist(result.state, true, {
+      feature: 'Seating',
+      action: existingProfile ? 'Seated player' : 'Seated typed player',
       metadata: { gameId: session.gameId, tableId: session.id, seatNumber: result.seatNumber, timeMinutes: timeMinutes ?? 0 }
     });
     setSeatPicker(null);
@@ -2855,10 +3027,6 @@ function App() {
     const selectedIds = startPlayerDrafts[session.id] ?? [];
     const selectedInterests = state.interests.filter((interest) => selectedIds.includes(interest.id) && !closedInterestStatuses.includes(interest.status));
     const alreadySeated = getActivePlayerSessionsForTable(state, session.id);
-    if (!selectedInterests.length && !alreadySeated.length) {
-      window.alert('Select at least one player to start the table.');
-      return;
-    }
     const seatedAt = nowIso();
     let nextState = state;
     const seatedNames: string[] = [];
@@ -2891,12 +3059,12 @@ function App() {
           tableId: session.id,
           timestamp: seatedAt,
           playerCount,
-          note: seatedNames.length
+          note: seatedNames.length || alreadySeated.length
             ? `Started with ${[...alreadySeated.map((player) => player.playerName), ...seatedNames].join(', ')}`
-            : `Started with ${alreadySeated.map((player) => player.playerName).join(', ')}`
+            : 'Started empty'
         }
       ]
-    }, true, { feature: 'Tables', action: 'Started table', metadata: { gameId: session.gameId, players: selectedInterests.length } });
+    }, true, { feature: 'Tables', action: 'Started table', metadata: { gameId: session.gameId, players: selectedInterests.length + alreadySeated.length } });
     window.tableManagerDesktop?.recordClientEvent('table-started', 'tables', {
       gameId: session.gameId,
       tableId: session.id,
@@ -2916,7 +3084,7 @@ function App() {
     const sourceTable = state.sessions.find((session: { id: string; }) => session.id === playerSession.tableId);
     const targetTable = state.sessions.find((session: { id: string; }) => session.id === targetTableId);
     if (!targetTable) return;
-    const targetSeatNumber = getAvailableSeatNumber(targetTable, playerSession.seatNumber);
+    const targetSeatNumber = getAvailableSeatNumber(targetTable, playerSession.seatNumber) ?? getAvailableSeatNumber(targetTable);
     if (!targetSeatNumber) {
       window.alert('No open seats on the target table.');
       return;
@@ -2948,6 +3116,16 @@ function App() {
       metadata: { fromTableId: playerSession.tableId, toTableId: targetTableId }
     });
   };
+
+  const getMoveTargets = (sourceTableId: string) =>
+    state.sessions
+      .filter((session) => session.id !== sourceTableId && session.status !== 'Closed' && session.status !== 'Failed to Start')
+      .map((session) => ({
+        id: session.id,
+        label: `${session.label} - ${state.games.find((game) => game.id === session.gameId)?.name ?? 'Table'}`,
+        openSeats: Math.max(0, session.maxSeats - getActivePlayerSessionsForTable(state, session.id).length)
+      }))
+      .filter((target) => target.openSeats > 0);
 
   const markPlayerLeft = (interest: Interest) => {
     const openSession = state.playerSessions.find(
@@ -3052,7 +3230,7 @@ function App() {
 
   const addPlannedSession = () => {
     const game = state.games.find((item: { id: any; }) => item.id === coordinationConfig.gameId);
-    if (!game || participantPool.length === 0) return;
+    if (!game) return;
     const collectionProfile = getCollectionProfile(state, game.id);
     const currentCount = state.sessions.filter((session: { gameId: any; status: string; }) => session.gameId === game.id && session.status !== 'Closed').length;
     const newInterests = participantPool
@@ -3077,7 +3255,7 @@ function App() {
           gameId: game.id,
           label: currentCount ? `Coordinated Table ${currentCount + 1}` : 'Coordinated Table',
           status: 'Forming',
-          seatsFilled: participantPool.length,
+          seatsFilled: 0,
           maxSeats: game.maxSeats,
           timeFeeBased: collectionProfile.collectionMode === 'Time',
           collectionMode: collectionProfile.collectionMode,
@@ -3097,7 +3275,7 @@ function App() {
           gameId: game.id,
           timestamp: nowIso(),
           playerCount: participantPool.length,
-          note: 'Staff-created planned table'
+          note: participantPool.length ? 'Staff-created planned table' : 'Staff-created empty table'
         }
       ]
     }, true, { feature: 'Table builder', action: 'Created planned table', metadata: { gameId: game.id, players: participantPool.length } });
@@ -5688,12 +5866,20 @@ function App() {
     .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
     .slice(0, 18);
 
+  const quickAddOpenSeatSessions = form.status === 'Seated' ? getOpenSeatSessions(form.gameId) : [];
+
   const seatPickerSession = seatPicker
     ? state.sessions.find((session) => session.id === seatPicker.sessionId && session.status !== 'Closed' && session.status !== 'Failed to Start')
     : undefined;
   const seatPickerIsTimeCollection = Boolean(seatPickerSession && (seatPickerSession.collectionMode === 'Time' || seatPickerSession.timeFeeBased));
   const seatPickerCandidates = seatPickerSession ? getSeatPickerCandidates(seatPickerSession, seatPicker?.search ?? '') : [];
   const seatPickerGame = seatPickerSession ? state.games.find((game) => game.id === seatPickerSession.gameId) : undefined;
+  const seatPickerTypedName = seatPicker?.search.trim() ?? '';
+  const seatPickerHasExactCandidate = seatPickerCandidates.some(
+    ({ profile }) => profile.name.toLowerCase() === seatPickerTypedName.toLowerCase()
+  );
+  const showSeatPickerTypedName = Boolean(seatPickerSession && seatPickerTypedName && !seatPickerHasExactCandidate);
+  const seatPickerInitialBuyIn = seatPicker?.initialBuyIn.trim() ? Number(seatPicker.initialBuyIn) : undefined;
   const seatPickerModal = seatPicker && seatPickerSession ? (
     <div className="modal-backdrop seat-picker-backdrop" role="dialog" aria-modal="true" aria-label={`Seat ${seatPicker.seatNumber} player`}>
       <section className="seat-picker-modal">
@@ -5713,6 +5899,30 @@ function App() {
             onChange={(event) => setSeatPicker((current) => current ? { ...current, search: event.target.value, error: undefined } : current)}
             placeholder="Search club database"
           />
+          <label>
+            Seat #
+            <input
+              value={seatPicker.seatNumber || ''}
+              onChange={(event) =>
+                setSeatPicker((current) => current ? { ...current, seatNumber: Number(event.target.value), error: undefined } : current)
+              }
+              type="number"
+              min="1"
+              max={seatPickerSession.maxSeats}
+              step="1"
+            />
+          </label>
+          <label>
+            Initial buy-in
+            <input
+              value={seatPicker.initialBuyIn}
+              onChange={(event) => setSeatPicker((current) => current ? { ...current, initialBuyIn: event.target.value, error: undefined } : current)}
+              type="number"
+              min="0"
+              step="1"
+              placeholder="$"
+            />
+          </label>
           {seatPickerIsTimeCollection ? (
             <label>
               Time bought
@@ -5728,13 +5938,29 @@ function App() {
         </div>
         {seatPicker.error ? <div className="seat-picker-error">{seatPicker.error}</div> : null}
         <div className="seat-picker-list">
+          {showSeatPickerTypedName ? (
+            <button
+              className="seat-picker-card"
+              type="button"
+              onClick={() => seatTypedNameAtTable(seatPickerSession, seatPicker.seatNumber, seatPickerTypedName, Number(seatPicker.timeMinutes), seatPickerInitialBuyIn)}
+              disabled={!seatPicker.seatNumber}
+            >
+              <div className="seat-picker-avatar">{seatPickerTypedName.slice(0, 1).toUpperCase()}</div>
+              <div>
+                <strong>{seatPickerTypedName}</strong>
+                <span>{seatPickerGame?.name ?? 'Table'}</span>
+                <small>Seat typed player now</small>
+              </div>
+              <em>New</em>
+            </button>
+          ) : null}
           {seatPickerCandidates.length ? (
             seatPickerCandidates.map(({ profile, activeInterest, isCheckedIn, gameContext }) => (
               <button
                 className="seat-picker-card"
                 key={profile.id}
                 type="button"
-                onClick={() => seatProfileAtTable(seatPickerSession, seatPicker.seatNumber, profile, Number(seatPicker.timeMinutes))}
+                onClick={() => seatProfileAtTable(seatPickerSession, seatPicker.seatNumber, profile, Number(seatPicker.timeMinutes), seatPickerInitialBuyIn)}
                 disabled={!seatPicker.seatNumber}
               >
                 <div className="seat-picker-avatar">{profile.name.slice(0, 1).toUpperCase()}</div>
@@ -5747,7 +5973,7 @@ function App() {
               </button>
             ))
           ) : (
-            <p className="muted-copy">No available players match that search.</p>
+            <p className="muted-copy">{showSeatPickerTypedName ? 'No database profiles match that search.' : 'No available players match that search.'}</p>
           )}
         </div>
       </section>
@@ -5855,6 +6081,7 @@ function App() {
                     showTimeRemaining={isTimeCollection}
                     maxPlayers={tableSession.maxSeats}
                     selectedSeatNumber={seatPicker?.sessionId === tableSession.id ? seatPicker.seatNumber : undefined}
+                    moveTargets={getMoveTargets(tableSession.id)}
                     onSeatClick={(seatNumber) =>
                       openSeatPicker(tableSession, seatNumber)
                     }
@@ -5869,6 +6096,14 @@ function App() {
                     onRemovePlayer={(playerId) => {
                       const playerSession = seatedPlayers.find((player) => player.id === playerId);
                       if (playerSession) markPlayerSessionLeft(playerSession);
+                    }}
+                    onChangeSeat={(playerId, seatNumber) => {
+                      const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                      if (playerSession) changePlayerSeat(playerSession, seatNumber);
+                    }}
+                    onMovePlayer={(playerId, targetTableId) => {
+                      const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                      if (playerSession) movePlayerToTable(playerSession, targetTableId);
                     }}
                   />
                 </div>
@@ -6066,12 +6301,12 @@ function App() {
                                 </label>
                               ))
                             ) : (
-                              <span className="muted-copy">No waiting or arrived players for this game yet. Add players from Waitlist or Profiles, or use the + seat control after starting.</span>
+                              <span className="muted-copy">No waiting or arrived players for this game yet. You can still start the table empty and add players from the + seat control.</span>
                             )}
                           </div>
                           <div className="inline-actions">
                             <button className="primary-button" onClick={() => startSessionWithPlayers(session)}>
-                              Start with selected
+                              {selectedForStart.length ? 'Start with selected' : 'Start empty'}
                             </button>
                             {selectedForStart.length ? (
                               <button className="ghost-button" onClick={() => setStartPlayerDrafts((drafts) => ({ ...drafts, [session.id]: [] }))}>
@@ -6088,6 +6323,7 @@ function App() {
                             showTimeRemaining={isTimeCollection}
                             maxPlayers={session.maxSeats}
                             selectedSeatNumber={seatPicker?.sessionId === session.id ? seatPicker.seatNumber : undefined}
+                            moveTargets={getMoveTargets(session.id)}
                             onSeatClick={(seatNumber) =>
                               openSeatPicker(session, seatNumber)
                             }
@@ -6102,6 +6338,14 @@ function App() {
                             onRemovePlayer={(playerId) => {
                               const playerSession = seatedPlayers.find((player) => player.id === playerId);
                               if (playerSession) markPlayerSessionLeft(playerSession);
+                            }}
+                            onChangeSeat={(playerId, seatNumber) => {
+                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                              if (playerSession) changePlayerSeat(playerSession, seatNumber);
+                            }}
+                            onMovePlayer={(playerId, targetTableId) => {
+                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                              if (playerSession) movePlayerToTable(playerSession, targetTableId);
                             }}
                           />
                         </div>
@@ -6493,18 +6737,63 @@ function App() {
               onChange={(event) => setForm({ ...form, playerName: event.target.value })}
               placeholder="Player name"
             />
-            <select value={form.gameId} onChange={(event) => setForm({ ...form, gameId: event.target.value })}>
+            <select value={form.gameId} onChange={(event) => setForm({ ...form, gameId: event.target.value, tableId: '', seatNumber: '' })}>
               {state.games.map((game) => (
                 <option key={game.id} value={game.id}>
                   {game.name}
                 </option>
               ))}
             </select>
-            <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as InterestStatus })}>
+            <select
+              value={form.status}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  status: event.target.value as InterestStatus,
+                  tableId: event.target.value === 'Seated' ? form.tableId : '',
+                  seatNumber: event.target.value === 'Seated' ? form.seatNumber : '',
+                  initialBuyIn: event.target.value === 'Seated' ? form.initialBuyIn : ''
+                })
+              }
+            >
               {statuses.map((status) => (
                 <option key={status}>{status}</option>
               ))}
             </select>
+            {form.status === 'Seated' ? (
+              <>
+                <select value={form.tableId} onChange={(event) => setForm({ ...form, tableId: event.target.value, seatNumber: '' })}>
+                  <option value="">
+                    {quickAddOpenSeatSessions.length > 1 ? 'Choose table' : 'Auto table'}
+                  </option>
+                  {quickAddOpenSeatSessions.map((session) => {
+                    const game = state.games.find((item) => item.id === session.gameId);
+                    const openSeatCount = session.maxSeats - getActivePlayerSessionsForTable(state, session.id).length;
+                    return (
+                      <option key={session.id} value={session.id}>
+                        {session.label} - {game?.name ?? 'Table'} ({openSeatCount} open)
+                      </option>
+                    );
+                  })}
+                </select>
+                <input
+                  value={form.seatNumber}
+                  onChange={(event) => setForm({ ...form, seatNumber: event.target.value })}
+                  placeholder="Seat #"
+                  type="number"
+                  min="1"
+                  step="1"
+                />
+                <input
+                  value={form.initialBuyIn}
+                  onChange={(event) => setForm({ ...form, initialBuyIn: event.target.value })}
+                  placeholder="Initial buy-in $"
+                  type="number"
+                  min="0"
+                  step="1"
+                />
+              </>
+            ) : null}
             <input
               value={form.notes}
               onChange={(event) => setForm({ ...form, notes: event.target.value })}
@@ -6615,4 +6904,3 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </React.StrictMode>
 );
-
