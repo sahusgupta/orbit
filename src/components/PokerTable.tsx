@@ -31,6 +31,9 @@ export interface PokerTableProps {
   onAddTime?: (playerId: string, minutes: number) => void;
   onAddBuyIn?: (playerId: string, amount: number, note: string) => void;
   onRemovePlayer?: (playerId: string) => void;
+  onChangeSeat?: (playerId: string, seatNumber: number) => void;
+  moveTargets?: { id: string; label: string; openSeats: number }[];
+  onMovePlayer?: (playerId: string, targetTableId: string) => void;
 }
 
 interface PlayerCardProps {
@@ -43,6 +46,10 @@ interface PlayerCardProps {
   onAddTime?: (playerId: string, minutes: number) => void;
   onAddBuyIn?: (playerId: string, amount: number, note: string) => void;
   onRemovePlayer?: (playerId: string) => void;
+  onChangeSeat?: (playerId: string, seatNumber: number) => void;
+  seatOptions: number[];
+  moveTargets?: { id: string; label: string; openSeats: number }[];
+  onMovePlayer?: (playerId: string, targetTableId: string) => void;
 }
 
 const formatDuration = (seconds: number) => {
@@ -63,7 +70,21 @@ const getInitials = (name: string) =>
     .map((part) => part[0]?.toUpperCase())
     .join('') || '?';
 
-function PlayerCard({ player, position, totalPositions, showTimeRemaining, isOpen, onToggle, onAddTime, onAddBuyIn, onRemovePlayer }: PlayerCardProps) {
+function PlayerCard({
+  player,
+  position,
+  totalPositions,
+  showTimeRemaining,
+  isOpen,
+  onToggle,
+  onAddTime,
+  onAddBuyIn,
+  onRemovePlayer,
+  onChangeSeat,
+  seatOptions,
+  moveTargets = [],
+  onMovePlayer
+}: PlayerCardProps) {
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [customMinutes, setCustomMinutes] = useState('');
   const [buyInAmount, setBuyInAmount] = useState('');
@@ -116,7 +137,15 @@ function PlayerCard({ player, position, totalPositions, showTimeRemaining, isOpe
       >
         <X size={13} />
       </button>
-      <button className={`poker-seat-card-inner ${isOpen ? 'open' : ''}`} type="button" onClick={onToggle}>
+      <button
+        className={`poker-seat-card-inner ${isOpen ? 'open' : ''}`}
+        type="button"
+        onClick={onToggle}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onToggle();
+        }}
+      >
         <div className="poker-seat-header">
           <div className="poker-seat-avatar">
             <span>{getInitials(player.name)}</span>
@@ -167,6 +196,20 @@ function PlayerCard({ player, position, totalPositions, showTimeRemaining, isOpe
             <span>Tonight <strong>{player.tonightHours ?? '0.0h'}</strong></span>
             <span>Total <strong>{player.totalHours ?? '0.0h'}</strong></span>
           </div>
+          <div className="poker-seat-menu-row seat-number-row">
+            <label htmlFor={`change-seat-${player.id}`}>Seat #</label>
+            <select
+              id={`change-seat-${player.id}`}
+              value={player.seatNumber ?? position + 1}
+              onChange={(event) => onChangeSeat?.(player.id, Number(event.target.value))}
+            >
+              {seatOptions.map((seatNumber) => (
+                <option key={seatNumber} value={seatNumber}>
+                  Seat {seatNumber}
+                </option>
+              ))}
+            </select>
+          </div>
           {showTimeRemaining ? (
             <div className="poker-seat-menu-row">
               <button className="mini-button" type="button" onClick={() => onAddTime?.(player.id, 30)}>+30</button>
@@ -196,6 +239,28 @@ function PlayerCard({ player, position, totalPositions, showTimeRemaining, isOpe
               Add
             </button>
           </div>
+          {moveTargets.length ? (
+            <div className="poker-seat-menu-row move-player-row">
+              <label htmlFor={`move-player-${player.id}`}>Move to table</label>
+              <select
+                id={`move-player-${player.id}`}
+                defaultValue=""
+                onChange={(event) => {
+                  const targetTableId = event.target.value;
+                  if (!targetTableId) return;
+                  onMovePlayer?.(player.id, targetTableId);
+                  onToggle();
+                }}
+              >
+                <option value="">Choose table...</option>
+                {moveTargets.map((target) => (
+                  <option key={target.id} value={target.id}>
+                    {target.label} ({target.openSeats} open)
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           {player.recentBuyIns?.length ? (
             <div className="poker-seat-log">
               {player.recentBuyIns.slice(0, 4).map((buyIn) => (
@@ -227,7 +292,10 @@ export default function PokerTable({
   onSeatClick,
   onAddTime,
   onAddBuyIn,
-  onRemovePlayer
+  onRemovePlayer,
+  onChangeSeat,
+  moveTargets = [],
+  onMovePlayer
 }: PokerTableProps) {
   const [openPlayerId, setOpenPlayerId] = useState<string | null>(null);
   const seatCount = Math.max(1, maxPlayers);
@@ -275,22 +343,30 @@ export default function PokerTable({
           </div>
         </div>
 
-        {orderedPlayers.map((player, index) => (
-          <PlayerCard
-            key={player.id}
-            player={player}
-            position={index}
-            totalPositions={tablePositionCount}
-            showTimeRemaining={showTimeRemaining}
-            isOpen={openPlayerId === player.id}
-            onToggle={() => setOpenPlayerId((current) => (current === player.id ? null : player.id))}
-            onAddTime={onAddTime}
-            onAddBuyIn={onAddBuyIn}
-            onRemovePlayer={onRemovePlayer}
-          />
-        ))}
+        {orderedPlayers.map((player, index) => {
+          const currentSeatNumber = player.seatNumber ?? index + 1;
+          const seatOptions = Array.from({ length: seatCount }, (_, seatIndex) => seatIndex + 1)
+            .filter((seatNumber) => seatNumber === currentSeatNumber || !occupiedSeatNumbers.has(seatNumber));
+          return (
+            <PlayerCard
+              key={player.id}
+              player={player}
+              position={index}
+              totalPositions={tablePositionCount}
+              showTimeRemaining={showTimeRemaining}
+              isOpen={openPlayerId === player.id}
+              onToggle={() => setOpenPlayerId((current) => (current === player.id ? null : player.id))}
+              onAddTime={onAddTime}
+              onAddBuyIn={onAddBuyIn}
+              onRemovePlayer={onRemovePlayer}
+              onChangeSeat={onChangeSeat}
+              seatOptions={seatOptions}
+              moveTargets={moveTargets}
+              onMovePlayer={onMovePlayer}
+            />
+          );
+        })}
       </div>
     </div>
   );
 }
-
