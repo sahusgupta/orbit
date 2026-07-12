@@ -16,7 +16,7 @@ jobs:
     name: Windows release
     runs-on: windows-2025
     env:
-      GH_TOKEN: ${{ secrets.TABLETALK_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     steps:
