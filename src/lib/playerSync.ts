@@ -12,6 +12,7 @@ export type PlayerSyncInterestStatus =
 export type PlayerSyncClub = {
   id: string;
   name: string;
+  phone?: string;
   address?: string;
   phone?: string;
 };
@@ -109,6 +110,7 @@ export type PlayerClubSnapshot = {
   games: PlayerSyncGame[];
   memberships: PlayerMembership[];
   waitlists: PlayerWaitlistEntry[];
+  notifications: PlayerInAppNotification[];
   generatedAt: string;
 };
 
@@ -141,6 +143,19 @@ export type PlayerWaitlistEntry = {
   position: number;
   requestedAt: string;
   tableId?: string;
+};
+
+export type PlayerInAppNotification = {
+  id: string;
+  clubId: string;
+  gameId: string;
+  title: string;
+  body: string;
+  reason: 'game-forming' | 'seat-opened';
+  createdAt: string;
+  expiresAt?: string;
+  targetPlayerIds?: string[];
+  targetPlayerNames?: string[];
 };
 
 type ManagementGame = {
@@ -214,6 +229,7 @@ type ManagementClubState = {
   playerSessions?: ManagementPlayerSession[];
   interests: ManagementInterest[];
   profiles: ManagementProfile[];
+  inAppNotifications?: PlayerInAppNotification[];
   settings?: {
     clubAccount?: {
       clubName?: string;
@@ -347,6 +363,14 @@ export function buildPlayerClubSnapshot(
     }),
     memberships,
     waitlists,
+    notifications: (state.inAppNotifications ?? []).filter((notification) => {
+      if (!player) return true;
+      const playerId = player.id?.trim().toLowerCase();
+      const playerName = player.name?.trim().toLowerCase();
+      const targetIds = (notification.targetPlayerIds ?? []).map((target) => target.trim().toLowerCase());
+      const targetNames = (notification.targetPlayerNames ?? []).map((target) => target.trim().toLowerCase());
+      return Boolean(playerId && targetIds.includes(playerId)) || Boolean(playerName && targetNames.includes(playerName));
+    }),
     social: {
       activePlayerCount: activePlayerSessions.length || tables.reduce((sum, table) => sum + table.seatsFilled, 0),
       adminCount: activeAdminCount,
@@ -413,6 +437,7 @@ export function applyMembershipRequestToClubState(
               preferredGameIds: mergeUnique([...(profile.preferredGameIds ?? []), ...request.player.preferredGameIds]),
               preferredStakes: request.player.preferredStakes ?? profile.preferredStakes,
               typicalAvailability: request.player.typicalAvailability ?? profile.typicalAvailability,
+              phone: request.player.phone ?? profile.phone,
               notes: appendSyncNote(profile.notes, `Player app: ${request.player.email}`)
             }
           : profile
@@ -427,6 +452,7 @@ export function applyMembershipRequestToClubState(
       {
         id: request.player.id,
         name: request.player.name,
+        phone: request.player.phone ?? '',
         birthday: '',
         membershipStartDate,
         membershipExpirationDate,

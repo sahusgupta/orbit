@@ -62,6 +62,92 @@ function openTrustedExternal(url) {
   }
 }
 
+function getTwilioConfig() {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID || '';
+  const apiKeySid = process.env.TWILIO_API_KEY_SID || '';
+  const apiKeySecret = process.env.TWILIO_API_KEY_SECRET || process.env.TWILIO_API_SECRET || '';
+  const authToken = process.env.TWILIO_AUTH_TOKEN || process.env.TWILIO_API_KEY || '';
+  const from = process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_MESSAGING_FROM || '';
+  const username = apiKeySid || accountSid;
+  const password = apiKeySid ? apiKeySecret : authToken;
+
+  if (!accountSid || !username || !password || !from) {
+    return {
+      ok: false,
+      error: 'Twilio is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN or TWILIO_API_KEY_SID/TWILIO_API_KEY_SECRET, and TWILIO_FROM_NUMBER.'
+    };
+  }
+
+  return { ok: true, accountSid, username, password, from };
+}
+
+function normalizeTextMessageBatch(payload) {
+  const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+  return messages
+    .map((message) => ({
+      to: String(message?.to || '').trim(),
+      body: String(message?.body || '').trim(),
+      profileId: message?.profileId ? String(message.profileId) : '',
+      playerName: message?.playerName ? String(message.playerName) : '',
+      gameId: message?.gameId ? String(message.gameId) : '',
+      reason: message?.reason ? String(message.reason) : ''
+    }))
+    .filter((message) => message.to && message.body)
+    .slice(0, 200);
+}
+
+async function sendTwilioTextMessage(config, message) {
+  const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.accountSid)}/Messages.json`;
+  const body = new URLSearchParams({
+    To: message.to,
+    From: config.from,
+    Body: message.body
+  });
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${config.username}:${config.password}`).toString('base64')}`,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result?.message || `Twilio returned ${response.status}.`);
+  }
+  return result;
+}
+
+async function sendTextMessages(payload) {
+  const config = getTwilioConfig();
+  if (!config.ok) return { ok: false, sent: 0, error: config.error };
+
+  const messages = normalizeTextMessageBatch(payload);
+  if (!messages.length) return { ok: true, sent: 0, skipped: 0 };
+
+  const results = await Promise.allSettled(messages.map((message) => sendTwilioTextMessage(config, message)));
+  const sent = results.filter((result) => result.status === 'fulfilled').length;
+  const firstFailure = results.find((result) => result.status === 'rejected');
+  const error = firstFailure?.status === 'rejected'
+    ? firstFailure.reason?.message || 'One or more Twilio messages failed.'
+    : undefined;
+
+  sendClientEvent('player-outreach-texts', 'outreach', {
+    sent,
+    requested: messages.length,
+    reason: messages[0]?.reason || '',
+    gameId: messages[0]?.gameId || '',
+    failed: messages.length - sent
+  });
+
+  return {
+    ok: sent > 0 && sent === messages.length,
+    sent,
+    skipped: messages.length - sent,
+    error
+  };
+}
+
 function getLegacyDataPath() {
   return path.join(app.getPath('userData'), 'tablemanager-db.json');
 }
@@ -803,6 +889,13 @@ function buildPlayerClubSnapshot(state, player) {
       };
     });
   const waitlists = (state.games || []).flatMap((game) => getWaitlistEntriesForGame(state.interests || [], clubId, game.id));
+  const notifications = (state.inAppNotifications || []).filter((notification) => {
+    if (!player?.id && !player?.name) return true;
+    const playerId = String(player?.id || '').trim().toLowerCase();
+    const targetIds = (notification.targetPlayerIds || []).map((target) => String(target).trim().toLowerCase());
+    const targetNames = (notification.targetPlayerNames || []).map((target) => String(target).trim().toLowerCase());
+    return Boolean(playerId && targetIds.includes(playerId)) || Boolean(playerName && targetNames.includes(playerName));
+  });
   const memberships = (state.profiles || [])
     .filter((profile) => {
       if (!player?.id && !player?.name) return true;
@@ -845,6 +938,7 @@ function buildPlayerClubSnapshot(state, player) {
     }),
     memberships,
     waitlists,
+    notifications,
     social: {
       activePlayerCount: activePlayerSessions.length || tables.reduce((sum, table) => sum + table.seatsFilled, 0),
       adminCount: activeAdminCount,
@@ -878,6 +972,7 @@ function applyMembershipRequestToState(state, request) {
               preferredGameIds: mergeUnique([...(profile.preferredGameIds || []), ...(player.preferredGameIds || [])]),
               preferredStakes: player.preferredStakes || profile.preferredStakes,
               typicalAvailability: player.typicalAvailability || profile.typicalAvailability,
+              phone: player.phone || profile.phone,
               notes: appendSyncNote(profile.notes, `Player app: ${player.email || player.id}`)
             }
           : profile
@@ -892,6 +987,7 @@ function applyMembershipRequestToState(state, request) {
       {
         id: player.id || crypto.randomUUID(),
         name: player.name || 'Player',
+        phone: player.phone || '',
         birthday: '',
         membershipStartDate,
         membershipExpirationDate,
@@ -1253,6 +1349,8 @@ ipcMain.handle('get-backend-status', async () =>
 );
 
 ipcMain.handle('submit-analytical-report', (_event, report) => submitAnalyticalReportApiFirst(report));
+
+ipcMain.handle('send-text-messages', (_event, payload) => sendTextMessages(payload));
 
 ipcMain.handle('record-client-event', (_event, event, category, details, route) => {
   sendClientEvent(event, category, details, { route });

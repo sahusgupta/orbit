@@ -27,6 +27,7 @@ import {
   canonicalPayload,
   countActivePlayersForTable,
   createBackupEnvelope,
+  getGameFrequencyRank,
   getTimerStatusFromMinutes,
   readBackupEnvelope,
   resolveGameId
@@ -51,6 +52,7 @@ declare global {
         details?: Record<string, string | number | boolean | null>,
         route?: AppRoute | 'access'
       ) => Promise<{ ok: boolean }>;
+      sendTextMessages: (payload: TextMessageBatch) => Promise<TextMessageBatchResult>;
       recordClientError: (payload: {
         message: string;
         source?: string;
@@ -116,6 +118,7 @@ type Interest = {
 type PlayerProfile = {
   id: string;
   name: string;
+  phone: string;
   birthday: string;
   membershipStartDate: string;
   membershipExpirationDate: string;
@@ -124,6 +127,8 @@ type PlayerProfile = {
   commonlyPlaysWithProfileIds: string[];
   preferredGameId: string;
   preferredGameIds: string[];
+  gamePlayCounts: Record<string, number>;
+  mostPlayedGameId: string;
   preferredStakes: string;
   typicalBuyInMin: number;
   typicalBuyInMax: number;
@@ -330,6 +335,39 @@ type ReportSubmissionResult = {
   backend: BackendStatus;
 };
 
+type PlayerInAppNotification = {
+  id: string;
+  clubId: string;
+  gameId: string;
+  title: string;
+  body: string;
+  reason: 'game-forming' | 'seat-opened';
+  createdAt: string;
+  expiresAt?: string;
+  targetPlayerIds?: string[];
+  targetPlayerNames?: string[];
+};
+
+type TextMessagePayload = {
+  to: string;
+  body: string;
+  profileId?: string;
+  playerName?: string;
+  gameId?: string;
+  reason?: 'game-forming' | 'seat-opened';
+};
+
+type TextMessageBatch = {
+  messages: TextMessagePayload[];
+};
+
+type TextMessageBatchResult = {
+  ok: boolean;
+  sent: number;
+  skipped?: number;
+  error?: string;
+};
+
 type AnalyticalReportPayload = {
   app: 'TableManager';
   kind: 'analytical-report';
@@ -367,6 +405,7 @@ type AppState = {
   dropLogs: DropLog[];
   playerLedger: PlayerLedgerEntry[];
   tableEvents: TableEvent[];
+  inAppNotifications: PlayerInAppNotification[];
   history: NightRecord[];
   feedback: FeedbackEntry[];
   scriptTemplates: string[];
@@ -772,6 +811,7 @@ const seedState: AppState = {
   dropLogs: [],
   playerLedger: [],
   tableEvents: [],
+  inAppNotifications: [],
   history: [],
   feedback: [],
   scriptTemplates: defaultScriptTemplates,
@@ -811,6 +851,7 @@ function normalizeState(parsed: Partial<AppState>): AppState {
     (parsed.interests ?? []).map((interest) => ({
       id: uid(),
       name: interest.playerName,
+      phone: '',
       birthday: '',
       membershipStartDate: todayDate(),
       membershipExpirationDate: nextYearDate(),
@@ -819,6 +860,8 @@ function normalizeState(parsed: Partial<AppState>): AppState {
       commonlyPlaysWithProfileIds: [],
       preferredGameId: interest.gameId,
       preferredGameIds: [interest.gameId],
+      gamePlayCounts: {},
+      mostPlayedGameId: interest.gameId,
       preferredStakes: '',
       typicalBuyInMin: 0,
       typicalBuyInMax: 0,
@@ -844,26 +887,54 @@ function normalizeState(parsed: Partial<AppState>): AppState {
     };
   });
 
+  const getNormalizedGameCounts = (counts?: Record<string, number>) =>
+    Object.entries(counts ?? {}).reduce<Record<string, number>>((record, [gameId, count]) => {
+      const resolvedGameId = resolveGameId(games, gameId, '');
+      const normalizedCount = Number(count);
+      if (resolvedGameId && Number.isFinite(normalizedCount) && normalizedCount > 0) {
+        record[resolvedGameId] = (record[resolvedGameId] ?? 0) + normalizedCount;
+      }
+      return record;
+    }, {});
+  const getMostPlayedGameIdFromCounts = (counts: Record<string, number>, fallback: string) => {
+    const [topGameId] =
+      Object.entries(counts)
+        .filter(([, count]) => count > 0)
+        .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0] ?? [];
+    return topGameId ?? fallback;
+  };
+
   return {
     games,
-    profiles: profiles.map((profile) => ({
-      ...profile,
-      birthday: profile.birthday ?? '',
-      membershipStartDate: profile.membershipStartDate ?? todayDate(),
-      membershipExpirationDate: profile.membershipExpirationDate ?? nextYearDate(),
-      totalTimePlayedHours: profile.totalTimePlayedHours ?? 0,
-      lastSessionTimePlayedHours: profile.lastSessionTimePlayedHours ?? 0,
-      commonlyPlaysWithProfileIds:
-        profile.commonlyPlaysWithProfileIds ??
-        (profile.usualCompanions ?? [])
-          .map((name) => profiles.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase())?.id)
-          .filter((id): id is string => Boolean(id)),
-      preferredGameId: normalizeGameIds([profile.preferredGameId, ...(profile.preferredGameIds ?? []), profile.preferredStakes])[0],
-      preferredGameIds: normalizeGameIds([profile.preferredGameId, ...(profile.preferredGameIds ?? []), profile.preferredStakes]),
-      willingnessToMove: profile.willingnessToMove ?? false,
-      typicalAvailability: profile.typicalAvailability ?? '',
-      preferredTags: profile.preferredTags ?? []
-    })),
+    profiles: profiles.map((profile) => {
+      const preferredGameIds = normalizeGameIds([profile.preferredGameId, ...(profile.preferredGameIds ?? []), profile.preferredStakes]);
+      const gamePlayCounts = getNormalizedGameCounts(profile.gamePlayCounts);
+      return {
+        ...profile,
+        phone: profile.phone ?? '',
+        birthday: profile.birthday ?? '',
+        membershipStartDate: profile.membershipStartDate ?? todayDate(),
+        membershipExpirationDate: profile.membershipExpirationDate ?? nextYearDate(),
+        totalTimePlayedHours: profile.totalTimePlayedHours ?? 0,
+        lastSessionTimePlayedHours: profile.lastSessionTimePlayedHours ?? 0,
+        commonlyPlaysWithProfileIds:
+          profile.commonlyPlaysWithProfileIds ??
+          (profile.usualCompanions ?? [])
+            .map((name) => profiles.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase())?.id)
+            .filter((id): id is string => Boolean(id)),
+        preferredGameId: preferredGameIds[0],
+        preferredGameIds,
+        gamePlayCounts,
+        mostPlayedGameId: resolveGameId(
+          games,
+          profile.mostPlayedGameId,
+          getMostPlayedGameIdFromCounts(gamePlayCounts, preferredGameIds[0])
+        ),
+        willingnessToMove: profile.willingnessToMove ?? false,
+        typicalAvailability: profile.typicalAvailability ?? '',
+        preferredTags: profile.preferredTags ?? []
+      };
+    }),
     interests: interests.map((interest) => ({
       ...interest,
       gameId: resolveGameId(games, interest.gameId, fallbackGameId)
@@ -951,6 +1022,11 @@ function normalizeState(parsed: Partial<AppState>): AppState {
         }))
     ],
     tableEvents: (parsed.tableEvents ?? []).map((event) => ({ ...event, reason: event.reason ?? '' })),
+    inAppNotifications: (parsed.inAppNotifications ?? []).map((notification) => ({
+      ...notification,
+      targetPlayerIds: notification.targetPlayerIds ?? [],
+      targetPlayerNames: notification.targetPlayerNames ?? []
+    })),
     history: parsed.history ?? [],
     feedback: parsed.feedback ?? [],
     scriptTemplates: parsed.scriptTemplates ?? defaultScriptTemplates,
@@ -1744,6 +1820,7 @@ function App() {
     commonlyPlaysWithProfileIds: [] as string[],
     preferredGameIds: ['nlh-1-2'],
     preferredGameId: 'nlh-1-2',
+    phone: '',
     preferredStakes: '',
     typicalBuyInMin: 200,
     typicalBuyInMax: 500,
@@ -1757,6 +1834,8 @@ function App() {
   const [summaryNotes, setSummaryNotes] = useState('');
   const [profileSearch, setProfileSearch] = useState('');
   const [profileFormMessage, setProfileFormMessage] = useState('');
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [profileEditDraft, setProfileEditDraft] = useState<PlayerProfile | null>(null);
   const [groupMeText, setGroupMeText] = useState('');
   const [groupMeCandidates, setGroupMeCandidates] = useState<GroupMeCandidate[]>([]);
   const [staffFeedback, setStaffFeedback] = useState('');
@@ -1793,7 +1872,7 @@ function App() {
     currentTables: true,
     waitlist: true,
     tableOverview: false,
-    formingGames: false,
+    formingGames: true,
     kpis: false,
     quickAdd: false
   });
@@ -2169,7 +2248,7 @@ function App() {
     const playerName = form.playerName.trim();
     if (!playerName) return;
     const existingProfile = state.profiles.find(
-      (profile: { name: string; }) => profile.name.toLowerCase() === playerName.toLowerCase()
+      (profile: { name: string; }) => profile.name.trim().toLowerCase() === playerName.toLowerCase()
     );
     if (form.status === 'Seated') {
       const openSessions = getOpenSeatSessions(form.gameId);
@@ -2198,9 +2277,13 @@ function App() {
           window.alert('Enter a valid initial buy-in amount.');
           return;
         }
-        const result = seatPlayerInState(state, openSession.id, {
+        const targetProfile = existingProfile ?? buildPlayerProfile(playerName, openSession.gameId, {
+          notes: 'Created from Quick Add seating'
+        });
+        const seatingState = existingProfile ? state : { ...state, profiles: [...state.profiles, targetProfile] };
+        const result = seatPlayerInState(seatingState, openSession.id, {
           playerName,
-          profileId: existingProfile?.id,
+          profileId: targetProfile.id,
           requestedSeatNumber,
           initialBuyIn,
           note: form.notes.trim() || 'Seated from Quick Add'
@@ -2211,7 +2294,7 @@ function App() {
         }
         persist(result.state, true, {
           feature: 'Seating',
-          action: 'Quick seated player',
+          action: existingProfile ? 'Quick seated player' : 'Quick seated new profile',
           metadata: { gameId: openSession.gameId, tableId: openSession.id, seatNumber: result.seatNumber }
         });
         setForm({ ...form, playerName: '', notes: '', tableId: '', seatNumber: '', initialBuyIn: '' });
@@ -2522,6 +2605,136 @@ function App() {
       .filter((session) => session.status === 'Running' && Boolean(getAvailableSeatNumber(session)))
       .sort((a, b) => a.startedAt.localeCompare(b.startedAt))[0];
 
+  const getGameName = (gameId?: string) => state.games.find((game) => game.id === gameId)?.name ?? gameId ?? 'Unknown game';
+
+  const getGamePlayEntries = (profile: PlayerProfile) =>
+    Object.entries(profile.gamePlayCounts ?? {})
+      .filter(([, count]) => count > 0)
+      .sort((left, right) => right[1] - left[1] || getGameName(left[0]).localeCompare(getGameName(right[0])));
+
+  const getMostPlayedGameId = (profile: PlayerProfile) => getGamePlayEntries(profile)[0]?.[0] ?? profile.mostPlayedGameId ?? profile.preferredGameId;
+
+  const getMostPlayedGameName = (profile: PlayerProfile) => getGameName(getMostPlayedGameId(profile));
+
+  const getClubDisplayName = (sourceState = state) =>
+    sourceState.settings.clubAccount?.clubName?.trim() ||
+    sourceState.settings.clubAccount?.accountName?.trim() ||
+    branding.product.name;
+
+  const buildPlayerProfile = (
+    name: string,
+    gameId: string,
+    patch: Partial<PlayerProfile> = {}
+  ): PlayerProfile => {
+    const preferredGame = state.games.find((game) => game.id === gameId) ?? state.games[0];
+    const preferredGameId = preferredGame?.id ?? gameId ?? 'nlh-1-2';
+    return {
+      id: patch.id ?? memberId(),
+      name: name.trim(),
+      phone: patch.phone ?? '',
+      birthday: patch.birthday ?? '',
+      membershipStartDate: patch.membershipStartDate ?? todayDate(),
+      membershipExpirationDate: patch.membershipExpirationDate ?? nextYearDate(),
+      totalTimePlayedHours: patch.totalTimePlayedHours ?? 0,
+      lastSessionTimePlayedHours: patch.lastSessionTimePlayedHours ?? 0,
+      commonlyPlaysWithProfileIds: patch.commonlyPlaysWithProfileIds ?? [],
+      preferredGameId: patch.preferredGameId ?? preferredGameId,
+      preferredGameIds: patch.preferredGameIds?.length ? patch.preferredGameIds : [preferredGameId],
+      gamePlayCounts: patch.gamePlayCounts ?? {},
+      mostPlayedGameId: patch.mostPlayedGameId ?? preferredGameId,
+      preferredStakes: patch.preferredStakes ?? preferredGame?.name ?? '',
+      typicalBuyInMin: patch.typicalBuyInMin ?? 200,
+      typicalBuyInMax: patch.typicalBuyInMax ?? 500,
+      willingnessToMove: patch.willingnessToMove ?? true,
+      typicalAvailability: patch.typicalAvailability ?? '',
+      usualCompanions: patch.usualCompanions ?? [],
+      preferredTags: patch.preferredTags ?? [],
+      notes: patch.notes ?? ''
+    };
+  };
+
+  const getInAppNotificationRecipients = (sourceState: AppState, gameId: string) => {
+    const activeProfileIds = new Set(
+      sourceState.playerSessions
+        .filter((playerSession) => !playerSession.leftAt)
+        .map((playerSession) => playerSession.profileId)
+        .filter(Boolean)
+    );
+    const activePlayerNames = new Set(
+      sourceState.playerSessions
+        .filter((playerSession) => !playerSession.leftAt)
+        .map((playerSession) => playerSession.playerName.trim().toLowerCase())
+    );
+
+    return sourceState.profiles.filter(
+      (profile) =>
+        (getGameFrequencyRank(profile.gamePlayCounts, gameId) === 1 || getGameFrequencyRank(profile.gamePlayCounts, gameId) === 2) &&
+        !activeProfileIds.has(profile.id) &&
+        !activePlayerNames.has(profile.name.trim().toLowerCase())
+    );
+  };
+
+  const withGameFrequencyInAppNotifications = (
+    sourceState: AppState,
+    gameId: string,
+    reason: 'game-forming' | 'seat-opened'
+  ) => {
+    const game = sourceState.games.find((item) => item.id === gameId);
+    if (!game) return sourceState;
+
+    const recipients = getInAppNotificationRecipients(sourceState, gameId);
+    if (!recipients.length) return sourceState;
+
+    const cardHouse = getClubDisplayName(sourceState);
+    const createdAt = nowIso();
+    const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+    const body =
+      reason === 'game-forming'
+        ? `${game.name} is forming right now at ${cardHouse}! Text back to get on the waitlist`
+        : `A seat has opened for ${game.name} at ${cardHouse}! Text back to get on the waitlist`;
+    return {
+      ...sourceState,
+      inAppNotifications: [
+        ...recipients.map((profile) => ({
+          id: uid(),
+          clubId: getAccountKeyFromState(sourceState),
+          gameId,
+          title: game.name,
+          body,
+          reason,
+          createdAt,
+          expiresAt,
+          targetPlayerIds: [profile.id],
+          targetPlayerNames: [profile.name]
+        })),
+        ...sourceState.inAppNotifications.filter((notification) => !notification.expiresAt || notification.expiresAt > createdAt).slice(0, 200)
+      ]
+    };
+  };
+
+  const withProfileGameLogged = (sourceState: AppState, profileId: string | undefined, playerName: string, gameId: string) => ({
+    ...sourceState,
+    profiles: sourceState.profiles.map((profile) => {
+      const sameProfile = profileId
+        ? profile.id === profileId
+        : profile.name.toLowerCase() === playerName.toLowerCase();
+      if (!sameProfile) return profile;
+      const gamePlayCounts = {
+        ...(profile.gamePlayCounts ?? {}),
+        [gameId]: (profile.gamePlayCounts?.[gameId] ?? 0) + 1
+      };
+      const mostPlayedGameId =
+        Object.entries(gamePlayCounts)
+          .sort((left, right) => right[1] - left[1] || getGameName(left[0]).localeCompare(getGameName(right[0])))[0]?.[0] ?? gameId;
+      return {
+        ...profile,
+        gamePlayCounts,
+        mostPlayedGameId,
+        preferredGameIds: Array.from(new Set([...(profile.preferredGameIds ?? []), gameId]))
+      };
+    })
+  });
+
   const ensureInterestEntry = (
     sourceState: AppState,
     profile: PlayerProfile,
@@ -2623,7 +2836,7 @@ function App() {
           }
         : item
     );
-    const seatedState: AppState = {
+    const seatedState: AppState = withProfileGameLogged({
       ...sourceState,
       interests,
       playerSessions: [
@@ -2685,7 +2898,7 @@ function App() {
         },
         ...sourceState.playerLedger
       ]
-    };
+    }, profileId, playerName, session.gameId);
     const nextStatus = session.status === 'Forming' ? 'Running' as GameStatus : session.status;
     return {
       ok: true,
@@ -2833,6 +3046,7 @@ function App() {
         if (!queryParts.length) return true;
         const haystack = [
           profile.name,
+          profile.phone,
           profile.preferredStakes,
           profile.notes,
           ...(profile.preferredGameIds || []).map((gameId) => state.games.find((game) => game.id === gameId)?.name || gameId)
@@ -2966,14 +3180,18 @@ function App() {
       setSeatPickerError('Enter a valid initial buy-in amount.');
       return;
     }
-    const existingProfile = state.profiles.find((profile) => profile.name.toLowerCase() === trimmedName.toLowerCase());
-    const result = seatPlayerInState(state, session.id, {
+    const existingProfile = state.profiles.find((profile) => profile.name.trim().toLowerCase() === trimmedName.toLowerCase());
+    const targetProfile = existingProfile ?? buildPlayerProfile(trimmedName, session.gameId, {
+      notes: 'Created from table seating'
+    });
+    const seatingState = existingProfile ? state : { ...state, profiles: [...state.profiles, targetProfile] };
+    const result = seatPlayerInState(seatingState, session.id, {
       playerName: trimmedName,
-      profileId: existingProfile?.id,
+      profileId: targetProfile.id,
       requestedSeatNumber: seatNumber,
       initialTimeMinutes: timeMinutes,
       initialBuyIn,
-      note: existingProfile ? 'Seated from table picker' : 'Seated by typed name'
+      note: existingProfile ? 'Seated from table picker' : 'Created profile and seated'
     });
     if (!result.ok) {
       setSeatPickerError(result.error);
@@ -2981,7 +3199,7 @@ function App() {
     }
     persist(result.state, true, {
       feature: 'Seating',
-      action: existingProfile ? 'Seated player' : 'Seated typed player',
+      action: existingProfile ? 'Seated player' : 'Created profile and seated player',
       metadata: { gameId: session.gameId, tableId: session.id, seatNumber: result.seatNumber, timeMinutes: timeMinutes ?? 0 }
     });
     setSeatPicker(null);
@@ -3048,6 +3266,7 @@ function App() {
     nextState = syncSessionSeatCount(nextState, session.id, { status: 'Running', startedAt: seatedAt });
     const table = nextState.sessions.find((item) => item.id === session.id);
     const playerCount = table?.seatsFilled ?? alreadySeated.length + seatedNames.length;
+    const triggeringCardHouse = getClubDisplayName(nextState);
     persist({
       ...nextState,
       tableEvents: [
@@ -3059,12 +3278,17 @@ function App() {
           tableId: session.id,
           timestamp: seatedAt,
           playerCount,
-          note: seatedNames.length || alreadySeated.length
-            ? `Started with ${[...alreadySeated.map((player) => player.playerName), ...seatedNames].join(', ')}`
-            : 'Started empty'
+          note: `${
+            seatedNames.length || alreadySeated.length
+              ? `Started with ${[...alreadySeated.map((player) => player.playerName), ...seatedNames].join(', ')}`
+              : 'Started empty'
+          } - messaging trigger: ${triggeringCardHouse}`
         }
       ]
     }, true, { feature: 'Tables', action: 'Started table', metadata: { gameId: session.gameId, players: selectedInterests.length + alreadySeated.length } });
+    window.setTimeout(() => {
+      setSaveStatus({ state: 'saved', message: `Messaging trigger: ${triggeringCardHouse}` });
+    }, 350);
     window.tableManagerDesktop?.recordClientEvent('table-started', 'tables', {
       gameId: session.gameId,
       tableId: session.id,
@@ -3141,7 +3365,10 @@ function App() {
         session.id === openSession?.id ? { ...session, leftAt: nowIso() } : session
       )
     };
-    persist(openSession ? syncSessionSeatCount(nextState, openSession.tableId) : nextState);
+    const finalState = openSession
+      ? withGameFrequencyInAppNotifications(syncSessionSeatCount(nextState, openSession.tableId), openSession.gameId, 'seat-opened')
+      : nextState;
+    persist(finalState);
   };
 
   const markPlayerSessionLeft = (playerSession: PlayerSession) => {
@@ -3184,7 +3411,8 @@ function App() {
           : profile
       )
     };
-    persist(syncSessionSeatCount(nextState, playerSession.tableId), true, { feature: 'Seating', action: 'Marked player left', metadata: { gameId: playerSession.gameId, tableId: playerSession.tableId } });
+    const finalState = withGameFrequencyInAppNotifications(syncSessionSeatCount(nextState, playerSession.tableId), playerSession.gameId, 'seat-opened');
+    persist(finalState, true, { feature: 'Seating', action: 'Marked player left', metadata: { gameId: playerSession.gameId, tableId: playerSession.tableId } });
   };
 
   const addSession = (gameId: string) => {
@@ -3194,7 +3422,7 @@ function App() {
     const currentCount = state.sessions.filter((session: { gameId: string; status: string; }) => session.gameId === gameId && session.status !== 'Closed').length;
     const sessionId = uid();
     const defaultStartPlayerIds = getSeatOptions(gameId).slice(0, game.maxSeats).map((interest) => interest.id);
-    persist({
+    const nextState = {
       ...state,
       sessions: [
         ...state.sessions,
@@ -3222,7 +3450,9 @@ function App() {
           note: 'Table forming'
         }
       ]
-    }, true, { feature: 'Tables', action: 'Created forming table', metadata: { gameId } });
+    };
+    const notifiedState = withGameFrequencyInAppNotifications(nextState, gameId, 'game-forming');
+    persist(notifiedState, true, { feature: 'Tables', action: 'Created forming table', metadata: { gameId } });
     if (defaultStartPlayerIds.length) {
       setStartPlayerDrafts((drafts) => ({ ...drafts, [sessionId]: defaultStartPlayerIds }));
     }
@@ -3420,6 +3650,67 @@ function App() {
     recordTableEvent(session, 'Failed to Start', draft?.failReason || failedStartReasons[0], draft?.failNote ?? '');
   };
 
+  const beginEditProfile = (profile: PlayerProfile) => {
+    setEditingProfileId(profile.id);
+    setProfileEditDraft({ ...profile });
+    setProfileFormMessage('');
+  };
+
+  const cancelEditProfile = () => {
+    setEditingProfileId(null);
+    setProfileEditDraft(null);
+  };
+
+  const saveProfileEdit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!profileEditDraft) return;
+    const profileName = profileEditDraft.name.trim();
+    if (!profileName) {
+      setProfileFormMessage('Enter a player name before saving the profile.');
+      return;
+    }
+    const duplicate = state.profiles.find(
+      (profile) => profile.id !== profileEditDraft.id && profile.name.trim().toLowerCase() === profileName.toLowerCase()
+    );
+    if (duplicate) {
+      setProfileFormMessage(`${profileName} already has a profile.`);
+      return;
+    }
+    const preferredGameIds = profileEditDraft.preferredGameIds?.length
+      ? profileEditDraft.preferredGameIds
+      : [profileEditDraft.preferredGameId || state.games[0]?.id || 'nlh-1-2'];
+    const savedProfile: PlayerProfile = {
+      ...profileEditDraft,
+      name: profileName,
+      phone: profileEditDraft.phone.trim(),
+      membershipStartDate: profileEditDraft.membershipStartDate,
+      membershipExpirationDate: profileEditDraft.membershipExpirationDate,
+      preferredGameId: profileEditDraft.preferredGameId || preferredGameIds[0],
+      preferredGameIds,
+      preferredStakes: profileEditDraft.preferredStakes.trim(),
+      typicalAvailability: profileEditDraft.typicalAvailability.trim(),
+      notes: profileEditDraft.notes.trim()
+    };
+    persist({
+      ...state,
+      profiles: state.profiles.map((profile) => (profile.id === savedProfile.id ? savedProfile : profile)),
+      interests: state.interests.map((interest) =>
+        interest.profileId === savedProfile.id ? { ...interest, playerName: savedProfile.name } : interest
+      ),
+      playerSessions: state.playerSessions.map((session) =>
+        session.profileId === savedProfile.id ? { ...session, playerName: savedProfile.name } : session
+      ),
+      buyIns: state.buyIns.map((buyIn) =>
+        buyIn.profileId === savedProfile.id ? { ...buyIn, playerName: savedProfile.name } : buyIn
+      ),
+      playerLedger: state.playerLedger.map((entry) =>
+        entry.profileId === savedProfile.id ? { ...entry, playerName: savedProfile.name } : entry
+      )
+    }, true, { feature: 'Profiles', action: 'Updated profile', metadata: { profileId: savedProfile.id } });
+    setProfileFormMessage(`${savedProfile.name} profile updated.`);
+    cancelEditProfile();
+  };
+
   const addProfile = (event: React.FormEvent) => {
     event.preventDefault();
     const profileName = newProfile.name.trim();
@@ -3441,6 +3732,7 @@ function App() {
         {
           id: memberId(),
           name: profileName,
+          phone: newProfile.phone.trim(),
           birthday: newProfile.birthday,
           membershipStartDate: newProfile.membershipStartDate,
           membershipExpirationDate: newProfile.membershipExpirationDate,
@@ -3449,6 +3741,8 @@ function App() {
           commonlyPlaysWithProfileIds: newProfile.commonlyPlaysWithProfileIds,
           preferredGameId: newProfile.preferredGameId,
           preferredGameIds: [newProfile.preferredGameId],
+          gamePlayCounts: {},
+          mostPlayedGameId: newProfile.preferredGameId,
           preferredStakes:
             newProfile.preferredStakes.trim() ||
             preferredGame?.name ||
@@ -3477,6 +3771,7 @@ function App() {
       commonlyPlaysWithProfileIds: [],
       preferredGameIds: ['nlh-1-2'],
       preferredGameId: 'nlh-1-2',
+      phone: '',
       preferredStakes: '',
       typicalBuyInMin: 200,
       typicalBuyInMax: 500,
@@ -3504,6 +3799,7 @@ function App() {
         {
           id: memberId(),
           name: demoName,
+          phone: '',
           birthday: '1990-05-22',
           membershipStartDate: todayDate(),
           membershipExpirationDate: nextYearDate(),
@@ -3512,6 +3808,8 @@ function App() {
           commonlyPlaysWithProfileIds: companionIds,
           preferredGameId: preferredGame.id,
           preferredGameIds: [preferredGame.id],
+          gamePlayCounts: { [preferredGame.id]: 10 },
+          mostPlayedGameId: preferredGame.id,
           preferredStakes: preferredGame.name,
           typicalBuyInMin: 200,
           typicalBuyInMax: 700,
@@ -3637,6 +3935,17 @@ function App() {
     const [primary, ...duplicates] = profilesToMerge;
     if (!primary) return;
     const duplicateIds = new Set(duplicates.map((profile) => profile.id));
+    const gamePlayCounts = profilesToMerge.reduce<Record<string, number>>((counts, profile) => {
+      Object.entries(profile.gamePlayCounts ?? {}).forEach(([gameId, count]) => {
+        counts[gameId] = (counts[gameId] ?? 0) + count;
+      });
+      return counts;
+    }, {});
+    const mostPlayedGameId =
+      Object.entries(gamePlayCounts)
+        .sort((left, right) => right[1] - left[1] || getGameName(left[0]).localeCompare(getGameName(right[0])))[0]?.[0] ??
+      primary.mostPlayedGameId ??
+      primary.preferredGameId;
     const merged: PlayerProfile = {
       ...primary,
       birthday: primary.birthday || profilesToMerge.find((profile) => profile.birthday)?.birthday || '',
@@ -3658,6 +3967,8 @@ function App() {
       ),
       preferredGameId: primary.preferredGameId || profilesToMerge.find((profile) => profile.preferredGameId)?.preferredGameId || primary.preferredGameIds[0],
       preferredGameIds: Array.from(new Set(profilesToMerge.flatMap((profile) => profile.preferredGameIds))),
+      gamePlayCounts,
+      mostPlayedGameId,
       preferredStakes: Array.from(
         new Set(profilesToMerge.flatMap((profile) => profile.preferredStakes.split(',').map((item) => item.trim()).filter(Boolean)))
       ).join(', '),
@@ -3796,6 +4107,7 @@ function App() {
     return {
       id: importedString(item, ['id', 'ID', 'memberId', 'Member ID', 'membershipId', 'Membership ID', 'playerId', 'Player ID', 'cardNumber', 'Card Number', 'cardId', 'Card ID'], memberId()),
       name,
+      phone: importedString(item, ['phone', 'Phone', 'phoneNumber', 'Phone Number', 'mobile', 'Mobile', 'cell', 'Cell']),
       birthday: importedDate(item, ['birthday', 'Birthday', 'dob', 'DOB', 'dateOfBirth', 'Date of Birth'], ''),
       membershipStartDate: importedDate(item, ['membershipStartDate', 'Membership Start', 'memberSince', 'Member Since', 'joinDate', 'Join Date', 'createdAt', 'Created At'], todayDate()),
       membershipExpirationDate: importedDate(item, ['membershipExpirationDate', 'Membership Expiration', 'expiresAt', 'Expires At', 'expirationDate', 'Expiration Date', 'expiryDate', 'Expiry Date'], nextYearDate()),
@@ -3804,6 +4116,8 @@ function App() {
       commonlyPlaysWithProfileIds: [],
       preferredGameId,
       preferredGameIds: preferredGameId ? [preferredGameId] : [],
+      gamePlayCounts: {},
+      mostPlayedGameId: preferredGameId,
       preferredStakes,
       typicalBuyInMin: importedNumber(item, ['typicalBuyInMin', 'buyInMin', 'Buy In Min']),
       typicalBuyInMax: importedNumber(item, ['typicalBuyInMax', 'buyInMax', 'Buy In Max']),
@@ -3919,6 +4233,7 @@ function App() {
             return {
             id: String(item.id ?? memberId()),
             name: String(item.name).trim(),
+            phone: String(item.phone ?? item.phoneNumber ?? item.mobile ?? item.cell ?? ''),
             birthday: String(item.birthday ?? ''),
             membershipStartDate: String(item.membershipStartDate ?? item.memberSince ?? todayDate()),
             membershipExpirationDate: String(item.membershipExpirationDate ?? item.expiresAt ?? nextYearDate()),
@@ -3927,6 +4242,13 @@ function App() {
             commonlyPlaysWithProfileIds: Array.isArray(item.commonlyPlaysWithProfileIds) ? item.commonlyPlaysWithProfileIds.map(String) : [],
             preferredGameId,
             preferredGameIds: preferredGameIds.length ? preferredGameIds : [preferredGameId],
+            gamePlayCounts: Object.entries((item.gamePlayCounts ?? {}) as Record<string, unknown>).reduce<Record<string, number>>((counts, [gameId, count]) => {
+              const resolvedGameId = resolveGameId(state.games, gameId, '');
+              const numericCount = Number(count);
+              if (resolvedGameId && Number.isFinite(numericCount) && numericCount > 0) counts[resolvedGameId] = numericCount;
+              return counts;
+            }, {}),
+            mostPlayedGameId: resolveGameId(state.games, String(item.mostPlayedGameId ?? ''), preferredGameId),
             preferredStakes: String(item.preferredStakes ?? item.stakes ?? state.games.find((game) => game.id === preferredGameId)?.name ?? ''),
             typicalBuyInMin: Number(item.typicalBuyInMin ?? item.buyInMin ?? 0),
             typicalBuyInMax: Number(item.typicalBuyInMax ?? item.buyInMax ?? 0),
@@ -3949,6 +4271,7 @@ function App() {
           return {
             id: memberId(),
             name,
+            phone: '',
             birthday,
             membershipStartDate: membershipStart || todayDate(),
             membershipExpirationDate: membershipExpiration || nextYearDate(),
@@ -3957,6 +4280,8 @@ function App() {
             commonlyPlaysWithProfileIds: [],
             preferredGameId,
             preferredGameIds: [preferredGameId],
+            gamePlayCounts: {},
+            mostPlayedGameId: preferredGameId,
             preferredStakes,
             typicalBuyInMin: 0,
             typicalBuyInMax: 0,
@@ -5070,8 +5395,8 @@ function App() {
       <main className="app-shell compact-shell">
         <header className="topbar">
           <div>
-            <div className="eyebrow">Table planning</div>
-            <h1>Build a Table</h1>
+            <div className="eyebrow">Advanced planning</div>
+            <h1>Game Planner</h1>
           </div>
           <div className="topbar-actions">
             <button className="ghost-button" onClick={exportPilotReport}>
@@ -5112,7 +5437,7 @@ function App() {
             </label>
             <button className="primary-button" onClick={addPlannedSession}>
               <Plus size={18} />
-              Create Table
+              Create Forming Game
             </button>
           </div>
           <div className="builder-grid single-window-grid">
@@ -5229,6 +5554,8 @@ function App() {
             <div className="profile-grid">
               {filteredProfiles.map((profile) => {
                 const preferredGame = state.games.find((game) => game.id === profile.preferredGameId)?.name ?? profile.preferredStakes;
+                const gamePlayEntries = getGamePlayEntries(profile);
+                const mostPlayedGame = getMostPlayedGameName(profile);
                 const companionNames = profile.commonlyPlaysWithProfileIds
                   .map((id) => state.profiles.find((candidate) => candidate.id === id)?.name)
                   .filter(Boolean);
@@ -5251,11 +5578,126 @@ function App() {
                       <div className="profile-card-stats">
                         <span>Total <strong>{formatHours(profile.totalTimePlayedHours)}</strong></span>
                         <span>Last <strong>{formatHours(profile.lastSessionTimePlayedHours)}</strong></span>
+                        <span>Most played <strong>{mostPlayedGame}</strong></span>
                       </div>
+                      {gamePlayEntries.length ? (
+                        <div className="profile-game-counts">
+                          {gamePlayEntries.slice(0, 4).map(([gameId, count]) => (
+                            <span key={gameId}>{getGameName(gameId)}: <strong>{count}</strong></span>
+                          ))}
+                        </div>
+                      ) : (
+                        <small>No seated game history yet.</small>
+                      )}
                       <small>Membership: {profile.membershipStartDate || 'Not set'} to {profile.membershipExpirationDate || 'Not set'}</small>
+                      {profile.phone ? <small>Phone: {profile.phone}</small> : null}
                       {companionNames.length > 0 ? <small>Plays with: {companionNames.join(', ')}</small> : null}
+                      {editingProfileId === profile.id && profileEditDraft ? (
+                        <form className="profile-edit-form" onSubmit={saveProfileEdit}>
+                          <input
+                            value={profileEditDraft.name}
+                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, name: event.target.value })}
+                            placeholder="Player name"
+                          />
+                          <input
+                            value={profileEditDraft.phone}
+                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, phone: event.target.value })}
+                            placeholder="Phone"
+                          />
+                          <label>
+                            Member since
+                            <input
+                              type="date"
+                              value={profileEditDraft.membershipStartDate}
+                              onChange={(event) => setProfileEditDraft({ ...profileEditDraft, membershipStartDate: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Expires
+                            <input
+                              type="date"
+                              value={profileEditDraft.membershipExpirationDate}
+                              onChange={(event) => setProfileEditDraft({ ...profileEditDraft, membershipExpirationDate: event.target.value })}
+                            />
+                          </label>
+                          <select
+                            value={profileEditDraft.preferredGameId}
+                            onChange={(event) =>
+                              setProfileEditDraft({
+                                ...profileEditDraft,
+                                preferredGameId: event.target.value,
+                                preferredGameIds: Array.from(new Set([event.target.value, ...(profileEditDraft.preferredGameIds ?? [])]))
+                              })
+                            }
+                          >
+                            {state.games.map((game) => (
+                              <option key={game.id} value={game.id}>
+                                {game.name}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            value={profileEditDraft.preferredStakes}
+                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, preferredStakes: event.target.value })}
+                            placeholder="Preferred stakes"
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.1"
+                            value={profileEditDraft.totalTimePlayedHours}
+                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, totalTimePlayedHours: Number(event.target.value) })}
+                            title="Total time played"
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.1"
+                            value={profileEditDraft.lastSessionTimePlayedHours}
+                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, lastSessionTimePlayedHours: Number(event.target.value) })}
+                            title="Last session time played"
+                          />
+                          <select
+                            multiple
+                            value={profileEditDraft.commonlyPlaysWithProfileIds}
+                            onChange={(event) =>
+                              setProfileEditDraft({
+                                ...profileEditDraft,
+                                commonlyPlaysWithProfileIds: Array.from(event.target.selectedOptions).map((option) => option.value)
+                              })
+                            }
+                            title="Commonly plays with"
+                          >
+                            {state.profiles
+                              .filter((candidate) => candidate.id !== profile.id)
+                              .map((candidate) => (
+                                <option key={candidate.id} value={candidate.id}>
+                                  {candidate.name}
+                                </option>
+                              ))}
+                          </select>
+                          <textarea
+                            value={profileEditDraft.notes}
+                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, notes: event.target.value })}
+                            placeholder="Owner notes"
+                          />
+                          <div className="profile-edit-actions">
+                            <button className="primary-button" type="submit">
+                              <Save size={16} />
+                              Save
+                            </button>
+                            <button className="ghost-button" type="button" onClick={cancelEditProfile}>
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      ) : null}
                     </div>
                     <div className="profile-actions">
+                      <button className="secondary-button" onClick={() => beginEditProfile(profile)}>
+                        <Edit3 size={16} />
+                        Edit
+                      </button>
                       <button className="secondary-button" onClick={() => (inClub ? removeProfileFromClub(profile) : addProfileToClub(profile))}>
                         {inClub ? 'Remove' : 'Check in'}
                       </button>
@@ -5304,6 +5746,12 @@ function App() {
                   value={newProfile.name}
                   onChange={(event: { target: { value: any; }; }) => setNewProfile({ ...newProfile, name: event.target.value })}
                   placeholder="Player name"
+                />
+                <input
+                  value={newProfile.phone}
+                  onChange={(event: { target: { value: string; }; }) => setNewProfile({ ...newProfile, phone: event.target.value })}
+                  placeholder="Phone"
+                  title="Phone"
                 />
                 <select
                   className="profile-form-game"
@@ -5875,10 +6323,10 @@ function App() {
   const seatPickerCandidates = seatPickerSession ? getSeatPickerCandidates(seatPickerSession, seatPicker?.search ?? '') : [];
   const seatPickerGame = seatPickerSession ? state.games.find((game) => game.id === seatPickerSession.gameId) : undefined;
   const seatPickerTypedName = seatPicker?.search.trim() ?? '';
-  const seatPickerHasExactCandidate = seatPickerCandidates.some(
-    ({ profile }) => profile.name.toLowerCase() === seatPickerTypedName.toLowerCase()
-  );
-  const showSeatPickerTypedName = Boolean(seatPickerSession && seatPickerTypedName && !seatPickerHasExactCandidate);
+  const seatPickerTypedProfile = seatPickerTypedName
+    ? state.profiles.find((profile) => profile.name.trim().toLowerCase() === seatPickerTypedName.toLowerCase())
+    : undefined;
+  const showSeatPickerTypedName = Boolean(seatPickerSession && seatPickerTypedName);
   const seatPickerInitialBuyIn = seatPicker?.initialBuyIn.trim() ? Number(seatPicker.initialBuyIn) : undefined;
   const seatPickerModal = seatPicker && seatPickerSession ? (
     <div className="modal-backdrop seat-picker-backdrop" role="dialog" aria-modal="true" aria-label={`Seat ${seatPicker.seatNumber} player`}>
@@ -5892,12 +6340,18 @@ function App() {
             <X size={18} />
           </button>
         </div>
-        <div className="seat-picker-controls">
+        <form
+          className="seat-picker-controls"
+          onSubmit={(event) => {
+            event.preventDefault();
+            seatTypedNameAtTable(seatPickerSession, seatPicker.seatNumber, seatPickerTypedName, Number(seatPicker.timeMinutes), seatPickerInitialBuyIn);
+          }}
+        >
           <input
             autoFocus
             value={seatPicker.search}
             onChange={(event) => setSeatPicker((current) => current ? { ...current, search: event.target.value, error: undefined } : current)}
-            placeholder="Search club database"
+            placeholder="Type player name and press Enter"
           />
           <label>
             Seat #
@@ -5935,7 +6389,11 @@ function App() {
               />
             </label>
           ) : null}
-        </div>
+          <button className="primary-button" type="submit" disabled={!seatPickerTypedName || !seatPicker.seatNumber}>
+            <Plus size={16} />
+            Seat Player
+          </button>
+        </form>
         {seatPicker.error ? <div className="seat-picker-error">{seatPicker.error}</div> : null}
         <div className="seat-picker-list">
           {showSeatPickerTypedName ? (
@@ -5949,9 +6407,9 @@ function App() {
               <div>
                 <strong>{seatPickerTypedName}</strong>
                 <span>{seatPickerGame?.name ?? 'Table'}</span>
-                <small>Seat typed player now</small>
+                <small>{seatPickerTypedProfile ? 'Load existing profile and seat' : 'Create profile automatically and seat'}</small>
               </div>
-              <em>New</em>
+              <em>{seatPickerTypedProfile ? 'Profile' : 'New'}</em>
             </button>
           ) : null}
           {seatPickerCandidates.length ? (
@@ -5973,7 +6431,9 @@ function App() {
               </button>
             ))
           ) : (
-            <p className="muted-copy">{showSeatPickerTypedName ? 'No database profiles match that search.' : 'No available players match that search.'}</p>
+            <p className="muted-copy">
+              {showSeatPickerTypedName ? 'No existing profile matches. Press Enter or Seat Player to create one and seat them.' : 'Type a player name to seat them here.'}
+            </p>
           )}
         </div>
       </section>
@@ -6157,10 +6617,6 @@ function App() {
           <button className="ghost-button" onClick={() => openRoute('customization')} title="Open customization">
             <Settings size={18} />
             Customize
-          </button>
-          <button className="ghost-button" onClick={() => openRoute('builder')} title="Open table builder">
-            <Users size={18} />
-            Build Table
           </button>
           <button className="ghost-button" onClick={() => openRoute('profiles')} title="Open profiles">
             <Edit3 size={18} />
@@ -6591,7 +7047,7 @@ function App() {
         </section>
 
         <section className={`panel floor-panel shown-interest-panel ${openPanels.formingGames ? '' : 'collapsed-panel'}`}>
-          <PanelTitle icon={<Users />} title="Forming Games" collapsed={!openPanels.formingGames} onToggle={() => togglePanel('formingGames')} />
+          <PanelTitle icon={<Users />} title="Build Game" collapsed={!openPanels.formingGames} onToggle={() => togglePanel('formingGames')} />
           {openPanels.formingGames ? <div className="forming-list">
             {state.games.map((game: { id: any; name: any; maxSeats?: number; minInRoomForLikely?: number; minFlexibleForLikely?: number; minTotalForViable?: number; }) => {
               const demand = getDemand(game, state.interests);
@@ -6623,7 +7079,7 @@ function App() {
                       </>
                     ) : (
                       <button className="secondary-button" onClick={() => addSession(game.id)}>
-                        Form
+                        Build Game
                       </button>
                     )}
                   </div>

@@ -119,6 +119,13 @@ function buildPlayerClubSnapshot(state, player = {}) {
       };
     });
   const waitlists = (state.games || []).flatMap((game) => getWaitlistEntriesForGame(state.interests || [], clubId, game.id));
+  const notifications = (state.inAppNotifications || []).filter((notification) => {
+    if (!player?.id && !playerName) return true;
+    const playerId = String(player?.id || '').trim().toLowerCase();
+    const targetIds = (notification.targetPlayerIds || []).map((target) => String(target).trim().toLowerCase());
+    const targetNames = (notification.targetPlayerNames || []).map((target) => String(target).trim().toLowerCase());
+    return Boolean(playerId && targetIds.includes(playerId)) || Boolean(playerName && targetNames.includes(playerName));
+  });
   const memberships = (state.profiles || [])
     .filter((profile) => {
       if (!player?.id && !playerName) return true;
@@ -161,6 +168,7 @@ function buildPlayerClubSnapshot(state, player = {}) {
     }),
     memberships,
     waitlists,
+    notifications,
     social: {
       activePlayerCount: activePlayerSessions.length || tables.reduce((sum, table) => sum + table.seatsFilled, 0),
       adminCount: activeAdminCount,
@@ -195,6 +203,7 @@ function applyMembershipRequestToState(state, request) {
               preferredGameIds: mergeUnique([...(profile.preferredGameIds || []), ...(player.preferredGameIds || [])]),
               preferredStakes: player.preferredStakes || profile.preferredStakes,
               typicalAvailability: player.typicalAvailability || profile.typicalAvailability,
+              phone: player.phone || profile.phone,
               notes: appendSyncNote(profile.notes, `Player app: ${player.email || player.id}`)
             }
           : profile
@@ -209,6 +218,7 @@ function applyMembershipRequestToState(state, request) {
       {
         id: player.id || request.id,
         name: player.name || 'Player',
+        phone: player.phone || '',
         birthday: '',
         membershipStartDate,
         membershipExpirationDate,

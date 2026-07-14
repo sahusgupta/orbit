@@ -109,15 +109,17 @@ async function writeStateToFirebase(accountKey, state, publicSnapshot) {
 async function publishClubSnapshot(accountKey, publicSnapshot, savedAt) {
   if (!publicSnapshot?.club) return;
   const db = getFirebaseDb();
-  const [existingGames, existingMemberships, existingWaitlists] = await Promise.all([
+  const [existingGames, existingMemberships, existingWaitlists, existingNotifications] = await Promise.all([
     getDocs(collection(db, 'clubs', accountKey, 'games')),
     getDocs(collection(db, 'clubs', accountKey, 'memberships')),
-    getDocs(collection(db, 'clubs', accountKey, 'waitlists'))
+    getDocs(collection(db, 'clubs', accountKey, 'waitlists')),
+    getDocs(collection(db, 'clubs', accountKey, 'notifications'))
   ]);
   const batch = writeBatch(db);
   const gameIds = new Set((publicSnapshot.games || []).map((game) => game.id));
   const membershipIds = new Set((publicSnapshot.memberships || []).map((membership) => membership.playerId));
   const waitlistIds = new Set((publicSnapshot.waitlists || []).map((waitlist) => waitlist.id));
+  const notificationIds = new Set((publicSnapshot.notifications || []).map((notification) => notification.id));
   batch.set(
     doc(db, 'clubs', accountKey),
     stripUndefinedForFirestore({
@@ -150,6 +152,12 @@ async function publishClubSnapshot(accountKey, publicSnapshot, savedAt) {
   }
   for (const waitlistDoc of existingWaitlists.docs) {
     if (!waitlistIds.has(waitlistDoc.id)) batch.delete(waitlistDoc.ref);
+  }
+  for (const notification of publicSnapshot.notifications || []) {
+    batch.set(doc(db, 'clubs', accountKey, 'notifications', notification.id), stripUndefinedForFirestore({ ...notification, updatedAt: serverTimestamp() }), { merge: true });
+  }
+  for (const notificationDoc of existingNotifications.docs) {
+    if (!notificationIds.has(notificationDoc.id)) batch.delete(notificationDoc.ref);
   }
   await batch.commit();
 }

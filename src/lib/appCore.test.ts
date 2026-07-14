@@ -3,6 +3,8 @@ import {
   canonicalPayload,
   countActivePlayersForTable,
   createBackupEnvelope,
+  getGameFrequencyRank,
+  getProfilesWithGameInTopTwoByFrequency,
   getTimerStatusFromMinutes,
   getTimerStatusFromSeconds,
   readBackupEnvelope,
@@ -90,5 +92,22 @@ describe('game id lookup', () => {
 
   it('falls back when the saved value cannot be matched', () => {
     expect(resolveGameId(games, 'mystery game', '1-2-nlh')).toBe('1-2-nlh');
+  });
+});
+
+describe('game frequency outreach targeting', () => {
+  it('selects only players whose target game is ranked first or second by frequency and have a phone', () => {
+    const profiles = [
+      { id: 'top', phone: '555-0100', gamePlayCounts: { nlh: 12, plo: 3 } },
+      { id: 'second', phone: '555-0101', gamePlayCounts: { plo: 12, nlh: 8, lhe: 2 } },
+      { id: 'third', phone: '555-0102', gamePlayCounts: { plo: 12, lhe: 8, nlh: 2 } },
+      { id: 'no-phone', phone: '', gamePlayCounts: { nlh: 9 } }
+    ];
+
+    expect(getProfilesWithGameInTopTwoByFrequency(profiles, 'nlh').map((profile) => profile.id)).toEqual(['top', 'second']);
+  });
+
+  it('returns null when a player has no positive frequency for the game', () => {
+    expect(getGameFrequencyRank({ nlh: 0, plo: 3 }, 'nlh')).toBeNull();
   });
 });

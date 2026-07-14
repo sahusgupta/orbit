@@ -2,7 +2,7 @@
   "expo": {
     "name": "Orbit Player",
     "owner": "saussy",
-    "slug": "orbit-player",
+    "slug": "tabletalk-player",
     "version": "0.1.13",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

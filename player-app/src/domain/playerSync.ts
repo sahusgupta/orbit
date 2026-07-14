@@ -121,11 +121,25 @@ export type PlayerWaitlistEntry = {
   tableId?: string;
 };
 
+export type PlayerInAppNotification = {
+  id: string;
+  clubId: string;
+  gameId: string;
+  title: string;
+  body: string;
+  reason: 'game-forming' | 'seat-opened';
+  createdAt: string;
+  expiresAt?: string;
+  targetPlayerIds?: string[];
+  targetPlayerNames?: string[];
+};
+
 export type PlayerClubSnapshot = {
   club: PlayerSyncClub;
   games: PlayerSyncGame[];
   memberships: PlayerMembership[];
   waitlists: PlayerWaitlistEntry[];
+  notifications: PlayerInAppNotification[];
   social: PlayerSocialSummary;
   generatedAt: string;
 };

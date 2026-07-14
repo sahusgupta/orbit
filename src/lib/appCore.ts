@@ -119,3 +119,36 @@ export function countActivePlayersForTable<TPlayer extends { tableId: string; le
 ) {
   return players.filter((player) => player.tableId === tableId && !player.leftAt).length;
 }
+
+type GameFrequencyProfile = {
+  id: string;
+  gamePlayCounts?: Record<string, number>;
+  phone?: string;
+};
+
+export function getGameFrequencyRank(gamePlayCounts: Record<string, number> | undefined, gameId: string) {
+  const targetCount = Number(gamePlayCounts?.[gameId] ?? 0);
+  if (!Number.isFinite(targetCount) || targetCount <= 0) return null;
+
+  const sortedCounts = Array.from(
+    new Set(
+      Object.values(gamePlayCounts ?? {})
+        .map((count) => Number(count))
+        .filter((count) => Number.isFinite(count) && count > 0)
+    )
+  ).sort((left, right) => right - left);
+
+  const rankIndex = sortedCounts.findIndex((count) => count === targetCount);
+  return rankIndex === -1 ? null : rankIndex + 1;
+}
+
+export function getProfilesWithGameInTopTwoByFrequency<TProfile extends GameFrequencyProfile>(
+  profiles: TProfile[],
+  gameId: string
+) {
+  return profiles.filter((profile) => {
+    if (!profile.phone?.trim()) return false;
+    const rank = getGameFrequencyRank(profile.gamePlayCounts, gameId);
+    return rank === 1 || rank === 2;
+  });
+}

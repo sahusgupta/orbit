@@ -7,7 +7,7 @@ import MapView, { Marker, PROVIDER_GOOGLE, Circle } from './components/MapView';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { PlayerAccount, PlayerClubMembershipRecord, PlayerClubSnapshot, PlayerPrivateGameListing, PlayerSyncGame, PlayerWaitlistEntry } from './domain/playerSync';
+import type { PlayerAccount, PlayerClubMembershipRecord, PlayerClubSnapshot, PlayerInAppNotification, PlayerPrivateGameListing, PlayerSyncGame, PlayerWaitlistEntry } from './domain/playerSync';
 import {
   applyMembershipRequest,
   applyWaitlistRequest,
@@ -159,6 +159,7 @@ export default function PlayerApp() {
   const [accountLoaded, setAccountLoaded] = useState(false);
   const [clubs, setClubs] = useState<PlayerClubSnapshot[]>(initialClubSnapshots);
   const [selectedClubId, setSelectedClubId] = useState(initialClubSnapshots[0].club.id);
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const [firebaseIdentity, setFirebaseIdentity] = useState<FirebasePlayerIdentity | null>(() => getCurrentFirebasePlayer());
   const [authStatus] = useState(googleSignInDisabledStatus);
   const [, setSyncStatus] = useState(
@@ -167,6 +168,10 @@ export default function PlayerApp() {
   const hasRoutedFromMembershipSync = useRef(false);
 
   const selectedClub = clubs.find((club) => club.club.id === selectedClubId) ?? clubs[0];
+  const activeInAppNotification = useMemo(
+    () => getLatestInAppNotification(clubs, dismissedNotificationIds),
+    [clubs, dismissedNotificationIds]
+  );
   const memberships = clubs.flatMap((club) => club.memberships.filter((membership) => isPlayerMembership(membership, player)));
   const selectedMembership = selectedClub.memberships.find((membership) => isPlayerMembership(membership, player));
   const playerWaitlists = selectedClub.waitlists.filter((entry) => isPlayerWaitlistEntry(entry, player));
@@ -220,6 +225,7 @@ export default function PlayerApp() {
           id: profile.uid,
           name: profile.name || player.name,
           email: profile.email || player.email,
+          phone: profile.phone || player.phone,
           homeLocation: profile.homeLocation ?? player.homeLocation,
           searchRadiusMiles: profile.searchRadiusMiles ?? player.searchRadiusMiles,
           preferredGameIds: profile.preferredGameIds?.length ? profile.preferredGameIds : player.preferredGameIds,
@@ -562,6 +568,12 @@ export default function PlayerApp() {
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+            {activeInAppNotification ? (
+              <InAppNotificationBanner
+                notification={activeInAppNotification}
+                onDismiss={() => setDismissedNotificationIds((ids) => [...ids, activeInAppNotification.id])}
+              />
+            ) : null}
             {screen === 'findGames' && !showHostScreen ? (
               <>
                 <View style={styles.searchPanel}>
@@ -884,6 +896,29 @@ export default function PlayerApp() {
 
 function StripeGate({ children }: { children: React.ReactElement }) {
   return <>{children}</>;
+}
+
+function InAppNotificationBanner({
+  notification,
+  onDismiss
+}: {
+  notification: PlayerInAppNotification;
+  onDismiss: () => void;
+}) {
+  return (
+    <View style={styles.inAppBanner}>
+      <View style={styles.inAppBannerIcon}>
+        <Ionicons name="notifications-outline" size={18} color={colors.primary} />
+      </View>
+      <View style={styles.inAppBannerCopy}>
+        <Text style={styles.inAppBannerTitle}>{notification.title}</Text>
+        <Text style={styles.inAppBannerBody}>{notification.body}</Text>
+      </View>
+      <Pressable style={styles.inAppBannerDismiss} onPress={onDismiss}>
+        <Ionicons name="close-outline" size={18} color={colors.muted} />
+      </Pressable>
+    </View>
+  );
 }
 
 function OnboardingFlow({
@@ -2308,6 +2343,16 @@ function buildFindGameClubs(clubs: PlayerClubSnapshot[]) {
   return findGamesClubOrder.map((clubId) => existing.get(clubId) ?? createFindGameClubFixture(clubId));
 }
 
+function getLatestInAppNotification(clubs: PlayerClubSnapshot[], dismissedIds: string[]) {
+  const dismissed = new Set(dismissedIds);
+  const now = Date.now();
+  return clubs
+    .flatMap((club) => club.notifications ?? [])
+    .filter((notification) => !dismissed.has(notification.id))
+    .filter((notification) => !notification.expiresAt || Date.parse(notification.expiresAt) > now)
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
+}
+
 function createFindGameClubFixture(clubId: string): PlayerClubSnapshot {
   const names: Record<string, string> = {
     'test-club': 'Test Club',
@@ -2363,6 +2408,7 @@ function createFindGameClubFixture(clubId: string): PlayerClubSnapshot {
     games,
     memberships: [],
     waitlists: [],
+    notifications: [],
     social: {
       activePlayerCount: 8 + games.length,
       adminCount: 1,
@@ -2778,6 +2824,45 @@ const styles = StyleSheet.create({
   content: {
     gap: 10,
     paddingBottom: 104
+  },
+  inAppBanner: {
+    alignItems: 'flex-start',
+    backgroundColor: '#fff7ed',
+    borderColor: '#fed7aa',
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    padding: 14
+  },
+  inAppBannerIcon: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 999,
+    height: 34,
+    justifyContent: 'center',
+    width: 34
+  },
+  inAppBannerCopy: {
+    flex: 1,
+    gap: 3
+  },
+  inAppBannerTitle: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '900'
+  },
+  inAppBannerBody: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18
+  },
+  inAppBannerDismiss: {
+    alignItems: 'center',
+    height: 30,
+    justifyContent: 'center',
+    width: 30
   },
   heroPanel: {
     borderRadius: 28,

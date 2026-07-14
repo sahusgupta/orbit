@@ -215,7 +215,7 @@ export function subscribeToAllClubSnapshots(
         if (clubIds.has(clubDoc.id)) {
           const current = latestClubs.get(clubDoc.id);
           if (current) {
-            latestClubs.set(clubDoc.id, buildPublishedClubSnapshot(clubDoc, current.games, current.memberships, current.waitlists, player));
+            latestClubs.set(clubDoc.id, buildPublishedClubSnapshot(clubDoc, current.games, current.memberships, current.waitlists, current.notifications ?? [], player));
             emit();
           }
           return;
@@ -225,10 +225,11 @@ export function subscribeToAllClubSnapshots(
         const childState = {
           games: [] as PlayerClubSnapshot['games'],
           memberships: [] as PlayerClubSnapshot['memberships'],
-          waitlists: [] as PlayerClubSnapshot['waitlists']
+          waitlists: [] as PlayerClubSnapshot['waitlists'],
+          notifications: [] as PlayerClubSnapshot['notifications']
         };
         const updateClub = () => {
-          latestClubs.set(clubDoc.id, buildPublishedClubSnapshot(clubDoc, childState.games, childState.memberships, childState.waitlists, player));
+          latestClubs.set(clubDoc.id, buildPublishedClubSnapshot(clubDoc, childState.games, childState.memberships, childState.waitlists, childState.notifications, player));
           emit();
         };
         const handlePrivateCollectionError = () => {
@@ -255,6 +256,14 @@ export function subscribeToAllClubSnapshots(
             playerScopedCollection(clubDoc.id, 'waitlists', player.id),
             (snapshot) => {
               childState.waitlists = snapshot.docs.map((waitlistDoc) => waitlistDoc.data() as PlayerClubSnapshot['waitlists'][number]);
+              updateClub();
+            },
+            handlePrivateCollectionError
+          ),
+          onSnapshot(
+            collection(db, 'clubs', clubDoc.id, 'notifications'),
+            (snapshot) => {
+              childState.notifications = snapshot.docs.map((notificationDoc) => notificationDoc.data() as PlayerClubSnapshot['notifications'][number]);
               updateClub();
             },
             handlePrivateCollectionError
@@ -434,10 +443,11 @@ async function readAnyClubSnapshot(clubId: string, player: Pick<PlayerAccount, '
 
 async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: Pick<PlayerAccount, 'id' | 'name'>) {
   const club = clubDoc.data() as PublishedClubRecord;
-  const [games, memberships, waitlists] = await Promise.all([
+  const [games, memberships, waitlists, notifications] = await Promise.all([
     getDocs(collection(db, 'clubs', clubDoc.id, 'games')),
     getDocs(playerScopedCollection(clubDoc.id, 'memberships', player.id)),
-    getDocs(playerScopedCollection(clubDoc.id, 'waitlists', player.id))
+    getDocs(playerScopedCollection(clubDoc.id, 'waitlists', player.id)),
+    getDocs(collection(db, 'clubs', clubDoc.id, 'notifications'))
   ]);
   const snapshot: PlayerClubSnapshot = {
     club: {
@@ -449,6 +459,7 @@ async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: 
     games: games.docs.map((gameDoc) => gameDoc.data() as PlayerClubSnapshot['games'][number]),
     memberships: memberships.docs.map((membershipDoc) => membershipDoc.data() as PlayerClubSnapshot['memberships'][number]),
     waitlists: waitlists.docs.map((waitlistDoc) => waitlistDoc.data() as PlayerClubSnapshot['waitlists'][number]),
+    notifications: notifications.docs.map((notificationDoc) => notificationDoc.data() as PlayerClubSnapshot['notifications'][number]),
     social: club.social ?? { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: 0 },
     generatedAt: club.generatedAt ?? club.savedAt ?? new Date().toISOString()
   };
@@ -460,6 +471,7 @@ function buildPublishedClubSnapshot(
   games: PlayerClubSnapshot['games'],
   memberships: PlayerClubSnapshot['memberships'],
   waitlists: PlayerClubSnapshot['waitlists'],
+  notifications: PlayerClubSnapshot['notifications'],
   player: Pick<PlayerAccount, 'id' | 'name'>
 ) {
   const club = clubDoc.data() as PublishedClubRecord;
@@ -474,6 +486,7 @@ function buildPublishedClubSnapshot(
       games,
       memberships,
       waitlists,
+      notifications,
       social: club.social ?? { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: 0 },
       generatedAt: club.generatedAt ?? club.savedAt ?? new Date().toISOString()
     },
@@ -515,6 +528,7 @@ function mergeClubSnapshots(clubs: PlayerClubSnapshot[]): PlayerClubSnapshot {
     games: clubs.flatMap((club) => club.games),
     memberships: clubs.flatMap((club) => club.memberships),
     waitlists: clubs.flatMap((club) => club.waitlists),
+    notifications: clubs.flatMap((club) => club.notifications ?? []),
     social: clubs.reduce(
       (summary, club) => ({
         activePlayerCount: summary.activePlayerCount + (club.social?.activePlayerCount ?? 0),
@@ -542,7 +556,12 @@ function filterSnapshotForPlayer(snapshot: PlayerClubSnapshot, player: Pick<Play
     waitlists: snapshot.waitlists.filter((entry) =>
       Boolean(id && normalizeIdentity(entry.playerId) === id) ||
       Boolean(name && normalizeIdentity(entry.playerName) === name)
-    )
+    ),
+    notifications: (snapshot.notifications ?? []).filter((notification) => {
+      const targetIds = (notification.targetPlayerIds ?? []).map(normalizeIdentity);
+      const targetNames = (notification.targetPlayerNames ?? []).map(normalizeIdentity);
+      return Boolean(id && targetIds.includes(id)) || Boolean(name && targetNames.includes(name));
+    })
   };
 }
 

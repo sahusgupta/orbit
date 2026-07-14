@@ -173,16 +173,18 @@ export function subscribeToPlayerRequestUpdates(accountKey: string, callback: ()
 }
 
 async function publishClubSnapshot(accountKey: string, snapshot: PlayerClubSnapshot, savedAt: string) {
-  const [existingGames, existingMemberships, existingWaitlists] = await Promise.all([
+  const [existingGames, existingMemberships, existingWaitlists, existingNotifications] = await Promise.all([
     getDocs(collection(db, 'clubs', accountKey, 'games')),
     getDocs(collection(db, 'clubs', accountKey, 'memberships')),
-    getDocs(collection(db, 'clubs', accountKey, 'waitlists'))
+    getDocs(collection(db, 'clubs', accountKey, 'waitlists')),
+    getDocs(collection(db, 'clubs', accountKey, 'notifications'))
   ]);
   const batch = writeBatch(db);
   const clubRef = doc(db, 'clubs', accountKey);
   const gameIds = new Set(snapshot.games.map((game) => game.id));
   const membershipIds = new Set(snapshot.memberships.map((membership) => membership.playerId));
   const waitlistIds = new Set(snapshot.waitlists.map((entry) => entry.id));
+  const notificationIds = new Set((snapshot.notifications ?? []).map((notification) => notification.id));
   batch.set(
     clubRef,
     stripUndefinedForFirestore({
@@ -215,6 +217,12 @@ async function publishClubSnapshot(accountKey: string, snapshot: PlayerClubSnaps
   });
   existingWaitlists.docs.forEach((waitlistDoc) => {
     if (!waitlistIds.has(waitlistDoc.id)) batch.delete(waitlistDoc.ref);
+  });
+  (snapshot.notifications ?? []).forEach((notification) => {
+    batch.set(doc(db, 'clubs', accountKey, 'notifications', notification.id), stripUndefinedForFirestore({ ...notification, updatedAt: serverTimestamp() }), { merge: true });
+  });
+  existingNotifications.docs.forEach((notificationDoc) => {
+    if (!notificationIds.has(notificationDoc.id)) batch.delete(notificationDoc.ref);
   });
   await batch.commit();
 }

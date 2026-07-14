@@ -112,6 +112,7 @@ export const initialClubSnapshots: PlayerClubSnapshot[] = [
         requestedAt: new Date(Date.now() - 1000 * 60 * 14).toISOString()
       }
     ],
+    notifications: [],
     generatedAt: new Date().toISOString()
   },
   {
@@ -153,6 +154,7 @@ export const initialClubSnapshots: PlayerClubSnapshot[] = [
     ],
     memberships: [],
     waitlists: [],
+    notifications: [],
     social: {
       activePlayerCount: 10,
       adminCount: 2,
@@ -184,6 +186,7 @@ export function applyMembershipRequest(snapshot: PlayerClubSnapshot, request: Pl
         clubNote: request.player.typicalAvailability
       }
     ],
+    notifications: snapshot.notifications ?? [],
     generatedAt: request.requestedAt
   };
 }
@@ -216,6 +219,7 @@ export function applyWaitlistRequest(snapshot: PlayerClubSnapshot, request: Play
         requestedAt: request.requestedAt
       }
     ],
+    notifications: snapshot.notifications ?? [],
     generatedAt: request.requestedAt
   };
 }

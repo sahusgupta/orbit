@@ -136,6 +136,15 @@ service cloud.firestore {
         allow create, update, delete: if isClubAdmin(clubId);
       }
 
+      match /notifications/{notificationId} {
+        allow read: if true;
+        allow create, update, delete: if isClubAdmin(clubId);
+      }
+
+      match /pushTokens/{playerId} {
+        allow read, create, update, delete: if false;
+      }
+
       match /membershipRequests/{requestId} {
         allow create: if isPendingPlayerRequest(clubId, 'membership-request')
           && isSelf(request.resource.data.player.id);
