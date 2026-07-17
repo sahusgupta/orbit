@@ -5560,3 +5560,222 @@ textarea:focus {
   outline: 1px solid rgba(255, 255, 255, 0.025);
   outline-offset: -4px;
 }
+
+.tournament-manager-shell {
+  max-width: 1180px;
+}
+
+.tournament-manager-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tournament-form,
+.tournament-list,
+.tournament-player-list,
+.tournament-payout-list {
+  display: grid;
+  gap: 10px;
+}
+
+.tournament-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tournament-form button,
+.tournament-form select:first-child {
+  grid-column: 1 / -1;
+}
+
+.tournament-list-item,
+.tournament-player-list article,
+.tournament-payout-list label,
+.tournament-level-strip article {
+  align-items: center;
+  background: rgba(248, 250, 252, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+body.low-light .tournament-list-item,
+body.low-light .tournament-player-list article,
+body.low-light .tournament-payout-list label,
+body.low-light .tournament-level-strip article {
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.tournament-list-item.active {
+  border-color: var(--primary);
+}
+
+.tournament-list-item span,
+.tournament-player-list span,
+.tournament-level-strip span,
+.tournament-prize-total span {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.tournament-control-panel {
+  align-content: start;
+}
+
+.tournament-clock-card {
+  background: #0b1020;
+  border-radius: 10px;
+  color: #f8fafc;
+  display: grid;
+  gap: 4px;
+  padding: 18px;
+}
+
+.tournament-clock-card strong {
+  font-size: clamp(2.4rem, 7vw, 4.5rem);
+  line-height: 0.95;
+}
+
+.tournament-actions,
+.tournament-player-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tournament-level-strip {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tournament-prize-total {
+  background: var(--primary-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 12px;
+}
+
+.tournament-prize-total strong {
+  font-size: 1.7rem;
+}
+
+.tournament-payout-list input {
+  max-width: 90px;
+}
+
+.tournament-tv-shell {
+  background: #070b12;
+  color: #f8fafc;
+  min-height: 100vh;
+  padding: clamp(20px, 4vw, 54px);
+}
+
+.tournament-tv-header {
+  align-items: end;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-bottom: clamp(20px, 4vw, 42px);
+}
+
+.tournament-tv-header span,
+.tournament-tv-grid span {
+  color: #93a4bd;
+  font-size: clamp(0.9rem, 1.8vw, 1.3rem);
+  text-transform: uppercase;
+}
+
+.tournament-tv-header h1 {
+  font-size: clamp(2rem, 5vw, 5rem);
+  line-height: 1;
+  margin: 8px 0 0;
+}
+
+.tournament-tv-header > strong {
+  color: #7da0ff;
+  font-size: clamp(4rem, 15vw, 12rem);
+  line-height: 0.85;
+}
+
+.tournament-tv-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tournament-tv-grid article,
+.tournament-tv-payouts {
+  background: #111827;
+  border: 1px solid #263449;
+  border-radius: 8px;
+  padding: clamp(14px, 2vw, 24px);
+}
+
+.tournament-tv-grid strong {
+  display: block;
+  font-size: clamp(2rem, 5vw, 4.5rem);
+  line-height: 1;
+  margin: 8px 0;
+}
+
+.tournament-tv-grid small {
+  color: #aab4ca;
+  font-size: clamp(0.95rem, 1.8vw, 1.35rem);
+}
+
+.tournament-tv-payouts {
+  margin-top: 14px;
+}
+
+.tournament-tv-payouts h2 {
+  margin-bottom: 12px;
+}
+
+.tournament-tv-payouts > div {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tournament-tv-payouts article {
+  background: #0b1020;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.tournament-tv-payouts article span {
+  color: #7da0ff;
+  font-weight: 800;
+}
+
+.tournament-tv-payouts article strong {
+  display: block;
+  font-size: clamp(1.5rem, 3vw, 2.8rem);
+}
+
+.tournament-tv-empty {
+  display: grid;
+  min-height: 80vh;
+  place-items: center;
+}
+
+@media (max-width: 860px) {
+  .tournament-manager-grid,
+  .tournament-tv-grid,
+  .tournament-tv-payouts > div {
+    grid-template-columns: 1fr;
+  }
+
+  .tournament-tv-header {
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+}

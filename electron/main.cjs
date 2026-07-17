@@ -27,7 +27,7 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 app.commandLine.appendSwitch('disk-cache-size', '0');
 
 const windows = new Map();
-const validRoutes = new Set(['floor', 'table', 'builder', 'profiles', 'signals', 'summary', 'customization', 'kpis', 'pilot', 'outreach']);
+const validRoutes = new Set(['floor', 'table', 'builder', 'profiles', 'signals', 'summary', 'customization', 'kpis', 'tournaments', 'tournament-tv', 'pilot', 'outreach']);
 let database;
 let embeddedBackend;
 let embeddedBackendStatus = { running: false, host: '127.0.0.1', port: 0, reportCount: 0 };
@@ -1409,6 +1409,8 @@ function createWindow(route = 'floor') {
     summary: { width: 1040, height: 820, minWidth: 820, minHeight: 640, title: branding.desktop.windowTitles.summary },
     customization: { width: 920, height: 700, minWidth: 760, minHeight: 600, title: branding.desktop.windowTitles.customization ?? 'Customization' },
     kpis: { width: 860, height: 620, minWidth: 720, minHeight: 520, title: branding.desktop.windowTitles.kpis ?? 'KPIs' },
+    tournaments: { width: 1180, height: 820, minWidth: 940, minHeight: 680, title: 'Tournament Manager' },
+    'tournament-tv': { width: 1280, height: 720, minWidth: 960, minHeight: 540, title: 'Tournament TV' },
     pilot: { width: 980, height: 760, minWidth: 780, minHeight: 620, title: branding.desktop.windowTitles.pilot }
   }[route] ?? { width: 900, height: 700, minWidth: 700, minHeight: 560, title: branding.product.name };
 

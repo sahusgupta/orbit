@@ -67,7 +67,7 @@ declare global {
   }
 }
 
-type AppRoute = 'floor' | 'table' | 'builder' | 'profiles' | 'signals' | 'summary' | 'customization' | 'kpis';
+type AppRoute = 'floor' | 'table' | 'builder' | 'profiles' | 'signals' | 'summary' | 'customization' | 'kpis' | 'tournaments' | 'tournament-tv';
 type InterestStatus =
   | 'Interested'
   | 'Confirmed Coming'
@@ -235,6 +235,61 @@ type NightRecord = {
   notes?: string;
 };
 
+type TournamentLevel = {
+  id: string;
+  level: number;
+  smallBlind: number;
+  bigBlind: number;
+  ante: number;
+  durationMinutes: number;
+  breakAfter: boolean;
+  breakMinutes: number;
+};
+
+type TournamentPlayerStatus = 'Registered' | 'Active' | 'Eliminated';
+
+type TournamentPlayer = {
+  id: string;
+  profileId?: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  buyIn: number;
+  rebuys: number;
+  addOns: number;
+  startingStack: number;
+  currentStack?: number;
+  status: TournamentPlayerStatus;
+  registeredAt: string;
+  eliminatedAt?: string;
+  finishPlace?: number;
+};
+
+type TournamentPayout = {
+  place: number;
+  percent: number;
+};
+
+type TournamentStatus = 'Draft' | 'Running' | 'Paused' | 'Finished';
+
+type Tournament = {
+  id: string;
+  name: string;
+  status: TournamentStatus;
+  createdAt: string;
+  startedAt?: string;
+  pausedAt?: string;
+  completedAt?: string;
+  currentLevelIndex: number;
+  levelStartedAt?: string;
+  pausedRemainingSeconds?: number;
+  buyIn: number;
+  startingStack: number;
+  levels: TournamentLevel[];
+  players: TournamentPlayer[];
+  payouts: TournamentPayout[];
+};
+
 type FeedbackEntry = {
   id: string;
   role: 'Staff' | 'Owner';
@@ -398,6 +453,7 @@ type AnalyticalReportPayload = {
 type AppState = {
   games: GameConfig[];
   profiles: PlayerProfile[];
+  tournaments: Tournament[];
   interests: Interest[];
   sessions: GameSession[];
   playerSessions: PlayerSession[];
@@ -518,6 +574,21 @@ const defaultScriptTemplates = [
   '{game} is close to forming if arrivals hold. We can add you to the interest list.'
 ];
 const storageKey = 'table-manager-state-v1';
+const defaultTournamentLevels = (): TournamentLevel[] => [
+  { id: uid(), level: 1, smallBlind: 100, bigBlind: 200, ante: 0, durationMinutes: 20, breakAfter: false, breakMinutes: 0 },
+  { id: uid(), level: 2, smallBlind: 200, bigBlind: 400, ante: 400, durationMinutes: 20, breakAfter: false, breakMinutes: 0 },
+  { id: uid(), level: 3, smallBlind: 300, bigBlind: 600, ante: 600, durationMinutes: 20, breakAfter: true, breakMinutes: 10 },
+  { id: uid(), level: 4, smallBlind: 500, bigBlind: 1000, ante: 1000, durationMinutes: 20, breakAfter: false, breakMinutes: 0 },
+  { id: uid(), level: 5, smallBlind: 1000, bigBlind: 2000, ante: 2000, durationMinutes: 20, breakAfter: false, breakMinutes: 0 },
+  { id: uid(), level: 6, smallBlind: 1500, bigBlind: 3000, ante: 3000, durationMinutes: 20, breakAfter: true, breakMinutes: 10 },
+  { id: uid(), level: 7, smallBlind: 2000, bigBlind: 4000, ante: 4000, durationMinutes: 20, breakAfter: false, breakMinutes: 0 },
+  { id: uid(), level: 8, smallBlind: 3000, bigBlind: 6000, ante: 6000, durationMinutes: 20, breakAfter: false, breakMinutes: 0 }
+];
+const defaultTournamentPayouts = (): TournamentPayout[] => [
+  { place: 1, percent: 50 },
+  { place: 2, percent: 30 },
+  { place: 3, percent: 20 }
+];
 
 const nowIso = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
@@ -534,6 +605,40 @@ const hoursBetween = (start: string, end = nowIso()) =>
 const formatClock = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '-');
 const minutesSince = (iso?: string) => (iso ? Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000)) : 0);
 const formatHours = (hours: number) => `${hours.toFixed(1)}h`;
+const formatTournamentTime = (seconds: number) => {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+};
+const getTournamentLevel = (tournament?: Tournament | null) => tournament?.levels[tournament.currentLevelIndex] ?? null;
+const getNextTournamentLevel = (tournament?: Tournament | null) => tournament?.levels[(tournament.currentLevelIndex ?? 0) + 1] ?? null;
+const getTournamentLevelRemainingSeconds = (tournament: Tournament | null | undefined, nowMs = Date.now()) => {
+  const level = getTournamentLevel(tournament);
+  if (!tournament || !level) return 0;
+  if (tournament.status === 'Paused') return tournament.pausedRemainingSeconds ?? level.durationMinutes * 60;
+  if (tournament.status !== 'Running' || !tournament.levelStartedAt) return level.durationMinutes * 60;
+  return Math.max(0, level.durationMinutes * 60 - Math.floor((nowMs - new Date(tournament.levelStartedAt).getTime()) / 1000));
+};
+const getTournamentEntries = (tournament?: Tournament | null) =>
+  (tournament?.players ?? []).reduce((sum, player) => sum + 1 + player.rebuys + player.addOns, 0);
+const getTournamentActivePlayers = (tournament?: Tournament | null) =>
+  (tournament?.players ?? []).filter((player) => player.status !== 'Eliminated').length;
+const getTournamentPrizePool = (tournament?: Tournament | null) =>
+  (tournament?.players ?? []).reduce((sum, player) => sum + (1 + player.rebuys + player.addOns) * player.buyIn, 0);
+const getTournamentAverageStack = (tournament?: Tournament | null) => {
+  const activePlayers = getTournamentActivePlayers(tournament);
+  if (!tournament || !activePlayers) return 0;
+  const totalChips = (tournament.players ?? []).reduce((sum, player) => sum + (1 + player.rebuys + player.addOns) * player.startingStack, 0);
+  return Math.round(totalChips / activePlayers);
+};
+const getLevelsUntilBreak = (tournament?: Tournament | null) => {
+  if (!tournament) return null;
+  for (let index = tournament.currentLevelIndex; index < tournament.levels.length; index += 1) {
+    if (tournament.levels[index]?.breakAfter) return index - tournament.currentLevelIndex + 1;
+  }
+  return null;
+};
 const arrayBufferToHex = (buffer: ArrayBuffer) =>
   Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, '0')).join('');
 const legacyHashStaffPin = async (pin: string, salt: string) =>
@@ -804,6 +909,7 @@ const normalizeTableCap = (value?: number): TableCap => {
 const seedState: AppState = {
   games: [],
   profiles: [],
+  tournaments: [],
   interests: [],
   sessions: [],
   playerSessions: [],
@@ -935,6 +1041,38 @@ function normalizeState(parsed: Partial<AppState>): AppState {
         preferredTags: profile.preferredTags ?? []
       };
     }),
+    tournaments: (parsed.tournaments ?? []).map((tournament) => ({
+      ...tournament,
+      status: tournament.status ?? 'Draft',
+      currentLevelIndex: tournament.currentLevelIndex ?? 0,
+      buyIn: tournament.buyIn ?? 0,
+      startingStack: tournament.startingStack ?? 10000,
+      levels: (tournament.levels ?? []).map((level, index) => ({
+        ...level,
+        id: level.id ?? uid(),
+        level: level.level ?? index + 1,
+        smallBlind: Number(level.smallBlind ?? 0),
+        bigBlind: Number(level.bigBlind ?? 0),
+        ante: Number(level.ante ?? 0),
+        durationMinutes: Number(level.durationMinutes ?? 20),
+        breakAfter: Boolean(level.breakAfter),
+        breakMinutes: Number(level.breakMinutes ?? 0)
+      })),
+      players: (tournament.players ?? []).map((player) => ({
+        ...player,
+        id: player.id ?? uid(),
+        buyIn: Number(player.buyIn ?? tournament.buyIn ?? 0),
+        rebuys: Number(player.rebuys ?? 0),
+        addOns: Number(player.addOns ?? 0),
+        startingStack: Number(player.startingStack ?? tournament.startingStack ?? 10000),
+        status: player.status ?? 'Registered',
+        registeredAt: player.registeredAt ?? nowIso()
+      })),
+      payouts: (tournament.payouts ?? []).map((payout, index) => ({
+        place: Number(payout.place ?? index + 1),
+        percent: Number(payout.percent ?? 0)
+      }))
+    })),
     interests: interests.map((interest) => ({
       ...interest,
       gameId: resolveGameId(games, interest.gameId, fallbackGameId)
@@ -1784,7 +1922,11 @@ function parseGroupMeMessages(text: string, games: GameConfig[]): GroupMeCandida
 function App() {
   const [state, setState] = useState<AppState>(() => loadState());
   const getRouteFromHash = (): AppRoute =>
-    window.location.hash.includes('table')
+    window.location.hash.includes('tournament-tv')
+      ? 'tournament-tv'
+      : window.location.hash.includes('tournaments')
+      ? 'tournaments'
+      : window.location.hash.includes('table')
       ? 'table'
       : window.location.hash.includes('profiles')
       ? 'profiles'
@@ -1866,6 +2008,15 @@ function App() {
   const [startPlayerDrafts, setStartPlayerDrafts] = useState<Record<string, string[]>>({});
   const [buyInDrafts, setBuyInDrafts] = useState<Record<string, { amount: string; note: string }>>({});
   const [dropDrafts, setDropDrafts] = useState<Record<string, { amount: string; note: string }>>({});
+  const [selectedTournamentId, setSelectedTournamentId] = useState('');
+  const [tournamentDraft, setTournamentDraft] = useState({
+    name: `Tournament ${todayDate()}`,
+    buyIn: '100',
+    startingStack: '20000',
+    levelMinutes: '20'
+  });
+  const [tournamentPlayerDraft, setTournamentPlayerDraft] = useState({ name: '', profileId: '', phone: '', email: '' });
+  const [tournamentPayoutDrafts, setTournamentPayoutDrafts] = useState<Record<number, string>>({});
   const [customTimeDrafts, setCustomTimeDrafts] = useState<Record<string, string>>({});
   const [collapsedTables, setCollapsedTables] = useState<Record<string, boolean>>({});
   const [openPanels, setOpenPanels] = useState<Record<string, boolean>>({
@@ -1893,10 +2044,23 @@ function App() {
   const overflowOpportunities = useMemo(() => getOverflowOpportunities(state), [state]);
   const balancePlans = useMemo(() => getBalancePlans(state), [state]);
   const activeAccountKey = getAccountKeyFromState(state);
+  const selectedTournament = useMemo(
+    () => state.tournaments.find((tournament) => tournament.id === selectedTournamentId) ?? state.tournaments[0] ?? null,
+    [selectedTournamentId, state.tournaments]
+  );
 
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    if (!selectedTournamentId && state.tournaments[0]) {
+      setSelectedTournamentId(state.tournaments[0].id);
+    }
+    if (selectedTournamentId && !state.tournaments.some((tournament) => tournament.id === selectedTournamentId)) {
+      setSelectedTournamentId(state.tournaments[0]?.id ?? '');
+    }
+  }, [selectedTournamentId, state.tournaments]);
 
   useEffect(() => {
     const firstGameId = state.games[0]?.id;
@@ -4445,6 +4609,127 @@ function App() {
     window.location.hash = '/floor';
   };
 
+  const updateTournament = (tournamentId: string, updater: (tournament: Tournament) => Tournament, usageAction: string) => {
+    persist({
+      ...state,
+      tournaments: state.tournaments.map((tournament) => (tournament.id === tournamentId ? updater(tournament) : tournament))
+    }, true, { feature: 'Tournament manager', action: usageAction, route: 'tournaments' });
+  };
+
+  const createTournament = (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = tournamentDraft.name.trim();
+    if (!name) return;
+    const levelMinutes = Math.max(5, Number(tournamentDraft.levelMinutes) || 20);
+    const tournament: Tournament = {
+      id: uid(),
+      name,
+      status: 'Draft',
+      createdAt: nowIso(),
+      currentLevelIndex: 0,
+      buyIn: Math.max(0, Number(tournamentDraft.buyIn) || 0),
+      startingStack: Math.max(1000, Number(tournamentDraft.startingStack) || 20000),
+      levels: defaultTournamentLevels().map((level) => ({ ...level, durationMinutes: levelMinutes })),
+      players: [],
+      payouts: defaultTournamentPayouts()
+    };
+    persist({ ...state, tournaments: [tournament, ...state.tournaments] }, true, { feature: 'Tournament manager', action: 'Created tournament', route: 'tournaments' });
+    setSelectedTournamentId(tournament.id);
+  };
+
+  const registerTournamentPlayer = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedTournament) return;
+    const profile = state.profiles.find((item) => item.id === tournamentPlayerDraft.profileId);
+    const name = (profile?.name || tournamentPlayerDraft.name).trim();
+    if (!name) return;
+    const player: TournamentPlayer = {
+      id: uid(),
+      profileId: profile?.id,
+      name,
+      phone: profile?.phone || tournamentPlayerDraft.phone.trim(),
+      email: tournamentPlayerDraft.email.trim(),
+      buyIn: selectedTournament.buyIn,
+      rebuys: 0,
+      addOns: 0,
+      startingStack: selectedTournament.startingStack,
+      status: selectedTournament.status === 'Draft' ? 'Registered' : 'Active',
+      registeredAt: nowIso()
+    };
+    updateTournament(selectedTournament.id, (tournament) => ({ ...tournament, players: [...tournament.players, player] }), 'Registered player');
+    setTournamentPlayerDraft({ name: '', profileId: '', phone: '', email: '' });
+  };
+
+  const startTournament = (tournament: Tournament) => {
+    updateTournament(tournament.id, (current) => ({
+      ...current,
+      status: 'Running',
+      startedAt: current.startedAt ?? nowIso(),
+      levelStartedAt: nowIso(),
+      pausedRemainingSeconds: undefined,
+      players: current.players.map((player) => ({ ...player, status: player.status === 'Registered' ? 'Active' : player.status }))
+    }), 'Started tournament');
+  };
+
+  const pauseTournament = (tournament: Tournament) => {
+    updateTournament(tournament.id, (current) => ({
+      ...current,
+      status: 'Paused',
+      pausedAt: nowIso(),
+      pausedRemainingSeconds: getTournamentLevelRemainingSeconds(current, clockNow)
+    }), 'Paused tournament');
+  };
+
+  const resumeTournament = (tournament: Tournament) => {
+    const level = getTournamentLevel(tournament);
+    const remaining = tournament.pausedRemainingSeconds ?? (level?.durationMinutes ?? 20) * 60;
+    updateTournament(tournament.id, (current) => ({
+      ...current,
+      status: 'Running',
+      levelStartedAt: new Date(Date.now() - (((level?.durationMinutes ?? 20) * 60 - remaining) * 1000)).toISOString()
+    }), 'Resumed tournament');
+  };
+
+  const advanceTournamentLevel = (tournament: Tournament, direction: 1 | -1) => {
+    updateTournament(tournament.id, (current) => ({
+      ...current,
+      currentLevelIndex: Math.min(Math.max(current.currentLevelIndex + direction, 0), Math.max(current.levels.length - 1, 0)),
+      levelStartedAt: current.status === 'Running' ? nowIso() : current.levelStartedAt,
+      pausedRemainingSeconds: undefined
+    }), direction > 0 ? 'Advanced level' : 'Rewound level');
+  };
+
+  const eliminateTournamentPlayer = (tournament: Tournament, playerId: string) => {
+    const remainingAfter = getTournamentActivePlayers(tournament) - 1;
+    updateTournament(tournament.id, (current) => ({
+      ...current,
+      players: current.players.map((player) =>
+        player.id === playerId
+          ? { ...player, status: 'Eliminated', eliminatedAt: nowIso(), finishPlace: Math.max(1, remainingAfter + 1) }
+          : player
+      ),
+      status: remainingAfter <= 1 && current.status !== 'Draft' ? 'Finished' : current.status,
+      completedAt: remainingAfter <= 1 && current.status !== 'Draft' ? nowIso() : current.completedAt
+    }), 'Eliminated player');
+  };
+
+  const addTournamentEntry = (tournament: Tournament, playerId: string, field: 'rebuys' | 'addOns') => {
+    updateTournament(tournament.id, (current) => ({
+      ...current,
+      players: current.players.map((player) => (player.id === playerId ? { ...player, [field]: player[field] + 1 } : player))
+    }), field === 'rebuys' ? 'Added rebuy' : 'Added add-on');
+  };
+
+  const updateTournamentPayout = (tournament: Tournament, place: number, percent: number) => {
+    updateTournament(tournament.id, (current) => ({
+      ...current,
+      payouts: [
+        ...current.payouts.filter((payout) => payout.place !== place),
+        { place, percent: Math.max(0, percent) }
+      ].sort((left, right) => left.place - right.place)
+    }), 'Updated payout');
+  };
+
   const updateSettings = (patch: Partial<AppState['settings']>) => {
     persist({ ...state, settings: { ...state.settings, ...patch } }, true, {
       feature: 'Settings',
@@ -5011,6 +5296,221 @@ function App() {
               </button>
             </form>
           </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (route === 'tournament-tv') {
+    const tournament = selectedTournament;
+    const currentLevel = getTournamentLevel(tournament);
+    const nextLevel = getNextTournamentLevel(tournament);
+    const prizePool = getTournamentPrizePool(tournament);
+    const remaining = getTournamentLevelRemainingSeconds(tournament, clockNow);
+    const levelsUntilBreak = getLevelsUntilBreak(tournament);
+    return (
+      <main className="tournament-tv-shell">
+        {tournament ? (
+          <>
+            <section className="tournament-tv-header">
+              <div>
+                <span>{tournament.status}</span>
+                <h1>{tournament.name}</h1>
+              </div>
+              <strong>{formatTournamentTime(remaining)}</strong>
+            </section>
+            <section className="tournament-tv-grid">
+              <article>
+                <span>Current blinds</span>
+                <strong>{currentLevel ? `${currentLevel.smallBlind}/${currentLevel.bigBlind}` : '-'}</strong>
+                <small>{currentLevel?.ante ? `BB ante ${currentLevel.ante}` : 'No ante'}</small>
+              </article>
+              <article>
+                <span>Next level</span>
+                <strong>{nextLevel ? `${nextLevel.smallBlind}/${nextLevel.bigBlind}` : 'Final level'}</strong>
+                <small>{nextLevel?.ante ? `BB ante ${nextLevel.ante}` : nextLevel ? 'No ante' : 'No next level'}</small>
+              </article>
+              <article>
+                <span>Entries</span>
+                <strong>{getTournamentEntries(tournament)}</strong>
+                <small>{getTournamentActivePlayers(tournament)} players remain</small>
+              </article>
+              <article>
+                <span>Average stack</span>
+                <strong>{getTournamentAverageStack(tournament).toLocaleString()}</strong>
+                <small>{tournament.startingStack.toLocaleString()} start</small>
+              </article>
+              <article>
+                <span>Total prize pool</span>
+                <strong>${prizePool.toLocaleString()}</strong>
+                <small>{tournament.buyIn ? `$${tournament.buyIn} buy-in` : 'No buy-in set'}</small>
+              </article>
+              <article>
+                <span>Break</span>
+                <strong>{levelsUntilBreak ? `${levelsUntilBreak} level${levelsUntilBreak === 1 ? '' : 's'}` : 'None'}</strong>
+                <small>{currentLevel?.breakAfter ? `${currentLevel.breakMinutes} min after this level` : 'Upcoming schedule'}</small>
+              </article>
+            </section>
+            <section className="tournament-tv-payouts">
+              <h2>Prize Pool Distribution</h2>
+              <div>
+                {tournament.payouts.map((payout) => (
+                  <article key={payout.place}>
+                    <span>{payout.place}</span>
+                    <strong>${Math.round(prizePool * (payout.percent / 100)).toLocaleString()}</strong>
+                    <small>{payout.percent}%</small>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </>
+        ) : (
+          <section className="tournament-tv-empty">
+            <h1>No tournament selected</h1>
+          </section>
+        )}
+      </main>
+    );
+  }
+
+  if (route === 'tournaments') {
+    const tournament = selectedTournament;
+    const currentLevel = getTournamentLevel(tournament);
+    const nextLevel = getNextTournamentLevel(tournament);
+    const prizePool = getTournamentPrizePool(tournament);
+    const remaining = getTournamentLevelRemainingSeconds(tournament, clockNow);
+    return (
+      <main className="app-shell compact-shell tournament-manager-shell">
+        <header className="page-header">
+          <div>
+            <div className="eyebrow">Tournament Manager</div>
+            <h1>Run Tournament</h1>
+            <p>Create, register, clock, and organize a tournament from this computer.</p>
+          </div>
+          <div className="header-actions">
+            <button className="ghost-button" onClick={closeRoute}>Back to floor</button>
+            <button className="secondary-button" onClick={() => window.tableManagerDesktop?.openWindow('tournament-tv').catch(() => { window.location.hash = '/tournament-tv'; }) || (window.location.hash = '/tournament-tv')}>
+              <Eye size={17} />
+              TV View
+            </button>
+          </div>
+        </header>
+
+        <section className="tournament-manager-grid">
+          <section className="panel">
+            <PanelTitle icon={<Plus />} title="Create Tournament" />
+            <form className="tournament-form" onSubmit={createTournament}>
+              <input value={tournamentDraft.name} onChange={(event) => setTournamentDraft({ ...tournamentDraft, name: event.target.value })} placeholder="Tournament name" />
+              <input value={tournamentDraft.buyIn} onChange={(event) => setTournamentDraft({ ...tournamentDraft, buyIn: event.target.value })} placeholder="Buy-in" type="number" min="0" />
+              <input value={tournamentDraft.startingStack} onChange={(event) => setTournamentDraft({ ...tournamentDraft, startingStack: event.target.value })} placeholder="Starting stack" type="number" min="1000" />
+              <input value={tournamentDraft.levelMinutes} onChange={(event) => setTournamentDraft({ ...tournamentDraft, levelMinutes: event.target.value })} placeholder="Level minutes" type="number" min="5" />
+              <button className="primary-button" type="submit">Create</button>
+            </form>
+            <div className="tournament-list">
+              {state.tournaments.map((item) => (
+                <button className={item.id === tournament?.id ? 'tournament-list-item active' : 'tournament-list-item'} key={item.id} onClick={() => setSelectedTournamentId(item.id)}>
+                  <strong>{item.name}</strong>
+                  <span>{item.status} - {getTournamentEntries(item)} entries</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel tournament-control-panel">
+            <PanelTitle icon={<Clock />} title="Clock & Levels" />
+            {tournament ? (
+              <>
+                <div className="tournament-clock-card">
+                  <span>{tournament.status}</span>
+                  <strong>{formatTournamentTime(remaining)}</strong>
+                  <small>Level {(tournament.currentLevelIndex + 1).toString()} - {currentLevel ? `${currentLevel.smallBlind}/${currentLevel.bigBlind}${currentLevel.ante ? `/${currentLevel.ante}` : ''}` : '-'}</small>
+                </div>
+                <div className="tournament-actions">
+                  {tournament.status === 'Running' ? (
+                    <button className="secondary-button" onClick={() => pauseTournament(tournament)}>Pause</button>
+                  ) : tournament.status === 'Paused' ? (
+                    <button className="primary-button" onClick={() => resumeTournament(tournament)}>Resume</button>
+                  ) : (
+                    <button className="primary-button" onClick={() => startTournament(tournament)}>Start</button>
+                  )}
+                  <button className="ghost-button" onClick={() => advanceTournamentLevel(tournament, -1)}>Prev Level</button>
+                  <button className="ghost-button" onClick={() => advanceTournamentLevel(tournament, 1)}>Next Level</button>
+                </div>
+                <div className="tournament-level-strip">
+                  <article><span>Next</span><strong>{nextLevel ? `${nextLevel.smallBlind}/${nextLevel.bigBlind}` : 'Final'}</strong></article>
+                  <article><span>Entries</span><strong>{getTournamentEntries(tournament)}</strong></article>
+                  <article><span>Remaining</span><strong>{getTournamentActivePlayers(tournament)}</strong></article>
+                  <article><span>Avg stack</span><strong>{getTournamentAverageStack(tournament).toLocaleString()}</strong></article>
+                </div>
+              </>
+            ) : (
+              <p className="muted-copy">Create a tournament to begin.</p>
+            )}
+          </section>
+
+          <section className="panel">
+            <PanelTitle icon={<Users />} title="Register Players" />
+            {tournament ? (
+              <>
+                <form className="tournament-form" onSubmit={registerTournamentPlayer}>
+                  <select value={tournamentPlayerDraft.profileId} onChange={(event) => {
+                    const profile = state.profiles.find((item) => item.id === event.target.value);
+                    setTournamentPlayerDraft({ ...tournamentPlayerDraft, profileId: event.target.value, name: profile?.name ?? tournamentPlayerDraft.name, phone: profile?.phone ?? tournamentPlayerDraft.phone });
+                  }}>
+                    <option value="">Manual player</option>
+                    {state.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+                  </select>
+                  <input value={tournamentPlayerDraft.name} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, name: event.target.value })} placeholder="Player name" />
+                  <input value={tournamentPlayerDraft.phone} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, phone: event.target.value })} placeholder="Phone" />
+                  <input value={tournamentPlayerDraft.email} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, email: event.target.value })} placeholder="Email" />
+                  <button className="primary-button" type="submit">Register</button>
+                </form>
+                <div className="tournament-player-list">
+                  {tournament.players.map((player) => (
+                    <article key={player.id}>
+                      <div>
+                        <strong>{player.name}</strong>
+                        <span>{player.status} - {1 + player.rebuys + player.addOns} entries</span>
+                      </div>
+                      <div className="tournament-player-actions">
+                        <button className="mini-button" onClick={() => addTournamentEntry(tournament, player.id, 'rebuys')}>Rebuy</button>
+                        <button className="mini-button" onClick={() => addTournamentEntry(tournament, player.id, 'addOns')}>Add-on</button>
+                        {player.status !== 'Eliminated' ? <button className="mini-button" onClick={() => eliminateTournamentPlayer(tournament, player.id)}>Out</button> : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </>
+            ) : <p className="muted-copy">Select a tournament first.</p>}
+          </section>
+
+          <section className="panel">
+            <PanelTitle icon={<Target />} title="Prize Pool" />
+            {tournament ? (
+              <>
+                <div className="tournament-prize-total">
+                  <span>Total prize pool</span>
+                  <strong>${prizePool.toLocaleString()}</strong>
+                </div>
+                <div className="tournament-payout-list">
+                  {tournament.payouts.map((payout) => (
+                    <label key={payout.place}>
+                      <span>{payout.place}{payout.place === 1 ? 'st' : payout.place === 2 ? 'nd' : payout.place === 3 ? 'rd' : 'th'}</span>
+                      <input
+                        value={tournamentPayoutDrafts[payout.place] ?? String(payout.percent)}
+                        onChange={(event) => setTournamentPayoutDrafts({ ...tournamentPayoutDrafts, [payout.place]: event.target.value })}
+                        onBlur={(event) => updateTournamentPayout(tournament, payout.place, Number(event.target.value) || 0)}
+                        type="number"
+                        min="0"
+                        max="100"
+                      />
+                      <strong>${Math.round(prizePool * (payout.percent / 100)).toLocaleString()}</strong>
+                    </label>
+                  ))}
+                </div>
+              </>
+            ) : <p className="muted-copy">Prize distribution appears after selecting a tournament.</p>}
+          </section>
         </section>
       </main>
     );
@@ -6629,6 +7129,10 @@ function App() {
           <button className="ghost-button" onClick={() => openRoute('kpis')} title="Open KPIs">
             <Target size={18} />
             KPIs
+          </button>
+          <button className="ghost-button" onClick={() => openRoute('tournaments')} title="Open tournament manager">
+            <Users size={18} />
+            Tournaments
           </button>
         </div>
       </header>
