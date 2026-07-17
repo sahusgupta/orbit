@@ -29,7 +29,7 @@ const {
   buildPlayerClubSnapshot,
   sanitizeAccountKey
 } = require('./orbitCore');
-const { publishStateToFirebase } = require('./firebasePublisher');
+const { getFirebasePublisherStatus, publishStateToFirebase } = require('./firebasePublisher');
 
 const app = express();
 const port = Number(process.env.API_PORT || 4629);
@@ -130,10 +130,14 @@ function asyncRoute(handler) {
   return (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next);
 }
 
-function publishStateBestEffort(state) {
-  publishStateToFirebase(state).catch((error) => {
-    console.warn('[firebase] publish failed:', error instanceof Error ? error.message : 'request failed');
-  });
+async function publishStateForResponse(state) {
+  try {
+    return await publishStateToFirebase(state);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Firebase publish failed.';
+    console.warn('[firebase] publish failed:', message);
+    return { ok: false, error: message };
+  }
 }
 
 app.get('/health', (_request, response) => {
@@ -142,6 +146,7 @@ app.get('/health', (_request, response) => {
     service: 'orbit-api',
     environment: process.env.NODE_ENV || 'development',
     database: getDatabasePath(),
+    firebase: getFirebasePublisherStatus(),
     startedAt
   });
 });
@@ -263,8 +268,8 @@ app.get('/venues/:venueId/clients', requireOwnerApiKey, (request, response) => {
 app.post('/state', asyncRoute(async (request, response) => {
   const state = request.body?.state || request.body;
   const result = saveState(state);
-  publishStateBestEffort(state);
-  response.status(201).json({ ok: true, ...result, firebase: { pending: true } });
+  const firebase = await publishStateForResponse(state);
+  response.status(201).json({ ok: true, ...result, firebase });
 }));
 
 app.get('/state/latest', blockLatestStateForPilotAuth, (request, response) => {
@@ -312,10 +317,11 @@ app.post('/player/membership-requests', asyncRoute(async (request, response) => 
   }
   const nextState = applyMembershipRequestToState(record.state, request.body);
   const result = saveState(nextState);
-  publishStateBestEffort(nextState);
+  const firebase = await publishStateForResponse(nextState);
   response.status(201).json({
     ok: true,
     ...result,
+    firebase,
     snapshot: buildPlayerClubSnapshot(nextState, request.body?.player)
   });
 }));
@@ -328,10 +334,11 @@ app.post('/player/waitlist-requests', asyncRoute(async (request, response) => {
   }
   const nextState = applyWaitlistRequestToState(record.state, request.body);
   const result = saveState(nextState);
-  publishStateBestEffort(nextState);
+  const firebase = await publishStateForResponse(nextState);
   response.status(201).json({
     ok: true,
     ...result,
+    firebase,
     snapshot: buildPlayerClubSnapshot(nextState, request.body?.player)
   });
 }));

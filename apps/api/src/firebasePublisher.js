@@ -16,12 +16,46 @@ function base64Url(value) {
 
 function loadServiceAccount() {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    const value = process.env.FIREBASE_SERVICE_ACCOUNT_JSON.trim();
+    return JSON.parse(value);
+  }
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
+    return JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8'));
   }
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
     return JSON.parse(fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8'));
   }
   return null;
+}
+
+function getFirebasePublisherStatus() {
+  try {
+    const serviceAccount = loadServiceAccount();
+    if (!serviceAccount) {
+      return {
+        configured: false,
+        projectId: firebaseConfig.projectId,
+        credentialSource: ''
+      };
+    }
+    return {
+      configured: true,
+      projectId: serviceAccount.project_id || firebaseConfig.projectId,
+      credentialSource: process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+        ? 'FIREBASE_SERVICE_ACCOUNT_JSON'
+        : process.env.FIREBASE_SERVICE_ACCOUNT_BASE64
+          ? 'FIREBASE_SERVICE_ACCOUNT_BASE64'
+          : 'GOOGLE_APPLICATION_CREDENTIALS',
+      clientEmail: serviceAccount.client_email || ''
+    };
+  } catch (error) {
+    return {
+      configured: false,
+      projectId: firebaseConfig.projectId,
+      credentialSource: 'invalid',
+      error: error instanceof Error ? error.message : 'Invalid Firebase credentials.'
+    };
+  }
 }
 
 async function getServiceAccountToken(serviceAccount) {
@@ -175,5 +209,6 @@ async function publishStateToFirebase(state) {
 }
 
 module.exports = {
+  getFirebasePublisherStatus,
   publishStateToFirebase
 };
