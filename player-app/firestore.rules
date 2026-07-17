@@ -126,6 +126,10 @@ service cloud.firestore {
         allow create, update, delete: if isClubAdmin(clubId);
       }
 
+      match /players/{playerId} {
+        allow read, create, update, delete: if isClubAdmin(clubId);
+      }
+
       match /memberships/{membershipId} {
         allow read: if isClubAdmin(clubId) || isSelf(resource.data.playerId);
         allow create, update, delete: if isClubAdmin(clubId);

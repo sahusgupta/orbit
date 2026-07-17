@@ -47,10 +47,6 @@ function stripUndefinedForFirestore<T>(value: T): T {
   return value;
 }
 
-function getFirestoreDocumentId(value: string | undefined, fallback = 'unknown') {
-  return (value || fallback).trim().replace(/\//g, '-').slice(0, 128) || fallback;
-}
-
 function withFirebaseTimeout<T>(operation: Promise<T>, fallback: T): Promise<T> {
   return Promise.race([
     operation,
@@ -227,52 +223,6 @@ async function publishClubSnapshot(accountKey: string, snapshot: PlayerClubSnaps
   });
   existingNotifications.docs.forEach((notificationDoc) => {
     if (!notificationIds.has(notificationDoc.id)) batch.delete(notificationDoc.ref);
-  });
-  const clubNameDocId = getFirestoreDocumentId(snapshot.club.name, accountKey);
-  batch.set(
-    doc(db, 'players', clubNameDocId),
-    stripUndefinedForFirestore({
-      clubId: accountKey,
-      clubName: snapshot.club.name || clubNameDocId,
-      savedAt,
-      updatedAt: serverTimestamp()
-    }),
-    { merge: true }
-  );
-  snapshot.memberships.forEach((membership) => {
-    batch.set(
-      doc(db, 'players', clubNameDocId, 'members', getFirestoreDocumentId(membership.playerId, membership.id)),
-      stripUndefinedForFirestore({
-        ...membership,
-        clubId: accountKey,
-        clubName: snapshot.club.name || clubNameDocId,
-        savedAt,
-        updatedAt: serverTimestamp()
-      }),
-      { merge: true }
-    );
-  });
-  batch.set(
-    doc(db, 'games', 'clubs'),
-    stripUndefinedForFirestore({
-      description: 'Games grouped by club name.',
-      savedAt,
-      updatedAt: serverTimestamp()
-    }),
-    { merge: true }
-  );
-  snapshot.games.forEach((game) => {
-    batch.set(
-      doc(db, 'games', 'clubs', clubNameDocId, getFirestoreDocumentId(game.id, game.name)),
-      stripUndefinedForFirestore({
-        ...game,
-        clubId: accountKey,
-        clubName: snapshot.club.name || clubNameDocId,
-        savedAt,
-        updatedAt: serverTimestamp()
-      }),
-      { merge: true }
-    );
   });
   await batch.commit();
 }

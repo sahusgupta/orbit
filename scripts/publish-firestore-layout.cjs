@@ -95,7 +95,7 @@ async function main() {
     return;
   }
 
-  console.log(`Published Firestore layout for ${result.accountKey} (${result.clubName}) at ${result.savedAt}.`);
+  console.log(`Published Firestore layout for ${result.accountKey}: ${result.players} players, ${result.games} games at ${result.savedAt}.`);
 }
 
 main().catch((error) => {

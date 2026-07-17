@@ -25,7 +25,7 @@ All other endpoints require `x-orbit-api-key`.
 - `API_PORT`: API port, defaults to `4629`.
 - `ORBIT_CLIENT_API_KEY`: owner/shared service key. Desktop clients may also authenticate with their signed pilot key authorization code.
 - `DATABASE_URL`: SQLite path for local development, for example `file:./data/orbit-api.sqlite3`. On Vercel, the API defaults to `file:/tmp/orbit-api.sqlite3` when `DATABASE_URL` is unset.
-- `FIREBASE_SERVICE_ACCOUNT_JSON` or `GOOGLE_APPLICATION_CREDENTIALS`: optional Firebase service account credentials. When configured, API state saves also publish Firestore documents at `clubs/{licenseKey}`, `players/{clubName}/members/{playerId}`, and `games/clubs/{clubName}/{gameId}`.
+- `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`: optional Firebase service account credentials. When configured, API state saves publish canonical Firestore documents at `clubs/{licenseKey}`, `clubs/{licenseKey}/players/{playerHash}`, and `clubs/{licenseKey}/games/{sessionId}`.
 - `NODE_ENV`: `development`, `staging`, or `production`.
 
 The database layer is intentionally small and isolated in `src/database.js` so it can later be swapped for Postgres or Supabase.
