@@ -13,7 +13,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "download:stage": "node scripts/stage-download-site.cjs",
     "download:dev": "npm run download:stage && vite --config download-site/vite.config.mjs --host 127.0.0.1 --port 4174",
-    "download:build": "npm run download:stage && vite build --config download-site/vite.config.mjs",
+    "download:build": "vite build --config download-site/vite.config.mjs",
     "api:install": "npm install --prefix apps/api --no-package-lock",
     "api:dev": "npm run dev --prefix apps/api",
     "api:start": "npm run start --prefix apps/api",
