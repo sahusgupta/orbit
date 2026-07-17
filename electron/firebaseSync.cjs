@@ -59,6 +59,13 @@ function stripUndefinedForFirestore(value) {
   return value;
 }
 
+function getFirestoreDocumentId(value, fallback = 'unknown') {
+  return String(value || fallback)
+    .trim()
+    .replace(/\//g, '-')
+    .slice(0, 128) || fallback;
+}
+
 function withFirebaseTimeout(operation, fallback) {
   return Promise.race([
     operation,
@@ -158,6 +165,52 @@ async function publishClubSnapshot(accountKey, publicSnapshot, savedAt) {
   }
   for (const notificationDoc of existingNotifications.docs) {
     if (!notificationIds.has(notificationDoc.id)) batch.delete(notificationDoc.ref);
+  }
+  const clubNameDocId = getFirestoreDocumentId(publicSnapshot.club.name || accountKey, accountKey);
+  batch.set(
+    doc(db, 'players', clubNameDocId),
+    stripUndefinedForFirestore({
+      clubId: accountKey,
+      clubName: publicSnapshot.club.name || clubNameDocId,
+      savedAt,
+      updatedAt: serverTimestamp()
+    }),
+    { merge: true }
+  );
+  for (const membership of publicSnapshot.memberships || []) {
+    batch.set(
+      doc(db, 'players', clubNameDocId, 'members', getFirestoreDocumentId(membership.playerId, membership.id)),
+      stripUndefinedForFirestore({
+        ...membership,
+        clubId: accountKey,
+        clubName: publicSnapshot.club.name || clubNameDocId,
+        savedAt,
+        updatedAt: serverTimestamp()
+      }),
+      { merge: true }
+    );
+  }
+  batch.set(
+    doc(db, 'games', 'clubs'),
+    stripUndefinedForFirestore({
+      description: 'Games grouped by club name.',
+      savedAt,
+      updatedAt: serverTimestamp()
+    }),
+    { merge: true }
+  );
+  for (const game of publicSnapshot.games || []) {
+    batch.set(
+      doc(db, 'games', 'clubs', clubNameDocId, getFirestoreDocumentId(game.id, game.name)),
+      stripUndefinedForFirestore({
+        ...game,
+        clubId: accountKey,
+        clubName: publicSnapshot.club.name || clubNameDocId,
+        savedAt,
+        updatedAt: serverTimestamp()
+      }),
+      { merge: true }
+    );
   }
   await batch.commit();
 }

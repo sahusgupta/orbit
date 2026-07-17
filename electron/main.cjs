@@ -1149,6 +1149,19 @@ async function saveStateApiFirst(state) {
     } catch {
       // Local cache writes are best-effort once the standalone API has accepted the state.
     }
+    if (isFirebaseConfigured()) {
+      const accountKey = getAccountKeyFromState(state);
+      const publicSnapshot = buildPlayerClubSnapshot(state);
+      try {
+        writeStateToFirebase(accountKey, state, publicSnapshot).catch(() => undefined);
+      } catch {
+        // Firebase sync must never block an accepted API save.
+      }
+      return {
+        ...apiResult,
+        firebase: { ok: true, engine: 'firebase', accountKey, pending: true }
+      };
+    }
     return apiResult;
   }
   return saveStateEverywhere(state);

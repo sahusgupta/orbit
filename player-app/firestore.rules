@@ -169,6 +169,21 @@ service cloud.firestore {
       allow update: if isSelf(playerId) && doesNotChangeServerManagedBilling();
       allow read: if isSelf(playerId);
       allow delete: if false;
+
+      match /members/{memberId} {
+        allow read: if true;
+        allow create, update, delete: if false;
+      }
+    }
+
+    match /games/{rootDocument} {
+      allow read: if true;
+      allow create, update, delete: if false;
+
+      match /{clubName}/{gameId} {
+        allow read: if true;
+        allow create, update, delete: if false;
+      }
     }
 
     match /privateGames/{gameId} {
