@@ -105,6 +105,7 @@ export async function savePlayerProfile(player: PlayerAccount, membershipPatch?:
     name: player.name,
     email: player.email,
     preferredGameIds: player.preferredGameIds,
+    favoriteClubIds: player.favoriteClubIds ?? [],
     preferredStakes: player.preferredStakes,
     typicalAvailability: player.typicalAvailability,
     homeLocation: player.homeLocation,

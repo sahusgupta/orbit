@@ -35,10 +35,11 @@ import {
 
 WebBrowser.maybeCompleteAuthSession();
 
-type Screen = 'findGames' | 'map' | 'clubs' | 'clubSignup' | 'friends' | 'settings';
-type OnboardingStep = 0 | 1 | 2 | 3;
-type GameTypeFilter = 'all' | 'public' | 'private' | 'card-house' | 'home-game';
-type DistanceFilter = 5 | 10 | 20 | 50;
+type Screen = 'findGames' | 'map' | 'clubs' | 'clubSignup' | 'clubPayment' | 'history' | 'friends' | 'settings';
+type OnboardingStep = 0 | 1 | 2 | 3 | 4;
+type GameTypeFilter = 'none' | 'all' | 'public' | 'private' | 'card-house' | 'home-game' | 'favorites';
+type DistanceFilter = 'none' | 5 | 10 | 20 | 50;
+type CasinoFilter = 'none' | 'all' | string;
 type ClubMembershipPlan = 'day' | 'monthly';
 
 type GameOpportunity = {
@@ -66,6 +67,7 @@ const tabs: Array<{ id: Screen; label: string; icon: keyof typeof Ionicons.glyph
   { id: 'findGames', label: 'Find Games', icon: 'search-outline' },
   { id: 'map', label: 'Map', icon: 'map-outline' },
   { id: 'clubs', label: 'Clubs', icon: 'business-outline' },
+  { id: 'history', label: 'History', icon: 'receipt-outline' },
   { id: 'friends', label: 'Friends', icon: 'people-outline' },
   { id: 'settings', label: 'Settings', icon: 'options-outline' }
 ];
@@ -76,6 +78,14 @@ const demoFriends = [
   { id: 'friend-3', name: 'Drew King', lastSession: 'No recent session', preferred: '1/3 NLH' }
 ];
 
+const demoSessionHistory = [
+  { id: 'session-1', date: 'Jul 12', venue: 'Club B', game: '1/2 NLH', buyIn: 300, hours: 4.5, profitLoss: 185 },
+  { id: 'session-2', date: 'Jul 9', venue: 'Cedar Rail Card House', game: '2/5 NLH', buyIn: 800, hours: 3.2, profitLoss: -240 },
+  { id: 'session-3', date: 'Jul 5', venue: 'Live Oak Social Club', game: '1/2 NLH', buyIn: 400, hours: 5.1, profitLoss: 96 },
+  { id: 'session-4', date: 'Jun 28', venue: 'Winstar Demo Casino', game: '5/5 PLO', buyIn: 1000, hours: 2.8, profitLoss: -125 },
+  { id: 'session-5', date: 'Jun 21', venue: 'Bayou Stack Room', game: '5/10 NLH', buyIn: 1500, hours: 6.4, profitLoss: 720 }
+];
+
 const gamePreferenceOptions = [
   { id: 'nlh-1-2', label: '1/2 NLH' },
   { id: 'nlh-1-3', label: '1/3 NLH' },
@@ -83,29 +93,125 @@ const gamePreferenceOptions = [
 ];
 
 const clubDistanceMiles: Record<string, number> = {
-  'test-club': 4.2,
-  'club-a': 8.4,
-  'club-b': 12.1,
-  'stress-room': 18
+  'lucky-lodge': 102,
+  'river-room': 95,
+  'test-club': 171,
+  'club-a': 87,
+  'club-b': 3.4,
+  'stress-room': 98,
+  'cedar-rail-dallas': 172,
+  'deep-ellum-poker': 171,
+  'live-oak-social': 87,
+  'capital-card-room': 87,
+  'bayou-stack-room': 96,
+  'choctaw-demo-casino': 223,
+  'winstar-demo-casino': 196
 };
 
 const clubCoordinates: Record<string, { latitude: number; longitude: number }> = {
-  'test-club': { latitude: 30.617, longitude: -96.334 },
-  'club-a': { latitude: 30.624, longitude: -96.346 },
-  'club-b': { latitude: 30.604, longitude: -96.361 },
-  'stress-room': { latitude: 30.636, longitude: -96.374 }
+  'lucky-lodge': { latitude: 30.2906, longitude: -97.7424 },
+  'river-room': { latitude: 29.7608, longitude: -95.3608 },
+  'test-club': { latitude: 32.7867, longitude: -96.7997 },
+  'club-a': { latitude: 30.2679, longitude: -97.743 },
+  'club-b': { latitude: 30.6205, longitude: -96.3269 },
+  'stress-room': { latitude: 29.752, longitude: -95.3698 },
+  'cedar-rail-dallas': { latitude: 32.7993, longitude: -96.8047 },
+  'deep-ellum-poker': { latitude: 32.7841, longitude: -96.7837 },
+  'live-oak-social': { latitude: 30.2649, longitude: -97.7271 },
+  'capital-card-room': { latitude: 30.2711, longitude: -97.7417 },
+  'bayou-stack-room': { latitude: 29.7469, longitude: -95.3674 },
+  'choctaw-demo-casino': { latitude: 33.952, longitude: -96.4122 },
+  'winstar-demo-casino': { latitude: 33.7913, longitude: -97.1456 }
 };
 
-const findGamesClubOrder = ['test-club', 'club-a', 'club-b', 'stress-room'];
-const findGamesClubNames = ['test club', 'club a', 'club b', 'stress room'];
+const demoClubAddresses: Record<string, string> = {
+  'test-club': '2711 Main Street, Dallas, TX 75226',
+  'club-a': '515 Congress Avenue, Austin, TX 78701',
+  'club-b': '110 N Main Street, Bryan, TX 77803',
+  'stress-room': '1201 San Jacinto Street, Houston, TX 77002',
+  'cedar-rail-dallas': '2828 N Harwood Street, Dallas, TX 75201',
+  'deep-ellum-poker': '2600 Main Street, Dallas, TX 75226',
+  'live-oak-social': '1209 E 6th Street, Austin, TX 78702',
+  'capital-card-room': '907 Congress Avenue, Austin, TX 78701',
+  'bayou-stack-room': '1801 Main Street, Houston, TX 77002',
+  'choctaw-demo-casino': '4216 S Highway 69, Durant, OK 74701',
+  'winstar-demo-casino': '777 Casino Avenue, Thackerville, OK 73459'
+};
+
+const texasMapRegion = {
+  latitude: 31.75,
+  longitude: -96.75,
+  latitudeDelta: 5,
+  longitudeDelta: 5.4
+};
+
+const findGamesClubOrder = [
+  'test-club',
+  'club-a',
+  'club-b',
+  'stress-room',
+  'cedar-rail-dallas',
+  'deep-ellum-poker',
+  'live-oak-social',
+  'capital-card-room',
+  'bayou-stack-room',
+  'choctaw-demo-casino',
+  'winstar-demo-casino'
+];
+const findGamesClubNames = [
+  'test club',
+  'club a',
+  'club b',
+  'stress room',
+  'cedar rail card house',
+  'deep ellum poker hall',
+  'live oak social club',
+  'capital card room',
+  'bayou stack room',
+  'choctaw demo casino',
+  'winstar demo casino'
+];
 
 const demoClubMembershipPrices: Record<string, { day: string; monthly: string }> = {
   'lucky-lodge': { day: '$12 day pass', monthly: '$39/mo' },
   'river-room': { day: '$15 day pass', monthly: '$49/mo' },
+  'cedar-rail-dallas': { day: '$15 day pass', monthly: '$45/mo' },
+  'deep-ellum-poker': { day: '$20 day pass', monthly: '$60/mo' },
+  'live-oak-social': { day: '$12 day pass', monthly: '$40/mo' },
+  'capital-card-room': { day: '$15 day pass', monthly: '$50/mo' },
+  'bayou-stack-room': { day: '$18 day pass', monthly: '$55/mo' },
+  'choctaw-demo-casino': { day: '$20 day pass', monthly: '$65/mo' },
+  'winstar-demo-casino': { day: '$20 day pass', monthly: '$70/mo' },
   default: { day: '$10 day pass', monthly: '$35/mo' }
 };
 
+const clubFeeProfiles: Record<string, { type: 'time'; hourly: string } | { type: 'rake'; percent: string }> = {
+  'test-club': { type: 'time', hourly: '$12/hr' },
+  'club-a': { type: 'rake', percent: '5%' },
+  'club-b': { type: 'time', hourly: '$10/hr' },
+  'stress-room': { type: 'rake', percent: '6%' },
+  'cedar-rail-dallas': { type: 'time', hourly: '$13/hr' },
+  'deep-ellum-poker': { type: 'rake', percent: '5%' },
+  'live-oak-social': { type: 'time', hourly: '$11/hr' },
+  'capital-card-room': { type: 'rake', percent: '4%' },
+  'bayou-stack-room': { type: 'time', hourly: '$14/hr' },
+  'choctaw-demo-casino': { type: 'rake', percent: '5%' },
+  'winstar-demo-casino': { type: 'rake', percent: '6%' }
+};
+
 const homeCoordinate = { latitude: 30.613, longitude: -96.342 };
+
+const texasAddressCoordinates: Array<{ keywords: string[]; coordinate: { latitude: number; longitude: number } }> = [
+  { keywords: ['dallas', '75226', '2711 main'], coordinate: { latitude: 32.7867, longitude: -96.7997 } },
+  { keywords: ['austin', '78701', '78705', 'congress', '26th street'], coordinate: { latitude: 30.2679, longitude: -97.743 } },
+  { keywords: ['college station', 'bryan', '77803', '77840', 'main street bryan'], coordinate: { latitude: 30.6205, longitude: -96.3269 } },
+  { keywords: ['houston', '77002', 'prairie', 'san jacinto'], coordinate: { latitude: 29.7608, longitude: -95.3608 } },
+  { keywords: ['durant', 'choctaw', '74701'], coordinate: { latitude: 33.952, longitude: -96.4122 } },
+  { keywords: ['thackerville', 'winstar', '73459'], coordinate: { latitude: 33.7913, longitude: -97.1456 } },
+  { keywords: ['el paso', 'elpaso', '79901', '79902'], coordinate: { latitude: 31.7619, longitude: -106.485 } }
+];
+
+const degreesToRadians = (degrees: number) => (degrees * Math.PI) / 180;
 
 const emptyPlayer: PlayerAccount = {
   id: '',
@@ -115,6 +221,7 @@ const emptyPlayer: PlayerAccount = {
   homeLocation: '',
   searchRadiusMiles: 20,
   preferredGameIds: [],
+  favoriteClubIds: [],
   preferredStakes: '',
   typicalAvailability: ''
 };
@@ -140,8 +247,8 @@ export default function PlayerApp() {
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(0);
   const [screen, setScreen] = useState<Screen>('findGames');
   const [showHostScreen, setShowHostScreen] = useState(false);
-  const [showClubOperations, setShowClubOperations] = useState(false);
   const [gameQuery, setGameQuery] = useState('');
+  const [selectedCasinoFilter, setSelectedCasinoFilter] = useState<CasinoFilter>('none');
   const [mapQuery, setMapQuery] = useState('');
   const [gameTypeFilter, setGameTypeFilter] = useState<GameTypeFilter>('all');
   const [selectedFilterClubId, setSelectedFilterClubId] = useState('all');
@@ -151,9 +258,11 @@ export default function PlayerApp() {
   const [privateGameDraft, setPrivateGameDraft] = useState<PrivateGameDraft>(emptyPrivateGameDraft);
   const [privateGames, setPrivateGames] = useState<PlayerPrivateGameListing[]>([]);
   const [privateGameStatus, setPrivateGameStatus] = useState('');
+  const [avatarHovered, setAvatarHovered] = useState(false);
   const [premiumStatus, setPremiumStatus] = useState<'inactive' | 'pending' | 'active'>('inactive');
   const [premiumMessage, setPremiumMessage] = useState('');
   const [clubMembershipMessage, setClubMembershipMessage] = useState('');
+  const [pendingClubPlan, setPendingClubPlan] = useState<ClubMembershipPlan | null>(null);
   const [player, setPlayer] = useState<PlayerAccount>(emptyPlayer);
   const [draftPlayer, setDraftPlayer] = useState<PlayerAccount>(emptyPlayer);
   const [accountLoaded, setAccountLoaded] = useState(false);
@@ -176,15 +285,17 @@ export default function PlayerApp() {
   const selectedMembership = selectedClub.memberships.find((membership) => isPlayerMembership(membership, player));
   const playerWaitlists = selectedClub.waitlists.filter((entry) => isPlayerWaitlistEntry(entry, player));
   const joinedClubIds = new Set(memberships.map((membership) => membership.clubId));
+  const favoriteClubIds = player.favoriteClubIds ?? [];
   const memberClubs = clubs.filter((club) => joinedClubIds.has(club.club.id));
   const findGameClubs = useMemo(() => buildFindGameClubs(clubs), [clubs]);
+  const playerHomeCoordinate = useMemo(() => resolveAddressCoordinate(player.homeLocation), [player.homeLocation]);
   const searchRadius = distanceFilter;
   const hasPaidPlayerPremium = premiumStatus === 'active';
   const hasPlayerPremium = premiumStatus === 'active' || demoPremiumEnabled;
   const visiblePrivateGames = useMemo(() => {
     const query = gameQuery.trim().toLowerCase();
     const stakesQuery = stakesFilter.trim().toLowerCase();
-    const typeAllowsPrivate = gameTypeFilter === 'all' || gameTypeFilter === 'private' || gameTypeFilter === 'home-game';
+    const typeAllowsPrivate = gameTypeFilter === 'none' || gameTypeFilter === 'all' || gameTypeFilter === 'private' || gameTypeFilter === 'home-game';
     if (!typeAllowsPrivate) return [];
     return privateGames.filter((game) => {
       const haystack = `${game.name} ${game.location} ${game.note}`.toLowerCase();
@@ -199,8 +310,8 @@ export default function PlayerApp() {
         const haystack = `${club.club.name} ${club.club.address ?? ''} ${club.games.map((game) => game.name).join(' ')}`.toLowerCase();
         return !query || haystack.includes(query);
       })
-      .sort((left, right) => getClubDistance(left) - getClubDistance(right));
-  }, [findGameClubs, mapQuery]);
+      .sort((left, right) => getClubDistance(left, playerHomeCoordinate) - getClubDistance(right, playerHomeCoordinate));
+  }, [findGameClubs, mapQuery, playerHomeCoordinate]);
 
   useEffect(() => onFirebasePlayerChanged(setFirebaseIdentity), []);
 
@@ -229,6 +340,7 @@ export default function PlayerApp() {
           homeLocation: profile.homeLocation ?? player.homeLocation,
           searchRadiusMiles: profile.searchRadiusMiles ?? player.searchRadiusMiles,
           preferredGameIds: profile.preferredGameIds?.length ? profile.preferredGameIds : player.preferredGameIds,
+          favoriteClubIds: profile.favoriteClubIds ?? player.favoriteClubIds ?? [],
           preferredStakes: profile.preferredStakes ?? player.preferredStakes,
           typicalAvailability: profile.typicalAvailability ?? player.typicalAvailability
         };
@@ -285,13 +397,23 @@ export default function PlayerApp() {
   const opportunities = useMemo(() => {
     const query = gameQuery.trim().toLowerCase();
     const stakesQuery = stakesFilter.trim().toLowerCase();
-    return clubs
+    const hasLocationFilter = Boolean(player.homeLocation?.trim());
+    return findGameClubs
       .flatMap<GameOpportunity>((club) => {
-        const distanceMiles = getClubDistance(club);
+        const distanceMiles = getClubDistance(club, playerHomeCoordinate);
         const isJoined = joinedClubIds.has(club.club.id);
-        if (selectedFilterClubId !== 'all' && club.club.id !== selectedFilterClubId) return [];
+        const clubSearchText = getClubSearchText(club);
+        const casinoClub = isCasinoClub(club);
+        if (gameTypeFilter === 'favorites' && !favoriteClubIds.includes(club.club.id)) return [];
+        if (casinoClub) {
+          if (selectedCasinoFilter === 'none') return [];
+          if (selectedCasinoFilter !== 'all' && club.club.id !== selectedCasinoFilter) return [];
+        } else {
+          if (selectedFilterClubId === 'none') return [];
+          if (selectedFilterClubId !== 'all' && club.club.id !== selectedFilterClubId) return [];
+        }
         return club.games
-          .filter((game) => !query || `${game.name} ${club.club.name}`.toLowerCase().includes(query))
+          .filter((game) => !query || `${game.name} ${clubSearchText}`.toLowerCase().includes(query))
           .filter((game) => !stakesQuery || game.name.toLowerCase().includes(stakesQuery))
           .filter((game) => matchesGameTypeFilter(club, game, gameTypeFilter))
           .filter((game) => game.openTables.length || game.waitlistCount || game.formingCount)
@@ -300,6 +422,7 @@ export default function PlayerApp() {
             const seatScore = game.availableSeats * 16 + game.formingCount * 7;
             const socialScore = game.knownPlayersCount * 9 + (club.social?.knownPlayersInHouse ?? 0) * 3;
             const profileScore = (isJoined ? 42 : 0) + (isPreferred ? 28 : 0);
+            const favoriteScore = favoriteClubIds.includes(club.club.id) ? 18 : 0;
             const waitScore = Math.max(0, 18 - game.waitlistCount * 3);
             return {
               club,
@@ -311,16 +434,19 @@ export default function PlayerApp() {
               socialScore,
               profileScore,
               waitScore,
-              score: seatScore + socialScore + profileScore + waitScore - distanceMiles * 2
+              score: seatScore + socialScore + profileScore + favoriteScore + waitScore - distanceMiles * 2
             };
           });
       })
-      .filter((item) => item.distanceMiles <= searchRadius)
+      .filter((item) => !hasLocationFilter || distanceFilter === 'none' || isCasinoClub(item.club) || item.distanceMiles <= distanceFilter || Boolean(query && getClubSearchText(item.club).includes(query)))
       .sort((left, right) => {
+        const leftFavorite = favoriteClubIds.includes(left.club.club.id);
+        const rightFavorite = favoriteClubIds.includes(right.club.club.id);
+        if (leftFavorite !== rightFavorite) return leftFavorite ? -1 : 1;
         if (fitScoreFilterEnabled && hasPaidPlayerPremium) return right.score - left.score || left.distanceMiles - right.distanceMiles;
         return right.score - left.score || left.distanceMiles - right.distanceMiles;
       });
-  }, [findGameClubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, hasPaidPlayerPremium, joinedClubIds, player.preferredGameIds, searchRadius, selectedFilterClubId, stakesFilter]);
+  }, [distanceFilter, favoriteClubIds, findGameClubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, hasPaidPlayerPremium, joinedClubIds, player.homeLocation, player.preferredGameIds, playerHomeCoordinate, selectedCasinoFilter, selectedFilterClubId, stakesFilter]);
 
   const displayedOpportunities = useMemo(() => {
     if (hasPlayerPremium) return opportunities;
@@ -379,11 +505,19 @@ export default function PlayerApp() {
 
   const openClubSignup = (club: PlayerClubSnapshot) => {
     setSelectedClubId(club.club.id);
+    setPendingClubPlan(null);
     setClubMembershipMessage('');
     setScreen('clubSignup');
   };
 
-  const startClubSignup = async (club: PlayerClubSnapshot, plan: ClubMembershipPlan) => {
+  const openClubPayment = (club: PlayerClubSnapshot, plan: ClubMembershipPlan) => {
+    setSelectedClubId(club.club.id);
+    setPendingClubPlan(plan);
+    setClubMembershipMessage('');
+    setScreen('clubPayment');
+  };
+
+  const completeClubPayment = async (club: PlayerClubSnapshot, plan: ClubMembershipPlan) => {
     setSelectedClubId(club.club.id);
     setClubMembershipMessage('');
     const prices = getClubMembershipPrices(club);
@@ -402,6 +536,7 @@ export default function PlayerApp() {
       setClubMembershipMessage(`Demo mode: selected ${planLabel}. Sending your signup request to the club.`);
     }
     await requestMembership(club);
+    setPendingClubPlan(null);
   };
 
   const publishPrivateGame = async () => {
@@ -494,6 +629,14 @@ export default function PlayerApp() {
     if (url) Linking.openURL(url).catch(() => undefined);
   };
 
+  const toggleFavoriteClub = (clubId: string) => {
+    setPlayer((current) => {
+      const favorites = current.favoriteClubIds ?? [];
+      const favoriteClubIds = favorites.includes(clubId) ? favorites.filter((id) => id !== clubId) : [...favorites, clubId];
+      return { ...current, favoriteClubIds };
+    });
+  };
+
   const changeMembership = async (club: PlayerClubSnapshot, patch: Partial<PlayerClubMembershipRecord>) => {
     const current = club.memberships.find((membership) => isPlayerMembership(membership, player));
     const today = new Date().toISOString().slice(0, 10);
@@ -560,10 +703,21 @@ export default function PlayerApp() {
           <View style={styles.header}>
             <View>
               <Text style={styles.eyebrow}>{`${opportunities.length} live seats`}</Text>
-              <Text style={styles.title}>{screen === 'clubSignup' ? 'Membership' : screen === 'findGames' ? (showHostScreen ? 'Host a Game' : 'Find Games') : tabs.find((tab) => tab.id === screen)?.label}</Text>
+              <Text style={styles.title}>{screen === 'clubSignup' || screen === 'clubPayment' ? 'Membership' : screen === 'findGames' ? (showHostScreen ? 'Host a Game' : 'Find Games') : tabs.find((tab) => tab.id === screen)?.label}</Text>
             </View>
-            <Pressable style={styles.avatar} onPress={() => setScreen('settings')}>
+            <Pressable
+              accessibilityLabel="Open settings"
+              onHoverIn={() => setAvatarHovered(true)}
+              onHoverOut={() => setAvatarHovered(false)}
+              style={styles.avatar}
+              onPress={() => setScreen('settings')}
+            >
               <Text style={styles.avatarText}>{player.name.slice(0, 1)}</Text>
+              {avatarHovered ? (
+                <View pointerEvents="none" style={styles.iconTooltip}>
+                  <Text style={styles.iconTooltipText}>Settings</Text>
+                </View>
+              ) : null}
             </Pressable>
           </View>
 
@@ -577,6 +731,16 @@ export default function PlayerApp() {
             {screen === 'findGames' && !showHostScreen ? (
               <>
                 <View style={styles.searchPanel}>
+                  <View style={styles.searchInputRow}>
+                    <Ionicons name="location-outline" size={18} color={colors.muted} />
+                    <TextInput
+                      value={player.homeLocation ?? ''}
+                      onChangeText={(homeLocation) => setPlayer((current) => ({ ...current, homeLocation }))}
+                      placeholder="Your address or city"
+                      placeholderTextColor={colors.muted}
+                      style={styles.searchInput}
+                    />
+                  </View>
                   <View style={styles.searchInputRow}>
                     <Ionicons name="search-outline" size={18} color={colors.muted} />
                     <TextInput
@@ -593,6 +757,8 @@ export default function PlayerApp() {
                     setGameType={setGameTypeFilter}
                     selectedClubId={selectedFilterClubId}
                     setSelectedClubId={setSelectedFilterClubId}
+                    selectedCasinoId={selectedCasinoFilter}
+                    setSelectedCasinoId={setSelectedCasinoFilter}
                     stakes={stakesFilter}
                     setStakes={setStakesFilter}
                     distance={distanceFilter}
@@ -618,6 +784,7 @@ export default function PlayerApp() {
                     opportunities={displayedOpportunities}
                     premium={hasPlayerPremium}
                     player={player}
+                    favoriteClubIds={favoriteClubIds}
                     onSelectClub={(item) => {
                       setSelectedClubId(item.club.club.id);
                       item.isJoined ? setScreen('clubs') : openClubSignup(item.club);
@@ -625,11 +792,14 @@ export default function PlayerApp() {
                     onDirections={(club) => openDirections(club)}
                     onWaitlist={(club, game) => joinWaitlist(club, game)}
                     onJoinClub={(club) => openClubSignup(club)}
+                    onToggleFavorite={(club) => toggleFavoriteClub(club.club.id)}
                   />
                 ) : visiblePrivateGames.length ? null : (
                   <View style={styles.emptyState}>
-                    <Text style={styles.cardTitle}>No games in range</Text>
-                    <Text style={styles.muted}>No published game matches your current filters within {searchRadius} miles.</Text>
+                    <Text style={styles.cardTitle}>{distanceFilter === 'none' ? 'No games found' : 'No games in range'}</Text>
+                    <Text style={styles.muted}>
+                      {distanceFilter === 'none' ? 'No published game matches your current filters.' : `No published game matches your current filters within ${searchRadius} miles.`}
+                    </Text>
                   </View>
                 )}
 
@@ -650,6 +820,7 @@ export default function PlayerApp() {
             {screen === 'map' ? (
               <MapExploreScreen
                 clubs={mappedClubs}
+                originCoordinate={playerHomeCoordinate}
                 query={mapQuery}
                 setQuery={setMapQuery}
                 onDirections={openDirections}
@@ -704,21 +875,10 @@ export default function PlayerApp() {
               <>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Your clubs</Text>
-                  <Pressable style={styles.compactButton} onPress={() => setShowClubOperations((current) => !current)}>
-                    <Text style={styles.compactButtonText}>{showClubOperations ? 'Memberships' : 'Club View'}</Text>
-                  </Pressable>
                 </View>
-                {showClubOperations ? (
-                  <ClubOperationsView
-                    clubs={clubs}
-                    selectedClub={selectedClub}
-                    onSelectClub={setSelectedClubId}
-                  />
-                ) : (
-                  <>
                 {memberClubs.length ? memberClubs
                   .slice()
-                  .sort((left, right) => getClubDistance(left) - getClubDistance(right))
+                  .sort((left, right) => getClubDistance(left, playerHomeCoordinate) - getClubDistance(right, playerHomeCoordinate))
                   .map((club) => {
                     const isSelected = club.club.id === selectedClub.club.id;
                     const membership = club.memberships.find((item) => isPlayerMembership(item, player));
@@ -738,7 +898,7 @@ export default function PlayerApp() {
                         <View style={styles.clubMain}>
                           <Text style={styles.cardTitle}>{club.club.name}</Text>
                           <Text style={styles.muted}>
-                            {getClubDistance(club).toFixed(1)} mi - {openSeats} seats{familiarText}
+                            {getClubDistance(club, playerHomeCoordinate).toFixed(1)} mi - {openSeats} seats{familiarText}
                           </Text>
                         </View>
                         <View style={styles.statusPill}>
@@ -779,8 +939,6 @@ export default function PlayerApp() {
                     <ClubHistoryPanel />
                   </>
                 ) : null}
-                  </>
-                )}
               </>
             ) : null}
 
@@ -790,8 +948,23 @@ export default function PlayerApp() {
                 prices={getClubMembershipPrices(selectedClub)}
                 message={clubMembershipMessage}
                 onBack={() => setScreen('clubs')}
-                onSelectPlan={(plan) => startClubSignup(selectedClub, plan)}
+                onSelectPlan={(plan) => openClubPayment(selectedClub, plan)}
               />
+            ) : null}
+
+            {screen === 'clubPayment' && selectedClub && pendingClubPlan ? (
+              <ClubPaymentPlaceholderScreen
+                club={selectedClub}
+                plan={pendingClubPlan}
+                price={pendingClubPlan === 'day' ? getClubMembershipPrices(selectedClub).day : getClubMembershipPrices(selectedClub).monthly}
+                message={clubMembershipMessage}
+                onBack={() => setScreen('clubSignup')}
+                onPaymentComplete={() => completeClubPayment(selectedClub, pendingClubPlan)}
+              />
+            ) : null}
+
+            {screen === 'history' ? (
+              <PlayerHistoryScreen sessions={demoSessionHistory} />
             ) : null}
 
             {screen === 'friends' ? (
@@ -878,7 +1051,6 @@ export default function PlayerApp() {
                 onPress={() => {
                   setScreen(tab.id);
                   if (tab.id !== 'findGames') setShowHostScreen(false);
-                  if (tab.id !== 'clubs') setShowClubOperations(false);
                 }}
                 style={[styles.tab, screen === tab.id && styles.activeTab]}
               >
@@ -937,7 +1109,8 @@ function OnboardingFlow({
   onUseDemo: () => void;
 }) {
   const stepOpacity = useRef(new Animated.Value(1)).current;
-  const finalStep = 3;
+  const [hoveredAction, setHoveredAction] = useState<'previous' | 'next' | null>(null);
+  const finalStep = 4;
   const totalSteps = finalStep + 1;
   const phoneTrimmed = (draftPlayer.phone ?? '').trim();
   const emailIsValid = isValidEmail(draftPlayer.email);
@@ -978,6 +1151,20 @@ function OnboardingFlow({
   const submitStep = onboardingStep < finalStep ? nextStep : finishOnboarding;
   const canSubmit = onboardingStep < finalStep ? canContinue : canComplete;
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      const isTypingTarget = tagName === 'input' || tagName === 'textarea' || target?.isContentEditable;
+      if (event.key !== 'Enter' || isTypingTarget || !canSubmit) return;
+      event.preventDefault();
+      submitStep();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canSubmit, submitStep]);
+
   return (
     <View style={styles.onboardingFlow}>
       <View style={styles.onboardingTopBar}>
@@ -991,14 +1178,36 @@ function OnboardingFlow({
         {onboardingStep === 1 ? <EmailStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={canSubmit ? submitStep : undefined} /> : null}
         {onboardingStep === 2 ? <PhoneStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={submitStep} /> : null}
         {onboardingStep === 3 ? <HomeAreaStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={canSubmit ? submitStep : undefined} /> : null}
+        {onboardingStep === 4 ? <AgeVerificationStep /> : null}
       </AnimatedStepCard>
 
       <View style={styles.onboardingActions}>
-        <Pressable onPress={onboardingStep > 0 ? previousStep : onUseDemo} style={styles.arrowAction}>
+        <Pressable
+          onHoverIn={() => setHoveredAction('previous')}
+          onHoverOut={() => setHoveredAction(null)}
+          onPress={onboardingStep > 0 ? previousStep : onUseDemo}
+          style={styles.arrowAction}
+        >
           {onboardingStep > 0 ? <Ionicons name="arrow-back" size={24} color="#ffffff" /> : <Text style={styles.demoLink}>Demo</Text>}
+          {hoveredAction === 'previous' && onboardingStep > 0 ? (
+            <View pointerEvents="none" style={styles.iconTooltip}>
+              <Text style={styles.iconTooltipText}>Previous step</Text>
+            </View>
+          ) : null}
         </Pressable>
-        <Pressable disabled={!canSubmit} onPress={submitStep} style={[styles.arrowAction, !canSubmit && styles.arrowActionDisabled]}>
+        <Pressable
+          disabled={!canSubmit}
+          onHoverIn={() => setHoveredAction('next')}
+          onHoverOut={() => setHoveredAction(null)}
+          onPress={submitStep}
+          style={[styles.arrowAction, !canSubmit && styles.arrowActionDisabled]}
+        >
           <Ionicons name="arrow-forward" size={24} color="#ffffff" />
+          {hoveredAction === 'next' && canSubmit ? (
+            <View pointerEvents="none" style={styles.iconTooltip}>
+              <Text style={styles.iconTooltipText}>{onboardingStep < finalStep ? 'Next step' : 'Finish setup'}</Text>
+            </View>
+          ) : null}
         </Pressable>
       </View>
     </View>
@@ -1203,6 +1412,18 @@ function HomeAreaStep({
   );
 }
 
+function AgeVerificationStep() {
+  return (
+    <View style={styles.optionalStep}>
+      <StepHeader icon="id-card-outline" title="ID & Age Check" />
+      <View style={styles.idCheckPlaceholder}>
+        <Ionicons name="scan-outline" size={28} color="#ffffff" />
+      </View>
+      <Text style={styles.optionalStepText}>ID and age verification will go here.</Text>
+    </View>
+  );
+}
+
 function LocationStep({
   draftPlayer,
   setDraftPlayer
@@ -1351,12 +1572,14 @@ function MapPicker({
 
 function MapExploreScreen({
   clubs,
+  originCoordinate,
   query,
   setQuery,
   onDirections,
   onShowGames
 }: {
   clubs: PlayerClubSnapshot[];
+  originCoordinate: { latitude: number; longitude: number };
   query: string;
   setQuery: (value: string) => void;
   onDirections: (club: PlayerClubSnapshot) => void;
@@ -1381,15 +1604,10 @@ function MapExploreScreen({
           <MapView
             provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
             style={styles.liveMap}
-            initialRegion={{
-              latitude: homeCoordinate.latitude,
-              longitude: homeCoordinate.longitude,
-              latitudeDelta: 0.2,
-              longitudeDelta: 0.2
-            }}
+            initialRegion={texasMapRegion}
           >
             <Circle
-              center={homeCoordinate}
+              center={originCoordinate}
               radius={20 * 1609.34}
               strokeColor="rgba(56,80,109,0.26)"
               fillColor="rgba(56,80,109,0.06)"
@@ -1499,6 +1717,8 @@ function GameFilterPanel({
   setGameType,
   selectedClubId,
   setSelectedClubId,
+  selectedCasinoId,
+  setSelectedCasinoId,
   stakes,
   setStakes,
   distance,
@@ -1513,6 +1733,8 @@ function GameFilterPanel({
   setGameType: (value: GameTypeFilter) => void;
   selectedClubId: string;
   setSelectedClubId: (value: string) => void;
+  selectedCasinoId: CasinoFilter;
+  setSelectedCasinoId: (value: CasinoFilter) => void;
   stakes: string;
   setStakes: (value: string) => void;
   distance: DistanceFilter;
@@ -1527,25 +1749,60 @@ function GameFilterPanel({
     { id: 'public', label: 'Public' },
     { id: 'private', label: 'Private' },
     { id: 'card-house', label: 'Card house' },
-    { id: 'home-game', label: 'Home game' }
+    { id: 'home-game', label: 'Home game' },
+    { id: 'favorites', label: 'Favorites' }
   ];
+  const cardHouseClubs = clubs.filter((club) => !isCasinoClub(club));
+  const casinoClubs = clubs.filter(isCasinoClub);
   return (
     <View style={styles.filterPanel}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipRow}>
         {typeOptions.map((option) => (
-          <Chip key={option.id} label={option.label} active={gameType === option.id} onPress={() => setGameType(option.id)} />
+          <Chip key={option.id} label={option.label} active={gameType === option.id} onPress={() => setGameType(gameType === option.id ? 'none' : option.id)} />
         ))}
       </ScrollView>
       <View style={styles.field}>
         <Text style={styles.fieldLabel}>Card House</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipRow}>
-          <Chip label="All houses" active={selectedClubId === 'all'} onPress={() => setSelectedClubId('all')} />
-          {clubs.map((club) => (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator
+          style={styles.cardHouseScroller}
+          contentContainerStyle={styles.filterChipRow}
+        >
+          <Chip
+            label="All houses"
+            active={selectedClubId === 'all'}
+            onPress={() => setSelectedClubId(selectedClubId === 'all' ? 'none' : 'all')}
+          />
+          {cardHouseClubs.map((club) => (
             <Chip
               key={club.club.id}
               label={club.club.name}
               active={selectedClubId === club.club.id}
-              onPress={() => setSelectedClubId(club.club.id)}
+              onPress={() => setSelectedClubId(selectedClubId === club.club.id ? 'none' : club.club.id)}
+            />
+          ))}
+        </ScrollView>
+      </View>
+      <View style={styles.field}>
+        <Text style={styles.fieldLabel}>Casino</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator
+          style={styles.cardHouseScroller}
+          contentContainerStyle={styles.filterChipRow}
+        >
+          <Chip
+            label="All casinos"
+            active={selectedCasinoId === 'all'}
+            onPress={() => setSelectedCasinoId(selectedCasinoId === 'all' ? 'none' : 'all')}
+          />
+          {casinoClubs.map((club) => (
+            <Chip
+              key={club.club.id}
+              label={club.club.name}
+              active={selectedCasinoId === club.club.id}
+              onPress={() => setSelectedCasinoId(selectedCasinoId === club.club.id ? 'none' : club.club.id)}
             />
           ))}
         </ScrollView>
@@ -1556,7 +1813,7 @@ function GameFilterPanel({
           <Text style={styles.fieldLabel}>Distance</Text>
           <View style={styles.distanceRow}>
             {[5, 10, 20, 50].map((option) => (
-              <Pressable key={option} onPress={() => setDistance(option as DistanceFilter)} style={[styles.distanceChip, distance === option && styles.distanceChipActive]}>
+              <Pressable key={option} onPress={() => setDistance(distance === option ? 'none' : option as DistanceFilter)} style={[styles.distanceChip, distance === option && styles.distanceChipActive]}>
                 <Text style={[styles.distanceChipText, distance === option && styles.distanceChipTextActive]}>{option}</Text>
               </Pressable>
             ))}
@@ -1593,14 +1850,22 @@ function IconActionButton({
   active?: boolean;
   disabled?: boolean;
 }) {
+  const [hovered, setHovered] = useState(false);
   return (
     <Pressable
       accessibilityLabel={label}
       disabled={disabled}
       onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
       style={[styles.iconActionButton, active && styles.iconActionButtonActive, disabled && styles.iconActionButtonDisabled]}
     >
       <Ionicons name={icon} size={19} color={active ? '#ffffff' : disabled ? colors.muted : colors.primary} />
+      {hovered && !disabled ? (
+        <View pointerEvents="none" style={styles.iconTooltip}>
+          <Text style={styles.iconTooltipText}>{label}</Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -1670,95 +1935,6 @@ function HostControlPanel({ playerName, hostedCount }: { playerName: string; hos
   );
 }
 
-function ClubOperationsView({
-  clubs,
-  selectedClub,
-  onSelectClub
-}: {
-  clubs: PlayerClubSnapshot[];
-  selectedClub: PlayerClubSnapshot;
-  onSelectClub: (clubId: string) => void;
-}) {
-  const postedGames = selectedClub.games.length;
-  const postedSeats = selectedClub.games.reduce((sum, game) => sum + game.availableSeats, 0);
-  const runningTables = selectedClub.games.reduce((sum, game) => sum + game.openTables.length, 0);
-  return (
-    <>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.clubSwitcher}>
-        {clubs.map((club) => {
-          const selected = club.club.id === selectedClub.club.id;
-          return (
-            <Pressable key={club.club.id} onPress={() => onSelectClub(club.club.id)} style={[styles.clubSwitchChip, selected && styles.clubSwitchChipActive]}>
-              <Text style={[styles.clubSwitchText, selected && styles.clubSwitchTextActive]}>{club.club.name}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-      <AnimatedSurface style={styles.agentPanel}>
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.agentKicker}>Club posting board</Text>
-            <Text style={styles.cardTitle}>{selectedClub.club.name}</Text>
-          </View>
-          <View style={styles.statusPill}>
-            <Text style={styles.statusText}>{postedSeats} seats</Text>
-          </View>
-        </View>
-        <View style={styles.summaryGrid}>
-          <Metric label="Posted games" value={postedGames.toString()} />
-          <Metric label="Open seats" value={postedSeats.toString()} />
-          <Metric label="Tables" value={runningTables.toString()} />
-          <Metric label="Waitlist" value={(selectedClub.social?.waitlistCount ?? 0).toString()} />
-        </View>
-      </AnimatedSurface>
-      {selectedClub.games.map((game) => (
-        <ClubPostedGameCard key={game.id} game={game} />
-      ))}
-      {!selectedClub.games.length ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.cardTitle}>No posted games</Text>
-          <Text style={styles.muted}>When this club publishes games from Orbit, they will appear here with seat counts.</Text>
-        </View>
-      ) : null}
-    </>
-  );
-}
-
-function ClubPostedGameCard({ game }: { game: PlayerSyncGame }) {
-  return (
-    <AnimatedSurface style={styles.gameCard}>
-      <View style={styles.gameHeader}>
-        <View style={styles.feedAvatar}>
-          <Text style={styles.feedAvatarText}>{game.name.slice(0, 1)}</Text>
-        </View>
-        <View style={styles.gameTitleBlock}>
-          <Text style={styles.cardTitle}>{game.name}</Text>
-          <Text style={styles.muted}>{game.openTables.length} tables posted / {game.waitlistCount} waiting</Text>
-        </View>
-        <Text style={styles.tableSeats}>{game.availableSeats}</Text>
-      </View>
-      {game.openTables.map((table) => (
-        <View key={table.id} style={styles.tableRow}>
-          <View>
-            <Text style={styles.tableName}>{table.label}</Text>
-            <Text style={styles.muted}>{table.status} / {table.seatsFilled} of {table.maxSeats} seated / {table.collectionMode}</Text>
-          </View>
-          <Text style={styles.tableSeats}>{table.availableSeats}</Text>
-        </View>
-      ))}
-    </AnimatedSurface>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.metric}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
-    </View>
-  );
-}
-
 function PrivateGameComposer({
   draft,
   setDraft,
@@ -1810,18 +1986,22 @@ function OpportunitySectionList({
   opportunities,
   premium,
   player,
+  favoriteClubIds,
   onSelectClub,
   onDirections,
   onWaitlist,
-  onJoinClub
+  onJoinClub,
+  onToggleFavorite
 }: {
   opportunities: GameOpportunity[];
   premium: boolean;
   player: PlayerAccount;
+  favoriteClubIds: string[];
   onSelectClub: (item: GameOpportunity) => void;
   onDirections: (club: PlayerClubSnapshot) => void;
   onWaitlist: (club: PlayerClubSnapshot, game: PlayerSyncGame) => void;
   onJoinClub: (club: PlayerClubSnapshot) => void;
+  onToggleFavorite: (club: PlayerClubSnapshot) => void;
 }) {
   const sections = groupOpportunitiesByClub(opportunities);
   return (
@@ -1829,6 +2009,7 @@ function OpportunitySectionList({
       {sections.map((section) => {
         const totalOpenSeats = section.items.reduce((sum, item) => sum + item.game.availableSeats, 0);
         const totalWaiting = section.items.reduce((sum, item) => sum + item.game.waitlistCount, 0);
+        const isFavorite = favoriteClubIds.includes(section.club.club.id);
         return (
           <View key={section.club.club.id} style={styles.clubFolder}>
             <View style={styles.clubFolderHeader}>
@@ -1836,11 +2017,25 @@ function OpportunitySectionList({
                 <Text style={styles.clubFolderAvatarText}>{section.club.club.name.slice(0, 1)}</Text>
               </View>
               <View style={styles.clubFolderCopy}>
-                <Text style={styles.cardTitle}>{section.club.club.name}</Text>
+                <View style={styles.clubFolderTitleRow}>
+                  <Text style={styles.cardTitle}>{section.club.club.name}</Text>
+                  {isFavorite ? (
+                    <View style={styles.favoriteBadge}>
+                      <Ionicons name="star" size={12} color={colors.amber} />
+                      <Text style={styles.favoriteBadgeText}>Favorite</Text>
+                    </View>
+                  ) : null}
+                </View>
                 <Text style={styles.muted}>
-                  {section.items.length} games / {totalOpenSeats} open seats / {totalWaiting} waiting / {section.distanceMiles.toFixed(1)} mi
+                  {getClubCity(section.club)} / {section.items.length} games / {totalOpenSeats} open seats / {totalWaiting} waiting / {section.distanceMiles.toFixed(1)} mi
                 </Text>
               </View>
+              <IconActionButton
+                icon={isFavorite ? 'star' : 'star-outline'}
+                label={isFavorite ? `Unfavorite ${section.club.club.name}` : `Favorite ${section.club.club.name}`}
+                onPress={() => onToggleFavorite(section.club)}
+                active={isFavorite}
+              />
             </View>
             <View style={styles.clubFolderGames}>
               {section.items.map((item, index) => (
@@ -1887,8 +2082,12 @@ function OpportunityCard({
   const needsMembership = !item.isJoined;
   const statusLabel = item.game.availableSeats ? `${item.game.availableSeats} open` : item.game.formingCount ? 'Forming' : 'Waitlist';
   const recommendationLabel = item.score >= 80 ? 'Best play' : item.score >= 55 ? 'Strong option' : item.score >= 30 ? 'Watchlist' : 'Low edge';
+  const feeProfile = getClubFeeProfile(item.club);
+  const accessProfileText = getAccessProfileText(item.club);
+  const waitlistAheadText = waitlistEntry ? getWaitlistAheadText(waitlistEntry) : '';
   const feedMeta = [
     `${item.club.club.name}`,
+    getClubCity(item.club),
     tableLabel ?? '',
     `${item.distanceMiles.toFixed(1)} mi`,
     `${item.game.waitlistCount} waiting`,
@@ -1910,6 +2109,21 @@ function OpportunityCard({
           <Text style={styles.statusText}>{statusLabel}</Text>
         </View>
       </View>
+      <View style={styles.feeInfoBand}>
+        <Ionicons name="receipt-outline" size={15} color={colors.primaryDark} />
+        <View style={[styles.feeTypePill, feeProfile.type === 'rake' && styles.rakeTypePill]}>
+          <Text style={[styles.feeTypePillText, feeProfile.type === 'rake' && styles.rakeTypePillText]}>
+            {feeProfile.type === 'rake' ? 'RAKE' : 'TIME'}
+          </Text>
+        </View>
+        <Text style={styles.feeInfoText}>{accessProfileText}</Text>
+      </View>
+      {waitlistEntry ? (
+        <View style={styles.waitlistAheadBand}>
+          <Ionicons name="people-outline" size={15} color={colors.amber} />
+          <Text style={styles.waitlistAheadText}>{waitlistAheadText}</Text>
+        </View>
+      ) : null}
       {premium ? (
         <>
           <View style={styles.recommendationBand}>
@@ -1971,6 +2185,7 @@ function GameCard({
 }) {
   const alreadyWaiting = Boolean(waitlistEntry);
   const buttonAction = alreadyWaiting ? undefined : joined ? onWaitlist : onJoinClub;
+  const waitlistAheadText = waitlistEntry ? getWaitlistAheadText(waitlistEntry) : '';
   return (
     <AnimatedSurface style={styles.gameCard}>
       <View style={styles.gameHeader}>
@@ -2009,6 +2224,12 @@ function GameCard({
           </View>
         ) : null}
       </View>
+      {waitlistEntry ? (
+        <View style={styles.waitlistAheadBand}>
+          <Ionicons name="people-outline" size={15} color={colors.amber} />
+          <Text style={styles.waitlistAheadText}>{waitlistAheadText}</Text>
+        </View>
+      ) : null}
       {game.openTables.map((table) => (
         <View key={table.id} style={styles.tableRow}>
           <View>
@@ -2082,6 +2303,98 @@ function ClubMembershipPlanScreen({
         <Text style={styles.lockedRecommendationText}>Demo prices are placeholders until each real card house connects its membership checkout.</Text>
       </View>
       {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
+    </View>
+  );
+}
+
+function ClubPaymentPlaceholderScreen({
+  club,
+  plan,
+  price,
+  message,
+  onBack,
+  onPaymentComplete
+}: {
+  club: PlayerClubSnapshot;
+  plan: ClubMembershipPlan;
+  price: string;
+  message: string;
+  onBack: () => void;
+  onPaymentComplete: () => void;
+}) {
+  return (
+    <View style={styles.membershipScreen}>
+      <Pressable style={styles.inlineBackAction} onPress={onBack}>
+        <Ionicons name="chevron-back" size={17} color={colors.primary} />
+        <Text style={styles.inlineBackText}>Membership</Text>
+      </Pressable>
+      <View style={styles.paymentPlaceholder}>
+        <View style={styles.paymentPlaceholderIcon}>
+          <Ionicons name="card-outline" size={28} color={colors.primary} />
+        </View>
+        <Text style={styles.membershipTitle}>Payment</Text>
+        <Text style={styles.muted}>
+          {club.club.name} / {plan === 'day' ? 'Day Pass' : 'Monthly Membership'} / {price}
+        </Text>
+      </View>
+      <AnimatedButton variant="primary" onPress={onPaymentComplete} style={[styles.primaryButton, styles.fullWidthButton]}>
+        <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
+        <Text style={styles.primaryButtonText}>Complete demo payment</Text>
+      </AnimatedButton>
+      {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
+    </View>
+  );
+}
+
+function PlayerHistoryScreen({ sessions }: { sessions: typeof demoSessionHistory }) {
+  const totalProfitLoss = sessions.reduce((sum, session) => sum + session.profitLoss, 0);
+  const totalHours = sessions.reduce((sum, session) => sum + session.hours, 0);
+  const hourly = totalHours ? totalProfitLoss / totalHours : 0;
+  return (
+    <View style={styles.accountCard}>
+      <View style={styles.sectionHeader}>
+        <View>
+          <Text style={styles.sectionTitle}>Player History</Text>
+          <Text style={styles.muted}>{sessions.length} logged sessions</Text>
+        </View>
+        <View style={[styles.historySummaryPill, totalProfitLoss >= 0 ? styles.profitPill : styles.lossPill]}>
+          <Text style={[styles.historySummaryText, totalProfitLoss >= 0 ? styles.profitText : styles.lossText]}>
+            {formatCurrency(totalProfitLoss)}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.historyTotals}>
+        <HistoryMetric label="Hourly" value={formatHourly(hourly)} positive={hourly >= 0} />
+        <HistoryMetric label="Hours" value={totalHours.toFixed(1)} />
+        <HistoryMetric label="Buy-ins" value={formatCurrency(sessions.reduce((sum, session) => sum + session.buyIn, 0))} />
+      </View>
+      {sessions.map((session) => {
+        const sessionHourly = session.hours ? session.profitLoss / session.hours : 0;
+        return (
+          <View key={session.id} style={styles.historyRow}>
+            <View style={styles.historyDateBadge}>
+              <Text style={styles.historyDateText}>{session.date}</Text>
+            </View>
+            <View style={styles.historyMain}>
+              <Text style={styles.cardTitle}>{session.venue}</Text>
+              <Text style={styles.muted}>{session.game} / Buy-in {formatCurrency(session.buyIn)} / {session.hours.toFixed(1)} hrs</Text>
+              <Text style={styles.muted}>Hourly {formatHourly(sessionHourly)}</Text>
+            </View>
+            <Text style={[styles.historyProfitText, session.profitLoss >= 0 ? styles.profitText : styles.lossText]}>
+              {formatCurrency(session.profitLoss)}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function HistoryMetric({ label, value, positive }: { label: string; value: string; positive?: boolean }) {
+  return (
+    <View style={styles.historyMetric}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={[styles.metricValue, positive === undefined ? null : positive ? styles.profitText : styles.lossText]}>{value}</Text>
     </View>
   );
 }
@@ -2282,6 +2595,9 @@ function Field({
       <TextInput
         value={value}
         onChangeText={onChangeText}
+        onKeyPress={(event) => {
+          if (event.nativeEvent.key === 'Enter') onSubmit?.();
+        }}
         onSubmitEditing={onSubmit}
         placeholder={label}
         placeholderTextColor={tone === 'light' ? 'rgba(255,255,255,0.56)' : colors.muted}
@@ -2302,8 +2618,51 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
   );
 }
 
-function getClubDistance(club: PlayerClubSnapshot) {
-  return clubDistanceMiles[club.club.id] ?? 18;
+function resolveAddressCoordinate(address?: string) {
+  const normalized = (address ?? '').trim().toLowerCase();
+  if (!normalized) return homeCoordinate;
+  const match = texasAddressCoordinates.find((entry) => entry.keywords.some((keyword) => normalized.includes(keyword)));
+  return match?.coordinate ?? homeCoordinate;
+}
+
+function getDistanceMiles(
+  from: { latitude: number; longitude: number },
+  to: { latitude: number; longitude: number }
+) {
+  const earthRadiusMiles = 3958.8;
+  const latitudeDelta = degreesToRadians(to.latitude - from.latitude);
+  const longitudeDelta = degreesToRadians(to.longitude - from.longitude);
+  const fromLat = degreesToRadians(from.latitude);
+  const toLat = degreesToRadians(to.latitude);
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(fromLat) * Math.cos(toLat) * Math.sin(longitudeDelta / 2) ** 2;
+  return earthRadiusMiles * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function getClubDistance(club: PlayerClubSnapshot, originCoordinate = homeCoordinate) {
+  return getDistanceMiles(originCoordinate, getClubCoordinate(club));
+}
+
+function getClubCity(club: PlayerClubSnapshot) {
+  const address = club.club.address ?? '';
+  const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 2) return parts[parts.length - 2];
+  if (address.toLowerCase().includes('dallas')) return 'Dallas';
+  if (address.toLowerCase().includes('austin')) return 'Austin';
+  if (address.toLowerCase().includes('houston')) return 'Houston';
+  if (address.toLowerCase().includes('bryan')) return 'Bryan';
+  if (address.toLowerCase().includes('college station')) return 'College Station';
+  return 'Texas';
+}
+
+function getClubSearchText(club: PlayerClubSnapshot) {
+  return `${club.club.name} ${club.club.address ?? ''} ${getClubCity(club)}`.toLowerCase();
+}
+
+function isCasinoClub(club: PlayerClubSnapshot) {
+  const text = getClubSearchText(club);
+  return club.club.id.includes('casino') || text.includes('casino') || text.includes('choctaw') || text.includes('winstar');
 }
 
 function getClubCoordinate(club: PlayerClubSnapshot) {
@@ -2358,13 +2717,27 @@ function createFindGameClubFixture(clubId: string): PlayerClubSnapshot {
     'test-club': 'Test Club',
     'club-a': 'Club A',
     'club-b': 'Club B',
-    'stress-room': 'Stress Room'
+    'stress-room': 'Stress Room',
+    'cedar-rail-dallas': 'Cedar Rail Card House',
+    'deep-ellum-poker': 'Deep Ellum Poker Hall',
+    'live-oak-social': 'Live Oak Social Club',
+    'capital-card-room': 'Capital Card Room',
+    'bayou-stack-room': 'Bayou Stack Room',
+    'choctaw-demo-casino': 'Choctaw Demo Casino',
+    'winstar-demo-casino': 'Winstar Demo Casino'
   };
   const gameNames: Record<string, string[]> = {
     'test-club': ['1/2 NLH', '1/3 NLH'],
     'club-a': ['1/2 NLH', 'PLO'],
     'club-b': ['1/3 NLH', 'Tournament'],
-    'stress-room': ['1/2 NLH', '2/5 NLH']
+    'stress-room': ['1/2 NLH', '2/5 NLH'],
+    'cedar-rail-dallas': ['1/2 NLH', '2/5 NLH'],
+    'deep-ellum-poker': ['1/3 NLH', '5/5 PLO'],
+    'live-oak-social': ['1/2 NLH', '2/5 NLH'],
+    'capital-card-room': ['1/3 NLH', '1/2 PLO'],
+    'bayou-stack-room': ['1/2 NLH', '5/10 NLH'],
+    'choctaw-demo-casino': ['1/3 NLH', '2/5 NLH'],
+    'winstar-demo-casino': ['1/2 NLH', '5/5 PLO']
   };
   const games = (gameNames[clubId] ?? ['1/2 NLH']).map((name, index) => {
     const availableSeats = clubId === 'stress-room' ? 10 : Math.max(1, 6 - index * 2);
@@ -2402,7 +2775,7 @@ function createFindGameClubFixture(clubId: string): PlayerClubSnapshot {
     club: {
       id: clubId,
       name: names[clubId] ?? clubId,
-      address: `${clubId.replace(/-/g, ' ')} demo address`,
+      address: demoClubAddresses[clubId] ?? `${clubId.replace(/-/g, ' ')} demo address`,
       phone: '555-0100'
     },
     games,
@@ -2421,6 +2794,17 @@ function createFindGameClubFixture(clubId: string): PlayerClubSnapshot {
 
 function getClubMembershipPrices(club: PlayerClubSnapshot) {
   return demoClubMembershipPrices[club.club.id] ?? demoClubMembershipPrices.default;
+}
+
+function getClubFeeProfile(club: PlayerClubSnapshot) {
+  return clubFeeProfiles[club.club.id] ?? { type: 'time' as const, hourly: '$10/hr' };
+}
+
+function getAccessProfileText(club: PlayerClubSnapshot) {
+  const membership = getClubMembershipPrices(club);
+  const fees = getClubFeeProfile(club);
+  if (fees.type === 'time') return `Paid time: ${fees.hourly} / Membership fee: ${membership.day} or ${membership.monthly}`;
+  return `Rake taken: ${fees.percent} of pot / Membership fee: ${membership.day} or ${membership.monthly}`;
 }
 
 function groupOpportunitiesByClub(opportunities: GameOpportunity[]) {
@@ -2445,7 +2829,9 @@ function getOpportunityTableLabel(item: GameOpportunity, index: number) {
 }
 
 function matchesGameTypeFilter(club: PlayerClubSnapshot, game: PlayerSyncGame, filter: GameTypeFilter) {
+  if (filter === 'none') return true;
   if (filter === 'all') return true;
+  if (filter === 'favorites') return true;
   const text = `${club.club.name} ${game.name}`.toLowerCase();
   if (filter === 'home-game') return text.includes('home');
   if (filter === 'private') return text.includes('private');
@@ -2466,6 +2852,20 @@ function getRecommendationReason(item: GameOpportunity) {
 
 function normalizedIdentity(value?: string) {
   return (value ?? '').trim().toLowerCase();
+}
+
+function getWaitlistAheadText(entry: PlayerWaitlistEntry) {
+  const ahead = Math.max(0, entry.position - 1);
+  return ahead === 1 ? '1 person in front of you' : `${ahead} people in front of you`;
+}
+
+function formatCurrency(value: number) {
+  const prefix = value < 0 ? '-' : '';
+  return `${prefix}$${Math.abs(Math.round(value)).toLocaleString()}`;
+}
+
+function formatHourly(value: number) {
+  return `${formatCurrency(value)}/hr`;
 }
 
 function isPlayerMembership(membership: PlayerClubSnapshot['memberships'][number], player: PlayerAccount) {
@@ -2741,6 +3141,18 @@ const styles = StyleSheet.create({
   optionalStep: {
     gap: 10
   },
+  idCheckPlaceholder: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.24)',
+    borderRadius: 16,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    height: 112,
+    justifyContent: 'center',
+    width: '100%'
+  },
   optionalStepText: {
     color: 'rgba(255,255,255,0.72)',
     fontSize: 13,
@@ -2758,7 +3170,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     height: 44,
     justifyContent: 'center',
-    minWidth: 44
+    minWidth: 44,
+    position: 'relative'
   },
   arrowActionDisabled: {
     opacity: 0.35
@@ -2814,6 +3227,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 44,
     justifyContent: 'center',
+    position: 'relative',
     width: 44
   },
   avatarText: {
@@ -2968,6 +3382,9 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingRight: 8
   },
+  cardHouseScroller: {
+    paddingBottom: Platform.OS === 'web' ? 8 : 0
+  },
   filterGrid: {
     gap: 10
   },
@@ -3043,6 +3460,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 42,
     justifyContent: 'center',
+    position: 'relative',
     width: 42
   },
   agentCopy: {
@@ -3230,6 +3648,28 @@ const styles = StyleSheet.create({
   iconActionButtonDisabled: {
     backgroundColor: '#eeeeea',
     borderColor: colors.line
+  },
+  iconTooltip: {
+    alignItems: 'center',
+    backgroundColor: colors.ink,
+    borderRadius: 8,
+    bottom: 48,
+    maxWidth: 190,
+    minWidth: 84,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    position: 'absolute',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    zIndex: 30
+  },
+  iconTooltipText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '800',
+    textAlign: 'center'
   },
   emptyState: {
     backgroundColor: colors.panel,
@@ -3463,6 +3903,28 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4
   },
+  clubFolderTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7
+  },
+  favoriteBadge: {
+    alignItems: 'center',
+    backgroundColor: '#fff8ed',
+    borderColor: 'rgba(181,106,24,0.18)',
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3
+  },
+  favoriteBadgeText: {
+    color: colors.amber,
+    fontSize: 11,
+    fontWeight: '900'
+  },
   clubFolderGames: {
     gap: 9,
     paddingLeft: 10
@@ -3610,6 +4072,26 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0
   },
+  paymentPlaceholder: {
+    alignItems: 'center',
+    backgroundColor: '#fbfffc',
+    borderColor: colors.line,
+    borderRadius: 12,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    gap: 10,
+    minHeight: 220,
+    justifyContent: 'center',
+    padding: 20
+  },
+  paymentPlaceholderIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 16,
+    height: 56,
+    justifyContent: 'center',
+    width: 56
+  },
   planGrid: {
     gap: 10
   },
@@ -3732,6 +4214,59 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     lineHeight: 18
+  },
+  feeInfoBand: {
+    alignItems: 'center',
+    backgroundColor: '#fff8e8',
+    borderColor: '#f0ddad',
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 9
+  },
+  feeTypePill: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4
+  },
+  feeTypePillText: {
+    color: colors.primary,
+    fontSize: 10,
+    fontWeight: '900'
+  },
+  rakeTypePill: {
+    backgroundColor: '#fff0dc'
+  },
+  rakeTypePillText: {
+    color: colors.amber
+  },
+  feeInfoText: {
+    color: colors.primaryDark,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16
+  },
+  waitlistAheadBand: {
+    alignItems: 'center',
+    backgroundColor: '#fff8ed',
+    borderColor: 'rgba(181,106,24,0.18)',
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 9
+  },
+  waitlistAheadText: {
+    color: colors.amber,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '900',
+    lineHeight: 16
   },
   gameHeader: {
     alignItems: 'center',
@@ -3911,6 +4446,69 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.025,
     shadowRadius: 12
+  },
+  historyTotals: {
+    flexDirection: 'row',
+    gap: 8
+  },
+  historyMetric: {
+    backgroundColor: '#f6f6f3',
+    borderColor: colors.line,
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    gap: 3,
+    padding: 10
+  },
+  historySummaryPill: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7
+  },
+  historySummaryText: {
+    fontSize: 13,
+    fontWeight: '900'
+  },
+  historyRow: {
+    alignItems: 'center',
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 12
+  },
+  historyDateBadge: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 10,
+    minWidth: 52,
+    paddingHorizontal: 8,
+    paddingVertical: 8
+  },
+  historyDateText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '900'
+  },
+  historyMain: {
+    flex: 1,
+    gap: 2
+  },
+  historyProfitText: {
+    fontSize: 15,
+    fontWeight: '900'
+  },
+  profitPill: {
+    backgroundColor: colors.tealSoft
+  },
+  lossPill: {
+    backgroundColor: '#fee2e2'
+  },
+  profitText: {
+    color: colors.teal
+  },
+  lossText: {
+    color: '#dc2626'
   },
   stepHeader: {
     alignItems: 'center',

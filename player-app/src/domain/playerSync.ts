@@ -24,6 +24,7 @@ export type PlayerAccount = {
   homeLocation?: string;
   searchRadiusMiles?: number;
   preferredGameIds: string[];
+  favoriteClubIds?: string[];
   preferredStakes?: string;
   typicalAvailability?: string;
 };
