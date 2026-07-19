@@ -65,6 +65,7 @@ const additionalDemoClubSnapshots: PlayerClubSnapshot[] = [
     ],
     memberships: [],
     waitlists: [],
+    notifications: [],
     social: { activePlayerCount: 19, adminCount: 2, knownPlayersInHouse: 1, waitlistCount: 7 },
     generatedAt: new Date().toISOString()
   },
@@ -81,6 +82,7 @@ const additionalDemoClubSnapshots: PlayerClubSnapshot[] = [
     ],
     memberships: [],
     waitlists: [],
+    notifications: [],
     social: { activePlayerCount: 16, adminCount: 1, knownPlayersInHouse: 0, waitlistCount: 4 },
     generatedAt: new Date().toISOString()
   },
@@ -97,6 +99,7 @@ const additionalDemoClubSnapshots: PlayerClubSnapshot[] = [
     ],
     memberships: [],
     waitlists: [],
+    notifications: [],
     social: { activePlayerCount: 15, adminCount: 1, knownPlayersInHouse: 2, waitlistCount: 2 },
     generatedAt: new Date().toISOString()
   },
@@ -113,6 +116,7 @@ const additionalDemoClubSnapshots: PlayerClubSnapshot[] = [
     ],
     memberships: [],
     waitlists: [],
+    notifications: [],
     social: { activePlayerCount: 17, adminCount: 2, knownPlayersInHouse: 1, waitlistCount: 7 },
     generatedAt: new Date().toISOString()
   },
@@ -129,6 +133,7 @@ const additionalDemoClubSnapshots: PlayerClubSnapshot[] = [
     ],
     memberships: [],
     waitlists: [],
+    notifications: [],
     social: { activePlayerCount: 20, adminCount: 2, knownPlayersInHouse: 0, waitlistCount: 4 },
     generatedAt: new Date().toISOString()
   },
@@ -145,6 +150,7 @@ const additionalDemoClubSnapshots: PlayerClubSnapshot[] = [
     ],
     memberships: [],
     waitlists: [],
+    notifications: [],
     social: { activePlayerCount: 26, adminCount: 3, knownPlayersInHouse: 1, waitlistCount: 5 },
     generatedAt: new Date().toISOString()
   },
@@ -161,6 +167,7 @@ const additionalDemoClubSnapshots: PlayerClubSnapshot[] = [
     ],
     memberships: [],
     waitlists: [],
+    notifications: [],
     social: { activePlayerCount: 31, adminCount: 4, knownPlayersInHouse: 2, waitlistCount: 5 },
     generatedAt: new Date().toISOString()
   }

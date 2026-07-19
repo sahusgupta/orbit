@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth';
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -27,6 +28,8 @@ import type {
   PlayerClubSnapshot,
   PlayerMembershipRequest,
   PlayerPrivateGameListing,
+  PlayerTournament,
+  PlayerTournamentRegistration,
   PlayerProfileDocument,
   PlayerWaitlistRequest
 } from '../domain/playerSync';
@@ -55,6 +58,76 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 
 export const syncBaseUrl = `firebase://${firebaseConfig.projectId}/clubs`;
+
+export async function fetchPlayerTournaments(playerId: string) {
+  const clubsSnapshot = await getDocs(collection(db, 'clubs'));
+  const rows = await Promise.all(clubsSnapshot.docs.map(async (clubDoc) => {
+    const [events, registrations] = await Promise.all([
+      getDocs(collection(db, 'clubs', clubDoc.id, 'tournaments')),
+      getDocs(query(collection(db, 'clubs', clubDoc.id, 'tournamentRegistrations'), where('playerId', '==', playerId || '__none__')))
+    ]);
+    return {
+      tournaments: events.docs.map((eventDoc) => ({ ...eventDoc.data(), id: eventDoc.id, clubId: clubDoc.id } as PlayerTournament)),
+      registrations: registrations.docs.map((registrationDoc) => registrationDoc.data() as PlayerTournamentRegistration)
+    };
+  }));
+  return {
+    tournaments: rows.flatMap((row) => row.tournaments),
+    registrations: rows.flatMap((row) => row.registrations)
+  };
+}
+
+export function subscribeToPlayerTournaments(playerId: string, callback: (result: Awaited<ReturnType<typeof fetchPlayerTournaments>>) => void) {
+  let active = true;
+  let childUnsubscribers: Unsubscribe[] = [];
+  const refresh = () => fetchPlayerTournaments(playerId).then((result) => active && callback(result)).catch(() => undefined);
+  const rootUnsubscribe = onSnapshot(collection(db, 'clubs'), (clubsSnapshot) => {
+    childUnsubscribers.forEach((unsubscribe) => unsubscribe());
+    childUnsubscribers = clubsSnapshot.docs.flatMap((clubDoc) => [
+      onSnapshot(collection(db, 'clubs', clubDoc.id, 'tournaments'), refresh, () => undefined),
+      onSnapshot(query(collection(db, 'clubs', clubDoc.id, 'tournamentRegistrations'), where('playerId', '==', playerId || '__none__')), refresh, () => undefined)
+    ]);
+    refresh();
+  }, () => undefined);
+  return () => {
+    active = false;
+    rootUnsubscribe();
+    childUnsubscribers.forEach((unsubscribe) => unsubscribe());
+  };
+}
+
+export async function registerForTournament(tournament: PlayerTournament, player: PlayerAccount) {
+  const uid = ensureSignedInIdentity();
+  if (uid !== player.id) throw new Error('The signed-in Orbit Player account does not match this profile.');
+  if (tournament.registrationStatus !== 'open' || Date.now() >= Date.parse(tournament.registrationClosesAt)) {
+    throw new Error('Registration for this tournament is closed.');
+  }
+  const now = new Date().toISOString();
+  const registration: PlayerTournamentRegistration = {
+    id: `${tournament.id}:${uid}`,
+    tournamentId: tournament.id,
+    clubId: tournament.clubId,
+    playerId: uid,
+    playerName: player.name,
+    playerEmail: player.email,
+    status: 'registered',
+    rebuys: 0,
+    addOns: 0,
+    registeredAt: now,
+    updatedAt: now
+  };
+  await setDoc(doc(db, 'clubs', tournament.clubId, 'tournamentRegistrations', registration.id), { ...registration, updatedAt: serverTimestamp() });
+  return registration;
+}
+
+export async function unregisterFromTournament(tournament: PlayerTournament, registration: PlayerTournamentRegistration) {
+  const uid = ensureSignedInIdentity();
+  if (registration.playerId !== uid) throw new Error('You can only remove your own registration.');
+  if (!tournament.unregisterAllowed || Date.now() >= Date.parse(tournament.startsAt)) {
+    throw new Error('Self-unregistration is no longer available. Contact tournament staff.');
+  }
+  await deleteDoc(doc(db, 'clubs', tournament.clubId, 'tournamentRegistrations', registration.id));
+}
 
 export function isSyncConfigured() {
   return true;

@@ -255,7 +255,7 @@ type TournamentLevel = {
   breakMinutes: number;
 };
 
-type TournamentPlayerStatus = 'Registered' | 'Active' | 'Eliminated';
+type TournamentPlayerStatus = 'Registered' | 'Checked In' | 'Active' | 'Eliminated' | 'Finished';
 
 type TournamentPlayer = {
   id: string;
@@ -297,6 +297,10 @@ type Tournament = {
   buyIn: number;
   startingStack: number;
   rebuyPrizePercent: number;
+  rebuyPrice?: number;
+  addOnPrice?: number;
+  lateRegistrationThroughLevel?: number;
+  registrationClosesAt?: string;
   tableSize: number;
   levels: TournamentLevel[];
   players: TournamentPlayer[];
@@ -638,7 +642,7 @@ const getTournamentEntries = (tournament?: Tournament | null) =>
 const getTournamentActivePlayers = (tournament?: Tournament | null) =>
   (tournament?.players ?? []).filter((player) => player.status !== 'Eliminated').length;
 const getTournamentPrizePool = (tournament?: Tournament | null) =>
-  (tournament?.players ?? []).reduce((sum, player) => sum + player.buyIn + (player.rebuys + player.addOns) * player.buyIn * ((tournament?.rebuyPrizePercent ?? 100) / 100), 0);
+  (tournament?.players ?? []).reduce((sum, player) => sum + player.buyIn + player.rebuys * (tournament?.rebuyPrice ?? player.buyIn) * ((tournament?.rebuyPrizePercent ?? 100) / 100) + player.addOns * (tournament?.addOnPrice ?? player.buyIn) * ((tournament?.rebuyPrizePercent ?? 100) / 100), 0);
 const getTournamentAverageStack = (tournament?: Tournament | null) => {
   const activePlayers = getTournamentActivePlayers(tournament);
   if (!tournament || !activePlayers) return 0;
@@ -919,10 +923,29 @@ const normalizeTableCap = (value?: number): TableCap => {
   return 10;
 };
 
+const orbitLaunchTournament = (): Tournament => ({
+  id: 'orbit-launch-championship-2026',
+  name: 'Orbit Launch Championship',
+  status: 'Draft',
+  createdAt: nowIso(),
+  currentLevelIndex: 0,
+  buyIn: 0,
+  startingStack: 25000,
+  rebuyPrizePercent: 100,
+  rebuyPrice: 20,
+  addOnPrice: 10,
+  lateRegistrationThroughLevel: 8,
+  registrationClosesAt: '2026-08-01T20:00:00-05:00',
+  tableSize: 9,
+  levels: defaultTournamentLevels().map((level) => ({ ...level, durationMinutes: 15 })),
+  players: [],
+  payouts: defaultTournamentPayouts()
+});
+
 const seedState: AppState = {
   games: [],
   profiles: [],
-  tournaments: [],
+  tournaments: [orbitLaunchTournament()],
   interests: [],
   sessions: [],
   playerSessions: [],
@@ -1054,7 +1077,7 @@ function normalizeState(parsed: Partial<AppState>): AppState {
         preferredTags: profile.preferredTags ?? []
       };
     }),
-    tournaments: (parsed.tournaments ?? []).map((tournament) => ({
+    tournaments: ([...(parsed.tournaments ?? []), ...((parsed.tournaments ?? []).some((tournament) => tournament.id === 'orbit-launch-championship-2026') ? [] : [orbitLaunchTournament()])]).map((tournament) => ({
       ...tournament,
       status: tournament.status ?? 'Draft',
       currentLevelIndex: tournament.currentLevelIndex ?? 0,
@@ -4770,7 +4793,7 @@ function App() {
       startedAt: current.startedAt ?? nowIso(),
       levelStartedAt: nowIso(),
       pausedRemainingSeconds: undefined,
-      players: current.players.map((player) => ({ ...player, status: player.status === 'Registered' ? 'Active' : player.status }))
+      players: current.players.map((player) => ({ ...player, status: player.status === 'Registered' || player.status === 'Checked In' ? 'Active' : player.status }))
     }), 'Started tournament');
   };
 
@@ -5205,6 +5228,13 @@ function App() {
           : playerSession
       )
     });
+  };
+
+  const checkInTournamentPlayer = (tournament: Tournament, playerId: string) => {
+    updateTournament(tournament.id, (current) => ({
+      ...current,
+      players: current.players.map((player) => player.id === playerId ? { ...player, status: 'Checked In' } : player)
+    }), 'Checked in player');
   };
 
   const navigatePrimary = (destination: PrimaryDestination) => {
@@ -5646,9 +5676,10 @@ function App() {
                     <article key={player.id}>
                       <div>
                         <strong>{player.name}</strong>
-                        <span>{player.status} - {1 + player.rebuys + player.addOns} entries</span>
+                        <span>{player.status} · {player.rebuys} rebuys · {player.addOns} add-ons</span>
                       </div>
                       <div className="tournament-player-actions">
+                        {player.status === 'Registered' ? <button className="mini-button" onClick={() => checkInTournamentPlayer(tournament, player.id)}>Check in</button> : null}
                         <button className="mini-button" onClick={() => addTournamentEntry(tournament, player.id, 'rebuys')}>Rebuy</button>
                         <button className="mini-button" onClick={() => addTournamentEntry(tournament, player.id, 'addOns')}>Add-on</button>
                         {player.status !== 'Eliminated' ? <button className="mini-button" onClick={() => eliminateTournamentPlayer(tournament, player.id)}>Out</button> : null}

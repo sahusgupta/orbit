@@ -7,7 +7,7 @@ import MapView, { Marker, PROVIDER_GOOGLE, Circle } from './components/MapView';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { PlayerAccount, PlayerClubMembershipRecord, PlayerClubSnapshot, PlayerInAppNotification, PlayerPrivateGameListing, PlayerSyncGame, PlayerWaitlistEntry } from './domain/playerSync';
+import type { PlayerAccount, PlayerClubMembershipRecord, PlayerClubSnapshot, PlayerInAppNotification, PlayerPrivateGameListing, PlayerSyncGame, PlayerTournament, PlayerTournamentRegistration, PlayerWaitlistEntry } from './domain/playerSync';
 import {
   applyMembershipRequest,
   applyWaitlistRequest,
@@ -20,16 +20,20 @@ import {
   fetchAllClubSnapshots,
   fetchPrivateGameListings,
   fetchPlayerProfile,
+  fetchPlayerTournaments,
   getCurrentFirebasePlayer,
   onFirebasePlayerChanged,
   type FirebasePlayerIdentity,
   isSyncConfigured,
   savePlayerProfile,
+  registerForTournament,
   subscribeToAllClubSnapshots,
   subscribeToPrivateGameListings,
+  subscribeToPlayerTournaments,
   submitMembershipRequest,
   submitPrivateGameListing,
   submitWaitlistRequest,
+  unregisterFromTournament,
   updatePlayerClubMembership
 } from './data/orbitSyncApi';
 
@@ -77,6 +81,37 @@ const demoFriends = [
   { id: 'friend-2', name: 'Mia Chen', lastSession: 'May 27', preferred: '1/2 PLO' },
   { id: 'friend-3', name: 'Drew King', lastSession: 'No recent session', preferred: '1/3 NLH' }
 ];
+
+const orbitLaunchChampionship: PlayerTournament = {
+  id: 'orbit-launch-championship-2026',
+  clubId: 'lucky-lodge',
+  name: 'Orbit Launch Championship',
+  startsAt: '2026-08-01T18:00:00-05:00',
+  registrationOpensAt: '2026-07-19T08:00:00-05:00',
+  registrationClosesAt: '2026-08-01T20:00:00-05:00',
+  registrationStatus: 'open',
+  buyIn: 0,
+  prizePoolLabel: 'Sponsor-funded launch prizes · final pool posted by staff',
+  startingStack: 25000,
+  levelMinutes: 15,
+  lateRegistrationThroughLevel: 8,
+  rebuyPrice: 20,
+  rebuyStack: 25000,
+  unlimitedRebuys: true,
+  addOnPrice: 10,
+  addOnStack: 25000,
+  rules: [
+    'One free initial entry per verified Orbit Player account; app registration is required.',
+    'Unlimited $20 rebuys award 25,000 chips through the end of Level 8.',
+    'One $10 add-on for 25,000 chips is available at the end of late registration.',
+    'Staff decisions, house rules, and posted event procedures are final.'
+  ],
+  unregisterAllowed: true,
+  entrantCount: 0,
+  totalRebuys: 0,
+  totalAddOns: 0,
+  featured: true
+};
 
 const demoSessionHistory = [
   { id: 'session-1', date: 'Jul 12', venue: 'Club B', game: '1/2 NLH', buyIn: 300, hours: 4.5, profitLoss: 185 },
@@ -267,6 +302,9 @@ export default function PlayerApp() {
   const [draftPlayer, setDraftPlayer] = useState<PlayerAccount>(emptyPlayer);
   const [accountLoaded, setAccountLoaded] = useState(false);
   const [clubs, setClubs] = useState<PlayerClubSnapshot[]>(initialClubSnapshots);
+  const [tournaments, setTournaments] = useState<PlayerTournament[]>([orbitLaunchChampionship]);
+  const [tournamentRegistrations, setTournamentRegistrations] = useState<PlayerTournamentRegistration[]>([]);
+  const [tournamentMessage, setTournamentMessage] = useState('');
   const [selectedClubId, setSelectedClubId] = useState(initialClubSnapshots[0].club.id);
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const [firebaseIdentity, setFirebaseIdentity] = useState<FirebasePlayerIdentity | null>(() => getCurrentFirebasePlayer());
@@ -287,6 +325,7 @@ export default function PlayerApp() {
   const joinedClubIds = new Set(memberships.map((membership) => membership.clubId));
   const favoriteClubIds = player.favoriteClubIds ?? [];
   const memberClubs = clubs.filter((club) => joinedClubIds.has(club.club.id));
+  const selectedClubTournaments = tournaments.filter((tournament) => tournament.clubId === selectedClub.club.id);
   const findGameClubs = useMemo(() => buildFindGameClubs(clubs), [clubs]);
   const playerHomeCoordinate = useMemo(() => resolveAddressCoordinate(player.homeLocation), [player.homeLocation]);
   const searchRadius = distanceFilter;
@@ -393,6 +432,16 @@ export default function PlayerApp() {
     fetchPrivateGameListings().then(handlePrivateGames);
     return subscribeToPrivateGameListings(handlePrivateGames);
   }, [accountLoaded, hasAccount]);
+
+  useEffect(() => {
+    if (!accountLoaded || !hasAccount || !firebaseIdentity) return;
+    const handleTournaments = (result: Awaited<ReturnType<typeof fetchPlayerTournaments>>) => {
+      setTournaments(mergeOrbitLaunchTournament(result.tournaments));
+      setTournamentRegistrations(result.registrations);
+    };
+    fetchPlayerTournaments(player.id).then(handleTournaments).catch(() => undefined);
+    return subscribeToPlayerTournaments(player.id, handleTournaments);
+  }, [accountLoaded, firebaseIdentity?.uid, hasAccount, player.id]);
 
   const opportunities = useMemo(() => {
     const query = gameQuery.trim().toLowerCase();
@@ -617,6 +666,32 @@ export default function PlayerApp() {
       setSyncStatus(`Saved locally - ${result.error}`);
     }
     updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
+  };
+
+  const registerTournament = async (tournament: PlayerTournament) => {
+    if (!firebaseIdentity || firebaseIdentity.uid !== player.id) {
+      setTournamentMessage('Sign in to your Orbit Player account to register for this event.');
+      return;
+    }
+    setTournamentMessage('Registering your free entry...');
+    try {
+      const registration = await registerForTournament(tournament, player);
+      setTournamentRegistrations((current) => [registration, ...current.filter((item) => item.id !== registration.id)]);
+      setTournamentMessage(`You're registered for the ${tournament.name}. Your entry is free.`);
+    } catch (error) {
+      setTournamentMessage(error instanceof Error ? error.message : 'Unable to register right now.');
+    }
+  };
+
+  const unregisterTournament = async (tournament: PlayerTournament, registration: PlayerTournamentRegistration) => {
+    setTournamentMessage('Removing your registration...');
+    try {
+      await unregisterFromTournament(tournament, registration);
+      setTournamentRegistrations((current) => current.filter((item) => item.id !== registration.id));
+      setTournamentMessage(`Your registration for ${tournament.name} was removed.`);
+    } catch (error) {
+      setTournamentMessage(error instanceof Error ? error.message : 'Unable to unregister right now.');
+    }
   };
 
   const openDirections = (club: PlayerClubSnapshot) => {
@@ -936,6 +1011,29 @@ export default function PlayerApp() {
                         onJoinClub={() => openClubSignup(selectedClub)}
                       />
                     ))}
+                    <View style={styles.clubGamesHeader}>
+                      <Text style={styles.sectionTitle}>Upcoming tournaments</Text>
+                      <Text style={styles.muted}>{selectedClubTournaments.length} scheduled</Text>
+                    </View>
+                    {selectedClubTournaments.length ? selectedClubTournaments.map((tournament) => {
+                      const registration = tournamentRegistrations.find((item) => item.tournamentId === tournament.id && item.playerId === player.id);
+                      return (
+                        <TournamentCard
+                          key={tournament.id}
+                          tournament={tournament}
+                          registration={registration}
+                          hasOrbitAccount={Boolean(firebaseIdentity && firebaseIdentity.uid === player.id)}
+                          message={tournamentMessage}
+                          onRegister={() => registerTournament(tournament)}
+                          onUnregister={() => registration && unregisterTournament(tournament, registration)}
+                        />
+                      );
+                    }) : (
+                      <View style={styles.emptyState}>
+                        <Text style={styles.cardTitle}>No tournaments announced</Text>
+                        <Text style={styles.muted}>Upcoming events from this club will appear here.</Text>
+                      </View>
+                    )}
                     <ClubHistoryPanel />
                   </>
                 ) : null}
@@ -1068,6 +1166,82 @@ export default function PlayerApp() {
 
 function StripeGate({ children }: { children: React.ReactElement }) {
   return <>{children}</>;
+}
+
+function TournamentCard({
+  tournament,
+  registration,
+  hasOrbitAccount,
+  message,
+  onRegister,
+  onUnregister
+}: {
+  tournament: PlayerTournament;
+  registration?: PlayerTournamentRegistration;
+  hasOrbitAccount: boolean;
+  message: string;
+  onRegister: () => void;
+  onUnregister: () => void;
+}) {
+  const registrationOpen = tournament.registrationStatus === 'open' && Date.now() < Date.parse(tournament.registrationClosesAt);
+  const canUnregister = Boolean(registration && tournament.unregisterAllowed && Date.now() < Date.parse(tournament.startsAt));
+  const liveEntrants = Math.max(tournament.entrantCount, registration ? 1 : 0);
+  return (
+    <View style={[styles.tournamentCard, tournament.featured && styles.tournamentCardFeatured]}>
+      <View style={styles.tournamentTitleRow}>
+        <View style={styles.tournamentIcon}><Ionicons name="trophy-outline" size={22} color={colors.primary} /></View>
+        <View style={styles.clubMain}>
+          <Text style={styles.cardTitle}>{tournament.name}</Text>
+          <Text style={styles.muted}>{formatEventDate(tournament.startsAt)}</Text>
+        </View>
+        <View style={[styles.statusPill, registrationOpen ? styles.tournamentOpenPill : styles.tournamentClosedPill]}>
+          <Text style={styles.statusText}>{registrationOpen ? 'Open' : 'Closed'}</Text>
+        </View>
+      </View>
+      <Text style={styles.tournamentPrize}>{tournament.buyIn === 0 ? 'FREE ENTRY · FREEROLL' : `$${tournament.buyIn} ENTRY`}</Text>
+      <Text style={styles.muted}>{tournament.prizePoolLabel}</Text>
+      <View style={styles.tournamentStats}>
+        <View><Text style={styles.tournamentStatValue}>{tournament.startingStack.toLocaleString()}</Text><Text style={styles.tournamentStatLabel}>Starting chips</Text></View>
+        <View><Text style={styles.tournamentStatValue}>{tournament.levelMinutes} min</Text><Text style={styles.tournamentStatLabel}>Blind levels</Text></View>
+        <View><Text style={styles.tournamentStatValue}>{liveEntrants}</Text><Text style={styles.tournamentStatLabel}>Entrants</Text></View>
+      </View>
+      <View style={styles.tournamentStructure}>
+        <Text style={styles.cardTitle}>Structure</Text>
+        <Text style={styles.muted}>Unlimited ${tournament.rebuyPrice} rebuys through Level {tournament.lateRegistrationThroughLevel} · {tournament.rebuyStack.toLocaleString()} chips each</Text>
+        <Text style={styles.muted}>${tournament.addOnPrice} add-on after late registration · {tournament.addOnStack.toLocaleString()} chips</Text>
+        <Text style={styles.muted}>Live: {tournament.totalRebuys} rebuys · {tournament.totalAddOns} add-ons</Text>
+      </View>
+      <View style={styles.tournamentRules}>
+        <Text style={styles.cardTitle}>Rules</Text>
+        {tournament.rules.map((rule) => <Text key={rule} style={styles.tournamentRule}>• {rule}</Text>)}
+      </View>
+      {registration ? (
+        <View style={styles.tournamentConfirmation}>
+          <Ionicons name="checkmark-circle" size={20} color={colors.teal} />
+          <View style={styles.clubMain}><Text style={styles.cardTitle}>Registration confirmed</Text><Text style={styles.muted}>Status: {registration.status.replace(/-/g, ' ')}</Text></View>
+        </View>
+      ) : null}
+      {!hasOrbitAccount ? <Text style={styles.tournamentMessage}>An Orbit Player account and in-app sign-in are required.</Text> : null}
+      {message ? <Text style={styles.tournamentMessage}>{message}</Text> : null}
+      {registration ? (
+        canUnregister ? <Pressable style={styles.secondaryActionButton} onPress={onUnregister}><Text style={styles.secondaryActionText}>Unregister</Text></Pressable> : null
+      ) : (
+        <Pressable disabled={!registrationOpen || !hasOrbitAccount} style={[styles.compactButton, (!registrationOpen || !hasOrbitAccount) && styles.disabledAction]} onPress={onRegister}>
+          <Text style={styles.compactButtonText}>{registrationOpen ? 'Register free' : 'Registration closed'}</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+function formatEventDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function mergeOrbitLaunchTournament(liveTournaments: PlayerTournament[]) {
+  const liveOrbit = liveTournaments.find((tournament) => tournament.id === orbitLaunchChampionship.id);
+  return liveOrbit ? liveTournaments : [orbitLaunchChampionship, ...liveTournaments];
 }
 
 function InAppNotificationBanner({
@@ -4770,6 +4944,34 @@ const styles = StyleSheet.create({
   },
   activeTabText: {
     color: colors.ink
-  }
+  },
+  tournamentCard: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 14,
+    marginBottom: 14,
+    padding: 18
+  },
+  tournamentCardFeatured: {
+    borderColor: 'rgba(77,124,254,0.48)',
+    borderWidth: 2
+  },
+  tournamentTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  tournamentIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 12, height: 44, justifyContent: 'center', width: 44 },
+  tournamentOpenPill: { backgroundColor: colors.tealSoft },
+  tournamentClosedPill: { backgroundColor: '#f1f2f4' },
+  tournamentPrize: { color: colors.primary, fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
+  tournamentStats: { backgroundColor: '#f6f7fb', borderRadius: 14, flexDirection: 'row', justifyContent: 'space-between', padding: 14 },
+  tournamentStatValue: { color: colors.ink, fontSize: 16, fontWeight: '900' },
+  tournamentStatLabel: { color: colors.muted, fontSize: 10, fontWeight: '700', marginTop: 2 },
+  tournamentStructure: { gap: 5 },
+  tournamentRules: { gap: 6 },
+  tournamentRule: { color: colors.muted, fontSize: 12, lineHeight: 18 },
+  tournamentConfirmation: { alignItems: 'center', backgroundColor: colors.tealSoft, borderRadius: 12, flexDirection: 'row', gap: 10, padding: 12 },
+  tournamentMessage: { color: colors.primaryDark, fontSize: 12, fontWeight: '700' },
+  secondaryActionButton: { alignItems: 'center', borderColor: colors.line, borderRadius: 10, borderWidth: 1, minHeight: 42, justifyContent: 'center' },
+  disabledAction: { opacity: 0.45 }
 });
 

@@ -161,6 +161,30 @@ service cloud.firestore {
         allow create, update, delete: if isClubAdmin(clubId);
       }
 
+      match /tournaments/{tournamentId} {
+        allow read: if true;
+        allow create, update, delete: if isClubAdmin(clubId);
+      }
+
+      match /tournamentRegistrations/{registrationId} {
+        allow read: if isClubAdmin(clubId) || (isSignedIn() && resource.data.playerId == request.auth.uid);
+        allow create: if isSignedIn()
+          && request.resource.data.playerId == request.auth.uid
+          && request.resource.data.clubId == clubId
+          && request.resource.data.status == 'registered'
+          && request.resource.data.rebuys == 0
+          && request.resource.data.addOns == 0
+          && request.resource.data.id == registrationId
+          && exists(/databases/$(database)/documents/clubs/$(clubId)/tournaments/$(request.resource.data.tournamentId))
+          && get(/databases/$(database)/documents/clubs/$(clubId)/tournaments/$(request.resource.data.tournamentId)).data.registrationStatus == 'open';
+        allow update: if isClubAdmin(clubId);
+        allow delete: if isClubAdmin(clubId)
+          || (isSignedIn()
+            && resource.data.playerId == request.auth.uid
+            && get(/databases/$(database)/documents/clubs/$(clubId)/tournaments/$(resource.data.tournamentId)).data.unregisterAllowed == true
+            && request.time < timestamp(get(/databases/$(database)/documents/clubs/$(clubId)/tournaments/$(resource.data.tournamentId)).data.startsAt));
+      }
+
       match /pushTokens/{playerId} {
         allow read, create, update, delete: if false;
       }

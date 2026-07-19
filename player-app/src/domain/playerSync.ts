@@ -145,6 +145,55 @@ export type PlayerClubSnapshot = {
   generatedAt: string;
 };
 
+export type TournamentRegistrationStatus =
+  | 'registered'
+  | 'checked-in'
+  | 'eliminated'
+  | 'rebought'
+  | 'add-on-purchased'
+  | 'finished';
+
+export type PlayerTournament = {
+  id: string;
+  clubId: string;
+  name: string;
+  startsAt: string;
+  registrationOpensAt: string;
+  registrationClosesAt: string;
+  registrationStatus: 'open' | 'closed';
+  buyIn: number;
+  prizePoolLabel: string;
+  startingStack: number;
+  levelMinutes: number;
+  lateRegistrationThroughLevel: number;
+  rebuyPrice: number;
+  rebuyStack: number;
+  unlimitedRebuys: boolean;
+  addOnPrice: number;
+  addOnStack: number;
+  rules: string[];
+  unregisterAllowed: boolean;
+  entrantCount: number;
+  totalRebuys: number;
+  totalAddOns: number;
+  featured?: boolean;
+};
+
+export type PlayerTournamentRegistration = {
+  id: string;
+  tournamentId: string;
+  clubId: string;
+  playerId: string;
+  playerName: string;
+  playerEmail: string;
+  status: TournamentRegistrationStatus;
+  rebuys: number;
+  addOns: number;
+  registeredAt: string;
+  checkedInAt?: string;
+  updatedAt: string;
+};
+
 export type PlayerPrivateGameListing = {
   id: string;
   name: string;
