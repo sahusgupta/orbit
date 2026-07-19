@@ -1,6 +1,6 @@
 {
   "name": "table_manager",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Connected live poker operations platform for demand, waitlists, tables, rewards, and tournaments.",
   "author": "Orbit",
   "private": true,
