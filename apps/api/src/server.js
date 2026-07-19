@@ -38,6 +38,25 @@ const liveClients = new Set();
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
+app.use((request, response, next) => {
+  const started = Date.now();
+  const requestId = request.get('x-orbit-request-id') || crypto.randomUUID();
+  request.orbitRequestId = requestId;
+  response.set('x-orbit-request-id', requestId);
+  response.on('finish', () => {
+    console.log(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      event: 'api-request',
+      requestId,
+      method: request.method,
+      pathname: request.path,
+      status: response.statusCode,
+      durationMs: Date.now() - started,
+      authType: request.orbitAuth?.type || 'none'
+    }));
+  });
+  next();
+});
 
 function getReceivedApiKey(request) {
   return (
@@ -347,7 +366,16 @@ app.post('/analytical-reports', asyncRoute(async (request, response) => {
   response.status(201).json(storeAnalyticalReport(request.body));
 }));
 
-app.use((error, _request, response, _next) => {
+app.use((error, request, response, _next) => {
+  console.error(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    event: 'api-error',
+    requestId: request.orbitRequestId || '',
+    method: request.method,
+    pathname: request.path,
+    message: error instanceof Error ? error.message : 'Request failed.',
+    stack: process.env.NODE_ENV === 'production' ? undefined : error?.stack
+  }));
   response.status(400).json({ ok: false, error: error instanceof Error ? error.message : 'Request failed.' });
 });
 

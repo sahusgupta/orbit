@@ -38,6 +38,49 @@ let lastUpdateStatus = '';
 let lastUpdateEvent = '';
 let appStartedAt = new Date().toISOString();
 let lastUpdateProgressBucket = -1;
+let warnedAboutMissingApiKey = false;
+
+function writeOrbitApiLog(level, event, details = {}) {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    level,
+    event,
+    ...details
+  };
+  const message = `[orbit-api] ${JSON.stringify(entry)}`;
+  const logger = level === 'error' ? console.error : level === 'warn' ? console.warn : console.info;
+  logger(message);
+  try {
+    const logPath = path.join(app.getPath('userData'), 'orbit-api.log');
+    if (fs.existsSync(logPath) && fs.statSync(logPath).size > 2 * 1024 * 1024) {
+      fs.copyFileSync(logPath, `${logPath}.previous`);
+      fs.truncateSync(logPath, 0);
+    }
+    fs.appendFileSync(logPath, `${JSON.stringify(entry)}\n`, 'utf8');
+  } catch {
+    // Console logging remains available if the packaged log file cannot be written.
+  }
+}
+
+function orbitApiErrorDetails(error) {
+  const cause = error instanceof Error ? error.cause : undefined;
+  return {
+    errorName: error instanceof Error ? error.name : 'Error',
+    errorMessage: error instanceof Error ? error.message : String(error || 'Request failed'),
+    errorCode: error?.code || cause?.code || '',
+    cause: cause instanceof Error ? cause.message : cause ? String(cause) : ''
+  };
+}
+
+async function readApiResponse(response) {
+  const text = await response.text().catch(() => '');
+  if (!text) return { payload: null, responsePreview: '' };
+  try {
+    return { payload: JSON.parse(text), responsePreview: '' };
+  } catch {
+    return { payload: null, responsePreview: text.replace(/\s+/g, ' ').slice(0, 300) };
+  }
+}
 
 function isRecord(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
@@ -247,28 +290,49 @@ function getLocalAccountKey() {
 }
 
 function getApiConfig() {
-  const apiUrl = (process.env.ORBIT_API_URL || 'http://127.0.0.1:4629').replace(/\/+$/, '');
+  // Vercel's generated hostname is valid without www. The www variant does not
+  // currently present a matching TLS certificate and must not be used by clients.
+  const apiUrl = (process.env.ORBIT_API_URL || 'https://orbitapp-one.vercel.app').replace(/\/+$/, '');
   const apiKey = process.env.ORBIT_CLIENT_API_KEY || getLocalClientAuthKey();
   return { apiUrl, apiKey };
 }
 
 async function postClientTelemetry(pathname, payload) {
   const { apiUrl, apiKey } = getApiConfig();
-  if (!apiKey || typeof fetch !== 'function') return;
+  if (!apiKey || typeof fetch !== 'function') {
+    if (!warnedAboutMissingApiKey) {
+      warnedAboutMissingApiKey = true;
+      writeOrbitApiLog('warn', 'request-skipped', { pathname, reason: !apiKey ? 'missing-api-key' : 'fetch-unavailable' });
+    }
+    return;
+  }
+  const requestId = crypto.randomUUID();
+  const started = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 2500);
   try {
-    await fetch(`${apiUrl}${pathname}`, {
+    const response = await fetch(`${apiUrl}${pathname}`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-orbit-api-key': apiKey
+        'x-orbit-api-key': apiKey,
+        'x-orbit-request-id': requestId
       },
       body: JSON.stringify(payload),
       signal: controller.signal
     });
+    if (!response.ok) {
+      const { payload: responsePayload, responsePreview } = await readApiResponse(response);
+      writeOrbitApiLog('warn', 'telemetry-http-error', {
+        requestId, method: 'POST', pathname, status: response.status, durationMs: Date.now() - started,
+        error: responsePayload?.error || '', responsePreview
+      });
+    }
   } catch (error) {
-    console.debug('[orbit-api] telemetry failed:', error instanceof Error ? error.message : 'request failed');
+    writeOrbitApiLog('warn', 'telemetry-network-error', {
+      requestId, method: 'POST', pathname, durationMs: Date.now() - started,
+      timedOut: controller.signal.aborted, ...orbitApiErrorDetails(error)
+    });
   } finally {
     clearTimeout(timeout);
   }
@@ -277,28 +341,43 @@ async function postClientTelemetry(pathname, payload) {
 async function requestOrbitApi(pathname, options = {}) {
   const { apiUrl, apiKey } = getApiConfig();
   const authKey = options.authKey || apiKey;
-  if (!authKey || typeof fetch !== 'function') return null;
+  if (!authKey || typeof fetch !== 'function') {
+    writeOrbitApiLog('warn', 'request-skipped', { pathname, reason: !authKey ? 'missing-api-key' : 'fetch-unavailable' });
+    return null;
+  }
+  const requestId = crypto.randomUUID();
+  const method = options.method || 'GET';
+  const started = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 3500);
   try {
     const response = await fetch(`${apiUrl}${pathname}`, {
-      method: options.method || 'GET',
+      method,
       headers: {
         'content-type': 'application/json',
         'x-orbit-api-key': authKey,
         'x-orbit-auth-key': authKey,
+        'x-orbit-request-id': requestId,
         ...(options.headers || {})
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: controller.signal
     });
-    const payload = await response.json().catch(() => null);
+    const { payload, responsePreview } = await readApiResponse(response);
     if (!response.ok || payload?.ok === false) {
-      throw new Error(payload?.error || `Orbit API returned ${response.status}`);
+      writeOrbitApiLog('warn', 'http-error', {
+        requestId, method, pathname, status: response.status, durationMs: Date.now() - started,
+        error: payload?.error || '', responsePreview
+      });
+      return null;
     }
+    writeOrbitApiLog('info', 'request-succeeded', { requestId, method, pathname, status: response.status, durationMs: Date.now() - started });
     return payload;
   } catch (error) {
-    console.debug('[orbit-api] request failed:', error instanceof Error ? error.message : 'request failed');
+    writeOrbitApiLog('error', 'network-error', {
+      requestId, method, pathname, durationMs: Date.now() - started,
+      timedOut: controller.signal.aborted, ...orbitApiErrorDetails(error)
+    });
     return null;
   } finally {
     clearTimeout(timeout);
@@ -307,14 +386,23 @@ async function requestOrbitApi(pathname, options = {}) {
 
 async function getRemoteBackendStatus() {
   const { apiUrl, apiKey } = getApiConfig();
-  if (!apiKey || typeof fetch !== 'function') return null;
+  if (typeof fetch !== 'function') return null;
+  const requestId = crypto.randomUUID();
+  const started = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 2500);
   try {
-    const response = await fetch(`${apiUrl}/health`, { signal: controller.signal });
-    const payload = await response.json();
+    const response = await fetch(`${apiUrl}/health`, {
+      headers: { 'x-orbit-request-id': requestId, ...(apiKey ? { 'x-orbit-api-key': apiKey } : {}) },
+      signal: controller.signal
+    });
+    const { payload, responsePreview } = await readApiResponse(response);
     if (!response.ok || payload?.ok === false) throw new Error(payload?.error || `Orbit API returned ${response.status}`);
     const parsed = new URL(apiUrl);
+    writeOrbitApiLog('info', 'health-succeeded', {
+      requestId, pathname: '/health', status: response.status, durationMs: Date.now() - started,
+      service: payload.service || '', environment: payload.environment || ''
+    });
     return {
       running: true,
       host: parsed.hostname,
@@ -323,10 +411,14 @@ async function getRemoteBackendStatus() {
       mode: 'api',
       service: payload.service,
       environment: payload.environment,
-      startedAt: payload.startedAt
+      startedAt: payload.startedAt,
+      latencyMs: Date.now() - started
     };
   } catch (error) {
-    console.debug('[orbit-api] health failed:', error instanceof Error ? error.message : 'request failed');
+    writeOrbitApiLog('error', 'health-failed', {
+      requestId, pathname: '/health', durationMs: Date.now() - started,
+      timedOut: controller.signal.aborted, ...orbitApiErrorDetails(error)
+    });
     return null;
   } finally {
     clearTimeout(timeout);
@@ -1346,9 +1438,9 @@ function startAutoUpdates() {
   updateCheckTimer = setInterval(checkForUpdates, updateCheckIntervalMs);
 }
 
-ipcMain.handle('open-route-window', (_event, route) => {
+ipcMain.handle('open-route-window', (_event, route, context = {}) => {
   const normalizedRoute = route === 'outreach' ? 'signals' : validRoutes.has(route) ? route : 'floor';
-  createWindow(normalizedRoute);
+  createWindow(normalizedRoute, context);
 });
 
 ipcMain.handle('load-state', async () => loadStateApiFirst());
@@ -1382,19 +1474,23 @@ ipcMain.handle('record-client-error', (_event, payload = {}) => {
   return { ok: true };
 });
 
-function loadRoute(window, route) {
+function loadRoute(window, route, context = {}) {
+  const hash = route === 'table' && context.sessionId
+    ? `/${route}?sessionId=${encodeURIComponent(context.sessionId)}`
+    : `/${route}`;
   if (isDev) {
-    window.loadURL(`http://127.0.0.1:5173/#/${route}`);
+    window.loadURL(`http://127.0.0.1:5173/#${hash}`);
     return;
   }
 
   window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {
-    hash: `/${route}`
+    hash
   });
 }
 
-function createWindow(route = 'floor') {
-  const existing = windows.get(route);
+function createWindow(route = 'floor', context = {}) {
+  const windowKey = route === 'table' && context.sessionId ? `table:${context.sessionId}` : route;
+  const existing = windows.get(windowKey);
   if (existing && !existing.isDestroyed()) {
     existing.focus();
     return existing;
@@ -1428,6 +1524,7 @@ function createWindow(route = 'floor') {
   });
 
   mainWindow.once('ready-to-show', () => {
+    if (route === 'table') mainWindow.maximize();
     mainWindow.show();
   });
 
@@ -1457,11 +1554,11 @@ function createWindow(route = 'floor') {
   });
 
   mainWindow.on('closed', () => {
-    windows.delete(route);
+    windows.delete(windowKey);
   });
 
-  windows.set(route, mainWindow);
-  loadRoute(mainWindow, route);
+  windows.set(windowKey, mainWindow);
+  loadRoute(mainWindow, route, context);
 
   if (isDev && route === 'floor') {
     mainWindow.webContents.openDevTools({ mode: 'detach' });

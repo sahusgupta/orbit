@@ -1,0 +1,6 @@
+{
+  "firestore": {
+    "rules": "player-app/firestore.rules",
+    "indexes": "player-app/firestore.indexes.json"
+  }
+}

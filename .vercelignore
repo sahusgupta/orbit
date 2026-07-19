@@ -1,0 +1,17 @@
+.git
+.agents
+.expo
+node_modules
+**/node_modules
+dist
+release
+out
+download-dist
+download-site/downloads
+download-site/public/downloads
+player-app/dist
+player-app/.expo
+coverage
+*.log
+*.sqlite
+*.sqlite3

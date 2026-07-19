@@ -26,7 +26,7 @@ const firebaseConfig = {
 const firebaseSyncTimeoutMs = 2500;
 
 function isFirebaseConfigured() {
-  return Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId);
+  return process.env.ORBIT_ENABLE_FIREBASE_SYNC === 'true' && Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId);
 }
 
 function getFirebaseDb() {

@@ -110,6 +110,7 @@ function PlayerCard({
     seat.y > 58 ? 'above' : 'below',
     seat.x < 24 ? 'align-left' : seat.x > 76 ? 'align-right' : 'align-center'
   ].join(' ');
+  const seatEdgeClass = seat.y < 34 ? 'edge-top' : seat.y > 66 ? 'edge-bottom' : seat.x < 50 ? 'edge-left' : 'edge-right';
   const addCustomTime = () => {
     const minutes = Number(customMinutes);
     if (!Number.isFinite(minutes) || minutes <= 0) return;
@@ -125,7 +126,7 @@ function PlayerCard({
   };
 
   return (
-    <div className={`poker-seat-card ${isOpen ? 'open' : ''} ${isDense ? 'dense' : ''}`} style={{ left: `${seat.x}%`, top: `${seat.y}%` }}>
+    <div className={`poker-seat-card ${seatEdgeClass} ${isOpen ? 'open' : ''} ${isDense ? 'dense' : ''}`} style={{ left: `${seat.x}%`, top: `${seat.y}%` }}>
       <button
         className="poker-seat-remove-button"
         type="button"
@@ -146,36 +147,14 @@ function PlayerCard({
           onToggle();
         }}
       >
-        <div className="poker-seat-header">
-          <div className="poker-seat-avatar">
-            <span>{getInitials(player.name)}</span>
-          </div>
-          <div className="poker-seat-name">
-            <span>Seat {player.seatNumber ?? position + 1}</span>
-            <h3>{player.name}</h3>
-          </div>
-        </div>
-
-        <div className="poker-seat-stats">
-          {showTimeRemaining ? (
-            <div className={`poker-seat-stat time-left ${timerStatus}`}>
-              <div>
-                <Clock size={14} />
-                <span>Time</span>
-              </div>
-              <span>{timeRemainingDisplay}</span>
-            </div>
-          ) : (
-            <div className="poker-seat-stat">
-              <div>
-                <Clock size={14} />
-                <span>Table</span>
-              </div>
-              <span>{timeAtTableDisplay}</span>
-            </div>
-          )}
-        </div>
+        <span className="poker-seat-number">{player.seatNumber ?? position + 1}</span>
+        <span className="poker-seat-initials">{getInitials(player.name)}</span>
       </button>
+      <div className="poker-seat-player-label">
+        <strong>{player.name}</strong>
+        <span>${(player.buyInTotal ?? 0).toLocaleString()}</span>
+        {showTimeRemaining ? <em className={timerStatus}>{timeRemainingDisplay}</em> : <em>{timeAtTableDisplay}</em>}
+      </div>
       {isOpen ? (
         <div className={`poker-seat-menu ${menuPositionClass}`} onClick={(event) => event.stopPropagation()}>
           <div className="poker-seat-menu-header">
@@ -268,6 +247,9 @@ function PlayerCard({
               ))}
             </div>
           ) : null}
+          <button className="poker-seat-cashout" type="button" onClick={() => onRemovePlayer?.(player.id)}>
+            Cash out and leave table
+          </button>
         </div>
       ) : null}
     </div>
@@ -276,8 +258,10 @@ function PlayerCard({
 
 const getSeatPosition = (seatNumber: number, totalPositions: number) => {
   const safeTotal = Math.max(1, totalPositions);
-  const normalizedSeat = Math.max(1, Math.min(safeTotal, seatNumber));
-  const angle = ((normalizedSeat - 1) / safeTotal) * Math.PI * 2 - Math.PI / 2;
+  const normalizedSeat = Math.max(1, Math.min(safeTotal - 1, seatNumber));
+  // The bottom-center position is reserved for the dealer. Seat 1 begins
+  // immediately to the dealer's left, then numbering continues around the table.
+  const angle = Math.PI / 2 + (normalizedSeat / safeTotal) * Math.PI * 2;
   return {
     x: 50 + 47 * Math.cos(angle),
     y: 50 + 41 * Math.sin(angle)
@@ -315,7 +299,8 @@ export default function PokerTable({
               <div className="poker-table-surface">
                 <div className="poker-table-border" />
                 <div className="poker-table-center">
-                  <div />
+                  <img src="./orbit-table-logo.svg" alt="Orbit" />
+                  <span>ORBIT</span>
                 </div>
 
                 {Array.from({ length: seatCount }).map((_, i) => {

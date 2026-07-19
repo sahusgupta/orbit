@@ -25,7 +25,7 @@ All other endpoints require `x-orbit-api-key`.
 - `API_PORT`: API port, defaults to `4629`.
 - `ORBIT_CLIENT_API_KEY`: owner/shared service key. Desktop clients may also authenticate with their signed pilot key authorization code.
 - `DATABASE_URL`: SQLite path for local development, for example `file:./data/orbit-api.sqlite3`. On Vercel, the API defaults to `file:/tmp/orbit-api.sqlite3` when `DATABASE_URL` is unset.
-- `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`: optional Firebase service account credentials. When configured, API state saves publish canonical Firestore documents at `clubs/{licenseKey}`, `clubs/{licenseKey}/players/{playerHash}`, and `clubs/{licenseKey}/games/{sessionId}`.
+- `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`: optional Firebase service account credentials. When configured, API state saves canonical Firestore documents at `clubs/{licenseKey}`, `clubs/{licenseKey}/players/{playerId}`, and `clubs/{licenseKey}/games/{sessionId}`. Membership players are documents in the `players` subcollection and are not duplicated as an array on the club document.
 - `NODE_ENV`: `development`, `staging`, or `production`.
 
 The database layer is intentionally small and isolated in `src/database.js` so it can later be swapped for Postgres or Supabase.
@@ -36,7 +36,7 @@ Vercel's deployment filesystem is read-only except for `/tmp`, so do not set `DA
 
 The Electron app reads:
 
-- `ORBIT_API_URL`, default `http://127.0.0.1:4629`
+- `ORBIT_API_URL`, default `https://orbitapp-one.vercel.app`. Use `http://127.0.0.1:4629` for local API development.
 - `ORBIT_CLIENT_API_KEY`, optional when the installation has an active pilot key
 - `NODE_ENV`
 

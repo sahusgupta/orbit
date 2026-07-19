@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import * as Dialog from '@radix-ui/react-dialog';
 import {
   ChevronDown,
   ChevronUp,
   Clock,
+  ChevronLeft,
   Download,
   Edit3,
   Eye,
@@ -11,28 +13,35 @@ import {
   LayoutDashboard,
   LockKeyhole,
   MessageCircle,
+  MoreHorizontal,
   Moon,
   Plus,
+  Play,
   Save,
   Settings,
   Target,
   Trash2,
   Upload,
   Users,
+  WalletCards,
   X
 } from 'lucide-react';
 import branding from '../branding.config.json';
 import PokerTable, { type Player as PokerTablePlayer } from './components/PokerTable';
+import AppShell, { type PrimaryDestination, type ShellCommand } from './components/AppShell';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import {
   canonicalPayload,
   countActivePlayersForTable,
   createBackupEnvelope,
   getGameFrequencyRank,
   getTimerStatusFromMinutes,
+  getTimerStatusFromSeconds,
   readBackupEnvelope,
   resolveGameId
 } from './lib/appCore';
-import { loadClubStateFromFirebase, saveClubStateToFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
+import { loadClubStateFromFirebase, saveClubStateToFirebase, signInOrCreateFirebaseEmailAccount, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
+import { rendererFirebaseSyncEnabled } from './lib/firebaseConfig';
 import './styles.css';
 
 declare global {
@@ -40,7 +49,7 @@ declare global {
     tableManagerDesktop?: {
       platform: string;
       isDesktop: boolean;
-      openWindow: (route: AppRoute) => Promise<void>;
+      openWindow: (route: AppRoute, context?: { sessionId?: string }) => Promise<void>;
       loadState: () => Promise<{ schemaVersion: number; savedAt: string; state: Partial<AppState> } | null>;
       loadStateForAccount: (access: PilotAccess) => Promise<{ schemaVersion: number; savedAt: string; state: Partial<AppState> } | null>;
       saveState: (state: AppState) => Promise<{ ok: boolean; path: string; accountKey?: string }>;
@@ -263,6 +272,8 @@ type TournamentPlayer = {
   registeredAt: string;
   eliminatedAt?: string;
   finishPlace?: number;
+  tableNumber?: number;
+  seatNumber?: number;
 };
 
 type TournamentPayout = {
@@ -285,6 +296,8 @@ type Tournament = {
   pausedRemainingSeconds?: number;
   buyIn: number;
   startingStack: number;
+  rebuyPrizePercent: number;
+  tableSize: number;
   levels: TournamentLevel[];
   players: TournamentPlayer[];
   payouts: TournamentPayout[];
@@ -625,7 +638,7 @@ const getTournamentEntries = (tournament?: Tournament | null) =>
 const getTournamentActivePlayers = (tournament?: Tournament | null) =>
   (tournament?.players ?? []).filter((player) => player.status !== 'Eliminated').length;
 const getTournamentPrizePool = (tournament?: Tournament | null) =>
-  (tournament?.players ?? []).reduce((sum, player) => sum + (1 + player.rebuys + player.addOns) * player.buyIn, 0);
+  (tournament?.players ?? []).reduce((sum, player) => sum + player.buyIn + (player.rebuys + player.addOns) * player.buyIn * ((tournament?.rebuyPrizePercent ?? 100) / 100), 0);
 const getTournamentAverageStack = (tournament?: Tournament | null) => {
   const activePlayers = getTournamentActivePlayers(tournament);
   if (!tournament || !activePlayers) return 0;
@@ -1047,6 +1060,8 @@ function normalizeState(parsed: Partial<AppState>): AppState {
       currentLevelIndex: tournament.currentLevelIndex ?? 0,
       buyIn: tournament.buyIn ?? 0,
       startingStack: tournament.startingStack ?? 10000,
+      rebuyPrizePercent: Number(tournament.rebuyPrizePercent ?? 100),
+      tableSize: Number(tournament.tableSize ?? 9),
       levels: (tournament.levels ?? []).map((level, index) => ({
         ...level,
         id: level.id ?? uid(),
@@ -1200,6 +1215,13 @@ function normalizeState(parsed: Partial<AppState>): AppState {
       staffAccounts: parsed.settings?.staffAccounts ?? [],
       activeStaffId: parsed.settings?.activeStaffId,
       accountLogin: parsed.settings?.accountLogin
+        ? {
+            ...parsed.settings.accountLogin,
+            username: /^\S+@\S+\.\S+$/.test(parsed.settings.accountLogin.username)
+              ? parsed.settings.accountLogin.username.toLowerCase()
+              : parsed.settings.clubAccount?.email?.trim().toLowerCase() || parsed.settings.accountLogin.username
+          }
+        : undefined
     }
   };
 }
@@ -1216,7 +1238,7 @@ function loadState(): AppState {
 }
 
 function canUseRendererFirebaseAuth() {
-  return !window.tableManagerDesktop && window.location.protocol !== 'file:';
+  return rendererFirebaseSyncEnabled;
 }
 
 function saveState(state: AppState) {
@@ -2006,14 +2028,22 @@ function App() {
   const [eventDrafts, setEventDrafts] = useState<Record<string, { failReason: string; failNote: string; breakReason: string; breakNote: string }>>({});
   const [seatPicker, setSeatPicker] = useState<SeatPickerState | null>(null);
   const [startPlayerDrafts, setStartPlayerDrafts] = useState<Record<string, string[]>>({});
+  const [formingGameId, setFormingGameId] = useState(() => state.games[0]?.id ?? '');
+  const [tableLedgerSessionId, setTableLedgerSessionId] = useState<string | null>(null);
+  const [tableEventLogSessionId, setTableEventLogSessionId] = useState<string | null>(null);
+  const [cashOutDraft, setCashOutDraft] = useState<{ playerSessionId: string; amount: string; note: string } | null>(null);
   const [buyInDrafts, setBuyInDrafts] = useState<Record<string, { amount: string; note: string }>>({});
   const [dropDrafts, setDropDrafts] = useState<Record<string, { amount: string; note: string }>>({});
   const [selectedTournamentId, setSelectedTournamentId] = useState('');
+  const [tournamentView, setTournamentView] = useState<'library' | 'create' | 'edit' | 'manage'>('library');
+  const [tournamentSection, setTournamentSection] = useState<'clock' | 'players' | 'tables' | 'payouts'>('clock');
   const [tournamentDraft, setTournamentDraft] = useState({
     name: `Tournament ${todayDate()}`,
     buyIn: '100',
     startingStack: '20000',
-    levelMinutes: '20'
+    levelMinutes: '20',
+    rebuyPrizePercent: '100',
+    tableSize: '9'
   });
   const [tournamentPlayerDraft, setTournamentPlayerDraft] = useState({ name: '', profileId: '', phone: '', email: '' });
   const [tournamentPayoutDrafts, setTournamentPayoutDrafts] = useState<Record<number, string>>({});
@@ -2022,13 +2052,21 @@ function App() {
   const [openPanels, setOpenPanels] = useState<Record<string, boolean>>({
     currentTables: true,
     waitlist: true,
-    tableOverview: false,
+    tableOverview: true,
     formingGames: true,
     kpis: false,
     quickAdd: false
   });
   const stateRef = useRef(state);
-  const [overviewTableId, setOverviewTableId] = useState('');
+  const [overviewTableId, setOverviewTableId] = useState('all-time-overview');
+  const [waitlistPopupOpen, setWaitlistPopupOpen] = useState(false);
+  const [playerPopup, setPlayerPopup] = useState<'add' | 'ledger' | null>(null);
+  const [settingsSection, setSettingsSection] = useState<'club' | 'staff' | 'tables' | 'data' | 'display'>('club');
+  const [reportMode, setReportMode] = useState<'kpis' | 'night'>('kpis');
+  const [kpiCategory, setKpiCategory] = useState<'operations' | 'waitlist' | 'tables' | 'collections'>('operations');
+  const [gameFormatFilter, setGameFormatFilter] = useState('All formats');
+  const [gameStakesFilter, setGameStakesFilter] = useState('All stakes');
+  const [gameStatusFilter, setGameStatusFilter] = useState('All statuses');
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [coordinationConfig, setCoordinationConfig] = useState({ gameId: 'nlh-1-2', seats: 10 });
   const analytics = useMemo(() => getAnalytics(state), [state]);
@@ -2980,7 +3018,7 @@ function App() {
     if (!seatNumber) return { ok: false, error: 'Table full. No open seats remain.' };
 
     const isTimeCollection = session.timeFeeBased || session.collectionMode === 'Time';
-    const timeMinutes = isTimeCollection ? Math.max(0, Number(payload.initialTimeMinutes ?? 60)) : 0;
+    const timeMinutes = isTimeCollection ? Math.max(0, Number(payload.initialTimeMinutes ?? 0)) : 0;
     const initialBuyInAmount = Number(payload.initialBuyIn ?? 0);
     const hasInitialBuyIn = Number.isFinite(initialBuyInAmount) && initialBuyInAmount > 0;
     const matchingInterest = interest ?? sourceState.interests.find(
@@ -3016,7 +3054,7 @@ function App() {
           timePurchasedMinutes: timeMinutes,
           timeRemainingMinutes: timeMinutes,
           lastTimeTickAt: timestamp,
-          timeFeeEnabled: session.timeFeeBased ?? (session.collectionMode === 'Time')
+          timeFeeEnabled: isTimeCollection && timeMinutes > 0
         }
       ],
       buyIns: hasInitialBuyIn
@@ -3248,7 +3286,7 @@ function App() {
       sessionId: session.id,
       seatNumber: seatNumber ?? 0,
       search: '',
-      timeMinutes: session.collectionMode === 'Time' || session.timeFeeBased ? '60' : '',
+      timeMinutes: '',
       initialBuyIn: '',
       error: seatNumber ? undefined : 'Table full. No open seats remain.'
     });
@@ -3266,9 +3304,9 @@ function App() {
       return;
     }
     const isTimeCollection = session.collectionMode === 'Time' || session.timeFeeBased;
-    const timeMinutes = isTimeCollection ? Math.max(0, Number(initialTimeMinutes ?? 60)) : undefined;
-    if (isTimeCollection && (!Number.isFinite(timeMinutes) || timeMinutes <= 0)) {
-      setSeatPickerError('Enter the time this player bought before seating.');
+    const timeMinutes = isTimeCollection ? Math.max(0, Number(initialTimeMinutes ?? 0)) : undefined;
+    if (isTimeCollection && !Number.isFinite(timeMinutes)) {
+      setSeatPickerError('Enter a valid amount of purchased time.');
       return;
     }
     if (initialBuyIn !== undefined && (!Number.isFinite(initialBuyIn) || initialBuyIn <= 0)) {
@@ -3335,9 +3373,9 @@ function App() {
       return;
     }
     const isTimeCollection = session.collectionMode === 'Time' || session.timeFeeBased;
-    const timeMinutes = isTimeCollection ? Math.max(0, Number(initialTimeMinutes ?? 60)) : undefined;
-    if (isTimeCollection && (!Number.isFinite(timeMinutes) || timeMinutes <= 0)) {
-      setSeatPickerError('Enter the time this player bought before seating.');
+    const timeMinutes = isTimeCollection ? Math.max(0, Number(initialTimeMinutes ?? 0)) : undefined;
+    if (isTimeCollection && !Number.isFinite(timeMinutes)) {
+      setSeatPickerError('Enter a valid amount of purchased time.');
       return;
     }
     if (initialBuyIn !== undefined && (!Number.isFinite(initialBuyIn) || initialBuyIn <= 0)) {
@@ -3535,7 +3573,7 @@ function App() {
     persist(finalState);
   };
 
-  const markPlayerSessionLeft = (playerSession: PlayerSession) => {
+  const markPlayerSessionLeft = (playerSession: PlayerSession, cashOutAmount: number, cashOutNote = '') => {
     const leftAt = nowIso();
     const sessionHours = hoursBetween(playerSession.seatedAt, leftAt);
     const nextState = {
@@ -3559,8 +3597,9 @@ function App() {
           playerName: playerSession.playerName,
           tableId: playerSession.tableId,
           gameId: playerSession.gameId,
+          amount: cashOutAmount,
           timestamp: leftAt,
-          note: 'Player left table'
+          note: cashOutNote.trim() || (cashOutAmount === 0 ? 'Player left table with no cash out' : 'Player left table')
         },
         ...state.playerLedger
       ],
@@ -3577,6 +3616,10 @@ function App() {
     };
     const finalState = withGameFrequencyInAppNotifications(syncSessionSeatCount(nextState, playerSession.tableId), playerSession.gameId, 'seat-opened');
     persist(finalState, true, { feature: 'Seating', action: 'Marked player left', metadata: { gameId: playerSession.gameId, tableId: playerSession.tableId } });
+  };
+
+  const requestPlayerCashOut = (playerSession: PlayerSession) => {
+    setCashOutDraft({ playerSessionId: playerSession.id, amount: '', note: '' });
   };
 
   const addSession = (gameId: string) => {
@@ -4601,8 +4644,7 @@ function App() {
 
   const openTableView = (sessionId: string) => {
     localStorage.setItem(`${storageKey}:table-view-session`, sessionId);
-    window.tableManagerDesktop?.openWindow('table').catch(() => undefined);
-    window.location.hash = '/table';
+    window.location.hash = `/table?sessionId=${encodeURIComponent(sessionId)}`;
   };
 
   const closeRoute = () => {
@@ -4629,12 +4671,73 @@ function App() {
       currentLevelIndex: 0,
       buyIn: Math.max(0, Number(tournamentDraft.buyIn) || 0),
       startingStack: Math.max(1000, Number(tournamentDraft.startingStack) || 20000),
+      rebuyPrizePercent: Math.min(100, Math.max(0, Number(tournamentDraft.rebuyPrizePercent) || 0)),
+      tableSize: Math.min(10, Math.max(2, Number(tournamentDraft.tableSize) || 9)),
       levels: defaultTournamentLevels().map((level) => ({ ...level, durationMinutes: levelMinutes })),
       players: [],
       payouts: defaultTournamentPayouts()
     };
     persist({ ...state, tournaments: [tournament, ...state.tournaments] }, true, { feature: 'Tournament manager', action: 'Created tournament', route: 'tournaments' });
     setSelectedTournamentId(tournament.id);
+    setTournamentView('manage');
+    setTournamentSection('clock');
+  };
+
+  const beginTournamentEdit = (tournament: Tournament) => {
+    setSelectedTournamentId(tournament.id);
+    setTournamentDraft({
+      name: tournament.name,
+      buyIn: String(tournament.buyIn),
+      startingStack: String(tournament.startingStack),
+      levelMinutes: String(tournament.levels[0]?.durationMinutes ?? 20),
+      rebuyPrizePercent: String(tournament.rebuyPrizePercent ?? 100),
+      tableSize: String(tournament.tableSize ?? 9)
+    });
+    setTournamentView('edit');
+  };
+
+  const saveTournamentSettings = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedTournament) return;
+    const levelMinutes = Math.max(5, Number(tournamentDraft.levelMinutes) || 20);
+    updateTournament(selectedTournament.id, (tournament) => ({
+      ...tournament,
+      name: tournamentDraft.name.trim() || tournament.name,
+      buyIn: Math.max(0, Number(tournamentDraft.buyIn) || 0),
+      startingStack: Math.max(1000, Number(tournamentDraft.startingStack) || 20000),
+      rebuyPrizePercent: Math.min(100, Math.max(0, Number(tournamentDraft.rebuyPrizePercent) || 0)),
+      tableSize: Math.min(10, Math.max(2, Number(tournamentDraft.tableSize) || 9)),
+      levels: tournament.levels.map((level) => ({ ...level, durationMinutes: levelMinutes }))
+    }), 'Updated tournament settings');
+    setTournamentView('library');
+  };
+
+  const runTournamentAgain = (source: Tournament) => {
+    const tournament: Tournament = {
+      ...source,
+      id: uid(),
+      name: source.name,
+      createdAt: nowIso(),
+      status: 'Draft',
+      startedAt: undefined,
+      pausedAt: undefined,
+      completedAt: undefined,
+      currentLevelIndex: 0,
+      levelStartedAt: undefined,
+      pausedRemainingSeconds: undefined,
+      players: []
+    };
+    persist({ ...state, tournaments: [tournament, ...state.tournaments] }, true, { feature: 'Tournament manager', action: 'Created recurring tournament', route: 'tournaments' });
+    setSelectedTournamentId(tournament.id);
+    setTournamentView('manage');
+    setTournamentSection('players');
+  };
+
+  const drawTournamentTables = (tournament: Tournament) => {
+    const shuffled = tournament.players.filter((player) => player.status !== 'Eliminated').map((player) => ({ player, sort: Math.random() })).sort((left, right) => left.sort - right.sort).map(({ player }) => player);
+    const tableCount = Math.max(1, Math.ceil(shuffled.length / tournament.tableSize));
+    const assignments = new Map(shuffled.map((player, index) => [player.id, { tableNumber: (index % tableCount) + 1, seatNumber: Math.floor(index / tableCount) + 1 }]));
+    updateTournament(tournament.id, (current) => ({ ...current, players: current.players.map((player) => assignments.has(player.id) ? { ...player, ...assignments.get(player.id) } : player) }), 'Drew tournament tables');
   };
 
   const registerTournamentPlayer = (event: React.FormEvent) => {
@@ -4770,10 +4873,10 @@ function App() {
       }));
 
   const createAccountLogin = async () => {
-    const username = setupDraft.username.trim();
+    const username = (setupDraft.username || clubDraft.email).trim().toLowerCase();
     const password = setupDraft.password;
-    if (!username || password.length < 8) {
-      setPilotKeyError('Create a login username and a password with at least 8 characters.');
+    if (!/^\S+@\S+\.\S+$/.test(username) || password.length < 8) {
+      setPilotKeyError('Enter a valid login email and a password with at least 8 characters.');
       return null;
     }
     if (password !== setupDraft.confirmPassword) {
@@ -4799,8 +4902,16 @@ function App() {
     }
     const passwordMatches = await verifyStaffSecret(loginDraft.password, accountLogin.passwordSalt, accountLogin.passwordHash);
     if (loginDraft.username.trim().toLowerCase() !== accountLogin.username.toLowerCase() || !passwordMatches) {
-      setPilotKeyError('Login or password is incorrect.');
+      setPilotKeyError('Email or password is incorrect.');
       return;
+    }
+    if (canUseRendererFirebaseAuth()) {
+      try {
+        await signInOrCreateFirebaseEmailAccount(loginDraft.username, loginDraft.password);
+      } catch {
+        setPilotKeyError('Firebase could not authenticate or migrate this account. Confirm Email/Password sign-in is enabled and try again.');
+        return;
+      }
     }
     const next = {
       ...state,
@@ -4825,6 +4936,10 @@ function App() {
     event.preventDefault();
     const accountLogin = await createAccountLogin();
     if (!accountLogin) return;
+    if (canUseRendererFirebaseAuth()) {
+      try { await signInOrCreateFirebaseEmailAccount(accountLogin.username, setupDraft.password); }
+      catch { setPilotKeyError('Unable to authenticate or create the Firebase email/password account.'); return; }
+    }
     const next = {
       ...state,
       settings: {
@@ -4929,6 +5044,10 @@ function App() {
     }
     const accountLogin = await createAccountLogin();
     if (!accountLogin) return;
+    if (canUseRendererFirebaseAuth()) {
+      try { await signInOrCreateFirebaseEmailAccount(accountLogin.username, setupDraft.password); }
+      catch { setPilotKeyError('Unable to authenticate or create the Firebase email/password account.'); return; }
+    }
     const games = parseInitialGames(setupDraft.initialGames);
     if (!games.length) {
       setPilotKeyError('Add at least one game offered by this card house.');
@@ -4945,7 +5064,7 @@ function App() {
           clubName: clubDraft.clubName.trim(),
           accountName: clubDraft.accountName.trim(),
           contactName: clubDraft.contactName.trim(),
-          email: clubDraft.email.trim(),
+          email: clubDraft.email.trim().toLowerCase(),
           phone: clubDraft.phone.trim(),
           address: clubDraft.address.trim()
         },
@@ -5002,7 +5121,7 @@ function App() {
         clubName: clubDraft.clubName.trim(),
         accountName: clubDraft.accountName.trim(),
         contactName: clubDraft.contactName.trim(),
-        email: clubDraft.email.trim(),
+        email: clubDraft.email.trim().toLowerCase(),
         phone: clubDraft.phone.trim(),
         address: clubDraft.address.trim()
       }
@@ -5088,6 +5207,33 @@ function App() {
     });
   };
 
+  const navigatePrimary = (destination: PrimaryDestination) => {
+    const routes: Record<PrimaryDestination, AppRoute> = {
+      floor: 'floor', players: 'profiles', games: 'builder', tournaments: 'tournaments', reports: 'summary', settings: 'customization'
+    };
+    window.location.hash = `/${routes[destination]}`;
+  };
+  const activeStaffAccount = state.settings.staffAccounts.find((staff) => staff.id === state.settings.activeStaffId);
+  const shellCommands: ShellCommand[] = [
+    ...state.profiles.slice(0, 30).map((profile) => ({ id: `player-${profile.id}`, label: `Player: ${profile.name}`, group: 'Players', keywords: `${profile.phone} ${profile.preferredStakes}`, action: () => { setProfileSearch(profile.name); openRoute('profiles'); } })),
+    ...state.sessions.filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start').map((session) => ({ id: `table-${session.id}`, label: `Open ${session.label}`, group: 'Tables', action: () => openTableView(session.id) })),
+    { id: 'add-interest', label: 'Add player interest', group: 'Actions', action: () => { closeRoute(); setOpenPanels((panels) => ({ ...panels, quickAdd: true })); } },
+    { id: 'open-reports', label: 'Open night report', group: 'Actions', action: () => openRoute('summary') }
+  ];
+  const withShell = (active: PrimaryDestination, content: React.ReactNode) => (
+    <AppShell
+      active={active}
+      clubName={state.settings.clubAccount?.clubName || 'Orbit Club'}
+      operator={activeStaffAccount?.name}
+      saveState={saveStatus.state}
+      onNavigate={navigatePrimary}
+      onSignOut={() => { persistSignIn(state, false); signOutOfFirebase().catch(() => undefined); setHasAuthenticated(false); }}
+      commands={shellCommands}
+    >
+      {content}
+    </AppShell>
+  );
+
   if (isPilotAccessActive(state.settings.pilotAccess) && !state.settings.accountLogin) {
     return (
       <main className="access-shell">
@@ -5107,7 +5253,7 @@ function App() {
             </div>
           </div>
           <form className="access-step account-form" onSubmit={createLoginForExistingAccount}>
-            <input value={setupDraft.username} onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })} placeholder="Login username" />
+            <input value={setupDraft.username} onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })} placeholder="Login email" type="email" />
             <input value={setupDraft.password} onChange={(event) => setSetupDraft({ ...setupDraft, password: event.target.value })} placeholder="Password" type="password" />
             <input value={setupDraft.confirmPassword} onChange={(event) => setSetupDraft({ ...setupDraft, confirmPassword: event.target.value })} placeholder="Confirm password" type="password" />
             <label className="switch-control">
@@ -5141,7 +5287,7 @@ function App() {
             </div>
           </div>
           <form className="access-step account-form" onSubmit={signInToAccount}>
-            <input value={loginDraft.username} onChange={(event) => setLoginDraft({ ...loginDraft, username: event.target.value })} placeholder="Login username" />
+            <input value={loginDraft.username} onChange={(event) => setLoginDraft({ ...loginDraft, username: event.target.value })} placeholder="Email" type="email" autoComplete="email" />
             <input value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} placeholder="Password" type="password" />
             <label className="switch-control">
               <input type="checkbox" checked={loginDraft.staySignedIn} onChange={(event) => setLoginDraft({ ...loginDraft, staySignedIn: event.target.checked })} />
@@ -5234,7 +5380,8 @@ function App() {
               <input
                 value={setupDraft.username}
                 onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })}
-                placeholder="Create login username"
+                placeholder="Login email (defaults to club email)"
+                type="email"
               />
               <input
                 value={setupDraft.password}
@@ -5379,49 +5526,75 @@ function App() {
     const nextLevel = getNextTournamentLevel(tournament);
     const prizePool = getTournamentPrizePool(tournament);
     const remaining = getTournamentLevelRemainingSeconds(tournament, clockNow);
-    return (
+
+    const tournamentForm = (mode: 'create' | 'edit') => (
+      <form className="tournament-form tournament-focused-form" onSubmit={mode === 'create' ? createTournament : saveTournamentSettings}>
+        <label className="tournament-field tournament-field-wide"><span>Tournament name</span><input value={tournamentDraft.name} onChange={(event) => setTournamentDraft({ ...tournamentDraft, name: event.target.value })} placeholder="Friday Night Main Event" /></label>
+        <label className="tournament-field"><span>Buy-in</span><input value={tournamentDraft.buyIn} onChange={(event) => setTournamentDraft({ ...tournamentDraft, buyIn: event.target.value })} placeholder="$100" type="number" min="0" /></label>
+        <label className="tournament-field"><span>Starting stack</span><input value={tournamentDraft.startingStack} onChange={(event) => setTournamentDraft({ ...tournamentDraft, startingStack: event.target.value })} placeholder="20,000" type="number" min="1000" /></label>
+        <label className="tournament-field tournament-field-wide"><span>Level length <small>Minutes per blind level</small></span><input value={tournamentDraft.levelMinutes} onChange={(event) => setTournamentDraft({ ...tournamentDraft, levelMinutes: event.target.value })} placeholder="20 minutes" type="number" min="5" /></label>
+        <label className="tournament-field"><span>Rebuy to prize pool <small>Percent</small></span><input value={tournamentDraft.rebuyPrizePercent} onChange={(event) => setTournamentDraft({ ...tournamentDraft, rebuyPrizePercent: event.target.value })} type="number" min="0" max="100" /></label>
+        <label className="tournament-field"><span>Players per table</span><input value={tournamentDraft.tableSize} onChange={(event) => setTournamentDraft({ ...tournamentDraft, tableSize: event.target.value })} type="number" min="2" max="10" /></label>
+        <div className="tournament-form-actions">
+          <button className="ghost-button" type="button" onClick={() => setTournamentView('library')}>Cancel</button>
+          <button className="primary-button" type="submit">{mode === 'create' ? 'Create tournament' : 'Save changes'}</button>
+        </div>
+      </form>
+    );
+
+    return withShell('tournaments', (
       <main className="app-shell compact-shell tournament-manager-shell">
-        <header className="page-header">
+        <header className={tournamentView === 'library' ? 'topbar tournament-library-header' : 'page-header'}>
           <div>
-            <div className="eyebrow">Tournament Manager</div>
-            <h1>Run Tournament</h1>
-            <p>Create, register, clock, and organize a tournament from this computer.</p>
+            {tournamentView !== 'library' ? <div className="eyebrow">Tournament Manager</div> : null}
+            <h1>{tournamentView === 'library' ? 'Tournaments' : tournamentView === 'create' ? 'Create tournament' : tournamentView === 'edit' ? 'Edit tournament' : tournament?.name}</h1>
+            {tournamentView !== 'library' ? <p>{tournamentView === 'manage' ? 'Everything you need for this event, one view at a time.' : 'Set the essentials. You can manage players and payouts afterward.'}</p> : null}
           </div>
           <div className="header-actions">
-            <button className="ghost-button" onClick={closeRoute}>Back to floor</button>
-            <button className="secondary-button" onClick={() => window.tableManagerDesktop?.openWindow('tournament-tv').catch(() => { window.location.hash = '/tournament-tv'; }) || (window.location.hash = '/tournament-tv')}>
-              <Eye size={17} />
-              TV View
-            </button>
+            {tournamentView !== 'library' ? <button className="ghost-button" onClick={() => setTournamentView('library')}><ChevronLeft size={17} /> All tournaments</button> : null}
+            {tournamentView === 'library' ? <button className="primary-button" onClick={() => { setTournamentDraft({ name: `Tournament ${todayDate()}`, buyIn: '', startingStack: '20000', levelMinutes: '20', rebuyPrizePercent: '100', tableSize: '9' }); setTournamentView('create'); }}><Plus size={17} /> New tournament</button> : null}
+            {tournamentView === 'manage' ? <button className="secondary-button" onClick={() => window.tableManagerDesktop?.openWindow('tournament-tv').catch(() => { window.location.hash = '/tournament-tv'; }) || (window.location.hash = '/tournament-tv')}><Eye size={17} /> TV View</button> : null}
           </div>
         </header>
 
-        <section className="tournament-manager-grid">
-          <section className="panel">
-            <PanelTitle icon={<Plus />} title="Create Tournament" />
-            <form className="tournament-form" onSubmit={createTournament}>
-              <input value={tournamentDraft.name} onChange={(event) => setTournamentDraft({ ...tournamentDraft, name: event.target.value })} placeholder="Tournament name" />
-              <input value={tournamentDraft.buyIn} onChange={(event) => setTournamentDraft({ ...tournamentDraft, buyIn: event.target.value })} placeholder="Buy-in" type="number" min="0" />
-              <input value={tournamentDraft.startingStack} onChange={(event) => setTournamentDraft({ ...tournamentDraft, startingStack: event.target.value })} placeholder="Starting stack" type="number" min="1000" />
-              <input value={tournamentDraft.levelMinutes} onChange={(event) => setTournamentDraft({ ...tournamentDraft, levelMinutes: event.target.value })} placeholder="Level minutes" type="number" min="5" />
-              <button className="primary-button" type="submit">Create</button>
-            </form>
-            <div className="tournament-list">
+        {tournamentView === 'library' ? (
+          <section className="tournament-library">
+            <button className="tournament-new-card" onClick={() => { setTournamentDraft({ name: `Tournament ${todayDate()}`, buyIn: '', startingStack: '20000', levelMinutes: '20', rebuyPrizePercent: '100', tableSize: '9' }); setTournamentView('create'); }}>
+              <span><Plus size={28} /></span><strong>Create a new tournament</strong><small>Build a fresh structure from scratch</small>
+            </button>
+            {state.tournaments.length ? <div className="tournament-library-list">
               {state.tournaments.map((item) => (
-                <button className={item.id === tournament?.id ? 'tournament-list-item active' : 'tournament-list-item'} key={item.id} onClick={() => setSelectedTournamentId(item.id)}>
-                  <strong>{item.name}</strong>
-                  <span>{item.status} - {getTournamentEntries(item)} entries</span>
-                </button>
+                <article className="tournament-library-card" key={item.id}>
+                  <button className="tournament-library-main" onClick={() => { setSelectedTournamentId(item.id); setTournamentSection('clock'); setTournamentView('manage'); }}>
+                    <span className={`tournament-library-icon tournament-library-icon-${item.status.toLowerCase()}`}><Target size={22} /></span>
+                    <span><strong>{item.name}</strong><small>{item.status} · {getTournamentEntries(item)} entries · ${item.buyIn.toLocaleString()} buy-in</small></span>
+                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild><button className="icon-button" title="Tournament actions"><MoreHorizontal size={18} /></button></DropdownMenuTrigger>
+                    <DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => beginTournamentEdit(item)}>Edit tournament</DropdownMenuItem><DropdownMenuItem onSelect={() => runTournamentAgain(item)}>Run again</DropdownMenuItem></DropdownMenuContent>
+                  </DropdownMenu>
+                </article>
               ))}
-            </div>
+            </div> : <div className="tournament-empty-library"><Target size={32} /><strong>No tournaments yet</strong><span>Create your first one above.</span></div>}
           </section>
+        ) : tournamentView === 'create' || tournamentView === 'edit' ? (
+          <section className="panel tournament-panel tournament-form-panel">
+            <PanelTitle icon={tournamentView === 'create' ? <Plus /> : <Edit3 />} title={tournamentView === 'create' ? 'Tournament setup' : 'Tournament details'} />
+            {tournamentForm(tournamentView)}
+          </section>
+        ) : tournament ? (
+          <section className="tournament-workspace">
+            <nav className="tournament-section-nav" aria-label="Tournament sections">
+              <button className={tournamentSection === 'clock' ? 'active' : ''} onClick={() => setTournamentSection('clock')}><Clock size={18} /> Clock & levels</button>
+              <button className={tournamentSection === 'players' ? 'active' : ''} onClick={() => setTournamentSection('players')}><Users size={18} /> Players</button>
+              <button className={tournamentSection === 'tables' ? 'active' : ''} onClick={() => setTournamentSection('tables')}><LayoutDashboard size={18} /> Tables</button>
+              <button className={tournamentSection === 'payouts' ? 'active' : ''} onClick={() => setTournamentSection('payouts')}><WalletCards size={18} /> Payouts</button>
+            </nav>
 
-          <section className="panel tournament-control-panel">
-            <PanelTitle icon={<Clock />} title="Clock & Levels" />
-            {tournament ? (
-              <>
+            {tournamentSection === 'clock' ? <section className="panel tournament-panel tournament-control-panel">
+              <PanelTitle icon={<Clock />} title="Clock & Levels" />
                 <div className="tournament-clock-card">
-                  <span>{tournament.status}</span>
+                  <span className={`tournament-status tournament-status-${tournament.status.toLowerCase()}`}>{tournament.status}</span>
                   <strong>{formatTournamentTime(remaining)}</strong>
                   <small>Level {(tournament.currentLevelIndex + 1).toString()} - {currentLevel ? `${currentLevel.smallBlind}/${currentLevel.bigBlind}${currentLevel.ante ? `/${currentLevel.ante}` : ''}` : '-'}</small>
                 </div>
@@ -5442,29 +5615,32 @@ function App() {
                   <article><span>Remaining</span><strong>{getTournamentActivePlayers(tournament)}</strong></article>
                   <article><span>Avg stack</span><strong>{getTournamentAverageStack(tournament).toLocaleString()}</strong></article>
                 </div>
-              </>
-            ) : (
-              <p className="muted-copy">Create a tournament to begin.</p>
-            )}
-          </section>
+            </section> : null}
 
-          <section className="panel">
+            {tournamentSection === 'tables' ? <section className="panel tournament-panel tournament-tables-panel">
+              <div className="tournament-tables-head"><div><h2>Table overview</h2><p>{tournament.players.filter((player) => player.status !== 'Eliminated').length} active participants · {tournament.tableSize} seats per table</p></div><button className="primary-button" onClick={() => drawTournamentTables(tournament)}>Draw all participants</button></div>
+              <div className="tournament-table-grid">
+                {Array.from(new Set(tournament.players.filter((player) => player.tableNumber).map((player) => player.tableNumber!))).sort((a, b) => a - b).map((tableNumber) => <article key={tableNumber}><header><strong>Table {tableNumber}</strong><span>{tournament.players.filter((player) => player.tableNumber === tableNumber && player.status !== 'Eliminated').length}/{tournament.tableSize}</span></header>{tournament.players.filter((player) => player.tableNumber === tableNumber && player.status !== 'Eliminated').sort((a, b) => (a.seatNumber ?? 0) - (b.seatNumber ?? 0)).map((player) => <div key={player.id}><span>Seat {player.seatNumber}</span><strong>{player.name}</strong></div>)}</article>)}
+                {!tournament.players.some((player) => player.tableNumber) ? <div className="tournament-table-empty">Draw participants to create balanced table assignments.</div> : null}
+              </div>
+            </section> : null}
+
+            {tournamentSection === 'players' ? <section className="panel tournament-panel tournament-players-panel">
             <PanelTitle icon={<Users />} title="Register Players" />
-            {tournament ? (
-              <>
                 <form className="tournament-form" onSubmit={registerTournamentPlayer}>
-                  <select value={tournamentPlayerDraft.profileId} onChange={(event) => {
+                  <label className="tournament-field tournament-field-wide"><span>Player source <small>Saved profile or someone new</small></span><select value={tournamentPlayerDraft.profileId} onChange={(event) => {
                     const profile = state.profiles.find((item) => item.id === event.target.value);
                     setTournamentPlayerDraft({ ...tournamentPlayerDraft, profileId: event.target.value, name: profile?.name ?? tournamentPlayerDraft.name, phone: profile?.phone ?? tournamentPlayerDraft.phone });
                   }}>
-                    <option value="">Manual player</option>
+                    <option value="">New / manual player</option>
                     {state.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-                  </select>
-                  <input value={tournamentPlayerDraft.name} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, name: event.target.value })} placeholder="Player name" />
-                  <input value={tournamentPlayerDraft.phone} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, phone: event.target.value })} placeholder="Phone" />
-                  <input value={tournamentPlayerDraft.email} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, email: event.target.value })} placeholder="Email" />
-                  <button className="primary-button" type="submit">Register</button>
+                  </select></label>
+                  <label className="tournament-field tournament-field-wide"><span>Player name</span><input value={tournamentPlayerDraft.name} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, name: event.target.value })} placeholder="Full name" /></label>
+                  <label className="tournament-field"><span>Phone <small>Optional</small></span><input value={tournamentPlayerDraft.phone} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, phone: event.target.value })} placeholder="(555) 555-0123" /></label>
+                  <label className="tournament-field"><span>Email <small>Optional</small></span><input value={tournamentPlayerDraft.email} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, email: event.target.value })} placeholder="player@example.com" /></label>
+                  <button className="primary-button tournament-submit" type="submit">Register player</button>
                 </form>
+                <div className="tournament-section-label">Registered field</div>
                 <div className="tournament-player-list">
                   {tournament.players.map((player) => (
                     <article key={player.id}>
@@ -5480,14 +5656,10 @@ function App() {
                     </article>
                   ))}
                 </div>
-              </>
-            ) : <p className="muted-copy">Select a tournament first.</p>}
-          </section>
+            </section> : null}
 
-          <section className="panel">
+            {tournamentSection === 'payouts' ? <section className="panel tournament-panel tournament-prize-panel">
             <PanelTitle icon={<Target />} title="Prize Pool" />
-            {tournament ? (
-              <>
                 <div className="tournament-prize-total">
                   <span>Total prize pool</span>
                   <strong>${prizePool.toLocaleString()}</strong>
@@ -5508,21 +5680,20 @@ function App() {
                     </label>
                   ))}
                 </div>
-              </>
-            ) : <p className="muted-copy">Prize distribution appears after selecting a tournament.</p>}
+            </section> : null}
           </section>
-        </section>
+        ) : null}
       </main>
-    );
+    ));
   }
 
   if (route === 'customization') {
-    return (
-      <main className="app-shell compact-shell">
+    return withShell('settings', (
+      <main className={`app-shell compact-shell settings-page settings-view-${settingsSection}`}>
         <header className="topbar">
           <div>
-            <div className="eyebrow">Room preferences</div>
-            <h1>Customization</h1>
+            <h1>Settings</h1>
+            <p className="page-subtitle">Club, staff, tables, data, and display</p>
           </div>
           <button className="ghost-button" onClick={closeRoute}>
             <X size={18} />
@@ -5530,8 +5701,11 @@ function App() {
           </button>
         </header>
 
+        <nav className="settings-nav" aria-label="Settings sections">
+          <button className={settingsSection === 'club' ? 'active' : ''} onClick={() => setSettingsSection('club')}>Club & license</button><button className={settingsSection === 'staff' ? 'active' : ''} onClick={() => setSettingsSection('staff')}>Staff</button><button className={settingsSection === 'tables' ? 'active' : ''} onClick={() => setSettingsSection('tables')}>Tables & fees</button><button className={settingsSection === 'data' ? 'active' : ''} onClick={() => setSettingsSection('data')}>Data</button><button className={settingsSection === 'display' ? 'active' : ''} onClick={() => setSettingsSection('display')}>Display</button>
+        </nav>
         <section className="customization-layout">
-          <section className="panel settings-panel account-management-panel">
+          <section className="panel settings-panel account-management-panel" id="settings-club">
             <PanelTitle icon={<KeyRound />} title="Account & License" />
             <div className="preference-list">
               <article className="preference-row">
@@ -5592,7 +5766,7 @@ function App() {
             </div>
           </section>
 
-          <section className="panel settings-panel">
+          <section className="panel settings-panel" id="settings-staff">
             <PanelTitle icon={<Users />} title="Staff Accounts" />
             <div className="preference-list">
               <article className="preference-row">
@@ -5661,7 +5835,7 @@ function App() {
             </div>
           </section>
 
-          <section className="panel settings-panel">
+          <section className="panel settings-panel" id="settings-data">
             <PanelTitle icon={<Download />} title="Data Safety" />
             <div className="preference-list">
               <article className="preference-row">
@@ -5733,7 +5907,7 @@ function App() {
             </div>
           </section>
 
-          <section className="panel settings-panel">
+          <section className="panel settings-panel" id="settings-tables">
             <PanelTitle icon={<Settings />} title="Table Defaults" />
             <div className="preference-list">
               <article className="preference-row">
@@ -5852,7 +6026,7 @@ function App() {
             </div>
           </section>
 
-          <section className="panel settings-panel">
+          <section className="panel settings-panel" id="settings-display">
             <PanelTitle icon={<Moon />} title="Display" />
             <div className="preference-list">
               <article className="preference-row">
@@ -5887,16 +6061,26 @@ function App() {
           </section>
         </section>
       </main>
-    );
+    ));
   }
 
   if (route === 'builder') {
-    return (
+    const getGameFormat = (name: string) => /plo|omaha/i.test(name) ? 'Omaha' : /hold|nlh/i.test(name) ? 'Hold’em' : /mixed|mix/i.test(name) ? 'Mixed' : 'Other';
+    const getGameStakes = (name: string) => name.match(/\d+\s*\/\s*\d+/)?.[0]?.replace(/\s/g, '') ?? 'Unspecified';
+    const getGameStatus = (game: GameConfig) => {
+      if (state.sessions.some((session) => session.gameId === game.id && session.status === 'Running')) return 'Running';
+      const viability = getViabilityState(state, game).state;
+      return viability === 'Ready to Start' || viability === 'Likely to Start' ? 'Ready' : 'Needs players';
+    };
+    const gameFormats = ['All formats', ...Array.from(new Set(state.games.map((game) => getGameFormat(game.name))))];
+    const gameStakes = ['All stakes', ...Array.from(new Set(state.games.map((game) => getGameStakes(game.name))))];
+    const filteredGameOptions = state.games.filter((game) => (gameFormatFilter === 'All formats' || getGameFormat(game.name) === gameFormatFilter) && (gameStakesFilter === 'All stakes' || getGameStakes(game.name) === gameStakesFilter) && (gameStatusFilter === 'All statuses' || getGameStatus(game) === gameStatusFilter));
+    return withShell('games', (
       <main className="app-shell compact-shell">
         <header className="topbar">
           <div>
-            <div className="eyebrow">Advanced planning</div>
-            <h1>Game Planner</h1>
+            <h1>Games</h1>
+            <p className="page-subtitle">Tonight's demand and forming tables</p>
           </div>
           <div className="topbar-actions">
             <button className="ghost-button" onClick={exportPilotReport}>
@@ -5910,6 +6094,18 @@ function App() {
           </div>
         </header>
 
+        <nav className="route-tabs" aria-label="Games sections">
+          <button className="active">Tonight</button>
+          <button onClick={() => openRoute('signals')}>Outreach</button>
+          <button onClick={() => openRoute('customization')}>Configuration</button>
+        </nav>
+
+        <section className="game-filter-bar">
+          <label><span>Stakes</span><select value={gameStakesFilter} onChange={(event) => setGameStakesFilter(event.target.value)}>{gameStakes.map((stakes) => <option key={stakes}>{stakes}</option>)}</select></label>
+          <label><span>Format</span><select value={gameFormatFilter} onChange={(event) => setGameFormatFilter(event.target.value)}>{gameFormats.map((format) => <option key={format}>{format}</option>)}</select></label>
+          <label><span>Status</span><select value={gameStatusFilter} onChange={(event) => setGameStatusFilter(event.target.value)}>{['All statuses', 'Running', 'Ready', 'Needs players'].map((status) => <option key={status}>{status}</option>)}</select></label>
+        </section>
+
         <section className="panel">
           <div className="builder-controls">
             <label>
@@ -5918,11 +6114,12 @@ function App() {
                 value={coordinationConfig.gameId}
                 onChange={(event: { target: { value: any; }; }) => setCoordinationConfig({ ...coordinationConfig, gameId: event.target.value })}
               >
-                {state.games.map((game: { id: any; name: any; }) => (
+                {filteredGameOptions.map((game: { id: any; name: any; }) => (
                   <option key={game.id} value={game.id}>
                     {game.name}
                   </option>
                 ))}
+                {!filteredGameOptions.length ? <option value="">No matching games</option> : null}
               </select>
             </label>
             <label>
@@ -5937,7 +6134,7 @@ function App() {
             </label>
             <button className="primary-button" onClick={addPlannedSession}>
               <Plus size={18} />
-              Create Forming Game
+              Start Forming Table
             </button>
           </div>
           <div className="builder-grid single-window-grid">
@@ -5989,22 +6186,47 @@ function App() {
           </div>
         </section>
       </main>
-    );
+    ));
   }
 
   if (route === 'profiles') {
-    return (
+    return withShell('players', (
       <main className="app-shell compact-shell">
         <header className="topbar">
           <div>
-            <div className="eyebrow">Player context</div>
-            <h1>Profiles</h1>
+            <h1>Players</h1>
+            <p className="page-subtitle">Search and manage player records</p>
           </div>
-          <button className="ghost-button" onClick={closeRoute}>
-            <X size={18} />
-            Close
-          </button>
+          <div className="topbar-actions players-header-actions">
+            <button className="player-tool-icon" onClick={() => setPlayerPopup('ledger')} title="Open player ledger" aria-label="Open player ledger"><Clock size={19} /></button>
+            <button className="player-tool-icon primary" onClick={() => setPlayerPopup('add')} title="Add player" aria-label="Add player"><Plus size={19} /></button>
+          </div>
         </header>
+
+        <Dialog.Root open={playerPopup !== null} onOpenChange={(open) => { if (!open) setPlayerPopup(null); }}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="player-popup-overlay" />
+            <Dialog.Content className="player-popup-content">
+              <div className="player-popup-header">
+                <div><Dialog.Title>{playerPopup === 'add' ? 'Add player' : 'Player ledger'}</Dialog.Title><Dialog.Description>{playerPopup === 'add' ? 'Create a player record.' : 'Recent check-ins and transactions.'}</Dialog.Description></div>
+                <Dialog.Close asChild><button className="icon-button" aria-label="Close"><X size={18} /></button></Dialog.Close>
+              </div>
+              {playerPopup === 'add' ? (
+                <form className="player-popup-form" onSubmit={(event) => { addProfile(event); setPlayerPopup(null); }}>
+                  <label><span>Player name</span><input autoFocus value={newProfile.name} onChange={(event) => setNewProfile({ ...newProfile, name: event.target.value })} placeholder="Full name" /></label>
+                  <label><span>Phone</span><input value={newProfile.phone} onChange={(event) => setNewProfile({ ...newProfile, phone: event.target.value })} placeholder="Phone number" /></label>
+                  <label><span>Preferred game</span><select value={newProfile.preferredGameId} onChange={(event) => setNewProfile({ ...newProfile, preferredGameId: event.target.value, preferredGameIds: [event.target.value] })}>{state.games.map((game) => <option key={game.id} value={game.id}>{game.name}</option>)}</select></label>
+                  <div className="player-popup-form-grid"><label><span>Birthday</span><input type="date" value={newProfile.birthday} onChange={(event) => setNewProfile({ ...newProfile, birthday: event.target.value })} /></label><label><span>Membership expires</span><input type="date" value={newProfile.membershipExpirationDate} onChange={(event) => setNewProfile({ ...newProfile, membershipExpirationDate: event.target.value })} /></label></div>
+                  <div className="player-popup-actions"><Dialog.Close asChild><button className="ghost-button" type="button">Cancel</button></Dialog.Close><button className="primary-button" type="submit">Add player</button></div>
+                </form>
+              ) : (
+                <div className="player-popup-ledger">
+                  {state.playerLedger.length ? state.playerLedger.slice(0, 40).map((entry) => <article key={entry.id}><div><strong>{entry.playerName}</strong><span>{entry.type}{entry.note ? ` · ${entry.note}` : ''}</span></div><div><strong>{entry.amount ? `$${entry.amount.toLocaleString()}` : '—'}</strong><time>{formatClock(entry.timestamp)}</time></div></article>) : <div className="player-popup-empty"><strong>No ledger activity</strong><span>Check-ins and transactions will appear here.</span></div>}
+                </div>
+              )}
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
 
         <section className="profile-command-strip">
           <article>
@@ -6372,22 +6594,28 @@ function App() {
           </div>
         </section>
       </main>
-    );
+    ));
   }
 
   if (route === 'signals') {
-    return (
+    return withShell('games', (
       <main className="app-shell compact-shell">
         <header className="topbar">
           <div>
-            <div className="eyebrow">Coordination support</div>
-            <h1>Interest Signals</h1>
+            <h1>Games</h1>
+            <p className="page-subtitle">Outreach and player coordination</p>
           </div>
           <button className="ghost-button" onClick={closeRoute}>
             <X size={18} />
             Close
           </button>
         </header>
+
+        <nav className="route-tabs" aria-label="Games sections">
+          <button onClick={() => openRoute('builder')}>Tonight</button>
+          <button className="active">Outreach</button>
+          <button onClick={() => openRoute('customization')}>Configuration</button>
+        </nav>
 
         <section className="panel">
           <PanelTitle icon={<Target />} title="Likely Participants" />
@@ -6411,7 +6639,7 @@ function App() {
         </section>
 
         <section className="panel">
-          <PanelTitle icon={<MessageCircle />} title="GroupMe Interest Scan" />
+          <PanelTitle icon={<MessageCircle />} title="Message Scan" />
           <div className="integration-copy">
             <p>
               Paste room chat here to detect likely interest. Staff must review every match before it is added.
@@ -6468,7 +6696,7 @@ function App() {
         </section>
 
         <section className="panel">
-          <PanelTitle icon={<MessageCircle />} title="Staff Scripts" />
+          <PanelTitle icon={<MessageCircle />} title="Templates" />
           <div className="script-template-list">
             {state.scriptTemplates.map((template: any, index: number) => (
               <label key={index}>
@@ -6490,16 +6718,16 @@ function App() {
           </div>
         </section>
       </main>
-    );
+    ));
   }
 
   if (route === 'summary') {
-    return (
-      <main className="app-shell compact-shell">
+    return withShell('reports', (
+      <main className={`app-shell compact-shell reports-page reports-mode-${reportMode} reports-kpi-${kpiCategory}`}>
         <header className="topbar">
           <div>
-            <div className="eyebrow">Owner view</div>
-            <h1>Night Summary</h1>
+            <h1>Night Report</h1>
+            <p className="page-subtitle">Current shift performance and closeout</p>
           </div>
           <div className="topbar-actions">
             <button className="ghost-button" onClick={exportCsv}>
@@ -6522,6 +6750,12 @@ function App() {
             </button>
           </div>
         </header>
+
+        <nav className="report-mode-switch" aria-label="Report view">
+          <button className={reportMode === 'kpis' ? 'active' : ''} onClick={() => setReportMode('kpis')}>KPIs & statistics</button>
+          <button className={reportMode === 'night' ? 'active' : ''} onClick={() => setReportMode('night')}>Tonight's report</button>
+        </nav>
+        {reportMode === 'kpis' ? <nav className="metric-category-menu" aria-label="Metric categories"><button className={kpiCategory === 'operations' ? 'active' : ''} onClick={() => setKpiCategory('operations')}>Operations</button><button className={kpiCategory === 'waitlist' ? 'active' : ''} onClick={() => setKpiCategory('waitlist')}>Waitlist</button><button className={kpiCategory === 'tables' ? 'active' : ''} onClick={() => setKpiCategory('tables')}>Tables</button><button className={kpiCategory === 'collections' ? 'active' : ''} onClick={() => setKpiCategory('collections')}>Collections</button></nav> : null}
 
         <section className="owner-summary-grid">
           <article className="panel owner-metric">
@@ -6706,11 +6940,11 @@ function App() {
           </button>
         </section>
       </main>
-    );
+    ));
   }
 
   if (route === 'kpis') {
-    return (
+    return withShell('reports', (
       <main className="app-shell compact-shell">
         <header className="topbar">
           <div>
@@ -6772,7 +7006,7 @@ function App() {
           </article>
         </section>
       </main>
-    );
+    ));
   }
 
   const liveFeedItems = [
@@ -6884,8 +7118,9 @@ function App() {
                 value={seatPicker.timeMinutes}
                 onChange={(event) => setSeatPicker((current) => current ? { ...current, timeMinutes: event.target.value, error: undefined } : current)}
                 type="number"
-                min="1"
+                min="0"
                 step="1"
+                placeholder="Optional"
               />
             </label>
           ) : null}
@@ -6940,8 +7175,46 @@ function App() {
     </div>
   ) : null;
 
+  const cashOutPlayerSession = cashOutDraft
+    ? state.playerSessions.find((playerSession) => playerSession.id === cashOutDraft.playerSessionId)
+    : undefined;
+  const cashOutModal = cashOutDraft && cashOutPlayerSession ? (
+    <div className="modal-backdrop cash-out-backdrop" role="dialog" aria-modal="true" aria-label={`Cash out ${cashOutPlayerSession.playerName}`}>
+      <form
+        className="cash-out-modal"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const amount = Number(cashOutDraft.amount);
+          if (!Number.isFinite(amount) || amount < 0) return;
+          markPlayerSessionLeft(cashOutPlayerSession, amount, cashOutDraft.note);
+          setCashOutDraft(null);
+        }}
+      >
+        <div className="cash-out-head">
+          <div><span>Close player session</span><h2>{cashOutPlayerSession.playerName}</h2></div>
+          <button className="icon-button" type="button" onClick={() => setCashOutDraft(null)}><X size={18} /></button>
+        </div>
+        <label>Cash-out amount<input autoFocus type="number" min="0" step="0.01" required value={cashOutDraft.amount} onChange={(event) => setCashOutDraft({ ...cashOutDraft, amount: event.target.value })} placeholder="$0.00" /></label>
+        <label>Note<input value={cashOutDraft.note} onChange={(event) => setCashOutDraft({ ...cashOutDraft, note: event.target.value })} placeholder="Optional note" /></label>
+        <div className="cash-out-actions"><button className="ghost-button" type="button" onClick={() => setCashOutDraft(null)}>Cancel</button><button className="primary-button" type="submit">Record cash-out</button></div>
+      </form>
+    </div>
+  ) : null;
+
+  const ledgerSession = tableLedgerSessionId ? state.sessions.find((session) => session.id === tableLedgerSessionId) : undefined;
+  const tableLedgerModal = ledgerSession ? (
+    <div className="modal-backdrop cash-ledger-backdrop" role="dialog" aria-modal="true" aria-label={`${ledgerSession.label} buy-in ledger`}>
+      <section className="cash-ledger-modal">
+        <div className="cash-ledger-head"><div><span>{state.games.find((game) => game.id === ledgerSession.gameId)?.name ?? 'Table'}</span><h2>{ledgerSession.label} ledger</h2></div><button className="icon-button" onClick={() => setTableLedgerSessionId(null)}><X size={18} /></button></div>
+        <TableBuyInLedger state={state} session={ledgerSession} />
+      </section>
+    </div>
+  ) : null;
+
   if (route === 'table') {
-    const storedSessionId = localStorage.getItem(`${storageKey}:table-view-session`) ?? '';
+    const hashQuery = window.location.hash.split('?')[1] ?? '';
+    const routeSessionId = new URLSearchParams(hashQuery).get('sessionId') ?? '';
+    const storedSessionId = routeSessionId || localStorage.getItem(`${storageKey}:table-view-session`) || '';
     const visibleSessions = state.sessions.filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start');
     const tableSession = visibleSessions.find((session) => session.id === storedSessionId) ?? visibleSessions[0];
     const tableGame = tableSession ? state.games.find((game) => game.id === tableSession.gameId) : undefined;
@@ -6950,9 +7223,6 @@ function App() {
       : [];
     const isTimeCollection = Boolean(tableSession && (tableSession.collectionMode === 'Time' || tableSession.timeFeeBased));
     const tableAverageStack = tableSession ? getAverageStackForTable(state, tableSession.id) : 0;
-    const tableBuyIns = tableSession
-      ? state.buyIns.filter((buyIn) => buyIn.tableId === tableSession.id).slice(0, 10)
-      : [];
     const tableWaitlist = tableSession
       ? state.interests
           .filter((interest) => interest.gameId === tableSession.gameId && activeInterestStatuses.includes(interest.status))
@@ -6979,6 +7249,34 @@ function App() {
         }))
       };
     });
+    const tableActivity = tableSession ? [
+      ...state.buyIns.filter((entry) => entry.tableId === tableSession.id).map((entry) => ({ id: `buyin-${entry.id}`, timestamp: entry.timestamp, type: 'Buy-in', text: `${entry.playerName} bought in for $${entry.amount.toLocaleString()}` })),
+      ...state.playerLedger.filter((entry) => entry.tableId === tableSession.id && entry.type === 'Cash-Out').map((entry) => ({ id: `cashout-${entry.id}`, timestamp: entry.timestamp, type: 'Cash-out', text: `${entry.playerName} cashed out${entry.amount !== undefined ? ` for $${entry.amount.toLocaleString()}` : ''}` })),
+      ...state.dropLogs.filter((entry) => entry.tableId === tableSession.id).map((entry) => ({ id: `drop-${entry.id}`, timestamp: entry.timestamp, type: 'Drop', text: `$${entry.amount.toLocaleString()} removed from the table${entry.note ? ` · ${entry.note}` : ''}` })),
+      ...state.tableEvents.filter((entry) => entry.tableId === tableSession.id).map((entry) => ({ id: `event-${entry.id}`, timestamp: entry.timestamp, type: entry.type, text: entry.note || entry.reason || entry.type }))
+    ].sort((left, right) => right.timestamp.localeCompare(left.timestamp)) : [];
+    const tableBuyInRows = tableSession ? state.buyIns
+      .filter((entry) => entry.tableId === tableSession.id)
+      .map((entry) => {
+        const playerSession = state.playerSessions.find((session) =>
+          session.tableId === tableSession.id && (
+            entry.profileId ? session.profileId === entry.profileId : session.playerName.toLowerCase() === entry.playerName.toLowerCase()
+          )
+        );
+        return { entry, seatNumber: playerSession?.seatNumber };
+      })
+      .sort((left, right) => right.entry.timestamp.localeCompare(left.entry.timestamp)) : [];
+    const tableTimePlayers = seatedPlayers
+      .map((playerSession) => ({
+        playerSession,
+        remainingSeconds: getTimeRemainingSeconds(playerSession, clockNow),
+        hasTimer: Boolean(isTimeCollection || playerSession.timeFeeEnabled)
+      }))
+      .sort((left, right) => {
+        if (left.hasTimer !== right.hasTimer) return left.hasTimer ? -1 : 1;
+        if (left.hasTimer && right.hasTimer) return left.remainingSeconds - right.remainingSeconds;
+        return (left.playerSession.seatNumber ?? 99) - (right.playerSession.seatNumber ?? 99);
+      });
 
     return (
       <main className="table-view-shell">
@@ -6996,10 +7294,32 @@ function App() {
               <strong>{seatedPlayers.length}/{tableSession.maxSeats}</strong>
               <em>Avg ${tableAverageStack.toLocaleString()}</em>
               <em>{isTimeCollection ? 'Time' : 'Drop'}</em>
+              <button className="ghost-button" onClick={() => setTableLedgerSessionId(tableSession.id)}><WalletCards size={17} /> Ledger</button>
             </div>
           ) : null}
         </header>
         {seatPickerModal}
+        {cashOutModal}
+        {tableLedgerModal}
+        {tableSession ? <button className="table-live-feed-overlay" onClick={() => setTableEventLogSessionId(tableSession.id)}>
+          <span className="table-live-feed-title"><i /> Live feed <em>View full log →</em></span>
+          <span className="table-live-feed-items">
+            {tableActivity.length ? tableActivity.slice(0, 3).map((entry) => <span key={entry.id}><i className={entry.type.toLowerCase().replace(/\s+/g, '-')} /><span><strong>{entry.type}</strong>{entry.text}</span><time>{formatClock(entry.timestamp)}</time></span>) : <small>Awaiting table activity…</small>}
+          </span>
+        </button> : null}
+        {tableSession ? <button className="table-buyin-float" onClick={() => setTableLedgerSessionId(tableSession.id)}>
+          <span className="table-buyin-float-title"><WalletCards size={12} /> Buy-in ledger</span>
+          <span className="table-buyin-float-rows">
+            {tableBuyInRows.length ? tableBuyInRows.map(({ entry, seatNumber }) => <span key={entry.id}><i>S{seatNumber ?? '-'}</i><span>{entry.playerName}<small>{formatClock(entry.timestamp)}</small></span><em>Buy-in</em><strong>+${entry.amount.toLocaleString()}</strong></span>) : <small>No buy-ins recorded</small>}
+          </span>
+          <span className="table-buyin-float-total"><span>Total buy-ins</span><strong>${tableBuyInRows.reduce((sum, row) => sum + row.entry.amount, 0).toLocaleString()}</strong></span>
+        </button> : null}
+        {tableSession && tableEventLogSessionId === tableSession.id ? <div className="modal-backdrop table-event-log-backdrop" role="dialog" aria-modal="true" aria-label={`${tableSession.label} event log`}>
+          <section className="table-event-log-modal">
+            <div className="table-event-log-head"><div><span>Table event log</span><h2>{tableSession.label}</h2></div><button className="icon-button" onClick={() => setTableEventLogSessionId(null)}><X size={18} /></button></div>
+            <div className="table-event-log-list">{tableActivity.length ? tableActivity.map((entry) => <article key={entry.id}><i className={entry.type.toLowerCase().replace(/\s+/g, '-')} /><div><strong>{entry.type}</strong><span>{entry.text}</span></div><time>{formatClock(entry.timestamp)}</time></article>) : <p className="muted-copy">No table activity recorded yet.</p>}</div>
+          </section>
+        </div> : null}
 
         {tableSession ? (
           <section className="table-view-grid">
@@ -7016,25 +7336,6 @@ function App() {
                 </button>
               </div>
               <div className="table-view-table">
-                <div className="table-view-live-chat" aria-label="Live Chat">
-                  <div className="table-view-panel-title">
-                    <span>Live Chat</span>
-                    <strong>${tableBuyIns.reduce((sum, buyIn) => sum + buyIn.amount, 0).toLocaleString()}</strong>
-                  </div>
-                  <div className="table-view-feed">
-                    {tableBuyIns.length ? (
-                      tableBuyIns.map((buyIn) => (
-                        <article key={buyIn.id}>
-                          <strong>{buyIn.playerName}</strong>
-                          <span>${buyIn.amount.toLocaleString()}</span>
-                          <small>{formatClock(buyIn.timestamp)}</small>
-                        </article>
-                      ))
-                    ) : (
-                      <p className="muted-copy">Live table activity will appear here.</p>
-                    )}
-                  </div>
-                </div>
                 <div className="table-view-poker-table">
                   <PokerTable
                     players={pokerTablePlayers}
@@ -7055,7 +7356,7 @@ function App() {
                     }}
                     onRemovePlayer={(playerId) => {
                       const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                      if (playerSession) markPlayerSessionLeft(playerSession);
+                      if (playerSession) requestPlayerCashOut(playerSession);
                     }}
                     onChangeSeat={(playerId, seatNumber) => {
                       const playerSession = seatedPlayers.find((player) => player.id === playerId);
@@ -7070,26 +7371,25 @@ function App() {
               </div>
             </section>
 
-            <aside className="table-view-waitlist">
+            <aside className="table-view-time-overview" aria-label="Table time overview">
               <div className="table-view-panel-title">
-                <span>Waitlist</span>
-                <strong>{tableWaitlist.length}</strong>
+                <span><Clock size={13} /> Time overview</span>
+                <strong>{tableTimePlayers.filter((item) => item.hasTimer).length}</strong>
               </div>
-              <div className="table-view-waitlist-list">
-                {tableWaitlist.length ? (
-                  tableWaitlist.map((interest) => (
-                    <article key={interest.id}>
+              <div className="table-view-time-list">
+                {tableTimePlayers.length ? (
+                  tableTimePlayers.map(({ playerSession, remainingSeconds, hasTimer }) => {
+                    const timeStatus = hasTimer ? getTimerStatusFromSeconds(remainingSeconds) : 'off';
+                    return <article key={playerSession.id}>
                       <div>
-                        <strong>{interest.playerName}</strong>
-                        <span>{interest.status} - {minutesSince(interest.interestedAt)}m</span>
+                        <span>Seat {playerSession.seatNumber ?? '-'}</span>
+                        <strong>{playerSession.playerName}</strong>
                       </div>
-                      <button className="ghost-button" onClick={() => seatInterestAtTable(interest, tableSession.id)}>
-                        Seat
-                      </button>
-                    </article>
-                  ))
+                      <em className={`time-left-pill ${timeStatus}`}>{hasTimer ? formatTimeLeft(remainingSeconds) : 'No timer'}</em>
+                    </article>;
+                  })
                 ) : (
-                  <p className="muted-copy">No players waiting for this game.</p>
+                  <p className="muted-copy">No players are seated at this table.</p>
                 )}
               </div>
             </aside>
@@ -7105,38 +7405,56 @@ function App() {
     );
   }
 
-  return (
+  return withShell('floor', (
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <div className="eyebrow">{branding.product.tagline}</div>
-          <img className="brand-logo topbar-logo" src="./orbit-logo.svg" alt={branding.product.name} />
+          <h1>Floor</h1>
+          <p className="page-subtitle">Live room operations</p>
         </div>
         <div className="topbar-actions">
-          <span className={`save-status ${saveStatus.state}`}>{saveStatus.message}</span>
-          <button className="ghost-button" onClick={() => openRoute('customization')} title="Open customization">
-            <Settings size={18} />
-            Customize
+          <button className="waitlist-icon-trigger" onClick={() => setWaitlistPopupOpen(true)} title="Open waitlist" aria-label={`Open waitlist, ${state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length} waiting`}>
+            <Users size={19} />
+            {state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length ? <span>{state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length}</span> : null}
           </button>
-          <button className="ghost-button" onClick={() => openRoute('profiles')} title="Open profiles">
-            <Edit3 size={18} />
-            Profiles
-          </button>
-          <button className="ghost-button" onClick={() => openRoute('summary')} title="Open owner summary">
-            <Clock size={18} />
-            Summary
-          </button>
-          <button className="ghost-button" onClick={() => openRoute('kpis')} title="Open KPIs">
-            <Target size={18} />
-            KPIs
-          </button>
-          <button className="ghost-button" onClick={() => openRoute('tournaments')} title="Open tournament manager">
-            <Users size={18} />
-            Tournaments
-          </button>
+          <button className="primary-button" onClick={() => setOpenPanels((panels) => ({ ...panels, quickAdd: true }))}><Plus size={18} /> Add player</button>
         </div>
       </header>
       {seatPickerModal}
+      {cashOutModal}
+      {tableLedgerModal}
+
+      <Dialog.Root open={waitlistPopupOpen} onOpenChange={setWaitlistPopupOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="waitlist-popup-overlay" />
+          <Dialog.Content className="waitlist-popup-content">
+            <div className="waitlist-popup-header">
+              <div><Dialog.Title>Waitlist</Dialog.Title><Dialog.Description>{state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length} players need attention</Dialog.Description></div>
+              <Dialog.Close asChild><button className="icon-button" aria-label="Close waitlist"><X size={18} /></button></Dialog.Close>
+            </div>
+            <div className="waitlist-popup-list">
+              {state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length ? state.interests
+                .filter((interest) => activeInterestStatuses.includes(interest.status))
+                .sort((left, right) => left.interestedAt.localeCompare(right.interestedAt))
+                .map((interest) => {
+                  const game = state.games.find((item) => item.id === interest.gameId);
+                  return <article className="waitlist-popup-row" key={interest.id}>
+                    <div><strong>{interest.playerName}</strong><span>{game?.name ?? 'Unknown game'} · {interest.status === 'Confirmed Coming' ? 'Coming' : interest.status === 'Arrived' ? 'Here' : interest.status}</span></div>
+                    <em>{minutesSince(interest.interestedAt)}m</em>
+                    <DropdownMenu><DropdownMenuTrigger asChild><button className="icon-button" aria-label={`Actions for ${interest.playerName}`}><MoreHorizontal size={17} /></button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => deleteInterest(interest.id)}>Remove from waitlist</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+                  </article>;
+                }) : <div className="waitlist-popup-empty"><strong>No one is waiting</strong><span>New interest will appear here.</span></div>}
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <section className="floor-summary-bar" aria-label="Floor summary">
+        <span><strong>{state.sessions.filter((session) => session.status === 'Running').length}</strong> running</span>
+        <span><strong>{state.playerSessions.filter((session) => !session.leftAt).length}</strong> seated</span>
+        <span><strong>{state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length}</strong> waiting</span>
+        <span className={analytics.expiredTimeFeeSeats ? 'alert' : ''}><strong>{analytics.expiredTimeFeeSeats}</strong> actions needed</span>
+      </section>
 
       <section className="minimal-dashboard dashboard-simple">
         <div className="dashboard-main-column">
@@ -7183,7 +7501,7 @@ function App() {
                   };
                 });
                 return (
-                  <article className="active-game-card" key={session.id}>
+                  <article className="active-game-card floor-table-launcher" key={session.id} onClick={() => openTableView(session.id)}>
                     <div>
                       <h3>{game?.name ?? 'Unknown'}</h3>
                     <span>{session.label} - {session.status} - {isTimeCollection ? 'Time fees' : 'Drop'}</span>
@@ -7195,7 +7513,7 @@ function App() {
                     </div>
                     <strong>{pokerTablePlayers.length}/{session.maxSeats}</strong>
                     <span className={`health-pill ${health.toLowerCase().replace(/\s+/g, '-')}`}>{health}</span>
-                    <div className="seat-control">
+                    <div className="seat-control" onClick={(event) => event.stopPropagation()}>
                       <button
                         className="mini-button"
                         onClick={() => {
@@ -7208,12 +7526,9 @@ function App() {
                       </button>
                       {session.status !== 'Running' ? (
                         <button className="secondary-button" onClick={() => startSessionWithPlayers(session)}>Start Table</button>
-                      ) : (
-                        <button className="secondary-button" onClick={() => updateSession(session.id, { status: 'Paused' })}>Pause</button>
-                      )}
-                      <button className="ghost-button" onClick={() => recordTableEvent(session, 'Broke', eventDrafts[session.id]?.breakReason || tableBreakReasons[0], eventDrafts[session.id]?.breakNote ?? '')}>
-                        Broke
-                      </button>
+                      ) : null}
+                      <button className="ghost-button" onClick={() => openTableView(session.id)}><Eye size={17} /> Open</button>
+                      <button className="ghost-button" onClick={() => setTableLedgerSessionId(session.id)}><WalletCards size={17} /> Ledger</button>
                       <button
                         className="icon-button"
                         onClick={() => setCollapsedTables((tables) => ({ ...tables, [session.id]: !(tables[session.id] ?? true) }))}
@@ -7221,12 +7536,16 @@ function App() {
                       >
                         {tableExpanded ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
                       </button>
-                      <button className="icon-button" onClick={() => recordTableEvent(session, 'Closed', 'Staff closed table')} title="Close table">
-                        <X size={17} />
-                      </button>
-                      <button className="icon-button" onClick={() => openTableView(session.id)} title="Open table view">
-                        <Eye size={17} />
-                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild><button className="icon-button" title="Table actions"><MoreHorizontal size={17} /></button></DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {session.status === 'Running' ? <DropdownMenuItem onSelect={() => updateSession(session.id, { status: 'Paused' })}>Pause table</DropdownMenuItem> : null}
+                          <DropdownMenuItem onSelect={() => setCollapsedTables((tables) => ({ ...tables, [session.id]: true }))}>Table settings</DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => recordTableEvent(session, 'Broke', eventDrafts[session.id]?.breakReason || tableBreakReasons[0], eventDrafts[session.id]?.breakNote ?? '')}>Mark as broke</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => recordTableEvent(session, 'Closed', 'Staff closed table')}>Close table</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                     <div className="table-detail-panel">
                       <div className="seat-help-row">
@@ -7297,7 +7616,7 @@ function App() {
                             }}
                             onRemovePlayer={(playerId) => {
                               const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              if (playerSession) markPlayerSessionLeft(playerSession);
+                              if (playerSession) requestPlayerCashOut(playerSession);
                             }}
                             onChangeSeat={(playerId, seatNumber) => {
                               const playerSession = seatedPlayers.find((player) => player.id === playerId);
@@ -7441,7 +7760,7 @@ function App() {
         <section className={`panel floor-panel table-overview-panel ${openPanels.tableOverview ? '' : 'collapsed-panel'}`}>
           <PanelTitle
             icon={<Clock />}
-            title="Table Overview"
+            title="Time Overview"
             collapsed={!openPanels.tableOverview}
             onToggle={() => togglePanel('tableOverview')}
           />
@@ -7452,7 +7771,18 @@ function App() {
             const openSessionsById = new Map(openSessions.map((session) => [session.id, session]));
             const selectedTable = openSessions.find((session) => session.id === overviewTableId) ?? openSessions[0];
             const selectedPlayers = selectedTable
-              ? state.playerSessions.filter((playerSession) => playerSession.tableId === selectedTable.id && !playerSession.leftAt)
+              ? state.playerSessions
+                  .filter((playerSession) => playerSession.tableId === selectedTable.id && !playerSession.leftAt)
+                  .map((playerSession) => ({
+                    playerSession,
+                    isTimeCollection: Boolean(selectedTable.collectionMode === 'Time' || selectedTable.timeFeeBased || playerSession.timeFeeEnabled),
+                    remainingSeconds: getTimeRemainingSeconds(playerSession, clockNow)
+                  }))
+                  .sort((left, right) => {
+                    if (left.isTimeCollection !== right.isTimeCollection) return left.isTimeCollection ? -1 : 1;
+                    if (left.isTimeCollection && right.isTimeCollection) return left.remainingSeconds - right.remainingSeconds;
+                    return left.playerSession.playerName.localeCompare(right.playerSession.playerName);
+                  })
               : [];
             const allTimePlayers = state.playerSessions
               .filter((playerSession) => !playerSession.leftAt && openSessionsById.has(playerSession.tableId))
@@ -7467,7 +7797,6 @@ function App() {
                 if (left.isTimeCollection && right.isTimeCollection) return left.remainingSeconds - right.remainingSeconds;
                 return minutesSince(right.playerSession.seatedAt) - minutesSince(left.playerSession.seatedAt);
               });
-            const selectedIsTimeCollection = Boolean(selectedTable && (selectedTable.collectionMode === 'Time' || selectedTable.timeFeeBased));
             return (
               <div className="table-overview-content">
                 {openSessions.length ? (
@@ -7484,8 +7813,7 @@ function App() {
                       {isAllTimeOverview ? (
                         allTimePlayers.length ? (
                           allTimePlayers.map(({ playerSession, table, isTimeCollection, remainingSeconds }) => {
-                            const remainingMinutes = Math.ceil(remainingSeconds / 60);
-                            const timeStatus = isTimeCollection ? getTimeStatus(remainingMinutes) : 'off';
+                            const timeStatus = isTimeCollection ? getTimerStatusFromSeconds(remainingSeconds) : 'off';
                             return (
                               <div className="overview-player-row all-time-row" key={playerSession.id}>
                                 <span>{table?.label ?? 'Table'} - Seat {playerSession.seatNumber ?? '-'}</span>
@@ -7501,16 +7829,14 @@ function App() {
                           <p className="muted-copy">No seated players on open tables.</p>
                         )
                       ) : selectedPlayers.length ? (
-                        selectedPlayers.map((playerSession, index) => {
-                          const remainingSeconds = getTimeRemainingSeconds(playerSession, clockNow);
-                          const remainingMinutes = Math.ceil(remainingSeconds / 60);
-                          const timeStatus = selectedIsTimeCollection ? getTimeStatus(remainingMinutes) : 'off';
+                        selectedPlayers.map(({ playerSession, isTimeCollection, remainingSeconds }) => {
+                          const timeStatus = isTimeCollection ? getTimerStatusFromSeconds(remainingSeconds) : 'off';
                           return (
                             <div className="overview-player-row" key={playerSession.id}>
-                              <span>Seat {index + 1}</span>
+                              <span>Seat {playerSession.seatNumber ?? '-'}</span>
                               <strong>{playerSession.playerName}</strong>
                               <em className={`time-left-pill ${timeStatus}`}>
-                                {selectedIsTimeCollection ? formatTimeLeft(remainingSeconds) : formatMinutesLeft(minutesSince(playerSession.seatedAt))}
+                                {isTimeCollection ? formatTimeLeft(remainingSeconds) : 'No timer'}
                               </em>
                             </div>
                           );
@@ -7529,7 +7855,7 @@ function App() {
         </section>
 
         <section className="panel floor-panel live-feed-panel">
-          <PanelTitle icon={<MessageCircle />} title="Live Feed" />
+          <PanelTitle icon={<MessageCircle />} title="Recent Activity" />
           <div className="live-feed-list" aria-live="polite">
             {liveFeedItems.length ? (
               liveFeedItems.map((item) => (
@@ -7551,9 +7877,30 @@ function App() {
         </section>
 
         <section className={`panel floor-panel shown-interest-panel ${openPanels.formingGames ? '' : 'collapsed-panel'}`}>
-          <PanelTitle icon={<Users />} title="Build Game" collapsed={!openPanels.formingGames} onToggle={() => togglePanel('formingGames')} />
+          <PanelTitle icon={<Users />} title="Forming Games" collapsed={!openPanels.formingGames} onToggle={() => togglePanel('formingGames')} />
           {openPanels.formingGames ? <div className="forming-list">
-            {state.games.map((game: { id: any; name: any; maxSeats?: number; minInRoomForLikely?: number; minFlexibleForLikely?: number; minTotalForViable?: number; }) => {
+            {state.games.length ? (
+              <label className="forming-game-menu">
+                <span>Game to form</span>
+                <select
+                  value={state.games.some((game) => game.id === formingGameId) ? formingGameId : state.games[0].id}
+                  onChange={(event) => setFormingGameId(event.target.value)}
+                >
+                  {state.games.map((game) => {
+                    const demand = getDemand(game, state.interests);
+                    const forming = state.sessions.some((session) => session.gameId === game.id && session.status === 'Forming');
+                    return (
+                      <option key={game.id} value={game.id}>
+                        {game.name}{forming ? ' — forming' : ''}{demand.inRoom ? ` — ${demand.inRoom} in room` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+            ) : null}
+            {state.games
+              .filter((game) => game.id === (state.games.some((item) => item.id === formingGameId) ? formingGameId : state.games[0]?.id))
+              .map((game: { id: any; name: any; maxSeats?: number; minInRoomForLikely?: number; minFlexibleForLikely?: number; minTotalForViable?: number; }) => {
               const demand = getDemand(game, state.interests);
               const viability = getViabilityState(state, game);
               const formingSession = state.sessions.find((session: { gameId: any; status: string; }) => session.gameId === game.id && session.status === 'Forming');
@@ -7648,6 +7995,7 @@ function App() {
                 </article>
               );
             })}
+            {!state.games.length ? <p className="muted-copy">Add a game in Settings before forming a table.</p> : null}
           </div> : null}
         </section>
 
@@ -7798,7 +8146,7 @@ function App() {
 
       </section>
     </main>
-  );
+  ));
 }
 
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
@@ -7810,6 +8158,73 @@ function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; 
         <strong>{value}</strong>
       </div>
     </article>
+  );
+}
+
+function TableBuyInLedger({ state, session }: { state: AppState; session: GameSession }) {
+  // Keep the raw event rows intact: each reload/add-on is its own ledger entry,
+  // even when several entries belong to the same player.
+  const buyIns = state.buyIns
+    .filter((entry) => entry.tableId === session.id)
+    .map((entry, recordedOrder) => ({ ...entry, recordedOrder }));
+  const cashOuts = state.playerLedger.filter((entry) => entry.tableId === session.id && entry.type === 'Cash-Out');
+  const drops = state.dropLogs.filter((entry) => entry.tableId === session.id);
+  const collectionProfile = getCollectionProfile(state, session.gameId);
+  const timeFees = (session.collectionMode === 'Time' || session.timeFeeBased)
+    ? state.playerSessions
+        .filter((playerSession) => playerSession.tableId === session.id && (playerSession.timePurchasedMinutes ?? 0) > 0)
+        .map((playerSession) => ({
+          id: `time-${playerSession.id}`,
+          playerName: playerSession.playerName,
+          amount: ((playerSession.timePurchasedMinutes ?? 0) / 60) * collectionProfile.hourlyFee,
+          timestamp: playerSession.lastTimeTickAt || playerSession.seatedAt,
+          note: `${playerSession.timePurchasedMinutes ?? 0} minutes purchased`
+        }))
+    : [];
+  const totalBuyIns = buyIns.reduce((sum, entry) => sum + entry.amount, 0);
+  const totalCashOuts = cashOuts.reduce((sum, entry) => sum + (entry.amount ?? 0), 0);
+  const totalDrop = drops.reduce((sum, entry) => sum + entry.amount, 0);
+  const totalTimeFees = timeFees.reduce((sum, entry) => sum + entry.amount, 0);
+  const totalRemoved = totalDrop + totalTimeFees;
+  const cashInPlay = totalBuyIns - totalCashOuts - totalRemoved;
+  const entries = [
+    ...buyIns.map((entry) => ({ ...entry, kind: 'Buy-in', direction: 'in' as const })),
+    ...cashOuts.map((entry) => ({ ...entry, amount: entry.amount ?? 0, kind: 'Cash-out', direction: 'out' as const })),
+    ...drops.map((entry) => ({ ...entry, playerName: 'House collection', kind: 'Drop', direction: 'fee' as const })),
+    ...timeFees.map((entry) => ({ ...entry, kind: 'Time fee', direction: 'fee' as const }))
+  ].sort((left, right) => {
+    const timestampOrder = right.timestamp.localeCompare(left.timestamp);
+    if (timestampOrder !== 0) return timestampOrder;
+    return ('recordedOrder' in left ? left.recordedOrder : Number.MAX_SAFE_INTEGER)
+      - ('recordedOrder' in right ? right.recordedOrder : Number.MAX_SAFE_INTEGER);
+  });
+
+  return (
+    <section className="cash-ledger">
+      <div className="cash-ledger-summary">
+        <article><span>Total buy-ins</span><strong>${totalBuyIns.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
+        <article><span>Cash-outs</span><strong>${totalCashOuts.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
+        <article><span>Drop + time</span><strong>${totalRemoved.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
+        <article className="cash-ledger-balance"><span>Cash in play</span><strong>${cashInPlay.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
+      </div>
+      <div className="cash-ledger-reconcile">
+        <span>Reconciliation</span>
+        <code>${totalBuyIns.toLocaleString()} − ${totalCashOuts.toLocaleString()} − ${totalRemoved.toLocaleString(undefined, { maximumFractionDigits: 2 })} = ${cashInPlay.toLocaleString(undefined, { maximumFractionDigits: 2 })}</code>
+      </div>
+      <div className="cash-ledger-log">
+        {entries.length ? entries.map((entry) => (
+          <article className={`cash-ledger-entry ${entry.direction}`} key={`${entry.kind}-${entry.id}`}>
+            <div className="cash-ledger-marker" />
+            <time dateTime={entry.timestamp}>{formatClock(entry.timestamp)}</time>
+            <div className="cash-ledger-entry-copy">
+              <strong>{entry.kind}</strong>
+              <span>{entry.playerName}{entry.note ? ` · ${entry.note}` : ''}</span>
+            </div>
+            <em>{entry.direction === 'in' ? '+' : '−'}${entry.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</em>
+          </article>
+        )) : <div className="cash-ledger-empty"><strong>No transactions yet</strong><span>Buy-ins, cash-outs, drop, and time fees will appear here.</span></div>}
+      </div>
+    </section>
   );
 }
 

@@ -1,16 +1,14 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { createUserWithEmailAndPassword, getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { collection, getDocs, initializeFirestore, getFirestore, doc, getDoc, onSnapshot, setDoc, serverTimestamp, updateDoc, writeBatch, type Unsubscribe } from 'firebase/firestore';
 import { firebaseConfig } from './firebaseConfig';
 import {
   applyMembershipRequestToClubState,
-  applyPlayerProfileDocumentToClubState,
   applyWaitlistRequestToClubState,
   buildPlayerClubSnapshot,
   getClubIdFromState,
   type PlayerClubSnapshot,
   type PlayerMembershipRequest,
-  type PlayerProfileDocument,
   type PlayerWaitlistRequest
 } from './playerSync';
 
@@ -58,10 +56,42 @@ function withFirebaseTimeout<T>(operation: Promise<T>, fallback: T): Promise<T> 
 
 async function ensureFirebaseSession() {
   if (auth.currentUser) return auth.currentUser;
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: 'select_account' });
-  const credential = await signInWithPopup(auth, provider);
+  throw new Error('Firebase email/password authentication is required before synchronization.');
+}
+
+export async function signInToFirebaseWithEmail(email: string, password: string) {
+  const credential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
   return credential.user;
+}
+
+export async function createFirebaseEmailAccount(email: string, password: string) {
+  const credential = await createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+  return credential.user;
+}
+
+/**
+ * Migrates an existing Orbit login into Firebase Auth without an extra user
+ * workflow. Call this only after Orbit's local password hash and pilot access
+ * have already been verified.
+ */
+export async function signInOrCreateFirebaseEmailAccount(email: string, password: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  try {
+    return await signInToFirebaseWithEmail(normalizedEmail, password);
+  } catch (signInError) {
+    try {
+      return await createFirebaseEmailAccount(normalizedEmail, password);
+    } catch (createError) {
+      if ((createError as { code?: string }).code === 'auth/email-already-in-use') {
+        throw signInError;
+      }
+      throw createError;
+    }
+  }
+}
+
+export async function signOutOfFirebase() {
+  await signOut(auth);
 }
 
 export function getFirebaseSyncStatus() {
@@ -72,7 +102,8 @@ export function getFirebaseSyncStatus() {
 }
 
 export async function saveClubStateToFirebase<TState extends object>(state: TState) {
-  await withFirebaseTimeout(ensureFirebaseSession(), null);
+  const user = await withFirebaseTimeout(ensureFirebaseSession(), null);
+  if (!user) throw new Error('Firebase authentication timed out before synchronization.');
   const syncedState = await syncPlayerUpdatesToClubState(state);
   const accountKey = getClubIdFromState(syncedState as Parameters<typeof getClubIdFromState>[0]);
   const savedAt = new Date().toISOString();
@@ -85,16 +116,16 @@ export async function saveClubStateToFirebase<TState extends object>(state: TSta
     updatedAt: serverTimestamp()
   };
   return withFirebaseTimeout(
-    Promise.all([
-      setDoc(doc(db, 'clubStates', accountKey), record, { merge: true }),
-      publishClubSnapshot(accountKey, snapshot, savedAt)
-    ]).then(() => ({ accountKey, savedAt, snapshot, synced: true })),
+    setDoc(doc(db, 'clubStates', accountKey), record, { merge: true })
+      .then(() => publishClubSnapshot(accountKey, snapshot, savedAt))
+      .then(() => ({ accountKey, savedAt, snapshot, synced: true })),
     { accountKey, savedAt, snapshot, synced: false }
   );
 }
 
 export async function loadClubStateFromFirebase<TState = unknown>(accountKey: string) {
-  await withFirebaseTimeout(ensureFirebaseSession(), null);
+  const user = await withFirebaseTimeout(ensureFirebaseSession(), null);
+  if (!user) throw new Error('Firebase authentication timed out before synchronization.');
   const normalizedKey = accountKey.trim().toLowerCase();
   if (!normalizedKey) return null;
   const snapshot = await withFirebaseTimeout(getDoc(doc(db, 'clubStates', normalizedKey)), null);
@@ -131,13 +162,6 @@ export async function syncPlayerUpdatesToClubState<TState extends object>(state:
       appliedIds.add(request.id);
       nextState = applyWaitlistRequestToClubState(nextState, request);
       await markRequestApplied(accountKey, 'waitlistRequests', request.id);
-    }
-  }
-
-  const playerProfiles = await withFirebaseTimeout(getDocs(collection(db, 'players')).catch(() => null), null);
-  if (playerProfiles) {
-    for (const playerDoc of playerProfiles.docs) {
-      nextState = applyPlayerProfileDocumentToClubState(nextState, playerDoc.data() as PlayerProfileDocument, accountKey);
     }
   }
 
@@ -247,22 +271,6 @@ async function updatePlayerMembershipStatus(playerId: string | undefined, clubId
   if (!playerId) return;
   const membershipStart = requestedAt.slice(0, 10);
   const membershipExpiration = addDays(membershipStart, 365);
-  await setDoc(
-    doc(db, 'players', playerId),
-    {
-      clubMemberships: {
-        [clubId]: {
-          clubId,
-          status: 'Active',
-          requestedAt,
-          joinedAt: membershipStart,
-          expiresAt: membershipExpiration
-        }
-      },
-      updatedAt: serverTimestamp()
-    },
-    { merge: true }
-  ).catch(() => undefined);
   await setDoc(
     doc(db, 'clubs', clubId, 'memberships', playerId),
     {

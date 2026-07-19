@@ -130,6 +130,11 @@ function playerHash(profile, clubId) {
   return crypto.createHash('sha256').update(seed || `${clubId}:unknown-player`).digest('hex').slice(0, 32);
 }
 
+function playerDocumentId(profile, clubId) {
+  if (String(profile?.id || '').trim()) return firestoreDocumentId(profile.id);
+  return playerHash(profile, clubId);
+}
+
 function hoursBetween(start, end = new Date().toISOString()) {
   if (!start) return 0;
   return Math.max(0, (new Date(end).getTime() - new Date(start).getTime()) / 36e5);
@@ -228,7 +233,7 @@ function buildCanonicalPlayerDocs(state, clubId, savedAt) {
     const firstSessionDate = sessions.map((session) => session.seatedAt).filter(Boolean).sort()[0] || '';
     const totalHoursPlayed = Number(profile.totalTimePlayedHours || 0) || sessions.reduce((sum, session) => sum + hoursBetween(session.seatedAt, session.leftAt), 0);
     const contribution = getPlayerContribution(state, sessions);
-    const id = playerHash(profile, clubId);
+    const id = playerDocumentId(profile, clubId);
     return {
       id,
       sourceProfileId: profile.id || '',
@@ -349,11 +354,6 @@ function buildCanonicalClubDoc(state, clubId, snapshot, playerDocs, savedAt) {
     membershipStartedAt: access.issuedAt || '',
     membershipRenewalDate: access.expiresAt || '',
     membershipTier: access.tier || state.settings?.membershipTier || '',
-    playersWithMemberships: playerDocs.filter((player) => player.membershipActive).map((player) => ({
-      id: player.id,
-      name: player.name,
-      membershipEndsAt: player.dateMembershipShouldEnd
-    })),
     playerCount: playerDocs.length,
     activeMembershipCount: playerDocs.filter((player) => player.membershipActive).length,
     lastSessionSnapshot: buildLastSessionSnapshot(state, savedAt),
@@ -376,6 +376,35 @@ async function patchDocument(projectId, token, path, record) {
     body: JSON.stringify({ fields: jsToFirestoreFields(record) })
   });
   if (!response.ok) throw new Error(`Firestore write failed for ${path}: ${response.status} ${await response.text()}`);
+}
+
+async function deleteLegacyPlayerDocuments(projectId, token, clubId, playerDocs) {
+  const expectedIdsByProfile = new Map(
+    playerDocs.filter((player) => player.sourceProfileId).map((player) => [player.sourceProfileId, player.id])
+  );
+  if (!expectedIdsByProfile.size) return 0;
+
+  const endpoint = `${restBase(projectId)}/clubs/${encodeURIComponent(clubId)}/players?pageSize=1000`;
+  const response = await fetch(endpoint, { headers: { authorization: `Bearer ${token}` } });
+  if (!response.ok) throw new Error(`Firestore player listing failed for ${clubId}: ${response.status} ${await response.text()}`);
+  const payload = await response.json();
+  const stalePaths = (payload.documents || []).flatMap((document) => {
+    const documentId = String(document.name || '').split('/').pop() || '';
+    const sourceProfileId = document.fields?.sourceProfileId?.stringValue || '';
+    const expectedId = expectedIdsByProfile.get(sourceProfileId);
+    return expectedId && expectedId !== documentId ? [document.name] : [];
+  });
+
+  for (const documentName of stalePaths) {
+    const response = await fetch(`https://firestore.googleapis.com/v1/${documentName}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${token}` }
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Firestore legacy player cleanup failed: ${response.status} ${await response.text()}`);
+    }
+  }
+  return stalePaths.length;
 }
 
 async function publishStateToFirebase(state) {
@@ -410,6 +439,8 @@ async function publishStateToFirebase(state) {
     );
   }
 
+  const legacyPlayersRemoved = await deleteLegacyPlayerDocuments(projectId, token, accountKey, playerDocs);
+
   for (const game of gameDocs) {
     await patchDocument(
       projectId,
@@ -419,10 +450,13 @@ async function publishStateToFirebase(state) {
     );
   }
 
-  return { ok: true, accountKey, savedAt, players: playerDocs.length, games: gameDocs.length };
+  return { ok: true, accountKey, savedAt, players: playerDocs.length, games: gameDocs.length, legacyPlayersRemoved };
 }
 
 module.exports = {
+  buildCanonicalClubDoc,
+  buildCanonicalPlayerDocs,
   getFirebasePublisherStatus,
+  playerDocumentId,
   publishStateToFirebase
 };
