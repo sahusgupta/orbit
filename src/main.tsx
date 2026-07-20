@@ -42,6 +42,7 @@ import {
 } from './lib/appCore';
 import { loadClubStateFromFirebase, saveClubStateToFirebase, signInOrCreateFirebaseEmailAccount, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
 import { rendererFirebaseSyncEnabled } from './lib/firebaseConfig';
+import { buildNightCloseTables, type NightCloseTable } from './lib/nightClose';
 import './styles.css';
 
 declare global {
@@ -377,6 +378,33 @@ type StaffAccount = {
   lastSelectedAt?: string;
 };
 
+type NightCloseStatus = 'Draft' | 'Staff Signed' | 'Locked';
+
+type NightCloseAudit = {
+  id: string;
+  action: 'Created' | 'Saved' | 'Staff Signed' | 'Manager Approved' | 'Reopened';
+  timestamp: string;
+  staffId?: string;
+  staffName: string;
+  staffRole?: StaffRole;
+  note?: string;
+};
+
+type NightCloseRecord = {
+  id: string;
+  date: string;
+  status: NightCloseStatus;
+  createdAt: string;
+  updatedAt: string;
+  lockedAt?: string;
+  notes: string;
+  tables: NightCloseTable[];
+  warnings: string[];
+  staffSignOff?: NightCloseAudit;
+  managerSignOff?: NightCloseAudit;
+  audit: NightCloseAudit[];
+};
+
 type AccountLogin = {
   username: string;
   passwordSalt: string;
@@ -480,6 +508,7 @@ type AppState = {
   tableEvents: TableEvent[];
   inAppNotifications: PlayerInAppNotification[];
   history: NightRecord[];
+  nightCloses: NightCloseRecord[];
   feedback: FeedbackEntry[];
   scriptTemplates: string[];
   correctionLog: CorrectionEntry[];
@@ -955,6 +984,7 @@ const seedState: AppState = {
   tableEvents: [],
   inAppNotifications: [],
   history: [],
+  nightCloses: [],
   feedback: [],
   scriptTemplates: defaultScriptTemplates,
   correctionLog: [],
@@ -1204,6 +1234,7 @@ function normalizeState(parsed: Partial<AppState>): AppState {
       targetPlayerNames: notification.targetPlayerNames ?? []
     })),
     history: parsed.history ?? [],
+    nightCloses: parsed.nightCloses ?? [],
     feedback: parsed.feedback ?? [],
     scriptTemplates: parsed.scriptTemplates ?? defaultScriptTemplates,
     correctionLog: parsed.correctionLog ?? [],
@@ -2085,7 +2116,9 @@ function App() {
   const [waitlistPopupOpen, setWaitlistPopupOpen] = useState(false);
   const [playerPopup, setPlayerPopup] = useState<'add' | 'ledger' | null>(null);
   const [settingsSection, setSettingsSection] = useState<'club' | 'staff' | 'tables' | 'data' | 'display'>('club');
-  const [reportMode, setReportMode] = useState<'kpis' | 'night'>('kpis');
+  const [reportMode, setReportMode] = useState<'kpis' | 'night' | 'close'>('kpis');
+  const [nightCloseActuals, setNightCloseActuals] = useState<Record<string, string>>({});
+  const [nightCloseNotes, setNightCloseNotes] = useState('');
   const [kpiCategory, setKpiCategory] = useState<'operations' | 'waitlist' | 'tables' | 'collections'>('operations');
   const [gameFormatFilter, setGameFormatFilter] = useState('All formats');
   const [gameStakesFilter, setGameStakesFilter] = useState('All stakes');
@@ -4532,30 +4565,134 @@ function App() {
     setImportText('');
   };
 
-  const archiveNight = () => {
-    if (!window.confirm('Close and archive this night?')) return;
+  const currentNightClose = state.nightCloses
+    .filter((close) => close.date === todayDate())
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+  const savedNightCloseActuals = Object.fromEntries((currentNightClose?.tables ?? []).map((table) => [table.tableId, table.actualCash === undefined ? '' : String(table.actualCash)]));
+  const effectiveNightCloseActuals = { ...savedNightCloseActuals, ...nightCloseActuals };
+  const calculatedNightCloseTables = buildNightCloseTables(state, effectiveNightCloseActuals);
+  const nightCloseTables = currentNightClose?.status === 'Locked' ? currentNightClose.tables : calculatedNightCloseTables;
+  const nightCloseWarnings = Array.from(new Set(nightCloseTables.flatMap((table) => table.warnings.map((warning) => `${table.tableLabel}: ${warning}`))));
+  const nightCloseTotals = nightCloseTables.reduce((totals, table) => ({
+    buyIns: totals.buyIns + table.buyIns,
+    cashOuts: totals.cashOuts + table.cashOuts,
+    removed: totals.removed + table.drop + table.timeFees,
+    expected: totals.expected + table.expectedCash,
+    actual: totals.actual + (table.actualCash ?? 0),
+    discrepancy: totals.discrepancy + (table.discrepancy ?? 0)
+  }), { buyIns: 0, cashOuts: 0, removed: 0, expected: 0, actual: 0, discrepancy: 0 });
+  const nightCloseHasMissingActual = nightCloseTables.some((table) => table.actualCash === undefined);
+
+  const makeNightCloseAudit = (action: NightCloseAudit['action'], note?: string): NightCloseAudit => {
+    const staff = state.settings.staffAccounts.find((account) => account.id === state.settings.activeStaffId);
+    return { id: uid(), action, timestamp: nowIso(), staffId: staff?.id, staffName: staff?.name ?? 'Unassigned staff', staffRole: staff?.role, note };
+  };
+
+  const saveNightClose = (nextStatus: NightCloseStatus = currentNightClose?.status ?? 'Draft') => {
+    if (currentNightClose?.status === 'Locked') return currentNightClose;
+    const timestamp = nowIso();
+    const auditEntry = makeNightCloseAudit(currentNightClose ? 'Saved' : 'Created');
+    const record: NightCloseRecord = {
+      id: currentNightClose?.id ?? uid(),
+      date: todayDate(),
+      status: nextStatus,
+      createdAt: currentNightClose?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+      notes: nightCloseNotes || currentNightClose?.notes || '',
+      tables: nightCloseTables,
+      warnings: nightCloseWarnings,
+      staffSignOff: currentNightClose?.staffSignOff,
+      managerSignOff: currentNightClose?.managerSignOff,
+      audit: [...(currentNightClose?.audit ?? []), auditEntry]
+    };
     persist({
       ...state,
-      history: [...state.history, { ...analytics.currentNight, id: uid(), notes: summaryNotes.trim() }],
+      nightCloses: [...state.nightCloses.filter((close) => close.id !== record.id), record]
+    }, true, { feature: 'Night close', action: 'Saved reconciliation draft', route: 'summary' });
+    return record;
+  };
+
+  const signNightClose = () => {
+    const staff = state.settings.staffAccounts.find((account) => account.id === state.settings.activeStaffId);
+    if (!staff) {
+      window.alert('Select the staff member operating this station before signing.');
+      return;
+    }
+    if (!nightCloseTables.length) {
+      window.alert('There are no tables in the current shift to reconcile.');
+      return;
+    }
+    if (nightCloseTables.some((table) => table.actualCash === undefined)) {
+      window.alert('Enter an actual cash count for every table before staff sign-off.');
+      return;
+    }
+    const timestamp = nowIso();
+    const signOff = makeNightCloseAudit('Staff Signed', `Discrepancy ${nightCloseTotals.discrepancy.toFixed(2)}`);
+    const record: NightCloseRecord = {
+      id: currentNightClose?.id ?? uid(), date: todayDate(), status: 'Staff Signed',
+      createdAt: currentNightClose?.createdAt ?? timestamp, updatedAt: timestamp,
+      notes: nightCloseNotes || currentNightClose?.notes || '', tables: nightCloseTables, warnings: nightCloseWarnings,
+      staffSignOff: signOff, managerSignOff: undefined,
+      audit: [...(currentNightClose?.audit ?? []), signOff]
+    };
+    persist({ ...state, nightCloses: [...state.nightCloses.filter((close) => close.id !== record.id), record] }, true,
+      { feature: 'Night close', action: 'Staff signed reconciliation', route: 'summary', metadata: { discrepancy: Number(nightCloseTotals.discrepancy.toFixed(2)) } });
+  };
+
+  const approveAndLockNightClose = () => {
+    const manager = state.settings.staffAccounts.find((account) => account.id === state.settings.activeStaffId);
+    if (!manager || !['Owner', 'Manager'].includes(manager.role)) {
+      window.alert('A Manager or Owner must be selected to approve and lock the night.');
+      return;
+    }
+    if (currentNightClose?.status !== 'Staff Signed') {
+      window.alert('Staff sign-off is required before manager approval.');
+      return;
+    }
+    if (!window.confirm(`Lock tonight's reconciliation with a ${nightCloseTotals.discrepancy < 0 ? '-' : '+'}$${Math.abs(nightCloseTotals.discrepancy).toFixed(2)} discrepancy?`)) return;
+    const timestamp = nowIso();
+    const approval = makeNightCloseAudit('Manager Approved', `Locked with discrepancy ${nightCloseTotals.discrepancy.toFixed(2)}`);
+    const lockedTables = nightCloseTables.map((table) => ({ ...table, warnings: table.warnings.filter((warning) => warning !== 'Table is still open') }));
+    const lockedWarnings = Array.from(new Set(lockedTables.flatMap((table) => table.warnings.map((warning) => `${table.tableLabel}: ${warning}`))));
+    const locked: NightCloseRecord = {
+      ...currentNightClose,
+      status: 'Locked', updatedAt: timestamp, lockedAt: timestamp,
+      notes: nightCloseNotes || currentNightClose.notes, tables: lockedTables, warnings: lockedWarnings,
+      managerSignOff: approval, audit: [...currentNightClose.audit, approval]
+    };
+    const hasHistoryForDate = state.history.some((night) => night.date === locked.date);
+    persist({
+      ...state,
+      nightCloses: [...state.nightCloses.filter((close) => close.id !== locked.id), locked],
+      history: hasHistoryForDate ? state.history : [...state.history, { ...analytics.currentNight, id: uid(), notes: locked.notes }],
       interests: [],
-      sessions: state.sessions.map((session: { endedAt: any; }) => ({ ...session, status: 'Closed', endedAt: session.endedAt ?? nowIso() })),
-      playerSessions: state.playerSessions.map((session: { leftAt: any; }) => ({ ...session, leftAt: session.leftAt ?? nowIso() })),
+      sessions: state.sessions.map((session) => ({ ...session, status: 'Closed' as GameStatus, endedAt: session.endedAt ?? timestamp })),
+      playerSessions: state.playerSessions.map((session) => ({ ...session, leftAt: session.leftAt ?? timestamp })),
       tableEvents: [
         ...state.tableEvents,
-        ...state.sessions
-          .filter((session: { status: string; }) => session.status !== 'Closed')
-          .map((session: { gameId: any; id: any; seatsFilled: any; }) => ({
-            id: uid(),
-            type: 'Closed' as TableEventType,
-            gameId: session.gameId,
-            tableId: session.id,
-            timestamp: nowIso(),
-            playerCount: session.seatsFilled,
-            note: summaryNotes.trim() || 'Night archived'
-          }))
+        ...state.sessions.filter((session) => session.status !== 'Closed').map((session) => ({
+          id: uid(), type: 'Closed' as TableEventType, gameId: session.gameId, tableId: session.id,
+          timestamp, playerCount: session.seatsFilled, note: 'Night reconciliation locked'
+        }))
       ]
-    }, true, { feature: 'Owner summary', action: 'Closed night', metadata: { seatHours: Number(analytics.currentNight.occupiedSeatHours.toFixed(1)) } });
-    setSummaryNotes('');
+    }, true, { feature: 'Night close', action: 'Manager approved and locked night', route: 'summary', metadata: { discrepancy: Number(nightCloseTotals.discrepancy.toFixed(2)) } });
+  };
+
+  const reopenNightClose = () => {
+    const manager = state.settings.staffAccounts.find((account) => account.id === state.settings.activeStaffId);
+    if (!currentNightClose || !manager || !['Owner', 'Manager'].includes(manager.role)) {
+      window.alert('A Manager or Owner must be selected to reopen a close.');
+      return;
+    }
+    const reason = window.prompt('Reason for reopening this locked reconciliation:')?.trim();
+    if (!reason) return;
+    const auditEntry = makeNightCloseAudit('Reopened', reason);
+    const reopened: NightCloseRecord = {
+      ...currentNightClose, status: 'Draft', updatedAt: auditEntry.timestamp, lockedAt: undefined,
+      managerSignOff: undefined, audit: [...currentNightClose.audit, auditEntry]
+    };
+    persist({ ...state, nightCloses: [...state.nightCloses.filter((close) => close.id !== reopened.id), reopened] }, true,
+      { feature: 'Night close', action: 'Reopened locked reconciliation', route: 'summary' });
   };
 
   const exportJson = () => {
@@ -6785,8 +6922,74 @@ function App() {
         <nav className="report-mode-switch" aria-label="Report view">
           <button className={reportMode === 'kpis' ? 'active' : ''} onClick={() => setReportMode('kpis')}>KPIs & statistics</button>
           <button className={reportMode === 'night' ? 'active' : ''} onClick={() => setReportMode('night')}>Tonight's report</button>
+          <button className={reportMode === 'close' ? 'active' : ''} onClick={() => setReportMode('close')}>Night close</button>
         </nav>
         {reportMode === 'kpis' ? <nav className="metric-category-menu" aria-label="Metric categories"><button className={kpiCategory === 'operations' ? 'active' : ''} onClick={() => setKpiCategory('operations')}>Operations</button><button className={kpiCategory === 'waitlist' ? 'active' : ''} onClick={() => setKpiCategory('waitlist')}>Waitlist</button><button className={kpiCategory === 'tables' ? 'active' : ''} onClick={() => setKpiCategory('tables')}>Tables</button><button className={kpiCategory === 'collections' ? 'active' : ''} onClick={() => setKpiCategory('collections')}>Collections</button></nav> : null}
+
+        {reportMode === 'close' ? <section className="night-close-workspace">
+          <header className="night-close-header">
+            <div>
+              <span className={`night-close-status status-${(currentNightClose?.status ?? 'Draft').toLowerCase().replace(/\s+/g, '-')}`}>{currentNightClose?.status ?? 'Draft'}</span>
+              <h2>Reconcile {todayDate()}</h2>
+              <p>Count each table, review exceptions, then complete staff and manager sign-off.</p>
+            </div>
+            <div className="night-close-header-actions">
+              <button className="ghost-button" onClick={() => window.print()}><Download size={17} /> Print / PDF</button>
+              {currentNightClose?.status === 'Locked' ? <button className="ghost-button danger" onClick={reopenNightClose}>Reopen with audit</button> : null}
+            </div>
+          </header>
+
+          <div className="night-close-totals">
+            <article><span>Total buy-ins</span><strong>${nightCloseTotals.buyIns.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
+            <article><span>Cash-outs</span><strong>${nightCloseTotals.cashOuts.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
+            <article><span>Drop + time</span><strong>${nightCloseTotals.removed.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
+            <article><span>Expected cash</span><strong>${nightCloseTotals.expected.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
+            <article><span>Actual cash</span><strong>${nightCloseTotals.actual.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
+            <article className={nightCloseHasMissingActual ? 'pending' : Math.abs(nightCloseTotals.discrepancy) < .01 ? 'balanced' : 'unbalanced'}><span>Over / short</span><strong>{nightCloseHasMissingActual ? 'Pending' : `${nightCloseTotals.discrepancy >= 0 ? '+' : '-'}$${Math.abs(nightCloseTotals.discrepancy).toLocaleString(undefined, { maximumFractionDigits: 2 })}`}</strong></article>
+          </div>
+
+          <section className="night-close-table-panel">
+            <div className="night-close-section-title"><div><h3>Table reconciliation</h3><span>{nightCloseTables.length} tables in this shift</span></div><code>Buy-ins − cash-outs − drop/time = expected</code></div>
+            <div className="night-close-table-head"><span>Table</span><span>Buy-ins</span><span>Cash-outs</span><span>Fees</span><span>Expected</span><span>Actual count</span><span>Over / short</span></div>
+            <div className="night-close-table-list">
+              {nightCloseTables.map((table) => <article className="night-close-table-row" key={table.tableId}>
+                <div><strong>{table.tableLabel}</strong><span>{table.gameName}</span></div>
+                <strong>${table.buyIns.toLocaleString()}</strong>
+                <strong>${table.cashOuts.toLocaleString()}</strong>
+                <strong>${(table.drop + table.timeFees).toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                <strong>${table.expectedCash.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                <label><span>Actual cash</span><input type="number" min="0" step=".01" disabled={Boolean(currentNightClose && currentNightClose.status !== 'Draft')} value={effectiveNightCloseActuals[table.tableId] ?? ''} onChange={(event) => setNightCloseActuals((actuals) => ({ ...actuals, [table.tableId]: event.target.value }))} placeholder="$0.00" /></label>
+                <strong className={(table.discrepancy ?? 0) === 0 ? 'balanced' : 'unbalanced'}>{table.discrepancy === undefined ? '—' : `${table.discrepancy >= 0 ? '+' : '-'}$${Math.abs(table.discrepancy).toFixed(2)}`}</strong>
+                {table.warnings.length ? <div className="night-close-row-warnings">{table.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div> : <div className="night-close-row-clear">Reconciled inputs complete</div>}
+              </article>)}
+              {!nightCloseTables.length ? <div className="night-close-empty"><strong>No current-shift tables</strong><span>Open or operate a table before starting night close.</span></div> : null}
+            </div>
+          </section>
+
+          <div className="night-close-lower-grid">
+            <section className="night-close-exceptions">
+              <div className="night-close-section-title"><div><h3>Exceptions</h3><span>{nightCloseWarnings.length} items need review</span></div></div>
+              {nightCloseWarnings.length ? <div>{nightCloseWarnings.map((warning) => <span key={warning}>{warning}</span>)}</div> : <p>All tables have complete reconciliation inputs.</p>}
+            </section>
+            <section className="night-close-signoff">
+              <div className="night-close-section-title"><div><h3>Approval</h3><span>Every action is retained in the audit log</span></div></div>
+              <textarea value={nightCloseNotes || currentNightClose?.notes || ''} onChange={(event) => setNightCloseNotes(event.target.value)} disabled={Boolean(currentNightClose && currentNightClose.status !== 'Draft')} placeholder="Close notes, discrepancy explanation, cage count, or manager comments" />
+              <div className="night-close-signatures">
+                <article className={currentNightClose?.staffSignOff ? 'complete' : ''}><span>Staff sign-off</span><strong>{currentNightClose?.staffSignOff?.staffName ?? 'Pending'}</strong><small>{currentNightClose?.staffSignOff ? formatClock(currentNightClose.staffSignOff.timestamp) : 'Actual counts required'}</small></article>
+                <article className={currentNightClose?.managerSignOff ? 'complete' : ''}><span>Manager approval</span><strong>{currentNightClose?.managerSignOff?.staffName ?? 'Pending'}</strong><small>{currentNightClose?.managerSignOff ? formatClock(currentNightClose.managerSignOff.timestamp) : 'Manager or Owner required'}</small></article>
+              </div>
+              {currentNightClose?.status !== 'Locked' ? <div className="night-close-actions">
+                {!currentNightClose || currentNightClose.status === 'Draft' ? <><button className="ghost-button" onClick={() => saveNightClose()}>Save draft</button><button className="secondary-button" onClick={signNightClose}>Staff sign-off</button></> : null}
+                <button className="primary-button" onClick={approveAndLockNightClose}>Approve & lock night</button>
+              </div> : <div className="night-close-locked"><LockKeyhole size={17} /> Locked {currentNightClose.lockedAt ? new Date(currentNightClose.lockedAt).toLocaleString() : ''}</div>}
+            </section>
+          </div>
+
+          {currentNightClose?.audit.length ? <section className="night-close-audit">
+            <div className="night-close-section-title"><div><h3>Audit trail</h3><span>{currentNightClose.audit.length} recorded actions</span></div></div>
+            <div>{[...currentNightClose.audit].reverse().map((entry) => <article key={entry.id}><time>{new Date(entry.timestamp).toLocaleString()}</time><strong>{entry.action}</strong><span>{entry.staffName}{entry.staffRole ? ` · ${entry.staffRole}` : ''}</span><em>{entry.note ?? ''}</em></article>)}</div>
+          </section> : null}
+        </section> : null}
 
         <section className="owner-summary-grid">
           <article className="panel owner-metric">
@@ -6965,9 +7168,9 @@ function App() {
             onChange={(event: { target: { value: any; }; }) => setSummaryNotes(event.target.value)}
             placeholder="Owner-facing notes"
           />
-          <button className="primary-button" onClick={archiveNight}>
+          <button className="primary-button" onClick={() => setReportMode('close')}>
             <Save size={18} />
-            Close Night
+            Reconcile & Close Night
           </button>
         </section>
       </main>
