@@ -42,7 +42,7 @@ Core readiness items now in the repo:
 
 ## Payments Boundary
 
-Stripe is reserved for the Player Premium tier inside this social/player app only. It should not be used for card-house operations, table actions, deposits, seat holds, club memberships, or any management-app billing flow.
+Stripe has two isolated flows: Player Premium and verified club-membership checkout. Table actions, deposits, seat holds, drop, and time-fee collection remain outside Player checkout.
 
 Player Premium should be configured as a Stripe subscription around `$12.99/mo` and gates grinder/table recommendations plus player-hosted game posting. Set `EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL` to the Stripe Checkout or Payment Link URL for that monthly subscription. Management-app payment/billing remains separate.
 
@@ -55,6 +55,14 @@ To create the Stripe Product, recurring monthly Price, and subscription Payment 
 ```
 
 The setup script uses the secret key only for the Stripe API call. It writes only mobile-safe values to `.env`: `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL`, `EXPO_PUBLIC_PLAYER_PREMIUM_PRICE_ID`, and `EXPO_PUBLIC_PLAYER_PREMIUM_PRODUCT_ID`.
+
+Club memberships use the Orbit API rather than a client-owned Payment Link. Set only this public value in the player app:
+
+```text
+EXPO_PUBLIC_ORBIT_API_URL=https://your-orbit-api.example.com
+```
+
+The API owns prices and Stripe secrets, verifies the Firebase player ID token, and records a membership and revenue transaction only after a signed Stripe webhook confirms payment.
 
 ## Sync With Management Database
 

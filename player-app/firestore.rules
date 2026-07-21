@@ -185,6 +185,11 @@ service cloud.firestore {
             && request.time < timestamp(get(/databases/$(database)/documents/clubs/$(clubId)/tournaments/$(resource.data.tournamentId)).data.startsAt));
       }
 
+      match /transactions/{transactionId} {
+        allow read: if isClubAdmin(clubId) || (isSignedIn() && resource.data.playerId == request.auth.uid);
+        allow create, update, delete: if false;
+      }
+
       match /pushTokens/{playerId} {
         allow read, create, update, delete: if false;
       }

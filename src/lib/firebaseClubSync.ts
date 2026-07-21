@@ -55,6 +55,7 @@ function withFirebaseTimeout<T>(operation: Promise<T>, fallback: T): Promise<T> 
 }
 
 async function ensureFirebaseSession() {
+  await auth.authStateReady();
   if (auth.currentUser) return auth.currentUser;
   throw new Error('Firebase email/password authentication is required before synchronization.');
 }
@@ -117,7 +118,7 @@ export async function saveClubStateToFirebase<TState extends object>(state: TSta
   };
   return withFirebaseTimeout(
     setDoc(doc(db, 'clubStates', accountKey), record, { merge: true })
-      .then(() => publishClubSnapshot(accountKey, snapshot, savedAt))
+      .then(() => publishClubSnapshot(accountKey, snapshot, savedAt, syncedState))
       .then(() => ({ accountKey, savedAt, snapshot, synced: true })),
     { accountKey, savedAt, snapshot, synced: false }
   );
@@ -165,6 +166,13 @@ export async function syncPlayerUpdatesToClubState<TState extends object>(state:
     }
   }
 
+  const [registrationDocs, transactionDocs] = await Promise.all([
+    withFirebaseTimeout(getDocs(collection(db, 'clubs', accountKey, 'tournamentRegistrations')), null),
+    withFirebaseTimeout(getDocs(collection(db, 'clubs', accountKey, 'transactions')), null)
+  ]);
+  nextState = applyTournamentRegistrations(nextState, registrationDocs?.docs.map((item) => item.data()) ?? []);
+  nextState = applyRevenueTransactions(nextState, transactionDocs?.docs.map((item) => item.data()) ?? []);
+
   return nextState as TState;
 }
 
@@ -185,6 +193,9 @@ export function subscribeToPlayerRequestUpdates(accountKey: string, callback: ()
       onSnapshot(collection(db, 'clubStates', normalizedKey, collectionName), handleSnapshot, () => undefined)
     );
   });
+  ['tournamentRegistrations', 'transactions'].forEach((collectionName) => {
+    unsubscribers.push(onSnapshot(collection(db, 'clubs', normalizedKey, collectionName), handleSnapshot, () => undefined));
+  });
 
   globalThis.setTimeout(() => {
     initialized = true;
@@ -196,12 +207,13 @@ export function subscribeToPlayerRequestUpdates(accountKey: string, callback: ()
   };
 }
 
-async function publishClubSnapshot(accountKey: string, snapshot: PlayerClubSnapshot, savedAt: string) {
-  const [existingGames, existingMemberships, existingWaitlists, existingNotifications] = await Promise.all([
+async function publishClubSnapshot(accountKey: string, snapshot: PlayerClubSnapshot, savedAt: string, state: Record<string, any>) {
+  const [existingGames, existingMemberships, existingWaitlists, existingNotifications, existingTournaments] = await Promise.all([
     getDocs(collection(db, 'clubs', accountKey, 'games')),
     getDocs(collection(db, 'clubs', accountKey, 'memberships')),
     getDocs(collection(db, 'clubs', accountKey, 'waitlists')),
-    getDocs(collection(db, 'clubs', accountKey, 'notifications'))
+    getDocs(collection(db, 'clubs', accountKey, 'notifications')),
+    getDocs(collection(db, 'clubs', accountKey, 'tournaments'))
   ]);
   const batch = writeBatch(db);
   const clubRef = doc(db, 'clubs', accountKey);
@@ -209,6 +221,8 @@ async function publishClubSnapshot(accountKey: string, snapshot: PlayerClubSnaps
   const membershipIds = new Set(snapshot.memberships.map((membership) => membership.playerId));
   const waitlistIds = new Set(snapshot.waitlists.map((entry) => entry.id));
   const notificationIds = new Set((snapshot.notifications ?? []).map((notification) => notification.id));
+  const publishedTournaments = (state.tournaments ?? []).map(toPlayerTournament);
+  const tournamentIds = new Set(publishedTournaments.map((tournament) => tournament.id));
   batch.set(
     clubRef,
     stripUndefinedForFirestore({
@@ -248,7 +262,142 @@ async function publishClubSnapshot(accountKey: string, snapshot: PlayerClubSnaps
   existingNotifications.docs.forEach((notificationDoc) => {
     if (!notificationIds.has(notificationDoc.id)) batch.delete(notificationDoc.ref);
   });
+  publishedTournaments.forEach((tournament) => {
+    batch.set(doc(db, 'clubs', accountKey, 'tournaments', tournament.id), stripUndefinedForFirestore({ ...tournament, updatedAt: serverTimestamp() }), { merge: true });
+  });
+  existingTournaments.docs.forEach((tournamentDoc) => {
+    if (!tournamentIds.has(tournamentDoc.id)) batch.delete(tournamentDoc.ref);
+  });
+  (state.tournaments ?? []).forEach((tournament: Record<string, any>) => {
+    (tournament.players ?? []).forEach((player: Record<string, any>) => {
+      if (!player.registrationId) return;
+      const status = player.status === 'Checked In' || player.status === 'Active'
+        ? 'checked-in'
+        : player.status === 'Eliminated'
+          ? 'eliminated'
+          : player.status === 'Finished'
+            ? 'finished'
+            : 'registered';
+      batch.set(
+        doc(db, 'clubs', accountKey, 'tournamentRegistrations', player.registrationId),
+        stripUndefinedForFirestore({
+          status,
+          rebuys: Number(player.rebuys ?? 0),
+          addOns: Number(player.addOns ?? 0),
+          updatedAt: serverTimestamp()
+        }),
+        { merge: true }
+      );
+    });
+  });
   await batch.commit();
+}
+
+function toPlayerTournament(tournament: Record<string, any>) {
+  const startsAt = tournament.scheduledAt || tournament.startedAt || tournament.createdAt || new Date().toISOString();
+  const entrants = tournament.players ?? [];
+  const prizePool = entrants.reduce((sum: number, player: Record<string, any>) =>
+    sum + Number(player.buyIn ?? tournament.buyIn ?? 0)
+      + Number(player.rebuys ?? 0) * Number(tournament.rebuyPrice ?? tournament.buyIn ?? 0)
+      + Number(player.addOns ?? 0) * Number(tournament.addOnPrice ?? tournament.buyIn ?? 0), 0);
+  return {
+    id: tournament.id,
+    name: tournament.name,
+    startsAt,
+    registrationOpensAt: tournament.registrationOpensAt || tournament.createdAt || new Date().toISOString(),
+    registrationClosesAt: tournament.registrationClosesAt || startsAt,
+    registrationStatus: tournament.registrationStatus || (tournament.status === 'Draft' ? 'open' : 'closed'),
+    buyIn: Number(tournament.buyIn ?? 0),
+    prizePoolLabel: tournament.prizePoolLabel || (prizePool ? `$${prizePool.toLocaleString()} current prize pool` : 'Prize pool updates as entries are recorded'),
+    startingStack: Number(tournament.startingStack ?? 0),
+    levelMinutes: Number(tournament.levels?.[0]?.durationMinutes ?? 20),
+    lateRegistrationThroughLevel: Number(tournament.lateRegistrationThroughLevel ?? 0),
+    rebuyPrice: Number(tournament.rebuyPrice ?? tournament.buyIn ?? 0),
+    rebuyStack: Number(tournament.rebuyStack ?? tournament.startingStack ?? 0),
+    unlimitedRebuys: Boolean(tournament.unlimitedRebuys ?? tournament.rebuyPrice),
+    addOnPrice: Number(tournament.addOnPrice ?? 0),
+    addOnStack: Number(tournament.addOnStack ?? tournament.startingStack ?? 0),
+    rules: tournament.rules ?? ['House rules and staff decisions are final.'],
+    unregisterAllowed: tournament.unregisterAllowed ?? tournament.status === 'Draft',
+    entrantCount: entrants.length,
+    totalRebuys: entrants.reduce((sum: number, player: Record<string, any>) => sum + Number(player.rebuys ?? 0), 0),
+    totalAddOns: entrants.reduce((sum: number, player: Record<string, any>) => sum + Number(player.addOns ?? 0), 0),
+    featured: Boolean(tournament.featured)
+  };
+}
+
+function applyTournamentRegistrations(state: Record<string, any>, registrations: Record<string, any>[]) {
+  if (!registrations.length) return state;
+  return {
+    ...state,
+    tournaments: (state.tournaments ?? []).map((tournament: Record<string, any>) => {
+      const existingIds = new Set((tournament.players ?? []).map((player: Record<string, any>) => player.registrationId || player.id));
+      const additions = registrations
+        .filter((registration) => registration.tournamentId === tournament.id && !existingIds.has(registration.id))
+        .map((registration) => ({
+          id: registration.id,
+          registrationId: registration.id,
+          profileId: registration.playerId,
+          name: registration.playerName,
+          email: registration.playerEmail,
+          buyIn: Number(tournament.buyIn ?? 0),
+          rebuys: Number(registration.rebuys ?? 0),
+          addOns: Number(registration.addOns ?? 0),
+          startingStack: Number(tournament.startingStack ?? 0),
+          status: registration.status === 'checked-in' ? 'Checked In' : registration.status === 'eliminated' ? 'Eliminated' : 'Registered',
+          registeredAt: registration.registeredAt || new Date().toISOString()
+        }));
+      return additions.length ? { ...tournament, players: [...(tournament.players ?? []), ...additions] } : tournament;
+    })
+  };
+}
+
+function applyRevenueTransactions(state: Record<string, any>, transactions: Record<string, any>[]) {
+  if (!transactions.length) return state;
+  const existing = new Map((state.revenueTransactions ?? []).map((transaction: Record<string, any>) => [transaction.id, transaction]));
+  transactions.forEach((transaction) => existing.set(transaction.id, transaction));
+  const paidMemberships = transactions.filter((transaction) => transaction.type === 'membership' && transaction.paymentStatus === 'paid');
+  const profiles = [...(state.profiles ?? [])];
+  paidMemberships.forEach((transaction) => {
+    const profileIndex = profiles.findIndex((profile) =>
+      profile.id === transaction.playerId ||
+      (transaction.playerEmail && String(profile.notes || '').includes(transaction.playerEmail)) ||
+      String(profile.name || '').toLowerCase() === String(transaction.playerName || '').toLowerCase()
+    );
+    const membershipStartDate = String(transaction.occurredAt || new Date().toISOString()).slice(0, 10);
+    const membershipExpirationDate = addDays(membershipStartDate, transaction.membershipPlan === 'day' ? 1 : 30);
+    if (profileIndex >= 0) {
+      profiles[profileIndex] = {
+        ...profiles[profileIndex],
+        membershipStartDate,
+        membershipExpirationDate,
+        notes: profiles[profileIndex].notes || `Verified payment: ${transaction.playerEmail || transaction.playerId || ''}`
+      };
+    } else {
+      profiles.push({
+        id: transaction.playerId || transaction.id,
+        name: transaction.playerName || transaction.playerEmail || 'Paid member',
+        phone: '',
+        birthday: '',
+        membershipStartDate,
+        membershipExpirationDate,
+        totalTimePlayedHours: 0,
+        lastSessionTimePlayedHours: 0,
+        commonlyPlaysWithProfileIds: [],
+        preferredGameId: state.games?.[0]?.id || '',
+        preferredGameIds: [],
+        preferredStakes: '',
+        typicalBuyInMin: 0,
+        typicalBuyInMax: 0,
+        willingnessToMove: false,
+        typicalAvailability: '',
+        preferredTags: [],
+        usualCompanions: [],
+        notes: `Verified Stripe membership: ${transaction.playerEmail || transaction.playerId || ''}`
+      });
+    }
+  });
+  return { ...state, profiles, revenueTransactions: [...existing.values()] };
 }
 
 async function fetchPendingRequestDocs(accountKey: string, collectionName: 'membershipRequests' | 'waitlistRequests') {

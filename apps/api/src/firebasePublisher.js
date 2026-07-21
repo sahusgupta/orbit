@@ -362,6 +362,43 @@ function buildCanonicalClubDoc(state, clubId, snapshot, playerDocs, savedAt) {
   };
 }
 
+function buildPlayerTournamentDocs(state, clubId, savedAt) {
+  return (state.tournaments || []).map((tournament) => {
+    const startsAt = tournament.scheduledAt || tournament.startedAt || tournament.createdAt || savedAt;
+    const players = tournament.players || [];
+    const prizePool = players.reduce((sum, player) =>
+      sum + Number(player.buyIn ?? tournament.buyIn ?? 0)
+        + Number(player.rebuys || 0) * Number(tournament.rebuyPrice ?? tournament.buyIn ?? 0)
+        + Number(player.addOns || 0) * Number(tournament.addOnPrice ?? tournament.buyIn ?? 0), 0);
+    return {
+      id: firestoreDocumentId(tournament.id),
+      clubId,
+      name: tournament.name || 'Tournament',
+      startsAt,
+      registrationOpensAt: tournament.registrationOpensAt || tournament.createdAt || savedAt,
+      registrationClosesAt: tournament.registrationClosesAt || startsAt,
+      registrationStatus: tournament.registrationStatus || (tournament.status === 'Draft' ? 'open' : 'closed'),
+      buyIn: Number(tournament.buyIn || 0),
+      prizePoolLabel: tournament.prizePoolLabel || (prizePool ? `$${prizePool.toLocaleString()} current prize pool` : 'Prize pool updates as entries are recorded'),
+      startingStack: Number(tournament.startingStack || 0),
+      levelMinutes: Number(tournament.levels?.[0]?.durationMinutes || 20),
+      lateRegistrationThroughLevel: Number(tournament.lateRegistrationThroughLevel || 0),
+      rebuyPrice: Number(tournament.rebuyPrice ?? tournament.buyIn ?? 0),
+      rebuyStack: Number(tournament.rebuyStack ?? tournament.startingStack ?? 0),
+      unlimitedRebuys: Boolean(tournament.unlimitedRebuys ?? tournament.rebuyPrice),
+      addOnPrice: Number(tournament.addOnPrice || 0),
+      addOnStack: Number(tournament.addOnStack ?? tournament.startingStack ?? 0),
+      rules: tournament.rules || ['House rules and staff decisions are final.'],
+      unregisterAllowed: tournament.unregisterAllowed ?? tournament.status === 'Draft',
+      entrantCount: players.length,
+      totalRebuys: players.reduce((sum, player) => sum + Number(player.rebuys || 0), 0),
+      totalAddOns: players.reduce((sum, player) => sum + Number(player.addOns || 0), 0),
+      featured: Boolean(tournament.featured),
+      updatedAt: savedAt
+    };
+  });
+}
+
 function restBase(projectId) {
   return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
 }
@@ -419,6 +456,7 @@ async function publishStateToFirebase(state) {
   const playerDocs = buildCanonicalPlayerDocs(state, accountKey, savedAt);
   const gameDocs = buildCanonicalGameDocs(state, accountKey, savedAt);
   const clubDoc = buildCanonicalClubDoc(state, accountKey, snapshot, playerDocs, savedAt);
+  const tournamentDocs = buildPlayerTournamentDocs(state, accountKey, savedAt);
 
   await patchDocument(projectId, token, `clubStates/${encodeURIComponent(accountKey)}`, {
     accountKey,
@@ -450,12 +488,41 @@ async function publishStateToFirebase(state) {
     );
   }
 
-  return { ok: true, accountKey, savedAt, players: playerDocs.length, games: gameDocs.length, legacyPlayersRemoved };
+  for (const tournament of tournamentDocs) {
+    await patchDocument(
+      projectId,
+      token,
+      `clubs/${encodeURIComponent(accountKey)}/tournaments/${encodeURIComponent(tournament.id)}`,
+      tournament
+    );
+  }
+
+  for (const tournament of state.tournaments || []) {
+    for (const player of tournament.players || []) {
+      if (!player.registrationId) continue;
+      const status = player.status === 'Checked In' || player.status === 'Active'
+        ? 'checked-in'
+        : player.status === 'Eliminated'
+          ? 'eliminated'
+          : player.status === 'Finished'
+            ? 'finished'
+            : 'registered';
+      await patchDocument(
+        projectId,
+        token,
+        `clubs/${encodeURIComponent(accountKey)}/tournamentRegistrations/${encodeURIComponent(player.registrationId)}`,
+        { status, rebuys: Number(player.rebuys || 0), addOns: Number(player.addOns || 0), updatedAt: savedAt }
+      );
+    }
+  }
+
+  return { ok: true, accountKey, savedAt, players: playerDocs.length, games: gameDocs.length, tournaments: tournamentDocs.length, legacyPlayersRemoved };
 }
 
 module.exports = {
   buildCanonicalClubDoc,
   buildCanonicalPlayerDocs,
+  buildPlayerTournamentDocs,
   getFirebasePublisherStatus,
   playerDocumentId,
   publishStateToFirebase
