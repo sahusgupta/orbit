@@ -8,6 +8,7 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "linked:dev": "node scripts/dev-linked.cjs",
     "desktop": "npm run build && node scripts/launch-electron.cjs",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",

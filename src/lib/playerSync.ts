@@ -14,7 +14,6 @@ export type PlayerSyncClub = {
   name: string;
   phone?: string;
   address?: string;
-  phone?: string;
 };
 
 export type PlayerAccount = {
@@ -47,6 +46,7 @@ export type PlayerSyncGame = {
   id: string;
   name: string;
   maxSeats: number;
+  collectionMode: 'Time' | 'Drop';
   openTables: PlayerSyncTable[];
   waitlistCount: number;
   formingCount: number;
@@ -83,6 +83,9 @@ export type PlayerMembership = {
   status: 'Requested' | 'Active' | 'Expired';
   joinedAt: string;
   expiresAt?: string;
+  plan?: 'day' | 'monthly';
+  paymentMethod?: 'app' | 'in-person' | 'core';
+  requestedAt?: string;
   loyalty: PlayerLoyalty;
   preferredGameIds: string[];
   preferredStakes?: string;
@@ -95,6 +98,8 @@ export type PlayerClubMembershipRecord = {
   requestedAt?: string;
   joinedAt?: string;
   expiresAt?: string;
+  plan?: 'day' | 'monthly';
+  paymentMethod?: 'app' | 'in-person' | 'core';
   preferredGameIds?: string[];
   preferredStakes?: string;
 };
@@ -119,6 +124,9 @@ export type PlayerMembershipRequest = {
   type: 'membership-request';
   clubId: string;
   player: PlayerAccount;
+  plan: 'day' | 'monthly';
+  paymentMethod: 'app' | 'in-person';
+  priceLabel?: string;
   requestedAt: string;
 };
 
@@ -128,6 +136,11 @@ export type PlayerWaitlistRequest = {
   clubId: string;
   player: Pick<PlayerAccount, 'id' | 'name' | 'email' | 'phone'>;
   gameId: string;
+  action?: 'join' | 'cancel';
+  attendance?: 'arrived' | 'confirmed' | 'interested';
+  expectedArrivalTime?: string;
+  availabilityStartTime?: string;
+  availabilityEndTime?: string;
   tableId?: string;
   note?: string;
   requestedAt: string;
@@ -186,14 +199,27 @@ type ManagementInterest = {
   interestedAt?: string;
   timestamp?: string;
   notes?: string;
+  expectedArrivalTime?: string;
+  availabilityStartTime?: string;
+  availabilityEndTime?: string;
+  tableId?: string;
+  confirmedAt?: string;
+  arrivedAt?: string;
 };
 
 type ManagementProfile = {
   id: string;
   name: string;
+  phone?: string;
   birthday?: string;
   membershipStartDate?: string;
   membershipExpirationDate?: string;
+  membershipExpiresAt?: string;
+  membershipPlan?: 'day' | 'monthly';
+  membershipPaymentMethod?: 'app' | 'in-person' | 'core';
+  membershipStatus?: 'Requested' | 'Active' | 'Expired';
+  membershipRequestedAt?: string;
+  membershipPriceLabel?: string;
   totalTimePlayedHours?: number;
   lastSessionTimePlayedHours?: number;
   commonlyPlaysWithProfileIds?: string[];
@@ -231,6 +257,8 @@ type ManagementClubState = {
   profiles: ManagementProfile[];
   inAppNotifications?: PlayerInAppNotification[];
   settings?: {
+    defaultCollectionMode?: 'Time' | 'Drop';
+    collectionProfiles?: Array<{ gameId: string; collectionMode: 'Time' | 'Drop' }>;
     clubAccount?: {
       clubName?: string;
       phone?: string;
@@ -247,6 +275,13 @@ type ManagementClubState = {
 };
 
 const activeWaitlistStatuses: PlayerSyncInterestStatus[] = ['Interested', 'Confirmed Coming', 'Arrived'];
+const playerVisibleWaitlistStatuses: PlayerSyncInterestStatus[] = [
+  ...activeWaitlistStatuses,
+  'Seated',
+  'Declined',
+  'No-Show',
+  'Left Before Seated'
+];
 const visibleTableStatuses: PlayerSyncGameStatus[] = ['Running', 'Forming', 'Paused'];
 
 const slug = (value: string) =>
@@ -331,9 +366,16 @@ export function buildPlayerClubSnapshot(
       clubId,
       playerId: profile.id,
       playerName: profile.name,
-      status: isFutureDate(profile.membershipExpirationDate) ? 'Active' : 'Expired',
-      joinedAt: profile.membershipStartDate ?? new Date().toISOString().slice(0, 10),
-      expiresAt: profile.membershipExpirationDate,
+      status: profile.membershipStatus === 'Requested'
+        ? 'Requested'
+        : isFutureDate(profile.membershipExpiresAt ?? profile.membershipExpirationDate)
+          ? 'Active'
+          : 'Expired',
+      joinedAt: profile.membershipStartDate ?? profile.membershipRequestedAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+      expiresAt: profile.membershipExpiresAt ?? profile.membershipExpirationDate,
+      plan: profile.membershipPlan,
+      paymentMethod: profile.membershipPaymentMethod,
+      requestedAt: profile.membershipRequestedAt,
       loyalty: getPlayerLoyalty(clubId, profile.totalTimePlayedHours ?? 0),
       preferredGameIds: profile.preferredGameIds?.length ? profile.preferredGameIds : profile.preferredGameId ? [profile.preferredGameId] : [],
       preferredStakes: profile.preferredStakes,
@@ -349,11 +391,18 @@ export function buildPlayerClubSnapshot(
     },
     games: state.games.map((game) => {
       const openTables = tables.filter((table) => table.gameId === game.id);
-      const gameWaitlist = waitlists.filter((entry) => entry.gameId === game.id);
+      const gameWaitlist = waitlists.filter(
+        (entry) => entry.gameId === game.id && activeWaitlistStatuses.includes(entry.status)
+      );
       return {
         id: game.id,
         name: game.name,
         maxSeats: game.maxSeats,
+        collectionMode:
+          state.settings?.collectionProfiles?.find((profile) => profile.gameId === game.id)?.collectionMode ??
+          openTables[0]?.collectionMode ??
+          state.settings?.defaultCollectionMode ??
+          'Drop',
         openTables,
         waitlistCount: gameWaitlist.length,
         formingCount: openTables.filter((table) => table.status === 'Forming').length,
@@ -375,18 +424,26 @@ export function buildPlayerClubSnapshot(
       activePlayerCount: activePlayerSessions.length || tables.reduce((sum, table) => sum + table.seatsFilled, 0),
       adminCount: activeAdminCount,
       knownPlayersInHouse: activePlayerSessions.filter(isKnownPlayerSession).length,
-      waitlistCount: waitlists.length
+      waitlistCount: waitlists.filter((entry) => activeWaitlistStatuses.includes(entry.status)).length
     },
     generatedAt: new Date().toISOString()
   };
 }
 
-export function createMembershipRequest(player: PlayerAccount, clubId: string, requestedAt = new Date().toISOString()): PlayerMembershipRequest {
+export function createMembershipRequest(
+  player: PlayerAccount,
+  clubId: string,
+  requestedAt = new Date().toISOString(),
+  options: { plan?: 'day' | 'monthly'; paymentMethod?: 'app' | 'in-person'; priceLabel?: string } = {}
+): PlayerMembershipRequest {
   return {
     id: requestId('join', `${clubId}-${player.email || player.id}`, requestedAt),
     type: 'membership-request',
     clubId,
     player,
+    plan: options.plan ?? 'monthly',
+    paymentMethod: options.paymentMethod ?? 'app',
+    priceLabel: options.priceLabel,
     requestedAt
   };
 }
@@ -395,7 +452,16 @@ export function createWaitlistRequest(
   player: Pick<PlayerAccount, 'id' | 'name' | 'email' | 'phone'>,
   clubId: string,
   gameId: string,
-  options: { tableId?: string; note?: string; requestedAt?: string } = {}
+  options: {
+    action?: 'join' | 'cancel';
+    attendance?: 'arrived' | 'confirmed' | 'interested';
+    expectedArrivalTime?: string;
+    availabilityStartTime?: string;
+    availabilityEndTime?: string;
+    tableId?: string;
+    note?: string;
+    requestedAt?: string;
+  } = {}
 ): PlayerWaitlistRequest {
   const requestedAt = options.requestedAt ?? new Date().toISOString();
   return {
@@ -404,6 +470,11 @@ export function createWaitlistRequest(
     clubId,
     player,
     gameId,
+    action: options.action ?? 'join',
+    attendance: options.attendance,
+    expectedArrivalTime: options.expectedArrivalTime,
+    availabilityStartTime: options.availabilityStartTime,
+    availabilityEndTime: options.availabilityEndTime,
     tableId: options.tableId,
     note: options.note,
     requestedAt
@@ -421,8 +492,13 @@ export function applyMembershipRequestToClubState(
   const existingProfile = state.profiles.find(
     (profile) => profile.id === request.player.id || profile.name.toLowerCase() === request.player.name.toLowerCase()
   );
+  const preferredGameIds = request.player.preferredGameIds ?? [];
+  const activatesImmediately = request.paymentMethod !== 'in-person';
   const membershipStartDate = request.requestedAt.slice(0, 10);
-  const membershipExpirationDate = addDays(membershipStartDate, options.membershipDurationDays ?? 365);
+  const durationDays = options.membershipDurationDays ?? (request.plan === 'day' ? 1 : 30);
+  const membershipExpiresAt = new Date(Date.parse(request.requestedAt) + durationDays * 24 * 60 * 60 * 1000).toISOString();
+  const membershipExpirationDate = membershipExpiresAt.slice(0, 10);
+  const requestNote = `${request.plan === 'day' ? 'Day pass' : 'Monthly membership'} - ${request.paymentMethod === 'in-person' ? 'pay in person requested' : 'paid in app'}${request.priceLabel ? ` (${request.priceLabel})` : ''}`;
 
   if (existingProfile) {
     return {
@@ -431,14 +507,20 @@ export function applyMembershipRequestToClubState(
         profile.id === existingProfile.id
           ? {
               ...profile,
-              membershipStartDate: profile.membershipStartDate ?? membershipStartDate,
-              membershipExpirationDate: profile.membershipExpirationDate ?? membershipExpirationDate,
-              preferredGameId: request.player.preferredGameIds[0] ?? profile.preferredGameId,
-              preferredGameIds: mergeUnique([...(profile.preferredGameIds ?? []), ...request.player.preferredGameIds]),
+              membershipStartDate: activatesImmediately ? membershipStartDate : profile.membershipStartDate,
+              membershipExpirationDate: activatesImmediately ? membershipExpirationDate : profile.membershipExpirationDate,
+              membershipExpiresAt: activatesImmediately ? membershipExpiresAt : profile.membershipExpiresAt,
+              membershipPlan: request.plan,
+              membershipPaymentMethod: request.paymentMethod,
+              membershipStatus: activatesImmediately ? 'Active' : 'Requested',
+              membershipRequestedAt: request.requestedAt,
+              membershipPriceLabel: request.priceLabel,
+              preferredGameId: preferredGameIds[0] ?? profile.preferredGameId,
+              preferredGameIds: mergeUnique([...(profile.preferredGameIds ?? []), ...preferredGameIds]),
               preferredStakes: request.player.preferredStakes ?? profile.preferredStakes,
               typicalAvailability: request.player.typicalAvailability ?? profile.typicalAvailability,
               phone: request.player.phone ?? profile.phone,
-              notes: appendSyncNote(profile.notes, `Player app: ${request.player.email}`)
+              notes: appendSyncNote(appendSyncNote(profile.notes, `Player app: ${request.player.email}`), requestNote)
             }
           : profile
       )
@@ -454,13 +536,19 @@ export function applyMembershipRequestToClubState(
         name: request.player.name,
         phone: request.player.phone ?? '',
         birthday: '',
-        membershipStartDate,
-        membershipExpirationDate,
+        membershipStartDate: activatesImmediately ? membershipStartDate : '',
+        membershipExpirationDate: activatesImmediately ? membershipExpirationDate : '',
+        membershipExpiresAt: activatesImmediately ? membershipExpiresAt : undefined,
+        membershipPlan: request.plan,
+        membershipPaymentMethod: request.paymentMethod,
+        membershipStatus: activatesImmediately ? 'Active' : 'Requested',
+        membershipRequestedAt: request.requestedAt,
+        membershipPriceLabel: request.priceLabel,
         totalTimePlayedHours: 0,
         lastSessionTimePlayedHours: 0,
         commonlyPlaysWithProfileIds: [],
-        preferredGameId: request.player.preferredGameIds[0] ?? state.games[0]?.id ?? '',
-        preferredGameIds: request.player.preferredGameIds,
+        preferredGameId: preferredGameIds[0] ?? state.games[0]?.id ?? '',
+        preferredGameIds,
         preferredStakes: request.player.preferredStakes ?? '',
         typicalBuyInMin: 0,
         typicalBuyInMax: 0,
@@ -468,7 +556,7 @@ export function applyMembershipRequestToClubState(
         typicalAvailability: request.player.typicalAvailability ?? '',
         preferredTags: [],
         usualCompanions: [],
-        notes: `Player app: ${request.player.email}${request.player.phone ? `, ${request.player.phone}` : ''}`
+        notes: `Player app: ${request.player.email}${request.player.phone ? `, ${request.player.phone}` : ''} | ${requestNote}`
       }
     ]
   };
@@ -547,36 +635,106 @@ export function applyWaitlistRequestToClubState(state: ManagementClubState, requ
   const clubId = getClubIdFromState(state);
   if (request.clubId !== clubId) return state;
 
+  const profile = state.profiles.find(
+    (candidate) => candidate.id === request.player.id || candidate.name.toLowerCase() === request.player.name.toLowerCase()
+  );
+  const matchesPlayer = (interest: ManagementInterest) =>
+    Boolean((profile && interest.profileId === profile.id) || interest.playerName.toLowerCase() === request.player.name.toLowerCase());
+
+  if (request.action === 'cancel') {
+    return {
+      ...state,
+      interests: state.interests.map((interest) =>
+        interest.gameId === request.gameId && activeWaitlistStatuses.includes(interest.status) && matchesPlayer(interest)
+          ? {
+              ...interest,
+              status: 'Removed',
+              notes: appendSyncNote(interest.notes, `Seat request cancelled in Player app at ${request.requestedAt}`)
+            }
+          : interest
+      )
+    };
+  }
+
   const requestedTable = request.tableId
     ? state.sessions.find((session) => session.id === request.tableId && session.status !== 'Closed' && session.status !== 'Failed to Start')
     : undefined;
   const requestedTableHasSeat = Boolean(requestedTable && requestedTable.seatsFilled < requestedTable.maxSeats);
-  const profile = state.profiles.find(
-    (candidate) => candidate.id === request.player.id || candidate.name.toLowerCase() === request.player.name.toLowerCase()
-  );
+  const attendance = request.attendance ?? (requestedTableHasSeat ? 'arrived' : 'interested');
+  const status: PlayerSyncInterestStatus = attendance === 'arrived'
+    ? 'Arrived'
+    : attendance === 'confirmed'
+      ? 'Confirmed Coming'
+      : 'Interested';
   const alreadyWaiting = state.interests.some(
     (interest) =>
       interest.gameId === request.gameId &&
       activeWaitlistStatuses.includes(interest.status) &&
-      (interest.profileId === profile?.id || interest.playerName.toLowerCase() === request.player.name.toLowerCase())
+      matchesPlayer(interest)
   );
   if (alreadyWaiting) return state;
 
+  const syncedProfile: ManagementProfile = profile ?? {
+    id: request.player.id,
+    name: request.player.name,
+    phone: request.player.phone ?? '',
+    birthday: '',
+    membershipStartDate: '',
+    membershipExpirationDate: '',
+    totalTimePlayedHours: 0,
+    lastSessionTimePlayedHours: 0,
+    commonlyPlaysWithProfileIds: [],
+    preferredGameId: request.gameId,
+    preferredGameIds: [request.gameId],
+    preferredStakes: '',
+    typicalBuyInMin: 0,
+    typicalBuyInMax: 0,
+    willingnessToMove: false,
+    typicalAvailability: '',
+    preferredTags: [],
+    usualCompanions: [],
+    notes: `Player app: ${request.player.email}${request.player.phone ? `, ${request.player.phone}` : ''}`
+  };
+
+  const profiles = profile
+    ? state.profiles.map((candidate) =>
+        candidate.id === profile.id
+          ? {
+              ...candidate,
+              phone: request.player.phone || candidate.phone,
+              preferredGameId: candidate.preferredGameId || request.gameId,
+              preferredGameIds: mergeUnique([...(candidate.preferredGameIds ?? []), request.gameId]),
+              notes: appendSyncNote(candidate.notes, `Player app: ${request.player.email}`)
+            }
+          : candidate
+      )
+    : [...state.profiles, syncedProfile];
+
   return {
     ...state,
+    profiles,
     interests: [
       ...state.interests,
       {
         id: request.id,
-        profileId: profile?.id ?? request.player.id,
+        profileId: syncedProfile.id,
         playerName: request.player.name,
         gameId: request.gameId,
-        status: requestedTableHasSeat ? 'Arrived' : 'Interested',
+        status,
         timestamp: request.requestedAt,
         interestedAt: request.requestedAt,
-        arrivedAt: requestedTableHasSeat ? request.requestedAt : undefined,
+        confirmedAt: status === 'Confirmed Coming' ? request.requestedAt : undefined,
+        arrivedAt: status === 'Arrived' ? request.requestedAt : undefined,
+        expectedArrivalTime: request.expectedArrivalTime,
+        availabilityStartTime: request.availabilityStartTime,
+        availabilityEndTime: request.availabilityEndTime,
+        tableId: request.tableId,
         notes: [
-          requestedTableHasSeat ? `Seat requested from player app for ${requestedTable?.label ?? 'open table'}` : 'Waitlist requested from player app',
+          status === 'Arrived'
+            ? `At club now - seat requested for ${requestedTable?.label ?? 'open table'}`
+            : status === 'Confirmed Coming'
+              ? `Confirmed coming${request.expectedArrivalTime ? ` at ${request.expectedArrivalTime}` : ''}${requestedTable ? ` for ${requestedTable.label}` : ''}`
+              : `Interested${request.availabilityStartTime ? ` from ${request.availabilityStartTime}` : ''}${request.availabilityEndTime ? ` to ${request.availabilityEndTime}` : ''}`,
           request.note
         ].filter(Boolean).join(' | ')
       }
@@ -585,23 +743,31 @@ export function applyWaitlistRequestToClubState(state: ManagementClubState, requ
 }
 
 export function getWaitlistEntriesForGame(interests: ManagementInterest[], clubId: string, gameId: string): PlayerWaitlistEntry[] {
+  let activePosition = 0;
   return interests
-    .filter((interest) => interest.gameId === gameId && activeWaitlistStatuses.includes(interest.status))
+    .filter((interest) => interest.gameId === gameId && playerVisibleWaitlistStatuses.includes(interest.status))
     .sort((left, right) => getInterestTime(left).localeCompare(getInterestTime(right)))
-    .map((interest, index) => ({
-      id: interest.id,
-      clubId,
-      gameId,
-      playerId: interest.profileId,
-      playerName: interest.playerName,
-      status: interest.status,
-      position: index + 1,
-      requestedAt: getInterestTime(interest)
-    }));
+    .map((interest) => {
+      const isActive = activeWaitlistStatuses.includes(interest.status);
+      if (isActive) activePosition += 1;
+      return {
+        id: interest.id,
+        clubId,
+        gameId,
+        playerId: interest.profileId,
+        playerName: interest.playerName,
+        status: interest.status,
+        position: isActive ? activePosition : 0,
+        requestedAt: getInterestTime(interest),
+        tableId: interest.tableId
+      };
+    });
 }
 
 function isFutureDate(value?: string) {
-  return Boolean(value && new Date(`${value}T23:59:59`).getTime() >= Date.now());
+  if (!value) return false;
+  const timestamp = value.includes('T') ? Date.parse(value) : new Date(`${value}T23:59:59`).getTime();
+  return Number.isFinite(timestamp) && timestamp >= Date.now();
 }
 
 function getInterestTime(interest: ManagementInterest) {

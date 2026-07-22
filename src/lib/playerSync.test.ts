@@ -197,9 +197,9 @@ describe('player sync snapshots', () => {
     expect(joined.profiles.find((profile) => profile.id === 'player-2')).toMatchObject({
       name: 'Morgan',
       membershipStartDate: '2026-05-20',
-      membershipExpirationDate: '2027-05-20',
+      membershipExpirationDate: '2026-06-19',
       preferredGameIds: ['plo-1-2'],
-      notes: 'Player app: morgan@example.com, 555-0122'
+      notes: 'Player app: morgan@example.com, 555-0122 | Monthly membership - paid in app'
     });
 
     const wait = createWaitlistRequest(player, 'lucky-lodge', 'plo-1-2', {
@@ -214,8 +214,90 @@ describe('player sync snapshots', () => {
       playerName: 'Morgan',
       gameId: 'plo-1-2',
       status: 'Interested',
-      notes: 'Waitlist requested from player app | Short-handed is fine'
+      notes: 'Interested | Short-handed is fine'
     });
+  });
+
+  it('creates a non-member Core profile when a new Player app user requests a game', () => {
+    const request = createWaitlistRequest(
+      { id: 'player-new', name: 'Jamie', email: 'jamie@example.com', phone: '555-0199' },
+      'lucky-lodge',
+      'nlh-1-2',
+      { requestedAt: '2026-05-20T12:10:00.000Z' }
+    );
+    const next = applyWaitlistRequestToClubState(state, request);
+
+    expect(next.profiles.find((profile) => profile.id === 'player-new')).toMatchObject({
+      name: 'Jamie',
+      phone: '555-0199',
+      membershipStartDate: '',
+      membershipExpirationDate: '',
+      preferredGameIds: ['nlh-1-2'],
+      notes: 'Player app: jamie@example.com, 555-0199'
+    });
+    expect(next.interests.at(-1)).toMatchObject({
+      profileId: 'player-new',
+      playerName: 'Jamie',
+      gameId: 'nlh-1-2',
+      status: 'Interested'
+    });
+  });
+
+  it('publishes seated status without counting the player as still waiting', () => {
+    const snapshot = buildPlayerClubSnapshot({
+      ...state,
+      interests: [
+        ...state.interests,
+        {
+          id: 'interest-seated',
+          profileId: 'player-seated',
+          playerName: 'Casey',
+          gameId: 'nlh-1-2',
+          status: 'Seated' as const,
+          interestedAt: '2026-05-20T12:20:00.000Z'
+        }
+      ]
+    });
+
+    expect(snapshot.waitlists.find((entry) => entry.id === 'interest-seated')).toMatchObject({ status: 'Seated', position: 0 });
+    expect(snapshot.games.find((game) => game.id === 'nlh-1-2')?.waitlistCount).toBe(2);
+    expect(snapshot.social.waitlistCount).toBe(2);
+  });
+
+  it('publishes configured collection mode even when no table is open', () => {
+    const snapshot = buildPlayerClubSnapshot({
+      ...state,
+      sessions: state.sessions.filter((session) => session.gameId !== 'plo-1-2'),
+      settings: {
+        ...state.settings,
+        collectionProfiles: [{ gameId: 'plo-1-2', collectionMode: 'Time' as const }]
+      }
+    });
+
+    expect(snapshot.games.find((game) => game.id === 'plo-1-2')).toMatchObject({
+      collectionMode: 'Time',
+      openTables: []
+    });
+  });
+
+  it('cancels an active Player app request and removes it from the published waitlist', () => {
+    const player = { id: 'player-cancel', name: 'Avery', email: 'avery@example.com' };
+    const joined = applyWaitlistRequestToClubState(
+      state,
+      createWaitlistRequest(player, 'lucky-lodge', 'plo-1-2', { requestedAt: '2026-05-20T13:00:00.000Z' })
+    );
+    const cancelled = applyWaitlistRequestToClubState(
+      joined,
+      createWaitlistRequest(player, 'lucky-lodge', 'plo-1-2', {
+        action: 'cancel',
+        requestedAt: '2026-05-20T13:05:00.000Z'
+      })
+    );
+
+    expect(cancelled.interests.find((interest) => interest.playerName === 'Avery')).toMatchObject({
+      status: 'Removed'
+    });
+    expect(buildPlayerClubSnapshot(cancelled).waitlists.some((entry) => entry.playerName === 'Avery')).toBe(false);
   });
 
   it('merges Firebase player profile membership records into club profiles', () => {
@@ -246,6 +328,76 @@ describe('player sync snapshots', () => {
       preferredGameIds: ['plo-1-2'],
       preferredStakes: '1/2 PLO',
       notes: 'Player app: taylor@example.com'
+    });
+  });
+
+  it('syncs arrived, confirmed arrival time, and offered-game availability into Core interests', () => {
+    const confirmedPlayer = { id: 'player-confirmed', name: 'Chris', email: 'chris@example.com' };
+    const confirmed = applyWaitlistRequestToClubState(
+      state,
+      createWaitlistRequest(confirmedPlayer, 'lucky-lodge', 'nlh-1-2', {
+        tableId: 'table-1',
+        attendance: 'confirmed',
+        expectedArrivalTime: '7:30 PM',
+        requestedAt: '2026-05-20T18:00:00.000Z'
+      })
+    );
+    expect(confirmed.interests.at(-1)).toMatchObject({
+      status: 'Confirmed Coming',
+      expectedArrivalTime: '7:30 PM',
+      tableId: 'table-1'
+    });
+
+    const interestedPlayer = { id: 'player-range', name: 'Sky', email: 'sky@example.com' };
+    const interested = applyWaitlistRequestToClubState(
+      confirmed,
+      createWaitlistRequest(interestedPlayer, 'lucky-lodge', 'plo-1-2', {
+        attendance: 'interested',
+        availabilityStartTime: '6 PM',
+        availabilityEndTime: '10 PM',
+        requestedAt: '2026-05-20T18:05:00.000Z'
+      })
+    );
+    expect(interested.interests.at(-1)).toMatchObject({
+      status: 'Interested',
+      availabilityStartTime: '6 PM',
+      availabilityEndTime: '10 PM'
+    });
+  });
+
+  it('starts exact pass timers for app payments and keeps in-person passes pending', () => {
+    const dayPlayer = { id: 'player-day', name: 'Day Player', email: 'day@example.com', preferredGameIds: [] };
+    const paid = applyMembershipRequestToClubState(
+      state,
+      createMembershipRequest(dayPlayer, 'lucky-lodge', '2026-05-20T12:00:00.000Z', {
+        plan: 'day',
+        paymentMethod: 'app',
+        priceLabel: '$20'
+      })
+    );
+    expect(paid.profiles.find((profile) => profile.id === 'player-day')).toMatchObject({
+      membershipPlan: 'day',
+      membershipStatus: 'Active',
+      membershipExpiresAt: '2026-05-21T12:00:00.000Z'
+    });
+
+    const walkInPlayer = { id: 'player-walkin', name: 'Walk In', email: 'walkin@example.com', preferredGameIds: [] };
+    const pending = applyMembershipRequestToClubState(
+      state,
+      createMembershipRequest(walkInPlayer, 'lucky-lodge', '2026-05-20T12:00:00.000Z', {
+        plan: 'monthly',
+        paymentMethod: 'in-person',
+        priceLabel: '$80'
+      })
+    );
+    expect(pending.profiles.find((profile) => profile.id === 'player-walkin')).toMatchObject({
+      membershipPlan: 'monthly',
+      membershipStatus: 'Requested',
+      membershipExpirationDate: ''
+    });
+    expect(buildPlayerClubSnapshot(pending).memberships.find((membership) => membership.playerId === 'player-walkin')).toMatchObject({
+      status: 'Requested',
+      paymentMethod: 'in-person'
     });
   });
 });

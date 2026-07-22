@@ -328,24 +328,31 @@ export const initialClubSnapshots: PlayerClubSnapshot[] = [
 
 export function applyMembershipRequest(snapshot: PlayerClubSnapshot, request: PlayerMembershipRequest): PlayerClubSnapshot {
   if (snapshot.club.id !== request.clubId) return snapshot;
-  const alreadyMember = snapshot.memberships.some((membership) => membership.playerId === request.player.id);
-  if (alreadyMember) return snapshot;
+  const requestedAt = new Date(request.requestedAt);
+  const expiresAt = new Date(requestedAt);
+  expiresAt.setDate(expiresAt.getDate() + (request.plan === 'day' ? 1 : 30));
+  const pending = request.paymentMethod === 'in-person';
+  const nextMembership = {
+    id: `${request.clubId}:${request.player.id}`,
+    clubId: request.clubId,
+    playerId: request.player.id,
+    playerName: request.player.name,
+    status: pending ? 'Requested' as const : 'Active' as const,
+    joinedAt: request.requestedAt.slice(0, 10),
+    expiresAt: pending ? undefined : expiresAt.toISOString(),
+    plan: request.plan,
+    paymentMethod: request.paymentMethod,
+    requestedAt: request.requestedAt,
+    loyalty: getPlayerLoyalty(request.clubId, 0),
+    preferredGameIds: request.player.preferredGameIds,
+    preferredStakes: request.player.preferredStakes,
+    clubNote: request.player.typicalAvailability
+  };
   return {
     ...snapshot,
     memberships: [
-      ...snapshot.memberships,
-      {
-        id: `${request.clubId}:${request.player.id}`,
-        clubId: request.clubId,
-        playerId: request.player.id,
-        playerName: request.player.name,
-        status: 'Requested',
-        joinedAt: request.requestedAt.slice(0, 10),
-        loyalty: getPlayerLoyalty(request.clubId, 0),
-        preferredGameIds: request.player.preferredGameIds,
-        preferredStakes: request.player.preferredStakes,
-        clubNote: request.player.typicalAvailability
-      }
+      ...snapshot.memberships.filter((membership) => membership.playerId !== request.player.id),
+      nextMembership
     ],
     notifications: snapshot.notifications ?? [],
     generatedAt: request.requestedAt
@@ -354,6 +361,36 @@ export function applyMembershipRequest(snapshot: PlayerClubSnapshot, request: Pl
 
 export function applyWaitlistRequest(snapshot: PlayerClubSnapshot, request: PlayerWaitlistRequest): PlayerClubSnapshot {
   if (snapshot.club.id !== request.clubId) return snapshot;
+  if (request.action === 'cancel') {
+    const cancelledEntries = snapshot.waitlists.filter(
+      (entry) =>
+        entry.gameId === request.gameId &&
+        ['Interested', 'Confirmed Coming', 'Arrived'].includes(entry.status) &&
+        (entry.playerId === request.player.id || entry.playerName.toLowerCase() === request.player.name.toLowerCase())
+    );
+    if (!cancelledEntries.length) return snapshot;
+    const cancelledIds = new Set(cancelledEntries.map((entry) => entry.id));
+    const gamePositions = new Map<string, number>();
+    const waitlists = snapshot.waitlists
+      .filter((entry) => !cancelledIds.has(entry.id))
+      .map((entry) => {
+        const position = (gamePositions.get(entry.gameId) ?? 0) + 1;
+        gamePositions.set(entry.gameId, position);
+        return { ...entry, position };
+      });
+    return {
+      ...snapshot,
+      games: snapshot.games.map((game) =>
+        game.id === request.gameId ? { ...game, waitlistCount: Math.max(0, game.waitlistCount - cancelledEntries.length) } : game
+      ),
+      social: {
+        ...(snapshot.social ?? { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: snapshot.waitlists.length }),
+        waitlistCount: Math.max(0, (snapshot.social?.waitlistCount ?? snapshot.waitlists.length) - cancelledEntries.length)
+      },
+      waitlists,
+      generatedAt: request.requestedAt
+    };
+  }
   const existing = snapshot.waitlists.find((entry) => entry.playerId === request.player.id && entry.gameId === request.gameId);
   if (existing) return snapshot;
   const position = snapshot.waitlists.filter((entry) => entry.gameId === request.gameId).length + 1;
@@ -375,7 +412,7 @@ export function applyWaitlistRequest(snapshot: PlayerClubSnapshot, request: Play
         tableId: request.tableId,
         playerId: request.player.id,
         playerName: request.player.name,
-        status: 'Interested',
+        status: request.attendance === 'arrived' ? 'Arrived' : request.attendance === 'confirmed' ? 'Confirmed Coming' : 'Interested',
         position,
         requestedAt: request.requestedAt
       }
@@ -385,10 +422,34 @@ export function applyWaitlistRequest(snapshot: PlayerClubSnapshot, request: Play
   };
 }
 
-export function buildJoinRequest(player: PlayerAccount, clubId: string) {
-  return createMembershipRequest(player, clubId);
+export function buildJoinRequest(
+  player: PlayerAccount,
+  clubId: string,
+  plan: 'day' | 'monthly' = 'monthly',
+  paymentMethod: 'app' | 'in-person' = 'app',
+  priceLabel?: string
+) {
+  return createMembershipRequest(player, clubId, undefined, { plan, paymentMethod, priceLabel });
 }
 
-export function buildWaitRequest(player: PlayerAccount, clubId: string, gameId: string, tableId?: string) {
-  return createWaitlistRequest(player, clubId, gameId, { tableId, note: player.typicalAvailability });
+export function buildWaitRequest(
+  player: PlayerAccount,
+  clubId: string,
+  gameId: string,
+  tableId?: string,
+  action: 'join' | 'cancel' = 'join',
+  attendance?: 'arrived' | 'confirmed' | 'interested',
+  expectedArrivalTime?: string,
+  availabilityStartTime?: string,
+  availabilityEndTime?: string
+) {
+  return createWaitlistRequest(player, clubId, gameId, {
+    action,
+    tableId,
+    attendance,
+    expectedArrivalTime,
+    availabilityStartTime,
+    availabilityEndTime,
+    note: player.typicalAvailability
+  });
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type DimensionValue } from 'react-native';
+import { Animated, Easing, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type DimensionValue } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -7,7 +7,26 @@ import MapView, { Marker, PROVIDER_GOOGLE, Circle } from './components/MapView';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { PlayerAccount, PlayerClubMembershipRecord, PlayerClubSnapshot, PlayerInAppNotification, PlayerPrivateGameListing, PlayerSyncGame, PlayerTournament, PlayerTournamentRegistration, PlayerWaitlistEntry } from './domain/playerSync';
+import {
+  formatPassCountdown,
+  getPlayerGameStatusLabel,
+  getWaitlistAheadText,
+  isMembershipCurrentlyActive,
+  isPlayerMembership,
+  isPlayerWaitlistEntry,
+  normalizedIdentity,
+  type PlayerAccount,
+  type PlayerClubMembershipRecord,
+  type PlayerClubSnapshot,
+  type PlayerInAppNotification,
+  type PlayerPrivateGameListing,
+  type PlayerSyncGame,
+  type PlayerTournament,
+  type PlayerTournamentRegistration,
+  type PlayerWaitlistEntry,
+  type ClubMembershipPaymentMethod,
+  type ClubMembershipPlan
+} from './domain/playerSync';
 import {
   applyMembershipRequest,
   applyWaitlistRequest,
@@ -21,11 +40,14 @@ import {
   fetchPrivateGameListings,
   fetchPlayerProfile,
   fetchPlayerTournaments,
+  createClubMembershipCheckout,
   getCurrentFirebasePlayer,
   onFirebasePlayerChanged,
   type FirebasePlayerIdentity,
   isSyncConfigured,
   savePlayerProfile,
+  signInOrCreatePlayerWithEmail,
+  signInWithGooglePopup,
   registerForTournament,
   subscribeToAllClubSnapshots,
   subscribeToPrivateGameListings,
@@ -39,12 +61,21 @@ import {
 
 WebBrowser.maybeCompleteAuthSession();
 
-type Screen = 'findGames' | 'map' | 'clubs' | 'clubSignup' | 'clubPayment' | 'history' | 'friends' | 'settings';
+type Screen = 'findGames' | 'tournaments' | 'map' | 'clubs' | 'clubSignup' | 'clubPayment' | 'history' | 'friends' | 'settings';
 type OnboardingStep = 0 | 1 | 2 | 3 | 4;
 type GameTypeFilter = 'none' | 'all' | 'public' | 'private' | 'card-house' | 'home-game' | 'favorites';
 type DistanceFilter = 'none' | 5 | 10 | 20 | 50;
 type CasinoFilter = 'none' | 'all' | string;
-type ClubMembershipPlan = 'day' | 'monthly';
+type TournamentFilter = 'all' | 'open' | 'free' | 'registered';
+
+type SeatRequestDraft = {
+  club: PlayerClubSnapshot;
+  game: PlayerSyncGame;
+  attendance: 'arrived' | 'confirmed' | 'interested';
+  expectedArrivalTime: string;
+  availabilityStartTime: string;
+  availabilityEndTime: string;
+};
 
 type GameOpportunity = {
   club: PlayerClubSnapshot;
@@ -69,6 +100,7 @@ type PrivateGameDraft = {
 
 const tabs: Array<{ id: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
   { id: 'findGames', label: 'Find Games', icon: 'search-outline' },
+  { id: 'tournaments', label: 'Tournaments', icon: 'trophy-outline' },
   { id: 'map', label: 'Map', icon: 'map-outline' },
   { id: 'clubs', label: 'Clubs', icon: 'business-outline' },
   { id: 'history', label: 'History', icon: 'receipt-outline' },
@@ -269,12 +301,11 @@ const emptyPrivateGameDraft: PrivateGameDraft = {
 };
 const legacyPlayerStorageKeys = ['tabletalk-player-account-v1', 'tabletalk-player-account-v2'];
 const playerStorageKey = 'orbit-player-account-v1';
-const googleSignInDisabledStatus = 'Google sign-in is disabled right now.';
+const googleSignInReadyStatus = 'Connect Google or use email/password to register and sync your player profile.';
 // Stripe is reserved for the social/player app's future premium tier only.
 // Management-app billing must stay separate from this mobile premium surface.
 const playerPremiumCheckoutUrl = process.env.EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL || '';
 const premiumMonthlyPriceLabel = '$12.99/mo';
-const clubMembershipCheckoutUrl = process.env.EXPO_PUBLIC_CLUB_MEMBERSHIP_CHECKOUT_URL || '';
 const demoPremiumEnabled = __DEV__ || process.env.EXPO_PUBLIC_DEMO_PREMIUM === 'true';
 
 export default function PlayerApp() {
@@ -283,12 +314,16 @@ export default function PlayerApp() {
   const [screen, setScreen] = useState<Screen>('findGames');
   const [showHostScreen, setShowHostScreen] = useState(false);
   const [gameQuery, setGameQuery] = useState('');
+  const [tournamentQuery, setTournamentQuery] = useState('');
+  const [tournamentFilter, setTournamentFilter] = useState<TournamentFilter>('all');
+  const [tournamentClubFilter, setTournamentClubFilter] = useState('all');
+  const [tournamentDistanceFilter, setTournamentDistanceFilter] = useState<DistanceFilter>('none');
   const [selectedCasinoFilter, setSelectedCasinoFilter] = useState<CasinoFilter>('none');
   const [mapQuery, setMapQuery] = useState('');
   const [gameTypeFilter, setGameTypeFilter] = useState<GameTypeFilter>('all');
   const [selectedFilterClubId, setSelectedFilterClubId] = useState('all');
   const [stakesFilter, setStakesFilter] = useState('');
-  const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>(20);
+  const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>('none');
   const [fitScoreFilterEnabled, setFitScoreFilterEnabled] = useState(false);
   const [privateGameDraft, setPrivateGameDraft] = useState<PrivateGameDraft>(emptyPrivateGameDraft);
   const [privateGames, setPrivateGames] = useState<PlayerPrivateGameListing[]>([]);
@@ -298,6 +333,9 @@ export default function PlayerApp() {
   const [premiumMessage, setPremiumMessage] = useState('');
   const [clubMembershipMessage, setClubMembershipMessage] = useState('');
   const [pendingClubPlan, setPendingClubPlan] = useState<ClubMembershipPlan | null>(null);
+  const [seatRequestDraft, setSeatRequestDraft] = useState<SeatRequestDraft | null>(null);
+  const [seatRequestMessage, setSeatRequestMessage] = useState('');
+  const [clockNow, setClockNow] = useState(Date.now());
   const [player, setPlayer] = useState<PlayerAccount>(emptyPlayer);
   const [draftPlayer, setDraftPlayer] = useState<PlayerAccount>(emptyPlayer);
   const [accountLoaded, setAccountLoaded] = useState(false);
@@ -308,11 +346,12 @@ export default function PlayerApp() {
   const [selectedClubId, setSelectedClubId] = useState(initialClubSnapshots[0].club.id);
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const [firebaseIdentity, setFirebaseIdentity] = useState<FirebasePlayerIdentity | null>(() => getCurrentFirebasePlayer());
-  const [authStatus] = useState(googleSignInDisabledStatus);
+  const [authStatus, setAuthStatus] = useState(googleSignInReadyStatus);
+  const [playerAuthEmail, setPlayerAuthEmail] = useState('');
+  const [playerAuthPassword, setPlayerAuthPassword] = useState('');
   const [, setSyncStatus] = useState(
     isSyncConfigured() ? 'Connecting to Firebase club sync...' : 'Demo mode - configure sync to use the live club database.'
   );
-  const hasRoutedFromMembershipSync = useRef(false);
 
   const selectedClub = clubs.find((club) => club.club.id === selectedClubId) ?? clubs[0];
   const activeInAppNotification = useMemo(
@@ -322,9 +361,10 @@ export default function PlayerApp() {
   const memberships = clubs.flatMap((club) => club.memberships.filter((membership) => isPlayerMembership(membership, player)));
   const selectedMembership = selectedClub.memberships.find((membership) => isPlayerMembership(membership, player));
   const playerWaitlists = selectedClub.waitlists.filter((entry) => isPlayerWaitlistEntry(entry, player));
-  const joinedClubIds = new Set(memberships.map((membership) => membership.clubId));
+  const joinedClubIds = new Set(memberships.filter((membership) => isMembershipCurrentlyActive(membership, clockNow)).map((membership) => membership.clubId));
+  const membershipClubIds = new Set(memberships.map((membership) => membership.clubId));
   const favoriteClubIds = player.favoriteClubIds ?? [];
-  const memberClubs = clubs.filter((club) => joinedClubIds.has(club.club.id));
+  const memberClubs = clubs.filter((club) => membershipClubIds.has(club.club.id));
   const selectedClubTournaments = tournaments.filter((tournament) => tournament.clubId === selectedClub.club.id);
   const findGameClubs = useMemo(() => buildFindGameClubs(clubs), [clubs]);
   const playerHomeCoordinate = useMemo(() => resolveAddressCoordinate(player.homeLocation), [player.homeLocation]);
@@ -351,13 +391,65 @@ export default function PlayerApp() {
       })
       .sort((left, right) => getClubDistance(left, playerHomeCoordinate) - getClubDistance(right, playerHomeCoordinate));
   }, [findGameClubs, mapQuery, playerHomeCoordinate]);
+  const visibleTournaments = useMemo(() => {
+    const query = tournamentQuery.trim().toLowerCase();
+    return tournaments
+      .map((tournament) => {
+        const club = clubs.find((item) => item.club.id === tournament.clubId);
+        const registration = tournamentRegistrations.find((item) => item.tournamentId === tournament.id && item.playerId === player.id);
+        const distanceMiles = club ? getClubDistance(club, playerHomeCoordinate) : Number.POSITIVE_INFINITY;
+        return { tournament, club, registration, distanceMiles };
+      })
+      .filter(({ tournament, club, registration, distanceMiles }) => {
+        const haystack = `${tournament.name} ${club?.club.name ?? ''} ${club?.club.address ?? ''} ${tournament.prizePoolLabel} ${tournament.rules.join(' ')}`.toLowerCase();
+        if (query && !haystack.includes(query)) return false;
+        if (tournamentClubFilter !== 'all' && tournament.clubId !== tournamentClubFilter) return false;
+        if (tournamentDistanceFilter !== 'none' && club && distanceMiles > tournamentDistanceFilter) return false;
+        if (tournamentFilter === 'open' && tournament.registrationStatus !== 'open') return false;
+        if (tournamentFilter === 'free' && tournament.buyIn !== 0) return false;
+        if (tournamentFilter === 'registered' && !registration) return false;
+        return true;
+      })
+      .sort((left, right) => Date.parse(left.tournament.startsAt) - Date.parse(right.tournament.startsAt));
+  }, [clubs, player.id, playerHomeCoordinate, tournamentClubFilter, tournamentDistanceFilter, tournamentFilter, tournamentQuery, tournamentRegistrations, tournaments]);
 
   useEffect(() => onFirebasePlayerChanged(setFirebaseIdentity), []);
 
   useEffect(() => {
-    AsyncStorage.multiRemove([...legacyPlayerStorageKeys, playerStorageKey])
+    let active = true;
+    AsyncStorage.multiGet([playerStorageKey, ...legacyPlayerStorageKeys])
+      .then((entries) => {
+        if (!active) return;
+        const stored = entries.find(([, value]) => Boolean(value))?.[1];
+        if (!stored) return;
+        const parsed = JSON.parse(stored) as Partial<PlayerAccount>;
+        if (!parsed.name?.trim() || !parsed.email?.trim()) return;
+        const restored: PlayerAccount = {
+          ...emptyPlayer,
+          ...parsed,
+          preferredGameIds: Array.isArray(parsed.preferredGameIds) ? parsed.preferredGameIds : [],
+          favoriteClubIds: Array.isArray(parsed.favoriteClubIds) ? parsed.favoriteClubIds : []
+        };
+        setPlayer(restored);
+        setDraftPlayer(restored);
+        setHasAccount(true);
+        setOnboardingStep(4);
+      })
       .catch(() => undefined)
-      .finally(() => setAccountLoaded(true));
+      .finally(() => active && setAccountLoaded(true));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!accountLoaded || !hasAccount || !player.name.trim() || !player.email.trim()) return;
+    AsyncStorage.setItem(playerStorageKey, JSON.stringify(player)).catch(() => undefined);
+  }, [accountLoaded, hasAccount, player]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setClockNow(Date.now()), 1000);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -366,7 +458,7 @@ export default function PlayerApp() {
   }, [accountLoaded, firebaseIdentity, hasAccount, player]);
 
   useEffect(() => {
-    if (!accountLoaded || !hasAccount || !firebaseIdentity) return;
+    if (!accountLoaded || !hasAccount) return;
     fetchPlayerProfile()
       .then((profile) => {
         if (!profile) return;
@@ -402,14 +494,11 @@ export default function PlayerApp() {
     if (!accountLoaded || !hasAccount || !isSyncConfigured()) return;
     const handleClubSync = (result: Awaited<ReturnType<typeof fetchAllClubSnapshots>>) => {
       if (result.ok) {
-        setClubs(result.clubs.length ? result.clubs : initialClubSnapshots);
+        const mergedClubs = mergeDemoAndSyncedClubs(result.clubs);
+        setClubs(mergedClubs);
         const existingMembershipClub = result.clubs.find((club) => club.memberships.some((membership) => isPlayerMembership(membership, player)));
-        setSelectedClubId((current) => existingMembershipClub?.club.id ?? result.clubs.find((club) => club.club.id === current)?.club.id ?? result.clubs[0]?.club.id ?? initialClubSnapshots[0].club.id);
-        if (!hasRoutedFromMembershipSync.current) {
-          setScreen('findGames');
-          hasRoutedFromMembershipSync.current = true;
-        }
-        setSyncStatus(`Synced ${result.clubs.length} card houses`);
+        setSelectedClubId((current) => existingMembershipClub?.club.id ?? mergedClubs.find((club) => club.club.id === current)?.club.id ?? mergedClubs[0]?.club.id ?? initialClubSnapshots[0].club.id);
+        setSyncStatus(`Showing demo data plus ${result.clubs.length} synced card house${result.clubs.length === 1 ? '' : 's'}`);
       } else {
         setSyncStatus(`Offline demo data - ${result.error}`);
       }
@@ -465,7 +554,6 @@ export default function PlayerApp() {
           .filter((game) => !query || `${game.name} ${clubSearchText}`.toLowerCase().includes(query))
           .filter((game) => !stakesQuery || game.name.toLowerCase().includes(stakesQuery))
           .filter((game) => matchesGameTypeFilter(club, game, gameTypeFilter))
-          .filter((game) => game.openTables.length || game.waitlistCount || game.formingCount)
           .map((game) => {
             const isPreferred = player.preferredGameIds.includes(game.id);
             const seatScore = game.availableSeats * 16 + game.formingCount * 7;
@@ -571,21 +659,74 @@ export default function PlayerApp() {
     setClubMembershipMessage('');
     const prices = getClubMembershipPrices(club);
     const planLabel = plan === 'day' ? prices.day : prices.monthly;
-    if (clubMembershipCheckoutUrl) {
-      const separator = clubMembershipCheckoutUrl.includes('?') ? '&' : '?';
-      const checkoutUrl = `${clubMembershipCheckoutUrl}${separator}clubId=${encodeURIComponent(club.club.id)}&clubName=${encodeURIComponent(club.club.name)}&plan=${encodeURIComponent(plan)}&priceLabel=${encodeURIComponent(planLabel)}&playerId=${encodeURIComponent(player.id)}&playerEmail=${encodeURIComponent(player.email)}`;
-      setClubMembershipMessage(`Opening ${planLabel} checkout for ${club.club.name}...`);
-      const result = await WebBrowser.openBrowserAsync(checkoutUrl);
+    if (!firebaseIdentity) {
+      if (__DEV__) {
+        setClubMembershipMessage(`Demo mode: activating the ${planLabel} pass now.`);
+        await requestMembership(club, plan, 'app');
+        setPendingClubPlan(null);
+        return;
+      }
+      setClubMembershipMessage('Sign in before purchasing a club membership.');
+      return;
+    }
+    try {
+      setClubMembershipMessage(`Creating secure ${planLabel} checkout for ${club.club.name}...`);
+      const checkout = await createClubMembershipCheckout({ clubId: club.club.id, plan, playerName: player.name });
+      const result = await WebBrowser.openBrowserAsync(checkout.checkoutUrl);
       setClubMembershipMessage(
         result.type === 'cancel'
-          ? 'Checkout was closed. Sending your selected membership request so the club can follow up.'
-          : 'Membership checkout opened. Sending your selected request to the club.'
+          ? 'Checkout was closed. No membership or revenue was recorded.'
+          : 'Checkout completed. Waiting for Stripe to verify the payment and activate your membership.'
       );
-    } else {
-      setClubMembershipMessage(`Demo mode: selected ${planLabel}. Sending your signup request to the club.`);
+      setPendingClubPlan(null);
+    } catch (error) {
+      setClubMembershipMessage(error instanceof Error ? error.message : 'Unable to start secure membership checkout.');
     }
-    await requestMembership(club);
+  };
+
+  const requestInPersonMembership = async (club: PlayerClubSnapshot, plan: ClubMembershipPlan) => {
+    const prices = getClubMembershipPrices(club);
+    const planLabel = plan === 'day' ? prices.day : prices.monthly;
+    setClubMembershipMessage(`Sending a ${planLabel} pay-in-person request to ${club.club.name}...`);
+    await requestMembership(club, plan, 'in-person');
     setPendingClubPlan(null);
+  };
+
+  const finishFirebaseAccountConnection = async (identity: FirebasePlayerIdentity) => {
+    const nextPlayer: PlayerAccount = {
+      ...player,
+      id: identity.uid,
+      name: identity.name || player.name,
+      email: identity.email || player.email
+    };
+    setFirebaseIdentity(identity);
+    setDraftPlayer(nextPlayer);
+    setPlayer(nextPlayer);
+    setHasAccount(true);
+    await savePlayerProfile(nextPlayer);
+    setAuthStatus(`Connected as ${identity.email || identity.name}.`);
+  };
+
+  const connectGoogleAccount = async () => {
+    setAuthStatus('Opening Google sign-in...');
+    try {
+      await finishFirebaseAccountConnection(await signInWithGooglePopup());
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      setAuthStatus(code === 'auth/operation-not-allowed'
+        ? 'Google is disabled in Firebase. Use email/password below or enable Google in Firebase Authentication.'
+        : error instanceof Error ? error.message : 'Google sign-in could not be completed.');
+    }
+  };
+
+  const connectEmailAccount = async () => {
+    setAuthStatus('Signing in to your Orbit Player account...');
+    try {
+      await finishFirebaseAccountConnection(await signInOrCreatePlayerWithEmail(playerAuthEmail, playerAuthPassword));
+      setPlayerAuthPassword('');
+    } catch (error) {
+      setAuthStatus(error instanceof Error ? error.message : 'Email sign-in could not be completed.');
+    }
   };
 
   const publishPrivateGame = async () => {
@@ -634,38 +775,100 @@ export default function PlayerApp() {
     setClubs((current) => current.map((snapshot) => (snapshot.club.id === club.club.id ? updater(snapshot) : snapshot)));
   };
 
-  const requestMembership = async (club: PlayerClubSnapshot) => {
+  const requestMembership = async (
+    club: PlayerClubSnapshot,
+    plan: ClubMembershipPlan = 'monthly',
+    paymentMethod: ClubMembershipPaymentMethod = 'app'
+  ) => {
     setSelectedClubId(club.club.id);
-    const request = buildJoinRequest(player, club.club.id);
+    const prices = getClubMembershipPrices(club);
+    const priceLabel = plan === 'day' ? prices.day : prices.monthly;
+    const request = buildJoinRequest(player, club.club.id, plan, paymentMethod, priceLabel);
     if (isSyncConfigured()) {
-      setSyncStatus('Sending membership request...');
+      setSyncStatus(paymentMethod === 'in-person' ? 'Sending pay-in-person membership request...' : 'Activating membership...');
       const result = await submitMembershipRequest(request);
       if (result.ok) {
         replaceSyncedClub(result.snapshot);
         setScreen('clubs');
-        setSyncStatus(`Membership request sent to ${result.snapshot.club.name}`);
+        setClubMembershipMessage(paymentMethod === 'in-person'
+          ? `Request sent. Pay at ${result.snapshot.club.name} to start the pass timer.`
+          : `${plan === 'day' ? 'Day pass' : 'Monthly membership'} activated.`);
+        setSyncStatus(`Membership updated with ${result.snapshot.club.name}`);
         return;
       }
       setSyncStatus(`Saved locally - ${result.error}`);
     }
     updateClubSnapshot(club, (snapshot) => applyMembershipRequest(snapshot, request));
     setScreen('clubs');
+    setClubMembershipMessage(paymentMethod === 'in-person'
+      ? `Request sent. Pay at ${club.club.name} to start the pass timer.`
+      : `${plan === 'day' ? 'Day pass' : 'Monthly membership'} activated.`);
   };
 
-  const joinWaitlist = async (club: PlayerClubSnapshot, game: PlayerSyncGame) => {
+  const joinWaitlist = (club: PlayerClubSnapshot, game: PlayerSyncGame) => {
     setSelectedClubId(club.club.id);
-    const request = buildWaitRequest(player, club.club.id, game.id, game.openTables[0]?.id);
+    setSeatRequestMessage('');
+    setSeatRequestDraft({
+      club,
+      game,
+      attendance: game.openTables.length ? 'arrived' : 'interested',
+      expectedArrivalTime: '',
+      availabilityStartTime: '',
+      availabilityEndTime: ''
+    });
+  };
+
+  const submitSeatRequest = async () => {
+    if (!seatRequestDraft) return;
+    const { club, game, attendance, expectedArrivalTime, availabilityStartTime, availabilityEndTime } = seatRequestDraft;
+    if (attendance === 'confirmed' && !expectedArrivalTime.trim()) {
+      setSeatRequestMessage('Enter what time you expect to arrive.');
+      return;
+    }
+    if (attendance === 'interested' && !availabilityStartTime.trim()) {
+      setSeatRequestMessage('Enter the time or start of the time range you would come.');
+      return;
+    }
+    const request = buildWaitRequest(
+      player,
+      club.club.id,
+      game.id,
+      game.openTables[0]?.id,
+      'join',
+      attendance,
+      expectedArrivalTime.trim() || undefined,
+      availabilityStartTime.trim() || undefined,
+      availabilityEndTime.trim() || undefined
+    );
     if (isSyncConfigured()) {
-      setSyncStatus('Sending waitlist request...');
+      setSyncStatus('Sending seat request...');
       const result = await submitWaitlistRequest(request);
       if (result.ok) {
         replaceSyncedClub(result.snapshot);
-        setSyncStatus(`Waitlist synced with ${result.snapshot.club.name}`);
+        setSeatRequestDraft(null);
+        setSyncStatus(`Seat request synced with ${result.snapshot.club.name}`);
         return;
       }
       setSyncStatus(`Saved locally - ${result.error}`);
     }
     updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
+  };
+
+  const cancelWaitlist = async (club: PlayerClubSnapshot, game: PlayerSyncGame, entry: PlayerWaitlistEntry) => {
+    setSelectedClubId(club.club.id);
+    const request = buildWaitRequest(player, club.club.id, game.id, entry.tableId, 'cancel');
+    if (isSyncConfigured()) {
+      setSyncStatus('Cancelling seat request...');
+      const result = await submitWaitlistRequest(request);
+      if (result.ok) {
+        replaceSyncedClub(result.snapshot);
+        setSyncStatus(`Seat request cancelled with ${result.snapshot.club.name}`);
+        return;
+      }
+      setSyncStatus(`Cancellation saved locally - ${result.error}`);
+    }
+    updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
+    setSeatRequestDraft(null);
   };
 
   const registerTournament = async (tournament: PlayerTournament) => {
@@ -777,7 +980,7 @@ export default function PlayerApp() {
         <View style={styles.shell}>
           <View style={styles.header}>
             <View>
-              <Text style={styles.eyebrow}>{`${opportunities.length} live seats`}</Text>
+              <Text style={styles.eyebrow}>{screen === 'tournaments' ? `${visibleTournaments.length} upcoming events` : `${opportunities.length} games available`}</Text>
               <Text style={styles.title}>{screen === 'clubSignup' || screen === 'clubPayment' ? 'Membership' : screen === 'findGames' ? (showHostScreen ? 'Host a Game' : 'Find Games') : tabs.find((tab) => tab.id === screen)?.label}</Text>
             </View>
             <Pressable
@@ -796,7 +999,7 @@ export default function PlayerApp() {
             </Pressable>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+          <ScrollView showsVerticalScrollIndicator={screen === 'tournaments'} contentContainerStyle={styles.content}>
             {activeInAppNotification ? (
               <InAppNotificationBanner
                 notification={activeInAppNotification}
@@ -866,6 +1069,7 @@ export default function PlayerApp() {
                     }}
                     onDirections={(club) => openDirections(club)}
                     onWaitlist={(club, game) => joinWaitlist(club, game)}
+                    onCancelWaitlist={(club, game, entry) => cancelWaitlist(club, game, entry)}
                     onJoinClub={(club) => openClubSignup(club)}
                     onToggleFavorite={(club) => toggleFavoriteClub(club.club.id)}
                   />
@@ -889,6 +1093,123 @@ export default function PlayerApp() {
                     ))}
                   </>
                 ) : null}
+              </>
+            ) : null}
+
+            {screen === 'tournaments' ? (
+              <>
+                <View style={styles.searchPanel}>
+                  <View style={styles.searchInputRow}>
+                    <Ionicons name="location-outline" size={18} color={colors.muted} />
+                    <TextInput
+                      value={player.homeLocation ?? ''}
+                      onChangeText={(homeLocation) => setPlayer((current) => ({ ...current, homeLocation }))}
+                      placeholder="Your address or city"
+                      placeholderTextColor={colors.muted}
+                      style={styles.searchInput}
+                    />
+                  </View>
+                  <View style={styles.searchInputRow}>
+                    <Ionicons name="search-outline" size={18} color={colors.muted} />
+                    <TextInput
+                      value={tournamentQuery}
+                      onChangeText={setTournamentQuery}
+                      placeholder="Search tournaments, clubs, or prizes"
+                      placeholderTextColor={colors.muted}
+                      style={styles.searchInput}
+                    />
+                  </View>
+                  <View style={styles.filterPanel}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.filterChipRow}>
+                      {([
+                        ['all', 'All events'],
+                        ['open', 'Registration open'],
+                        ['free', 'Freerolls'],
+                        ['registered', 'My entries']
+                      ] as Array<[TournamentFilter, string]>).map(([id, label]) => (
+                        <Chip key={id} label={label} active={tournamentFilter === id} onPress={() => setTournamentFilter(id)} />
+                      ))}
+                    </ScrollView>
+                    <View style={styles.field}>
+                      <Text style={styles.fieldLabel}>Club</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.filterChipRow}>
+                        <Chip label="All clubs" active={tournamentClubFilter === 'all'} onPress={() => setTournamentClubFilter('all')} />
+                        {clubs.map((club) => (
+                          <Chip
+                            key={club.club.id}
+                            label={club.club.name}
+                            active={tournamentClubFilter === club.club.id}
+                            onPress={() => setTournamentClubFilter(club.club.id)}
+                          />
+                        ))}
+                      </ScrollView>
+                    </View>
+                    <View style={styles.field}>
+                      <Text style={styles.fieldLabel}>Distance</Text>
+                      <View style={styles.distanceRow}>
+                        {([
+                          { value: 'none' as const, label: 'All' },
+                          { value: 5 as const, label: '5' },
+                          { value: 10 as const, label: '10' },
+                          { value: 20 as const, label: '20' },
+                          { value: 50 as const, label: '50' }
+                        ]).map((option) => (
+                          <Pressable
+                            key={option.value}
+                            onPress={() => setTournamentDistanceFilter(option.value)}
+                            style={[styles.distanceChip, tournamentDistanceFilter === option.value && styles.distanceChipActive]}
+                          >
+                            <Text style={[styles.distanceChipText, tournamentDistanceFilter === option.value && styles.distanceChipTextActive]}>{option.label}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Upcoming tournaments</Text>
+                  <Text style={styles.muted}>{visibleTournaments.length} found</Text>
+                </View>
+                {visibleTournaments.length ? Array.from(new Set(visibleTournaments.map((item) => item.tournament.clubId))).map((clubId) => {
+                  const listings = visibleTournaments.filter((item) => item.tournament.clubId === clubId);
+                  const club = listings[0]?.club;
+                  return (
+                    <View style={styles.tournamentClubSection} key={clubId}>
+                      <Pressable
+                        disabled={!club}
+                        style={styles.tournamentClubHeader}
+                        onPress={() => {
+                          if (!club) return;
+                          setSelectedClubId(club.club.id);
+                          setScreen('clubs');
+                        }}
+                      >
+                        <View>
+                          <Text style={styles.cardTitle}>{club?.club.name ?? 'Tournament host'}</Text>
+                          <Text style={styles.muted}>{club ? `${listings[0].distanceMiles.toFixed(1)} mi · ${club.club.address ?? 'Address unavailable'}` : 'Club details unavailable'}</Text>
+                        </View>
+                        {club ? <Ionicons name="chevron-forward" size={19} color={colors.muted} /> : null}
+                      </Pressable>
+                      {listings.map(({ tournament, registration }) => (
+                        <TournamentCard
+                          key={tournament.id}
+                          tournament={tournament}
+                          registration={registration}
+                          hasOrbitAccount={Boolean(firebaseIdentity && firebaseIdentity.uid === player.id)}
+                          message={tournamentMessage}
+                          onRegister={() => registerTournament(tournament)}
+                          onUnregister={() => registration && unregisterTournament(tournament, registration)}
+                        />
+                      ))}
+                    </View>
+                  );
+                }) : (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.cardTitle}>No tournaments found</Text>
+                    <Text style={styles.muted}>Try a different club, distance, or registration filter.</Text>
+                  </View>
+                )}
               </>
             ) : null}
 
@@ -993,12 +1314,8 @@ export default function PlayerApp() {
                     <ClubMembershipPanel
                       club={selectedClub}
                       membership={selectedMembership}
-                      onRenew={(days) => {
-                        const start = new Date().toISOString().slice(0, 10);
-                        const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-                        changeMembership(selectedClub, { status: 'Active', joinedAt: start, expiresAt: expires });
-                      }}
-                      onPause={() => changeMembership(selectedClub, { status: 'Expired' })}
+                      nowMs={clockNow}
+                      onBuyPass={() => openClubSignup(selectedClub)}
                     />
                     {selectedClub.games.map((game) => (
                       <GameCard
@@ -1008,6 +1325,7 @@ export default function PlayerApp() {
                         joined={joinedClubIds.has(selectedClub.club.id)}
                         preferred={player.preferredGameIds.includes(game.id)}
                         onWaitlist={() => joinWaitlist(selectedClub, game)}
+                        onCancelWaitlist={(entry) => cancelWaitlist(selectedClub, game, entry)}
                         onJoinClub={() => openClubSignup(selectedClub)}
                       />
                     ))}
@@ -1057,7 +1375,8 @@ export default function PlayerApp() {
                 price={pendingClubPlan === 'day' ? getClubMembershipPrices(selectedClub).day : getClubMembershipPrices(selectedClub).monthly}
                 message={clubMembershipMessage}
                 onBack={() => setScreen('clubSignup')}
-                onPaymentComplete={() => completeClubPayment(selectedClub, pendingClubPlan)}
+                onPayInApp={() => completeClubPayment(selectedClub, pendingClubPlan)}
+                onPayInPerson={() => requestInPersonMembership(selectedClub, pendingClubPlan)}
               />
             ) : null}
 
@@ -1096,10 +1415,50 @@ export default function PlayerApp() {
                     <Ionicons name={firebaseIdentity ? 'checkmark-circle-outline' : 'logo-google'} size={20} color={firebaseIdentity ? colors.teal : colors.primaryDark} />
                   </View>
                   <View style={styles.googleAuthBody}>
-                    <Text style={styles.cardTitle}>{firebaseIdentity ? 'Google Connected' : 'Google Sign-In Disabled'}</Text>
+                    <Text style={styles.cardTitle}>{firebaseIdentity ? 'Google Connected' : 'Connect Google'}</Text>
                     <Text style={styles.muted}>{firebaseIdentity ? firebaseIdentity.email || firebaseIdentity.name : authStatus}</Text>
                   </View>
+                  {!firebaseIdentity ? (
+                    <Pressable style={styles.compactButton} onPress={connectGoogleAccount}>
+                      <Text style={styles.compactButtonText}>Sign in</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
+                {!firebaseIdentity ? (
+                  <View style={styles.emailAuthPanel}>
+                    <View>
+                      <Text style={styles.cardTitle}>Orbit email sign-in</Text>
+                      <Text style={styles.muted}>Sign in to an existing player account, or create one with a new email.</Text>
+                    </View>
+                    <View style={styles.searchInputRow}>
+                      <Ionicons name="mail-outline" size={18} color={colors.muted} />
+                      <TextInput
+                        value={playerAuthEmail}
+                        onChangeText={setPlayerAuthEmail}
+                        autoCapitalize="none"
+                        keyboardType="email-address"
+                        placeholder="Player email"
+                        placeholderTextColor={colors.muted}
+                        style={styles.searchInput}
+                      />
+                    </View>
+                    <View style={styles.searchInputRow}>
+                      <Ionicons name="lock-closed-outline" size={18} color={colors.muted} />
+                      <TextInput
+                        value={playerAuthPassword}
+                        onChangeText={setPlayerAuthPassword}
+                        autoCapitalize="none"
+                        secureTextEntry
+                        placeholder="Password (6+ characters)"
+                        placeholderTextColor={colors.muted}
+                        style={styles.searchInput}
+                      />
+                    </View>
+                    <Pressable style={styles.compactButton} onPress={connectEmailAccount}>
+                      <Text style={styles.compactButtonText}>Sign in or create account</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
                 <View style={styles.googleAuthPanel}>
                   <View style={styles.googleAuthIcon}>
                     <Ionicons name={hasPlayerPremium ? 'diamond' : 'diamond-outline'} size={20} color={hasPlayerPremium ? colors.teal : colors.primaryDark} />
@@ -1158,6 +1517,13 @@ export default function PlayerApp() {
             ))}
           </View>
         </View>
+        <SeatRequestModal
+          draft={seatRequestDraft}
+          message={seatRequestMessage}
+          onChange={setSeatRequestDraft}
+          onClose={() => setSeatRequestDraft(null)}
+          onSubmit={submitSeatRequest}
+        />
       </SafeAreaView>
       </SafeAreaProvider>
     </StripeGate>
@@ -1199,7 +1565,20 @@ function TournamentCard({
         </View>
       </View>
       <Text style={styles.tournamentPrize}>{tournament.buyIn === 0 ? 'FREE ENTRY · FREEROLL' : `$${tournament.buyIn} ENTRY`}</Text>
-      <Text style={styles.muted}>{tournament.prizePoolLabel}</Text>
+      <View style={styles.tournamentMoneyGrid}>
+        <View style={styles.tournamentMoneyItem}>
+          <Text style={styles.tournamentStatLabel}>Buy-in</Text>
+          <Text style={styles.tournamentMoneyValue}>{tournament.buyIn === 0 ? 'Free' : `$${tournament.buyIn.toLocaleString()}`}</Text>
+        </View>
+        <View style={styles.tournamentMoneyItem}>
+          <Text style={styles.tournamentStatLabel}>Rebuys</Text>
+          <Text style={styles.tournamentMoneyValue}>{tournament.unlimitedRebuys ? `Unlimited · $${tournament.rebuyPrice}` : 'Not allowed'}</Text>
+        </View>
+        <View style={[styles.tournamentMoneyItem, styles.tournamentMoneyItemWide]}>
+          <Text style={styles.tournamentStatLabel}>Prize pool</Text>
+          <Text style={styles.tournamentMoneyValue}>{tournament.prizePoolLabel}</Text>
+        </View>
+      </View>
       <View style={styles.tournamentStats}>
         <View><Text style={styles.tournamentStatValue}>{tournament.startingStack.toLocaleString()}</Text><Text style={styles.tournamentStatLabel}>Starting chips</Text></View>
         <View><Text style={styles.tournamentStatValue}>{tournament.levelMinutes} min</Text><Text style={styles.tournamentStatLabel}>Blind levels</Text></View>
@@ -1221,7 +1600,7 @@ function TournamentCard({
           <View style={styles.clubMain}><Text style={styles.cardTitle}>Registration confirmed</Text><Text style={styles.muted}>Status: {registration.status.replace(/-/g, ' ')}</Text></View>
         </View>
       ) : null}
-      {!hasOrbitAccount ? <Text style={styles.tournamentMessage}>An Orbit Player account and in-app sign-in are required.</Text> : null}
+      {!hasOrbitAccount ? <Text style={styles.tournamentMessage}>Sign in with Google under Settings to register with your Orbit Player account.</Text> : null}
       {message ? <Text style={styles.tournamentMessage}>{message}</Text> : null}
       {registration ? (
         canUnregister ? <Pressable style={styles.secondaryActionButton} onPress={onUnregister}><Text style={styles.secondaryActionText}>Unregister</Text></Pressable> : null
@@ -1986,9 +2365,15 @@ function GameFilterPanel({
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>Distance</Text>
           <View style={styles.distanceRow}>
-            {[5, 10, 20, 50].map((option) => (
-              <Pressable key={option} onPress={() => setDistance(distance === option ? 'none' : option as DistanceFilter)} style={[styles.distanceChip, distance === option && styles.distanceChipActive]}>
-                <Text style={[styles.distanceChipText, distance === option && styles.distanceChipTextActive]}>{option}</Text>
+            {([
+              { value: 'none' as const, label: 'All' },
+              { value: 5 as const, label: '5' },
+              { value: 10 as const, label: '10' },
+              { value: 20 as const, label: '20' },
+              { value: 50 as const, label: '50' }
+            ]).map((option) => (
+              <Pressable key={option.value} onPress={() => setDistance(option.value)} style={[styles.distanceChip, distance === option.value && styles.distanceChipActive]}>
+                <Text style={[styles.distanceChipText, distance === option.value && styles.distanceChipTextActive]}>{option.label}</Text>
               </Pressable>
             ))}
           </View>
@@ -2164,6 +2549,7 @@ function OpportunitySectionList({
   onSelectClub,
   onDirections,
   onWaitlist,
+  onCancelWaitlist,
   onJoinClub,
   onToggleFavorite
 }: {
@@ -2174,6 +2560,7 @@ function OpportunitySectionList({
   onSelectClub: (item: GameOpportunity) => void;
   onDirections: (club: PlayerClubSnapshot) => void;
   onWaitlist: (club: PlayerClubSnapshot, game: PlayerSyncGame) => void;
+  onCancelWaitlist: (club: PlayerClubSnapshot, game: PlayerSyncGame, entry: PlayerWaitlistEntry) => void;
   onJoinClub: (club: PlayerClubSnapshot) => void;
   onToggleFavorite: (club: PlayerClubSnapshot) => void;
 }) {
@@ -2222,6 +2609,10 @@ function OpportunitySectionList({
                   onSelectClub={() => onSelectClub(item)}
                   onDirections={() => onDirections(item.club)}
                   onWaitlist={() => onWaitlist(item.club, item.game)}
+                  onCancelWaitlist={() => {
+                    const entry = item.club.waitlists.find((candidate) => isPlayerWaitlistEntry(candidate, player) && candidate.gameId === item.game.id);
+                    if (entry) onCancelWaitlist(item.club, item.game, entry);
+                  }}
                   onJoinClub={() => onJoinClub(item.club)}
                 />
               ))}
@@ -2241,6 +2632,7 @@ function OpportunityCard({
   onSelectClub,
   onDirections,
   onWaitlist,
+  onCancelWaitlist,
   onJoinClub
 }: {
   item: GameOpportunity;
@@ -2250,14 +2642,23 @@ function OpportunityCard({
   onSelectClub: () => void;
   onDirections: () => void;
   onWaitlist: () => void;
+  onCancelWaitlist: () => void;
   onJoinClub: () => void;
 }) {
-  const alreadyWaiting = Boolean(waitlistEntry);
-  const needsMembership = !item.isJoined;
-  const statusLabel = item.game.availableSeats ? `${item.game.availableSeats} open` : item.game.formingCount ? 'Forming' : 'Waitlist';
+  const hasOpenTable = (item.game.openTables ?? []).length > 0;
+  const canCancelRequest = Boolean(waitlistEntry && ['Interested', 'Confirmed Coming', 'Arrived'].includes(waitlistEntry.status));
+  const alreadyWaiting = canCancelRequest || waitlistEntry?.status === 'Seated';
+  const needsMembership = hasOpenTable && !item.isJoined;
+  const statusLabel = !hasOpenTable
+    ? 'Offered'
+    : item.game.availableSeats
+      ? `${item.game.availableSeats} open`
+      : item.game.formingCount
+        ? 'Forming'
+        : 'Waitlist';
   const recommendationLabel = item.score >= 80 ? 'Best play' : item.score >= 55 ? 'Strong option' : item.score >= 30 ? 'Watchlist' : 'Low edge';
-  const feeProfile = getClubFeeProfile(item.club);
-  const accessProfileText = getAccessProfileText(item.club);
+  const feeProfile = getClubFeeProfile(item.club, item.game);
+  const accessProfileText = getAccessProfileText(item.club, item.game);
   const waitlistAheadText = waitlistEntry ? getWaitlistAheadText(waitlistEntry) : '';
   const feedMeta = [
     `${item.club.club.name}`,
@@ -2267,7 +2668,7 @@ function OpportunityCard({
     `${item.game.waitlistCount} waiting`,
     item.game.knownPlayersCount ? `${item.game.knownPlayersCount} familiar` : '',
     item.isPreferred ? 'preferred' : '',
-    waitlistEntry ? `waitlist #${waitlistEntry.position}` : ''
+    waitlistEntry ? getPlayerGameStatusLabel(waitlistEntry) : ''
   ].filter(Boolean).join(' / ');
   return (
     <AnimatedSurface style={styles.gameCard}>
@@ -2287,11 +2688,17 @@ function OpportunityCard({
         <Ionicons name="receipt-outline" size={15} color={colors.primaryDark} />
         <View style={[styles.feeTypePill, feeProfile.type === 'rake' && styles.rakeTypePill]}>
           <Text style={[styles.feeTypePillText, feeProfile.type === 'rake' && styles.rakeTypePillText]}>
-            {feeProfile.type === 'rake' ? 'RAKE' : 'TIME'}
+            {feeProfile.type === 'rake' ? 'DROP' : 'TIME'}
           </Text>
         </View>
         <Text style={styles.feeInfoText}>{accessProfileText}</Text>
       </View>
+      {!hasOpenTable ? (
+        <View style={styles.offeredGameBand}>
+          <Ionicons name="information-circle-outline" size={16} color={colors.primaryDark} />
+          <Text style={styles.offeredGameText}>This game is offered by the club, but no table is currently open. Say you're interested and Core will add you to tonight's demand.</Text>
+        </View>
+      ) : null}
       {waitlistEntry ? (
         <View style={styles.waitlistAheadBand}>
           <Ionicons name="people-outline" size={15} color={colors.amber} />
@@ -2331,11 +2738,11 @@ function OpportunityCard({
       <View style={styles.gameActionRow}>
         <IconActionButton icon="navigate-outline" label={`Directions to ${item.club.club.name}`} onPress={onDirections} />
         <IconActionButton
-          icon={alreadyWaiting ? 'checkmark-circle' : needsMembership ? 'card-outline' : 'person-add-outline'}
-          label={alreadyWaiting ? `Already waitlisted at position ${waitlistEntry?.position}` : needsMembership ? `Join ${item.club.club.name}` : `Request a seat for ${item.game.name}`}
-          onPress={alreadyWaiting ? undefined : needsMembership ? onJoinClub : onWaitlist}
-          active={!alreadyWaiting}
-          disabled={alreadyWaiting}
+          icon={canCancelRequest ? 'close-circle-outline' : alreadyWaiting ? 'checkmark-circle' : needsMembership ? 'card-outline' : 'person-add-outline'}
+          label={canCancelRequest ? `Cancel request for ${item.game.name}` : alreadyWaiting && waitlistEntry ? getPlayerGameStatusLabel(waitlistEntry) : needsMembership ? `Join ${item.club.club.name}` : hasOpenTable ? `Request a seat for ${item.game.name}` : `I'm interested in ${item.game.name}`}
+          onPress={canCancelRequest ? onCancelWaitlist : alreadyWaiting ? undefined : needsMembership ? onJoinClub : onWaitlist}
+          active={canCancelRequest || !alreadyWaiting}
+          disabled={alreadyWaiting && !canCancelRequest}
         />
       </View>
     </AnimatedSurface>
@@ -2348,6 +2755,7 @@ function GameCard({
   joined,
   preferred,
   onWaitlist,
+  onCancelWaitlist,
   onJoinClub
 }: {
   game: PlayerSyncGame;
@@ -2355,10 +2763,19 @@ function GameCard({
   joined: boolean;
   preferred: boolean;
   onWaitlist: () => void;
+  onCancelWaitlist: (entry: PlayerWaitlistEntry) => void;
   onJoinClub: () => void;
 }) {
-  const alreadyWaiting = Boolean(waitlistEntry);
-  const buttonAction = alreadyWaiting ? undefined : joined ? onWaitlist : onJoinClub;
+  const hasOpenTable = (game.openTables ?? []).length > 0;
+  const canCancelRequest = Boolean(waitlistEntry && ['Interested', 'Confirmed Coming', 'Arrived'].includes(waitlistEntry.status));
+  const alreadyWaiting = canCancelRequest || waitlistEntry?.status === 'Seated';
+  const buttonAction = canCancelRequest && waitlistEntry
+    ? () => onCancelWaitlist(waitlistEntry)
+    : alreadyWaiting
+      ? undefined
+      : !hasOpenTable || joined
+        ? onWaitlist
+        : onJoinClub;
   const waitlistAheadText = waitlistEntry ? getWaitlistAheadText(waitlistEntry) : '';
   return (
     <AnimatedSurface style={styles.gameCard}>
@@ -2368,10 +2785,10 @@ function GameCard({
         </View>
         <View style={styles.gameTitleBlock}>
           <Text style={styles.cardTitle}>{game.name}</Text>
-          <Text style={styles.muted}>{game.availableSeats ? `${game.availableSeats} seats available` : `${game.waitlistCount} on waitlist`}</Text>
+          <Text style={styles.muted}>{hasOpenTable ? (game.availableSeats ? `${game.availableSeats} seats available` : `${game.waitlistCount} on waitlist`) : 'Offered by club - no table currently open'}</Text>
         </View>
         <View style={[styles.statusPill, game.availableSeats > 0 && styles.openPill]}>
-          <Text style={styles.statusText}>{game.formingCount ? 'Forming' : game.availableSeats ? 'Open' : 'Full'}</Text>
+          <Text style={styles.statusText}>{!hasOpenTable ? 'Offered' : game.formingCount ? 'Forming' : game.availableSeats ? 'Open' : 'Full'}</Text>
         </View>
       </View>
       {preferred ? (
@@ -2380,7 +2797,17 @@ function GameCard({
           <Text style={styles.preferenceText}>Preferred game</Text>
         </View>
       ) : null}
+      {!hasOpenTable ? (
+        <View style={styles.offeredGameBand}>
+          <Ionicons name="information-circle-outline" size={16} color={colors.primaryDark} />
+          <Text style={styles.offeredGameText}>No table is open right now. Mark yourself interested and the club will see the added demand in Core.</Text>
+        </View>
+      ) : null}
       <View style={styles.valueRow}>
+        <View style={styles.valuePill}>
+          <Ionicons name="receipt-outline" size={13} color={colors.primaryDark} />
+          <Text style={styles.valuePillText}>{game.collectionMode ?? game.openTables[0]?.collectionMode ?? 'Drop'} collection</Text>
+        </View>
         <View style={styles.valuePill}>
           <Ionicons name="time-outline" size={13} color={colors.primaryDark} />
           <Text style={styles.valuePillText}>{game.waitlistCount} waiting</Text>
@@ -2394,7 +2821,7 @@ function GameCard({
         {waitlistEntry ? (
           <View style={[styles.valuePill, styles.waitlistPill]}>
             <Ionicons name="bookmark-outline" size={13} color={colors.amber} />
-            <Text style={[styles.valuePillText, styles.waitlistPillText]}>#{waitlistEntry.position}</Text>
+            <Text style={[styles.valuePillText, styles.waitlistPillText]}>{getPlayerGameStatusLabel(waitlistEntry)}</Text>
           </View>
         ) : null}
       </View>
@@ -2416,9 +2843,9 @@ function GameCard({
           <Text style={styles.tableSeats}>{table.availableSeats}</Text>
         </View>
       ))}
-      <AnimatedButton variant="primary" onPress={buttonAction} disabled={alreadyWaiting} style={[styles.primaryButton, styles.fullWidthButton, alreadyWaiting && styles.disabledButton]}>
-        <Ionicons name={alreadyWaiting ? 'checkmark-circle' : joined ? 'time-outline' : 'card-outline'} size={18} color="#fff" />
-        <Text style={styles.primaryButtonText}>{alreadyWaiting ? `Waitlist #${waitlistEntry?.position}` : joined ? 'Request Seat' : 'Join Club'}</Text>
+      <AnimatedButton variant="primary" onPress={buttonAction} disabled={alreadyWaiting && !canCancelRequest} style={[styles.primaryButton, styles.fullWidthButton, alreadyWaiting && !canCancelRequest && styles.disabledButton]}>
+        <Ionicons name={canCancelRequest ? 'close-circle-outline' : alreadyWaiting ? 'checkmark-circle' : !hasOpenTable || joined ? 'time-outline' : 'card-outline'} size={18} color="#fff" />
+        <Text style={styles.primaryButtonText}>{canCancelRequest ? 'Cancel Request' : alreadyWaiting && waitlistEntry ? getPlayerGameStatusLabel(waitlistEntry) : !hasOpenTable ? "I'm Interested" : joined ? 'Request Seat' : 'Join Club'}</Text>
       </AnimatedButton>
     </AnimatedSurface>
   );
@@ -2481,20 +2908,122 @@ function ClubMembershipPlanScreen({
   );
 }
 
+function SeatRequestModal({
+  draft,
+  message,
+  onChange,
+  onClose,
+  onSubmit
+}: {
+  draft: SeatRequestDraft | null;
+  message: string;
+  onChange: React.Dispatch<React.SetStateAction<SeatRequestDraft | null>>;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  if (!draft) return null;
+  const hasOpenTable = draft.game.openTables.length > 0;
+  const update = (patch: Partial<SeatRequestDraft>) => onChange((current) => current ? { ...current, ...patch } : current);
+  return (
+    <Modal transparent visible animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.seatRequestModal}>
+          <View style={styles.seatRequestHeader}>
+            <View style={styles.seatRequestHeaderCopy}>
+              <Text style={styles.agentKicker}>{draft.club.club.name}</Text>
+              <Text style={styles.membershipTitle}>{hasOpenTable ? `Join ${draft.game.name}` : `When would you play ${draft.game.name}?`}</Text>
+              <Text style={styles.muted}>{hasOpenTable
+                ? 'Tell the club whether you are already there or when you are coming.'
+                : 'This game is offered, but no table is open. Share when you would come so the club can form one.'}</Text>
+            </View>
+            <Pressable style={styles.modalCloseButton} onPress={onClose}>
+              <Ionicons name="close" size={20} color={colors.ink} />
+            </Pressable>
+          </View>
+
+          {hasOpenTable ? (
+            <View style={styles.attendanceChoiceRow}>
+              <Pressable
+                style={[styles.attendanceChoice, draft.attendance === 'arrived' && styles.attendanceChoiceActive]}
+                onPress={() => update({ attendance: 'arrived', expectedArrivalTime: '' })}
+              >
+                <Ionicons name="location-outline" size={20} color={draft.attendance === 'arrived' ? '#fff' : colors.primary} />
+                <Text style={[styles.attendanceChoiceTitle, draft.attendance === 'arrived' && styles.attendanceChoiceTextActive]}>At club now</Text>
+                <Text style={[styles.attendanceChoiceBody, draft.attendance === 'arrived' && styles.attendanceChoiceTextActive]}>Mark me arrived</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.attendanceChoice, draft.attendance === 'confirmed' && styles.attendanceChoiceActive]}
+                onPress={() => update({ attendance: 'confirmed' })}
+              >
+                <Ionicons name="time-outline" size={20} color={draft.attendance === 'confirmed' ? '#fff' : colors.primary} />
+                <Text style={[styles.attendanceChoiceTitle, draft.attendance === 'confirmed' && styles.attendanceChoiceTextActive]}>Coming later</Text>
+                <Text style={[styles.attendanceChoiceBody, draft.attendance === 'confirmed' && styles.attendanceChoiceTextActive]}>Confirm a time</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {hasOpenTable && draft.attendance === 'confirmed' ? (
+            <View style={styles.seatTimeField}>
+              <Text style={styles.inputLabel}>Expected arrival time</Text>
+              <TextInput
+                value={draft.expectedArrivalTime}
+                onChangeText={(expectedArrivalTime) => update({ expectedArrivalTime })}
+                placeholder="Example: 7:30 PM"
+                placeholderTextColor={colors.muted}
+                style={styles.seatTimeInput}
+              />
+            </View>
+          ) : null}
+
+          {!hasOpenTable ? (
+            <View style={styles.seatTimeField}>
+              <Text style={styles.inputLabel}>Time or range you would come</Text>
+              <View style={styles.timeRangeRow}>
+                <TextInput
+                  value={draft.availabilityStartTime}
+                  onChangeText={(availabilityStartTime) => update({ attendance: 'interested', availabilityStartTime })}
+                  placeholder="From, e.g. 6 PM"
+                  placeholderTextColor={colors.muted}
+                  style={[styles.seatTimeInput, styles.timeRangeInput]}
+                />
+                <TextInput
+                  value={draft.availabilityEndTime}
+                  onChangeText={(availabilityEndTime) => update({ attendance: 'interested', availabilityEndTime })}
+                  placeholder="To, e.g. 10 PM"
+                  placeholderTextColor={colors.muted}
+                  style={[styles.seatTimeInput, styles.timeRangeInput]}
+                />
+              </View>
+            </View>
+          ) : null}
+
+          {message ? <Text style={styles.formError}>{message}</Text> : null}
+          <AnimatedButton variant="primary" onPress={onSubmit} style={[styles.primaryButton, styles.fullWidthButton]}>
+            <Ionicons name={draft.attendance === 'arrived' ? 'location-outline' : 'checkmark-circle-outline'} size={18} color="#fff" />
+            <Text style={styles.primaryButtonText}>{draft.attendance === 'arrived' ? 'Tell club I am here' : 'Send request'}</Text>
+          </AnimatedButton>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function ClubPaymentPlaceholderScreen({
   club,
   plan,
   price,
   message,
   onBack,
-  onPaymentComplete
+  onPayInApp,
+  onPayInPerson
 }: {
   club: PlayerClubSnapshot;
   plan: ClubMembershipPlan;
   price: string;
   message: string;
   onBack: () => void;
-  onPaymentComplete: () => void;
+  onPayInApp: () => void;
+  onPayInPerson: () => void;
 }) {
   return (
     <View style={styles.membershipScreen}>
@@ -2511,10 +3040,17 @@ function ClubPaymentPlaceholderScreen({
           {club.club.name} / {plan === 'day' ? 'Day Pass' : 'Monthly Membership'} / {price}
         </Text>
       </View>
-      <AnimatedButton variant="primary" onPress={onPaymentComplete} style={[styles.primaryButton, styles.fullWidthButton]}>
+      <AnimatedButton variant="primary" onPress={onPayInApp} style={[styles.primaryButton, styles.fullWidthButton]}>
         <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-        <Text style={styles.primaryButtonText}>Complete demo payment</Text>
+        <Text style={styles.primaryButtonText}>Pay in app</Text>
       </AnimatedButton>
+      <Pressable style={styles.payInPersonButton} onPress={onPayInPerson}>
+        <Ionicons name="storefront-outline" size={18} color={colors.ink} />
+        <View style={styles.payInPersonCopy}>
+          <Text style={styles.cardTitle}>Pay in person</Text>
+          <Text style={styles.muted}>Send the request now. Your timer starts after staff marks it paid.</Text>
+        </View>
+      </Pressable>
       {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
     </View>
   );
@@ -2618,32 +3154,47 @@ function formatFamiliar(value?: number) {
 function ClubMembershipPanel({
   club,
   membership,
-  onRenew,
-  onPause
+  nowMs,
+  onBuyPass
 }: {
   club: PlayerClubSnapshot;
   membership: PlayerClubSnapshot['memberships'][number];
-  onRenew: (days: number) => void;
-  onPause: () => void;
+  nowMs: number;
+  onBuyPass: () => void;
 }) {
+  const active = isMembershipCurrentlyActive(membership, nowMs);
+  const awaitingPayment = membership.status === 'Requested' && membership.paymentMethod === 'in-person';
   return (
     <View style={styles.loyaltyCard}>
       <View style={styles.loyaltyHeader}>
         <View>
           <Text style={styles.cardTitle}>Membership</Text>
-          <Text style={styles.muted}>{membership.status} - expires {membership.expiresAt ?? 'not set'}</Text>
+          <Text style={styles.muted}>{membership.plan === 'day' ? 'Day pass' : 'Monthly membership'} · {awaitingPayment ? 'Payment pending' : active ? 'Active' : 'Expired'}</Text>
         </View>
         <View style={styles.loyaltyBadge}>
           <Text style={styles.loyaltyBadgeText}>{membership.loyalty.tier}</Text>
         </View>
       </View>
       <Text style={styles.points}>{membership.loyalty.points.toLocaleString()} pts</Text>
-      <Text style={styles.muted}>{club.games.length} games available</Text>
-      <View style={styles.chipRow}>
-        <Chip label="Renew 30d" active={false} onPress={() => onRenew(30)} />
-        <Chip label="Renew 1y" active={false} onPress={() => onRenew(365)} />
-        <Chip label="Pause" active={false} onPress={onPause} />
+      <View style={[styles.passTimer, active ? styles.passTimerActive : styles.passTimerInactive]}>
+        <Ionicons name={awaitingPayment ? 'storefront-outline' : 'timer-outline'} size={18} color={active ? colors.teal : colors.ink} />
+        <View style={styles.passTimerCopy}>
+          <Text style={styles.passTimerTitle}>{awaitingPayment
+            ? 'Pay at the club to activate'
+            : active
+              ? formatPassCountdown(membership.expiresAt, nowMs)
+              : 'Pass expired — buy a new pass'}</Text>
+          <Text style={styles.muted}>{awaitingPayment
+            ? 'The pass clock starts only after club staff confirms payment.'
+            : membership.expiresAt
+              ? `Ends ${new Date(membership.expiresAt).toLocaleString()}`
+              : 'No active expiration time is set.'}</Text>
+        </View>
       </View>
+      <Text style={styles.muted}>{club.games.length} games available</Text>
+      <Pressable style={styles.buyAnotherPassButton} onPress={onBuyPass}>
+        <Text style={styles.buyAnotherPassText}>{active ? 'Buy another pass' : 'Choose a pass'}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -2873,7 +3424,13 @@ function buildFindGameClubs(clubs: PlayerClubSnapshot[]) {
   clubs.filter(isFindGamesClub).forEach((club) => {
     existing.set(findGamesClubKey(club), club);
   });
-  return findGamesClubOrder.map((clubId) => existing.get(clubId) ?? createFindGameClubFixture(clubId));
+  const syncedCoreClubs = clubs
+    .filter((club) => !isFindGamesClub(club))
+    .sort((left, right) => left.club.name.localeCompare(right.club.name));
+  return [
+    ...syncedCoreClubs,
+    ...findGamesClubOrder.map((clubId) => existing.get(clubId) ?? createFindGameClubFixture(clubId))
+  ];
 }
 
 function getLatestInAppNotification(clubs: PlayerClubSnapshot[], dismissedIds: string[]) {
@@ -2970,15 +3527,55 @@ function getClubMembershipPrices(club: PlayerClubSnapshot) {
   return demoClubMembershipPrices[club.club.id] ?? demoClubMembershipPrices.default;
 }
 
-function getClubFeeProfile(club: PlayerClubSnapshot) {
-  return clubFeeProfiles[club.club.id] ?? { type: 'time' as const, hourly: '$10/hr' };
+function getClubFeeProfile(club: PlayerClubSnapshot, game?: PlayerSyncGame) {
+  const configured = clubFeeProfiles[club.club.id] ?? { type: 'time' as const, hourly: '$10/hr' };
+  const liveMode = game?.collectionMode ?? game?.openTables[0]?.collectionMode;
+  if (liveMode === 'Time') {
+    return configured.type === 'time' ? configured : { type: 'time' as const, hourly: '$10/hr' };
+  }
+  if (liveMode === 'Drop') {
+    return { type: 'rake' as const, percent: 'club-set drop' };
+  }
+  return configured;
 }
 
-function getAccessProfileText(club: PlayerClubSnapshot) {
+function getAccessProfileText(club: PlayerClubSnapshot, game?: PlayerSyncGame) {
   const membership = getClubMembershipPrices(club);
-  const fees = getClubFeeProfile(club);
+  const fees = getClubFeeProfile(club, game);
   if (fees.type === 'time') return `Paid time: ${fees.hourly} / Membership fee: ${membership.day} or ${membership.monthly}`;
+  if (game?.collectionMode === 'Drop' || game?.openTables[0]?.collectionMode === 'Drop') {
+    return `Drop collection: configured by club / Membership fee: ${membership.day} or ${membership.monthly}`;
+  }
   return `Rake taken: ${fees.percent} of pot / Membership fee: ${membership.day} or ${membership.monthly}`;
+}
+
+function mergeDemoAndSyncedClubs(syncedClubs: PlayerClubSnapshot[]) {
+  const demoById = new Map(initialClubSnapshots.map((snapshot) => [snapshot.club.id, snapshot]));
+  const syncedIds = new Set(syncedClubs.map((snapshot) => snapshot.club.id));
+  const mergedSyncedClubs = syncedClubs.map((synced) => {
+    const demo = demoById.get(synced.club.id);
+    if (!demo) return synced;
+    return {
+      ...demo,
+      ...synced,
+      club: { ...demo.club, ...synced.club },
+      games: mergeRecordsById(demo.games, synced.games),
+      memberships: mergeRecordsById(demo.memberships, synced.memberships),
+      waitlists: mergeRecordsById(demo.waitlists, synced.waitlists),
+      notifications: mergeRecordsById(demo.notifications ?? [], synced.notifications ?? []),
+      social: { ...demo.social, ...synced.social }
+    };
+  });
+  return [
+    ...mergedSyncedClubs,
+    ...initialClubSnapshots.filter((snapshot) => !syncedIds.has(snapshot.club.id))
+  ];
+}
+
+function mergeRecordsById<T extends { id: string }>(demoRecords: T[], syncedRecords: T[]) {
+  const records = new Map(demoRecords.map((record) => [record.id, record]));
+  syncedRecords.forEach((record) => records.set(record.id, record));
+  return Array.from(records.values());
 }
 
 function groupOpportunitiesByClub(opportunities: GameOpportunity[]) {
@@ -2996,6 +3593,7 @@ function groupOpportunitiesByClub(opportunities: GameOpportunity[]) {
 }
 
 function getOpportunityTableLabel(item: GameOpportunity, index: number) {
+  if (!(item.game.openTables ?? []).length) return undefined;
   const tableLabel = item.game.openTables[0]?.label?.trim();
   if (!tableLabel) return `Table ${index + 1}`;
   if (/^table\s+\d+/i.test(tableLabel)) return tableLabel;
@@ -3015,22 +3613,19 @@ function matchesGameTypeFilter(club: PlayerClubSnapshot, game: PlayerSyncGame, f
 
 function getRecommendationReason(item: GameOpportunity) {
   const reasons = [
-    item.game.availableSeats ? `${item.game.availableSeats} open seats` : item.game.formingCount ? 'forming table' : 'waitlist only',
+    item.game.availableSeats
+      ? `${item.game.availableSeats} open seats`
+      : item.game.formingCount
+        ? 'forming table'
+        : (item.game.openTables ?? []).length || item.game.waitlistCount
+          ? 'waitlist only'
+          : 'configured - no open table yet',
     item.isPreferred ? 'matches your profile' : '',
     item.isJoined ? 'club access ready' : 'membership needed',
     item.game.knownPlayersCount ? `${item.game.knownPlayersCount} familiar players` : '',
     `${item.distanceMiles.toFixed(1)} mi away`
   ].filter(Boolean);
   return reasons.join(' / ');
-}
-
-function normalizedIdentity(value?: string) {
-  return (value ?? '').trim().toLowerCase();
-}
-
-function getWaitlistAheadText(entry: PlayerWaitlistEntry) {
-  const ahead = Math.max(0, entry.position - 1);
-  return ahead === 1 ? '1 person in front of you' : `${ahead} people in front of you`;
 }
 
 function formatCurrency(value: number) {
@@ -3040,24 +3635,6 @@ function formatCurrency(value: number) {
 
 function formatHourly(value: number) {
   return `${formatCurrency(value)}/hr`;
-}
-
-function isPlayerMembership(membership: PlayerClubSnapshot['memberships'][number], player: PlayerAccount) {
-  const playerId = normalizedIdentity(player.id);
-  const playerName = normalizedIdentity(player.name);
-  return Boolean(
-    (playerId && normalizedIdentity(membership.playerId) === playerId) ||
-    (playerName && normalizedIdentity(membership.playerName) === playerName)
-  );
-}
-
-function isPlayerWaitlistEntry(entry: PlayerWaitlistEntry, player: PlayerAccount) {
-  const playerId = normalizedIdentity(player.id);
-  const playerName = normalizedIdentity(player.name);
-  return Boolean(
-    (playerId && normalizedIdentity(entry.playerId) === playerId) ||
-    (playerName && normalizedIdentity(entry.playerName) === playerName)
-  );
 }
 
 function isValidEmail(value: string) {
@@ -3975,6 +4552,14 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 12
   },
+  emailAuthPanel: {
+    backgroundColor: '#f6f6f3',
+    borderColor: colors.line,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 10,
+    padding: 12
+  },
   googleAuthIcon: {
     alignItems: 'center',
     backgroundColor: colors.panel,
@@ -4423,6 +5008,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     lineHeight: 16
+  },
+  offeredGameBand: {
+    alignItems: 'flex-start',
+    backgroundColor: '#eef4ff',
+    borderColor: '#cbdafc',
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10
+  },
+  offeredGameText: {
+    color: colors.primaryDark,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17
   },
   waitlistAheadBand: {
     alignItems: 'center',
@@ -4958,11 +5561,49 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(77,124,254,0.48)',
     borderWidth: 2
   },
+  tournamentClubSection: {
+    gap: 10
+  },
+  tournamentClubHeader: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,254,250,0.92)',
+    borderColor: colors.line,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 15,
+    paddingVertical: 12
+  },
   tournamentTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 12 },
   tournamentIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 12, height: 44, justifyContent: 'center', width: 44 },
   tournamentOpenPill: { backgroundColor: colors.tealSoft },
   tournamentClosedPill: { backgroundColor: '#f1f2f4' },
   tournamentPrize: { color: colors.primary, fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
+  tournamentMoneyGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8
+  },
+  tournamentMoneyItem: {
+    backgroundColor: colors.primarySoft,
+    borderColor: 'rgba(77,124,254,0.18)',
+    borderRadius: 12,
+    borderWidth: 1,
+    flexGrow: 1,
+    gap: 4,
+    minWidth: 130,
+    padding: 11
+  },
+  tournamentMoneyItemWide: {
+    flexBasis: '100%'
+  },
+  tournamentMoneyValue: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: '900',
+    lineHeight: 18
+  },
   tournamentStats: { backgroundColor: '#f6f7fb', borderRadius: 14, flexDirection: 'row', justifyContent: 'space-between', padding: 14 },
   tournamentStatValue: { color: colors.ink, fontSize: 16, fontWeight: '900' },
   tournamentStatLabel: { color: colors.muted, fontSize: 10, fontWeight: '700', marginTop: 2 },
@@ -4972,6 +5613,47 @@ const styles = StyleSheet.create({
   tournamentConfirmation: { alignItems: 'center', backgroundColor: colors.tealSoft, borderRadius: 12, flexDirection: 'row', gap: 10, padding: 12 },
   tournamentMessage: { color: colors.primaryDark, fontSize: 12, fontWeight: '700' },
   secondaryActionButton: { alignItems: 'center', borderColor: colors.line, borderRadius: 10, borderWidth: 1, minHeight: 42, justifyContent: 'center' },
-  disabledAction: { opacity: 0.45 }
+  disabledAction: { opacity: 0.45 },
+  modalBackdrop: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(17,24,39,0.48)',
+    flex: 1,
+    justifyContent: 'center',
+    padding: 18
+  },
+  seatRequestModal: {
+    backgroundColor: '#ffffff',
+    borderColor: colors.line,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 16,
+    maxWidth: 540,
+    padding: 20,
+    width: '100%'
+  },
+  seatRequestHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 12 },
+  seatRequestHeaderCopy: { flex: 1, gap: 5 },
+  modalCloseButton: { alignItems: 'center', backgroundColor: '#f3f4f6', borderRadius: 999, height: 36, justifyContent: 'center', width: 36 },
+  attendanceChoiceRow: { flexDirection: 'row', gap: 10 },
+  attendanceChoice: { backgroundColor: '#f8fafc', borderColor: colors.line, borderRadius: 14, borderWidth: 1, flex: 1, gap: 5, minHeight: 108, padding: 14 },
+  attendanceChoiceActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  attendanceChoiceTitle: { color: colors.ink, fontSize: 14, fontWeight: '900' },
+  attendanceChoiceBody: { color: colors.muted, fontSize: 12, fontWeight: '600' },
+  attendanceChoiceTextActive: { color: '#ffffff' },
+  seatTimeField: { gap: 7 },
+  inputLabel: { color: colors.ink, fontSize: 12, fontWeight: '800' },
+  seatTimeInput: { backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 11, borderWidth: 1, color: colors.ink, fontSize: 15, minHeight: 46, paddingHorizontal: 12 },
+  timeRangeRow: { flexDirection: 'row', gap: 8 },
+  timeRangeInput: { flex: 1 },
+  formError: { color: '#b42318', fontSize: 12, fontWeight: '700' },
+  payInPersonButton: { alignItems: 'center', backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 15 },
+  payInPersonCopy: { flex: 1, gap: 2 },
+  passTimer: { alignItems: 'center', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 13 },
+  passTimerActive: { backgroundColor: colors.tealSoft, borderColor: 'rgba(21,127,109,0.20)' },
+  passTimerInactive: { backgroundColor: '#f4f4f1', borderColor: colors.line },
+  passTimerCopy: { flex: 1, gap: 2 },
+  passTimerTitle: { color: colors.ink, fontSize: 14, fontWeight: '900' },
+  buyAnotherPassButton: { alignItems: 'center', backgroundColor: colors.ink, borderRadius: 11, minHeight: 42, justifyContent: 'center', paddingHorizontal: 14 },
+  buyAnotherPassText: { color: '#ffffff', fontSize: 13, fontWeight: '900' }
 });
 
