@@ -3834,15 +3834,33 @@ body.low-light {
 }
 
 h1 {
-  color: #f8fafc;
+  color: inherit;
   font-weight: 760;
   letter-spacing: -0.02em;
+}
+
+/* Keep the occupied/max seat count readable on every Current Tables card. */
+.current-tables-panel .floor-table-launcher > strong {
+  background: var(--primary-soft);
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--line));
+  border-radius: 999px;
+  color: var(--primary-dark) !important;
+  display: inline-flex;
+  justify-content: center;
+  min-width: 52px;
+  padding: 6px 9px;
+}
+
+body.low-light .current-tables-panel .floor-table-launcher > strong {
+  background: rgba(125, 160, 255, 0.16);
+  border-color: rgba(125, 160, 255, 0.34);
+  color: #f8fafc !important;
 }
 
 h2,
 h3,
 strong {
-  color: #f8fafc;
+  color: inherit;
 }
 
 small,
@@ -5909,6 +5927,9 @@ body.low-light .poker-seat-menu-header { border-color: rgba(77,124,254,.13); }
 /* Floor tables are launchers; management lives in a dedicated one-screen window. */
 .floor-table-launcher { cursor: pointer; }
 .floor-table-launcher:hover { border-color: color-mix(in srgb, var(--primary) 52%, var(--line)); }
+.current-tables-panel .floor-table-launcher h3 {
+  color: #f8fafc !important;
+}
 .current-tables-panel .floor-table-launcher .table-detail-panel { display: none; }
 
 /* Dedicated table windows must fit the viewport without document scrolling. */
@@ -6606,3 +6627,968 @@ body.low-light .tournament-prize-total { background: linear-gradient(120deg, rgb
 .night-close-totals .pending strong { color: var(--amber); }
 .night-close-totals .balanced strong, .night-close-table-row > strong.balanced { color: var(--teal); }
 .night-close-totals .unbalanced strong, .night-close-table-row > strong.unbalanced { color: var(--rose); }
+/* Accessibility contrast guardrails for interactive controls and access setup. */
+:root {
+  --interactive-on-primary: #07111f;
+  --interactive-focus: #1d4ed8;
+}
+
+body.low-light {
+  --interactive-on-primary: #07111f;
+  --interactive-focus: #93c5fd;
+}
+
+.access-card :is(h1, h2, h3, strong, label),
+.access-step-title {
+  color: var(--ink);
+}
+
+.primary-button,
+.ui-button-default,
+.player-tool-icon.primary {
+  color: var(--interactive-on-primary);
+}
+
+.primary-button:hover,
+.primary-button:active,
+.primary-button:focus-visible,
+.ui-button-default:hover,
+.ui-button-default:active,
+.ui-button-default:focus-visible,
+.player-tool-icon.primary:hover,
+.player-tool-icon.primary:active,
+.player-tool-icon.primary:focus-visible {
+  color: var(--interactive-on-primary);
+}
+
+.secondary-button,
+.ghost-button,
+.icon-button,
+.mini-button,
+.ui-button-secondary,
+.ui-button-ghost {
+  color: var(--ink);
+}
+
+body:not(.low-light) .secondary-button {
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--line));
+  color: var(--ink);
+}
+
+body:not(.low-light) :is(.ghost-button, .icon-button, .mini-button, .ui-button-secondary, .ui-button-ghost) {
+  background: var(--panel-solid);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+body:not(.low-light) .secondary-button:hover {
+  background: color-mix(in srgb, var(--primary-soft) 82%, var(--primary));
+  border-color: color-mix(in srgb, var(--primary) 50%, var(--line));
+  color: var(--ink);
+}
+
+body:not(.low-light) :is(.ghost-button, .icon-button, .mini-button, .ui-button-secondary, .ui-button-ghost):hover {
+  background: color-mix(in srgb, var(--panel-solid) 88%, var(--primary-soft));
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--line));
+  color: var(--ink);
+}
+
+.secondary-button.active,
+.ghost-button.active,
+button[aria-pressed="true"],
+button[aria-selected="true"] {
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 58%, var(--line));
+  color: var(--primary-dark);
+}
+
+.orbit-sidebar-nav button.active,
+.settings-nav button.active,
+.metric-category-menu button.active,
+.orbit-bottom-nav button.active,
+[cmdk-item][data-selected="true"],
+.ui-menu-item[data-highlighted],
+.ui-badge {
+  color: var(--primary-dark);
+}
+
+:is(button, [role="button"], .secondary-button, .license-file-button):focus-visible {
+  outline: 3px solid var(--interactive-focus);
+  outline-offset: 2px;
+}
+
+button svg,
+[role="button"] svg,
+.license-file-button svg {
+  color: currentColor;
+}
+
+button:disabled,
+button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
+body:not(.low-light) :is(.primary-button, .ui-button-default):disabled {
+  background: #cbd5e1;
+  border-color: #94a3b8;
+  color: #334155;
+  opacity: 1;
+}
+
+body.low-light :is(.primary-button, .ui-button-default):disabled {
+  background: #263246;
+  border-color: #475569;
+  color: #cbd5e1;
+  opacity: 1;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8;
+  opacity: 1;
+}
+
+body:not(.low-light) :is(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  select,
+  textarea
+) {
+  background: var(--panel-solid);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+body:not(.low-light) :is(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  select,
+  textarea
+):focus {
+  background: var(--panel-solid);
+  border-color: color-mix(in srgb, var(--primary) 64%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+  caret-color: var(--ink);
+  color: var(--ink);
+}
+
+body:not(.low-light) select:focus option {
+  background: var(--panel-solid);
+  color: var(--ink);
+}
+
+/* Keep the compact waitlist legible and make its primary actions discoverable. */
+.waitlist-popup-content {
+  color: var(--ink);
+}
+
+.waitlist-popup-row {
+  background: var(--panel-solid);
+  border-bottom: 1px solid var(--line);
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.waitlist-popup-row:last-child {
+  border-bottom: 0;
+}
+
+.waitlist-popup-row strong {
+  color: var(--ink);
+}
+
+.waitlist-popup-actions {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  justify-content: flex-end;
+}
+
+.waitlist-popup-actions .secondary-button {
+  min-height: 32px;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.waitlist-no-table {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.waitlist-action-menu.ui-menu-content {
+  background: var(--panel-solid);
+  border-color: var(--line);
+  color: var(--ink);
+  min-width: 210px;
+  padding: 6px;
+  z-index: 160;
+}
+
+.waitlist-action-menu .ui-menu-item {
+  background: transparent;
+  color: var(--ink);
+  min-height: 38px;
+}
+
+.waitlist-action-menu .ui-menu-item[data-highlighted] {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  outline: 0;
+}
+
+@media (max-width: 600px) {
+  .waitlist-popup-row {
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .waitlist-popup-actions {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+}
+
+/* Historical report range controls and live collection totals. */
+.report-period-toolbar {
+  align-items: center;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: flex;
+  gap: 14px;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding: 10px;
+}
+
+.report-period-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.report-period-tabs button {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+.report-period-tabs button:hover {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.report-period-tabs button.active {
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--line));
+  color: var(--primary-dark);
+}
+
+.report-period-navigation {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.report-period-navigation > strong {
+  color: var(--ink);
+  font-size: 0.86rem;
+  min-width: 145px;
+  text-align: center;
+}
+
+.report-period-navigation .ghost-button {
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.report-profit-banner {
+  align-items: stretch;
+  background: linear-gradient(125deg, #0f4c3a, #12664a 58%, #0b3f4a);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 16px;
+  box-shadow: 0 12px 28px rgba(15, 76, 58, 0.18);
+  color: #ffffff;
+  display: grid;
+  gap: 18px;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(240px, 1fr) minmax(300px, 0.9fr);
+  margin-bottom: 20px;
+  overflow: hidden;
+  padding: 22px 24px;
+}
+
+.report-profit-total {
+  display: grid;
+  gap: 4px;
+}
+
+.report-profit-total > span,
+.report-profit-breakdown span {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.report-profit-total > strong {
+  color: #ffffff;
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  line-height: 1;
+}
+
+.report-profit-total > small {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.78rem;
+}
+
+.report-profit-breakdown {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.report-profit-breakdown article {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  display: grid;
+  gap: 8px;
+  padding: 15px;
+}
+
+.report-profit-breakdown strong {
+  color: #ffffff;
+  font-size: 1.35rem;
+}
+
+body.low-light .report-period-toolbar {
+  background: #101827;
+}
+
+body.low-light .report-period-tabs button.active {
+  background: #173b54;
+  border-color: #3b82f6;
+  color: #dbeafe;
+}
+
+@media (max-width: 900px) {
+  .report-period-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .report-period-navigation {
+    flex-wrap: wrap;
+  }
+
+  .report-profit-banner {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .report-period-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .report-period-tabs button {
+    padding: 0 8px;
+  }
+
+  .report-period-navigation > strong {
+    order: -1;
+    width: 100%;
+  }
+
+  .report-profit-breakdown {
+    grid-template-columns: 1fr;
+  }
+}
+
+.report-numerical-grid {
+  display: grid;
+  gap: 10px;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin-bottom: 20px;
+}
+
+.report-numerical-grid > article {
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 5px;
+  min-height: 94px;
+  padding: 14px;
+}
+
+.report-numerical-grid span,
+.report-numerical-grid small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.report-numerical-grid strong {
+  color: var(--ink);
+  font-size: 1.3rem;
+}
+
+.report-analysis-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.8fr);
+  margin: 20px 0;
+}
+
+.report-analysis-card {
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.report-analysis-heading {
+  align-items: start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.report-analysis-heading span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.report-analysis-heading h3 {
+  color: var(--ink);
+  margin: 3px 0 0;
+}
+
+.report-analysis-heading > strong {
+  color: var(--primary-dark);
+  font-size: 0.74rem;
+  text-align: right;
+}
+
+.report-hour-list,
+.report-dealer-list {
+  display: grid;
+  gap: 7px;
+}
+
+.report-hour-list > article {
+  align-items: center;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(130px, 1.3fr) repeat(4, minmax(70px, 0.65fr));
+  padding: 10px 12px;
+}
+
+.report-hour-list > article.top-hour {
+  background: color-mix(in srgb, var(--primary-soft) 65%, var(--panel-solid));
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--line));
+}
+
+.report-hour-list time {
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.report-hour-list article > div,
+.report-dealer-list article > div {
+  display: grid;
+  gap: 2px;
+}
+
+.report-hour-list span,
+.report-dealer-list span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.report-hour-list strong,
+.report-dealer-list strong {
+  color: var(--ink);
+  font-size: 0.85rem;
+}
+
+.report-hour-list .hour-total strong {
+  color: var(--primary-dark);
+}
+
+.report-dealer-list > article {
+  align-items: center;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(130px, 1fr) 70px 76px;
+  padding: 11px 12px;
+}
+
+.table-tracking-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.table-tracking-actions button {
+  min-height: 38px;
+}
+
+/* Tournament cards need their own contrast contract because the whole card is a button. */
+body:not(.low-light) .tournament-library-card {
+  background: #ffffff;
+}
+
+body:not(.low-light) .tournament-library-main,
+body:not(.low-light) .tournament-library-main strong {
+  color: #0b1020 !important;
+}
+
+body:not(.low-light) .tournament-library-main small {
+  color: #64748b !important;
+}
+
+body.low-light .tournament-library-card {
+  background: #171d26;
+}
+
+body.low-light .tournament-library-main,
+body.low-light .tournament-library-main strong {
+  color: #f4f7fb !important;
+}
+
+body.low-light .tournament-library-main small {
+  color: #aab4ca !important;
+}
+
+@media (max-width: 1100px) {
+  .report-numerical-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .report-analysis-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .report-numerical-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .report-hour-list > article {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .report-hour-list time {
+    grid-column: 1 / -1;
+  }
+}
+
+/*
+ * Light-mode contrast guardrails.
+ *
+ * The operating-room redesign intentionally uses pale text on dark surfaces.
+ * Keep those colors in low-light mode and give the equivalent light surfaces
+ * an explicit ink color so later dark-theme rules cannot leak into them.
+ */
+.panel-title h2,
+.panel-title strong {
+  color: var(--ink);
+}
+
+body:not(.low-light) .waitlist-popup-content,
+body:not(.low-light) .waitlist-popup-row,
+body:not(.low-light) .waitlist-card,
+body:not(.low-light) .recommended-panel .waitlist-card {
+  background: #ffffff;
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+body:not(.low-light) .waitlist-card:hover,
+body:not(.low-light) .recommended-panel .waitlist-card:hover,
+body:not(.low-light) .waitlist-popup-row:hover {
+  background: color-mix(in srgb, var(--panel-solid) 88%, var(--primary-soft));
+  border-color: color-mix(in srgb, var(--line) 68%, var(--primary));
+}
+
+body:not(.low-light) .waitlist-popup-header [data-radix-dialog-title],
+body:not(.low-light) .waitlist-popup-row strong,
+body:not(.low-light) .waitlist-popup-row em,
+body:not(.low-light) .waitlist-popup-empty strong,
+body:not(.low-light) .waitlist-card strong,
+body:not(.low-light) .recommended-panel .waitlist-card strong {
+  color: #0f172a !important;
+}
+
+body:not(.low-light) .waitlist-popup-header [data-radix-dialog-description],
+body:not(.low-light) .waitlist-popup-row span,
+body:not(.low-light) .waitlist-popup-empty,
+body:not(.low-light) .waitlist-card span,
+body:not(.low-light) .waitlist-card small,
+body:not(.low-light) .recommended-panel .waitlist-card span,
+body:not(.low-light) .recommended-panel .waitlist-card small {
+  color: #64748b !important;
+}
+
+body:not(.low-light) .waitlist-action-menu.ui-menu-content,
+body:not(.low-light) .waitlist-action-menu .ui-menu-item,
+body:not(.low-light) .waitlist-popup-actions .secondary-button,
+body:not(.low-light) .waitlist-popup-actions .icon-button {
+  background-color: #ffffff;
+  border-color: var(--line);
+  color: #0f172a;
+}
+
+body:not(.low-light) .waitlist-action-menu .ui-menu-item[data-highlighted] {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+
+body:not(.low-light) .settings-panel,
+body:not(.low-light) .settings-panel .preference-row {
+  color: var(--ink);
+}
+
+body:not(.low-light) .settings-panel .panel-title h2,
+body:not(.low-light) .settings-panel .panel-title strong,
+body:not(.low-light) .settings-panel .preference-row strong,
+body:not(.low-light) .settings-panel label {
+  color: #0f172a;
+}
+
+body:not(.low-light) .settings-panel .preference-row > div > span,
+body:not(.low-light) .settings-panel .muted-copy {
+  color: #64748b;
+}
+
+body:not(.low-light) .tournament-new-card,
+body:not(.low-light) .tournament-library-card,
+body:not(.low-light) .tournament-panel,
+body:not(.low-light) .tournament-list-item,
+body:not(.low-light) .tournament-player-list article,
+body:not(.low-light) .tournament-payout-list label,
+body:not(.low-light) .tournament-level-strip article {
+  color: var(--ink);
+}
+
+body:not(.low-light) .tournament-new-card strong,
+body:not(.low-light) .tournament-library-main,
+body:not(.low-light) .tournament-library-main strong,
+body:not(.low-light) .tournament-panel .panel-title h2,
+body:not(.low-light) .tournament-panel .panel-title strong,
+body:not(.low-light) .tournament-list-item strong,
+body:not(.low-light) .tournament-player-list strong,
+body:not(.low-light) .tournament-payout-list strong,
+body:not(.low-light) .tournament-level-strip strong {
+  color: #0f172a !important;
+}
+
+body:not(.low-light) .tournament-new-card small,
+body:not(.low-light) .tournament-library-main small {
+  color: #64748b !important;
+}
+
+/* Players: active membership database and today's room activity. */
+.players-section-tabs button {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.players-section-tabs button span {
+  align-items: center;
+  background: var(--primary-soft);
+  border-radius: 999px;
+  color: var(--primary-dark);
+  display: inline-flex;
+  font-size: 0.68rem;
+  justify-content: center;
+  min-width: 23px;
+  padding: 3px 7px;
+}
+
+.today-players-panel {
+  display: grid;
+  gap: 20px;
+  padding: clamp(18px, 2.5vw, 28px);
+}
+
+.today-players-heading {
+  align-items: start;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding-bottom: 18px;
+}
+
+.today-players-heading > div {
+  display: grid;
+  gap: 5px;
+}
+
+.today-players-heading h2,
+.today-players-heading > strong {
+  color: var(--ink);
+}
+
+.today-players-heading h2 {
+  font-size: 1.25rem;
+}
+
+.today-players-heading p {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.today-players-heading > strong {
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.75rem;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.today-player-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.today-player-summary article {
+  --today-status-color: var(--primary);
+  background: color-mix(in srgb, var(--today-status-color) 9%, var(--panel-solid));
+  border: 1px solid color-mix(in srgb, var(--today-status-color) 34%, var(--line));
+  border-radius: 10px;
+  display: grid;
+  gap: 7px;
+  padding: 12px 14px;
+}
+
+.today-player-summary article[data-status="Confirmed Coming"] {
+  --today-status-color: #7c3aed;
+}
+
+.today-player-summary article[data-status="Arrived"] {
+  --today-status-color: #0891b2;
+}
+
+.today-player-summary article[data-status="Seated"] {
+  --today-status-color: #15803d;
+}
+
+.today-player-summary span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.today-player-summary strong {
+  color: var(--ink);
+  font-size: 1.35rem;
+}
+
+.today-player-table-head,
+.today-player-row {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(150px, 1.15fr) minmax(120px, 0.78fr) minmax(170px, 1.2fr) minmax(125px, 0.86fr) 72px;
+}
+
+.today-player-table-head {
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 850;
+  letter-spacing: 0.05em;
+  padding: 0 13px;
+  text-transform: uppercase;
+}
+
+.today-player-list {
+  display: grid;
+}
+
+.today-player-row {
+  border-top: 1px solid var(--line);
+  min-width: 0;
+  padding: 14px 13px;
+}
+
+.today-player-row:hover {
+  background: color-mix(in srgb, var(--primary-soft) 42%, transparent);
+}
+
+.today-player-name,
+.today-player-location {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.today-player-name strong,
+.today-player-location strong {
+  color: var(--ink);
+  font-size: 0.84rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-player-name small,
+.today-player-location small {
+  color: var(--muted);
+  font-size: 0.69rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-player-status {
+  --today-status-color: #64748b;
+  background: color-mix(in srgb, var(--today-status-color) 12%, var(--panel-solid));
+  border: 1px solid color-mix(in srgb, var(--today-status-color) 38%, var(--line));
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--today-status-color) 78%, var(--ink));
+  font-size: 0.68rem;
+  font-weight: 850;
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 5px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-player-status[data-status="Interested"] { --today-status-color: #2563eb; }
+.today-player-status[data-status="Confirmed Coming"] { --today-status-color: #7c3aed; }
+.today-player-status[data-status="Arrived"] { --today-status-color: #0891b2; }
+.today-player-status[data-status="Seated"] { --today-status-color: #15803d; }
+.today-player-status[data-status="Declined"],
+.today-player-status[data-status="No-Show"],
+.today-player-status[data-status="Left Before Seated"],
+.today-player-status[data-status="Removed"] { --today-status-color: #b45309; }
+
+.today-membership {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.today-membership.active {
+  color: #15803d;
+}
+
+body.low-light .today-membership.active {
+  color: #86efac;
+}
+
+.today-player-row time {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+  text-align: right;
+}
+
+.today-player-empty {
+  align-items: center;
+  color: var(--muted);
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 58px 20px;
+  text-align: center;
+}
+
+.today-player-empty strong {
+  color: var(--ink);
+}
+
+.today-player-empty span {
+  font-size: 0.78rem;
+}
+
+@media (max-width: 760px) {
+  .today-player-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .today-player-table-head {
+    display: none;
+  }
+
+  .today-player-row {
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .today-player-location,
+  .today-membership {
+    grid-column: 1;
+  }
+
+  .today-player-row time {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 520px) {
+  .players-section-tabs {
+    gap: 12px;
+  }
+
+  .players-section-tabs button {
+    font-size: 0.76rem;
+  }
+
+  .today-players-heading {
+    display: grid;
+  }
+
+  .today-players-heading > strong {
+    justify-self: start;
+  }
+}
+.pending-membership-panel {
+  margin-bottom: 16px;
+}
+
+.pending-membership-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.pending-membership-list .duplicate-card {
+  align-items: center;
+}

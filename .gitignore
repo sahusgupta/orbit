@@ -12,7 +12,6 @@ download-dist/
 download-site/public/downloads/
 download-site/downloads/
 apps/api/.env
-player-app/
 player-app/.expo/
 player-app/.agents/
 player-app/node_modules/

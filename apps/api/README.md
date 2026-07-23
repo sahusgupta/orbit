@@ -27,6 +27,11 @@ All other endpoints require `x-orbit-api-key`.
 - `DATABASE_URL`: SQLite path for local development, for example `file:./data/orbit-api.sqlite3`. On Vercel, the API defaults to `file:/tmp/orbit-api.sqlite3` when `DATABASE_URL` is unset.
 - `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`: optional Firebase service account credentials. When configured, API state saves canonical Firestore documents at `clubs/{licenseKey}`, `clubs/{licenseKey}/players/{playerId}`, and `clubs/{licenseKey}/games/{sessionId}`. Membership players are documents in the `players` subcollection and are not duplicated as an array on the club document.
 - `NODE_ENV`: `development`, `staging`, or `production`.
+- `STRIPE_SECRET_KEY`: Stripe server secret used only by the API.
+- `STRIPE_WEBHOOK_SECRET`: signing secret for `POST /webhooks/stripe`.
+- `ORBIT_PAYMENT_SUCCESS_URL` and `ORBIT_PAYMENT_CANCEL_URL`: approved checkout return URLs.
+- `ORBIT_DAY_PASS_PRICE_CENTS` and `ORBIT_MONTHLY_MEMBERSHIP_PRICE_CENTS`: authoritative server-side membership prices (defaults: `1000` and `3500`).
+- `ORBIT_PAYMENT_CURRENCY`: three-letter currency code, defaults to `usd`.
 
 The database layer is intentionally small and isolated in `src/database.js` so it can later be swapped for Postgres or Supabase.
 
@@ -106,6 +111,8 @@ http://<your-lan-ip>:4629/clients
 - `GET /player/snapshot?accountKey=<venueId>`: fetch mobile/player-facing snapshot.
 - `POST /player/membership-requests`: apply a membership request to venue state.
 - `POST /player/waitlist-requests`: apply a waitlist request to venue state.
+- `POST /player/membership-checkout`: create a Stripe Checkout session after verifying the player's Firebase ID token.
+- `POST /webhooks/stripe`: verify Stripe events and write paid memberships plus immutable revenue transactions to Firestore.
 - `POST /analytical-reports`: store an analytical report.
 
 Desktop-specific behavior remains in Electron: windows, menus, local startup behavior, and `electron-updater`.

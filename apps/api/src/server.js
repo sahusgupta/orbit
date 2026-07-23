@@ -30,13 +30,21 @@ const {
   sanitizeAccountKey
 } = require('./orbitCore');
 const { getFirebasePublisherStatus, publishStateToFirebase } = require('./firebasePublisher');
+const {
+  createMembershipCheckout,
+  getPaymentServiceStatus,
+  handleStripeWebhook,
+  requireFirebasePlayer
+} = require('./paymentService');
 
 const app = express();
 const port = Number(process.env.API_PORT || 4629);
+const host = process.env.API_HOST || '127.0.0.1';
 const startedAt = new Date().toISOString();
 const liveClients = new Set();
 
 app.use(cors());
+app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), handleStripeWebhook);
 app.use(express.json({ limit: '2mb' }));
 app.use((request, response, next) => {
   const started = Date.now();
@@ -119,6 +127,13 @@ function requireOwnerApiKey(request, response, next) {
 }
 
 function requireClientAuth(request, response, next) {
+  const remoteAddress = request.socket?.remoteAddress || '';
+  const isLoopbackRequest = remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
+  if (process.env.NODE_ENV !== 'production' && isLoopbackRequest) {
+    request.orbitAuth = { type: 'local-development' };
+    next();
+    return;
+  }
   const configuredKey = process.env.ORBIT_CLIENT_API_KEY;
   const received = getReceivedApiKey(request);
   if (configuredKey && received === configuredKey) {
@@ -166,9 +181,12 @@ app.get('/health', (_request, response) => {
     environment: process.env.NODE_ENV || 'development',
     database: getDatabasePath(),
     firebase: getFirebasePublisherStatus(),
+    payments: getPaymentServiceStatus(),
     startedAt
   });
 });
+
+app.post('/player/membership-checkout', requireFirebasePlayer, asyncRoute(createMembershipCheckout));
 
 app.get('/dashboard', requireDashboardAuth, (_request, response) => {
   response.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));
@@ -311,7 +329,7 @@ app.get('/state/:venueId', (request, response) => {
 
 app.get('/player/snapshot', (request, response) => {
   const accountKey = sanitizeAccountKey(request.query.accountKey || request.query.venueId || '');
-  const record = loadState(accountKey);
+  const record = accountKey ? loadState(accountKey) : loadLatestState();
   if (!record?.state) {
     response.status(404).json({ ok: false, error: 'No Orbit club database is available yet.' });
     return;
@@ -379,8 +397,8 @@ app.use((error, request, response, _next) => {
   response.status(400).json({ ok: false, error: error instanceof Error ? error.message : 'Request failed.' });
 });
 
-const server = app.listen(port, () => {
-  console.log(`Orbit API listening on http://127.0.0.1:${port}`);
+const server = app.listen(port, host, () => {
+  console.log(`Orbit API listening on http://${host}:${port}`);
 });
 
 function shutdown() {

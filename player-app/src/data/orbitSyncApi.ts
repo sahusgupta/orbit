@@ -1,8 +1,11 @@
 import { initializeApp, getApps } from 'firebase/app';
 import {
+  createUserWithEmailAndPassword,
   getAuth,
   GoogleAuthProvider,
   onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signInWithPopup,
   signInWithCredential,
   type User
 } from 'firebase/auth';
@@ -28,6 +31,7 @@ import type {
   PlayerClubSnapshot,
   PlayerMembershipRequest,
   PlayerPrivateGameListing,
+  PlayerSyncGame,
   PlayerTournament,
   PlayerTournamentRegistration,
   PlayerProfileDocument,
@@ -58,17 +62,76 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 
 export const syncBaseUrl = `firebase://${firebaseConfig.projectId}/clubs`;
+export const orbitApiBaseUrl = (process.env.EXPO_PUBLIC_ORBIT_API_URL || '').replace(/\/$/, '');
+const localOrbitApiBaseUrl = (
+  process.env.EXPO_PUBLIC_ORBIT_LOCAL_API_URL ||
+  (typeof window !== 'undefined' ? 'http://127.0.0.1:4629' : '')
+).replace(/\/$/, '');
+
+async function fetchLocalClubSnapshot(player: Pick<PlayerAccount, 'id' | 'name'>): Promise<SyncResult> {
+  if (!localOrbitApiBaseUrl) return { ok: false, error: 'Local Orbit bridge is not configured.' };
+  try {
+    const params = new URLSearchParams({ playerId: player.id || '', playerName: player.name || '' });
+    const response = await fetch(`${localOrbitApiBaseUrl}/player/snapshot?${params.toString()}`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.snapshot) throw new Error(payload?.error || 'Local Orbit club is not available.');
+    return payload as SyncResult;
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Local Orbit bridge is unavailable.' };
+  }
+}
+
+async function submitLocalPlayerRequest(path: string, request: PlayerMembershipRequest | PlayerWaitlistRequest): Promise<SyncResult> {
+  if (!localOrbitApiBaseUrl) return { ok: false, error: 'Local Orbit bridge is not configured.' };
+  try {
+    const response = await fetch(`${localOrbitApiBaseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.snapshot) throw new Error(payload?.error || 'Local Orbit request failed.');
+    return payload as SyncResult;
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Local Orbit bridge is unavailable.' };
+  }
+}
+
+function mergeSnapshotSources(...sources: PlayerClubSnapshot[][]) {
+  const clubs = new Map<string, PlayerClubSnapshot>();
+  sources.flat().forEach((snapshot) => clubs.set(snapshot.club.id, snapshot));
+  return Array.from(clubs.values());
+}
+
+export async function createClubMembershipCheckout(input: { clubId: string; plan: 'day' | 'monthly'; playerName: string }) {
+  if (!orbitApiBaseUrl) throw new Error('EXPO_PUBLIC_ORBIT_API_URL is not configured.');
+  const user = auth.currentUser;
+  if (!user) throw new Error('Sign in to your Orbit Player account before purchasing a membership.');
+  const token = await user.getIdToken();
+  const response = await fetch(`${orbitApiBaseUrl}/player/membership-checkout`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(input)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.checkoutUrl) throw new Error(payload.error || 'Unable to start membership checkout.');
+  return payload as { ok: true; checkoutUrl: string; sessionId: string };
+}
 
 export async function fetchPlayerTournaments(playerId: string) {
   const clubsSnapshot = await getDocs(collection(db, 'clubs'));
+  const canReadRegistrations = Boolean(auth.currentUser && auth.currentUser.uid === playerId);
   const rows = await Promise.all(clubsSnapshot.docs.map(async (clubDoc) => {
-    const [events, registrations] = await Promise.all([
-      getDocs(collection(db, 'clubs', clubDoc.id, 'tournaments')),
-      getDocs(query(collection(db, 'clubs', clubDoc.id, 'tournamentRegistrations'), where('playerId', '==', playerId || '__none__')))
-    ]);
+    const events = await getDocs(collection(db, 'clubs', clubDoc.id, 'tournaments'));
+    const registrations = canReadRegistrations
+      ? await getDocs(query(collection(db, 'clubs', clubDoc.id, 'tournamentRegistrations'), where('playerId', '==', playerId)))
+      : null;
     return {
       tournaments: events.docs.map((eventDoc) => ({ ...eventDoc.data(), id: eventDoc.id, clubId: clubDoc.id } as PlayerTournament)),
-      registrations: registrations.docs.map((registrationDoc) => registrationDoc.data() as PlayerTournamentRegistration)
+      registrations: registrations?.docs.map((registrationDoc) => registrationDoc.data() as PlayerTournamentRegistration) ?? []
     };
   }));
   return {
@@ -80,13 +143,17 @@ export async function fetchPlayerTournaments(playerId: string) {
 export function subscribeToPlayerTournaments(playerId: string, callback: (result: Awaited<ReturnType<typeof fetchPlayerTournaments>>) => void) {
   let active = true;
   let childUnsubscribers: Unsubscribe[] = [];
+  const canReadRegistrations = Boolean(auth.currentUser && auth.currentUser.uid === playerId);
   const refresh = () => fetchPlayerTournaments(playerId).then((result) => active && callback(result)).catch(() => undefined);
   const rootUnsubscribe = onSnapshot(collection(db, 'clubs'), (clubsSnapshot) => {
     childUnsubscribers.forEach((unsubscribe) => unsubscribe());
-    childUnsubscribers = clubsSnapshot.docs.flatMap((clubDoc) => [
-      onSnapshot(collection(db, 'clubs', clubDoc.id, 'tournaments'), refresh, () => undefined),
-      onSnapshot(query(collection(db, 'clubs', clubDoc.id, 'tournamentRegistrations'), where('playerId', '==', playerId || '__none__')), refresh, () => undefined)
-    ]);
+    childUnsubscribers = clubsSnapshot.docs.flatMap((clubDoc) => {
+      const subscriptions = [onSnapshot(collection(db, 'clubs', clubDoc.id, 'tournaments'), refresh, () => undefined)];
+      if (canReadRegistrations) {
+        subscriptions.push(onSnapshot(query(collection(db, 'clubs', clubDoc.id, 'tournamentRegistrations'), where('playerId', '==', playerId)), refresh, () => undefined));
+      }
+      return subscriptions;
+    });
     refresh();
   }, () => undefined);
   return () => {
@@ -152,6 +219,31 @@ export async function signInWithGoogleIdToken(idToken: string) {
   const credential = GoogleAuthProvider.credential(idToken);
   const result = await signInWithCredential(auth, credential);
   return toFirebasePlayerIdentity(result.user);
+}
+
+export async function signInWithGooglePopup() {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  const result = await signInWithPopup(auth, provider);
+  return toFirebasePlayerIdentity(result.user);
+}
+
+export async function signInOrCreatePlayerWithEmail(email: string, password: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail || !password) throw new Error('Enter your email and password.');
+  if (password.length < 6) throw new Error('Password must be at least 6 characters.');
+  try {
+    const result = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+    return toFirebasePlayerIdentity(result.user);
+  } catch (signInError) {
+    try {
+      const result = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+      return toFirebasePlayerIdentity(result.user);
+    } catch (createError) {
+      if ((createError as { code?: string }).code === 'auth/email-already-in-use') throw signInError;
+      throw createError;
+    }
+  }
 }
 
 export function ensureSignedInIdentity() {
@@ -243,12 +335,17 @@ export async function fetchClubSnapshots(player: Pick<PlayerAccount, 'id' | 'nam
 }
 
 export async function fetchAllClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>) {
+  const localResult = await fetchLocalClubSnapshot(player);
+  const localClubs = localResult.ok ? [localResult.snapshot] : [];
   try {
     const publishedClubs = await getPublishedClubSnapshots(player);
-    if (publishedClubs.length) return { ok: true as const, clubs: publishedClubs };
+    if (publishedClubs.length || localClubs.length) {
+      return { ok: true as const, clubs: mergeSnapshotSources(publishedClubs, localClubs) };
+    }
     const clubs = await getLegacyClubSnapshots(player);
-    return { ok: true as const, clubs };
+    return { ok: true as const, clubs: mergeSnapshotSources(clubs, localClubs) };
   } catch (error) {
+    if (localClubs.length) return { ok: true as const, clubs: localClubs };
     return { ok: false as const, error: error instanceof Error ? error.message : 'Unable to read Firebase clubs.' };
   }
 }
@@ -262,11 +359,21 @@ export function subscribeToAllClubSnapshots(
   let disposed = false;
   let latestClubs = new Map<string, PlayerClubSnapshot>();
 
+  const pollLocalClub = async () => {
+    const result = await fetchLocalClubSnapshot(player);
+    if (disposed || !result.ok) return;
+    latestClubs.set(result.snapshot.club.id, result.snapshot);
+    emit();
+  };
+
   const emit = () => {
     if (disposed) return;
     const clubs = Array.from(latestClubs.values()).filter((snapshot) => snapshot.games.length || snapshot.memberships.length || snapshot.waitlists.length);
     callback({ ok: true, clubs });
   };
+
+  void pollLocalClub();
+  const localPollTimer = setInterval(() => void pollLocalClub(), 1500);
 
   const detachClub = (clubId: string) => {
     childUnsubscribers.get(clubId)?.forEach((unsubscribe) => unsubscribe());
@@ -313,7 +420,7 @@ export function subscribeToAllClubSnapshots(
           onSnapshot(
             collection(db, 'clubs', clubDoc.id, 'games'),
             (snapshot) => {
-              childState.games = snapshot.docs.map((gameDoc) => gameDoc.data() as PlayerClubSnapshot['games'][number]);
+              childState.games = snapshot.docs.map((gameDoc) => normalizePublishedGame(gameDoc.data(), gameDoc.id));
               updateClub();
             },
             handlePrivateCollectionError
@@ -347,11 +454,14 @@ export function subscribeToAllClubSnapshots(
         updateClub();
       });
     },
-    (error) => callback({ ok: false, error: error.message || 'Unable to subscribe to Firebase clubs.' })
+    (error) => latestClubs.size
+      ? emit()
+      : callback({ ok: false, error: error.message || 'Unable to subscribe to Firebase clubs.' })
   );
 
   return () => {
     disposed = true;
+    clearInterval(localPollTimer);
     parentUnsubscribe();
     childUnsubscribers.forEach((unsubscribers) => unsubscribers.forEach((unsubscribe) => unsubscribe()));
     childUnsubscribers.clear();
@@ -407,10 +517,16 @@ export async function submitMembershipRequest(request: PlayerMembershipRequest):
   try {
     const localPlayerId = request.player.id || stableLocalPlayerId(request.player.email, request.player.name);
     const secureRequest = { ...request, player: { ...request.player, id: localPlayerId } };
+    const localResult = await submitLocalPlayerRequest('/player/membership-requests', secureRequest);
+    if (localResult.ok) return localResult;
+    const expiresAt = getPassExpiration(request);
     const membershipRecord: PlayerClubMembershipRecord = {
       clubId: request.clubId,
-      status: 'Requested',
+      status: request.paymentMethod === 'in-person' ? 'Requested' : 'Active',
       requestedAt: request.requestedAt,
+      expiresAt: request.paymentMethod === 'in-person' ? undefined : expiresAt,
+      plan: request.plan,
+      paymentMethod: request.paymentMethod,
       preferredGameIds: request.player.preferredGameIds,
       preferredStakes: request.player.preferredStakes
     };
@@ -432,6 +548,8 @@ export async function submitWaitlistRequest(request: PlayerWaitlistRequest): Pro
   try {
     const localPlayerId = request.player.id || stableLocalPlayerId(request.player.email, request.player.name);
     const secureRequest = { ...request, player: { ...request.player, id: localPlayerId } };
+    const localResult = await submitLocalPlayerRequest('/player/waitlist-requests', secureRequest);
+    if (localResult.ok) return localResult;
     await writeRequestToClubPaths(request.clubId, 'waitlistRequests', request.id, secureRequest);
     const snapshot = await readAnyClubSnapshot(request.clubId, secureRequest.player);
     if (!snapshot) throw new Error('Seat request was sent, but no published club snapshot was found.');
@@ -515,6 +633,27 @@ async function readAnyClubSnapshot(clubId: string, player: Pick<PlayerAccount, '
   return legacy?.snapshot ? filterSnapshotForPlayer(legacy.snapshot, player) : null;
 }
 
+function normalizePublishedGame(raw: Record<string, any>, documentId: string): PlayerSyncGame {
+  const openTables = Array.isArray(raw.openTables) ? raw.openTables : [];
+  const numeric = (value: unknown, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+  return {
+    ...raw,
+    id: String(raw.id || documentId),
+    name: String(raw.name || 'Published poker game'),
+    maxSeats: numeric(raw.maxSeats, 10),
+    collectionMode: raw.collectionMode === 'Time' || raw.collectionMode === 'Drop'
+      ? raw.collectionMode
+      : openTables[0]?.collectionMode === 'Time'
+        ? 'Time'
+        : 'Drop',
+    openTables,
+    waitlistCount: numeric(raw.waitlistCount),
+    formingCount: numeric(raw.formingCount),
+    availableSeats: numeric(raw.availableSeats, openTables.reduce((sum: number, table: Record<string, any>) => sum + numeric(table?.availableSeats), 0)),
+    knownPlayersCount: numeric(raw.knownPlayersCount)
+  };
+}
+
 async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: Pick<PlayerAccount, 'id' | 'name'>) {
   const club = clubDoc.data() as PublishedClubRecord;
   const [games, memberships, waitlists, notifications] = await Promise.all([
@@ -530,7 +669,7 @@ async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: 
       address: club.address,
       phone: club.phone
     },
-    games: games.docs.map((gameDoc) => gameDoc.data() as PlayerClubSnapshot['games'][number]),
+    games: games.docs.map((gameDoc) => normalizePublishedGame(gameDoc.data(), gameDoc.id)),
     memberships: memberships.docs.map((membershipDoc) => membershipDoc.data() as PlayerClubSnapshot['memberships'][number]),
     waitlists: waitlists.docs.map((waitlistDoc) => waitlistDoc.data() as PlayerClubSnapshot['waitlists'][number]),
     notifications: notifications.docs.map((notificationDoc) => notificationDoc.data() as PlayerClubSnapshot['notifications'][number]),
@@ -648,18 +787,22 @@ function normalizeIdentity(value?: string) {
 }
 
 function applyMembershipToSnapshot(snapshot: PlayerClubSnapshot, request: PlayerMembershipRequest): PlayerClubSnapshot {
-  if (snapshot.memberships.some((membership) => membership.playerId === request.player.id)) return snapshot;
+  const pending = request.paymentMethod === 'in-person';
   return {
     ...snapshot,
     memberships: [
-      ...snapshot.memberships,
+      ...snapshot.memberships.filter((membership) => membership.playerId !== request.player.id),
       {
         id: `${request.clubId}:${request.player.id}`,
         clubId: request.clubId,
         playerId: request.player.id,
         playerName: request.player.name,
-        status: 'Requested',
+        status: pending ? 'Requested' : 'Active',
         joinedAt: request.requestedAt.slice(0, 10),
+        expiresAt: pending ? undefined : getPassExpiration(request),
+        plan: request.plan,
+        paymentMethod: request.paymentMethod,
+        requestedAt: request.requestedAt,
         loyalty: getPlayerLoyalty(request.clubId, 0),
         preferredGameIds: request.player.preferredGameIds,
         preferredStakes: request.player.preferredStakes,
@@ -671,6 +814,16 @@ function applyMembershipToSnapshot(snapshot: PlayerClubSnapshot, request: Player
 }
 
 function applyWaitlistToSnapshot(snapshot: PlayerClubSnapshot, request: PlayerWaitlistRequest): PlayerClubSnapshot {
+  if (request.action === 'cancel') {
+    const removed = snapshot.waitlists.filter((entry) => entry.gameId === request.gameId && entry.playerId === request.player.id);
+    if (!removed.length) return snapshot;
+    return {
+      ...snapshot,
+      games: snapshot.games.map((game) => game.id === request.gameId ? { ...game, waitlistCount: Math.max(0, game.waitlistCount - removed.length) } : game),
+      waitlists: snapshot.waitlists.filter((entry) => !(entry.gameId === request.gameId && entry.playerId === request.player.id)),
+      generatedAt: request.requestedAt
+    };
+  }
   if (snapshot.waitlists.some((entry) => entry.playerId === request.player.id && entry.gameId === request.gameId)) return snapshot;
   const position = snapshot.waitlists.filter((entry) => entry.gameId === request.gameId).length + 1;
   return {
@@ -689,7 +842,7 @@ function applyWaitlistToSnapshot(snapshot: PlayerClubSnapshot, request: PlayerWa
         tableId: request.tableId,
         playerId: request.player.id,
         playerName: request.player.name,
-        status: 'Interested',
+        status: request.attendance === 'arrived' ? 'Arrived' : request.attendance === 'confirmed' ? 'Confirmed Coming' : 'Interested',
         position,
         requestedAt: request.requestedAt
       }
@@ -702,8 +855,10 @@ function applyMembershipToState(state: Record<string, any>, request: PlayerMembe
   const profiles = Array.isArray(state.profiles) ? state.profiles : [];
   const player = request.player;
   const existing = profiles.find((profile) => profile.id === player.id || String(profile.name || '').toLowerCase() === player.name.toLowerCase());
-  const membershipStartDate = request.requestedAt.slice(0, 10);
-  const membershipExpirationDate = addDays(membershipStartDate, 365);
+  const pending = request.paymentMethod === 'in-person';
+  const membershipStartDate = pending ? '' : request.requestedAt.slice(0, 10);
+  const membershipExpiresAt = pending ? undefined : getPassExpiration(request);
+  const membershipExpirationDate = membershipExpiresAt?.slice(0, 10) ?? '';
   if (existing) {
     return {
       ...state,
@@ -711,8 +866,14 @@ function applyMembershipToState(state: Record<string, any>, request: PlayerMembe
         profile.id === existing.id
           ? {
               ...profile,
-              membershipStartDate: profile.membershipStartDate || membershipStartDate,
-              membershipExpirationDate: profile.membershipExpirationDate || membershipExpirationDate,
+              membershipStartDate: membershipStartDate || profile.membershipStartDate,
+              membershipExpirationDate,
+              membershipExpiresAt,
+              membershipPlan: request.plan,
+              membershipPaymentMethod: request.paymentMethod,
+              membershipStatus: pending ? 'Requested' : 'Active',
+              membershipRequestedAt: request.requestedAt,
+              membershipPriceLabel: request.priceLabel,
               preferredGameId: player.preferredGameIds[0] || profile.preferredGameId,
               preferredGameIds: mergeUnique([...(profile.preferredGameIds || []), ...player.preferredGameIds]),
               preferredStakes: player.preferredStakes || profile.preferredStakes,
@@ -732,6 +893,12 @@ function applyMembershipToState(state: Record<string, any>, request: PlayerMembe
         birthday: '',
         membershipStartDate,
         membershipExpirationDate,
+        membershipExpiresAt,
+        membershipPlan: request.plan,
+        membershipPaymentMethod: request.paymentMethod,
+        membershipStatus: pending ? 'Requested' : 'Active',
+        membershipRequestedAt: request.requestedAt,
+        membershipPriceLabel: request.priceLabel,
         totalTimePlayedHours: 0,
         lastSessionTimePlayedHours: 0,
         commonlyPlaysWithProfileIds: [],
@@ -771,9 +938,15 @@ function applyWaitlistToState(state: Record<string, any>, request: PlayerWaitlis
         profileId: request.player.id,
         playerName: request.player.name,
         gameId: request.gameId,
-        status: 'Interested',
+        status: request.attendance === 'arrived' ? 'Arrived' : request.attendance === 'confirmed' ? 'Confirmed Coming' : 'Interested',
         timestamp: request.requestedAt,
         interestedAt: request.requestedAt,
+        confirmedAt: request.attendance === 'confirmed' ? request.requestedAt : undefined,
+        arrivedAt: request.attendance === 'arrived' ? request.requestedAt : undefined,
+        expectedArrivalTime: request.expectedArrivalTime,
+        availabilityStartTime: request.availabilityStartTime,
+        availabilityEndTime: request.availabilityEndTime,
+        tableId: request.tableId,
         notes: request.note || 'Requested from player app'
       }
     ]
@@ -784,6 +957,12 @@ function addDays(date: string, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next.toISOString().slice(0, 10);
+}
+
+function getPassExpiration(request: PlayerMembershipRequest) {
+  const expiration = new Date(request.requestedAt);
+  expiration.setDate(expiration.getDate() + (request.plan === 'day' ? 1 : 30));
+  return expiration.toISOString();
 }
 
 function mergeUnique(values: string[]) {

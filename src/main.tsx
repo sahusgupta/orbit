@@ -40,6 +40,7 @@ import {
   readBackupEnvelope,
   resolveGameId
 } from './lib/appCore';
+import { createMembershipWindow, parseMembershipPrice } from './lib/membership';
 import { loadClubStateFromFirebase, saveClubStateToFirebase, signInOrCreateFirebaseEmailAccount, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
 import { rendererFirebaseSyncEnabled } from './lib/firebaseConfig';
 import { buildNightCloseTables, type NightCloseTable } from './lib/nightClose';
@@ -78,6 +79,7 @@ declare global {
 }
 
 type AppRoute = 'floor' | 'table' | 'builder' | 'profiles' | 'signals' | 'summary' | 'customization' | 'kpis' | 'tournaments' | 'tournament-tv';
+type ReportPeriod = 'day' | 'week' | 'month' | 'year' | 'all';
 type InterestStatus =
   | 'Interested'
   | 'Confirmed Coming'
@@ -121,8 +123,24 @@ type Interest = {
   arrivedAt?: string;
   seatedAt?: string;
   closedAt?: string;
+  expectedArrivalTime?: string;
+  availabilityStartTime?: string;
+  availabilityEndTime?: string;
+  tableId?: string;
   notes: string;
   manualEdits?: Record<string, string>;
+};
+
+type TodayPlayerRow = {
+  id: string;
+  playerName: string;
+  profileId?: string;
+  status: InterestStatus;
+  gameName: string;
+  tableLabel?: string;
+  seatNumber?: number;
+  timestamp: string;
+  activeMember: boolean;
 };
 
 type PlayerProfile = {
@@ -132,6 +150,12 @@ type PlayerProfile = {
   birthday: string;
   membershipStartDate: string;
   membershipExpirationDate: string;
+  membershipExpiresAt?: string;
+  membershipPlan?: 'day' | 'monthly';
+  membershipPaymentMethod?: 'app' | 'in-person' | 'core';
+  membershipStatus?: 'Requested' | 'Active' | 'Expired';
+  membershipRequestedAt?: string;
+  membershipPriceLabel?: string;
   totalTimePlayedHours: number;
   lastSessionTimePlayedHours: number;
   commonlyPlaysWithProfileIds: string[];
@@ -199,6 +223,49 @@ type DropLog = {
   amount: number;
   timestamp: string;
   note?: string;
+};
+
+type DealerAssignment = {
+  id: string;
+  tableId: string;
+  gameId: string;
+  dealerName: string;
+  startedAt: string;
+  endedAt?: string;
+};
+
+type HandCountLog = {
+  id: string;
+  tableId: string;
+  gameId: string;
+  hands: number;
+  timestamp: string;
+};
+
+type TimeFeeLog = {
+  id: string;
+  playerSessionId: string;
+  tableId: string;
+  gameId: string;
+  playerName: string;
+  minutes: number;
+  amount: number;
+  timestamp: string;
+};
+
+type RevenueTransaction = {
+  id: string;
+  type: 'membership' | 'tournament_entry' | 'rebuy' | 'add_on' | 'refund' | 'other';
+  amountCents: number;
+  occurredAt: string;
+  paymentStatus: 'paid' | 'refunded' | 'partially_refunded' | 'pending' | 'failed';
+  source: 'stripe' | 'manual' | 'import';
+  playerId?: string;
+  playerName?: string;
+  playerEmail?: string;
+  membershipPlan?: string;
+  tournamentId?: string;
+  stripeEventId?: string;
 };
 
 type PlayerLedgerEntry = {
@@ -504,6 +571,10 @@ type AppState = {
   playerSessions: PlayerSession[];
   buyIns: BuyInLog[];
   dropLogs: DropLog[];
+  dealerAssignments: DealerAssignment[];
+  handCountLogs: HandCountLog[];
+  timeFeeLogs: TimeFeeLog[];
+  revenueTransactions: RevenueTransaction[];
   playerLedger: PlayerLedgerEntry[];
   tableEvents: TableEvent[];
   inAppNotifications: PlayerInAppNotification[];
@@ -641,6 +712,235 @@ const uid = () => crypto.randomUUID();
 const memberId = () => `mem_${crypto.getRandomValues(new Uint32Array(2))[0].toString(16)}${crypto.getRandomValues(new Uint32Array(2))[1].toString(16)}`;
 const randomToken = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('');
 const todayDate = () => new Date().toISOString().slice(0, 10);
+const toLocalDateValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+type ReportWindow = { startMs: number; endMs: number; label: string };
+
+const parseLocalDateValue = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, Math.max(0, month - 1), day || 1, 12, 0, 0, 0);
+};
+
+const getReportWindow = (period: ReportPeriod, anchorValue: string): ReportWindow => {
+  const anchor = parseLocalDateValue(anchorValue);
+  const start = new Date(anchor);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+
+  if (period === 'all') {
+    const tomorrow = new Date();
+    tomorrow.setHours(24, 0, 0, 0);
+    return { startMs: 0, endMs: tomorrow.getTime(), label: 'All recorded history' };
+  }
+
+  if (period === 'week') {
+    const mondayOffset = (start.getDay() + 6) % 7;
+    start.setDate(start.getDate() - mondayOffset);
+    end.setTime(start.getTime());
+    end.setDate(end.getDate() + 7);
+  } else if (period === 'month') {
+    start.setDate(1);
+    end.setTime(start.getTime());
+    end.setMonth(end.getMonth() + 1);
+  } else if (period === 'year') {
+    start.setMonth(0, 1);
+    end.setTime(start.getTime());
+    end.setFullYear(end.getFullYear() + 1);
+  } else {
+    end.setDate(end.getDate() + 1);
+  }
+
+  const inclusiveEnd = new Date(end.getTime() - 1);
+  const shortDate = (date: Date, includeYear = true) => date.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    ...(includeYear ? { year: 'numeric' as const } : {})
+  });
+  const label = period === 'day'
+    ? shortDate(start)
+    : period === 'month'
+      ? start.toLocaleDateString([], { month: 'long', year: 'numeric' })
+      : period === 'year'
+        ? String(start.getFullYear())
+        : `${shortDate(start, start.getFullYear() !== inclusiveEnd.getFullYear())} – ${shortDate(inclusiveEnd)}`;
+  return { startMs: start.getTime(), endMs: end.getTime(), label };
+};
+
+const shiftReportAnchor = (anchorValue: string, period: ReportPeriod, direction: -1 | 1) => {
+  if (period === 'all') return anchorValue;
+  const date = parseLocalDateValue(anchorValue);
+  if (period === 'day') date.setDate(date.getDate() + direction);
+  if (period === 'week') date.setDate(date.getDate() + direction * 7);
+  if (period === 'month') date.setMonth(date.getMonth() + direction);
+  if (period === 'year') date.setFullYear(date.getFullYear() + direction);
+  return toLocalDateValue(date);
+};
+
+const timestampInReportWindow = (timestamp: string | undefined, window: ReportWindow) => {
+  if (!timestamp) return false;
+  const value = new Date(timestamp).getTime();
+  return Number.isFinite(value) && value >= window.startMs && value < window.endMs;
+};
+
+const getReportState = (state: AppState, window: ReportWindow): AppState => {
+  const now = Date.now();
+  const sessions = state.sessions
+    .filter((session) => {
+      const start = new Date(session.startedAt).getTime();
+      const end = session.endedAt ? new Date(session.endedAt).getTime() : now;
+      return start < window.endMs && end >= window.startMs;
+    })
+    .map((session) => {
+      const continuesThroughCurrentWindow = !session.endedAt && window.endMs > now;
+      const effectiveEnd = Math.min(session.endedAt ? new Date(session.endedAt).getTime() : now, window.endMs - 1);
+      return {
+        ...session,
+        startedAt: new Date(Math.max(new Date(session.startedAt).getTime(), window.startMs)).toISOString(),
+        endedAt: continuesThroughCurrentWindow ? undefined : new Date(effectiveEnd).toISOString(),
+        status: (continuesThroughCurrentWindow || session.status === 'Failed to Start') ? session.status : 'Closed' as GameStatus
+      };
+    });
+  const playerSessions = state.playerSessions
+    .filter((session) => {
+      const start = new Date(session.seatedAt).getTime();
+      const end = session.leftAt ? new Date(session.leftAt).getTime() : now;
+      return start < window.endMs && end >= window.startMs;
+    })
+    .map((session) => {
+      const continuesThroughCurrentWindow = !session.leftAt && window.endMs > now;
+      const effectiveEnd = Math.min(session.leftAt ? new Date(session.leftAt).getTime() : now, window.endMs - 1);
+      return {
+        ...session,
+        seatedAt: new Date(Math.max(new Date(session.seatedAt).getTime(), window.startMs)).toISOString(),
+        leftAt: continuesThroughCurrentWindow ? undefined : new Date(effectiveEnd).toISOString()
+      };
+    });
+  return {
+    ...state,
+    sessions,
+    playerSessions,
+    interests: state.interests.filter((interest) =>
+      [interest.interestedAt, interest.arrivedAt, interest.seatedAt, interest.closedAt].some((timestamp) => timestampInReportWindow(timestamp, window))
+    ),
+    dropLogs: state.dropLogs.filter((entry) => timestampInReportWindow(entry.timestamp, window)),
+    dealerAssignments: state.dealerAssignments.filter((assignment) => {
+      const start = new Date(assignment.startedAt).getTime();
+      const end = assignment.endedAt ? new Date(assignment.endedAt).getTime() : now;
+      return start < window.endMs && end >= window.startMs;
+    }),
+    handCountLogs: state.handCountLogs.filter((entry) => timestampInReportWindow(entry.timestamp, window)),
+    timeFeeLogs: state.timeFeeLogs.filter((entry) => timestampInReportWindow(entry.timestamp, window)),
+    revenueTransactions: state.revenueTransactions.filter((entry) => timestampInReportWindow(entry.occurredAt, window)),
+    tableEvents: state.tableEvents.filter((entry) => timestampInReportWindow(entry.timestamp, window)),
+    history: state.history.filter((night) => timestampInReportWindow(`${night.date}T12:00:00`, window))
+  };
+};
+
+const getReportFinancials = (state: AppState, window: ReportWindow) => {
+  const recordedDrop = state.dropLogs
+    .filter((entry) => timestampInReportWindow(entry.timestamp, window))
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const exactTimeFeeEntries = state.timeFeeLogs
+    .filter((entry) => timestampInReportWindow(entry.timestamp, window))
+    .map((entry) => ({ gameId: entry.gameId, tableId: entry.tableId, amount: entry.amount, timestamp: entry.timestamp }));
+  const loggedPlayerSessionIds = new Set(state.timeFeeLogs.map((entry) => entry.playerSessionId));
+  const legacyTimeFeeEntries = state.playerSessions.flatMap((playerSession) => {
+    if (loggedPlayerSessionIds.has(playerSession.id)) return [];
+    const table = state.sessions.find((session) => session.id === playerSession.tableId);
+    const paidAt = playerSession.lastTimeTickAt || playerSession.seatedAt;
+    if (!table || (table.collectionMode !== 'Time' && !table.timeFeeBased) || !timestampInReportWindow(paidAt, window)) return [];
+    const amount = ((playerSession.timePurchasedMinutes ?? 0) / 60) * getCollectionProfile(state, playerSession.gameId).hourlyFee;
+    return amount > 0 ? [{ gameId: playerSession.gameId, tableId: playerSession.tableId, amount, timestamp: paidAt }] : [];
+  });
+  const timeFeeEntries = [...exactTimeFeeEntries, ...legacyTimeFeeEntries];
+  const timeFees = timeFeeEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  const paidRevenue = state.revenueTransactions.filter((entry) =>
+    (entry.paymentStatus === 'paid' || entry.paymentStatus === 'partially_refunded') && timestampInReportWindow(entry.occurredAt, window)
+  );
+  const revenueAmount = (entry: RevenueTransaction) => (entry.type === 'refund' ? -Math.abs(entry.amountCents) : entry.amountCents) / 100;
+  const membershipRevenue = paidRevenue.filter((entry) => entry.type === 'membership').reduce((sum, entry) => sum + revenueAmount(entry), 0);
+  const tournamentRevenue = paidRevenue.filter((entry) => ['tournament_entry', 'rebuy', 'add_on'].includes(entry.type)).reduce((sum, entry) => sum + revenueAmount(entry), 0);
+  const otherRevenue = paidRevenue.filter((entry) => !['membership', 'tournament_entry', 'rebuy', 'add_on'].includes(entry.type)).reduce((sum, entry) => sum + revenueAmount(entry), 0);
+  const collectionByGame = state.games.map((game) => ({
+    game: game.name,
+    recordedDrop: state.dropLogs
+      .filter((entry) => entry.gameId === game.id && timestampInReportWindow(entry.timestamp, window))
+      .reduce((sum, entry) => sum + entry.amount, 0),
+    timeFees: timeFeeEntries
+      .filter((entry) => entry.gameId === game.id)
+      .reduce((sum, entry) => sum + entry.amount, 0)
+  }));
+  return {
+    recordedDrop,
+    timeFees,
+    membershipRevenue,
+    tournamentRevenue,
+    otherRevenue,
+    totalProfit: recordedDrop + timeFees + membershipRevenue + tournamentRevenue + otherRevenue,
+    collectionByGame,
+    timeFeeEntries,
+    paidRevenue
+  };
+};
+
+const getReportHourlyBreakdown = (state: AppState, window: ReportWindow, financials: ReturnType<typeof getReportFinancials>) => {
+  const buckets = new Map<number, { startMs: number; drop: number; timeFees: number; otherRevenue: number }>();
+  const add = (timestamp: string, amount: number, kind: 'drop' | 'timeFees' | 'otherRevenue') => {
+    const date = new Date(timestamp);
+    date.setMinutes(0, 0, 0);
+    const startMs = date.getTime();
+    const bucket = buckets.get(startMs) ?? { startMs, drop: 0, timeFees: 0, otherRevenue: 0 };
+    bucket[kind] += amount;
+    buckets.set(startMs, bucket);
+  };
+  state.dropLogs
+    .filter((entry) => timestampInReportWindow(entry.timestamp, window))
+    .forEach((entry) => add(entry.timestamp, entry.amount, 'drop'));
+  financials.timeFeeEntries.forEach((entry) => add(entry.timestamp, entry.amount, 'timeFees'));
+  financials.paidRevenue.forEach((entry) => add(entry.occurredAt, (entry.type === 'refund' ? -Math.abs(entry.amountCents) : entry.amountCents) / 100, 'otherRevenue'));
+  return [...buckets.values()]
+    .map((bucket) => ({ ...bucket, total: bucket.drop + bucket.timeFees + bucket.otherRevenue }))
+    .sort((left, right) => left.startMs - right.startMs);
+};
+
+const getDealerReport = (state: AppState, window: ReportWindow) => {
+  const now = Date.now();
+  const assignments = state.dealerAssignments.filter((assignment) => {
+    const start = new Date(assignment.startedAt).getTime();
+    const end = assignment.endedAt ? new Date(assignment.endedAt).getTime() : now;
+    return start < window.endMs && end >= window.startMs;
+  });
+  const dealerMap = new Map<string, { dealerName: string; milliseconds: number; tableIds: Set<string>; hands: number }>();
+  assignments.forEach((assignment) => {
+    const start = Math.max(new Date(assignment.startedAt).getTime(), window.startMs);
+    const end = Math.min(assignment.endedAt ? new Date(assignment.endedAt).getTime() : now, window.endMs);
+    const entry = dealerMap.get(assignment.dealerName) ?? { dealerName: assignment.dealerName, milliseconds: 0, tableIds: new Set<string>(), hands: 0 };
+    entry.milliseconds += Math.max(0, end - start);
+    entry.tableIds.add(assignment.tableId);
+    entry.hands += state.handCountLogs
+      .filter((log) => log.tableId === assignment.tableId && timestampInReportWindow(log.timestamp, window))
+      .filter((log) => {
+        const timestamp = new Date(log.timestamp).getTime();
+        return timestamp >= new Date(assignment.startedAt).getTime() && timestamp < (assignment.endedAt ? new Date(assignment.endedAt).getTime() : now);
+      })
+      .reduce((sum, log) => sum + log.hands, 0);
+    dealerMap.set(assignment.dealerName, entry);
+  });
+  return [...dealerMap.values()]
+    .map((entry) => ({
+      dealerName: entry.dealerName,
+      hours: entry.milliseconds / 36e5,
+      tables: entry.tableIds.size,
+      hands: entry.hands,
+      handsPerHour: entry.milliseconds > 0 ? entry.hands / (entry.milliseconds / 36e5) : 0
+    }))
+    .sort((left, right) => right.hours - left.hours);
+};
 const nextYearDate = () => {
   const date = new Date();
   date.setFullYear(date.getFullYear() + 1);
@@ -737,7 +1037,11 @@ const formatTimeLeft = (seconds: number) => {
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}` : clock;
 };
 const getTimeStatus = getTimerStatusFromMinutes;
-const isFutureDate = (value?: string) => Boolean(value && new Date(`${value}T23:59:59`).getTime() >= Date.now());
+const isFutureDate = (value?: string) => {
+  if (!value) return false;
+  const expiration = new Date(value.includes('T') ? value : `${value}T23:59:59`).getTime();
+  return Number.isFinite(expiration) && expiration >= Date.now();
+};
 const isPilotAccessActive = (access?: PilotAccess) => Boolean(access?.authorized && isFutureDate(access.expiresAt));
 const safeAccountKeyPart = (value: string) =>
   value
@@ -754,6 +1058,13 @@ const getAccountKeyFromState = (state?: Partial<AppState>) =>
   'unlicensed-local';
 const getStorageKeyForState = (state?: Partial<AppState>) => `${storageKey}:${getAccountKeyFromState(state)}`;
 const getAuthStorageKey = (state?: Partial<AppState>) => `${storageKey}:auth:${getAccountKeyFromState(state)}`;
+const localOrbitBridgeBaseUrl = (import.meta.env.VITE_ORBIT_LOCAL_API_URL || 'http://127.0.0.1:4629').replace(/\/$/, '');
+const publishStateToLocalOrbitBridge = (state: AppState) =>
+  fetch(`${localOrbitBridgeBaseUrl}/state`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ state })
+  }).catch(() => undefined);
 const mergeSyncedList = <T extends { id?: string; name?: string; playerName?: string }>(latest: T[], synced: T[]) => {
   const syncedByKey = new Map(
     synced.map((item) => [
@@ -980,6 +1291,10 @@ const seedState: AppState = {
   playerSessions: [],
   buyIns: [],
   dropLogs: [],
+  dealerAssignments: [],
+  handCountLogs: [],
+  timeFeeLogs: [],
+  revenueTransactions: [],
   playerLedger: [],
   tableEvents: [],
   inAppNotifications: [],
@@ -1192,6 +1507,10 @@ function normalizeState(parsed: Partial<AppState>): AppState {
     })(),
     buyIns: parsed.buyIns ?? [],
     dropLogs: parsed.dropLogs ?? [],
+    dealerAssignments: parsed.dealerAssignments ?? [],
+    handCountLogs: parsed.handCountLogs ?? [],
+    timeFeeLogs: parsed.timeFeeLogs ?? [],
+    revenueTransactions: parsed.revenueTransactions ?? [],
     playerLedger: parsed.playerLedger ?? [
       ...(parsed.playerSessions ?? []).map((session) => ({
         id: uid(),
@@ -1300,6 +1619,9 @@ function saveState(state: AppState) {
   localStorage.setItem(accountStorageKey, JSON.stringify(state));
   localStorage.setItem(`${storageKey}:last-account`, accountStorageKey);
   const localSave = window.tableManagerDesktop?.saveState(state) ?? Promise.resolve({ ok: true, path: 'browser-local-storage' });
+  if (!window.tableManagerDesktop) {
+    void publishStateToLocalOrbitBridge(state);
+  }
   if (canUseRendererFirebaseAuth()) {
     saveClubStateToFirebase(state).catch(() => undefined);
   }
@@ -2033,6 +2355,8 @@ function App() {
     birthday: '',
     membershipStartDate: todayDate(),
     membershipExpirationDate: nextYearDate(),
+    membershipPlan: 'monthly' as 'day' | 'monthly',
+    membershipAmount: 0,
     totalTimePlayedHours: 0,
     lastSessionTimePlayedHours: 0,
     commonlyPlaysWithProfileIds: [] as string[],
@@ -2061,6 +2385,7 @@ function App() {
   const [pendingPilotAccess, setPendingPilotAccess] = useState<PilotAccess | null>(null);
   const [pilotKeyError, setPilotKeyError] = useState('');
   const [hasAuthenticated, setHasAuthenticated] = useState(() => hasPersistedSignIn(state));
+  const hasPublishedStartupSnapshot = useRef(false);
   const [loginDraft, setLoginDraft] = useState({ username: '', password: '', staySignedIn: false });
   const [setupDraft, setSetupDraft] = useState({
     username: '',
@@ -2088,6 +2413,8 @@ function App() {
   const [cashOutDraft, setCashOutDraft] = useState<{ playerSessionId: string; amount: string; note: string } | null>(null);
   const [buyInDrafts, setBuyInDrafts] = useState<Record<string, { amount: string; note: string }>>({});
   const [dropDrafts, setDropDrafts] = useState<Record<string, { amount: string; note: string }>>({});
+  const [dealerDrafts, setDealerDrafts] = useState<Record<string, string>>({});
+  const [handCountDrafts, setHandCountDrafts] = useState<Record<string, string>>({});
   const [selectedTournamentId, setSelectedTournamentId] = useState('');
   const [tournamentView, setTournamentView] = useState<'library' | 'create' | 'edit' | 'manage'>('library');
   const [tournamentSection, setTournamentSection] = useState<'clock' | 'players' | 'tables' | 'payouts'>('clock');
@@ -2115,10 +2442,13 @@ function App() {
   const [overviewTableId, setOverviewTableId] = useState('all-time-overview');
   const [waitlistPopupOpen, setWaitlistPopupOpen] = useState(false);
   const [playerPopup, setPlayerPopup] = useState<'add' | 'ledger' | null>(null);
+  const [playerSection, setPlayerSection] = useState<'memberships' | 'today'>('memberships');
   const [settingsSection, setSettingsSection] = useState<'club' | 'staff' | 'tables' | 'data' | 'display'>('club');
   const [reportMode, setReportMode] = useState<'kpis' | 'night' | 'close'>('kpis');
   const [nightCloseActuals, setNightCloseActuals] = useState<Record<string, string>>({});
   const [nightCloseNotes, setNightCloseNotes] = useState('');
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('day');
+  const [reportAnchorDate, setReportAnchorDate] = useState(() => toLocalDateValue(new Date()));
   const [kpiCategory, setKpiCategory] = useState<'operations' | 'waitlist' | 'tables' | 'collections'>('operations');
   const [gameFormatFilter, setGameFormatFilter] = useState('All formats');
   const [gameStakesFilter, setGameStakesFilter] = useState('All stakes');
@@ -2126,6 +2456,15 @@ function App() {
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [coordinationConfig, setCoordinationConfig] = useState({ gameId: 'nlh-1-2', seats: 10 });
   const analytics = useMemo(() => getAnalytics(state), [state]);
+  const reportWindow = useMemo(() => getReportWindow(reportPeriod, reportAnchorDate), [reportPeriod, reportAnchorDate]);
+  const reportState = useMemo(() => getReportState(state, reportWindow), [state, reportWindow]);
+  const reportAnalytics = useMemo(() => getAnalytics(reportState), [reportState]);
+  const reportFinancials = useMemo(() => getReportFinancials(state, reportWindow), [state, reportWindow]);
+  const reportHourlyBreakdown = useMemo(() => getReportHourlyBreakdown(state, reportWindow, reportFinancials), [state, reportWindow, reportFinancials]);
+  const reportDealerBreakdown = useMemo(() => getDealerReport(state, reportWindow), [state, reportWindow]);
+  const reportOpportunities = useMemo(() => getOperationalOpportunities(reportState, reportAnalytics), [reportState, reportAnalytics]);
+  const currentReportWindow = getReportWindow(reportPeriod, toLocalDateValue(new Date()));
+  const reportIsCurrentPeriod = reportPeriod === 'all' || reportWindow.startMs >= currentReportWindow.startMs;
   const usageAnalytics = useMemo(() => getUsageAnalytics(state), [state]);
   const operationalOpportunities = useMemo(() => getOperationalOpportunities(state, analytics), [state, analytics]);
   const participantPool = useMemo(
@@ -2227,6 +2566,92 @@ function App() {
         .includes(query)
     );
   }, [state.profiles, profileSearch]);
+  const activeMemberProfiles = useMemo(
+    () => filteredProfiles.filter((profile) => profile.membershipStatus !== 'Requested' && isFutureDate(profile.membershipExpiresAt || profile.membershipExpirationDate)),
+    [filteredProfiles]
+  );
+  const pendingMembershipProfiles = useMemo(
+    () => filteredProfiles.filter((profile) => profile.membershipStatus === 'Requested'),
+    [filteredProfiles]
+  );
+  const todayPlayerActivity = useMemo<TodayPlayerRow[]>(() => {
+    const currentDate = toLocalDateValue(new Date());
+    const isToday = (value?: string) => {
+      if (!value) return false;
+      const date = new Date(value);
+      return !Number.isNaN(date.getTime()) && toLocalDateValue(date) === currentDate;
+    };
+    const getInterestTimestamp = (interest: Interest) => {
+      if (interest.status === 'Seated') return interest.seatedAt ?? interest.arrivedAt ?? interest.timestamp;
+      if (interest.status === 'Arrived') return interest.arrivedAt ?? interest.confirmedAt ?? interest.timestamp;
+      if (interest.status === 'Confirmed Coming') return interest.confirmedAt ?? interest.timestamp;
+      if (closedInterestStatuses.includes(interest.status)) return interest.closedAt ?? interest.timestamp;
+      return interest.interestedAt || interest.timestamp;
+    };
+    const findProfile = (profileId: string | undefined, playerName: string) =>
+      state.profiles.find((profile) => profile.id === profileId || profile.name.toLowerCase() === playerName.toLowerCase());
+    const findLatestSession = (profileId: string | undefined, playerName: string) =>
+      state.playerSessions
+        .filter((session) => session.profileId === profileId || session.playerName.toLowerCase() === playerName.toLowerCase())
+        .sort((left, right) => new Date(right.seatedAt).getTime() - new Date(left.seatedAt).getTime())[0];
+
+    const rows: TodayPlayerRow[] = state.interests
+      .map((interest) => {
+        const timestamp = getInterestTimestamp(interest);
+        if (!isToday(timestamp)) return null;
+        const profile = findProfile(interest.profileId, interest.playerName);
+        const playerSession = findLatestSession(interest.profileId, interest.playerName);
+        const table = playerSession ? state.sessions.find((session) => session.id === playerSession.tableId) : undefined;
+        return {
+          id: `interest-${interest.id}`,
+          playerName: interest.playerName,
+          profileId: interest.profileId,
+          status: interest.status,
+          gameName: state.games.find((game) => game.id === interest.gameId)?.name ?? 'Unknown game',
+          tableLabel: interest.status === 'Seated' ? table?.label : undefined,
+          seatNumber: interest.status === 'Seated' ? playerSession?.seatNumber : undefined,
+          timestamp,
+          activeMember: Boolean(profile && profile.membershipStatus !== 'Requested' && isFutureDate(profile.membershipExpiresAt || profile.membershipExpirationDate))
+        } satisfies TodayPlayerRow;
+      })
+      .filter((row): row is TodayPlayerRow => row !== null);
+
+    state.playerSessions
+      .filter((session) => !session.leftAt && isToday(session.seatedAt))
+      .forEach((session) => {
+        const alreadyListed = rows.some((row) =>
+          (session.profileId && row.profileId === session.profileId) || row.playerName.toLowerCase() === session.playerName.toLowerCase()
+        );
+        if (alreadyListed) return;
+        const profile = findProfile(session.profileId, session.playerName);
+        const table = state.sessions.find((candidate) => candidate.id === session.tableId);
+        rows.push({
+          id: `session-${session.id}`,
+          playerName: session.playerName,
+          profileId: session.profileId,
+          status: 'Seated',
+          gameName: state.games.find((game) => game.id === session.gameId)?.name ?? 'Unknown game',
+          tableLabel: table?.label,
+          seatNumber: session.seatNumber,
+          timestamp: session.seatedAt,
+          activeMember: Boolean(profile && profile.membershipStatus !== 'Requested' && isFutureDate(profile.membershipExpiresAt || profile.membershipExpirationDate))
+        });
+      });
+
+    const statusOrder: Record<InterestStatus, number> = {
+      Seated: 0,
+      Arrived: 1,
+      'Confirmed Coming': 2,
+      Interested: 3,
+      Declined: 4,
+      'No-Show': 5,
+      'Left Before Seated': 6,
+      Removed: 7
+    };
+    return rows.sort((left, right) =>
+      statusOrder[left.status] - statusOrder[right.status] || new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime()
+    );
+  }, [state.games, state.interests, state.playerSessions, state.profiles, state.sessions]);
   const duplicateProfiles = useMemo(() => {
     const groups = new Map<string, PlayerProfile[]>();
     state.profiles.forEach((profile: { name: any; id?: string; preferredGameIds?: string[]; preferredStakes?: string; typicalBuyInMin?: number; typicalBuyInMax?: number; willingnessToMove?: boolean; typicalAvailability?: string; usualCompanions?: string[]; preferredTags?: TableTag[]; notes?: string; }) => {
@@ -2306,6 +2731,18 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!hasAuthenticated || !canUseRendererFirebaseAuth()) {
+      hasPublishedStartupSnapshot.current = false;
+      return;
+    }
+    if (hasPublishedStartupSnapshot.current) return;
+    hasPublishedStartupSnapshot.current = true;
+    saveClubStateToFirebase(state).catch(() => {
+      hasPublishedStartupSnapshot.current = false;
+    });
+  }, [hasAuthenticated, state]);
+
+  useEffect(() => {
     document.body.classList.toggle('low-light', state.settings.lowLight);
     applyBrandTheme(state.settings.lowLight ? branding.theme.lowLight : branding.theme.default);
     document.title = branding.product.name;
@@ -2351,6 +2788,52 @@ function App() {
     window.addEventListener('hashchange', syncRoute);
     return () => window.removeEventListener('hashchange', syncRoute);
   }, []);
+
+  useEffect(() => {
+    if (!hasAuthenticated || !activeAccountKey || window.tableManagerDesktop) return;
+    let cancelled = false;
+    let bridgeInitialized = false;
+
+    const syncLocalPlayerUpdates = async () => {
+      try {
+        const response = await fetch(`${localOrbitBridgeBaseUrl}/state/${encodeURIComponent(activeAccountKey)}`);
+        if (response.status === 404) {
+          if (!bridgeInitialized) {
+            const published = await publishStateToLocalOrbitBridge(stateRef.current);
+            bridgeInitialized = Boolean(published?.ok);
+          }
+          return;
+        }
+        if (!response.ok) return;
+        bridgeInitialized = true;
+        const record = await response.json() as { state?: AppState };
+        if (cancelled || !record.state) return;
+        const latestState = stateRef.current;
+        const sameProfiles = JSON.stringify(record.state.profiles) === JSON.stringify(latestState.profiles);
+        const sameInterests = JSON.stringify(record.state.interests) === JSON.stringify(latestState.interests);
+        if (sameProfiles && sameInterests) return;
+        const mergedState: AppState = {
+          ...latestState,
+          profiles: mergeSyncedList(latestState.profiles, record.state.profiles ?? []),
+          interests: mergeSyncedList(latestState.interests, record.state.interests ?? [])
+        };
+        stateRef.current = mergedState;
+        setState(mergedState);
+        localStorage.setItem(getStorageKeyForState(mergedState), JSON.stringify(mergedState));
+        localStorage.setItem(`${storageKey}:last-account`, getStorageKeyForState(mergedState));
+        setSaveStatus({ state: 'saved', message: 'Player app updates synced' });
+      } catch {
+        // The local bridge is optional when Core is running without the linked dev command.
+      }
+    };
+
+    void syncLocalPlayerUpdates();
+    const timer = window.setInterval(() => void syncLocalPlayerUpdates(), 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeAccountKey, hasAuthenticated]);
 
   useEffect(() => {
     if (!activeAccountKey) return;
@@ -2702,6 +3185,7 @@ function App() {
     if (!minutes || minutes <= 0) return;
     const remaining = getTimeRemainingMinutes(playerSession);
     const timestamp = nowIso();
+    const amount = (minutes / 60) * getCollectionProfile(state, playerSession.gameId).hourlyFee;
     persist({
       ...state,
       playerSessions: state.playerSessions.map((session) =>
@@ -2715,6 +3199,19 @@ function App() {
             }
           : session
       ),
+      timeFeeLogs: [
+        ...state.timeFeeLogs,
+        {
+          id: uid(),
+          playerSessionId: playerSession.id,
+          tableId: playerSession.tableId,
+          gameId: playerSession.gameId,
+          playerName: playerSession.playerName,
+          minutes,
+          amount,
+          timestamp
+        }
+      ],
       tableEvents: [
         ...state.tableEvents,
         {
@@ -2794,6 +3291,50 @@ function App() {
       ]
     }, true, { feature: 'Drop tracking', action: 'Recorded table drop', metadata: { amount, gameId: session.gameId } });
     setDropDrafts((drafts) => ({ ...drafts, [session.id]: { amount: '', note: '' } }));
+  };
+
+  const assignDealer = (session: GameSession) => {
+    const dealerName = (dealerDrafts[session.id] ?? '').trim();
+    if (!dealerName) {
+      window.alert('Enter or select a dealer name.');
+      return;
+    }
+    const timestamp = nowIso();
+    persist({
+      ...state,
+      dealerAssignments: [
+        ...state.dealerAssignments.map((assignment) =>
+          assignment.tableId === session.id && !assignment.endedAt ? { ...assignment, endedAt: timestamp } : assignment
+        ),
+        { id: uid(), tableId: session.id, gameId: session.gameId, dealerName, startedAt: timestamp }
+      ]
+    }, true, { feature: 'Dealer tracking', action: 'Assigned dealer', metadata: { dealerName, tableId: session.id } });
+  };
+
+  const endDealerAssignment = (session: GameSession) => {
+    const timestamp = nowIso();
+    persist({
+      ...state,
+      dealerAssignments: state.dealerAssignments.map((assignment) =>
+        assignment.tableId === session.id && !assignment.endedAt ? { ...assignment, endedAt: timestamp } : assignment
+      )
+    }, true, { feature: 'Dealer tracking', action: 'Ended dealer assignment', metadata: { tableId: session.id } });
+  };
+
+  const recordHands = (session: GameSession) => {
+    const hands = Number(handCountDrafts[session.id]);
+    if (!Number.isInteger(hands) || hands <= 0) {
+      window.alert('Enter the number of hands dealt since the last count.');
+      return;
+    }
+    persist({
+      ...state,
+      handCountLogs: [
+        ...state.handCountLogs,
+        { id: uid(), tableId: session.id, gameId: session.gameId, hands, timestamp: nowIso() }
+      ]
+    }, true, { feature: 'Hand tracking', action: 'Recorded hands', metadata: { hands, tableId: session.id } });
+    setHandCountDrafts((drafts) => ({ ...drafts, [session.id]: '' }));
   };
 
   const deleteInterest = (id: string) => {
@@ -3870,6 +4411,7 @@ function App() {
   };
 
   const recordTableEvent = (session: GameSession, type: TableEventType, reason: string, note = '') => {
+    const timestamp = nowIso();
     persist({
       ...state,
       sessions: state.sessions.map((item: { id: string; status: any; endedAt: any; }) =>
@@ -3879,7 +4421,7 @@ function App() {
               status: type === 'Started' ? 'Running' : type === 'Failed to Start' ? 'Failed to Start' : type === 'Broke' || type === 'Closed' ? 'Closed' : item.status,
               endedAt:
                 type === 'Failed to Start' || type === 'Broke' || type === 'Closed'
-                  ? item.endedAt ?? nowIso()
+                  ? item.endedAt ?? timestamp
                   : item.endedAt
             }
           : item
@@ -3888,10 +4430,16 @@ function App() {
         type === 'Broke' || type === 'Closed'
           ? state.playerSessions.map((playerSession: { tableId: string; leftAt: any; }) =>
               playerSession.tableId === session.id && !playerSession.leftAt
-                ? { ...playerSession, leftAt: nowIso() }
+                ? { ...playerSession, leftAt: timestamp }
                 : playerSession
             )
           : state.playerSessions,
+      dealerAssignments:
+        type === 'Broke' || type === 'Closed' || type === 'Failed to Start'
+          ? state.dealerAssignments.map((assignment) =>
+              assignment.tableId === session.id && !assignment.endedAt ? { ...assignment, endedAt: timestamp } : assignment
+            )
+          : state.dealerAssignments,
       tableEvents: [
         ...state.tableEvents,
         {
@@ -3899,7 +4447,7 @@ function App() {
           type,
           gameId: session.gameId,
           tableId: session.id,
-          timestamp: nowIso(),
+          timestamp,
           playerCount: session.seatsFilled,
           reason,
           note
@@ -3974,6 +4522,38 @@ function App() {
     cancelEditProfile();
   };
 
+  const activateInPersonMembership = (profile: PlayerProfile) => {
+    const membership = createMembershipWindow(profile.membershipPlan || 'monthly');
+    const { startedAt, expiresAt } = membership;
+    const amount = parseMembershipPrice(profile.membershipPriceLabel);
+    persist({
+      ...state,
+      profiles: state.profiles.map((candidate) => candidate.id === profile.id ? {
+        ...candidate,
+        membershipStartDate: membership.startDate,
+        membershipExpirationDate: membership.expirationDate,
+        membershipExpiresAt: expiresAt.toISOString(),
+        membershipPaymentMethod: 'in-person',
+        membershipStatus: 'Active'
+      } : candidate),
+      revenueTransactions: amount > 0 ? [
+        ...state.revenueTransactions,
+        {
+          id: uid(),
+          type: 'membership',
+          amountCents: Math.round(amount * 100),
+          occurredAt: startedAt.toISOString(),
+          paymentStatus: 'paid',
+          source: 'manual',
+          playerId: profile.id,
+          playerName: profile.name,
+          membershipPlan: profile.membershipPlan || 'monthly'
+        }
+      ] : state.revenueTransactions
+    }, true, { feature: 'Profiles', action: 'Activated in-person membership', metadata: { profileId: profile.id, plan: profile.membershipPlan || 'monthly' } });
+    setProfileFormMessage(`${profile.name}'s ${profile.membershipPlan === 'day' ? 'day pass' : 'monthly membership'} is active.`);
+  };
+
   const addProfile = (event: React.FormEvent) => {
     event.preventDefault();
     const profileName = newProfile.name.trim();
@@ -3988,6 +4568,10 @@ function App() {
       return;
     }
     const preferredGame = state.games.find((game) => game.id === newProfile.preferredGameId);
+    const membership = createMembershipWindow(newProfile.membershipPlan);
+    const membershipStart = membership.startedAt;
+    const membershipExpires = membership.expiresAt;
+    const membershipAmount = parseMembershipPrice(newProfile.membershipAmount);
     persist({
       ...state,
       profiles: [
@@ -3997,8 +4581,14 @@ function App() {
           name: profileName,
           phone: newProfile.phone.trim(),
           birthday: newProfile.birthday,
-          membershipStartDate: newProfile.membershipStartDate,
-          membershipExpirationDate: newProfile.membershipExpirationDate,
+          membershipStartDate: membership.startDate,
+          membershipExpirationDate: membership.expirationDate,
+          membershipExpiresAt: membershipExpires.toISOString(),
+          membershipPlan: newProfile.membershipPlan,
+          membershipPaymentMethod: 'core',
+          membershipStatus: 'Active',
+          membershipRequestedAt: membershipStart.toISOString(),
+          membershipPriceLabel: membershipAmount ? `$${membershipAmount.toFixed(2)}` : undefined,
           totalTimePlayedHours: newProfile.totalTimePlayedHours,
           lastSessionTimePlayedHours: newProfile.lastSessionTimePlayedHours,
           commonlyPlaysWithProfileIds: newProfile.commonlyPlaysWithProfileIds,
@@ -4021,7 +4611,20 @@ function App() {
             .filter(Boolean),
           notes: newProfile.notes.trim()
         }
-      ]
+      ],
+      revenueTransactions: membershipAmount > 0 ? [
+        ...state.revenueTransactions,
+        {
+          id: uid(),
+          type: 'membership',
+          amountCents: Math.round(membershipAmount * 100),
+          occurredAt: membershipStart.toISOString(),
+          paymentStatus: 'paid',
+          source: 'manual',
+          playerName: profileName,
+          membershipPlan: newProfile.membershipPlan
+        }
+      ] : state.revenueTransactions
     }, true, { feature: 'Profiles', action: 'Added profile', metadata: { preferredGameId: newProfile.preferredGameId } });
     setProfileFormMessage(`${profileName} profile added.`);
     setNewProfile({
@@ -4029,6 +4632,8 @@ function App() {
       birthday: '',
       membershipStartDate: todayDate(),
       membershipExpirationDate: nextYearDate(),
+      membershipPlan: 'monthly',
+      membershipAmount: 0,
       totalTimePlayedHours: 0,
       lastSessionTimePlayedHours: 0,
       commonlyPlaysWithProfileIds: [],
@@ -4725,29 +5330,50 @@ function App() {
   const exportCsv = () => {
     const rows = [
       ['Metric', 'Value'],
-      ['Occupied seat-hours', analytics.currentNight.occupiedSeatHours.toFixed(2)],
-      ['Average seat-hours/player', analytics.averageSeatHoursPerPlayer.toFixed(2)],
-      ['Average wait minutes', analytics.averageWaitMinutes.toFixed(0)],
-      ['Waitlist conversion', `${(analytics.conversionRate * 100).toFixed(0)}%`],
-      ['Games started', analytics.currentNight.gamesStarted.toString()],
-      ['Failed starts', analytics.failedStarts.toString()],
-      ['Table breaks', analytics.tableBreaks.toString()],
-      ['Peak active tables', analytics.peakActiveTables.toString()],
-      ['Median wait minutes', analytics.medianWaitMinutes.toFixed(0)],
-      ['Confirmed to arrived', `${(analytics.confirmedArrivalRate * 100).toFixed(0)}%`],
-      ['Waitlist abandonment', analytics.waitlistAbandonmentCount.toString()],
-      ['Lost seat-hour estimate', analytics.lostSeatHourEstimate.toFixed(1)],
-      ['Estimated time-fee revenue', `$${analytics.estimatedTimeFeeRevenue.toFixed(2)}`],
-      ['Expired time-fee seats', analytics.expiredTimeFeeSeats.toString()],
-      ['Recorded table drop', `$${analytics.recordedDropTotal.toFixed(2)}`],
-      ['Estimated drop revenue', `$${analytics.estimatedDropRevenue.toFixed(2)}`],
-      ...analytics.collectionValueByGame.flatMap((item) => [
-        [`Time fees revenue - ${item.game}`, `$${item.timeRevenue.toFixed(2)}`],
+      ['Report period', reportWindow.label],
+      ['Total profit (gross)', `$${reportFinancials.totalProfit.toFixed(2)}`],
+      ['Time-fee payments', `$${reportFinancials.timeFees.toFixed(2)}`],
+      ['Recorded table drop', `$${reportFinancials.recordedDrop.toFixed(2)}`],
+      ['Membership revenue', `$${reportFinancials.membershipRevenue.toFixed(2)}`],
+      ['Tournament revenue', `$${reportFinancials.tournamentRevenue.toFixed(2)}`],
+      ['Hands logged', reportState.handCountLogs.reduce((sum, entry) => sum + entry.hands, 0).toString()],
+      ['Occupied seat-hours', reportAnalytics.currentNight.occupiedSeatHours.toFixed(2)],
+      ['Average seat-hours/player', reportAnalytics.averageSeatHoursPerPlayer.toFixed(2)],
+      ['Average wait minutes', reportAnalytics.averageWaitMinutes.toFixed(0)],
+      ['Waitlist conversion', `${(reportAnalytics.conversionRate * 100).toFixed(0)}%`],
+      ['Games started', reportState.sessions.filter((session) => session.status !== 'Failed to Start').length.toString()],
+      ['Failed starts', reportAnalytics.failedStarts.toString()],
+      ['Table breaks', reportAnalytics.tableBreaks.toString()],
+      ['Peak active tables', reportAnalytics.peakActiveTables.toString()],
+      ['Median wait minutes', reportAnalytics.medianWaitMinutes.toFixed(0)],
+      ['Confirmed to arrived', `${(reportAnalytics.confirmedArrivalRate * 100).toFixed(0)}%`],
+      ['Waitlist abandonment', reportAnalytics.waitlistAbandonmentCount.toString()],
+      ['Lost seat-hour estimate', reportAnalytics.lostSeatHourEstimate.toFixed(1)],
+      ['Expired time-fee seats', reportAnalytics.expiredTimeFeeSeats.toString()],
+      ['Estimated drop revenue', `$${reportAnalytics.estimatedDropRevenue.toFixed(2)}`],
+      ...reportFinancials.collectionByGame.flatMap((item) => [
+        [`Time fees revenue - ${item.game}`, `$${item.timeFees.toFixed(2)}`],
         [`Recorded drop - ${item.game}`, `$${item.recordedDrop.toFixed(2)}`],
-        [`Estimated drop - ${item.game}`, `$${item.estimatedDrop.toFixed(2)}`]
+        [`Estimated drop - ${item.game}`, `$${(reportAnalytics.collectionValueByGame.find((estimate) => estimate.game === item.game)?.estimatedDrop ?? 0).toFixed(2)}`]
       ]),
-      ...analytics.waitByGame.map((item: { game: any; count: any; averageMinutes: number; }) => [`Wait by game - ${item.game}`, item.count ? `${item.averageMinutes.toFixed(0)} minutes` : 'No seated waits']),
-      ...state.tableEvents
+      ...reportHourlyBreakdown.flatMap((item) => {
+        const start = new Date(item.startMs);
+        const end = new Date(item.startMs + 36e5);
+        const label = `${start.toLocaleDateString()} ${start.toLocaleTimeString([], { hour: 'numeric' })}-${end.toLocaleTimeString([], { hour: 'numeric' })}`;
+        return [
+          [`Hourly total - ${label}`, `$${item.total.toFixed(2)}`],
+          [`Hourly drop - ${label}`, `$${item.drop.toFixed(2)}`],
+          [`Hourly time fees - ${label}`, `$${item.timeFees.toFixed(2)}`],
+          [`Hourly memberships/tournaments - ${label}`, `$${item.otherRevenue.toFixed(2)}`]
+        ];
+      }),
+      ...reportDealerBreakdown.flatMap((dealer) => [
+        [`Dealer hours - ${dealer.dealerName}`, dealer.hours.toFixed(2)],
+        [`Dealer hands - ${dealer.dealerName}`, dealer.hands.toString()],
+        [`Dealer hands/hour - ${dealer.dealerName}`, dealer.handsPerHour.toFixed(2)]
+      ]),
+      ...reportAnalytics.waitByGame.map((item: { game: any; count: any; averageMinutes: number; }) => [`Wait by game - ${item.game}`, item.count ? `${item.averageMinutes.toFixed(0)} minutes` : 'No seated waits']),
+      ...reportState.tableEvents
         .filter((event: { type: string; }) => event.type === 'Failed to Start' || event.type === 'Broke')
         .map((event: { type: any; reason: any; note: any; }) => [`${event.type} reason`, `${event.reason || 'Unspecified'}${event.note ? ` - ${event.note}` : ''}`])
     ];
@@ -4756,7 +5382,7 @@ function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `table-manager-summary-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `table-manager-${reportPeriod}-report-${reportAnchorDate}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -6363,7 +6989,7 @@ function App() {
         <header className="topbar">
           <div>
             <h1>Players</h1>
-            <p className="page-subtitle">Search and manage player records</p>
+            <p className="page-subtitle">Active memberships and today's player activity</p>
           </div>
           <div className="topbar-actions players-header-actions">
             <button className="player-tool-icon" onClick={() => setPlayerPopup('ledger')} title="Open player ledger" aria-label="Open player ledger"><Clock size={19} /></button>
@@ -6376,7 +7002,7 @@ function App() {
             <Dialog.Overlay className="player-popup-overlay" />
             <Dialog.Content className="player-popup-content">
               <div className="player-popup-header">
-                <div><Dialog.Title>{playerPopup === 'add' ? 'Add player' : 'Player ledger'}</Dialog.Title><Dialog.Description>{playerPopup === 'add' ? 'Create a player record.' : 'Recent check-ins and transactions.'}</Dialog.Description></div>
+                <div><Dialog.Title>{playerPopup === 'add' ? 'Add member' : 'Player ledger'}</Dialog.Title><Dialog.Description>{playerPopup === 'add' ? 'Record a walk-in membership paid at the club.' : 'Recent check-ins and transactions.'}</Dialog.Description></div>
                 <Dialog.Close asChild><button className="icon-button" aria-label="Close"><X size={18} /></button></Dialog.Close>
               </div>
               {playerPopup === 'add' ? (
@@ -6384,8 +7010,12 @@ function App() {
                   <label><span>Player name</span><input autoFocus value={newProfile.name} onChange={(event) => setNewProfile({ ...newProfile, name: event.target.value })} placeholder="Full name" /></label>
                   <label><span>Phone</span><input value={newProfile.phone} onChange={(event) => setNewProfile({ ...newProfile, phone: event.target.value })} placeholder="Phone number" /></label>
                   <label><span>Preferred game</span><select value={newProfile.preferredGameId} onChange={(event) => setNewProfile({ ...newProfile, preferredGameId: event.target.value, preferredGameIds: [event.target.value] })}>{state.games.map((game) => <option key={game.id} value={game.id}>{game.name}</option>)}</select></label>
-                  <div className="player-popup-form-grid"><label><span>Birthday</span><input type="date" value={newProfile.birthday} onChange={(event) => setNewProfile({ ...newProfile, birthday: event.target.value })} /></label><label><span>Membership expires</span><input type="date" value={newProfile.membershipExpirationDate} onChange={(event) => setNewProfile({ ...newProfile, membershipExpirationDate: event.target.value })} /></label></div>
-                  <div className="player-popup-actions"><Dialog.Close asChild><button className="ghost-button" type="button">Cancel</button></Dialog.Close><button className="primary-button" type="submit">Add player</button></div>
+                  <div className="player-popup-form-grid">
+                    <label><span>Pass type</span><select value={newProfile.membershipPlan} onChange={(event) => setNewProfile({ ...newProfile, membershipPlan: event.target.value as 'day' | 'monthly' })}><option value="day">Day pass (24 hours)</option><option value="monthly">Monthly (30 days)</option></select></label>
+                    <label><span>Amount paid in person</span><input type="number" min="0" step="0.01" value={newProfile.membershipAmount} onChange={(event) => setNewProfile({ ...newProfile, membershipAmount: Number(event.target.value) })} placeholder="0.00" /></label>
+                  </div>
+                  <label><span>Birthday</span><input type="date" value={newProfile.birthday} onChange={(event) => setNewProfile({ ...newProfile, birthday: event.target.value })} /></label>
+                  <div className="player-popup-actions"><Dialog.Close asChild><button className="ghost-button" type="button">Cancel</button></Dialog.Close><button className="primary-button" type="submit">Add active member</button></div>
                 </form>
               ) : (
                 <div className="player-popup-ledger">
@@ -6396,6 +7026,17 @@ function App() {
           </Dialog.Portal>
         </Dialog.Root>
 
+        <nav className="route-tabs players-section-tabs" aria-label="Player sections">
+          <button className={playerSection === 'memberships' ? 'active' : ''} onClick={() => setPlayerSection('memberships')}>
+            Membership database <span>{activeMemberProfiles.length + pendingMembershipProfiles.length}</span>
+          </button>
+          <button className={playerSection === 'today' ? 'active' : ''} onClick={() => setPlayerSection('today')}>
+            Today <span>{todayPlayerActivity.length}</span>
+          </button>
+        </nav>
+
+        {playerSection === 'memberships' ? <>
+
         <section className="profile-command-strip">
           <article>
             <span className="eyebrow">Directory health</span>
@@ -6404,8 +7045,8 @@ function App() {
           </article>
           <article>
             <span className="eyebrow">Memberships</span>
-            <strong>{state.profiles.filter((profile) => isFutureDate(profile.membershipExpirationDate)).length} active</strong>
-            <small>{duplicateProfiles.length} duplicate group{duplicateProfiles.length === 1 ? '' : 's'}</small>
+            <strong>{activeMemberProfiles.length} active</strong>
+            <small>{pendingMembershipProfiles.length} waiting for in-person payment</small>
           </article>
           <div className="profile-command-actions">
             <button className="secondary-button" onClick={addDemoProfile}>
@@ -6418,6 +7059,21 @@ function App() {
           </div>
         </section>
 
+        {pendingMembershipProfiles.length ? (
+          <section className="panel pending-membership-panel">
+            <PanelTitle icon={<Clock />} title="Pay-in-person requests" />
+            <p className="muted-copy">Confirm payment here to start the player’s 24-hour or 30-day pass timer.</p>
+            <div className="pending-membership-list">
+              {pendingMembershipProfiles.map((profile) => (
+                <article className="duplicate-card" key={profile.id}>
+                  <span><strong>{profile.name}</strong> · {profile.membershipPlan === 'day' ? 'Day pass' : 'Monthly membership'}{profile.membershipPriceLabel ? ` · ${profile.membershipPriceLabel}` : ''}</span>
+                  <button className="primary-button" onClick={() => activateInPersonMembership(profile)}>Mark paid &amp; activate</button>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         <section className="profiles-layout">
           <section className="panel profile-directory-panel">
             <PanelTitle icon={<Users />} title="Player Directory" />
@@ -6427,7 +7083,7 @@ function App() {
                 onChange={(event: { target: { value: any; }; }) => setProfileSearch(event.target.value)}
                 placeholder="Search players, stakes, companions, notes"
               />
-              <span>{filteredProfiles.length} shown</span>
+              <span>{activeMemberProfiles.length} active shown</span>
             </div>
             {duplicateProfiles.length ? (
               <div className="duplicate-list">
@@ -6442,7 +7098,7 @@ function App() {
               </div>
             ) : null}
             <div className="profile-grid">
-              {filteredProfiles.map((profile) => {
+              {activeMemberProfiles.map((profile) => {
                 const preferredGame = state.games.find((game) => game.id === profile.preferredGameId)?.name ?? profile.preferredStakes;
                 const gamePlayEntries = getGamePlayEntries(profile);
                 const mostPlayedGame = getMostPlayedGameName(profile);
@@ -6598,7 +7254,7 @@ function App() {
                   </article>
                 );
               })}
-              {!filteredProfiles.length ? <p className="muted-copy">No matching profiles.</p> : null}
+              {!activeMemberProfiles.length ? <p className="muted-copy">No matching active memberships.</p> : null}
             </div>
           </section>
 
@@ -6761,6 +7417,61 @@ function App() {
             </section>
           </div>
         </section>
+        </> : (
+          <section className="panel today-players-panel">
+            <div className="today-players-heading">
+              <div>
+                <span className="eyebrow">Daily room activity</span>
+                <h2>Today's players</h2>
+                <p>Everyone whose status changed today, including interest, confirmations, arrivals, and seats.</p>
+              </div>
+              <strong>{toLocalDateValue(new Date())}</strong>
+            </div>
+
+            <div className="today-player-summary" aria-label="Today's player status totals">
+              {(['Interested', 'Confirmed Coming', 'Arrived', 'Seated'] as InterestStatus[]).map((status) => (
+                <article key={status} data-status={status}>
+                  <span>{status === 'Confirmed Coming' ? 'Confirmed' : status}</span>
+                  <strong>{todayPlayerActivity.filter((player) => player.status === status).length}</strong>
+                </article>
+              ))}
+            </div>
+
+            <div className="today-player-table-head" aria-hidden="true">
+              <span>Player</span>
+              <span>Status</span>
+              <span>Game / table</span>
+              <span>Membership</span>
+              <span>Updated</span>
+            </div>
+            <div className="today-player-list">
+              {todayPlayerActivity.map((player) => (
+                <article className="today-player-row" key={player.id}>
+                  <div className="today-player-name">
+                    <strong>{player.playerName}</strong>
+                    <small>{player.profileId ? 'Saved player profile' : 'Guest / manual entry'}</small>
+                  </div>
+                  <span className="today-player-status" data-status={player.status}>{player.status}</span>
+                  <div className="today-player-location">
+                    <strong>{player.gameName}</strong>
+                    <small>{player.tableLabel ? `${player.tableLabel}${player.seatNumber ? ` · Seat ${player.seatNumber}` : ''}` : 'Not seated at a table'}</small>
+                  </div>
+                  <span className={`today-membership ${player.activeMember ? 'active' : ''}`}>
+                    {player.activeMember ? 'Active member' : 'No active membership'}
+                  </span>
+                  <time dateTime={player.timestamp}>{formatClock(player.timestamp)}</time>
+                </article>
+              ))}
+              {!todayPlayerActivity.length ? (
+                <div className="today-player-empty">
+                  <Users size={28} />
+                  <strong>No player activity today</strong>
+                  <span>Interested, confirmed, arrived, and seated players will appear here automatically.</span>
+                </div>
+              ) : null}
+            </div>
+          </section>
+        )}
       </main>
     ));
   }
@@ -6890,12 +7601,29 @@ function App() {
   }
 
   if (route === 'summary') {
+    const analytics = reportAnalytics;
+    const gamesStartedInPeriod = reportState.sessions.filter((session) => session.status !== 'Failed to Start').length;
+    const totalTableHours = reportState.sessions.reduce((sum, session) => sum + hoursBetween(session.startedAt, session.endedAt), 0);
+    const totalTrackedHands = reportState.handCountLogs.reduce((sum, entry) => sum + entry.hands, 0);
+    const collectionPerTableHour = totalTableHours > 0 ? reportFinancials.totalProfit / totalTableHours : 0;
+    const handsPerTableHour = totalTableHours > 0 ? totalTrackedHands / totalTableHours : 0;
+    const dropPerSeatHour = analytics.currentNight.occupiedSeatHours > 0 ? reportFinancials.recordedDrop / analytics.currentNight.occupiedSeatHours : 0;
+    const topEarningHour = reportHourlyBreakdown.reduce<(typeof reportHourlyBreakdown)[number] | null>(
+      (best, item) => !best || item.total > best.total ? item : best,
+      null
+    );
+    const hourLabel = (startMs: number) => {
+      const start = new Date(startMs);
+      const end = new Date(startMs + 36e5);
+      const showDate = reportPeriod !== 'day';
+      return `${showDate ? `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ` : ''}${start.toLocaleTimeString([], { hour: 'numeric' })}–${end.toLocaleTimeString([], { hour: 'numeric' })}`;
+    };
     return withShell('reports', (
       <main className={`app-shell compact-shell reports-page reports-mode-${reportMode} reports-kpi-${kpiCategory}`}>
         <header className="topbar">
           <div>
-            <h1>Night Report</h1>
-            <p className="page-subtitle">Current shift performance and closeout</p>
+            <h1>Reports</h1>
+            <p className="page-subtitle">{reportWindow.label} performance and closeout</p>
           </div>
           <div className="topbar-actions">
             <button className="ghost-button" onClick={exportCsv}>
@@ -6924,6 +7652,77 @@ function App() {
           <button className={reportMode === 'night' ? 'active' : ''} onClick={() => setReportMode('night')}>Tonight's report</button>
           <button className={reportMode === 'close' ? 'active' : ''} onClick={() => setReportMode('close')}>Night close</button>
         </nav>
+        <section className="report-period-toolbar" aria-label="Report date range">
+          <nav className="report-period-tabs" aria-label="Group reports by">
+            {([
+              ['day', 'Tonight'],
+              ['week', 'Week'],
+              ['month', 'Month'],
+              ['year', 'Year'],
+              ['all', 'All time']
+            ] as [ReportPeriod, string][]).map(([period, label]) => (
+              <button
+                key={period}
+                className={reportPeriod === period ? 'active' : ''}
+                onClick={() => setReportPeriod(period)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          <div className="report-period-navigation">
+            <button
+              className="ghost-button"
+              disabled={reportPeriod === 'all'}
+              onClick={() => setReportAnchorDate((current) => shiftReportAnchor(current, reportPeriod, -1))}
+            >
+              Previous
+            </button>
+            <strong>{reportWindow.label}</strong>
+            <button
+              className="ghost-button"
+              disabled={reportIsCurrentPeriod}
+              onClick={() => setReportAnchorDate((current) => shiftReportAnchor(current, reportPeriod, 1))}
+            >
+              Next
+            </button>
+            <button className="ghost-button" onClick={() => setReportAnchorDate(toLocalDateValue(new Date()))}>Today</button>
+          </div>
+        </section>
+
+        <section className="report-profit-banner" aria-live="polite">
+          <div className="report-profit-total">
+            <span>Total profit · {reportWindow.label}</span>
+            <strong>${reportFinancials.totalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+            <small>Recorded drop, time fees, memberships, and tournament payments before expenses</small>
+          </div>
+          <div className="report-profit-breakdown">
+            <article>
+              <span>Recorded drop</span>
+              <strong>${reportFinancials.recordedDrop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+            </article>
+            <article>
+              <span>Time fees</span>
+              <strong>${reportFinancials.timeFees.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+            </article>
+            <article>
+              <span>Memberships</span>
+              <strong>${reportFinancials.membershipRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+            </article>
+            <article>
+              <span>Tournaments</span>
+              <strong>${reportFinancials.tournamentRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+            </article>
+          </div>
+        </section>
+        <section className="report-numerical-grid" aria-label="Detailed report numbers">
+          <article><span>Collection / table-hour</span><strong>${collectionPerTableHour.toFixed(2)}</strong></article>
+          <article><span>Drop / occupied seat-hour</span><strong>${dropPerSeatHour.toFixed(2)}</strong></article>
+          <article><span>Hands logged</span><strong>{totalTrackedHands.toLocaleString()}</strong></article>
+          <article><span>Hands / table-hour</span><strong>{handsPerTableHour.toFixed(1)}</strong></article>
+          <article><span>Table-hours</span><strong>{totalTableHours.toFixed(1)}</strong></article>
+          <article><span>Best earning hour</span><strong>{topEarningHour ? `$${topEarningHour.total.toFixed(0)}` : '$0'}</strong><small>{topEarningHour ? hourLabel(topEarningHour.startMs) : 'No collections logged'}</small></article>
+        </section>
         {reportMode === 'kpis' ? <nav className="metric-category-menu" aria-label="Metric categories"><button className={kpiCategory === 'operations' ? 'active' : ''} onClick={() => setKpiCategory('operations')}>Operations</button><button className={kpiCategory === 'waitlist' ? 'active' : ''} onClick={() => setKpiCategory('waitlist')}>Waitlist</button><button className={kpiCategory === 'tables' ? 'active' : ''} onClick={() => setKpiCategory('tables')}>Tables</button><button className={kpiCategory === 'collections' ? 'active' : ''} onClick={() => setKpiCategory('collections')}>Collections</button></nav> : null}
 
         {reportMode === 'close' ? <section className="night-close-workspace">
@@ -7006,7 +7805,7 @@ function App() {
           </article>
           <article className="panel owner-metric">
             <span>Games Started</span>
-            <strong>{analytics.currentNight.gamesStarted}</strong>
+            <strong>{gamesStartedInPeriod}</strong>
           </article>
           <article className="panel owner-metric">
             <span>Failed Starts</span>
@@ -7053,8 +7852,8 @@ function App() {
             <strong>{analytics.totalArrivals}</strong>
           </article>
           <article className="panel owner-metric">
-            <span>Time Fees Est.</span>
-            <strong>${analytics.estimatedTimeFeeRevenue.toFixed(0)}</strong>
+            <span>Time Fees</span>
+            <strong>${reportFinancials.timeFees.toFixed(0)}</strong>
           </article>
           <article className="panel owner-metric">
             <span>Expired Time</span>
@@ -7062,7 +7861,7 @@ function App() {
           </article>
           <article className="panel owner-metric">
             <span>Recorded Drop</span>
-            <strong>${analytics.recordedDropTotal.toFixed(0)}</strong>
+            <strong>${reportFinancials.recordedDrop.toFixed(0)}</strong>
           </article>
           <article className="panel owner-metric">
             <span>Drop Est.</span>
@@ -7071,15 +7870,54 @@ function App() {
         </section>
 
         <section className="panel summary-report">
-          <PanelTitle icon={<Target />} title="What Happened Tonight" />
+          <PanelTitle icon={<Target />} title={`What Happened · ${reportWindow.label}`} />
           <p>
-            The room generated {analytics.currentNight.occupiedSeatHours.toFixed(1)} occupied seat-hours across {analytics.activeTables} active/forming tables.
+            The room generated {analytics.currentNight.occupiedSeatHours.toFixed(1)} occupied seat-hours across {gamesStartedInPeriod} tables.
             Average wait is {analytics.averageWaitMinutes.toFixed(0)} minutes, with {(analytics.conversionRate * 100).toFixed(0)}% waitlist conversion.
           </p>
           <p>
             Peak demand is {analytics.peakInterestedByGame ? `${analytics.peakInterestedByGame.game} with ${analytics.peakInterestedByGame.count} interested/in-room players` : 'not available yet'}.
             Failed starts: {analytics.failedStarts}. Table breaks: {analytics.tableBreaks}.
           </p>
+          <div className="report-analysis-grid">
+            <section className="report-analysis-card">
+              <div className="report-analysis-heading">
+                <div>
+                  <span>Collections by time</span>
+                  <h3>Money made each hour</h3>
+                </div>
+                <strong>{topEarningHour ? `${hourLabel(topEarningHour.startMs)} was highest` : 'Waiting for collection data'}</strong>
+              </div>
+              <div className="report-hour-list">
+                {reportHourlyBreakdown.length ? reportHourlyBreakdown.map((item) => (
+                  <article className={item.startMs === topEarningHour?.startMs ? 'top-hour' : ''} key={item.startMs}>
+                    <time>{hourLabel(item.startMs)}</time>
+                    <div><span>Drop</span><strong>${item.drop.toFixed(2)}</strong></div>
+                    <div><span>Time</span><strong>${item.timeFees.toFixed(2)}</strong></div>
+                    <div><span>Members/events</span><strong>${item.otherRevenue.toFixed(2)}</strong></div>
+                    <div className="hour-total"><span>Total</span><strong>${item.total.toFixed(2)}</strong></div>
+                  </article>
+                )) : <p className="muted-copy">No drop or time-fee payments were recorded in this period.</p>}
+              </div>
+            </section>
+            <section className="report-analysis-card">
+              <div className="report-analysis-heading">
+                <div>
+                  <span>Dealer performance</span>
+                  <h3>Who dealt each table</h3>
+                </div>
+              </div>
+              <div className="report-dealer-list">
+                {reportDealerBreakdown.length ? reportDealerBreakdown.map((dealer) => (
+                  <article key={dealer.dealerName}>
+                    <div><strong>{dealer.dealerName}</strong><span>{dealer.tables} table{dealer.tables === 1 ? '' : 's'} · {dealer.hours.toFixed(1)}h</span></div>
+                    <div><span>Hands</span><strong>{dealer.hands}</strong></div>
+                    <div><span>Hands/hr</span><strong>{dealer.handsPerHour.toFixed(1)}</strong></div>
+                  </article>
+                )) : <p className="muted-copy">No dealer downs tracked yet. Assign dealers from each table's Table admin section.</p>}
+              </div>
+            </section>
+          </div>
           <div className="summary-breakdown">
             <div>
               <h3>Seat-Hours by Game</h3>
@@ -7101,18 +7939,18 @@ function App() {
             </div>
             <div>
               <h3>Collection Value by Game</h3>
-              {analytics.collectionValueByGame.map((item) => (
+              {reportFinancials.collectionByGame.map((item) => (
                 <span key={item.game}>
-                  {item.game}: ${item.timeRevenue.toFixed(0)} time / ${item.recordedDrop.toFixed(0)} actual drop / ${item.estimatedDrop.toFixed(0)} est. drop
+                  {item.game}: ${item.timeFees.toFixed(0)} time / ${item.recordedDrop.toFixed(0)} actual drop / ${(analytics.collectionValueByGame.find((estimate) => estimate.game === item.game)?.estimatedDrop ?? 0).toFixed(0)} est. drop
                 </span>
               ))}
             </div>
             <div>
               <h3>Event Reasons</h3>
-              {state.tableEvents.filter((event: { type: string; }) => event.type === 'Failed to Start' || event.type === 'Broke').slice(-6).map((event: { id: any; type: any; reason: any; note: any; }) => (
+              {reportState.tableEvents.filter((event: { type: string; }) => event.type === 'Failed to Start' || event.type === 'Broke').slice(-6).map((event: { id: any; type: any; reason: any; note: any; }) => (
                 <span key={event.id}>{event.type}: {event.reason || 'Unspecified'}{event.note ? ` - ${event.note}` : ''}</span>
               ))}
-              {!state.tableEvents.some((event: { type: string; }) => event.type === 'Failed to Start' || event.type === 'Broke') ? <span>No failed starts or breaks logged.</span> : null}
+              {!reportState.tableEvents.some((event: { type: string; }) => event.type === 'Failed to Start' || event.type === 'Broke') ? <span>No failed starts or breaks logged.</span> : null}
             </div>
           </div>
           <div className="summary-breakdown">
@@ -7127,7 +7965,7 @@ function App() {
             </div>
             <div>
               <h3>Operational Opportunities</h3>
-              {operationalOpportunities.map((item: any) => (
+              {reportOpportunities.map((item: any) => (
                 <span key={item}>{item}</span>
               ))}
             </div>
@@ -7672,10 +8510,53 @@ function App() {
                 .sort((left, right) => left.interestedAt.localeCompare(right.interestedAt))
                 .map((interest) => {
                   const game = state.games.find((item) => item.id === interest.gameId);
+                  const openTables = state.sessions.filter(
+                    (session) =>
+                      session.gameId === interest.gameId &&
+                      session.status !== 'Closed' &&
+                      session.status !== 'Failed to Start' &&
+                      getAvailableSeatNumber(session) !== undefined
+                  );
                   return <article className="waitlist-popup-row" key={interest.id}>
-                    <div><strong>{interest.playerName}</strong><span>{game?.name ?? 'Unknown game'} · {interest.status === 'Confirmed Coming' ? 'Coming' : interest.status === 'Arrived' ? 'Here' : interest.status}</span></div>
-                    <em>{minutesSince(interest.interestedAt)}m</em>
-                    <DropdownMenu><DropdownMenuTrigger asChild><button className="icon-button" aria-label={`Actions for ${interest.playerName}`}><MoreHorizontal size={17} /></button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => deleteInterest(interest.id)}>Remove from waitlist</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+                    <div>
+                      <strong>{interest.playerName}</strong>
+                      <span>{game?.name ?? 'Unknown game'} · {interest.status === 'Confirmed Coming' ? 'Coming' : interest.status === 'Arrived' ? 'Here' : interest.status}</span>
+                      {interest.expectedArrivalTime ? <span>Expected at {interest.expectedArrivalTime}</span> : null}
+                      {interest.availabilityStartTime ? <span>Available {interest.availabilityStartTime}{interest.availabilityEndTime ? `–${interest.availabilityEndTime}` : ''}</span> : null}
+                    </div>
+                    <em className="waitlist-popup-age">{minutesSince(interest.interestedAt)}m</em>
+                    <div className="waitlist-popup-actions">
+                      {interest.status === 'Arrived' ? (
+                        openTables.length ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button className="secondary-button waitlist-seat-button">Seat at table</button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="waitlist-action-menu">
+                              {openTables.map((session) => (
+                                <DropdownMenuItem
+                                  key={session.id}
+                                  onSelect={() => {
+                                    seatInterestAtTable(interest, session.id);
+                                    setWaitlistPopupOpen(false);
+                                  }}
+                                >
+                                  {session.label} · {session.maxSeats - getActivePlayerSessionsForTable(state, session.id).length} open
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : <span className="waitlist-no-table">No open table</span>
+                      ) : (
+                        <button className="secondary-button waitlist-arrive-button" onClick={() => updateInterest(interest.id, { status: 'Arrived' })}>
+                          Mark arrived
+                        </button>
+                      )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild><button className="icon-button" aria-label={`Actions for ${interest.playerName}`}><MoreHorizontal size={17} /></button></DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="waitlist-action-menu"><DropdownMenuItem onSelect={() => deleteInterest(interest.id)}>Remove from waitlist</DropdownMenuItem></DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </article>;
                 }) : <div className="waitlist-popup-empty"><strong>No one is waiting</strong><span>New interest will appear here.</span></div>}
             </div>
@@ -7712,6 +8593,10 @@ function App() {
                 const tableDropTotal = state.dropLogs
                   .filter((drop) => drop.tableId === session.id)
                   .reduce((sum, drop) => sum + drop.amount, 0);
+                const currentDealer = state.dealerAssignments.find((assignment) => assignment.tableId === session.id && !assignment.endedAt);
+                const tableHandsTotal = state.handCountLogs
+                  .filter((entry) => entry.tableId === session.id)
+                  .reduce((sum, entry) => sum + entry.hands, 0);
                 const tableExpanded = collapsedTables[session.id] ?? true;
                 const pokerTablePlayers: PokerTablePlayer[] = seatedPlayers.map((playerSession, index) => {
                   const hours = getPlayerLoggedHours(state, playerSession);
@@ -7743,6 +8628,8 @@ function App() {
                         Start {formatClock(session.startedAt)} {session.manualEdits?.startedAt ? <em className="edited-marker">edited</em> : null}
                         {session.endedAt ? <> / End {formatClock(session.endedAt)} {session.manualEdits?.endedAt ? <em className="edited-marker">edited</em> : null}</> : null}
                         {' '} / Avg stack ${averageStack.toLocaleString()}
+                        {currentDealer ? <> / Dealer {currentDealer.dealerName}</> : null}
+                        {tableHandsTotal ? <> / {tableHandsTotal} hands logged</> : null}
                       </small>
                     </div>
                     <strong>{pokerTablePlayers.length}/{session.maxSeats}</strong>
@@ -7912,6 +8799,37 @@ function App() {
                             onChange={(event: { target: { value: string; }; }) => updateSessionTimestamp(session.id, 'endedAt', event.target.value)}
                           />
                         </label>
+                        <label>
+                          Current dealer
+                          <input
+                            list={`dealer-options-${session.id}`}
+                            value={dealerDrafts[session.id] ?? currentDealer?.dealerName ?? ''}
+                            onChange={(event) => setDealerDrafts((drafts) => ({ ...drafts, [session.id]: event.target.value }))}
+                            placeholder="Dealer name"
+                          />
+                          <datalist id={`dealer-options-${session.id}`}>
+                            {state.settings.staffAccounts.filter((staff) => staff.active).map((staff) => <option key={staff.id} value={staff.name} />)}
+                          </datalist>
+                        </label>
+                        <div className="table-tracking-actions">
+                          <button className="secondary-button" onClick={() => assignDealer(session)}>Start dealer down</button>
+                          {currentDealer ? <button className="ghost-button" onClick={() => endDealerAssignment(session)}>End {currentDealer.dealerName}</button> : null}
+                        </div>
+                        <label>
+                          Hands since last count
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={handCountDrafts[session.id] ?? ''}
+                            onChange={(event) => setHandCountDrafts((drafts) => ({ ...drafts, [session.id]: event.target.value }))}
+                            placeholder="Example: 15"
+                          />
+                        </label>
+                        <div className="table-tracking-actions">
+                          <button className="secondary-button" onClick={() => recordHands(session)}>Record hands</button>
+                          <span className="muted-copy">{tableHandsTotal} total logged</span>
+                        </div>
                         <label>
                           Break reason
                           <select
