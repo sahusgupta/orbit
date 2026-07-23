@@ -412,7 +412,9 @@ export async function submitMembershipRequest(request: PlayerMembershipRequest):
       status: 'Requested',
       requestedAt: request.requestedAt,
       preferredGameIds: request.player.preferredGameIds,
-      preferredStakes: request.player.preferredStakes
+      preferredStakes: request.player.preferredStakes,
+      planId: request.planId,
+      planName: request.planName
     };
     if (auth.currentUser) {
       await savePlayerProfile({ ...request.player, id: auth.currentUser.uid }, membershipRecord);
@@ -528,10 +530,11 @@ async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: 
       id: club.id || clubDoc.id,
       name: club.name || 'Local Poker Club',
       address: club.address,
-      phone: club.phone
+      phone: club.phone,
+      membershipPlans: club.membershipPlans ?? []
     },
     games: games.docs.map((gameDoc) => gameDoc.data() as PlayerClubSnapshot['games'][number]),
-    memberships: memberships.docs.map((membershipDoc) => membershipDoc.data() as PlayerClubSnapshot['memberships'][number]),
+    memberships: memberships.docs.map((membershipDoc) => normalizePublishedMembership(membershipDoc.data(), clubDoc.id, player)),
     waitlists: waitlists.docs.map((waitlistDoc) => waitlistDoc.data() as PlayerClubSnapshot['waitlists'][number]),
     notifications: notifications.docs.map((notificationDoc) => notificationDoc.data() as PlayerClubSnapshot['notifications'][number]),
     social: club.social ?? { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: 0 },
@@ -555,10 +558,11 @@ function buildPublishedClubSnapshot(
         id: club.id || clubDoc.id,
         name: club.name || 'Local Poker Club',
         address: club.address,
-        phone: club.phone
+        phone: club.phone,
+        membershipPlans: club.membershipPlans ?? []
       },
       games,
-      memberships,
+      memberships: memberships.map((membership) => normalizePublishedMembership(membership, clubDoc.id, player)),
       waitlists,
       notifications,
       social: club.social ?? { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: 0 },
@@ -647,6 +651,26 @@ function normalizeIdentity(value?: string) {
   return (value ?? '').trim().toLowerCase();
 }
 
+function normalizePublishedMembership(value: unknown, clubId: string, player: Pick<PlayerAccount, 'id' | 'name'>): PlayerClubSnapshot['memberships'][number] {
+  const membership = (value ?? {}) as Partial<PlayerClubSnapshot['memberships'][number]>;
+  const lifetimeHours = Number(membership.loyalty?.lifetimeHours ?? 0);
+  return {
+    id: membership.id || `${clubId}:${membership.playerId || player.id}`,
+    clubId: membership.clubId || clubId,
+    playerId: membership.playerId || player.id,
+    playerName: membership.playerName || player.name || 'Player',
+    status: membership.status === 'Expired' || membership.status === 'Requested' ? membership.status : 'Active',
+    joinedAt: membership.joinedAt || new Date().toISOString().slice(0, 10),
+    expiresAt: membership.expiresAt,
+    loyalty: membership.loyalty ?? getPlayerLoyalty(clubId, lifetimeHours),
+    preferredGameIds: membership.preferredGameIds ?? [],
+    preferredStakes: membership.preferredStakes,
+    clubNote: membership.clubNote,
+    planId: membership.planId,
+    planName: membership.planName
+  };
+}
+
 function applyMembershipToSnapshot(snapshot: PlayerClubSnapshot, request: PlayerMembershipRequest): PlayerClubSnapshot {
   if (snapshot.memberships.some((membership) => membership.playerId === request.player.id)) return snapshot;
   return {
@@ -659,11 +683,13 @@ function applyMembershipToSnapshot(snapshot: PlayerClubSnapshot, request: Player
         playerId: request.player.id,
         playerName: request.player.name,
         status: 'Requested',
-        joinedAt: request.requestedAt.slice(0, 10),
+        joinedAt: (request.requestedAt || new Date().toISOString()).slice(0, 10),
         loyalty: getPlayerLoyalty(request.clubId, 0),
         preferredGameIds: request.player.preferredGameIds,
         preferredStakes: request.player.preferredStakes,
-        clubNote: request.player.typicalAvailability
+        clubNote: request.player.typicalAvailability,
+        planId: request.planId,
+        planName: request.planName
       }
     ],
     generatedAt: request.requestedAt
@@ -702,8 +728,8 @@ function applyMembershipToState(state: Record<string, any>, request: PlayerMembe
   const profiles = Array.isArray(state.profiles) ? state.profiles : [];
   const player = request.player;
   const existing = profiles.find((profile) => profile.id === player.id || String(profile.name || '').toLowerCase() === player.name.toLowerCase());
-  const membershipStartDate = request.requestedAt.slice(0, 10);
-  const membershipExpirationDate = addDays(membershipStartDate, 365);
+  const membershipStartDate = (request.requestedAt || new Date().toISOString()).slice(0, 10);
+  const membershipExpirationDate = addDays(membershipStartDate, request.membershipDurationDays ?? 365);
   if (existing) {
     return {
       ...state,

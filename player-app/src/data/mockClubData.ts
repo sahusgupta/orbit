@@ -1,4 +1,4 @@
-import type { PlayerAccount, PlayerClubSnapshot, PlayerMembershipRequest, PlayerWaitlistRequest } from '../domain/playerSync';
+import type { ClubMembershipPlan, PlayerAccount, PlayerClubSnapshot, PlayerMembershipRequest, PlayerWaitlistRequest } from '../domain/playerSync';
 import { createMembershipRequest, createWaitlistRequest, getPlayerLoyalty } from '../domain/playerSync';
 
 export const demoPlayer: PlayerAccount = {
@@ -340,11 +340,13 @@ export function applyMembershipRequest(snapshot: PlayerClubSnapshot, request: Pl
         playerId: request.player.id,
         playerName: request.player.name,
         status: 'Requested',
-        joinedAt: request.requestedAt.slice(0, 10),
+        joinedAt: (request.requestedAt || new Date().toISOString()).slice(0, 10),
         loyalty: getPlayerLoyalty(request.clubId, 0),
         preferredGameIds: request.player.preferredGameIds,
         preferredStakes: request.player.preferredStakes,
-        clubNote: request.player.typicalAvailability
+        clubNote: request.player.typicalAvailability,
+        planId: request.planId,
+        planName: request.planName
       }
     ],
     notifications: snapshot.notifications ?? [],
@@ -385,8 +387,8 @@ export function applyWaitlistRequest(snapshot: PlayerClubSnapshot, request: Play
   };
 }
 
-export function buildJoinRequest(player: PlayerAccount, clubId: string) {
-  return createMembershipRequest(player, clubId);
+export function buildJoinRequest(player: PlayerAccount, clubId: string, plan?: ClubMembershipPlan) {
+  return createMembershipRequest(player, clubId, new Date().toISOString(), plan);
 }
 
 export function buildWaitRequest(player: PlayerAccount, clubId: string, gameId: string, tableId?: string) {

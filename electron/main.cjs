@@ -1012,7 +1012,8 @@ function buildPlayerClubSnapshot(state, player) {
       id: clubId,
       name: account.clubName || 'Local Poker Club',
       address: account.address,
-      phone: account.phone
+      phone: account.phone,
+      membershipPlans: (state.settings?.membershipPlans || []).filter((plan) => plan.active !== false)
     },
     games: (state.games || []).map((game) => {
       const openTables = tables.filter((table) => table.gameId === game.id);
@@ -1049,7 +1050,7 @@ function applyMembershipRequestToState(state, request) {
     (profile) => profile.id === player.id || String(profile.name || '').toLowerCase() === String(player.name || '').toLowerCase()
   );
   const membershipStartDate = String(request.requestedAt || new Date().toISOString()).slice(0, 10);
-  const membershipExpirationDate = addDays(membershipStartDate, 365);
+  const membershipExpirationDate = addDays(membershipStartDate, Math.max(1, Number(request.membershipDurationDays) || 365));
 
   if (existingProfile) {
     return {
@@ -1475,9 +1476,12 @@ ipcMain.handle('record-client-error', (_event, payload = {}) => {
 });
 
 function loadRoute(window, route, context = {}) {
-  const hash = route === 'table' && context.sessionId
-    ? `/${route}?sessionId=${encodeURIComponent(context.sessionId)}`
-    : `/${route}`;
+  const query = route === 'table' && context.sessionId
+    ? `sessionId=${encodeURIComponent(context.sessionId)}`
+    : route === 'tournament-tv' && context.tournamentId
+      ? `tournamentId=${encodeURIComponent(context.tournamentId)}`
+      : '';
+  const hash = `/${route}${query ? `?${query}` : ''}`;
   if (isDev) {
     window.loadURL(`http://127.0.0.1:5173/#${hash}`);
     return;
@@ -1489,7 +1493,11 @@ function loadRoute(window, route, context = {}) {
 }
 
 function createWindow(route = 'floor', context = {}) {
-  const windowKey = route === 'table' && context.sessionId ? `table:${context.sessionId}` : route;
+  const windowKey = route === 'table' && context.sessionId
+    ? `table:${context.sessionId}`
+    : route === 'tournament-tv' && context.tournamentId
+      ? `tournament-tv:${context.tournamentId}`
+      : route;
   const existing = windows.get(windowKey);
   if (existing && !existing.isDestroyed()) {
     existing.focus();
@@ -1512,6 +1520,10 @@ function createWindow(route = 'floor', context = {}) {
 
   const mainWindow = new BrowserWindow({
     ...routeConfig,
+    frame: route !== 'tournament-tv',
+    autoHideMenuBar: route === 'tournament-tv',
+    titleBarStyle: route === 'tournament-tv' ? 'hidden' : 'default',
+    fullscreenable: true,
     backgroundColor: branding.desktop.backgroundColor,
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
     show: false,
@@ -1523,8 +1535,17 @@ function createWindow(route = 'floor', context = {}) {
     }
   });
 
+  if (route === 'tournament-tv') {
+    mainWindow.setMenuBarVisibility(false);
+    mainWindow.removeMenu();
+  }
+
   mainWindow.once('ready-to-show', () => {
-    if (route === 'table') mainWindow.maximize();
+    if (route === 'tournament-tv') {
+      mainWindow.setFullScreen(true);
+    } else if (route === 'table') {
+      mainWindow.maximize();
+    }
     mainWindow.show();
   });
 
