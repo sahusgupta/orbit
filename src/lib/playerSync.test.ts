@@ -181,6 +181,16 @@ describe('player sync snapshots', () => {
     expect(wait).toMatchObject({ type: 'waitlist-request', gameId: 'nlh-1-2', note: 'Can play short-handed' });
   });
 
+  it('carries a Core-defined membership plan and applies its duration', () => {
+    const player = { id: 'player-plan', name: 'Sam', email: 'sam@example.com', preferredGameIds: ['nlh-1-2'] };
+    const plan = { id: 'weekend', name: 'Weekend Pass', priceLabel: '$25', durationDays: 3, active: true };
+    const request = createMembershipRequest(player, 'lucky-lodge', '2026-05-20T12:00:00.000Z', plan);
+    const joined = applyMembershipRequestToClubState(state, request);
+
+    expect(request).toMatchObject({ planId: 'weekend', planName: 'Weekend Pass', planPriceLabel: '$25', membershipDurationDays: 3 });
+    expect(joined.profiles.find((profile) => profile.id === player.id)?.membershipExpirationDate).toBe('2026-05-23');
+  });
+
   it('applies player membership and waitlist requests to club-side state', () => {
     const player = {
       id: 'player-2',

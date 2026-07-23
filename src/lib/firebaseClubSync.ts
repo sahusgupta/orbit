@@ -148,7 +148,7 @@ export async function syncPlayerUpdatesToClubState<TState extends object>(state:
       if (request.status === 'applied') continue;
       appliedIds.add(request.id);
       nextState = applyMembershipRequestToClubState(nextState, request);
-      await updatePlayerMembershipStatus(request.player.id, accountKey, request.requestedAt);
+      await updatePlayerMembershipStatus(request.player.id, accountKey, request);
       await markRequestApplied(accountKey, 'membershipRequests', request.id);
     }
   }
@@ -416,10 +416,11 @@ async function markRequestApplied(accountKey: string, collectionName: 'membershi
   ]);
 }
 
-async function updatePlayerMembershipStatus(playerId: string | undefined, clubId: string, requestedAt: string) {
+async function updatePlayerMembershipStatus(playerId: string | undefined, clubId: string, request: PlayerMembershipRequest) {
   if (!playerId) return;
+  const requestedAt = request.requestedAt || new Date().toISOString();
   const membershipStart = requestedAt.slice(0, 10);
-  const membershipExpiration = addDays(membershipStart, 365);
+  const membershipExpiration = addDays(membershipStart, request.membershipDurationDays ?? 365);
   await setDoc(
     doc(db, 'clubs', clubId, 'memberships', playerId),
     {
@@ -429,6 +430,8 @@ async function updatePlayerMembershipStatus(playerId: string | undefined, clubId
       requestedAt,
       joinedAt: membershipStart,
       expiresAt: membershipExpiration,
+      planId: request.planId,
+      planName: request.planName,
       updatedAt: serverTimestamp()
     },
     { merge: true }

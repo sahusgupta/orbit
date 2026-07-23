@@ -127,6 +127,10 @@ export type PlayerMembershipRequest = {
   plan: 'day' | 'monthly';
   paymentMethod: 'app' | 'in-person';
   priceLabel?: string;
+  planId?: string;
+  planName?: string;
+  planPriceLabel?: string;
+  membershipDurationDays?: number;
   requestedAt: string;
 };
 
@@ -434,16 +438,33 @@ export function createMembershipRequest(
   player: PlayerAccount,
   clubId: string,
   requestedAt = new Date().toISOString(),
-  options: { plan?: 'day' | 'monthly'; paymentMethod?: 'app' | 'in-person'; priceLabel?: string } = {}
+  options: {
+    plan?: 'day' | 'monthly';
+    paymentMethod?: 'app' | 'in-person';
+    priceLabel?: string;
+    id?: string;
+    name?: string;
+    durationDays?: number;
+    active?: boolean;
+  } = {}
 ): PlayerMembershipRequest {
+  const configuredPlan = options.id
+    ? {
+        planId: options.id,
+        planName: options.name,
+        planPriceLabel: options.priceLabel,
+        membershipDurationDays: Math.max(1, Number(options.durationDays) || 30)
+      }
+    : {};
   return {
     id: requestId('join', `${clubId}-${player.email || player.id}`, requestedAt),
     type: 'membership-request',
     clubId,
     player,
-    plan: options.plan ?? 'monthly',
+    plan: options.plan ?? (options.durationDays === 1 ? 'day' : 'monthly'),
     paymentMethod: options.paymentMethod ?? 'app',
     priceLabel: options.priceLabel,
+    ...configuredPlan,
     requestedAt
   };
 }
@@ -495,10 +516,10 @@ export function applyMembershipRequestToClubState(
   const preferredGameIds = request.player.preferredGameIds ?? [];
   const activatesImmediately = request.paymentMethod !== 'in-person';
   const membershipStartDate = request.requestedAt.slice(0, 10);
-  const durationDays = options.membershipDurationDays ?? (request.plan === 'day' ? 1 : 30);
+  const durationDays = options.membershipDurationDays ?? request.membershipDurationDays ?? (request.plan === 'day' ? 1 : 30);
   const membershipExpiresAt = new Date(Date.parse(request.requestedAt) + durationDays * 24 * 60 * 60 * 1000).toISOString();
   const membershipExpirationDate = membershipExpiresAt.slice(0, 10);
-  const requestNote = `${request.plan === 'day' ? 'Day pass' : 'Monthly membership'} - ${request.paymentMethod === 'in-person' ? 'pay in person requested' : 'paid in app'}${request.priceLabel ? ` (${request.priceLabel})` : ''}`;
+  const requestNote = `${request.planName ?? (request.plan === 'day' ? 'Day pass' : 'Monthly membership')} - ${request.paymentMethod === 'in-person' ? 'pay in person requested' : 'paid in app'}${request.priceLabel ? ` (${request.priceLabel})` : ''}`;
 
   if (existingProfile) {
     return {

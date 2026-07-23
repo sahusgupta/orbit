@@ -29,6 +29,7 @@ import {
 import branding from '../branding.config.json';
 import PokerTable, { type Player as PokerTablePlayer } from './components/PokerTable';
 import AppShell, { type PrimaryDestination, type ShellCommand } from './components/AppShell';
+import TournamentTvView from './components/TournamentTvView';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import {
   canonicalPayload,
@@ -51,7 +52,7 @@ declare global {
     tableManagerDesktop?: {
       platform: string;
       isDesktop: boolean;
-      openWindow: (route: AppRoute, context?: { sessionId?: string }) => Promise<void>;
+      openWindow: (route: AppRoute, context?: { sessionId?: string; tournamentId?: string }) => Promise<void>;
       loadState: () => Promise<{ schemaVersion: number; savedAt: string; state: Partial<AppState> } | null>;
       loadStateForAccount: (access: PilotAccess) => Promise<{ schemaVersion: number; savedAt: string; state: Partial<AppState> } | null>;
       saveState: (state: AppState) => Promise<{ ok: boolean; path: string; accountKey?: string }>;
@@ -445,6 +446,13 @@ type StaffAccount = {
   lastSelectedAt?: string;
 };
 
+type ClubMembershipPlan = { id: string; name: string; priceLabel: string; durationDays: number; description?: string; active: boolean };
+
+const defaultMembershipPlans: ClubMembershipPlan[] = [
+  { id: 'day', name: 'Day Pass', priceLabel: '$10', durationDays: 1, description: 'One day of club access.', active: true },
+  { id: 'monthly', name: 'Monthly Membership', priceLabel: '$40/mo', durationDays: 30, description: 'Thirty days of club access.', active: true }
+];
+
 type NightCloseStatus = 'Draft' | 'Staff Signed' | 'Locked';
 
 type NightCloseAudit = {
@@ -591,6 +599,7 @@ type AppState = {
     defaultHourlyFee: number;
     defaultEstimatedDropPerSeatHour: number;
     collectionProfiles: CollectionProfile[];
+    membershipPlans: ClubMembershipPlan[];
     showPlayerGrid: boolean;
     showDashboardKpis: boolean;
     showRecentPlayers: boolean;
@@ -1311,6 +1320,7 @@ const seedState: AppState = {
       defaultHourlyFee: 0,
       defaultEstimatedDropPerSeatHour: 0,
       collectionProfiles: [],
+      membershipPlans: defaultMembershipPlans,
       showPlayerGrid: true,
       showDashboardKpis: false,
       showRecentPlayers: true,
@@ -1580,6 +1590,11 @@ function normalizeState(parsed: Partial<AppState>): AppState {
           collectionMode: profile.collectionMode ?? (legacyMode === 'Time' || legacyMode === 'Drop' ? legacyMode : 'Drop')
         };
       }),
+      membershipPlans: (parsed.settings?.membershipPlans ?? defaultMembershipPlans).map((plan) => ({
+        ...plan,
+        durationDays: Math.max(1, Number(plan.durationDays) || 1),
+        active: plan.active !== false
+      })),
       showPlayerGrid: parsed.settings?.showPlayerGrid ?? true,
       showDashboardKpis: parsed.settings?.showDashboardKpis ?? false,
       showRecentPlayers: parsed.settings?.showRecentPlayers ?? true,
@@ -5433,6 +5448,18 @@ function App() {
     window.location.hash = `/table?sessionId=${encodeURIComponent(sessionId)}`;
   };
 
+  const openTournamentTv = (tournamentId: string) => {
+    localStorage.setItem(`${storageKey}:tournament-tv-id`, tournamentId);
+    const tvRoute = `/tournament-tv?tournamentId=${encodeURIComponent(tournamentId)}`;
+    if (window.tableManagerDesktop) {
+      window.tableManagerDesktop.openWindow('tournament-tv', { tournamentId }).catch(() => {
+        window.location.hash = tvRoute;
+      });
+      return;
+    }
+    window.location.hash = tvRoute;
+  };
+
   const closeRoute = () => {
     window.location.hash = '/floor';
   };
@@ -5558,6 +5585,7 @@ function App() {
       pausedRemainingSeconds: undefined,
       players: current.players.map((player) => ({ ...player, status: player.status === 'Registered' || player.status === 'Checked In' ? 'Active' : player.status }))
     }), 'Started tournament');
+    window.setTimeout(() => openTournamentTv(tournament.id), 100);
   };
 
   const pauseTournament = (tournament: Tournament) => {
@@ -6242,74 +6270,21 @@ function App() {
   }
 
   if (route === 'tournament-tv') {
-    const tournament = selectedTournament;
-    const currentLevel = getTournamentLevel(tournament);
-    const nextLevel = getNextTournamentLevel(tournament);
+    const routeTournamentId = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('tournamentId') ?? '';
+    const tournamentId = routeTournamentId || localStorage.getItem(`${storageKey}:tournament-tv-id`) || '';
+    const tournament = state.tournaments.find((item) => item.id === tournamentId) ?? selectedTournament;
     const prizePool = getTournamentPrizePool(tournament);
     const remaining = getTournamentLevelRemainingSeconds(tournament, clockNow);
-    const levelsUntilBreak = getLevelsUntilBreak(tournament);
     return (
-      <main className="tournament-tv-shell">
-        {tournament ? (
-          <>
-            <section className="tournament-tv-header">
-              <div>
-                <span>{tournament.status}</span>
-                <h1>{tournament.name}</h1>
-              </div>
-              <strong>{formatTournamentTime(remaining)}</strong>
-            </section>
-            <section className="tournament-tv-grid">
-              <article>
-                <span>Current blinds</span>
-                <strong>{currentLevel ? `${currentLevel.smallBlind}/${currentLevel.bigBlind}` : '-'}</strong>
-                <small>{currentLevel?.ante ? `BB ante ${currentLevel.ante}` : 'No ante'}</small>
-              </article>
-              <article>
-                <span>Next level</span>
-                <strong>{nextLevel ? `${nextLevel.smallBlind}/${nextLevel.bigBlind}` : 'Final level'}</strong>
-                <small>{nextLevel?.ante ? `BB ante ${nextLevel.ante}` : nextLevel ? 'No ante' : 'No next level'}</small>
-              </article>
-              <article>
-                <span>Entries</span>
-                <strong>{getTournamentEntries(tournament)}</strong>
-                <small>{getTournamentActivePlayers(tournament)} players remain</small>
-              </article>
-              <article>
-                <span>Average stack</span>
-                <strong>{getTournamentAverageStack(tournament).toLocaleString()}</strong>
-                <small>{tournament.startingStack.toLocaleString()} start</small>
-              </article>
-              <article>
-                <span>Total prize pool</span>
-                <strong>${prizePool.toLocaleString()}</strong>
-                <small>{tournament.buyIn ? `$${tournament.buyIn} buy-in` : 'No buy-in set'}</small>
-              </article>
-              <article>
-                <span>Break</span>
-                <strong>{levelsUntilBreak ? `${levelsUntilBreak} level${levelsUntilBreak === 1 ? '' : 's'}` : 'None'}</strong>
-                <small>{currentLevel?.breakAfter ? `${currentLevel.breakMinutes} min after this level` : 'Upcoming schedule'}</small>
-              </article>
-            </section>
-            <section className="tournament-tv-payouts">
-              <h2>Prize Pool Distribution</h2>
-              <div>
-                {tournament.payouts.map((payout) => (
-                  <article key={payout.place}>
-                    <span>{payout.place}</span>
-                    <strong>${Math.round(prizePool * (payout.percent / 100)).toLocaleString()}</strong>
-                    <small>{payout.percent}%</small>
-                  </article>
-                ))}
-              </div>
-            </section>
-          </>
-        ) : (
+      tournament ? (
+        <TournamentTvView tournament={tournament} nowMs={clockNow} remainingSeconds={remaining} prizePool={prizePool} />
+      ) : (
+        <main className="orbit-tournament-display">
           <section className="tournament-tv-empty">
             <h1>No tournament selected</h1>
           </section>
-        )}
-      </main>
+        </main>
+      )
     );
   }
 
@@ -6339,14 +6314,22 @@ function App() {
       <main className="app-shell compact-shell tournament-manager-shell">
         <header className={tournamentView === 'library' ? 'topbar tournament-library-header' : 'page-header'}>
           <div>
-            {tournamentView !== 'library' ? <div className="eyebrow">Tournament Manager</div> : null}
             <h1>{tournamentView === 'library' ? 'Tournaments' : tournamentView === 'create' ? 'Create tournament' : tournamentView === 'edit' ? 'Edit tournament' : tournament?.name}</h1>
-            {tournamentView !== 'library' ? <p>{tournamentView === 'manage' ? 'Everything you need for this event, one view at a time.' : 'Set the essentials. You can manage players and payouts afterward.'}</p> : null}
+            {tournamentView === 'manage' && tournament ? (
+              <div className="tournament-header-meta">
+                <span className={`tournament-status-dot status-${tournament.status.toLowerCase()}`} />
+                <span>{tournament.status}</span>
+                <span aria-hidden="true">·</span>
+                <span>{getTournamentEntries(tournament)} entries</span>
+                <span aria-hidden="true">·</span>
+                <span>${tournament.buyIn.toLocaleString()} buy-in</span>
+              </div>
+            ) : null}
           </div>
           <div className="header-actions">
-            {tournamentView !== 'library' ? <button className="ghost-button" onClick={() => setTournamentView('library')}><ChevronLeft size={17} /> All tournaments</button> : null}
             {tournamentView === 'library' ? <button className="primary-button" onClick={() => { setTournamentDraft({ name: `Tournament ${todayDate()}`, buyIn: '', startingStack: '20000', levelMinutes: '20', rebuyPrizePercent: '100', tableSize: '9' }); setTournamentView('create'); }}><Plus size={17} /> New tournament</button> : null}
-            {tournamentView === 'manage' ? <button className="secondary-button" onClick={() => window.tableManagerDesktop?.openWindow('tournament-tv').catch(() => { window.location.hash = '/tournament-tv'; }) || (window.location.hash = '/tournament-tv')}><Eye size={17} /> TV View</button> : null}
+            {tournamentView === 'create' || tournamentView === 'edit' ? <button className="ghost-button" onClick={() => setTournamentView('library')}><ChevronLeft size={17} /> Cancel</button> : null}
+            {tournamentView === 'manage' && tournament && (tournament.status === 'Running' || tournament.status === 'Paused') ? <button className="secondary-button" onClick={() => openTournamentTv(tournament.id)}><Eye size={17} /> TV View</button> : null}
           </div>
         </header>
 
@@ -6385,7 +6368,6 @@ function App() {
             </nav>
 
             {tournamentSection === 'clock' ? <section className="panel tournament-panel tournament-control-panel">
-              <PanelTitle icon={<Clock />} title="Clock & Levels" />
                 <div className="tournament-clock-card">
                   <span className={`tournament-status tournament-status-${tournament.status.toLowerCase()}`}>{tournament.status}</span>
                   <strong>{formatTournamentTime(remaining)}</strong>
@@ -6556,6 +6538,24 @@ function App() {
                   Save Account
                 </button>
               </form>
+              <article className="preference-row membership-plan-heading">
+                <div><strong>Player memberships</strong><span>Create the plans published to Orbit Player. Purchases become club memberships and unlock game requests.</span></div>
+                <button className="secondary-button" type="button" onClick={() => updateSettings({ membershipPlans: [...state.settings.membershipPlans, { id: `plan-${Date.now()}`, name: 'New Membership', priceLabel: '$0', durationDays: 30, description: '', active: true }] })}><Plus size={16} /> Add plan</button>
+              </article>
+              <div className="preference-list">
+                {state.settings.membershipPlans.map((plan) => (
+                  <article className="preference-row" key={plan.id}>
+                    <div className="account-management-form">
+                      <input value={plan.name} aria-label="Membership name" placeholder="Membership name" onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, name: event.target.value } : item) })} />
+                      <input value={plan.priceLabel} aria-label="Membership price" placeholder="$40/mo" onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, priceLabel: event.target.value } : item) })} />
+                      <input type="number" min="1" value={plan.durationDays} aria-label="Membership duration in days" onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, durationDays: Math.max(1, Number(event.target.value) || 1) } : item) })} />
+                      <input value={plan.description ?? ''} aria-label="Membership description" placeholder="What this plan includes" onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, description: event.target.value } : item) })} />
+                    </div>
+                    <label><input type="checkbox" checked={plan.active} onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, active: event.target.checked } : item) })} /> Published</label>
+                    <button className="icon-button" type="button" aria-label={`Delete ${plan.name}`} onClick={() => updateSettings({ membershipPlans: state.settings.membershipPlans.filter((item) => item.id !== plan.id) })}><Trash2 size={16} /></button>
+                  </article>
+                ))}
+              </div>
               {pilotKeyError ? <p className="access-error">{pilotKeyError}</p> : null}
             </div>
           </section>
@@ -8761,7 +8761,7 @@ function App() {
                         </div>
                       )}
                     </div>
-                    <details className="compact-details table-admin-details">
+                    <details className="compact-details table-admin-details" onClick={(event) => event.stopPropagation()}>
                       <summary>Table admin</summary>
                       <div className="correction-grid">
                         <label>
