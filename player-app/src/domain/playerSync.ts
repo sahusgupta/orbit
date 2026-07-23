@@ -14,7 +14,10 @@ export type PlayerSyncClub = {
   name: string;
   address?: string;
   phone?: string;
+  membershipPlans?: ClubMembershipPlan[];
 };
+
+export type ClubMembershipPlan = { id: string; name: string; priceLabel: string; durationDays: number; description?: string; active: boolean };
 
 export type PlayerAccount = {
   id: string;
@@ -87,6 +90,8 @@ export type PlayerMembership = {
   preferredGameIds: string[];
   preferredStakes?: string;
   clubNote?: string;
+  planId?: string;
+  planName?: string;
 };
 
 export type PlayerClubMembershipRecord = {
@@ -97,6 +102,8 @@ export type PlayerClubMembershipRecord = {
   expiresAt?: string;
   preferredGameIds?: string[];
   preferredStakes?: string;
+  planId?: string;
+  planName?: string;
 };
 
 export type PlayerProfileDocument = PlayerAccount & {
@@ -215,6 +222,10 @@ export type PlayerMembershipRequest = {
   clubId: string;
   player: PlayerAccount;
   requestedAt: string;
+  planId?: string;
+  planName?: string;
+  planPriceLabel?: string;
+  membershipDurationDays?: number;
 };
 
 export type PlayerWaitlistRequest = {
@@ -251,13 +262,17 @@ export function getPlayerLoyalty(clubId: string, lifetimeHours = 0): PlayerLoyal
   return { clubId, points: Math.floor(hours * 10), lifetimeHours: hours, tier: 'New', nextTierAtHours: 12 };
 }
 
-export function createMembershipRequest(player: PlayerAccount, clubId: string, requestedAt = new Date().toISOString()): PlayerMembershipRequest {
+export function createMembershipRequest(player: PlayerAccount, clubId: string, requestedAt = new Date().toISOString(), plan?: ClubMembershipPlan): PlayerMembershipRequest {
   return {
     id: requestId('join', `${clubId}-${player.email || player.id}`, requestedAt),
     type: 'membership-request',
     clubId,
     player,
-    requestedAt
+    requestedAt,
+    planId: plan?.id,
+    planName: plan?.name,
+    planPriceLabel: plan?.priceLabel,
+    membershipDurationDays: plan?.durationDays
   };
 }
 

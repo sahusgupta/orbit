@@ -12,10 +12,12 @@ export type PlayerSyncInterestStatus =
 export type PlayerSyncClub = {
   id: string;
   name: string;
-  phone?: string;
   address?: string;
   phone?: string;
+  membershipPlans?: ClubMembershipPlan[];
 };
+
+export type ClubMembershipPlan = { id: string; name: string; priceLabel: string; durationDays: number; description?: string; active: boolean };
 
 export type PlayerAccount = {
   id: string;
@@ -87,6 +89,8 @@ export type PlayerMembership = {
   preferredGameIds: string[];
   preferredStakes?: string;
   clubNote?: string;
+  planId?: string;
+  planName?: string;
 };
 
 export type PlayerClubMembershipRecord = {
@@ -97,6 +101,8 @@ export type PlayerClubMembershipRecord = {
   expiresAt?: string;
   preferredGameIds?: string[];
   preferredStakes?: string;
+  planId?: string;
+  planName?: string;
 };
 
 export type PlayerProfileDocument = PlayerAccount & {
@@ -120,6 +126,10 @@ export type PlayerMembershipRequest = {
   clubId: string;
   player: PlayerAccount;
   requestedAt: string;
+  planId?: string;
+  planName?: string;
+  planPriceLabel?: string;
+  membershipDurationDays?: number;
 };
 
 export type PlayerWaitlistRequest = {
@@ -243,6 +253,7 @@ type ManagementClubState = {
       authorizationCode?: string;
     };
     staffAccounts?: ManagementStaffAccount[];
+    membershipPlans?: ClubMembershipPlan[];
   };
 };
 
@@ -345,7 +356,8 @@ export function buildPlayerClubSnapshot(
       id: clubId,
       name: account?.clubName || 'Local Poker Club',
       address: account?.address,
-      phone: account?.phone
+      phone: account?.phone,
+      membershipPlans: (state.settings?.membershipPlans ?? []).filter((plan) => plan.active)
     },
     games: state.games.map((game) => {
       const openTables = tables.filter((table) => table.gameId === game.id);
@@ -381,13 +393,17 @@ export function buildPlayerClubSnapshot(
   };
 }
 
-export function createMembershipRequest(player: PlayerAccount, clubId: string, requestedAt = new Date().toISOString()): PlayerMembershipRequest {
+export function createMembershipRequest(player: PlayerAccount, clubId: string, requestedAt = new Date().toISOString(), plan?: ClubMembershipPlan): PlayerMembershipRequest {
   return {
     id: requestId('join', `${clubId}-${player.email || player.id}`, requestedAt),
     type: 'membership-request',
     clubId,
     player,
-    requestedAt
+    requestedAt,
+    planId: plan?.id,
+    planName: plan?.name,
+    planPriceLabel: plan?.priceLabel,
+    membershipDurationDays: plan?.durationDays
   };
 }
 
@@ -421,8 +437,8 @@ export function applyMembershipRequestToClubState(
   const existingProfile = state.profiles.find(
     (profile) => profile.id === request.player.id || profile.name.toLowerCase() === request.player.name.toLowerCase()
   );
-  const membershipStartDate = request.requestedAt.slice(0, 10);
-  const membershipExpirationDate = addDays(membershipStartDate, options.membershipDurationDays ?? 365);
+  const membershipStartDate = (request.requestedAt || new Date().toISOString()).slice(0, 10);
+  const membershipExpirationDate = addDays(membershipStartDate, request.membershipDurationDays ?? options.membershipDurationDays ?? 365);
 
   if (existingProfile) {
     return {

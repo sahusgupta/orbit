@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type DimensionValue } from 'react-native';
+import { Animated, Easing, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type DimensionValue } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -7,7 +7,7 @@ import MapView, { Marker, PROVIDER_GOOGLE, Circle } from './components/MapView';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { PlayerAccount, PlayerClubMembershipRecord, PlayerClubSnapshot, PlayerInAppNotification, PlayerPrivateGameListing, PlayerSyncGame, PlayerTournament, PlayerTournamentRegistration, PlayerWaitlistEntry } from './domain/playerSync';
+import type { ClubMembershipPlan, PlayerAccount, PlayerClubMembershipRecord, PlayerClubSnapshot, PlayerInAppNotification, PlayerPrivateGameListing, PlayerSyncGame, PlayerTournament, PlayerTournamentRegistration, PlayerWaitlistEntry } from './domain/playerSync';
 import {
   applyMembershipRequest,
   applyWaitlistRequest,
@@ -44,7 +44,7 @@ type OnboardingStep = 0 | 1 | 2 | 3 | 4;
 type GameTypeFilter = 'none' | 'all' | 'public' | 'private' | 'card-house' | 'home-game' | 'favorites';
 type DistanceFilter = 'none' | 5 | 10 | 20 | 50;
 type CasinoFilter = 'none' | 'all' | string;
-type ClubMembershipPlan = 'day' | 'monthly';
+type ClubMembershipPlanId = string;
 
 type GameOpportunity = {
   club: PlayerClubSnapshot;
@@ -282,6 +282,7 @@ export default function PlayerApp() {
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(0);
   const [screen, setScreen] = useState<Screen>('findGames');
   const [showHostScreen, setShowHostScreen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [gameQuery, setGameQuery] = useState('');
   const [selectedCasinoFilter, setSelectedCasinoFilter] = useState<CasinoFilter>('none');
   const [mapQuery, setMapQuery] = useState('');
@@ -297,7 +298,7 @@ export default function PlayerApp() {
   const [premiumStatus, setPremiumStatus] = useState<'inactive' | 'pending' | 'active'>('inactive');
   const [premiumMessage, setPremiumMessage] = useState('');
   const [clubMembershipMessage, setClubMembershipMessage] = useState('');
-  const [pendingClubPlan, setPendingClubPlan] = useState<ClubMembershipPlan | null>(null);
+  const [pendingClubPlan, setPendingClubPlan] = useState<ClubMembershipPlanId | null>(null);
   const [player, setPlayer] = useState<PlayerAccount>(emptyPlayer);
   const [draftPlayer, setDraftPlayer] = useState<PlayerAccount>(emptyPlayer);
   const [accountLoaded, setAccountLoaded] = useState(false);
@@ -559,21 +560,22 @@ export default function PlayerApp() {
     setScreen('clubSignup');
   };
 
-  const openClubPayment = (club: PlayerClubSnapshot, plan: ClubMembershipPlan) => {
+  const openClubPayment = (club: PlayerClubSnapshot, plan: ClubMembershipPlanId) => {
     setSelectedClubId(club.club.id);
     setPendingClubPlan(plan);
     setClubMembershipMessage('');
     setScreen('clubPayment');
   };
 
-  const completeClubPayment = async (club: PlayerClubSnapshot, plan: ClubMembershipPlan) => {
+  const completeClubPayment = async (club: PlayerClubSnapshot, planId: ClubMembershipPlanId) => {
     setSelectedClubId(club.club.id);
     setClubMembershipMessage('');
-    const prices = getClubMembershipPrices(club);
-    const planLabel = plan === 'day' ? prices.day : prices.monthly;
+    const plan = getClubMembershipPlans(club).find((item) => item.id === planId) ?? getClubMembershipPlans(club)[0];
+    if (!plan) return;
+    const planLabel = `${plan.name} ${plan.priceLabel}`;
     if (clubMembershipCheckoutUrl) {
       const separator = clubMembershipCheckoutUrl.includes('?') ? '&' : '?';
-      const checkoutUrl = `${clubMembershipCheckoutUrl}${separator}clubId=${encodeURIComponent(club.club.id)}&clubName=${encodeURIComponent(club.club.name)}&plan=${encodeURIComponent(plan)}&priceLabel=${encodeURIComponent(planLabel)}&playerId=${encodeURIComponent(player.id)}&playerEmail=${encodeURIComponent(player.email)}`;
+      const checkoutUrl = `${clubMembershipCheckoutUrl}${separator}clubId=${encodeURIComponent(club.club.id)}&clubName=${encodeURIComponent(getClubName(club))}&plan=${encodeURIComponent(plan.id)}&priceLabel=${encodeURIComponent(plan.priceLabel)}&playerId=${encodeURIComponent(player.id)}&playerEmail=${encodeURIComponent(player.email)}`;
       setClubMembershipMessage(`Opening ${planLabel} checkout for ${club.club.name}...`);
       const result = await WebBrowser.openBrowserAsync(checkoutUrl);
       setClubMembershipMessage(
@@ -584,7 +586,7 @@ export default function PlayerApp() {
     } else {
       setClubMembershipMessage(`Demo mode: selected ${planLabel}. Sending your signup request to the club.`);
     }
-    await requestMembership(club);
+    await requestMembership(club, plan);
     setPendingClubPlan(null);
   };
 
@@ -634,9 +636,9 @@ export default function PlayerApp() {
     setClubs((current) => current.map((snapshot) => (snapshot.club.id === club.club.id ? updater(snapshot) : snapshot)));
   };
 
-  const requestMembership = async (club: PlayerClubSnapshot) => {
+  const requestMembership = async (club: PlayerClubSnapshot, plan?: ClubMembershipPlan) => {
     setSelectedClubId(club.club.id);
-    const request = buildJoinRequest(player, club.club.id);
+    const request = buildJoinRequest(player, club.club.id, plan);
     if (isSyncConfigured()) {
       setSyncStatus('Sending membership request...');
       const result = await submitMembershipRequest(request);
@@ -787,7 +789,7 @@ export default function PlayerApp() {
               style={styles.avatar}
               onPress={() => setScreen('settings')}
             >
-              <Text style={styles.avatarText}>{player.name.slice(0, 1)}</Text>
+              <Text style={styles.avatarText}>{(player.name || 'P').slice(0, 1)}</Text>
               {avatarHovered ? (
                 <View pointerEvents="none" style={styles.iconTooltip}>
                   <Text style={styles.iconTooltipText}>Settings</Text>
@@ -807,16 +809,6 @@ export default function PlayerApp() {
               <>
                 <View style={styles.searchPanel}>
                   <View style={styles.searchInputRow}>
-                    <Ionicons name="location-outline" size={18} color={colors.muted} />
-                    <TextInput
-                      value={player.homeLocation ?? ''}
-                      onChangeText={(homeLocation) => setPlayer((current) => ({ ...current, homeLocation }))}
-                      placeholder="Your address or city"
-                      placeholderTextColor={colors.muted}
-                      style={styles.searchInput}
-                    />
-                  </View>
-                  <View style={styles.searchInputRow}>
                     <Ionicons name="search-outline" size={18} color={colors.muted} />
                     <TextInput
                       value={gameQuery}
@@ -826,7 +818,24 @@ export default function PlayerApp() {
                       style={styles.searchInput}
                     />
                   </View>
+                  <View style={styles.findGamesActionRow}>
+                    <Pressable style={styles.filterMenuTrigger} onPress={() => setFiltersOpen(true)} accessibilityLabel="Open game filters">
+                      <Ionicons name="options-outline" size={18} color={colors.ink} />
+                      <Text style={styles.filterMenuTriggerText}>Filters</Text>
+                      {getActiveFilterCount(gameTypeFilter, selectedFilterClubId, selectedCasinoFilter, stakesFilter, distanceFilter, fitScoreFilterEnabled) ? (
+                        <View style={styles.filterCountBadge}>
+                          <Text style={styles.filterCountBadgeText}>{getActiveFilterCount(gameTypeFilter, selectedFilterClubId, selectedCasinoFilter, stakesFilter, distanceFilter, fitScoreFilterEnabled)}</Text>
+                        </View>
+                      ) : null}
+                    </Pressable>
+                    <Pressable style={styles.hostMenuTrigger} onPress={() => setShowHostScreen(true)}>
+                      <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
+                      <Text style={styles.hostMenuTriggerText}>Host a game</Text>
+                    </Pressable>
+                  </View>
                   <GameFilterPanel
+                    open={filtersOpen}
+                    onClose={() => setFiltersOpen(false)}
                     clubs={findGameClubs}
                     gameType={gameTypeFilter}
                     setGameType={setGameTypeFilter}
@@ -842,16 +851,17 @@ export default function PlayerApp() {
                     setFitScoreEnabled={setFitScoreFilterEnabled}
                     premium={hasPaidPlayerPremium}
                     onLockedFitScore={openPremiumCheckout}
+                    homeLocation={player.homeLocation ?? ''}
+                    setHomeLocation={(homeLocation) => setPlayer((current) => ({ ...current, homeLocation }))}
+                    onReset={() => {
+                      setGameTypeFilter('all');
+                      setSelectedFilterClubId('all');
+                      setSelectedCasinoFilter('none');
+                      setStakesFilter('');
+                      setDistanceFilter(20);
+                      setFitScoreFilterEnabled(false);
+                    }}
                   />
-                  <Pressable style={styles.hostPrompt} onPress={() => setShowHostScreen(true)}>
-                    <View style={styles.hostPromptIcon}>
-                      <Ionicons name="home-outline" size={18} color={colors.primary} />
-                    </View>
-                    <View style={styles.hostPromptCopy}>
-                      <Text style={styles.cardTitle}>Host your own table</Text>
-                      <Text style={styles.muted}>Publish a private game for nearby players.</Text>
-                    </View>
-                  </Pressable>
                 </View>
 
                 {displayedOpportunities.length ? (
@@ -968,7 +978,7 @@ export default function PlayerApp() {
                         style={[styles.clubCard, isSelected && styles.selectedCard]}
                       >
                         <View style={[styles.clubAvatar, isSelected && styles.clubAvatarActive]}>
-                          <Text style={[styles.clubAvatarText, isSelected && styles.clubAvatarTextActive]}>{club.club.name.slice(0, 1)}</Text>
+                          <Text style={[styles.clubAvatarText, isSelected && styles.clubAvatarTextActive]}>{getClubName(club).slice(0, 1)}</Text>
                         </View>
                         <View style={styles.clubMain}>
                           <Text style={styles.cardTitle}>{club.club.name}</Text>
@@ -1043,7 +1053,6 @@ export default function PlayerApp() {
             {screen === 'clubSignup' && selectedClub ? (
               <ClubMembershipPlanScreen
                 club={selectedClub}
-                prices={getClubMembershipPrices(selectedClub)}
                 message={clubMembershipMessage}
                 onBack={() => setScreen('clubs')}
                 onSelectPlan={(plan) => openClubPayment(selectedClub, plan)}
@@ -1053,8 +1062,7 @@ export default function PlayerApp() {
             {screen === 'clubPayment' && selectedClub && pendingClubPlan ? (
               <ClubPaymentPlaceholderScreen
                 club={selectedClub}
-                plan={pendingClubPlan}
-                price={pendingClubPlan === 'day' ? getClubMembershipPrices(selectedClub).day : getClubMembershipPrices(selectedClub).monthly}
+                plan={getClubMembershipPlans(selectedClub).find((item) => item.id === pendingClubPlan) ?? getClubMembershipPlans(selectedClub)[0]}
                 message={clubMembershipMessage}
                 onBack={() => setScreen('clubSignup')}
                 onPaymentComplete={() => completeClubPayment(selectedClub, pendingClubPlan)}
@@ -1326,7 +1334,7 @@ function OnboardingFlow({
   const canSubmit = onboardingStep < finalStep ? canContinue : canComplete;
 
   useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
+    if (Platform.OS !== 'web' || typeof window?.addEventListener !== 'function') return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const tagName = target?.tagName?.toLowerCase();
@@ -1336,7 +1344,7 @@ function OnboardingFlow({
       submitStep();
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener?.('keydown', handleKeyDown);
   }, [canSubmit, submitStep]);
 
   return (
@@ -1812,7 +1820,7 @@ function MapExploreScreen({
         return (
           <View key={club.club.id} style={styles.clubCard}>
             <View style={styles.clubAvatar}>
-              <Text style={styles.clubAvatarText}>{club.club.name.slice(0, 1)}</Text>
+              <Text style={styles.clubAvatarText}>{getClubName(club).slice(0, 1)}</Text>
             </View>
             <View style={styles.clubMain}>
               <Text style={styles.cardTitle}>{club.club.name}</Text>
@@ -1863,7 +1871,7 @@ function NearbyCheckInPanel({
         return (
           <AnimatedSurface key={club.club.id} style={[styles.clubCard, checkedIn && styles.selectedCard]}>
             <View style={[styles.clubAvatar, checkedIn && styles.clubAvatarActive]}>
-              <Text style={[styles.clubAvatarText, checkedIn && styles.clubAvatarTextActive]}>{club.club.name.slice(0, 1)}</Text>
+              <Text style={[styles.clubAvatarText, checkedIn && styles.clubAvatarTextActive]}>{getClubName(club).slice(0, 1)}</Text>
             </View>
             <View style={styles.clubMain}>
               <Text style={styles.cardTitle}>{club.club.name}</Text>
@@ -1886,6 +1894,8 @@ function NearbyCheckInPanel({
 }
 
 function GameFilterPanel({
+  open,
+  onClose,
   clubs,
   gameType,
   setGameType,
@@ -1900,8 +1910,13 @@ function GameFilterPanel({
   fitScoreEnabled,
   setFitScoreEnabled,
   premium,
-  onLockedFitScore
+  onLockedFitScore,
+  homeLocation,
+  setHomeLocation,
+  onReset
 }: {
+  open: boolean;
+  onClose: () => void;
   clubs: PlayerClubSnapshot[];
   gameType: GameTypeFilter;
   setGameType: (value: GameTypeFilter) => void;
@@ -1917,6 +1932,9 @@ function GameFilterPanel({
   setFitScoreEnabled: (value: boolean) => void;
   premium: boolean;
   onLockedFitScore: () => void;
+  homeLocation: string;
+  setHomeLocation: (value: string) => void;
+  onReset: () => void;
 }) {
   const typeOptions: Array<{ id: GameTypeFilter; label: string }> = [
     { id: 'all', label: 'All' },
@@ -1929,12 +1947,41 @@ function GameFilterPanel({
   const cardHouseClubs = clubs.filter((club) => !isCasinoClub(club));
   const casinoClubs = clubs.filter(isCasinoClub);
   return (
-    <View style={styles.filterPanel}>
+    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.filterModalBackdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close filters" />
+        <View style={styles.filterModalSheet}>
+          <View style={styles.filterModalHeader}>
+            <View>
+              <Text style={styles.filterModalTitle}>Find your game</Text>
+              <Text style={styles.filterModalSubtitle}>Narrow the games shown nearby.</Text>
+            </View>
+            <Pressable style={styles.filterModalClose} onPress={onClose} accessibilityLabel="Close filters">
+              <Ionicons name="close" size={22} color={colors.ink} />
+            </Pressable>
+          </View>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.filterPanel}>
+      <View style={styles.field}>
+        <Text style={styles.fieldLabel}>Search area</Text>
+        <View style={styles.searchInputRow}>
+          <Ionicons name="location-outline" size={18} color={colors.muted} />
+          <TextInput
+            value={homeLocation}
+            onChangeText={setHomeLocation}
+            placeholder="Your address or city"
+            placeholderTextColor={colors.muted}
+            style={styles.searchInput}
+          />
+        </View>
+      </View>
+      <View style={styles.field}>
+        <Text style={styles.fieldLabel}>Game type</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipRow}>
         {typeOptions.map((option) => (
           <Chip key={option.id} label={option.label} active={gameType === option.id} onPress={() => setGameType(gameType === option.id ? 'none' : option.id)} />
         ))}
       </ScrollView>
+      </View>
       <View style={styles.field}>
         <Text style={styles.fieldLabel}>Card House</Text>
         <ScrollView
@@ -2007,7 +2054,18 @@ function GameFilterPanel({
         <Ionicons name={premium ? 'analytics-outline' : 'lock-closed-outline'} size={16} color={premium ? colors.teal : colors.muted} />
         <Text style={styles.lockedFilterText}>{premium ? 'Sort by fit score' : 'Fit score filter locked with Premium'}</Text>
       </Pressable>
-    </View>
+          </ScrollView>
+          <View style={styles.filterModalFooter}>
+            <Pressable style={styles.filterResetButton} onPress={onReset}>
+              <Text style={styles.filterResetButtonText}>Reset</Text>
+            </Pressable>
+            <Pressable style={styles.filterDoneButton} onPress={onClose}>
+              <Text style={styles.filterDoneButtonText}>Show games</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -2188,7 +2246,7 @@ function OpportunitySectionList({
           <View key={section.club.club.id} style={styles.clubFolder}>
             <View style={styles.clubFolderHeader}>
               <View style={styles.clubFolderAvatar}>
-                <Text style={styles.clubFolderAvatarText}>{section.club.club.name.slice(0, 1)}</Text>
+                <Text style={styles.clubFolderAvatarText}>{getClubName(section.club).slice(0, 1)}</Text>
               </View>
               <View style={styles.clubFolderCopy}>
                 <View style={styles.clubFolderTitleRow}>
@@ -2273,7 +2331,7 @@ function OpportunityCard({
     <AnimatedSurface style={styles.gameCard}>
       <View style={styles.gameHeader}>
         <View style={styles.feedAvatar}>
-          <Text style={styles.feedAvatarText}>{item.club.club.name.slice(0, 1)}</Text>
+          <Text style={styles.feedAvatarText}>{getClubName(item.club).slice(0, 1)}</Text>
         </View>
         <Pressable onPress={onSelectClub} style={styles.gameTitleBlock}>
           <Text style={styles.cardTitle}>{tableLabel ? `${item.game.name} - ${tableLabel}` : item.game.name}</Text>
@@ -2426,17 +2484,17 @@ function GameCard({
 
 function ClubMembershipPlanScreen({
   club,
-  prices,
   message,
   onBack,
   onSelectPlan
 }: {
   club: PlayerClubSnapshot;
-  prices: { day: string; monthly: string };
   message: string;
   onBack: () => void;
-  onSelectPlan: (plan: ClubMembershipPlan) => void;
+  onSelectPlan: (plan: ClubMembershipPlanId) => void;
 }) {
+  const plans = getClubMembershipPlans(club);
+  const clubName = getClubName(club);
   return (
     <View style={styles.membershipScreen}>
       <Pressable style={styles.inlineBackAction} onPress={onBack}>
@@ -2445,36 +2503,30 @@ function ClubMembershipPlanScreen({
       </Pressable>
       <View style={styles.membershipHero}>
         <View style={styles.membershipHeroIcon}>
-          <Text style={styles.membershipHeroText}>{club.club.name.slice(0, 1)}</Text>
+          <Text style={styles.membershipHeroText}>{clubName.slice(0, 1)}</Text>
         </View>
         <View style={styles.membershipHeroCopy}>
           <Text style={styles.agentKicker}>Card house access</Text>
-          <Text style={styles.membershipTitle}>{club.club.name}</Text>
-          <Text style={styles.muted}>Choose a demo access option. This sends your player profile to the card house and unlocks pending membership status for testing.</Text>
+          <Text style={styles.membershipTitle}>{clubName}</Text>
+          <Text style={styles.muted}>Choose a membership created by this card house. Your purchase is sent to Orbit Core for activation.</Text>
         </View>
       </View>
 
       <View style={styles.planGrid}>
-        <MembershipPlanCard
-          icon="today-outline"
-          title="Day Pass"
-          price={prices.day}
-          body="Good for a quick visit, checking in, and requesting a seat today."
-          onPress={() => onSelectPlan('day')}
-        />
-        <MembershipPlanCard
-          icon="calendar-outline"
-          title="Monthly Membership"
-          price={prices.monthly}
-          body="Best for regular players who want ongoing access to this club."
-          onPress={() => onSelectPlan('monthly')}
-          featured
-        />
+        {plans.map((plan, index) => <MembershipPlanCard
+          key={plan.id}
+          icon={plan.durationDays <= 1 ? 'today-outline' : 'calendar-outline'}
+          title={plan.name}
+          price={plan.priceLabel}
+          body={plan.description || `${plan.durationDays} days of club access.`}
+          onPress={() => onSelectPlan(plan.id)}
+          featured={index === 1 || (plans.length === 1 && index === 0)}
+        />)}
       </View>
 
       <View style={styles.membershipNote}>
         <Ionicons name="information-circle-outline" size={17} color={colors.primary} />
-        <Text style={styles.lockedRecommendationText}>Demo prices are placeholders until each real card house connects its membership checkout.</Text>
+        <Text style={styles.lockedRecommendationText}>Plans and prices are published by {clubName} through Orbit Core.</Text>
       </View>
       {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
     </View>
@@ -2484,14 +2536,12 @@ function ClubMembershipPlanScreen({
 function ClubPaymentPlaceholderScreen({
   club,
   plan,
-  price,
   message,
   onBack,
   onPaymentComplete
 }: {
   club: PlayerClubSnapshot;
-  plan: ClubMembershipPlan;
-  price: string;
+  plan?: ClubMembershipPlan;
   message: string;
   onBack: () => void;
   onPaymentComplete: () => void;
@@ -2508,7 +2558,7 @@ function ClubPaymentPlaceholderScreen({
         </View>
         <Text style={styles.membershipTitle}>Payment</Text>
         <Text style={styles.muted}>
-          {club.club.name} / {plan === 'day' ? 'Day Pass' : 'Monthly Membership'} / {price}
+          {getClubName(club)} / {plan?.name ?? 'Membership'} / {plan?.priceLabel ?? ''}
         </Text>
       </View>
       <AnimatedButton variant="primary" onPress={onPaymentComplete} style={[styles.primaryButton, styles.fullWidthButton]}>
@@ -2626,6 +2676,11 @@ function ClubMembershipPanel({
   onRenew: (days: number) => void;
   onPause: () => void;
 }) {
+  const loyalty = membership.loyalty;
+  const tierStart = loyalty.tier === 'Anchor' ? 120 : loyalty.tier === 'Preferred' ? 50 : loyalty.tier === 'Regular' ? 12 : 0;
+  const tierSpan = loyalty.nextTierAtHours === null ? 1 : Math.max(1, loyalty.nextTierAtHours - tierStart);
+  const progress = loyalty.nextTierAtHours === null ? 100 : Math.min(100, Math.max(0, ((loyalty.lifetimeHours - tierStart) / tierSpan) * 100));
+  const remainingHours = loyalty.nextTierAtHours === null ? 0 : Math.max(0, loyalty.nextTierAtHours - loyalty.lifetimeHours);
   return (
     <View style={styles.loyaltyCard}>
       <View style={styles.loyaltyHeader}>
@@ -2637,7 +2692,13 @@ function ClubMembershipPanel({
           <Text style={styles.loyaltyBadgeText}>{membership.loyalty.tier}</Text>
         </View>
       </View>
-      <Text style={styles.points}>{membership.loyalty.points.toLocaleString()} pts</Text>
+      {membership.planName ? <Text style={styles.muted}>{membership.planName}</Text> : null}
+      <View style={styles.historyTotals}>
+        <HistoryMetric label="Total hours" value={loyalty.lifetimeHours.toFixed(1)} />
+        <HistoryMetric label="Loyalty points" value={loyalty.points.toLocaleString()} />
+      </View>
+      <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress}%` }]} /></View>
+      <Text style={styles.muted}>{loyalty.nextTierAtHours === null ? 'Top loyalty tier reached' : `${remainingHours.toFixed(1)} hours to the next loyalty reward`}</Text>
       <Text style={styles.muted}>{club.games.length} games available</Text>
       <View style={styles.chipRow}>
         <Chip label="Renew 30d" active={false} onPress={() => onRenew(30)} />
@@ -2970,6 +3031,20 @@ function getClubMembershipPrices(club: PlayerClubSnapshot) {
   return demoClubMembershipPrices[club.club.id] ?? demoClubMembershipPrices.default;
 }
 
+function getClubName(club?: PlayerClubSnapshot) {
+  return club?.club?.name?.trim() || 'Local Poker Club';
+}
+
+function getClubMembershipPlans(club: PlayerClubSnapshot): ClubMembershipPlan[] {
+  const published = (club.club.membershipPlans ?? []).filter((plan) => plan.active && plan.name && plan.priceLabel);
+  if (published.length) return published;
+  const prices = getClubMembershipPrices(club);
+  return [
+    { id: 'day', name: 'Day Pass', priceLabel: prices.day, durationDays: 1, description: 'Access for today, including game and waitlist requests.', active: true },
+    { id: 'monthly', name: 'Monthly Membership', priceLabel: prices.monthly, durationDays: 30, description: 'Ongoing access for regular players.', active: true }
+  ];
+}
+
 function getClubFeeProfile(club: PlayerClubSnapshot) {
   return clubFeeProfiles[club.club.id] ?? { type: 'time' as const, hourly: '$10/hr' };
 }
@@ -3011,6 +3086,24 @@ function matchesGameTypeFilter(club: PlayerClubSnapshot, game: PlayerSyncGame, f
   if (filter === 'private') return text.includes('private');
   if (filter === 'public') return !text.includes('private') && !text.includes('home');
   return !text.includes('private') && !text.includes('home');
+}
+
+function getActiveFilterCount(
+  gameType: GameTypeFilter,
+  selectedClubId: string,
+  selectedCasinoId: CasinoFilter,
+  stakes: string,
+  distance: DistanceFilter,
+  fitScoreEnabled: boolean
+) {
+  return [
+    gameType !== 'all' && gameType !== 'none',
+    selectedClubId !== 'all',
+    selectedCasinoId !== 'none',
+    Boolean(stakes.trim()),
+    distance !== 20,
+    fitScoreEnabled
+  ].filter(Boolean).length;
 }
 
 function getRecommendationReason(item: GameOpportunity) {
@@ -3549,8 +3642,140 @@ const styles = StyleSheet.create({
     gap: 9,
     padding: 10
   },
+  findGamesActionRow: {
+    flexDirection: 'row',
+    gap: 8
+  },
+  filterMenuTrigger: {
+    alignItems: 'center',
+    backgroundColor: '#f2f2ee',
+    borderColor: colors.line,
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 12
+  },
+  filterMenuTriggerText: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '800'
+  },
+  filterCountBadge: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    height: 20,
+    justifyContent: 'center',
+    minWidth: 20,
+    paddingHorizontal: 5
+  },
+  filterCountBadgeText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '900'
+  },
+  hostMenuTrigger: {
+    alignItems: 'center',
+    borderColor: colors.line,
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 7,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 10
+  },
+  hostMenuTriggerText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '800'
+  },
+  filterModalBackdrop: {
+    backgroundColor: 'rgba(18, 20, 19, 0.42)',
+    flex: 1,
+    justifyContent: 'flex-end'
+  },
+  filterModalSheet: {
+    alignSelf: 'center',
+    backgroundColor: '#fffefa',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '88%',
+    maxWidth: 620,
+    overflow: 'hidden',
+    paddingTop: 18,
+    width: '100%'
+  },
+  filterModalHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingBottom: 14,
+    paddingHorizontal: 18
+  },
+  filterModalTitle: {
+    color: colors.ink,
+    fontSize: 21,
+    fontWeight: '900'
+  },
+  filterModalSubtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    marginTop: 3
+  },
+  filterModalClose: {
+    alignItems: 'center',
+    backgroundColor: '#f2f2ee',
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    width: 36
+  },
   filterPanel: {
-    gap: 10
+    gap: 16,
+    paddingBottom: 18,
+    paddingHorizontal: 18
+  },
+  filterModalFooter: {
+    backgroundColor: '#fffefa',
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    padding: 14,
+    paddingBottom: 18
+  },
+  filterResetButton: {
+    alignItems: 'center',
+    borderColor: colors.line,
+    borderRadius: 11,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 46,
+    paddingHorizontal: 20
+  },
+  filterResetButtonText: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '800'
+  },
+  filterDoneButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 11,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 46
+  },
+  filterDoneButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900'
   },
   filterChipRow: {
     gap: 8,
