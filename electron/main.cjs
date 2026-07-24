@@ -32,6 +32,8 @@ let database;
 let embeddedBackend;
 let embeddedBackendStatus = { running: false, host: '127.0.0.1', port: 0, reportCount: 0 };
 let updateCheckTimer;
+let updateInstallTimer;
+let updateInstallPending = false;
 let clientHeartbeatTimer;
 let cachedDeviceId;
 let lastUpdateStatus = '';
@@ -1490,11 +1492,46 @@ function broadcastUpdateStatus(status) {
   }
 }
 
+function hasActiveOperations() {
+  try {
+    const state = readLocalDatabase()?.state;
+    const activeTableStatuses = new Set(['Running', 'Forming', 'Paused']);
+    const activeTournamentStatuses = new Set(['Running', 'Paused']);
+    return Boolean(
+      state?.sessions?.some((session) => activeTableStatuses.has(session.status)) ||
+      state?.tournaments?.some((tournament) => activeTournamentStatuses.has(tournament.status))
+    );
+  } catch (error) {
+    writeOrbitApiLog('warn', 'update-active-operation-check-failed', orbitApiErrorDetails(error));
+    return true;
+  }
+}
+
+function installDownloadedUpdateWhenSafe() {
+  if (!updateInstallPending) return;
+  if (hasActiveOperations()) {
+    sendClientUpdateEvent('update-waiting-for-idle', 'downloaded');
+    broadcastUpdateStatus({ state: 'waiting-for-idle' });
+    return;
+  }
+
+  updateInstallPending = false;
+  if (updateInstallTimer) {
+    clearInterval(updateInstallTimer);
+    updateInstallTimer = undefined;
+  }
+  sendClientUpdateEvent('update-installing-automatically', 'installing');
+  broadcastUpdateStatus({ state: 'installing' });
+  setTimeout(() => autoUpdater.quitAndInstall(false, true), 5000);
+}
+
 function startAutoUpdates() {
   if (isDev || !app.isPackaged) return;
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoRunAppAfterInstall = true;
+  autoUpdater.allowPrerelease = false;
 
   autoUpdater.on('checking-for-update', () => {
     sendClientUpdateEvent('checking-for-update', 'checking');
@@ -1520,6 +1557,11 @@ function startAutoUpdates() {
     lastUpdateProgressBucket = -1;
     sendClientUpdateEvent('update-downloaded', 'downloaded', { version: info.version });
     broadcastUpdateStatus({ state: 'downloaded', version: info.version });
+    updateInstallPending = true;
+    installDownloadedUpdateWhenSafe();
+    if (updateInstallPending && !updateInstallTimer) {
+      updateInstallTimer = setInterval(installDownloadedUpdateWhenSafe, 60 * 1000);
+    }
   });
   autoUpdater.on('before-quit-for-update', () => {
     sendClientEvent('update-installing', 'update', { updateStatus: lastUpdateStatus, updateEvent: lastUpdateEvent });
@@ -1751,6 +1793,10 @@ app.on('before-quit', () => {
   if (updateCheckTimer) {
     clearInterval(updateCheckTimer);
     updateCheckTimer = undefined;
+  }
+  if (updateInstallTimer) {
+    clearInterval(updateInstallTimer);
+    updateInstallTimer = undefined;
   }
   if (embeddedBackend) {
     embeddedBackend.close();
