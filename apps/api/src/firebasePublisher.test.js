@@ -42,4 +42,44 @@ describe('canonical Firestore club layout', () => {
     expect(club.playerCount).toBe(1);
     expect(club.activeMembershipCount).toBe(1);
   });
+
+  it('builds a versioned mobile commit marker', () => {
+    const metadata = publisher.buildSyncMetadata(
+      '2026-07-25T00:00:00.000Z',
+      'revision-123',
+      { games: 2, memberships: 4 }
+    );
+
+    expect(metadata).toEqual({
+      syncProtocolVersion: 2,
+      syncRevision: 'revision-123',
+      syncSource: 'orbit-api',
+      publishedAt: '2026-07-25T00:00:00.000Z',
+      entityCounts: { games: 2, memberships: 4 }
+    });
+  });
+
+  it('publishes player-safe game state instead of session analytics', () => {
+    const games = publisher.buildPlayerGameDocs({
+      games: [{
+        id: 'nlh',
+        name: '1/2 NLH',
+        maxSeats: 9,
+        openTables: [{ id: 'table-1', availableSeats: 2 }],
+        waitlistCount: 1,
+        formingCount: 0,
+        availableSeats: 2,
+        knownPlayersCount: 3
+      }]
+    }, 'lic_test');
+
+    expect(games).toEqual([expect.objectContaining({
+      id: 'nlh',
+      clubId: 'lic_test',
+      name: '1/2 NLH',
+      availableSeats: 2,
+      waitlistCount: 1
+    })]);
+    expect(games[0]).not.toHaveProperty('buyins');
+  });
 });

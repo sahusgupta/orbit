@@ -11,6 +11,13 @@ config.watchFolders = [
 ];
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (platform === 'web' && moduleName === './components/MapView') {
+    return {
+      type: 'sourceFile',
+      filePath: path.join(__dirname, 'src', 'components', 'MapView.web.tsx')
+    };
+  }
+
   if (
     moduleName === '../perfmonitor/PerformanceOverlay' &&
     context.originModulePath.endsWith(path.join('elementinspector', 'InspectorPanel.js'))

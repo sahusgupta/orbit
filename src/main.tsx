@@ -2853,32 +2853,58 @@ function App() {
   useEffect(() => {
     if (!activeAccountKey) return;
     let cancelled = false;
-    const syncPlayerUpdates = () => {
-      const currentState = stateRef.current;
-      syncPlayerUpdatesToClubState<AppState>(currentState)
-        .then((nextState) => {
-          if (cancelled) return;
-          const latestState = stateRef.current;
-          const sameProfiles = JSON.stringify(nextState.profiles) === JSON.stringify(latestState.profiles);
-          const sameInterests = JSON.stringify(nextState.interests) === JSON.stringify(latestState.interests);
-          if (sameProfiles && sameInterests) return;
-          const mergedState = {
-            ...latestState,
-            profiles: mergeSyncedList(latestState.profiles, nextState.profiles),
-            interests: mergeSyncedList(latestState.interests, nextState.interests)
-          };
-          setUndoStack((current) => [latestState, ...current].slice(0, 20));
-          setState(mergedState);
-          setSaveStatus({ state: 'saving', message: 'Syncing player updates...' });
-          saveState(mergedState)
-            .then(() => setSaveStatus({ state: 'saved', message: 'Player updates synced' }))
-            .catch(() => setSaveStatus({ state: 'error', message: 'Player update sync failed' }));
-        })
-        .catch(() => undefined);
+    let syncInFlight = false;
+    let syncQueued = false;
+
+    const syncPlayerUpdates = async () => {
+      if (syncInFlight) {
+        syncQueued = true;
+        return;
+      }
+      syncInFlight = true;
+      try {
+        const nextState = await syncPlayerUpdatesToClubState<AppState>(stateRef.current);
+        if (cancelled) return;
+        const latestState = stateRef.current;
+        const sameProfiles = JSON.stringify(nextState.profiles) === JSON.stringify(latestState.profiles);
+        const sameInterests = JSON.stringify(nextState.interests) === JSON.stringify(latestState.interests);
+        const sameTournaments = JSON.stringify(nextState.tournaments) === JSON.stringify(latestState.tournaments);
+        const sameRevenue = JSON.stringify(nextState.revenueTransactions) === JSON.stringify(latestState.revenueTransactions);
+        if (sameProfiles && sameInterests && sameTournaments && sameRevenue) return;
+
+        const mergedState: AppState = {
+          ...latestState,
+          profiles: mergeSyncedList(latestState.profiles, nextState.profiles),
+          interests: mergeSyncedList(latestState.interests, nextState.interests),
+          tournaments: mergeSyncedList(latestState.tournaments, nextState.tournaments),
+          revenueTransactions: mergeSyncedList(latestState.revenueTransactions, nextState.revenueTransactions)
+        };
+        stateRef.current = mergedState;
+        setUndoStack((current) => [latestState, ...current].slice(0, 20));
+        setState(mergedState);
+        setSaveStatus({ state: 'saving', message: 'Syncing player updates...' });
+        try {
+          await saveState(mergedState);
+          if (!cancelled) setSaveStatus({ state: 'saved', message: 'Player updates synced' });
+        } catch {
+          if (!cancelled) setSaveStatus({ state: 'error', message: 'Player update sync failed' });
+        }
+      } catch {
+        // Firestore listeners and the periodic reconciliation pass will retry.
+      } finally {
+        syncInFlight = false;
+        if (syncQueued && !cancelled) {
+          syncQueued = false;
+          void syncPlayerUpdates();
+        }
+      }
     };
-    const unsubscribe = subscribeToPlayerRequestUpdates(activeAccountKey, syncPlayerUpdates);
+
+    const unsubscribe = subscribeToPlayerRequestUpdates(activeAccountKey, () => void syncPlayerUpdates());
+    const reconciliationTimer = window.setInterval(() => void syncPlayerUpdates(), 30_000);
     return () => {
       cancelled = true;
+      window.clearInterval(reconciliationTimer);
       unsubscribe();
     };
   }, [activeAccountKey]);

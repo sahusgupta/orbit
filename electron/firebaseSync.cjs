@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { initializeApp, getApps } = require('firebase/app');
 const { getAuth } = require('firebase/auth');
 const {
@@ -24,6 +25,7 @@ const firebaseConfig = {
 };
 
 const firebaseSyncTimeoutMs = 2500;
+const orbitSyncProtocolVersion = 2;
 
 function isFirebaseConfigured() {
   return process.env.ORBIT_ENABLE_FIREBASE_SYNC === 'true' && Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId);
@@ -85,6 +87,7 @@ async function readStateFromFirebase(accountKey) {
 async function writeStateToFirebase(accountKey, state, publicSnapshot) {
   if (!isFirebaseConfigured() || !accountKey) return { ok: false, skipped: true };
   const savedAt = new Date().toISOString();
+  const syncRevision = `${savedAt}:${crypto.randomUUID()}`;
   const result = await withFirebaseTimeout(
     Promise.all([
       setDoc(
@@ -93,20 +96,23 @@ async function writeStateToFirebase(accountKey, state, publicSnapshot) {
           accountKey,
           schemaVersion: 4,
           savedAt,
+          syncProtocolVersion: orbitSyncProtocolVersion,
+          syncRevision,
+          syncSource: 'orbit-desktop-electron',
           state: stripUndefinedForFirestore(state),
           snapshot: stripUndefinedForFirestore(publicSnapshot),
           updatedAt: serverTimestamp()
         },
         { merge: true }
       ),
-      publishClubSnapshot(accountKey, publicSnapshot, savedAt)
-    ]).then(() => ({ ok: true, engine: 'firebase', accountKey, savedAt })),
-    { ok: false, engine: 'firebase', accountKey, savedAt, timedOut: true }
+      publishClubSnapshot(accountKey, publicSnapshot, savedAt, syncRevision)
+    ]).then(() => ({ ok: true, engine: 'firebase', accountKey, savedAt, syncRevision })),
+    { ok: false, engine: 'firebase', accountKey, savedAt, syncRevision, timedOut: true }
   );
   return result;
 }
 
-async function publishClubSnapshot(accountKey, publicSnapshot, savedAt) {
+async function publishClubSnapshot(accountKey, publicSnapshot, savedAt, syncRevision) {
   if (!publicSnapshot?.club) return;
   const db = getFirebaseDb();
   const [existingGames, existingMemberships, existingWaitlists, existingNotifications] = await Promise.all([
@@ -120,6 +126,12 @@ async function publishClubSnapshot(accountKey, publicSnapshot, savedAt) {
   const membershipIds = new Set((publicSnapshot.memberships || []).map((membership) => membership.playerId));
   const waitlistIds = new Set((publicSnapshot.waitlists || []).map((waitlist) => waitlist.id));
   const notificationIds = new Set((publicSnapshot.notifications || []).map((notification) => notification.id));
+  const syncMetadata = {
+    syncProtocolVersion: orbitSyncProtocolVersion,
+    syncRevision,
+    syncSource: 'orbit-desktop-electron',
+    publishedAt: savedAt
+  };
   batch.set(
     doc(db, 'clubs', accountKey),
     stripUndefinedForFirestore({
@@ -127,12 +139,19 @@ async function publishClubSnapshot(accountKey, publicSnapshot, savedAt) {
       social: publicSnapshot.social,
       generatedAt: publicSnapshot.generatedAt,
       savedAt,
+      ...syncMetadata,
+      entityCounts: {
+        games: (publicSnapshot.games || []).length,
+        memberships: (publicSnapshot.memberships || []).length,
+        waitlists: (publicSnapshot.waitlists || []).length,
+        notifications: (publicSnapshot.notifications || []).length
+      },
       updatedAt: serverTimestamp()
     }),
     { merge: true }
   );
   for (const game of publicSnapshot.games || []) {
-    batch.set(doc(db, 'clubs', accountKey, 'games', game.id), stripUndefinedForFirestore({ ...game, updatedAt: serverTimestamp() }), { merge: true });
+    batch.set(doc(db, 'clubs', accountKey, 'games', game.id), stripUndefinedForFirestore({ ...game, ...syncMetadata, updatedAt: serverTimestamp() }), { merge: true });
   }
   for (const gameDoc of existingGames.docs) {
     if (!gameIds.has(gameDoc.id)) batch.delete(gameDoc.ref);
@@ -140,7 +159,7 @@ async function publishClubSnapshot(accountKey, publicSnapshot, savedAt) {
   for (const membership of publicSnapshot.memberships || []) {
     batch.set(
       doc(db, 'clubs', accountKey, 'memberships', membership.playerId),
-      stripUndefinedForFirestore({ ...membership, updatedAt: serverTimestamp() }),
+      stripUndefinedForFirestore({ ...membership, ...syncMetadata, updatedAt: serverTimestamp() }),
       { merge: true }
     );
   }
@@ -148,13 +167,13 @@ async function publishClubSnapshot(accountKey, publicSnapshot, savedAt) {
     if (!membershipIds.has(membershipDoc.id)) batch.delete(membershipDoc.ref);
   }
   for (const waitlist of publicSnapshot.waitlists || []) {
-    batch.set(doc(db, 'clubs', accountKey, 'waitlists', waitlist.id), stripUndefinedForFirestore({ ...waitlist, updatedAt: serverTimestamp() }), { merge: true });
+    batch.set(doc(db, 'clubs', accountKey, 'waitlists', waitlist.id), stripUndefinedForFirestore({ ...waitlist, ...syncMetadata, updatedAt: serverTimestamp() }), { merge: true });
   }
   for (const waitlistDoc of existingWaitlists.docs) {
     if (!waitlistIds.has(waitlistDoc.id)) batch.delete(waitlistDoc.ref);
   }
   for (const notification of publicSnapshot.notifications || []) {
-    batch.set(doc(db, 'clubs', accountKey, 'notifications', notification.id), stripUndefinedForFirestore({ ...notification, updatedAt: serverTimestamp() }), { merge: true });
+    batch.set(doc(db, 'clubs', accountKey, 'notifications', notification.id), stripUndefinedForFirestore({ ...notification, ...syncMetadata, updatedAt: serverTimestamp() }), { merge: true });
   }
   for (const notificationDoc of existingNotifications.docs) {
     if (!notificationIds.has(notificationDoc.id)) batch.delete(notificationDoc.ref);
@@ -184,15 +203,15 @@ async function markPlayerRequestApplied(accountKey, kind, requestId) {
   if (!isFirebaseConfigured() || !accountKey || !requestId) return;
   const collectionName = kind === 'membership' ? 'membershipRequests' : 'waitlistRequests';
   const db = getFirebaseDb();
+  const acknowledgement = {
+    status: 'applied',
+    appliedAt: serverTimestamp(),
+    appliedBy: 'orbit-desktop-electron',
+    syncProtocolVersion: orbitSyncProtocolVersion
+  };
   await Promise.all([
-    updateDoc(doc(db, 'clubs', accountKey, collectionName, requestId), {
-      status: 'applied',
-      appliedAt: serverTimestamp()
-    }).catch(() => undefined),
-    updateDoc(doc(db, 'clubStates', accountKey, collectionName, requestId), {
-      status: 'applied',
-      appliedAt: serverTimestamp()
-    }).catch(() => undefined)
+    updateDoc(doc(db, 'clubs', accountKey, collectionName, requestId), acknowledgement).catch(() => undefined),
+    updateDoc(doc(db, 'clubStates', accountKey, collectionName, requestId), acknowledgement).catch(() => undefined)
   ]);
 }
 

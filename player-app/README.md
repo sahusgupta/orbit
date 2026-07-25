@@ -9,6 +9,7 @@ Standalone Expo mobile app for players on iOS and Android.
 - Native live map UI for selecting a home area and browsing clubs by location.
 - Club discovery and club-specific membership requests.
 - Live game cards showing running/forming tables, available seats, waitlist counts, distance context, and table details.
+- Real-time game listeners plus a full 30-second refresh across every registered card house, with an immediate refresh when the app returns to the foreground.
 - Waitlist request flow that produces the same action payload shape the management app can ingest.
 - Club-by-club loyalty status, points, and tier progress.
 
@@ -42,7 +43,7 @@ Core readiness items now in the repo:
 
 ## Payments Boundary
 
-Stripe has two isolated flows: Player Premium and verified club-membership checkout. Table actions, deposits, seat holds, drop, and time-fee collection remain outside Player checkout.
+Stripe has two isolated flows: Player Premium and the card-house storefront. The storefront can offer day passes, memberships, and prepaid time packages, but the card house must connect its own Stripe account and remains the seller and fulfiller. Orbit provides discovery, checkout handoff, receipts, and entitlement sync; it does not sell poker table time itself. Table deposits, seat holds, and drop collection remain outside Player checkout.
 
 Player Premium should be configured as a Stripe subscription around `$12.99/mo` and gates grinder/table recommendations plus player-hosted game posting. Set `EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL` to the Stripe Checkout or Payment Link URL for that monthly subscription. Management-app payment/billing remains separate.
 
@@ -56,17 +57,19 @@ To create the Stripe Product, recurring monthly Price, and subscription Payment 
 
 The setup script uses the secret key only for the Stripe API call. It writes only mobile-safe values to `.env`: `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL`, `EXPO_PUBLIC_PLAYER_PREMIUM_PRICE_ID`, and `EXPO_PUBLIC_PLAYER_PREMIUM_PRODUCT_ID`.
 
-Club memberships use the Orbit API rather than a client-owned Payment Link. Set only this public value in the player app:
+Card-house products use the Orbit API rather than a client-owned Payment Link. Set only this public value in the player app:
 
 ```text
 EXPO_PUBLIC_ORBIT_API_URL=https://your-orbit-api.example.com
 ```
 
-The API owns prices and Stripe secrets, verifies the Firebase player ID token, and records a membership and revenue transaction only after a signed Stripe webhook confirms payment.
+The API owns catalog defaults and platform credentials, verifies the Firebase player ID token, and creates Checkout on the selected card house's connected Stripe account. A published club must provide `stripeAccountId` (or `connectedStripeAccountId`). The API records memberships and time-wallet balances only after a signed Connect webhook confirms payment. `ORBIT_FIVE_HOUR_TIME_PRICE_CENTS` controls the fallback five-hour package price.
 
 ## Sync With Management Database
 
-The management app publishes club state to Firebase under `clubStates/{accountKey}` whenever it saves. The player app reads the same document and writes membership/waitlist changes back to Firebase.
+The management app publishes player-safe card-house and game state to Firebase whenever it saves. The player app listens for live changes and also re-reads all registered card houses every 30 seconds so newly formed games, opened seats, waitlists, and table changes recover cleanly after network interruptions. Polling pauses while the app is backgrounded and refreshes immediately when it becomes active again.
+
+Desktop, API, and mobile use sync protocol v2. Every desktop save has a unique `syncRevision`; child game records are tagged with that revision, and the parent club record is the commit marker with expected entity counts. Mobile keeps its last complete revision until the entire new game set is available, which prevents mixed saves, stale removed games, and partial API publishes. Mobile membership and waitlist mutations also include a stable `clientMutationId`, and desktop marks each request as applied after ingesting it.
 
 ## Firebase Sync
 
@@ -90,6 +93,11 @@ EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=...
 
 Firestore layout:
 
+- `clubs/{clubId}`: public card-house record and current committed sync revision.
+- `clubs/{clubId}/games/{gameId}`: player-safe live/forming game state for the committed revision.
+- `clubs/{clubId}/memberships/{playerId}`: player-scoped membership state.
+- `clubs/{clubId}/waitlists/{waitlistId}`: player-scoped interest and seat-request state.
+- `clubs/{clubId}/membershipRequests/{requestId}` and `waitlistRequests/{requestId}`: idempotent mobile mutations and desktop acknowledgements.
 - `clubStates/{accountKey}`: full management state plus player-safe snapshot.
 - `clubStates/{accountKey}/membershipRequests/{requestId}`: player join requests.
 - `clubStates/{accountKey}/waitlistRequests/{requestId}`: player waitlist requests.

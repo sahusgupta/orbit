@@ -207,7 +207,11 @@ export default function MapView({ children, style, onPress, initialRegion }: Map
 
   React.useEffect(() => {
     const overlay = mapOverlayRef.current as unknown as HTMLElement | null;
-    if (!overlay) return undefined;
+    if (
+      !overlay ||
+      typeof overlay.addEventListener !== 'function' ||
+      typeof overlay.removeEventListener !== 'function'
+    ) return undefined;
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
       event.stopPropagation();
@@ -220,7 +224,11 @@ export default function MapView({ children, style, onPress, initialRegion }: Map
   }, [zoomBy]);
 
   React.useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
+    if (
+      typeof window === 'undefined' ||
+      typeof window.addEventListener !== 'function' ||
+      typeof window.removeEventListener !== 'function'
+    ) return undefined;
     const handleMouseMove = (event: MouseEvent) => {
       if (!isMouseDragging.current) return;
       const dx = event.clientX - mouseDragStart.current.x;

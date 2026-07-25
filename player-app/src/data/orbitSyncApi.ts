@@ -38,6 +38,12 @@ import type {
   PlayerWaitlistRequest
 } from '../domain/playerSync';
 import { getPlayerLoyalty } from '../domain/playerSync';
+import {
+  hasUncommittedFutureRevision,
+  orbitSyncProtocolVersion,
+  selectCommittedGames,
+  selectRevisionCompatibleRecords
+} from '../domain/syncProtocol';
 import { firebaseConfig } from './firebaseConfig';
 
 type ClubStateRecord = {
@@ -51,6 +57,12 @@ type PublishedClubRecord = PlayerClubSnapshot['club'] & {
   social?: PlayerClubSnapshot['social'];
   generatedAt?: string;
   savedAt?: string;
+  publishedAt?: string;
+  syncProtocolVersion?: number;
+  syncRevision?: string;
+  entityCounts?: {
+    games?: number;
+  };
 };
 
 type SyncResult =
@@ -63,6 +75,7 @@ const auth = getAuth(app);
 
 export const syncBaseUrl = `firebase://${firebaseConfig.projectId}/clubs`;
 export const orbitApiBaseUrl = (process.env.EXPO_PUBLIC_ORBIT_API_URL || '').replace(/\/$/, '');
+export const cardHouseGameRefreshIntervalMs = 30_000;
 const localOrbitApiBaseUrl = (
   process.env.EXPO_PUBLIC_ORBIT_LOCAL_API_URL ||
   (typeof window !== 'undefined' ? 'http://127.0.0.1:4629' : '')
@@ -99,11 +112,21 @@ async function submitLocalPlayerRequest(path: string, request: PlayerMembershipR
 
 function mergeSnapshotSources(...sources: PlayerClubSnapshot[][]) {
   const clubs = new Map<string, PlayerClubSnapshot>();
-  sources.flat().forEach((snapshot) => clubs.set(snapshot.club.id, snapshot));
+  sources.flat().forEach((snapshot) => {
+    const current = clubs.get(snapshot.club.id);
+    if (!current || getSnapshotFreshness(snapshot) >= getSnapshotFreshness(current)) {
+      clubs.set(snapshot.club.id, snapshot);
+    }
+  });
   return Array.from(clubs.values());
 }
 
-export async function createClubMembershipCheckout(input: { clubId: string; plan: 'day' | 'monthly'; playerName: string }) {
+function getSnapshotFreshness(snapshot: PlayerClubSnapshot) {
+  const timestamp = Date.parse(snapshot.club.publishedAt || snapshot.generatedAt || '');
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+export async function createClubMembershipCheckout(input: { clubId: string; product: 'day' | 'monthly' | 'time-5'; playerName: string }) {
   if (!orbitApiBaseUrl) throw new Error('EXPO_PUBLIC_ORBIT_API_URL is not configured.');
   const user = auth.currentUser;
   if (!user) throw new Error('Sign in to your Orbit Player account before purchasing a membership.');
@@ -117,7 +140,7 @@ export async function createClubMembershipCheckout(input: { clubId: string; plan
     body: JSON.stringify(input)
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload.checkoutUrl) throw new Error(payload.error || 'Unable to start membership checkout.');
+  if (!response.ok || !payload.checkoutUrl) throw new Error(payload.error || 'Unable to start the card house checkout.');
   return payload as { ok: true; checkoutUrl: string; sessionId: string };
 }
 
@@ -354,30 +377,70 @@ export function subscribeToAllClubSnapshots(
   player: Pick<PlayerAccount, 'id' | 'name'>,
   callback: (result: { ok: true; clubs: PlayerClubSnapshot[] } | { ok: false; error: string }) => void
 ) {
+  type LiveClubState = {
+    clubDoc: QueryDocumentSnapshot;
+    games: PlayerClubSnapshot['games'];
+    memberships: PlayerClubSnapshot['memberships'];
+    waitlists: PlayerClubSnapshot['waitlists'];
+    notifications: PlayerClubSnapshot['notifications'];
+    updateClub: () => void;
+  };
+
   const childUnsubscribers = new Map<string, Unsubscribe[]>();
+  const liveClubStates = new Map<string, LiveClubState>();
   const clubIds = new Set<string>();
   let disposed = false;
+  let refreshInFlight = false;
+  let refreshTimer: ReturnType<typeof setInterval> | undefined;
   let latestClubs = new Map<string, PlayerClubSnapshot>();
-
-  const pollLocalClub = async () => {
-    const result = await fetchLocalClubSnapshot(player);
-    if (disposed || !result.ok) return;
-    latestClubs.set(result.snapshot.club.id, result.snapshot);
-    emit();
-  };
 
   const emit = () => {
     if (disposed) return;
-    const clubs = Array.from(latestClubs.values()).filter((snapshot) => snapshot.games.length || snapshot.memberships.length || snapshot.waitlists.length);
-    callback({ ok: true, clubs });
+    callback({ ok: true, clubs: Array.from(latestClubs.values()) });
   };
 
-  void pollLocalClub();
-  const localPollTimer = setInterval(() => void pollLocalClub(), 1500);
+  const refresh = async () => {
+    if (disposed || refreshInFlight) return;
+    refreshInFlight = true;
+    try {
+      const result = await fetchAllClubSnapshots(player);
+      if (disposed) return;
+      if (result.ok) {
+        latestClubs = new Map(result.clubs.map((snapshot) => {
+          const liveSnapshot = latestClubs.get(snapshot.club.id);
+          const freshestSnapshot = liveSnapshot && getSnapshotFreshness(liveSnapshot) > getSnapshotFreshness(snapshot)
+            ? liveSnapshot
+            : snapshot;
+          return [snapshot.club.id, freshestSnapshot];
+        }));
+        emit();
+      } else if (!latestClubs.size) {
+        callback(result);
+      }
+    } catch (error) {
+      if (!disposed && !latestClubs.size) {
+        callback({ ok: false, error: error instanceof Error ? error.message : 'Unable to refresh card-house games.' });
+      }
+    } finally {
+      refreshInFlight = false;
+    }
+  };
+
+  const stopPolling = () => {
+    if (!refreshTimer) return;
+    clearInterval(refreshTimer);
+    refreshTimer = undefined;
+  };
+
+  const startPolling = () => {
+    stopPolling();
+    refreshTimer = setInterval(() => void refresh(), cardHouseGameRefreshIntervalMs);
+  };
 
   const detachClub = (clubId: string) => {
     childUnsubscribers.get(clubId)?.forEach((unsubscribe) => unsubscribe());
     childUnsubscribers.delete(clubId);
+    liveClubStates.delete(clubId);
     latestClubs.delete(clubId);
   };
 
@@ -394,34 +457,45 @@ export function subscribeToAllClubSnapshots(
 
       clubsSnapshot.docs.forEach((clubDoc) => {
         if (clubIds.has(clubDoc.id)) {
-          const current = latestClubs.get(clubDoc.id);
-          if (current) {
-            latestClubs.set(clubDoc.id, buildPublishedClubSnapshot(clubDoc, current.games, current.memberships, current.waitlists, current.notifications ?? [], player));
-            emit();
+          const liveClubState = liveClubStates.get(clubDoc.id);
+          if (liveClubState) {
+            liveClubState.clubDoc = clubDoc;
+            liveClubState.updateClub();
           }
           return;
         }
 
         clubIds.add(clubDoc.id);
-        const childState = {
+        const childState: LiveClubState = {
+          clubDoc,
           games: [] as PlayerClubSnapshot['games'],
           memberships: [] as PlayerClubSnapshot['memberships'],
           waitlists: [] as PlayerClubSnapshot['waitlists'],
-          notifications: [] as PlayerClubSnapshot['notifications']
+          notifications: [] as PlayerClubSnapshot['notifications'],
+          updateClub: () => undefined
         };
-        const updateClub = () => {
-          latestClubs.set(clubDoc.id, buildPublishedClubSnapshot(clubDoc, childState.games, childState.memberships, childState.waitlists, childState.notifications, player));
+        childState.updateClub = () => {
+          const nextSnapshot = buildPublishedClubSnapshot(
+            childState.clubDoc,
+            childState.games,
+            childState.memberships,
+            childState.waitlists,
+            childState.notifications,
+            player
+          );
+          if (!nextSnapshot) return;
+          latestClubs.set(clubDoc.id, nextSnapshot);
           emit();
         };
         const handlePrivateCollectionError = () => {
-          updateClub();
+          childState.updateClub();
         };
         const unsubscribers = [
           onSnapshot(
             collection(db, 'clubs', clubDoc.id, 'games'),
             (snapshot) => {
               childState.games = snapshot.docs.map((gameDoc) => normalizePublishedGame(gameDoc.data(), gameDoc.id));
-              updateClub();
+              childState.updateClub();
             },
             handlePrivateCollectionError
           ),
@@ -429,7 +503,7 @@ export function subscribeToAllClubSnapshots(
             playerScopedCollection(clubDoc.id, 'memberships', player.id),
             (snapshot) => {
               childState.memberships = snapshot.docs.map((membershipDoc) => membershipDoc.data() as PlayerClubSnapshot['memberships'][number]);
-              updateClub();
+              childState.updateClub();
             },
             handlePrivateCollectionError
           ),
@@ -437,7 +511,7 @@ export function subscribeToAllClubSnapshots(
             playerScopedCollection(clubDoc.id, 'waitlists', player.id),
             (snapshot) => {
               childState.waitlists = snapshot.docs.map((waitlistDoc) => waitlistDoc.data() as PlayerClubSnapshot['waitlists'][number]);
-              updateClub();
+              childState.updateClub();
             },
             handlePrivateCollectionError
           ),
@@ -445,13 +519,14 @@ export function subscribeToAllClubSnapshots(
             collection(db, 'clubs', clubDoc.id, 'notifications'),
             (snapshot) => {
               childState.notifications = snapshot.docs.map((notificationDoc) => notificationDoc.data() as PlayerClubSnapshot['notifications'][number]);
-              updateClub();
+              childState.updateClub();
             },
             handlePrivateCollectionError
           )
         ];
+        liveClubStates.set(clubDoc.id, childState);
         childUnsubscribers.set(clubDoc.id, unsubscribers);
-        updateClub();
+        childState.updateClub();
       });
     },
     (error) => latestClubs.size
@@ -459,12 +534,18 @@ export function subscribeToAllClubSnapshots(
       : callback({ ok: false, error: error.message || 'Unable to subscribe to Firebase clubs.' })
   );
 
-  return () => {
-    disposed = true;
-    clearInterval(localPollTimer);
-    parentUnsubscribe();
-    childUnsubscribers.forEach((unsubscribers) => unsubscribers.forEach((unsubscribe) => unsubscribe()));
-    childUnsubscribers.clear();
+  return {
+    refresh,
+    startPolling,
+    stopPolling,
+    unsubscribe: () => {
+      disposed = true;
+      stopPolling();
+      parentUnsubscribe();
+      childUnsubscribers.forEach((unsubscribers) => unsubscribers.forEach((unsubscribe) => unsubscribe()));
+      childUnsubscribers.clear();
+      liveClubStates.clear();
+    }
   };
 }
 
@@ -620,7 +701,7 @@ async function applyWaitlistToLegacySnapshot(secureRequest: PlayerWaitlistReques
 async function getPublishedClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>) {
   const clubDocs = await getDocs(collection(db, 'clubs'));
   const snapshots = await Promise.all(clubDocs.docs.map((clubDoc) => getPublishedClubSnapshot(clubDoc, player)));
-  return snapshots.filter((snapshot) => snapshot.games.length || snapshot.memberships.length || snapshot.waitlists.length);
+  return snapshots;
 }
 
 async function readAnyClubSnapshot(clubId: string, player: Pick<PlayerAccount, 'id' | 'name'>) {
@@ -662,19 +743,47 @@ async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: 
     getDocs(playerScopedCollection(clubDoc.id, 'waitlists', player.id)),
     getDocs(collection(db, 'clubs', clubDoc.id, 'notifications'))
   ]);
+  const membershipRecords = memberships.docs.map(
+    (membershipDoc) => membershipDoc.data() as PlayerClubSnapshot['memberships'][number] & { publishedAt?: string; syncRevision?: string }
+  );
+  const waitlistRecords = waitlists.docs.map(
+    (waitlistDoc) => waitlistDoc.data() as PlayerClubSnapshot['waitlists'][number] & { publishedAt?: string; syncRevision?: string }
+  );
+  const notificationRecords = notifications.docs.map(
+    (notificationDoc) => notificationDoc.data() as PlayerClubSnapshot['notifications'][number] & { publishedAt?: string; syncRevision?: string }
+  );
+  const committedGames = selectCommittedGames(
+    club,
+    games.docs.map((gameDoc) => normalizePublishedGame(gameDoc.data(), gameDoc.id))
+  );
+  if (!committedGames) {
+    throw new Error(`${club.name || clubDoc.id} is publishing a newer game revision.`);
+  }
+  if (
+    hasUncommittedFutureRevision(club, membershipRecords) ||
+    hasUncommittedFutureRevision(club, waitlistRecords) ||
+    hasUncommittedFutureRevision(club, notificationRecords)
+  ) {
+    throw new Error(`${club.name || clubDoc.id} is publishing newer player records.`);
+  }
   const snapshot: PlayerClubSnapshot = {
     club: {
       id: club.id || clubDoc.id,
       name: club.name || 'Local Poker Club',
       address: club.address,
-      phone: club.phone
+      phone: club.phone,
+      syncProtocolVersion: club.syncProtocolVersion,
+      syncRevision: club.syncRevision,
+      publishedAt: club.publishedAt ?? club.savedAt
     },
-    games: games.docs.map((gameDoc) => normalizePublishedGame(gameDoc.data(), gameDoc.id)),
-    memberships: memberships.docs.map((membershipDoc) => membershipDoc.data() as PlayerClubSnapshot['memberships'][number]),
-    waitlists: waitlists.docs.map((waitlistDoc) => waitlistDoc.data() as PlayerClubSnapshot['waitlists'][number]),
-    notifications: notifications.docs.map((notificationDoc) => notificationDoc.data() as PlayerClubSnapshot['notifications'][number]),
+    games: committedGames,
+    memberships: selectRevisionCompatibleRecords(club, membershipRecords),
+    waitlists: selectRevisionCompatibleRecords(club, waitlistRecords),
+    notifications: selectRevisionCompatibleRecords(club, notificationRecords),
     social: club.social ?? { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: 0 },
-    generatedAt: club.generatedAt ?? club.savedAt ?? new Date().toISOString()
+    generatedAt: club.generatedAt ?? club.publishedAt ?? club.savedAt ?? new Date().toISOString(),
+    syncProtocolVersion: club.syncProtocolVersion,
+    syncRevision: club.syncRevision
   };
   return filterSnapshotForPlayer(snapshot, player);
 }
@@ -688,20 +797,37 @@ function buildPublishedClubSnapshot(
   player: Pick<PlayerAccount, 'id' | 'name'>
 ) {
   const club = clubDoc.data() as PublishedClubRecord;
+  const committedGames = selectCommittedGames(club, games);
+  if (!committedGames) return null;
+  if (
+    hasUncommittedFutureRevision(club, memberships) ||
+    hasUncommittedFutureRevision(club, waitlists) ||
+    hasUncommittedFutureRevision(club, notifications)
+  ) {
+    return null;
+  }
+  const committedMemberships = selectRevisionCompatibleRecords(club, memberships);
+  const committedWaitlists = selectRevisionCompatibleRecords(club, waitlists);
+  const committedNotifications = selectRevisionCompatibleRecords(club, notifications);
   return filterSnapshotForPlayer(
     {
       club: {
         id: club.id || clubDoc.id,
         name: club.name || 'Local Poker Club',
         address: club.address,
-        phone: club.phone
+        phone: club.phone,
+        syncProtocolVersion: club.syncProtocolVersion,
+        syncRevision: club.syncRevision,
+        publishedAt: club.publishedAt ?? club.savedAt
       },
-      games,
-      memberships,
-      waitlists,
-      notifications,
+      games: committedGames,
+      memberships: committedMemberships,
+      waitlists: committedWaitlists,
+      notifications: committedNotifications,
       social: club.social ?? { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: 0 },
-      generatedAt: club.generatedAt ?? club.savedAt ?? new Date().toISOString()
+      generatedAt: club.generatedAt ?? club.publishedAt ?? club.savedAt ?? new Date().toISOString(),
+      syncProtocolVersion: club.syncProtocolVersion,
+      syncRevision: club.syncRevision
     },
     player
   );
@@ -716,9 +842,17 @@ async function getLegacyClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>
 }
 
 async function writeRequestToClubPaths(clubId: string, collectionName: 'membershipRequests' | 'waitlistRequests', requestId: string, request: PlayerMembershipRequest | PlayerWaitlistRequest) {
+  const requestEnvelope = {
+    ...request,
+    status: 'pending',
+    syncProtocolVersion: orbitSyncProtocolVersion,
+    clientMutationId: requestId,
+    clientCreatedAt: request.requestedAt,
+    createdAt: serverTimestamp()
+  };
   await Promise.all([
-    setDoc(doc(db, 'clubs', clubId, collectionName, requestId), { ...request, status: 'pending', createdAt: serverTimestamp() }, { merge: true }),
-    setDoc(doc(db, 'clubStates', clubId, collectionName, requestId), { ...request, status: 'pending', createdAt: serverTimestamp() }, { merge: true })
+    setDoc(doc(db, 'clubs', clubId, collectionName, requestId), requestEnvelope, { merge: true }),
+    setDoc(doc(db, 'clubStates', clubId, collectionName, requestId), requestEnvelope, { merge: true })
   ]);
 }
 

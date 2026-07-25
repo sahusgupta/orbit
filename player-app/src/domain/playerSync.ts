@@ -14,6 +14,9 @@ export type PlayerSyncClub = {
   name: string;
   address?: string;
   phone?: string;
+  syncProtocolVersion?: number;
+  syncRevision?: string;
+  publishedAt?: string;
 };
 
 export type PlayerAccount = {
@@ -53,6 +56,8 @@ export type PlayerSyncGame = {
   formingCount: number;
   availableSeats: number;
   knownPlayersCount: number;
+  syncRevision?: string;
+  updatedAt?: string;
 };
 
 export type PlayerSocialSummary = {
@@ -149,6 +154,8 @@ export type PlayerClubSnapshot = {
   notifications: PlayerInAppNotification[];
   social: PlayerSocialSummary;
   generatedAt: string;
+  syncProtocolVersion?: number;
+  syncRevision?: string;
 };
 
 export type TournamentRegistrationStatus =

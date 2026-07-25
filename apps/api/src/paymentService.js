@@ -34,7 +34,8 @@ function getPaymentServiceStatus() {
     checkoutConfigured: Boolean(process.env.STRIPE_SECRET_KEY && process.env.ORBIT_PAYMENT_SUCCESS_URL && process.env.ORBIT_PAYMENT_CANCEL_URL),
     webhookConfigured: Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET),
     dayPassCents: Number(process.env.ORBIT_DAY_PASS_PRICE_CENTS || 1000),
-    monthlyMembershipCents: Number(process.env.ORBIT_MONTHLY_MEMBERSHIP_PRICE_CENTS || 3500)
+    monthlyMembershipCents: Number(process.env.ORBIT_MONTHLY_MEMBERSHIP_PRICE_CENTS || 3500),
+    fiveHourTimePackCents: Number(process.env.ORBIT_FIVE_HOUR_TIME_PRICE_CENTS || 5000)
   };
 }
 
@@ -53,9 +54,10 @@ async function requireFirebasePlayer(request, response, next) {
 }
 
 async function createMembershipCheckout(request, response) {
-  const { clubId, plan, playerName } = request.body || {};
-  if (!clubId || !['day', 'monthly'].includes(plan)) {
-    response.status(400).json({ ok: false, error: 'A valid club and membership plan are required.' });
+  const { clubId, playerName } = request.body || {};
+  const product = request.body?.product || request.body?.plan;
+  if (!clubId || !['day', 'monthly', 'time-5'].includes(product)) {
+    response.status(400).json({ ok: false, error: 'A valid club and access product are required.' });
     return;
   }
   const successUrl = process.env.ORBIT_PAYMENT_SUCCESS_URL;
@@ -71,9 +73,16 @@ async function createMembershipCheckout(request, response) {
     return;
   }
   const club = clubSnapshot.data() || {};
-  const amountCents = plan === 'day'
-    ? Number(process.env.ORBIT_DAY_PASS_PRICE_CENTS || 1000)
-    : Number(process.env.ORBIT_MONTHLY_MEMBERSHIP_PRICE_CENTS || 3500);
+  const connectedAccountId = String(club.stripeAccountId || club.connectedStripeAccountId || '').trim();
+  if (!connectedAccountId) {
+    response.status(409).json({ ok: false, error: `${club.name || 'This card house'} has not connected its merchant checkout yet.` });
+    return;
+  }
+  const productDetails = product === 'day'
+    ? { amountCents: Number(process.env.ORBIT_DAY_PASS_PRICE_CENTS || 1000), name: 'Day Pass' }
+    : product === 'monthly'
+      ? { amountCents: Number(process.env.ORBIT_MONTHLY_MEMBERSHIP_PRICE_CENTS || 3500), name: 'Monthly Membership' }
+      : { amountCents: Number(process.env.ORBIT_FIVE_HOUR_TIME_PRICE_CENTS || 5000), name: '5-Hour Time Pack' };
   const session = await getStripe().checkout.sessions.create({
     mode: 'payment',
     customer_email: request.orbitPlayer.email,
@@ -82,21 +91,21 @@ async function createMembershipCheckout(request, response) {
       quantity: 1,
       price_data: {
         currency: process.env.ORBIT_PAYMENT_CURRENCY || 'usd',
-        unit_amount: amountCents,
-        product_data: { name: `${club.name || 'Orbit Club'} ${plan === 'day' ? 'Day Pass' : 'Monthly Membership'}` }
+        unit_amount: productDetails.amountCents,
+        product_data: { name: `${club.name || 'Card House'} ${productDetails.name}` }
       }
     }],
     metadata: {
-      kind: 'club_membership',
+      kind: 'club_access',
       clubId,
-      plan,
+      product,
       playerId: request.orbitPlayer.uid,
       playerName: String(playerName || request.orbitPlayer.name || request.orbitPlayer.email || 'Player').slice(0, 120),
       playerEmail: String(request.orbitPlayer.email || '').slice(0, 200)
     },
     success_url: `${successUrl}${successUrl.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: cancelUrl
-  });
+  }, { stripeAccount: connectedAccountId });
   response.status(201).json({ ok: true, checkoutUrl: session.url, sessionId: session.id });
 }
 
@@ -104,7 +113,7 @@ async function handleStripeWebhook(request, response) {
   try {
     if (!process.env.STRIPE_WEBHOOK_SECRET) throw new Error('STRIPE_WEBHOOK_SECRET is not configured.');
     const event = getStripe().webhooks.constructEvent(request.body, request.get('stripe-signature'), process.env.STRIPE_WEBHOOK_SECRET);
-    if (event.type === 'checkout.session.completed' && event.data.object?.metadata?.kind === 'club_membership') {
+    if (event.type === 'checkout.session.completed' && ['club_membership', 'club_access'].includes(event.data.object?.metadata?.kind)) {
       await recordMembershipPayment(event);
     }
     response.json({ received: true });
@@ -119,8 +128,9 @@ async function recordMembershipPayment(event) {
   const clubId = metadata.clubId;
   const playerId = metadata.playerId || session.client_reference_id;
   if (!clubId || !playerId || session.payment_status !== 'paid') return;
+  const product = metadata.product || metadata.plan || 'monthly';
   const occurredAt = new Date((event.created || Math.floor(Date.now() / 1000)) * 1000).toISOString();
-  const planDays = metadata.plan === 'day' ? 1 : 30;
+  const planDays = product === 'day' ? 1 : 30;
   const joinedAt = occurredAt.slice(0, 10);
   const expires = new Date(`${joinedAt}T12:00:00Z`);
   expires.setUTCDate(expires.getUTCDate() + planDays);
@@ -130,7 +140,7 @@ async function recordMembershipPayment(event) {
   const membershipRef = database.doc(`clubs/${clubId}/memberships/${playerId}`);
   batch.set(transactionRef, {
     id: session.id,
-    type: 'membership',
+    type: product === 'time-5' ? 'time-package' : 'membership',
     amountCents: Number(session.amount_total || 0),
     currency: session.currency || 'usd',
     occurredAt,
@@ -139,22 +149,39 @@ async function recordMembershipPayment(event) {
     playerId,
     playerName: metadata.playerName || '',
     playerEmail: metadata.playerEmail || session.customer_details?.email || '',
-    membershipPlan: metadata.plan || 'monthly',
+    membershipPlan: product === 'time-5' ? null : product,
+    accessProduct: product,
+    fulfilledByClubId: clubId,
+    connectedStripeAccountId: event.account || '',
     stripeEventId: event.id,
     stripePaymentIntentId: String(session.payment_intent || ''),
     createdAt: admin.firestore.FieldValue.serverTimestamp()
   }, { merge: true });
-  batch.set(membershipRef, {
-    id: `${clubId}:${playerId}`,
-    clubId,
-    playerId,
-    playerName: metadata.playerName || '',
-    status: 'Active',
-    joinedAt,
-    expiresAt: expires.toISOString().slice(0, 10),
-    paymentTransactionId: session.id,
-    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-  }, { merge: true });
+  if (product === 'time-5') {
+    const timeWalletRef = database.doc(`clubs/${clubId}/timeWallets/${playerId}`);
+    batch.set(timeWalletRef, {
+      id: `${clubId}:${playerId}`,
+      clubId,
+      playerId,
+      playerName: metadata.playerName || '',
+      balanceMinutes: admin.firestore.FieldValue.increment(300),
+      lastPurchaseTransactionId: session.id,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  } else {
+    batch.set(membershipRef, {
+      id: `${clubId}:${playerId}`,
+      clubId,
+      playerId,
+      playerName: metadata.playerName || '',
+      status: 'Active',
+      plan: product,
+      joinedAt,
+      expiresAt: expires.toISOString().slice(0, 10),
+      paymentTransactionId: session.id,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  }
   await batch.commit();
 }
 

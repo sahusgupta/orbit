@@ -20,6 +20,7 @@ type FirebaseClubStateRecord<TState> = {
 };
 
 const firebaseSyncTimeoutMs = 2500;
+const orbitSyncProtocolVersion = 2;
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -52,6 +53,11 @@ function withFirebaseTimeout<T>(operation: Promise<T>, fallback: T): Promise<T> 
       globalThis.setTimeout(() => resolve(fallback), firebaseSyncTimeoutMs);
     })
   ]);
+}
+
+function createSyncRevision(savedAt: string) {
+  const nonce = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+  return `${savedAt}:${nonce}`;
 }
 
 async function ensureFirebaseSession() {
@@ -108,19 +114,23 @@ export async function saveClubStateToFirebase<TState extends object>(state: TSta
   const syncedState = await syncPlayerUpdatesToClubState(state);
   const accountKey = getClubIdFromState(syncedState as Parameters<typeof getClubIdFromState>[0]);
   const savedAt = new Date().toISOString();
+  const syncRevision = createSyncRevision(savedAt);
   const snapshot = buildPlayerClubSnapshot(syncedState as Parameters<typeof buildPlayerClubSnapshot>[0]);
   const record = {
     accountKey,
     savedAt,
+    syncProtocolVersion: orbitSyncProtocolVersion,
+    syncRevision,
+    syncSource: 'orbit-desktop',
     state: stripUndefinedForFirestore(syncedState),
     snapshot: stripUndefinedForFirestore(snapshot),
     updatedAt: serverTimestamp()
   };
   return withFirebaseTimeout(
     setDoc(doc(db, 'clubStates', accountKey), record, { merge: true })
-      .then(() => publishClubSnapshot(accountKey, snapshot, savedAt, syncedState))
-      .then(() => ({ accountKey, savedAt, snapshot, synced: true })),
-    { accountKey, savedAt, snapshot, synced: false }
+      .then(() => publishClubSnapshot(accountKey, snapshot, savedAt, syncedState, syncRevision))
+      .then(() => ({ accountKey, savedAt, syncRevision, snapshot, synced: true })),
+    { accountKey, savedAt, syncRevision, snapshot, synced: false }
   );
 }
 
@@ -207,7 +217,13 @@ export function subscribeToPlayerRequestUpdates(accountKey: string, callback: ()
   };
 }
 
-async function publishClubSnapshot(accountKey: string, snapshot: PlayerClubSnapshot, savedAt: string, state: Record<string, any>) {
+async function publishClubSnapshot(
+  accountKey: string,
+  snapshot: PlayerClubSnapshot,
+  savedAt: string,
+  state: Record<string, any>,
+  syncRevision: string
+) {
   const [existingGames, existingMemberships, existingWaitlists, existingNotifications, existingTournaments] = await Promise.all([
     getDocs(collection(db, 'clubs', accountKey, 'games')),
     getDocs(collection(db, 'clubs', accountKey, 'memberships')),
@@ -223,6 +239,12 @@ async function publishClubSnapshot(accountKey: string, snapshot: PlayerClubSnaps
   const notificationIds = new Set((snapshot.notifications ?? []).map((notification) => notification.id));
   const publishedTournaments = (state.tournaments ?? []).map(toPlayerTournament);
   const tournamentIds = new Set(publishedTournaments.map((tournament) => tournament.id));
+  const syncMetadata = {
+    syncProtocolVersion: orbitSyncProtocolVersion,
+    syncRevision,
+    syncSource: 'orbit-desktop',
+    publishedAt: savedAt
+  };
   batch.set(
     clubRef,
     stripUndefinedForFirestore({
@@ -230,12 +252,20 @@ async function publishClubSnapshot(accountKey: string, snapshot: PlayerClubSnaps
       social: snapshot.social,
       generatedAt: snapshot.generatedAt,
       savedAt,
+      ...syncMetadata,
+      entityCounts: {
+        games: snapshot.games.length,
+        memberships: snapshot.memberships.length,
+        waitlists: snapshot.waitlists.length,
+        notifications: (snapshot.notifications ?? []).length,
+        tournaments: publishedTournaments.length
+      },
       updatedAt: serverTimestamp()
     }),
     { merge: true }
   );
   snapshot.games.forEach((game) => {
-    batch.set(doc(db, 'clubs', accountKey, 'games', game.id), stripUndefinedForFirestore({ ...game, updatedAt: serverTimestamp() }), { merge: true });
+    batch.set(doc(db, 'clubs', accountKey, 'games', game.id), stripUndefinedForFirestore({ ...game, ...syncMetadata, updatedAt: serverTimestamp() }), { merge: true });
   });
   existingGames.docs.forEach((gameDoc) => {
     if (!gameIds.has(gameDoc.id)) batch.delete(gameDoc.ref);
@@ -243,7 +273,7 @@ async function publishClubSnapshot(accountKey: string, snapshot: PlayerClubSnaps
   snapshot.memberships.forEach((membership) => {
     batch.set(
       doc(db, 'clubs', accountKey, 'memberships', membership.playerId),
-      stripUndefinedForFirestore({ ...membership, updatedAt: serverTimestamp() }),
+      stripUndefinedForFirestore({ ...membership, ...syncMetadata, updatedAt: serverTimestamp() }),
       { merge: true }
     );
   });
@@ -251,19 +281,19 @@ async function publishClubSnapshot(accountKey: string, snapshot: PlayerClubSnaps
     if (!membershipIds.has(membershipDoc.id)) batch.delete(membershipDoc.ref);
   });
   snapshot.waitlists.forEach((entry) => {
-    batch.set(doc(db, 'clubs', accountKey, 'waitlists', entry.id), stripUndefinedForFirestore({ ...entry, updatedAt: serverTimestamp() }), { merge: true });
+    batch.set(doc(db, 'clubs', accountKey, 'waitlists', entry.id), stripUndefinedForFirestore({ ...entry, ...syncMetadata, updatedAt: serverTimestamp() }), { merge: true });
   });
   existingWaitlists.docs.forEach((waitlistDoc) => {
     if (!waitlistIds.has(waitlistDoc.id)) batch.delete(waitlistDoc.ref);
   });
   (snapshot.notifications ?? []).forEach((notification) => {
-    batch.set(doc(db, 'clubs', accountKey, 'notifications', notification.id), stripUndefinedForFirestore({ ...notification, updatedAt: serverTimestamp() }), { merge: true });
+    batch.set(doc(db, 'clubs', accountKey, 'notifications', notification.id), stripUndefinedForFirestore({ ...notification, ...syncMetadata, updatedAt: serverTimestamp() }), { merge: true });
   });
   existingNotifications.docs.forEach((notificationDoc) => {
     if (!notificationIds.has(notificationDoc.id)) batch.delete(notificationDoc.ref);
   });
   publishedTournaments.forEach((tournament) => {
-    batch.set(doc(db, 'clubs', accountKey, 'tournaments', tournament.id), stripUndefinedForFirestore({ ...tournament, updatedAt: serverTimestamp() }), { merge: true });
+    batch.set(doc(db, 'clubs', accountKey, 'tournaments', tournament.id), stripUndefinedForFirestore({ ...tournament, ...syncMetadata, updatedAt: serverTimestamp() }), { merge: true });
   });
   existingTournaments.docs.forEach((tournamentDoc) => {
     if (!tournamentIds.has(tournamentDoc.id)) batch.delete(tournamentDoc.ref);
@@ -410,9 +440,15 @@ async function fetchPendingRequestDocs(accountKey: string, collectionName: 'memb
 
 async function markRequestApplied(accountKey: string, collectionName: 'membershipRequests' | 'waitlistRequests', requestId: string | undefined) {
   if (!requestId) return;
+  const acknowledgement = {
+    status: 'applied',
+    appliedAt: serverTimestamp(),
+    appliedBy: 'orbit-desktop',
+    syncProtocolVersion: orbitSyncProtocolVersion
+  };
   await Promise.all([
-    updateDoc(doc(db, 'clubs', accountKey, collectionName, requestId), { status: 'applied', appliedAt: serverTimestamp() }).catch(() => undefined),
-    updateDoc(doc(db, 'clubStates', accountKey, collectionName, requestId), { status: 'applied', appliedAt: serverTimestamp() }).catch(() => undefined)
+    updateDoc(doc(db, 'clubs', accountKey, collectionName, requestId), acknowledgement).catch(() => undefined),
+    updateDoc(doc(db, 'clubStates', accountKey, collectionName, requestId), acknowledgement).catch(() => undefined)
   ]);
 }
 

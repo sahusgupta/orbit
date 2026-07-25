@@ -5,6 +5,7 @@ const { buildPlayerClubSnapshot, getAccountKeyFromState } = require('./orbitCore
 const firebaseConfig = {
   projectId: 'tabletalk-s'
 };
+const orbitSyncProtocolVersion = 2;
 
 function base64Url(value) {
   return Buffer.from(value)
@@ -96,6 +97,20 @@ function stripUndefined(value) {
     );
   }
   return value;
+}
+
+function buildSyncMetadata(savedAt, syncRevision, entityCounts) {
+  return {
+    syncProtocolVersion: orbitSyncProtocolVersion,
+    syncRevision,
+    syncSource: 'orbit-api',
+    publishedAt: savedAt,
+    entityCounts
+  };
+}
+
+function buildPlayerGameDocs(snapshot, clubId) {
+  return (snapshot.games || []).map((game) => ({ ...game, clubId }));
 }
 
 function jsToFirestoreValue(value) {
@@ -453,38 +468,96 @@ async function publishStateToFirebase(state) {
   const accountKey = getAccountKeyFromState(state);
   const snapshot = buildPlayerClubSnapshot(state);
   const savedAt = new Date().toISOString();
+  const syncRevision = `${savedAt}:${crypto.randomUUID()}`;
   const playerDocs = buildCanonicalPlayerDocs(state, accountKey, savedAt);
-  const gameDocs = buildCanonicalGameDocs(state, accountKey, savedAt);
-  const clubDoc = buildCanonicalClubDoc(state, accountKey, snapshot, playerDocs, savedAt);
+  const gameDocs = buildPlayerGameDocs(snapshot, accountKey);
+  const gameSessionDocs = buildCanonicalGameDocs(state, accountKey, savedAt);
   const tournamentDocs = buildPlayerTournamentDocs(state, accountKey, savedAt);
+  const syncMetadata = buildSyncMetadata(savedAt, syncRevision, {
+    games: gameDocs.length,
+    memberships: (snapshot.memberships || []).length,
+    waitlists: (snapshot.waitlists || []).length,
+    notifications: (snapshot.notifications || []).length,
+    tournaments: tournamentDocs.length,
+    players: playerDocs.length
+  });
+  const clubDoc = {
+    ...buildCanonicalClubDoc(state, accountKey, snapshot, playerDocs, savedAt),
+    social: snapshot.social,
+    generatedAt: snapshot.generatedAt,
+    savedAt,
+    ...syncMetadata
+  };
 
   await patchDocument(projectId, token, `clubStates/${encodeURIComponent(accountKey)}`, {
     accountKey,
     schemaVersion: 4,
     savedAt,
+    syncProtocolVersion: orbitSyncProtocolVersion,
+    syncRevision,
+    syncSource: 'orbit-api',
     state,
     snapshot,
     updatedAt: savedAt
   });
-  await patchDocument(projectId, token, `clubs/${encodeURIComponent(accountKey)}`, clubDoc);
 
   for (const player of playerDocs) {
     await patchDocument(
       projectId,
       token,
       `clubs/${encodeURIComponent(accountKey)}/players/${encodeURIComponent(player.id)}`,
-      player
+      { ...player, ...syncMetadata }
     );
   }
 
   const legacyPlayersRemoved = await deleteLegacyPlayerDocuments(projectId, token, accountKey, playerDocs);
 
   for (const game of gameDocs) {
+    const gameDocumentId = firestoreDocumentId(game.id);
     await patchDocument(
       projectId,
       token,
-      `clubs/${encodeURIComponent(accountKey)}/games/${encodeURIComponent(game.id)}`,
-      game
+      `clubs/${encodeURIComponent(accountKey)}/games/${encodeURIComponent(gameDocumentId)}`,
+      { ...game, ...syncMetadata, updatedAt: savedAt }
+    );
+  }
+
+  for (const gameSession of gameSessionDocs) {
+    await patchDocument(
+      projectId,
+      token,
+      `clubs/${encodeURIComponent(accountKey)}/gameSessions/${encodeURIComponent(gameSession.id)}`,
+      { ...gameSession, ...syncMetadata }
+    );
+  }
+
+  for (const membership of snapshot.memberships || []) {
+    const membershipId = firestoreDocumentId(membership.playerId || membership.id);
+    await patchDocument(
+      projectId,
+      token,
+      `clubs/${encodeURIComponent(accountKey)}/memberships/${encodeURIComponent(membershipId)}`,
+      { ...membership, ...syncMetadata, updatedAt: savedAt }
+    );
+  }
+
+  for (const waitlist of snapshot.waitlists || []) {
+    const waitlistId = firestoreDocumentId(waitlist.id);
+    await patchDocument(
+      projectId,
+      token,
+      `clubs/${encodeURIComponent(accountKey)}/waitlists/${encodeURIComponent(waitlistId)}`,
+      { ...waitlist, ...syncMetadata, updatedAt: savedAt }
+    );
+  }
+
+  for (const notification of snapshot.notifications || []) {
+    const notificationId = firestoreDocumentId(notification.id);
+    await patchDocument(
+      projectId,
+      token,
+      `clubs/${encodeURIComponent(accountKey)}/notifications/${encodeURIComponent(notificationId)}`,
+      { ...notification, ...syncMetadata, updatedAt: savedAt }
     );
   }
 
@@ -493,7 +566,7 @@ async function publishStateToFirebase(state) {
       projectId,
       token,
       `clubs/${encodeURIComponent(accountKey)}/tournaments/${encodeURIComponent(tournament.id)}`,
-      tournament
+      { ...tournament, ...syncMetadata }
     );
   }
 
@@ -511,15 +584,31 @@ async function publishStateToFirebase(state) {
         projectId,
         token,
         `clubs/${encodeURIComponent(accountKey)}/tournamentRegistrations/${encodeURIComponent(player.registrationId)}`,
-        { status, rebuys: Number(player.rebuys || 0), addOns: Number(player.addOns || 0), updatedAt: savedAt }
+        { status, rebuys: Number(player.rebuys || 0), addOns: Number(player.addOns || 0), ...syncMetadata, updatedAt: savedAt }
       );
     }
   }
 
-  return { ok: true, accountKey, savedAt, players: playerDocs.length, games: gameDocs.length, tournaments: tournamentDocs.length, legacyPlayersRemoved };
+  // The parent club document is the commit marker. Publishing it last prevents
+  // mobile clients from promoting a partially written child revision.
+  await patchDocument(projectId, token, `clubs/${encodeURIComponent(accountKey)}`, clubDoc);
+
+  return {
+    ok: true,
+    accountKey,
+    savedAt,
+    syncRevision,
+    players: playerDocs.length,
+    games: gameDocs.length,
+    gameSessions: gameSessionDocs.length,
+    tournaments: tournamentDocs.length,
+    legacyPlayersRemoved
+  };
 }
 
 module.exports = {
+  buildPlayerGameDocs,
+  buildSyncMetadata,
   buildCanonicalClubDoc,
   buildCanonicalPlayerDocs,
   buildPlayerTournamentDocs,

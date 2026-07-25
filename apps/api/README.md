@@ -25,7 +25,7 @@ All other endpoints require `x-orbit-api-key`.
 - `API_PORT`: API port, defaults to `4629`.
 - `ORBIT_CLIENT_API_KEY`: owner/shared service key. Desktop clients may also authenticate with their signed pilot key authorization code.
 - `DATABASE_URL`: SQLite path for local development, for example `file:./data/orbit-api.sqlite3`. On Vercel, the API defaults to `file:/tmp/orbit-api.sqlite3` when `DATABASE_URL` is unset.
-- `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`: optional Firebase service account credentials. When configured, API state saves canonical Firestore documents at `clubs/{licenseKey}`, `clubs/{licenseKey}/players/{playerId}`, and `clubs/{licenseKey}/games/{sessionId}`. Membership players are documents in the `players` subcollection and are not duplicated as an array on the club document.
+- `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`: optional Firebase service account credentials. When configured, API state saves player-safe live game documents at `clubs/{licenseKey}/games/{gameId}`, operational session history at `clubs/{licenseKey}/gameSessions/{sessionId}`, and canonical player documents at `clubs/{licenseKey}/players/{playerId}`. Membership players are documents in the `players` subcollection and are not duplicated as an array on the club document.
 - `NODE_ENV`: `development`, `staging`, or `production`.
 - `STRIPE_SECRET_KEY`: Stripe server secret used only by the API.
 - `STRIPE_WEBHOOK_SECRET`: signing secret for `POST /webhooks/stripe`.
@@ -57,6 +57,8 @@ Desktop state/report operations are API-first:
 - `save-state` writes to the standalone API first, then best-effort mirrors to the local desktop cache and Firestore.
 - analytical reports are submitted to the standalone API first.
 - if the API is unavailable, the desktop uses the legacy local fallback so current installs keep working during the transition.
+
+Firestore publication uses sync protocol v2. The API tags every child document with a unique `syncRevision` and writes `clubs/{licenseKey}` last as the commit marker. This allows mobile clients to retain the previous complete snapshot while a multi-document API publish is in flight and to ignore stale documents from older revisions.
 
 The legacy embedded desktop HTTP backend is no longer started by default. It can be temporarily re-enabled for compatibility with:
 
