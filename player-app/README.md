@@ -13,7 +13,7 @@ Standalone Expo mobile app for players on iOS and Android.
 - Waitlist request flow that produces the same action payload shape the management app can ingest.
 - Club-by-club loyalty status, points, and tier progress.
 
-The app syncs with the Orbit management app through Firebase Firestore. If no club state has been published yet, it falls back to local demo snapshots in `src/data/mockClubData.ts`.
+The app syncs with the Orbit management app through Firebase Firestore. If no live club state has been published, the app shows an empty state; it never inserts demo clubs or games into production.
 
 - `PlayerClubSnapshot` for club, game, table, membership, waitlist, and loyalty state.
 - `PlayerMembershipRequest` when a player taps Join Club.
@@ -43,19 +43,18 @@ Core readiness items now in the repo:
 
 ## Payments Boundary
 
-Stripe has two isolated flows: Player Premium and the card-house storefront. The storefront can offer day passes, memberships, and prepaid time packages, but the card house must connect its own Stripe account and remains the seller and fulfiller. Orbit provides discovery, checkout handoff, receipts, and entitlement sync; it does not sell poker table time itself. Table deposits, seat holds, and drop collection remain outside Player checkout.
+Player Premium uses Apple In-App Purchase through StoreKit and RevenueCat entitlement validation. The card-house storefront remains separate because it offers real-world venue services: the card house connects its own merchant account and remains the seller and fulfiller. Orbit provides discovery and checkout handoff; it does not sell poker table time, wagers, seat deposits, or game entries.
 
-Player Premium should be configured as a Stripe subscription around `$12.99/mo` and gates grinder/table recommendations plus player-hosted game posting. Set `EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL` to the Stripe Checkout or Payment Link URL for that monthly subscription. Management-app payment/billing remains separate.
+Create an App Store Connect monthly auto-renewable subscription with product ID `com.orbit.player.premium.monthly`, then map it to the RevenueCat entitlement `player_premium`. Configure production builds with:
 
-To create the Stripe Product, recurring monthly Price, and subscription Payment Link from this repo, run:
-
-```powershell
-.\scripts\setup-player-premium-stripe.ps1 `
-  -SecretKey "sk_test_..." `
-  -PublishableKey "pk_test_..."
+```text
+EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY=appl_...
+EXPO_PUBLIC_REVENUECAT_PREMIUM_ENTITLEMENT_ID=player_premium
+EXPO_PUBLIC_APPLE_PREMIUM_PRODUCT_ID=com.orbit.player.premium.monthly
+EXPO_PUBLIC_PRIVACY_POLICY_URL=https://your-public-host/privacy.html
 ```
 
-The setup script uses the secret key only for the Stripe API call. It writes only mobile-safe values to `.env`: `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL`, `EXPO_PUBLIC_PLAYER_PREMIUM_PRICE_ID`, and `EXPO_PUBLIC_PLAYER_PREMIUM_PRODUCT_ID`.
+Premium purchases require a development build or TestFlight build and do not run in Expo Go.
 
 Card-house products use the Orbit API rather than a client-owned Payment Link. Set only this public value in the player app:
 

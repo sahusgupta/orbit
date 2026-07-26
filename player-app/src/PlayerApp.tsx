@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, AppState, BackHandler, Easing, Linking, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type AppStateStatus, type DimensionValue } from 'react-native';
+import { Alert, Animated, AppState, BackHandler, Easing, Linking, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type AppStateStatus, type DimensionValue } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -31,21 +31,29 @@ import {
   applyMembershipRequest,
   applyWaitlistRequest,
   buildJoinRequest,
-  buildWaitRequest,
-  demoPlayer,
-  initialClubSnapshots
-} from './data/mockClubData';
+  buildWaitRequest
+} from './data/playerRequests';
+import {
+  configureApplePurchases,
+  getPlayerPremiumOffering,
+  purchasePlayerPremium,
+  restorePlayerPremium,
+  subscribeToPremiumChanges,
+  type PlayerPremiumOffering
+} from './data/applePurchases';
 import {
   fetchAllClubSnapshots,
   fetchPrivateGameListings,
   fetchPlayerProfile,
   fetchPlayerTournaments,
   createClubMembershipCheckout,
+  deleteCurrentPlayerAccount,
   getCurrentFirebasePlayer,
   onFirebasePlayerChanged,
   type FirebasePlayerIdentity,
   isSyncConfigured,
   savePlayerProfile,
+  signOutCurrentPlayer,
   signInOrCreatePlayerWithEmail,
   signInWithGooglePopup,
   registerForTournament,
@@ -115,11 +123,7 @@ const tabs: Array<{ id: Screen; label: string; icon: keyof typeof Ionicons.glyph
   { id: 'more', label: 'More', icon: 'ellipsis-horizontal' }
 ];
 
-const demoFriends = [
-  { id: 'friend-1', name: 'Sam Patel', lastSession: 'Last Friday', preferred: '1/2 NLH' },
-  { id: 'friend-2', name: 'Mia Chen', lastSession: 'May 27', preferred: '1/2 PLO' },
-  { id: 'friend-3', name: 'Drew King', lastSession: 'No recent session', preferred: '1/3 NLH' }
-];
+const playerFriends: Array<{ id: string; name: string; lastSession: string; preferred: string }> = [];
 
 const orbitLaunchChampionship: PlayerTournament = {
   id: 'orbit-launch-championship-2026',
@@ -152,13 +156,17 @@ const orbitLaunchChampionship: PlayerTournament = {
   featured: true
 };
 
-const demoSessionHistory = [
-  { id: 'session-1', date: 'Jul 12', venue: 'Club B', game: '1/2 NLH', buyIn: 300, hours: 4.5, profitLoss: 185 },
-  { id: 'session-2', date: 'Jul 9', venue: 'Cedar Rail Card House', game: '2/5 NLH', buyIn: 800, hours: 3.2, profitLoss: -240 },
-  { id: 'session-3', date: 'Jul 5', venue: 'Live Oak Social Club', game: '1/2 NLH', buyIn: 400, hours: 5.1, profitLoss: 96 },
-  { id: 'session-4', date: 'Jun 28', venue: 'Winstar Demo Casino', game: '5/5 PLO', buyIn: 1000, hours: 2.8, profitLoss: -125 },
-  { id: 'session-5', date: 'Jun 21', venue: 'Bayou Stack Room', game: '5/10 NLH', buyIn: 1500, hours: 6.4, profitLoss: 720 }
-];
+type PlayerSession = {
+  id: string;
+  date: string;
+  venue: string;
+  game: string;
+  buyIn: number;
+  hours: number;
+  profitLoss: number;
+};
+
+const playerSessions: PlayerSession[] = [];
 
 const gamePreferenceOptions = [
   { id: 'nlh-1-2', label: '1/2 NLH' },
@@ -166,51 +174,8 @@ const gamePreferenceOptions = [
   { id: 'plo-1-2', label: '1/2 PLO' }
 ];
 
-const clubDistanceMiles: Record<string, number> = {
-  'lucky-lodge': 102,
-  'river-room': 95,
-  'test-club': 171,
-  'club-a': 87,
-  'club-b': 3.4,
-  'stress-room': 98,
-  'cedar-rail-dallas': 172,
-  'deep-ellum-poker': 171,
-  'live-oak-social': 87,
-  'capital-card-room': 87,
-  'bayou-stack-room': 96,
-  'choctaw-demo-casino': 223,
-  'winstar-demo-casino': 196
-};
-
-const clubCoordinates: Record<string, { latitude: number; longitude: number }> = {
-  'lucky-lodge': { latitude: 30.2906, longitude: -97.7424 },
-  'river-room': { latitude: 29.7608, longitude: -95.3608 },
-  'test-club': { latitude: 32.7867, longitude: -96.7997 },
-  'club-a': { latitude: 30.2679, longitude: -97.743 },
-  'club-b': { latitude: 30.6205, longitude: -96.3269 },
-  'stress-room': { latitude: 29.752, longitude: -95.3698 },
-  'cedar-rail-dallas': { latitude: 32.7993, longitude: -96.8047 },
-  'deep-ellum-poker': { latitude: 32.7841, longitude: -96.7837 },
-  'live-oak-social': { latitude: 30.2649, longitude: -97.7271 },
-  'capital-card-room': { latitude: 30.2711, longitude: -97.7417 },
-  'bayou-stack-room': { latitude: 29.7469, longitude: -95.3674 },
-  'choctaw-demo-casino': { latitude: 33.952, longitude: -96.4122 },
-  'winstar-demo-casino': { latitude: 33.7913, longitude: -97.1456 }
-};
-
-const demoClubAddresses: Record<string, string> = {
-  'test-club': '2711 Main Street, Dallas, TX 75226',
-  'club-a': '515 Congress Avenue, Austin, TX 78701',
-  'club-b': '110 N Main Street, Bryan, TX 77803',
-  'stress-room': '1201 San Jacinto Street, Houston, TX 77002',
-  'cedar-rail-dallas': '2828 N Harwood Street, Dallas, TX 75201',
-  'deep-ellum-poker': '2600 Main Street, Dallas, TX 75226',
-  'live-oak-social': '1209 E 6th Street, Austin, TX 78702',
-  'capital-card-room': '907 Congress Avenue, Austin, TX 78701',
-  'bayou-stack-room': '1801 Main Street, Houston, TX 77002',
-  'choctaw-demo-casino': '4216 S Highway 69, Durant, OK 74701',
-  'winstar-demo-casino': '777 Casino Avenue, Thackerville, OK 73459'
-};
+const clubDistanceMiles: Record<string, number> = {};
+const clubCoordinates: Record<string, { latitude: number; longitude: number }> = {};
 
 const texasMapRegion = {
   latitude: 31.75,
@@ -219,59 +184,9 @@ const texasMapRegion = {
   longitudeDelta: 5.4
 };
 
-const findGamesClubOrder = [
-  'test-club',
-  'club-a',
-  'club-b',
-  'stress-room',
-  'cedar-rail-dallas',
-  'deep-ellum-poker',
-  'live-oak-social',
-  'capital-card-room',
-  'bayou-stack-room',
-  'choctaw-demo-casino',
-  'winstar-demo-casino'
-];
-const findGamesClubNames = [
-  'test club',
-  'club a',
-  'club b',
-  'stress room',
-  'cedar rail card house',
-  'deep ellum poker hall',
-  'live oak social club',
-  'capital card room',
-  'bayou stack room',
-  'choctaw demo casino',
-  'winstar demo casino'
-];
-
-const demoClubMembershipPrices: Record<string, { day: string; monthly: string; timePack: string }> = {
-  'lucky-lodge': { day: '$12 day pass', monthly: '$39/mo', timePack: '$50 / 5 hrs' },
-  'river-room': { day: '$15 day pass', monthly: '$49/mo', timePack: '$55 / 5 hrs' },
-  'cedar-rail-dallas': { day: '$15 day pass', monthly: '$45/mo', timePack: '$55 / 5 hrs' },
-  'deep-ellum-poker': { day: '$20 day pass', monthly: '$60/mo', timePack: '$60 / 5 hrs' },
-  'live-oak-social': { day: '$12 day pass', monthly: '$40/mo', timePack: '$45 / 5 hrs' },
-  'capital-card-room': { day: '$15 day pass', monthly: '$50/mo', timePack: '$50 / 5 hrs' },
-  'bayou-stack-room': { day: '$18 day pass', monthly: '$55/mo', timePack: '$60 / 5 hrs' },
-  'choctaw-demo-casino': { day: '$20 day pass', monthly: '$65/mo', timePack: '$65 / 5 hrs' },
-  'winstar-demo-casino': { day: '$20 day pass', monthly: '$70/mo', timePack: '$70 / 5 hrs' },
-  default: { day: '$10 day pass', monthly: '$35/mo', timePack: '$45 / 5 hrs' }
-};
-
-const clubFeeProfiles: Record<string, { type: 'time'; hourly: string } | { type: 'rake'; percent: string }> = {
-  'test-club': { type: 'time', hourly: '$12/hr' },
-  'club-a': { type: 'rake', percent: '5%' },
-  'club-b': { type: 'time', hourly: '$10/hr' },
-  'stress-room': { type: 'rake', percent: '6%' },
-  'cedar-rail-dallas': { type: 'time', hourly: '$13/hr' },
-  'deep-ellum-poker': { type: 'rake', percent: '5%' },
-  'live-oak-social': { type: 'time', hourly: '$11/hr' },
-  'capital-card-room': { type: 'rake', percent: '4%' },
-  'bayou-stack-room': { type: 'time', hourly: '$14/hr' },
-  'choctaw-demo-casino': { type: 'rake', percent: '5%' },
-  'winstar-demo-casino': { type: 'rake', percent: '6%' }
-};
+const findGamesClubOrder: string[] = [];
+const findGamesClubNames: string[] = [];
+const clubFeeProfiles: Record<string, { type: 'time'; hourly: string } | { type: 'rake'; percent: string }> = {};
 
 const homeCoordinate = { latitude: 30.613, longitude: -96.342 };
 
@@ -309,11 +224,10 @@ const emptyPrivateGameDraft: PrivateGameDraft = {
 const legacyPlayerStorageKeys = ['tabletalk-player-account-v1', 'tabletalk-player-account-v2'];
 const playerStorageKey = 'orbit-player-account-v1';
 const googleSignInReadyStatus = 'Connect Google or use email/password to register and sync your player profile.';
-// Stripe is reserved for the social/player app's future premium tier only.
-// Management-app billing must stay separate from this mobile premium surface.
-const playerPremiumCheckoutUrl = process.env.EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL || '';
-const premiumMonthlyPriceLabel = '$12.99/mo';
-const demoPremiumEnabled = __DEV__ || process.env.EXPO_PUBLIC_DEMO_PREMIUM === 'true';
+const defaultPremiumMonthlyPriceLabel = '$12.99/month';
+const supportPhone = '346-434-1402';
+const supportPhoneUrl = 'tel:+13464341402';
+const privacyPolicyUrl = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || '';
 
 export default function PlayerApp() {
   const [hasAccount, setHasAccount] = useState(false);
@@ -346,6 +260,8 @@ export default function PlayerApp() {
   const [avatarHovered, setAvatarHovered] = useState(false);
   const [premiumStatus, setPremiumStatus] = useState<'inactive' | 'pending' | 'active'>('inactive');
   const [premiumMessage, setPremiumMessage] = useState('');
+  const [premiumOffering, setPremiumOffering] = useState<PlayerPremiumOffering | null>(null);
+  const [premiumMonthlyPriceLabel, setPremiumMonthlyPriceLabel] = useState(defaultPremiumMonthlyPriceLabel);
   const [clubMembershipMessage, setClubMembershipMessage] = useState('');
   const [pendingClubProduct, setPendingClubProduct] = useState<ClubAccessProduct | null>(null);
   const [clubCheckIns, setClubCheckIns] = useState<Record<string, MembershipCheckIn>>({});
@@ -355,18 +271,18 @@ export default function PlayerApp() {
   const [player, setPlayer] = useState<PlayerAccount>(emptyPlayer);
   const [draftPlayer, setDraftPlayer] = useState<PlayerAccount>(emptyPlayer);
   const [accountLoaded, setAccountLoaded] = useState(false);
-  const [clubs, setClubs] = useState<PlayerClubSnapshot[]>(initialClubSnapshots);
-  const [tournaments, setTournaments] = useState<PlayerTournament[]>([orbitLaunchChampionship]);
+  const [clubs, setClubs] = useState<PlayerClubSnapshot[]>([]);
+  const [tournaments, setTournaments] = useState<PlayerTournament[]>([]);
   const [tournamentRegistrations, setTournamentRegistrations] = useState<PlayerTournamentRegistration[]>([]);
   const [tournamentMessage, setTournamentMessage] = useState('');
-  const [selectedClubId, setSelectedClubId] = useState(initialClubSnapshots[0].club.id);
+  const [selectedClubId, setSelectedClubId] = useState('');
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const [firebaseIdentity, setFirebaseIdentity] = useState<FirebasePlayerIdentity | null>(() => getCurrentFirebasePlayer());
   const [authStatus, setAuthStatus] = useState(googleSignInReadyStatus);
   const [playerAuthEmail, setPlayerAuthEmail] = useState('');
   const [playerAuthPassword, setPlayerAuthPassword] = useState('');
   const [, setSyncStatus] = useState(
-    isSyncConfigured() ? 'Connecting to Firebase club sync...' : 'Demo mode - configure sync to use the live club database.'
+    isSyncConfigured() ? 'Connecting to Firebase club sync...' : 'Live club sync is not configured.'
   );
 
   const selectedClub = clubs.find((club) => club.club.id === selectedClubId) ?? clubs[0];
@@ -375,18 +291,18 @@ export default function PlayerApp() {
     [clubs, dismissedNotificationIds]
   );
   const memberships = clubs.flatMap((club) => club.memberships.filter((membership) => isPlayerMembership(membership, player)));
-  const selectedMembership = selectedClub.memberships.find((membership) => isPlayerMembership(membership, player));
-  const playerWaitlists = selectedClub.waitlists.filter((entry) => isPlayerWaitlistEntry(entry, player));
+  const selectedMembership = selectedClub?.memberships.find((membership) => isPlayerMembership(membership, player));
+  const playerWaitlists = selectedClub?.waitlists.filter((entry) => isPlayerWaitlistEntry(entry, player)) ?? [];
   const joinedClubIds = new Set(memberships.filter((membership) => isMembershipCurrentlyActive(membership, clockNow)).map((membership) => membership.clubId));
   const membershipClubIds = new Set(memberships.map((membership) => membership.clubId));
   const favoriteClubIds = player.favoriteClubIds ?? [];
   const memberClubs = clubs.filter((club) => membershipClubIds.has(club.club.id));
-  const selectedClubTournaments = tournaments.filter((tournament) => tournament.clubId === selectedClub.club.id);
+  const selectedClubTournaments = selectedClub ? tournaments.filter((tournament) => tournament.clubId === selectedClub.club.id) : [];
   const findGameClubs = useMemo(() => buildFindGameClubs(clubs), [clubs]);
   const playerHomeCoordinate = useMemo(() => resolveAddressCoordinate(player.homeLocation), [player.homeLocation]);
   const searchRadius = distanceFilter;
   const hasPaidPlayerPremium = premiumStatus === 'active';
-  const hasPlayerPremium = premiumStatus === 'active' || demoPremiumEnabled;
+  const hasPlayerPremium = premiumStatus === 'active';
   const visiblePrivateGames = useMemo(() => {
     const query = gameQuery.trim().toLowerCase();
     const stakesQuery = stakesFilter.trim().toLowerCase();
@@ -469,6 +385,38 @@ export default function PlayerApp() {
   }, [accountLoaded, hasAccount, player]);
 
   useEffect(() => {
+    if (!accountLoaded || !hasAccount || !player.id) return;
+    let active = true;
+    let unsubscribe: () => void = () => undefined;
+
+    configureApplePurchases(player.id)
+      .then(async (status) => {
+        if (!active) return;
+        if (!status.configured) {
+          setPremiumStatus('inactive');
+          setPremiumMessage(Platform.OS === 'ios' ? 'Apple purchases are not configured for this build.' : '');
+          return;
+        }
+        setPremiumStatus(status.active ? 'active' : 'inactive');
+        const offering = await getPlayerPremiumOffering();
+        if (!active) return;
+        setPremiumOffering(offering);
+        if (offering) setPremiumMonthlyPriceLabel(offering.priceLabel);
+        unsubscribe = subscribeToPremiumChanges((isActive) => {
+          setPremiumStatus(isActive ? 'active' : 'inactive');
+        });
+      })
+      .catch((error) => {
+        if (active) setPremiumMessage(error instanceof Error ? error.message : 'Unable to connect to Apple purchases.');
+      });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [accountLoaded, hasAccount, player.id]);
+
+  useEffect(() => {
     const timer = setInterval(() => setClockNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
@@ -517,13 +465,13 @@ export default function PlayerApp() {
 
     const handleClubSync = (result: Awaited<ReturnType<typeof fetchAllClubSnapshots>>) => {
       if (result.ok) {
-        const mergedClubs = mergeDemoAndSyncedClubs(result.clubs);
-        setClubs(mergedClubs);
+        const liveClubs = result.clubs;
+        setClubs(liveClubs);
         const existingMembershipClub = result.clubs.find((club) => club.memberships.some((membership) => isPlayerMembership(membership, player)));
-        setSelectedClubId((current) => existingMembershipClub?.club.id ?? mergedClubs.find((club) => club.club.id === current)?.club.id ?? mergedClubs[0]?.club.id ?? initialClubSnapshots[0].club.id);
-        setSyncStatus(`Showing demo data plus ${result.clubs.length} synced card house${result.clubs.length === 1 ? '' : 's'}`);
+        setSelectedClubId((current) => existingMembershipClub?.club.id ?? liveClubs.find((club) => club.club.id === current)?.club.id ?? liveClubs[0]?.club.id ?? '');
+        setSyncStatus(`Showing ${result.clubs.length} live card house${result.clubs.length === 1 ? '' : 's'}.`);
       } else {
-        setSyncStatus(`Offline demo data - ${result.error}`);
+        setSyncStatus(`Unable to load live club data: ${result.error}`);
       }
     };
 
@@ -568,7 +516,7 @@ export default function PlayerApp() {
   useEffect(() => {
     if (!accountLoaded || !hasAccount || !firebaseIdentity) return;
     const handleTournaments = (result: Awaited<ReturnType<typeof fetchPlayerTournaments>>) => {
-      setTournaments(mergeOrbitLaunchTournament(result.tournaments));
+      setTournaments(result.tournaments);
       setTournamentRegistrations(result.registrations);
     };
     fetchPlayerTournaments(player.id).then(handleTournaments).catch(() => undefined);
@@ -664,7 +612,7 @@ export default function PlayerApp() {
     setDraftPlayer(nextPlayer);
     setHasAccount(true);
     setScreen('findGames');
-    setSyncStatus(isSyncConfigured() ? 'Account ready - syncing from Firebase...' : 'Account ready - browsing demo club data.');
+    setSyncStatus(isSyncConfigured() ? 'Account ready - syncing from Firebase...' : 'Account ready, but live club sync is unavailable.');
     if (identity) savePlayerProfile(nextPlayer).catch(() => undefined);
   };
 
@@ -675,26 +623,37 @@ export default function PlayerApp() {
     finishAccount(firebaseIdentity);
   };
 
-  const useDemoAccount = () => {
-    setDraftPlayer(demoPlayer);
-    setPlayer(demoPlayer);
-    setHasAccount(true);
-    setScreen('findGames');
-  };
-
   const openPremiumCheckout = async () => {
-    if (!playerPremiumCheckoutUrl) {
-      setPremiumMessage('Stripe checkout is not configured yet. Add EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL for the player premium plan.');
+    if (Platform.OS !== 'ios') {
+      setPremiumMessage('Player Premium purchases are currently available in the iOS app.');
       return;
     }
-    setPremiumMessage('Opening Stripe checkout...');
+    if (!premiumOffering) {
+      setPremiumMessage('Player Premium is not available from the App Store right now. Please try again later.');
+      return;
+    }
+    setPremiumMessage('Opening Apple purchase sheet...');
     setPremiumStatus('pending');
-    const result = await WebBrowser.openBrowserAsync(playerPremiumCheckoutUrl);
-    setPremiumMessage(
-      result.type === 'cancel'
-        ? 'Checkout was closed before premium was confirmed.'
-        : 'Checkout opened. Premium unlocks after Stripe confirms the subscription.'
-    );
+    try {
+      const active = await purchasePlayerPremium(premiumOffering);
+      setPremiumStatus(active ? 'active' : 'inactive');
+      setPremiumMessage(active ? 'Player Premium is active.' : 'Apple did not confirm an active subscription.');
+    } catch (error) {
+      setPremiumStatus('inactive');
+      const cancelled = (error as { userCancelled?: boolean }).userCancelled;
+      setPremiumMessage(cancelled ? 'Purchase cancelled.' : error instanceof Error ? error.message : 'Unable to complete the purchase.');
+    }
+  };
+
+  const restorePremiumPurchases = async () => {
+    setPremiumMessage('Restoring Apple purchases...');
+    try {
+      const active = await restorePlayerPremium();
+      setPremiumStatus(active ? 'active' : 'inactive');
+      setPremiumMessage(active ? 'Player Premium restored.' : 'No active Player Premium subscription was found.');
+    } catch (error) {
+      setPremiumMessage(error instanceof Error ? error.message : 'Unable to restore purchases.');
+    }
   };
 
   const openClubSignup = (club: PlayerClubSnapshot) => {
@@ -717,12 +676,6 @@ export default function PlayerApp() {
     const prices = getClubMembershipPrices(club);
     const planLabel = getClubProductLabel(product, prices);
     if (!firebaseIdentity) {
-      if (__DEV__) {
-        setClubMembershipMessage(`Demo mode: ${planLabel} added to your ${club.club.name} wallet.`);
-        await requestMembership(club, product === 'monthly' ? 'monthly' : 'day', 'app');
-        setPendingClubProduct(null);
-        return;
-      }
       setClubMembershipMessage('Sign in before purchasing from this card house.');
       return;
     }
@@ -972,6 +925,46 @@ export default function PlayerApp() {
     });
   };
 
+  const resetLocalAccount = async () => {
+    await AsyncStorage.multiRemove([playerStorageKey, ...legacyPlayerStorageKeys]);
+    setFirebaseIdentity(null);
+    setPlayer(emptyPlayer);
+    setDraftPlayer(emptyPlayer);
+    setHasAccount(false);
+    setOnboardingStep(0);
+    setScreen('findGames');
+  };
+
+  const deletePlayerAccount = () => {
+    Alert.alert(
+      'Delete Orbit Player account?',
+      'This permanently deletes your Orbit Player profile and sign-in. Club transaction records may be retained where legally required.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: () => {
+            setAuthStatus('Deleting your account...');
+            deleteCurrentPlayerAccount()
+              .then(resetLocalAccount)
+              .catch((error) => {
+                const requiresLogin = (error as { code?: string }).code === 'auth/requires-recent-login';
+                setAuthStatus(requiresLogin
+                  ? 'For security, sign out and sign back in before deleting your account.'
+                  : error instanceof Error ? error.message : 'Unable to delete the account.');
+              });
+          }
+        }
+      ]
+    );
+  };
+
+  const signOutPlayer = async () => {
+    await signOutCurrentPlayer();
+    await resetLocalAccount();
+  };
+
   const decideDiscoveryOpportunity = (item: GameOpportunity, decision: DiscoveryDecision) => {
     const key = getOpportunityKey(item);
     setDiscoveryDecisions((current) => ({ ...current, [key]: decision }));
@@ -1057,8 +1050,7 @@ export default function PlayerApp() {
 
   if (!hasAccount) {
     return (
-      <StripeGate>
-        <SafeAreaProvider>
+      <SafeAreaProvider>
         <SafeAreaView style={[styles.safeArea, styles.onboardingSafeArea]}>
           <StatusBar style="dark" />
           <AnimatedGradientBackground />
@@ -1069,18 +1061,15 @@ export default function PlayerApp() {
               setDraftPlayer={setDraftPlayer}
               setOnboardingStep={setOnboardingStep}
               onComplete={completeAccount}
-              onUseDemo={useDemoAccount}
             />
           </ScrollView>
         </SafeAreaView>
-        </SafeAreaProvider>
-      </StripeGate>
+      </SafeAreaProvider>
     );
   }
 
   return (
-    <StripeGate>
-      <SafeAreaProvider>
+    <SafeAreaProvider>
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
         <LinearGradient colors={['#fcfcfb', '#f8f8f6', '#f4f5f2']} style={styles.appBackdrop} />
@@ -1407,7 +1396,7 @@ export default function PlayerApp() {
             ) : null}
 
             {screen === 'history' ? (
-              <PlayerHistoryScreen sessions={demoSessionHistory} />
+              <PlayerHistoryScreen sessions={playerSessions} />
             ) : null}
 
             {screen === 'friends' ? (
@@ -1416,7 +1405,7 @@ export default function PlayerApp() {
                   <Text style={styles.sectionTitle}>Friends</Text>
                   <Ionicons name="people-outline" size={18} color={colors.muted} />
                 </View>
-                {demoFriends.map((friend) => (
+                {playerFriends.map((friend) => (
                   <View key={friend.id} style={styles.friendRow}>
                     <View style={styles.friendAvatar}>
                       <Text style={styles.friendAvatarText}>{friend.name.slice(0, 1)}</Text>
@@ -1444,7 +1433,7 @@ export default function PlayerApp() {
                   <Text style={styles.sectionTitle}>Profile</Text>
                   <Text style={styles.muted}>{player.email}</Text>
                 </View>
-                <View style={styles.googleAuthPanel}>
+                {Platform.OS === 'web' ? <View style={styles.googleAuthPanel}>
                   <View style={styles.googleAuthIcon}>
                     <Ionicons name={firebaseIdentity ? 'checkmark-circle-outline' : 'logo-google'} size={20} color={firebaseIdentity ? colors.teal : colors.primaryDark} />
                   </View>
@@ -1457,7 +1446,7 @@ export default function PlayerApp() {
                       <Text style={styles.compactButtonText}>Sign in</Text>
                     </Pressable>
                   ) : null}
-                </View>
+                </View> : null}
                 {!firebaseIdentity ? (
                   <View style={styles.emailAuthPanel}>
                     <View>
@@ -1508,6 +1497,9 @@ export default function PlayerApp() {
                   ) : null}
                 </View>
                 {premiumMessage ? <Text style={styles.privateGameStatus}>{premiumMessage}</Text> : null}
+                <Pressable style={styles.secondaryActionButton} onPress={restorePremiumPurchases}>
+                  <Text style={styles.secondaryActionText}>Restore Apple purchases</Text>
+                </Pressable>
                 <Field label="Name" value={player.name} onChangeText={(name) => setPlayer((current) => ({ ...current, name }))} />
                 <Field label="Email" value={player.email} onChangeText={(email) => setPlayer((current) => ({ ...current, email }))} />
                 <Field
@@ -1531,6 +1523,22 @@ export default function PlayerApp() {
                   value={player.preferredStakes ?? ''}
                   onChangeText={(preferredStakes) => setPlayer((current) => ({ ...current, preferredStakes }))}
                 />
+                <View style={styles.simpleMenu}>
+                  <SimpleMenuRow icon="call-outline" title="Contact support" subtitle={supportPhone} onPress={() => Linking.openURL(supportPhoneUrl)} />
+                  {privacyPolicyUrl ? (
+                    <SimpleMenuRow icon="shield-checkmark-outline" title="Privacy policy" subtitle="How Orbit handles your data" onPress={() => Linking.openURL(privacyPolicyUrl)} />
+                  ) : null}
+                </View>
+                {firebaseIdentity ? (
+                  <>
+                    <Pressable style={styles.secondaryActionButton} onPress={signOutPlayer}>
+                      <Text style={styles.secondaryActionText}>Sign out</Text>
+                    </Pressable>
+                    <Pressable style={styles.secondaryActionButton} onPress={deletePlayerAccount}>
+                      <Text style={[styles.secondaryActionText, { color: '#b42318' }]}>Delete account</Text>
+                    </Pressable>
+                  </>
+                ) : null}
               </View>
             ) : null}
           </ScrollView>
@@ -1659,13 +1667,8 @@ export default function PlayerApp() {
           onSubmit={submitSeatRequest}
         />
       </SafeAreaView>
-      </SafeAreaProvider>
-    </StripeGate>
+    </SafeAreaProvider>
   );
-}
-
-function StripeGate({ children }: { children: React.ReactElement }) {
-  return <>{children}</>;
 }
 
 function TournamentCard({
@@ -1752,11 +1755,6 @@ function formatEventDate(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-function mergeOrbitLaunchTournament(liveTournaments: PlayerTournament[]) {
-  const liveOrbit = liveTournaments.find((tournament) => tournament.id === orbitLaunchChampionship.id);
-  return liveOrbit ? liveTournaments : [orbitLaunchChampionship, ...liveTournaments];
-}
-
 function InAppNotificationBanner({
   notification,
   onDismiss
@@ -1785,15 +1783,13 @@ function OnboardingFlow({
   onboardingStep,
   setDraftPlayer,
   setOnboardingStep,
-  onComplete,
-  onUseDemo
+  onComplete
 }: {
   draftPlayer: PlayerAccount;
   onboardingStep: OnboardingStep;
   setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
   setOnboardingStep: React.Dispatch<React.SetStateAction<OnboardingStep>>;
   onComplete: () => void;
-  onUseDemo: () => void;
 }) {
   const stepOpacity = useRef(new Animated.Value(1)).current;
   const [hoveredAction, setHoveredAction] = useState<'previous' | 'next' | null>(null);
@@ -1877,10 +1873,11 @@ function OnboardingFlow({
         <Pressable
           onHoverIn={() => setHoveredAction('previous')}
           onHoverOut={() => setHoveredAction(null)}
-          onPress={onboardingStep > 0 ? previousStep : onUseDemo}
+          onPress={onboardingStep > 0 ? previousStep : undefined}
+          disabled={onboardingStep === 0}
           style={styles.arrowAction}
         >
-          {onboardingStep > 0 ? <Ionicons name="arrow-back" size={24} color="#ffffff" /> : <Text style={styles.demoLink}>Demo</Text>}
+          <Ionicons name="arrow-back" size={24} color="#ffffff" />
           {hoveredAction === 'previous' && onboardingStep > 0 ? (
             <View pointerEvents="none" style={styles.iconTooltip}>
               <Text style={styles.iconTooltipText}>Previous step</Text>
@@ -2777,8 +2774,21 @@ function PremiumPaywall({
       </View>
       <AnimatedButton variant="primary" onPress={onUpgrade} style={[styles.primaryButton, styles.fullWidthButton]}>
         <Ionicons name="card-outline" size={18} color="#fff" />
-        <Text style={styles.primaryButtonText}>Continue with Stripe</Text>
+        <Text style={styles.primaryButtonText}>Subscribe with Apple</Text>
       </AnimatedButton>
+      <Text style={styles.muted}>
+        Payment is charged to your Apple Account. The subscription renews monthly unless canceled at least 24 hours before the current period ends. Manage or cancel it in your Apple subscription settings.
+      </Text>
+      <View style={styles.contextRow}>
+        <Pressable onPress={() => Linking.openURL('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')}>
+          <Text style={styles.inlineBackText}>Terms of Use</Text>
+        </Pressable>
+        {privacyPolicyUrl ? (
+          <Pressable onPress={() => Linking.openURL(privacyPolicyUrl)}>
+            <Text style={styles.inlineBackText}>Privacy Policy</Text>
+          </Pressable>
+        ) : null}
+      </View>
       {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
     </AnimatedSurface>
   );
@@ -3881,7 +3891,7 @@ function ClubPaymentPlaceholderScreen({
   );
 }
 
-function PlayerHistoryScreen({ sessions }: { sessions: typeof demoSessionHistory }) {
+function PlayerHistoryScreen({ sessions }: { sessions: PlayerSession[] }) {
   const totalProfitLoss = sessions.reduce((sum, session) => sum + session.profitLoss, 0);
   const totalHours = sessions.reduce((sum, session) => sum + session.hours, 0);
   const hourly = totalHours ? totalProfitLoss / totalHours : 0;
@@ -4511,17 +4521,7 @@ function compareFindGamesClubOrder(left: PlayerClubSnapshot, right: PlayerClubSn
 }
 
 function buildFindGameClubs(clubs: PlayerClubSnapshot[]) {
-  const existing = new Map<string, PlayerClubSnapshot>();
-  clubs.filter(isFindGamesClub).forEach((club) => {
-    existing.set(findGamesClubKey(club), club);
-  });
-  const syncedCoreClubs = clubs
-    .filter((club) => !isFindGamesClub(club))
-    .sort((left, right) => left.club.name.localeCompare(right.club.name));
-  return [
-    ...syncedCoreClubs,
-    ...findGamesClubOrder.map((clubId) => existing.get(clubId) ?? createFindGameClubFixture(clubId))
-  ];
+  return clubs.slice().sort((left, right) => left.club.name.localeCompare(right.club.name));
 }
 
 function getLatestInAppNotification(clubs: PlayerClubSnapshot[], dismissedIds: string[]) {
@@ -4534,88 +4534,9 @@ function getLatestInAppNotification(clubs: PlayerClubSnapshot[], dismissedIds: s
     .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
 }
 
-function createFindGameClubFixture(clubId: string): PlayerClubSnapshot {
-  const names: Record<string, string> = {
-    'test-club': 'Test Club',
-    'club-a': 'Club A',
-    'club-b': 'Club B',
-    'stress-room': 'Stress Room',
-    'cedar-rail-dallas': 'Cedar Rail Card House',
-    'deep-ellum-poker': 'Deep Ellum Poker Hall',
-    'live-oak-social': 'Live Oak Social Club',
-    'capital-card-room': 'Capital Card Room',
-    'bayou-stack-room': 'Bayou Stack Room',
-    'choctaw-demo-casino': 'Choctaw Demo Casino',
-    'winstar-demo-casino': 'Winstar Demo Casino'
-  };
-  const gameNames: Record<string, string[]> = {
-    'test-club': ['1/2 NLH', '1/3 NLH'],
-    'club-a': ['1/2 NLH', 'PLO'],
-    'club-b': ['1/3 NLH', 'Tournament'],
-    'stress-room': ['1/2 NLH', '2/5 NLH'],
-    'cedar-rail-dallas': ['1/2 NLH', '2/5 NLH'],
-    'deep-ellum-poker': ['1/3 NLH', '5/5 PLO'],
-    'live-oak-social': ['1/2 NLH', '2/5 NLH'],
-    'capital-card-room': ['1/3 NLH', '1/2 PLO'],
-    'bayou-stack-room': ['1/2 NLH', '5/10 NLH'],
-    'choctaw-demo-casino': ['1/3 NLH', '2/5 NLH'],
-    'winstar-demo-casino': ['1/2 NLH', '5/5 PLO']
-  };
-  const games = (gameNames[clubId] ?? ['1/2 NLH']).map((name, index) => {
-    const availableSeats = clubId === 'stress-room' ? 10 : Math.max(1, 6 - index * 2);
-    const waitlistCount = clubId === 'stress-room' ? index : index + 1;
-    return {
-      id: `${clubId}-game-${index + 1}`,
-      name,
-      maxSeats: 10,
-      availableSeats,
-      waitlistCount,
-      formingCount: index === 1 ? 1 : 0,
-      knownPlayersCount: index,
-      openTables: [
-        {
-          id: `${clubId}-table-${index + 1}`,
-          gameId: `${clubId}-game-${index + 1}`,
-          label: `Table ${index + 1}`,
-          status: index === 1 ? 'Forming' as const : 'Running' as const,
-          seatsFilled: Math.max(0, 10 - availableSeats),
-          maxSeats: 10,
-          availableSeats,
-          collectionMode: index % 2 ? 'Time' as const : 'Drop' as const,
-          tags: ['Demo'],
-          startedAt: new Date(Date.now() - 1000 * 60 * (20 + index * 25)).toISOString(),
-          social: {
-            seatedPlayerCount: Math.max(0, 10 - availableSeats),
-            adminCount: 1,
-            knownPlayersCount: index
-          }
-        }
-      ]
-    };
-  });
-  return {
-    club: {
-      id: clubId,
-      name: names[clubId] ?? clubId,
-      address: demoClubAddresses[clubId] ?? `${clubId.replace(/-/g, ' ')} demo address`,
-      phone: '555-0100'
-    },
-    games,
-    memberships: [],
-    waitlists: [],
-    notifications: [],
-    social: {
-      activePlayerCount: 8 + games.length,
-      adminCount: 1,
-      knownPlayersInHouse: 0,
-      waitlistCount: games.reduce((sum, game) => sum + game.waitlistCount, 0)
-    },
-    generatedAt: new Date().toISOString()
-  };
-}
-
 function getClubMembershipPrices(club: PlayerClubSnapshot) {
-  return demoClubMembershipPrices[club.club.id] ?? demoClubMembershipPrices.default;
+  void club;
+  return { day: 'Club-priced day pass', monthly: 'Club-priced membership', timePack: 'Club-priced time package' };
 }
 
 function getClubFeeProfile(club: PlayerClubSnapshot, game?: PlayerSyncGame) {
@@ -4638,35 +4559,6 @@ function getAccessProfileText(club: PlayerClubSnapshot, game?: PlayerSyncGame) {
     return `Drop collection: configured by club / Membership fee: ${membership.day} or ${membership.monthly}`;
   }
   return `Rake taken: ${fees.percent} of pot / Membership fee: ${membership.day} or ${membership.monthly}`;
-}
-
-function mergeDemoAndSyncedClubs(syncedClubs: PlayerClubSnapshot[]) {
-  const demoById = new Map(initialClubSnapshots.map((snapshot) => [snapshot.club.id, snapshot]));
-  const syncedIds = new Set(syncedClubs.map((snapshot) => snapshot.club.id));
-  const mergedSyncedClubs = syncedClubs.map((synced) => {
-    const demo = demoById.get(synced.club.id);
-    if (!demo) return synced;
-    return {
-      ...demo,
-      ...synced,
-      club: { ...demo.club, ...synced.club },
-      games: mergeRecordsById(demo.games, synced.games),
-      memberships: mergeRecordsById(demo.memberships, synced.memberships),
-      waitlists: mergeRecordsById(demo.waitlists, synced.waitlists),
-      notifications: mergeRecordsById(demo.notifications ?? [], synced.notifications ?? []),
-      social: { ...demo.social, ...synced.social }
-    };
-  });
-  return [
-    ...mergedSyncedClubs,
-    ...initialClubSnapshots.filter((snapshot) => !syncedIds.has(snapshot.club.id))
-  ];
-}
-
-function mergeRecordsById<T extends { id: string }>(demoRecords: T[], syncedRecords: T[]) {
-  const records = new Map(demoRecords.map((record) => [record.id, record]));
-  syncedRecords.forEach((record) => records.set(record.id, record));
-  return Array.from(records.values());
 }
 
 function groupOpportunitiesByClub(opportunities: GameOpportunity[]) {

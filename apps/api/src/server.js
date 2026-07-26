@@ -33,6 +33,7 @@ const { getFirebasePublisherStatus, publishStateToFirebase } = require('./fireba
 const {
   createMembershipCheckout,
   getPaymentServiceStatus,
+  handleRevenueCatWebhook,
   handleStripeWebhook,
   requireFirebasePlayer
 } = require('./paymentService');
@@ -45,6 +46,7 @@ const liveClients = new Set();
 
 app.use(cors());
 app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), handleStripeWebhook);
+app.post('/webhooks/revenuecat', express.json({ limit: '256kb' }), asyncRoute(handleRevenueCatWebhook));
 app.use(express.json({ limit: '2mb' }));
 app.use((request, response, next) => {
   const started = Date.now();

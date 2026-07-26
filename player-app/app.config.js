@@ -46,9 +46,10 @@ module.exports = ({ config }) => ({
     googleWebClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '',
     googleIosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '',
     googleAndroidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '',
-    stripePublishableKey: process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '',
-    playerPremiumCheckoutUrl: process.env.EXPO_PUBLIC_PLAYER_PREMIUM_CHECKOUT_URL || '',
-    playerPremiumPriceId: process.env.EXPO_PUBLIC_PLAYER_PREMIUM_PRICE_ID || '',
-    playerPremiumProductId: process.env.EXPO_PUBLIC_PLAYER_PREMIUM_PRODUCT_ID || ''
+    revenueCatAppleApiKey: process.env.EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY || '',
+    playerPremiumEntitlementId: process.env.EXPO_PUBLIC_REVENUECAT_PREMIUM_ENTITLEMENT_ID || 'player_premium',
+    applePremiumProductId: process.env.EXPO_PUBLIC_APPLE_PREMIUM_PRODUCT_ID || 'com.orbit.player.premium.monthly',
+    privacyPolicyUrl: process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || '',
+    supportPhone: '346-434-1402'
   }
 });

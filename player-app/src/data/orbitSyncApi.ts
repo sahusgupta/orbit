@@ -1,12 +1,14 @@
 import { initializeApp, getApps } from 'firebase/app';
 import {
   createUserWithEmailAndPassword,
+  deleteUser,
   getAuth,
   GoogleAuthProvider,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
   signInWithCredential,
+  signOut,
   type User
 } from 'firebase/auth';
 import {
@@ -547,6 +549,17 @@ export function subscribeToAllClubSnapshots(
       liveClubStates.clear();
     }
   };
+}
+
+export async function deleteCurrentPlayerAccount() {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Sign in before deleting your account.');
+  await deleteDoc(doc(db, 'players', user.uid));
+  await deleteUser(user);
+}
+
+export async function signOutCurrentPlayer() {
+  await signOut(auth);
 }
 
 export async function fetchPrivateGameListings() {

@@ -33,6 +33,7 @@ function getPaymentServiceStatus() {
   return {
     checkoutConfigured: Boolean(process.env.STRIPE_SECRET_KEY && process.env.ORBIT_PAYMENT_SUCCESS_URL && process.env.ORBIT_PAYMENT_CANCEL_URL),
     webhookConfigured: Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET),
+    applePremiumWebhookConfigured: Boolean(process.env.REVENUECAT_WEBHOOK_AUTH_TOKEN),
     dayPassCents: Number(process.env.ORBIT_DAY_PASS_PRICE_CENTS || 1000),
     monthlyMembershipCents: Number(process.env.ORBIT_MONTHLY_MEMBERSHIP_PRICE_CENTS || 3500),
     fiveHourTimePackCents: Number(process.env.ORBIT_FIVE_HOUR_TIME_PRICE_CENTS || 5000)
@@ -107,6 +108,45 @@ async function createMembershipCheckout(request, response) {
     cancel_url: cancelUrl
   }, { stripeAccount: connectedAccountId });
   response.status(201).json({ ok: true, checkoutUrl: session.url, sessionId: session.id });
+}
+
+async function handleRevenueCatWebhook(request, response) {
+  const expectedToken = process.env.REVENUECAT_WEBHOOK_AUTH_TOKEN;
+  const receivedToken = String(request.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!expectedToken || receivedToken !== expectedToken) {
+    response.status(401).json({ ok: false, error: 'Invalid RevenueCat webhook authorization.' });
+    return;
+  }
+
+  const event = request.body?.event;
+  const playerId = String(event?.app_user_id || '').trim();
+  const entitlementIds = Array.isArray(event?.entitlement_ids) ? event.entitlement_ids : [];
+  if (!event?.id || !playerId) {
+    response.status(400).json({ ok: false, error: 'RevenueCat event and app user ID are required.' });
+    return;
+  }
+
+  const entitlementId = process.env.REVENUECAT_PREMIUM_ENTITLEMENT_ID || 'player_premium';
+  const expiresAtMs = Number(event.expiration_at_ms || 0);
+  const expired = event.type === 'EXPIRATION' || (expiresAtMs > 0 && expiresAtMs <= Date.now());
+  const active = entitlementIds.includes(entitlementId) && !expired;
+  const database = admin.firestore(getAdminApp());
+  await database.doc(`players/${playerId}`).set({
+    premium: {
+      status: active ? 'active' : 'inactive',
+      provider: 'apple',
+      productId: String(event.product_id || ''),
+      entitlementId,
+      originalTransactionId: String(event.original_transaction_id || ''),
+      expiresAt: expiresAtMs ? new Date(expiresAtMs).toISOString() : null,
+      environment: String(event.environment || ''),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    },
+    subscriptionStatus: active ? 'active' : 'inactive',
+    subscriptionCurrentPeriodEnd: expiresAtMs ? new Date(expiresAtMs).toISOString() : null
+  }, { merge: true });
+
+  response.json({ ok: true });
 }
 
 async function handleStripeWebhook(request, response) {
@@ -188,6 +228,7 @@ async function recordMembershipPayment(event) {
 module.exports = {
   createMembershipCheckout,
   getPaymentServiceStatus,
+  handleRevenueCatWebhook,
   handleStripeWebhook,
   requireFirebasePlayer
 };

@@ -17,6 +17,7 @@ player-app/.agents/
 player-app/node_modules/
 player-app/.env
 player-app/*.log
+player-app/dist-*/
 TableTalk-Releases/
 
 .vercel

@@ -29,6 +29,8 @@ All other endpoints require `x-orbit-api-key`.
 - `NODE_ENV`: `development`, `staging`, or `production`.
 - `STRIPE_SECRET_KEY`: Stripe server secret used only by the API.
 - `STRIPE_WEBHOOK_SECRET`: signing secret for `POST /webhooks/stripe`.
+- `REVENUECAT_WEBHOOK_AUTH_TOKEN`: bearer token configured on the RevenueCat webhook for `POST /webhooks/revenuecat`.
+- `REVENUECAT_PREMIUM_ENTITLEMENT_ID`: Player Premium entitlement ID; defaults to `player_premium`.
 - `ORBIT_PAYMENT_SUCCESS_URL` and `ORBIT_PAYMENT_CANCEL_URL`: approved checkout return URLs.
 - `ORBIT_DAY_PASS_PRICE_CENTS` and `ORBIT_MONTHLY_MEMBERSHIP_PRICE_CENTS`: authoritative server-side membership prices (defaults: `1000` and `3500`).
 - `ORBIT_PAYMENT_CURRENCY`: three-letter currency code, defaults to `usd`.
@@ -115,6 +117,7 @@ http://<your-lan-ip>:4629/clients
 - `POST /player/waitlist-requests`: apply a waitlist request to venue state.
 - `POST /player/membership-checkout`: create a Stripe Checkout session after verifying the player's Firebase ID token.
 - `POST /webhooks/stripe`: verify Stripe events and write paid memberships plus immutable revenue transactions to Firestore.
+- `POST /webhooks/revenuecat`: verify the configured bearer token and synchronize Apple Player Premium entitlements to the server-managed Firebase player profile.
 - `POST /analytical-reports`: store an analytical report.
 
 Desktop-specific behavior remains in Electron: windows, menus, local startup behavior, and `electron-updater`.

@@ -3,7 +3,7 @@
     "name": "Orbit Player",
     "owner": "saussy",
     "slug": "tabletalk-player",
-    "version": "0.1.13",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "orbitplayer",
@@ -14,7 +14,8 @@
       "backgroundColor": "#F9FAFB"
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
+      "buildNumber": "1",
       "bundleIdentifier": "com.orbit.player",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -46,7 +47,11 @@
       "googleWebClientId": "",
       "googleIosClientId": "",
       "googleAndroidClientId": "",
-      "stripePublishableKey": "",
+      "revenueCatAppleApiKey": "",
+      "playerPremiumEntitlementId": "player_premium",
+      "applePremiumProductId": "com.orbit.player.premium.monthly",
+      "privacyPolicyUrl": "",
+      "supportPhone": "346-434-1402",
       "eas": {
         "projectId": "bb2059b7-91b3-4a6b-a66e-d5618e794fd3"
       }

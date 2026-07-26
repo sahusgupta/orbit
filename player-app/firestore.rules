@@ -226,7 +226,7 @@ service cloud.firestore {
       allow create: if isSelf(playerId) && hasNoServerManagedBilling();
       allow update: if isSelf(playerId) && doesNotChangeServerManagedBilling();
       allow read: if isSelf(playerId);
-      allow delete: if false;
+      allow delete: if isSelf(playerId);
 
       match /members/{memberId} {
         allow read: if true;

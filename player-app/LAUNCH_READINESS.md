@@ -10,7 +10,9 @@
 - Live map UI is wired through `react-native-maps`.
 - EAS build profiles are configured in `eas.json`.
 - Firestore rules and indexes are included for deployment.
-- Stripe native setup is opt-in and scoped only to a future social/player premium tier.
+- Apple In-App Purchase is wired for Player Premium through StoreKit and RevenueCat.
+- Restore Purchases and in-app account deletion are available in Profile & Settings.
+- Production builds do not inject demo clubs, games, tournaments, friends, or session history.
 
 ## Required External Setup
 
@@ -34,7 +36,8 @@
    ```
 
 7. Create Apple Developer and Google Play Console app records.
-8. Add privacy policy and support URLs to both stores.
+8. Deploy `download-site/privacy.html` and `download-site/support.html` over HTTPS, then configure the privacy and support URLs in App Store Connect.
+9. Create the App Store subscription `com.orbit.player.premium.monthly`, RevenueCat entitlement `player_premium`, and production RevenueCat Apple API key.
 
 ## Beta Build
 
@@ -65,9 +68,9 @@ Player clients should ultimately write only request documents, not the authorita
 
 ## Payments Boundary
 
-Stripe belongs only to the social/player app's future premium tier. Do not wire Stripe into management-app billing, table-state operations, seat requests, deposits, or club memberships.
+Player Premium must use Apple In-App Purchase. Do not add an external digital-premium checkout link to the iOS app.
 
-Management-app payments should be scoped as a separate product and payment system later.
+Card-house payments are allowed only for clearly labeled real-world services sold and fulfilled by that venue. Keep table stakes, wagers, deposits, and gambling entries outside Orbit checkout.
 
 ## Acceptance Test
 

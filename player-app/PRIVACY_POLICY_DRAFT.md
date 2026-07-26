@@ -1,6 +1,6 @@
 # Orbit Player Privacy Policy Draft
 
-Last updated: June 1, 2026
+Last updated: July 25, 2026
 
 Orbit Player helps players discover participating poker clubs, running games, waitlists, memberships, and loyalty information.
 
@@ -20,12 +20,16 @@ Orbit Player helps players discover participating poker clubs, running games, wa
 
 ## Data Storage
 
-The app stores your player profile locally on your device and syncs club-related data through Firebase services.
+The app stores your player profile locally on your device and syncs club-related data through Firebase services. Apple processes Player Premium purchases. Orbit receives entitlement and transaction-status information but not your full payment-card number.
 
 ## Location
 
 The app currently uses a map-based home area selection. If precise location services are added later, the app should request permission before accessing device location.
 
+## Account Deletion
+
+You can delete your account from Profile & Settings in the app. This deletes your player profile and sign-in. Transactional or club request records may be retained when needed for fraud prevention, dispute resolution, legal compliance, or participating-club operational records.
+
 ## Contact
 
-Support contact: TBD
+Support contact: 346-434-1402
