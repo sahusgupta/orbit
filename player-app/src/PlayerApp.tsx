@@ -72,8 +72,8 @@ import {
 
 WebBrowser.maybeCompleteAuthSession();
 
-type Screen = 'findGames' | 'gameDetails' | 'tournaments' | 'map' | 'clubs' | 'clubSignup' | 'clubPayment' | 'identityVerification' | 'history' | 'friends' | 'settings' | 'more';
-type OnboardingStep = 0 | 1 | 2 | 3 | 4;
+type Screen = 'findGames' | 'gameDetails' | 'tournaments' | 'map' | 'clubs' | 'clubSignup' | 'clubPayment' | 'identityVerification' | 'settings';
+type OnboardingStep = 0 | 1 | 2 | 3;
 type GameTypeFilter = 'none' | 'all' | 'public' | 'private' | 'card-house' | 'home-game' | 'favorites';
 type DistanceFilter = 'none' | 5 | 10 | 20 | 50;
 type CasinoFilter = 'none' | 'all' | string;
@@ -81,7 +81,6 @@ type TournamentFilter = 'all' | 'open' | 'free' | 'registered';
 type MapVenueFilter = 'all' | 'card-house' | 'casino' | 'club';
 type ClubAccessProduct = 'day' | 'monthly' | 'time-5';
 type DiscoveryDecision = 'pass' | 'saved';
-type CheckInMode = 'remote' | 'in-person';
 
 type SeatRequestDraft = {
   club: PlayerClubSnapshot;
@@ -113,63 +112,13 @@ type PrivateGameDraft = {
   note: string;
 };
 
-type MembershipCheckIn = {
-  mode: CheckInMode;
-  checkedInAt: string;
-};
-
 const tabs: Array<{ id: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
   { id: 'findGames', label: 'Discover', icon: 'flame-outline' },
   { id: 'tournaments', label: 'Events', icon: 'trophy-outline' },
   { id: 'map', label: 'Map', icon: 'map-outline' },
   { id: 'clubs', label: 'Clubs', icon: 'business-outline' },
-  { id: 'more', label: 'More', icon: 'ellipsis-horizontal' }
+  { id: 'settings', label: 'Profile', icon: 'person-outline' }
 ];
-
-const playerFriends: Array<{ id: string; name: string; lastSession: string; preferred: string }> = [];
-
-const orbitLaunchChampionship: PlayerTournament = {
-  id: 'orbit-launch-championship-2026',
-  clubId: 'lucky-lodge',
-  name: 'Orbit Launch Championship',
-  startsAt: '2026-08-01T18:00:00-05:00',
-  registrationOpensAt: '2026-07-19T08:00:00-05:00',
-  registrationClosesAt: '2026-08-01T20:00:00-05:00',
-  registrationStatus: 'open',
-  buyIn: 0,
-  prizePoolLabel: 'Sponsor-funded launch prizes · final pool posted by staff',
-  startingStack: 25000,
-  levelMinutes: 15,
-  lateRegistrationThroughLevel: 8,
-  rebuyPrice: 20,
-  rebuyStack: 25000,
-  unlimitedRebuys: true,
-  addOnPrice: 10,
-  addOnStack: 25000,
-  rules: [
-    'One free initial entry per verified Orbit Player account; app registration is required.',
-    'Unlimited $20 rebuys award 25,000 chips through the end of Level 8.',
-    'One $10 add-on for 25,000 chips is available at the end of late registration.',
-    'Staff decisions, house rules, and posted event procedures are final.'
-  ],
-  unregisterAllowed: true,
-  entrantCount: 0,
-  totalRebuys: 0,
-  totalAddOns: 0,
-  featured: true
-};
-
-type PlayerSession = {
-  id: string;
-  date: string;
-  venue: string;
-  game: string;
-  buyIn: number;
-  hours: number;
-  profitLoss: number;
-};
-
-const playerSessions: PlayerSession[] = [];
 
 const gamePreferenceOptions = [
   { id: 'nlh-1-2', label: '1/2 NLH' },
@@ -239,6 +188,8 @@ const defaultPremiumMonthlyPriceLabel = '$12.99/month';
 const supportPhone = '346-434-1402';
 const supportPhoneUrl = 'tel:+13464341402';
 const privacyPolicyUrl = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || '';
+const playerPremiumEnabled = process.env.EXPO_PUBLIC_ENABLE_PLAYER_PREMIUM === 'true';
+const cardHouseCheckoutEnabled = process.env.EXPO_PUBLIC_ENABLE_CARD_HOUSE_CHECKOUT === 'true';
 
 export default function PlayerApp() {
   const [hasAccount, setHasAccount] = useState(false);
@@ -275,7 +226,6 @@ export default function PlayerApp() {
   const [premiumMonthlyPriceLabel, setPremiumMonthlyPriceLabel] = useState(defaultPremiumMonthlyPriceLabel);
   const [clubMembershipMessage, setClubMembershipMessage] = useState('');
   const [pendingClubProduct, setPendingClubProduct] = useState<ClubAccessProduct | null>(null);
-  const [clubCheckIns, setClubCheckIns] = useState<Record<string, MembershipCheckIn>>({});
   const [seatRequestDraft, setSeatRequestDraft] = useState<SeatRequestDraft | null>(null);
   const [seatRequestMessage, setSeatRequestMessage] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
@@ -316,7 +266,6 @@ export default function PlayerApp() {
   const findGameClubs = useMemo(() => buildFindGameClubs(clubs), [clubs]);
   const playerHomeCoordinate = useMemo(() => resolveAddressCoordinate(player.homeLocation), [player.homeLocation]);
   const searchRadius = distanceFilter;
-  const hasPaidPlayerPremium = premiumStatus === 'active';
   const hasPlayerPremium = premiumStatus === 'active';
   const visiblePrivateGames = useMemo(() => {
     const query = gameQuery.trim().toLowerCase();
@@ -412,7 +361,7 @@ export default function PlayerApp() {
         setPlayer(restored);
         setDraftPlayer(restored);
         setHasAccount(true);
-        setOnboardingStep(4);
+        setOnboardingStep(3);
       })
       .catch(() => undefined)
       .finally(() => active && setAccountLoaded(true));
@@ -427,6 +376,7 @@ export default function PlayerApp() {
   }, [accountLoaded, hasAccount, player]);
 
   useEffect(() => {
+    if (!playerPremiumEnabled) return undefined;
     if (!accountLoaded || !hasAccount || !player.id) return;
     let active = true;
     let unsubscribe: () => void = () => undefined;
@@ -613,15 +563,12 @@ export default function PlayerApp() {
         const leftFavorite = favoriteClubIds.includes(left.club.club.id);
         const rightFavorite = favoriteClubIds.includes(right.club.club.id);
         if (leftFavorite !== rightFavorite) return leftFavorite ? -1 : 1;
-        if (fitScoreFilterEnabled && hasPaidPlayerPremium) return right.score - left.score || left.distanceMiles - right.distanceMiles;
+        if (fitScoreFilterEnabled) return right.score - left.score || left.distanceMiles - right.distanceMiles;
         return right.score - left.score || left.distanceMiles - right.distanceMiles;
       });
-  }, [distanceFilter, favoriteClubIds, findGameClubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, hasPaidPlayerPremium, joinedClubIds, player.homeLocation, player.preferredGameIds, playerHomeCoordinate, selectedCasinoFilter, selectedFilterClubId, stakesFilter]);
+  }, [distanceFilter, favoriteClubIds, findGameClubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, joinedClubIds, player.homeLocation, player.preferredGameIds, playerHomeCoordinate, selectedCasinoFilter, selectedFilterClubId, stakesFilter]);
 
-  const displayedOpportunities = useMemo(() => {
-    if (hasPlayerPremium) return opportunities;
-    return opportunities.slice().sort((left, right) => left.distanceMiles - right.distanceMiles || right.game.availableSeats - left.game.availableSeats);
-  }, [hasPlayerPremium, opportunities]);
+  const displayedOpportunities = opportunities;
   const discoveryDeck = useMemo(
     () => displayedOpportunities.filter((item) => !discoveryDecisions[getOpportunityKey(item)]),
     [discoveryDecisions, displayedOpportunities]
@@ -1141,19 +1088,6 @@ export default function PlayerApp() {
     setDiscoveryNotice('Discovery deck refreshed.');
   };
 
-  const checkInToClub = (club: PlayerClubSnapshot, mode: CheckInMode) => {
-    if (!requireVerifiedAge('clubs', 'checking in')) return;
-    setClubCheckIns((current) => ({
-      ...current,
-      [club.club.id]: { mode, checkedInAt: new Date().toISOString() }
-    }));
-    setClubMembershipMessage(
-      mode === 'remote'
-        ? `Remote check-in sent to ${club.club.name}. Staff can now see that you are on the way.`
-        : `${club.club.name} membership credential is ready to scan at the desk.`
-    );
-  };
-
   const changeMembership = async (club: PlayerClubSnapshot, patch: Partial<PlayerClubMembershipRecord>) => {
     const current = club.memberships.find((membership) => isPlayerMembership(membership, player));
     const today = new Date().toISOString().slice(0, 10);
@@ -1216,8 +1150,8 @@ export default function PlayerApp() {
           {screen !== 'gameDetails' ? (
             <View style={styles.header}>
               <View>
-                <Text style={styles.eyebrow}>{screen === 'findGames' ? 'Poker near you' : screen === 'clubs' ? 'Your memberships' : screen === 'tournaments' ? 'Upcoming games' : screen === 'map' ? 'Browse nearby' : screen === 'more' ? 'Account & activity' : 'Orbit Player'}</Text>
-                <Text style={styles.title}>{screen === 'clubSignup' || screen === 'clubPayment' ? 'Card House Store' : screen === 'findGames' ? (showHostScreen ? 'Host a Game' : 'Discover') : getScreenTitle(screen)}</Text>
+                <Text style={styles.eyebrow}>{screen === 'findGames' ? 'Poker near you' : screen === 'clubs' ? 'Your memberships' : screen === 'tournaments' ? 'Upcoming games' : screen === 'map' ? 'Browse nearby' : 'Orbit Player'}</Text>
+                <Text style={styles.title}>{screen === 'clubSignup' || screen === 'clubPayment' ? 'Card House Store' : screen === 'findGames' ? 'Discover' : getScreenTitle(screen)}</Text>
               </View>
               <Pressable
                 accessibilityLabel="Open settings"
@@ -1306,16 +1240,18 @@ export default function PlayerApp() {
                   <SavedGamesStrip opportunities={savedOpportunities} onOpen={openDiscoveryGame} />
                 ) : null}
 
-                <Pressable style={styles.hostPromptCard} onPress={() => setShowHostScreen(true)}>
-                  <View style={styles.hostPromptIcon}>
-                    <Ionicons name="home-outline" size={18} color={colors.primary} />
-                  </View>
-                  <View style={styles.hostPromptCopy}>
-                    <Text style={styles.cardTitle}>Hosting a group?</Text>
-                    <Text style={styles.muted}>Publish a private game for nearby players.</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.muted} />
-                </Pressable>
+                {playerPremiumEnabled ? (
+                  <Pressable style={styles.hostPromptCard} onPress={() => setShowHostScreen(true)}>
+                    <View style={styles.hostPromptIcon}>
+                      <Ionicons name="home-outline" size={18} color={colors.primary} />
+                    </View>
+                    <View style={styles.hostPromptCopy}>
+                      <Text style={styles.cardTitle}>Hosting a group?</Text>
+                      <Text style={styles.muted}>Publish a private game for nearby players.</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+                  </Pressable>
+                ) : null}
 
                 {visiblePrivateGames.length ? (
                   <>
@@ -1402,7 +1338,7 @@ export default function PlayerApp() {
               />
             ) : null}
 
-            {screen === 'findGames' && showHostScreen ? (
+            {playerPremiumEnabled && screen === 'findGames' && showHostScreen ? (
               <>
                 <Pressable style={styles.inlineBackAction} onPress={() => setShowHostScreen(false)}>
                   <Ionicons name="chevron-back" size={17} color={colors.primary} />
@@ -1488,20 +1424,18 @@ export default function PlayerApp() {
                       membership={selectedMembership}
                       nowMs={clockNow}
                       player={player}
-                      checkIn={clubCheckIns[selectedClub.club.id]}
-                      onCheckIn={(mode) => checkInToClub(selectedClub, mode)}
                     />
                     <View style={styles.gameAlertCard}>
                       <View style={styles.gameAlertIcon}>
                         <Ionicons name="notifications" size={19} color={colors.primary} />
                       </View>
                       <View style={styles.gameAlertCopy}>
-                        <Text style={styles.cardTitle}>Alerts on</Text>
-                        <Text style={styles.muted}>{player.preferredStakes || 'Your usual stakes'} at {selectedClub.club.name}</Text>
+                        <Text style={styles.cardTitle}>Game updates</Text>
+                        <Text style={styles.muted}>Watching {player.preferredStakes || 'your usual stakes'} at {selectedClub.club.name}</Text>
                       </View>
                       <View style={styles.alertOnPill}>
                         <View style={styles.alertOnDot} />
-                        <Text style={styles.alertOnText}>ON</Text>
+                        <Text style={styles.alertOnText}>LIVE</Text>
                       </View>
                     </View>
                     {clubMembershipMessage ? <Text style={styles.privateGameStatus}>{clubMembershipMessage}</Text> : null}
@@ -1535,47 +1469,16 @@ export default function PlayerApp() {
             ) : null}
 
             {screen === 'clubPayment' && selectedClub && pendingClubProduct ? (
-              <ClubPaymentPlaceholderScreen
+              <ClubAccessCheckoutScreen
                 club={selectedClub}
                 product={pendingClubProduct}
                 price={getClubProductLabel(pendingClubProduct, getClubMembershipPrices(selectedClub))}
                 message={clubMembershipMessage}
+                connectedCheckoutEnabled={cardHouseCheckoutEnabled}
                 onBack={() => setScreen('clubSignup')}
                 onPayInApp={() => completeClubPayment(selectedClub, pendingClubProduct)}
                 onPayInPerson={() => requestInPersonMembership(selectedClub, pendingClubProduct)}
               />
-            ) : null}
-
-            {screen === 'history' ? (
-              <PlayerHistoryScreen sessions={playerSessions} />
-            ) : null}
-
-            {screen === 'friends' ? (
-              <View style={styles.accountCard}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Friends</Text>
-                  <Ionicons name="people-outline" size={18} color={colors.muted} />
-                </View>
-                {playerFriends.map((friend) => (
-                  <View key={friend.id} style={styles.friendRow}>
-                    <View style={styles.friendAvatar}>
-                      <Text style={styles.friendAvatarText}>{friend.name.slice(0, 1)}</Text>
-                    </View>
-                    <View style={styles.friendBody}>
-                      <Text style={styles.cardTitle}>{friend.name}</Text>
-                      <Text style={styles.muted}>{friend.lastSession} - {friend.preferred}</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-
-            {screen === 'more' ? (
-              <View style={styles.simpleMenu}>
-                <SimpleMenuRow icon="receipt-outline" title="Session history" subtitle="Results and hours played" onPress={() => setScreen('history')} />
-                <SimpleMenuRow icon="people-outline" title="Friends" subtitle="Players you know" onPress={() => setScreen('friends')} />
-                <SimpleMenuRow icon="options-outline" title="Profile & settings" subtitle="Preferences, account, and premium" onPress={() => setScreen('settings')} />
-              </View>
             ) : null}
 
             {screen === 'settings' ? (
@@ -1639,24 +1542,28 @@ export default function PlayerApp() {
                   subtitle={getIdentityStatusLabel(identityStatus, Boolean(firebaseIdentity))}
                   onPress={() => showIdentityVerification('settings')}
                 />
-                <View style={styles.googleAuthPanel}>
-                  <View style={styles.googleAuthIcon}>
-                    <Ionicons name={hasPlayerPremium ? 'diamond' : 'diamond-outline'} size={20} color={hasPlayerPremium ? colors.teal : colors.primaryDark} />
-                  </View>
-                  <View style={styles.googleAuthBody}>
-                    <Text style={styles.cardTitle}>{hasPlayerPremium ? 'Player Premium Active' : `Player Premium ${premiumMonthlyPriceLabel}`}</Text>
-                    <Text style={styles.muted}>{hasPlayerPremium ? 'Grinder recommendations and hosting are unlocked.' : 'Unlock grinder/table recommendations and player-hosted games.'}</Text>
-                  </View>
-                  {!hasPlayerPremium ? (
-                    <Pressable style={styles.compactButton} onPress={openPremiumCheckout}>
-                      <Text style={styles.compactButtonText}>Upgrade</Text>
+                {playerPremiumEnabled ? (
+                  <>
+                    <View style={styles.googleAuthPanel}>
+                      <View style={styles.googleAuthIcon}>
+                        <Ionicons name={hasPlayerPremium ? 'diamond' : 'diamond-outline'} size={20} color={hasPlayerPremium ? colors.teal : colors.primaryDark} />
+                      </View>
+                      <View style={styles.googleAuthBody}>
+                        <Text style={styles.cardTitle}>{hasPlayerPremium ? 'Player Premium Active' : `Player Premium ${premiumMonthlyPriceLabel}`}</Text>
+                        <Text style={styles.muted}>{hasPlayerPremium ? 'Grinder recommendations and hosting are unlocked.' : 'Unlock grinder/table recommendations and player-hosted games.'}</Text>
+                      </View>
+                      {!hasPlayerPremium ? (
+                        <Pressable style={styles.compactButton} onPress={openPremiumCheckout}>
+                          <Text style={styles.compactButtonText}>Upgrade</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                    {premiumMessage ? <Text style={styles.privateGameStatus}>{premiumMessage}</Text> : null}
+                    <Pressable style={styles.secondaryActionButton} onPress={restorePremiumPurchases}>
+                      <Text style={styles.secondaryActionText}>Restore Apple purchases</Text>
                     </Pressable>
-                  ) : null}
-                </View>
-                {premiumMessage ? <Text style={styles.privateGameStatus}>{premiumMessage}</Text> : null}
-                <Pressable style={styles.secondaryActionButton} onPress={restorePremiumPurchases}>
-                  <Text style={styles.secondaryActionText}>Restore Apple purchases</Text>
-                </Pressable>
+                  </>
+                ) : null}
                 <Field label="Name" value={player.name} onChangeText={(name) => setPlayer((current) => ({ ...current, name }))} />
                 <Field label="Email" value={player.email} onChangeText={(email) => setPlayer((current) => ({ ...current, email }))} />
                 <Field
@@ -1710,10 +1617,10 @@ export default function PlayerApp() {
                     setSelectedDiscoveryOpportunity(null);
                     if (tab.id !== 'findGames') setShowHostScreen(false);
                   }}
-                  style={[styles.tab, (screen === tab.id || (tab.id === 'more' && ['history', 'friends', 'settings'].includes(screen))) && styles.activeTab]}
+                  style={[styles.tab, screen === tab.id && styles.activeTab]}
                 >
-                  <Ionicons name={tab.icon} size={19} color={screen === tab.id || (tab.id === 'more' && ['history', 'friends', 'settings'].includes(screen)) ? colors.ink : '#6b7280'} />
-                  <Text style={[styles.tabText, (screen === tab.id || (tab.id === 'more' && ['history', 'friends', 'settings'].includes(screen))) && styles.activeTabText]}>{tab.label}</Text>
+                  <Ionicons name={tab.icon} size={19} color={screen === tab.id ? colors.ink : '#6b7280'} />
+                  <Text style={[styles.tabText, screen === tab.id && styles.activeTabText]}>{tab.label}</Text>
                 </Pressable>
               ))}
             </View>
@@ -1756,8 +1663,6 @@ export default function PlayerApp() {
             setDistance={setDistanceFilter}
             fitScoreEnabled={fitScoreFilterEnabled}
             setFitScoreEnabled={setFitScoreFilterEnabled}
-            premium={hasPaidPlayerPremium}
-            onLockedFitScore={openPremiumCheckout}
           />
         </FiltersBottomSheet>
         <FiltersBottomSheet
@@ -2035,7 +1940,7 @@ function OnboardingFlow({
 }) {
   const stepOpacity = useRef(new Animated.Value(1)).current;
   const [hoveredAction, setHoveredAction] = useState<'previous' | 'next' | null>(null);
-  const finalStep = 4;
+  const finalStep = 3;
   const totalSteps = finalStep + 1;
   const phoneTrimmed = (draftPlayer.phone ?? '').trim();
   const emailIsValid = isValidEmail(draftPlayer.email);
@@ -2108,7 +2013,6 @@ function OnboardingFlow({
         {onboardingStep === 1 ? <EmailStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={canSubmit ? submitStep : undefined} /> : null}
         {onboardingStep === 2 ? <PhoneStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={submitStep} /> : null}
         {onboardingStep === 3 ? <HomeAreaStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={canSubmit ? submitStep : undefined} /> : null}
-        {onboardingStep === 4 ? <AgeVerificationStep /> : null}
       </AnimatedStepCard>
 
       <View style={styles.onboardingActions}>
@@ -2340,18 +2244,6 @@ function HomeAreaStep({
       onChangeText={(homeLocation) => setDraftPlayer((current) => ({ ...current, homeLocation }))}
       onSubmit={onSubmit}
     />
-  );
-}
-
-function AgeVerificationStep() {
-  return (
-    <View style={styles.optionalStep}>
-      <StepHeader icon="id-card-outline" title="ID & Age Check" />
-      <View style={styles.idCheckPlaceholder}>
-        <Ionicons name="scan-outline" size={28} color="#ffffff" />
-      </View>
-      <Text style={styles.optionalStepText}>ID and age verification will go here.</Text>
-    </View>
   );
 }
 
@@ -2727,8 +2619,6 @@ function GameFilterPanel({
   setDistance,
   fitScoreEnabled,
   setFitScoreEnabled,
-  premium,
-  onLockedFitScore
 }: {
   clubs: PlayerClubSnapshot[];
   gameType: GameTypeFilter;
@@ -2743,8 +2633,6 @@ function GameFilterPanel({
   setDistance: (value: DistanceFilter) => void;
   fitScoreEnabled: boolean;
   setFitScoreEnabled: (value: boolean) => void;
-  premium: boolean;
-  onLockedFitScore: () => void;
 }) {
   const typeOptions: Array<{ id: GameTypeFilter; label: string }> = [
     { id: 'all', label: 'All' },
@@ -2832,17 +2720,11 @@ function GameFilterPanel({
         </View>
       </View>
       <Pressable
-        style={[styles.lockedFilterRow, fitScoreEnabled && premium && styles.lockedFilterRowActive]}
-        onPress={() => {
-          if (!premium) {
-            onLockedFitScore();
-            return;
-          }
-          setFitScoreEnabled(!fitScoreEnabled);
-        }}
+        style={[styles.lockedFilterRow, fitScoreEnabled && styles.lockedFilterRowActive]}
+        onPress={() => setFitScoreEnabled(!fitScoreEnabled)}
       >
-        <Ionicons name={premium ? 'analytics-outline' : 'lock-closed-outline'} size={16} color={premium ? colors.teal : colors.muted} />
-        <Text style={styles.lockedFilterText}>{premium ? 'Sort by fit score' : 'Fit score filter locked with Premium'}</Text>
+        <Ionicons name="analytics-outline" size={16} color={fitScoreEnabled ? colors.teal : colors.muted} />
+        <Text style={styles.lockedFilterText}>Sort by compatibility</Text>
       </Pressable>
     </View>
   );
@@ -4081,11 +3963,12 @@ function SeatRequestModal({
   );
 }
 
-function ClubPaymentPlaceholderScreen({
+function ClubAccessCheckoutScreen({
   club,
   product,
   price,
   message,
+  connectedCheckoutEnabled,
   onBack,
   onPayInApp,
   onPayInPerson
@@ -4094,6 +3977,7 @@ function ClubPaymentPlaceholderScreen({
   product: ClubAccessProduct;
   price: string;
   message: string;
+  connectedCheckoutEnabled: boolean;
   onBack: () => void;
   onPayInApp: () => void;
   onPayInPerson: () => void;
@@ -4113,75 +3997,26 @@ function ClubPaymentPlaceholderScreen({
           {club.club.name} / {getClubProductName(product)} / {price}
         </Text>
       </View>
-      <View style={styles.merchantBand}>
-        <Ionicons name="shield-checkmark-outline" size={18} color={colors.teal} />
-        <Text style={styles.merchantBandText}>Sold and fulfilled by {club.club.name}. Orbit securely passes you to the card house’s connected checkout.</Text>
-      </View>
-      <AnimatedButton variant="primary" onPress={onPayInApp} style={[styles.primaryButton, styles.fullWidthButton]}>
-        <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-        <Text style={styles.primaryButtonText}>Continue to card house checkout</Text>
-      </AnimatedButton>
+      {connectedCheckoutEnabled ? (
+        <>
+          <View style={styles.merchantBand}>
+            <Ionicons name="shield-checkmark-outline" size={18} color={colors.teal} />
+            <Text style={styles.merchantBandText}>Sold and fulfilled by {club.club.name}. Orbit securely passes you to the card house’s connected checkout.</Text>
+          </View>
+          <AnimatedButton variant="primary" onPress={onPayInApp} style={[styles.primaryButton, styles.fullWidthButton]}>
+            <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
+            <Text style={styles.primaryButtonText}>Continue to card house checkout</Text>
+          </AnimatedButton>
+        </>
+      ) : null}
       <Pressable style={styles.payInPersonButton} onPress={onPayInPerson}>
         <Ionicons name="storefront-outline" size={18} color={colors.ink} />
         <View style={styles.payInPersonCopy}>
-          <Text style={styles.cardTitle}>Pay in person</Text>
-          <Text style={styles.muted}>Send the request now. Your timer starts after staff marks it paid.</Text>
+          <Text style={styles.cardTitle}>{connectedCheckoutEnabled ? 'Pay in person' : 'Request at the card house'}</Text>
+          <Text style={styles.muted}>Send the request now. Staff will confirm payment and activate your access.</Text>
         </View>
       </Pressable>
       {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
-    </View>
-  );
-}
-
-function PlayerHistoryScreen({ sessions }: { sessions: PlayerSession[] }) {
-  const totalProfitLoss = sessions.reduce((sum, session) => sum + session.profitLoss, 0);
-  const totalHours = sessions.reduce((sum, session) => sum + session.hours, 0);
-  const hourly = totalHours ? totalProfitLoss / totalHours : 0;
-  return (
-    <View style={styles.accountCard}>
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.sectionTitle}>Player History</Text>
-          <Text style={styles.muted}>{sessions.length} logged sessions</Text>
-        </View>
-        <View style={[styles.historySummaryPill, totalProfitLoss >= 0 ? styles.profitPill : styles.lossPill]}>
-          <Text style={[styles.historySummaryText, totalProfitLoss >= 0 ? styles.profitText : styles.lossText]}>
-            {formatCurrency(totalProfitLoss)}
-          </Text>
-        </View>
-      </View>
-      <View style={styles.historyTotals}>
-        <HistoryMetric label="Hourly" value={formatHourly(hourly)} positive={hourly >= 0} />
-        <HistoryMetric label="Hours" value={totalHours.toFixed(1)} />
-        <HistoryMetric label="Buy-ins" value={formatCurrency(sessions.reduce((sum, session) => sum + session.buyIn, 0))} />
-      </View>
-      {sessions.map((session) => {
-        const sessionHourly = session.hours ? session.profitLoss / session.hours : 0;
-        return (
-          <View key={session.id} style={styles.historyRow}>
-            <View style={styles.historyDateBadge}>
-              <Text style={styles.historyDateText}>{session.date}</Text>
-            </View>
-            <View style={styles.historyMain}>
-              <Text style={styles.cardTitle}>{session.venue}</Text>
-              <Text style={styles.muted}>{session.game} / Buy-in {formatCurrency(session.buyIn)} / {session.hours.toFixed(1)} hrs</Text>
-              <Text style={styles.muted}>Hourly {formatHourly(sessionHourly)}</Text>
-            </View>
-            <Text style={[styles.historyProfitText, session.profitLoss >= 0 ? styles.profitText : styles.lossText]}>
-              {formatCurrency(session.profitLoss)}
-            </Text>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-function HistoryMetric({ label, value, positive }: { label: string; value: string; positive?: boolean }) {
-  return (
-    <View style={styles.historyMetric}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={[styles.metricValue, positive === undefined ? null : positive ? styles.profitText : styles.lossText]}>{value}</Text>
     </View>
   );
 }
@@ -4230,16 +4065,12 @@ function MembershipWalletCard({
   club,
   membership,
   nowMs,
-  player,
-  checkIn,
-  onCheckIn
+  player
 }: {
   club: PlayerClubSnapshot;
   membership: PlayerClubSnapshot['memberships'][number];
   nowMs: number;
   player: PlayerAccount;
-  checkIn?: MembershipCheckIn;
-  onCheckIn: (mode: CheckInMode) => void;
 }) {
   const active = isMembershipCurrentlyActive(membership, nowMs);
   const credential = `${club.club.id}-${membership.playerId || player.id}`.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 18);
@@ -4274,22 +4105,9 @@ function MembershipWalletCard({
 
       <MembershipBarcode value={credential} />
 
-      {checkIn ? (
-        <View style={styles.checkedInBand}>
-          <Ionicons name="checkmark-circle" size={17} color="#86efac" />
-          <Text style={styles.checkedInText}>{checkIn.mode === 'remote' ? 'Remote check-in sent' : 'Credential ready for desk scan'} · {new Date(checkIn.checkedInAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>
-        </View>
-      ) : null}
-
-      <View style={styles.walletActionRow}>
-        <Pressable accessibilityLabel={`Check in remotely to ${club.club.name}`} onPress={() => onCheckIn('remote')} style={styles.walletRemoteButton}>
-          <Ionicons name="phone-portrait-outline" size={17} color="#ffffff" />
-          <Text style={styles.walletRemoteText}>Remote check-in</Text>
-        </Pressable>
-        <Pressable accessibilityLabel={`Show ${club.club.name} membership barcode`} onPress={() => onCheckIn('in-person')} style={styles.walletDeskButton}>
-          <Ionicons name="scan-outline" size={17} color={colors.ink} />
-          <Text style={styles.walletDeskText}>Use at front desk</Text>
-        </Pressable>
+      <View style={styles.checkedInBand}>
+        <Ionicons name="scan-outline" size={17} color="#bfdbfe" />
+        <Text style={styles.checkedInText}>Present this membership barcode at the front desk.</Text>
       </View>
     </LinearGradient>
   );
@@ -4658,8 +4476,6 @@ function getOpportunityKey(item: GameOpportunity) {
 }
 
 function getScreenTitle(screen: Screen) {
-  if (screen === 'history') return 'History';
-  if (screen === 'friends') return 'Friends';
   if (screen === 'settings') return 'Profile';
   if (screen === 'identityVerification') return 'Age Verification';
   return tabs.find((tab) => tab.id === screen)?.label ?? 'Orbit';
@@ -4865,10 +4681,6 @@ function getRecommendationReason(item: GameOpportunity) {
 function formatCurrency(value: number) {
   const prefix = value < 0 ? '-' : '';
   return `${prefix}$${Math.abs(Math.round(value)).toLocaleString()}`;
-}
-
-function formatHourly(value: number) {
-  return `${formatCurrency(value)}/hr`;
 }
 
 function isValidEmail(value: string) {
@@ -5125,18 +4937,6 @@ const styles = StyleSheet.create({
   },
   optionalStep: {
     gap: 10
-  },
-  idCheckPlaceholder: {
-    alignItems: 'center',
-    alignSelf: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderColor: 'rgba(255,255,255,0.24)',
-    borderRadius: 16,
-    borderStyle: 'dashed',
-    borderWidth: 1,
-    height: 112,
-    justifyContent: 'center',
-    width: '100%'
   },
   optionalStepText: {
     color: 'rgba(255,255,255,0.72)',
@@ -5778,32 +5578,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 6,
     padding: 16
-  },
-  friendRow: {
-    alignItems: 'center',
-    borderBottomColor: colors.line,
-    borderBottomWidth: 1,
-    flexDirection: 'row',
-    gap: 4,
-    paddingVertical: 12
-  },
-  friendAvatar: {
-    alignItems: 'center',
-    backgroundColor: colors.primarySoft,
-    borderRadius: 999,
-    height: 38,
-    justifyContent: 'center',
-    marginRight: 10,
-    width: 38
-  },
-  friendAvatarText: {
-    color: colors.primary,
-    fontSize: 15,
-    fontWeight: '800'
-  },
-  friendBody: {
-    flex: 1,
-    gap: 2
   },
   cardTitle: {
     color: colors.ink,
@@ -6607,69 +6381,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     textAlign: 'center'
   },
-  historyTotals: {
-    flexDirection: 'row',
-    gap: 8
-  },
-  historyMetric: {
-    backgroundColor: '#f6f6f3',
-    borderColor: colors.line,
-    borderRadius: 10,
-    borderWidth: 1,
-    flex: 1,
-    gap: 3,
-    padding: 10
-  },
-  historySummaryPill: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7
-  },
-  historySummaryText: {
-    fontSize: 13,
-    fontWeight: '900'
-  },
-  historyRow: {
-    alignItems: 'center',
-    borderTopColor: colors.line,
-    borderTopWidth: 1,
-    flexDirection: 'row',
-    gap: 10,
-    paddingTop: 12
-  },
-  historyDateBadge: {
-    alignItems: 'center',
-    backgroundColor: colors.primarySoft,
-    borderRadius: 10,
-    minWidth: 52,
-    paddingHorizontal: 8,
-    paddingVertical: 8
-  },
-  historyDateText: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: '900'
-  },
-  historyMain: {
-    flex: 1,
-    gap: 2
-  },
-  historyProfitText: {
-    fontSize: 15,
-    fontWeight: '900'
-  },
-  profitPill: {
-    backgroundColor: colors.tealSoft
-  },
-  lossPill: {
-    backgroundColor: '#fee2e2'
-  },
-  profitText: {
-    color: colors.teal
-  },
-  lossText: {
-    color: '#dc2626'
-  },
   stepHeader: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -7242,11 +6953,6 @@ const styles = StyleSheet.create({
   barcodeValue: { color: '#334155', fontSize: 8, fontWeight: '800', letterSpacing: 2 },
   checkedInBand: { alignItems: 'center', backgroundColor: 'rgba(74,222,128,0.12)', borderRadius: 10, flexDirection: 'row', gap: 7, padding: 9 },
   checkedInText: { color: '#dcfce7', flex: 1, fontSize: 10, fontWeight: '800' },
-  walletActionRow: { flexDirection: 'row', gap: 8 },
-  walletRemoteButton: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 11, flex: 1, flexDirection: 'row', gap: 7, justifyContent: 'center', minHeight: 42, paddingHorizontal: 9 },
-  walletRemoteText: { color: '#ffffff', fontSize: 11, fontWeight: '900' },
-  walletDeskButton: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 11, flex: 1, flexDirection: 'row', gap: 7, justifyContent: 'center', minHeight: 42, paddingHorizontal: 9 },
-  walletDeskText: { color: colors.ink, fontSize: 11, fontWeight: '900' },
   gameAlertCard: { alignItems: 'center', backgroundColor: '#f5f3ff', borderColor: '#ddd6fe', borderRadius: 15, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 13 },
   gameAlertIcon: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 11, height: 40, justifyContent: 'center', width: 40 },
   gameAlertCopy: { flex: 1, gap: 2 },

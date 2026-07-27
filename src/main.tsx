@@ -4692,50 +4692,6 @@ function App() {
     });
   };
 
-  const addDemoProfile = () => {
-    const demoName = 'Demo Player';
-    const existingDemo = state.profiles.find((profile) => profile.name.toLowerCase() === demoName.toLowerCase());
-    if (existingDemo) {
-      setProfileSearch(demoName);
-      return;
-    }
-    const preferredGame = state.games[0] ?? { id: 'nlh-1-2', name: '1/2 NLH' };
-    const companionIds = state.profiles.slice(0, 2).map((profile) => profile.id);
-    persist({
-      ...state,
-      profiles: [
-        ...state.profiles,
-        {
-          id: memberId(),
-          name: demoName,
-          phone: '',
-          birthday: '1990-05-22',
-          membershipStartDate: todayDate(),
-          membershipExpirationDate: nextYearDate(),
-          totalTimePlayedHours: 56.5,
-          lastSessionTimePlayedHours: 4.25,
-          commonlyPlaysWithProfileIds: companionIds,
-          preferredGameId: preferredGame.id,
-          preferredGameIds: [preferredGame.id],
-          gamePlayCounts: { [preferredGame.id]: 10 },
-          mostPlayedGameId: preferredGame.id,
-          preferredStakes: preferredGame.name,
-          typicalBuyInMin: 200,
-          typicalBuyInMax: 700,
-          willingnessToMove: true,
-          typicalAvailability: 'Weeknights after 7, Sundays flexible',
-          preferredTags: ['Social', 'Action', 'Beginner-Friendly'],
-          usualCompanions: state.profiles
-            .slice(0, 2)
-            .map((profile) => profile.name)
-            .filter(Boolean),
-          notes: 'Demo profile for testing player app sync, loyalty, recommendations, and club add/remove flows.'
-        }
-      ]
-    }, true, { feature: 'Profiles', action: 'Added demo profile' });
-    setProfileSearch(demoName);
-  };
-
   const deleteProfile = (id: string) => {
     if (!window.confirm('Remove this profile? Existing sessions and interest entries will keep the player name.')) return;
     persist({
@@ -7075,10 +7031,6 @@ function App() {
             <small>{pendingMembershipProfiles.length} waiting for in-person payment</small>
           </article>
           <div className="profile-command-actions">
-            <button className="secondary-button" onClick={addDemoProfile}>
-              <Plus size={17} />
-              Demo Profile
-            </button>
             <button className="ghost-button" onClick={() => setProfileSearch('')}>
               Clear Search
             </button>
