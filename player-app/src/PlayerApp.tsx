@@ -44,13 +44,16 @@ import {
 import {
   fetchAllClubSnapshots,
   fetchPrivateGameListings,
+  fetchPlayerIdentityStatus,
   fetchPlayerProfile,
   fetchPlayerTournaments,
   createClubMembershipCheckout,
+  createPlayerIdentityVerificationSession,
   deleteCurrentPlayerAccount,
   getCurrentFirebasePlayer,
   onFirebasePlayerChanged,
   type FirebasePlayerIdentity,
+  type PlayerIdentityStatus,
   isSyncConfigured,
   savePlayerProfile,
   signOutCurrentPlayer,
@@ -69,7 +72,7 @@ import {
 
 WebBrowser.maybeCompleteAuthSession();
 
-type Screen = 'findGames' | 'gameDetails' | 'tournaments' | 'map' | 'clubs' | 'clubSignup' | 'clubPayment' | 'history' | 'friends' | 'settings' | 'more';
+type Screen = 'findGames' | 'gameDetails' | 'tournaments' | 'map' | 'clubs' | 'clubSignup' | 'clubPayment' | 'identityVerification' | 'history' | 'friends' | 'settings' | 'more';
 type OnboardingStep = 0 | 1 | 2 | 3 | 4;
 type GameTypeFilter = 'none' | 'all' | 'public' | 'private' | 'card-house' | 'home-game' | 'favorites';
 type DistanceFilter = 'none' | 5 | 10 | 20 | 50;
@@ -221,6 +224,14 @@ const emptyPrivateGameDraft: PrivateGameDraft = {
   seats: '6',
   note: ''
 };
+const emptyIdentityStatus: PlayerIdentityStatus = {
+  status: 'unverified',
+  ageVerified: false,
+  ageLevel: 0,
+  minimumAge: 21,
+  verifiedAt: null,
+  failureCode: null
+};
 const legacyPlayerStorageKeys = ['tabletalk-player-account-v1', 'tabletalk-player-account-v2'];
 const playerStorageKey = 'orbit-player-account-v1';
 const googleSignInReadyStatus = 'Connect Google or use email/password to register and sync your player profile.';
@@ -278,6 +289,10 @@ export default function PlayerApp() {
   const [selectedClubId, setSelectedClubId] = useState('');
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const [firebaseIdentity, setFirebaseIdentity] = useState<FirebasePlayerIdentity | null>(() => getCurrentFirebasePlayer());
+  const [identityStatus, setIdentityStatus] = useState<PlayerIdentityStatus>(emptyIdentityStatus);
+  const [identityBusy, setIdentityBusy] = useState(false);
+  const [identityMessage, setIdentityMessage] = useState('');
+  const [identityReturnScreen, setIdentityReturnScreen] = useState<Screen>('findGames');
   const [authStatus, setAuthStatus] = useState(googleSignInReadyStatus);
   const [playerAuthEmail, setPlayerAuthEmail] = useState('');
   const [playerAuthPassword, setPlayerAuthPassword] = useState('');
@@ -351,6 +366,33 @@ export default function PlayerApp() {
   }, [clubs, player.id, playerHomeCoordinate, tournamentClubFilter, tournamentDistanceFilter, tournamentFilter, tournamentQuery, tournamentRegistrations, tournaments]);
 
   useEffect(() => onFirebasePlayerChanged(setFirebaseIdentity), []);
+
+  useEffect(() => {
+    if (!firebaseIdentity) {
+      setIdentityStatus(emptyIdentityStatus);
+      return undefined;
+    }
+    let active = true;
+    const refresh = (forceTokenRefresh = false) => {
+      fetchPlayerIdentityStatus(forceTokenRefresh)
+        .then((status) => {
+          if (!active) return;
+          setIdentityStatus(status);
+          setIdentityMessage(status.ageVerified ? 'Your age is verified.' : '');
+        })
+        .catch((error) => {
+          if (active) setIdentityMessage(error instanceof Error ? error.message : 'Unable to check age-verification status.');
+        });
+    };
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') refresh(true);
+    });
+    refresh();
+    return () => {
+      active = false;
+      appStateSubscription.remove();
+    };
+  }, [firebaseIdentity?.uid]);
 
   useEffect(() => {
     let active = true;
@@ -656,6 +698,92 @@ export default function PlayerApp() {
     }
   };
 
+  const showIdentityVerification = (returnScreen: Screen, message = '') => {
+    setIdentityReturnScreen(returnScreen);
+    setIdentityMessage(message);
+    setScreen('identityVerification');
+  };
+
+  const requireVerifiedAge = (returnScreen: Screen, action: string) => {
+    if (firebaseIdentity && identityStatus.ageVerified) return true;
+    if (!firebaseIdentity) {
+      showIdentityVerification(returnScreen, `Sign in, then verify your age before ${action}.`);
+    } else if (identityStatus.status === 'underage') {
+      showIdentityVerification(returnScreen, `You must be ${identityStatus.minimumAge}+ to ${action}.`);
+    } else if (identityStatus.status === 'processing') {
+      showIdentityVerification(returnScreen, 'Stripe is still reviewing your verification.');
+    } else {
+      showIdentityVerification(returnScreen, `Verify that you are ${identityStatus.minimumAge}+ before ${action}.`);
+    }
+    return false;
+  };
+
+  const refreshIdentityVerification = async () => {
+    if (!firebaseIdentity) {
+      setIdentityMessage('Sign in to your Orbit Player account before verifying your age.');
+      return null;
+    }
+    setIdentityBusy(true);
+    try {
+      const status = await fetchPlayerIdentityStatus(true);
+      setIdentityStatus(status);
+      setIdentityMessage(
+        status.ageVerified
+          ? 'Your age is verified.'
+          : status.status === 'processing'
+            ? 'Stripe is still reviewing your verification.'
+            : status.status === 'underage'
+              ? `You must be ${status.minimumAge}+ to use player access features.`
+              : 'Verification is not complete yet.'
+      );
+      return status;
+    } catch (error) {
+      setIdentityMessage(error instanceof Error ? error.message : 'Unable to refresh age-verification status.');
+      return null;
+    } finally {
+      setIdentityBusy(false);
+    }
+  };
+
+  const startIdentityVerification = async () => {
+    if (!firebaseIdentity) {
+      setIdentityMessage('Sign in to your Orbit Player account before verifying your age.');
+      return;
+    }
+    setIdentityBusy(true);
+    setIdentityMessage('Opening Stripe Identity...');
+    try {
+      const session = await createPlayerIdentityVerificationSession();
+      setIdentityStatus(session.identity);
+      if (session.alreadyVerified || session.identity.ageVerified) {
+        setIdentityMessage('Your age is verified.');
+        return;
+      }
+      if (!session.verificationUrl) {
+        setIdentityMessage('Stripe is still reviewing your verification. Check again shortly.');
+        return;
+      }
+      const browserResult = await WebBrowser.openAuthSessionAsync(session.verificationUrl, session.returnUrl);
+      const status = await fetchPlayerIdentityStatus(true);
+      setIdentityStatus(status);
+      setIdentityMessage(
+        status.ageVerified
+          ? 'Your age is verified.'
+          : status.status === 'processing'
+            ? 'Stripe received your information and is reviewing it.'
+            : status.status === 'underage'
+              ? `You must be ${status.minimumAge}+ to use player access features.`
+              : browserResult.type === 'cancel' || browserResult.type === 'dismiss'
+                ? 'Verification was not completed. You can continue when ready.'
+                : 'Stripe needs more information to finish verification.'
+      );
+    } catch (error) {
+      setIdentityMessage(error instanceof Error ? error.message : 'Unable to start age verification.');
+    } finally {
+      setIdentityBusy(false);
+    }
+  };
+
   const openClubSignup = (club: PlayerClubSnapshot) => {
     setSelectedClubId(club.club.id);
     setPendingClubProduct(null);
@@ -664,6 +792,7 @@ export default function PlayerApp() {
   };
 
   const openClubPayment = (club: PlayerClubSnapshot, product: ClubAccessProduct) => {
+    if (!requireVerifiedAge('clubSignup', 'purchasing card-house access')) return;
     setSelectedClubId(club.club.id);
     setPendingClubProduct(product);
     setClubMembershipMessage('');
@@ -671,6 +800,7 @@ export default function PlayerApp() {
   };
 
   const completeClubPayment = async (club: PlayerClubSnapshot, product: ClubAccessProduct) => {
+    if (!requireVerifiedAge('clubPayment', 'purchasing card-house access')) return;
     setSelectedClubId(club.club.id);
     setClubMembershipMessage('');
     const prices = getClubMembershipPrices(club);
@@ -695,6 +825,7 @@ export default function PlayerApp() {
   };
 
   const requestInPersonMembership = async (club: PlayerClubSnapshot, product: ClubAccessProduct) => {
+    if (!requireVerifiedAge('clubPayment', 'requesting card-house access')) return;
     const prices = getClubMembershipPrices(club);
     const planLabel = getClubProductLabel(product, prices);
     setClubMembershipMessage(`Sending a ${planLabel} pay-in-person request to ${club.club.name}...`);
@@ -740,6 +871,7 @@ export default function PlayerApp() {
   };
 
   const publishPrivateGame = async () => {
+    if (!requireVerifiedAge('findGames', 'hosting a game')) return;
     if (!hasPlayerPremium) {
       setPrivateGameStatus('Player hosting requires Player Premium.');
       setPremiumMessage('Upgrade to Player Premium to host private games.');
@@ -816,6 +948,7 @@ export default function PlayerApp() {
   };
 
   const joinWaitlist = (club: PlayerClubSnapshot, game: PlayerSyncGame) => {
+    if (!requireVerifiedAge(screen, 'requesting a seat')) return;
     setSelectedClubId(club.club.id);
     setSeatRequestMessage('');
     setSeatRequestDraft({
@@ -830,6 +963,10 @@ export default function PlayerApp() {
 
   const submitSeatRequest = async () => {
     if (!seatRequestDraft) return;
+    if (!requireVerifiedAge(screen, 'requesting a seat')) {
+      setSeatRequestDraft(null);
+      return;
+    }
     const { club, game, attendance, expectedArrivalTime, availabilityStartTime, availabilityEndTime } = seatRequestDraft;
     if (attendance === 'confirmed' && !expectedArrivalTime.trim()) {
       setSeatRequestMessage('Enter what time you expect to arrive.');
@@ -882,6 +1019,7 @@ export default function PlayerApp() {
   };
 
   const registerTournament = async (tournament: PlayerTournament) => {
+    if (!requireVerifiedAge('tournaments', 'registering for an event')) return;
     if (!firebaseIdentity || firebaseIdentity.uid !== player.id) {
       setTournamentMessage('Sign in to your Orbit Player account to register for this event.');
       return;
@@ -1004,6 +1142,7 @@ export default function PlayerApp() {
   };
 
   const checkInToClub = (club: PlayerClubSnapshot, mode: CheckInMode) => {
+    if (!requireVerifiedAge('clubs', 'checking in')) return;
     setClubCheckIns((current) => ({
       ...current,
       [club.club.id]: { mode, checkedInAt: new Date().toISOString() }
@@ -1098,7 +1237,7 @@ export default function PlayerApp() {
           ) : null}
 
           <ScrollView showsVerticalScrollIndicator={screen === 'tournaments' || screen === 'gameDetails'} contentContainerStyle={styles.content}>
-            {activeInAppNotification && screen !== 'gameDetails' ? (
+            {activeInAppNotification && screen !== 'gameDetails' && screen !== 'identityVerification' ? (
               <InAppNotificationBanner
                 notification={activeInAppNotification}
                 onDismiss={() => setDismissedNotificationIds((ids) => [...ids, activeInAppNotification.id])}
@@ -1116,6 +1255,18 @@ export default function PlayerApp() {
                   item.isJoined ? joinWaitlist(item.club, item.game) : openClubSignup(item.club);
                 }}
                 onViewStore={() => openClubSignup(activeDiscoveryOpportunity.club)}
+              />
+            ) : null}
+            {screen === 'identityVerification' ? (
+              <IdentityVerificationScreen
+                status={identityStatus}
+                signedIn={Boolean(firebaseIdentity)}
+                busy={identityBusy}
+                message={identityMessage}
+                onBack={() => setScreen(identityReturnScreen)}
+                onSignIn={() => setScreen('settings')}
+                onStart={startIdentityVerification}
+                onRefresh={refreshIdentityVerification}
               />
             ) : null}
             {screen === 'findGames' && !showHostScreen ? (
@@ -1482,6 +1633,12 @@ export default function PlayerApp() {
                     </Pressable>
                   </View>
                 ) : null}
+                <SimpleMenuRow
+                  icon="shield-checkmark-outline"
+                  title="Identity & age"
+                  subtitle={getIdentityStatusLabel(identityStatus, Boolean(firebaseIdentity))}
+                  onPress={() => showIdentityVerification('settings')}
+                />
                 <View style={styles.googleAuthPanel}>
                   <View style={styles.googleAuthIcon}>
                     <Ionicons name={hasPlayerPremium ? 'diamond' : 'diamond-outline'} size={20} color={hasPlayerPremium ? colors.teal : colors.primaryDark} />
@@ -1543,7 +1700,7 @@ export default function PlayerApp() {
             ) : null}
           </ScrollView>
 
-          {screen !== 'gameDetails' ? (
+          {screen !== 'gameDetails' && screen !== 'identityVerification' ? (
             <View style={styles.tabBar}>
               {tabs.map((tab) => (
                 <Pressable
@@ -1668,6 +1825,91 @@ export default function PlayerApp() {
         />
       </SafeAreaView>
     </SafeAreaProvider>
+  );
+}
+
+function IdentityVerificationScreen({
+  status,
+  signedIn,
+  busy,
+  message,
+  onBack,
+  onSignIn,
+  onStart,
+  onRefresh
+}: {
+  status: PlayerIdentityStatus;
+  signedIn: boolean;
+  busy: boolean;
+  message: string;
+  onBack: () => void;
+  onSignIn: () => void;
+  onStart: () => void | Promise<void>;
+  onRefresh: () => void | Promise<unknown>;
+}) {
+  const verified = status.ageVerified;
+  const processing = status.status === 'processing';
+  const underage = status.status === 'underage';
+  const primaryLabel = !signedIn
+    ? 'Sign in to continue'
+    : verified
+      ? 'Continue'
+      : processing
+        ? 'Check status'
+        : busy
+          ? 'Opening Stripe...'
+          : 'Verify with Stripe';
+  const primaryAction = !signedIn
+    ? onSignIn
+    : verified
+      ? onBack
+      : processing
+        ? () => void onRefresh()
+        : () => void onStart();
+
+  return (
+    <View style={[styles.accountCard, styles.identityCard]}>
+      <View style={styles.identityIcon}>
+        <Ionicons
+          name={verified ? 'checkmark-circle' : underage ? 'alert-circle-outline' : 'shield-checkmark-outline'}
+          size={34}
+          color={verified ? colors.teal : underage ? '#b42318' : colors.primary}
+        />
+      </View>
+      <View style={styles.identityCopy}>
+        <Text style={styles.sectionTitle}>
+          {verified ? 'Age verified' : underage ? 'Age requirement not met' : `Verify that you are ${status.minimumAge}+`}
+        </Text>
+        <Text style={styles.muted}>
+          {verified
+            ? 'You can request seats, join card houses, check in, and purchase card-house access.'
+            : underage
+              ? `Orbit player access features are limited to verified players age ${status.minimumAge} or older.`
+              : 'Stripe securely checks a government-issued ID. Orbit receives only the verification result and age eligibility.'}
+        </Text>
+      </View>
+      {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
+      {!underage ? (
+        <Pressable
+          disabled={busy}
+          onPress={primaryAction}
+          style={[styles.primaryButton, styles.fullWidthButton, busy && styles.disabledAction]}
+        >
+          <Text style={styles.primaryButtonText}>{primaryLabel}</Text>
+        </Pressable>
+      ) : null}
+      {signedIn && !verified && !underage && !processing ? (
+        <Pressable disabled={busy} onPress={() => void onRefresh()} style={styles.secondaryActionButton}>
+          <Text style={styles.secondaryActionText}>I already completed verification</Text>
+        </Pressable>
+      ) : null}
+      <Pressable onPress={onBack} style={styles.secondaryActionButton}>
+        <Text style={styles.secondaryActionText}>{verified ? 'Back' : 'Not now'}</Text>
+      </Pressable>
+      <Text style={styles.identityPrivacy}>
+        Your ID images and document details are handled by Stripe Identity and are not stored in Orbit.
+      </Text>
+    </View>
   );
 }
 
@@ -4419,7 +4661,16 @@ function getScreenTitle(screen: Screen) {
   if (screen === 'history') return 'History';
   if (screen === 'friends') return 'Friends';
   if (screen === 'settings') return 'Profile';
+  if (screen === 'identityVerification') return 'Age Verification';
   return tabs.find((tab) => tab.id === screen)?.label ?? 'Orbit';
+}
+
+function getIdentityStatusLabel(status: PlayerIdentityStatus, signedIn: boolean) {
+  if (!signedIn) return 'Sign in to verify before joining or purchasing access';
+  if (status.ageVerified) return `Verified ${status.minimumAge}+`;
+  if (status.status === 'processing') return 'Stripe is reviewing your verification';
+  if (status.status === 'underage') return `Minimum age ${status.minimumAge} not met`;
+  return `Required before joining, checking in, or purchasing access`;
 }
 
 function getCompatibilityPercent(item: GameOpportunity) {
@@ -6329,6 +6580,32 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.025,
     shadowRadius: 12
+  },
+  identityCard: {
+    alignSelf: 'center',
+    marginTop: 18,
+    maxWidth: 520,
+    padding: 22,
+    width: '100%'
+  },
+  identityIcon: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 999,
+    height: 68,
+    justifyContent: 'center',
+    width: 68
+  },
+  identityCopy: {
+    alignItems: 'center',
+    gap: 7
+  },
+  identityPrivacy: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'center'
   },
   historyTotals: {
     flexDirection: 'row',

@@ -1,5 +1,6 @@
 const admin = require('firebase-admin');
 const Stripe = require('stripe');
+const { handleStripeIdentityEvent } = require('./identityService');
 
 let adminApp;
 let stripeClient;
@@ -156,6 +157,7 @@ async function handleStripeWebhook(request, response) {
     if (event.type === 'checkout.session.completed' && ['club_membership', 'club_access'].includes(event.data.object?.metadata?.kind)) {
       await recordMembershipPayment(event);
     }
+    await handleStripeIdentityEvent(event);
     response.json({ received: true });
   } catch (error) {
     response.status(400).json({ ok: false, error: error instanceof Error ? error.message : 'Webhook processing failed.' });

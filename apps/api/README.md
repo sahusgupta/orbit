@@ -29,6 +29,9 @@ All other endpoints require `x-orbit-api-key`.
 - `NODE_ENV`: `development`, `staging`, or `production`.
 - `STRIPE_SECRET_KEY`: Stripe server secret used only by the API.
 - `STRIPE_WEBHOOK_SECRET`: signing secret for `POST /webhooks/stripe`.
+- `ORBIT_IDENTITY_RETURN_URL`: trusted deep link Stripe returns to after hosted verification, for example `orbitplayer://identity-complete`.
+- `STRIPE_IDENTITY_VERIFICATION_FLOW_ID`: optional Stripe Dashboard verification-flow ID. Without it, the API creates a document check directly.
+- `ORBIT_IDENTITY_REQUIRE_SELFIE`: matching-selfie checks default to on; set this to `false` only if the launch policy intentionally accepts document-only verification.
 - `REVENUECAT_WEBHOOK_AUTH_TOKEN`: bearer token configured on the RevenueCat webhook for `POST /webhooks/revenuecat`.
 - `REVENUECAT_PREMIUM_ENTITLEMENT_ID`: Player Premium entitlement ID; defaults to `player_premium`.
 - `ORBIT_PAYMENT_SUCCESS_URL` and `ORBIT_PAYMENT_CANCEL_URL`: approved checkout return URLs.
@@ -116,8 +119,15 @@ http://<your-lan-ip>:4629/clients
 - `POST /player/membership-requests`: apply a membership request to venue state.
 - `POST /player/waitlist-requests`: apply a waitlist request to venue state.
 - `POST /player/membership-checkout`: create a Stripe Checkout session after verifying the player's Firebase ID token.
+- `GET /player/identity/status`: return the signed-in player's sanitized age-eligibility status.
+- `POST /player/identity/session`: create or resume a hosted Stripe Identity verification session.
+- `DELETE /player/identity`: request Stripe redaction and remove Orbit's eligibility record during account deletion.
 - `POST /webhooks/stripe`: verify Stripe events and write paid memberships plus immutable revenue transactions to Firestore.
 - `POST /webhooks/revenuecat`: verify the configured bearer token and synchronize Apple Player Premium entitlements to the server-managed Firebase player profile.
 - `POST /analytical-reports`: store an analytical report.
 
 Desktop-specific behavior remains in Electron: windows, menus, local startup behavior, and `electron-updater`.
+
+For launch, activate Stripe Identity on Orbit's platform account and configure the Stripe webhook to send `identity.verification_session.processing`, `identity.verification_session.verified`, `identity.verification_session.requires_input`, `identity.verification_session.canceled`, and `identity.verification_session.redacted`. Orbit stores only provider session IDs and the sanitized eligibility result; date of birth, document numbers, and ID images remain with Stripe.
+
+If `STRIPE_IDENTITY_VERIFICATION_FLOW_ID` is used, that Dashboard flow must collect a document date of birth and enable matching-selfie verification. The API fails closed when Stripe returns no date of birth.

@@ -83,6 +83,58 @@ const localOrbitApiBaseUrl = (
   (typeof window !== 'undefined' ? 'http://127.0.0.1:4629' : '')
 ).replace(/\/$/, '');
 
+export type PlayerIdentityStatus = {
+  status: 'unverified' | 'requires_input' | 'processing' | 'verified' | 'underage' | 'canceled' | 'redacted';
+  ageVerified: boolean;
+  ageLevel: number;
+  minimumAge: number;
+  verifiedAt: string | null;
+  failureCode: string | null;
+};
+
+type PlayerIdentityResponse = {
+  ok: true;
+  identity: PlayerIdentityStatus;
+  alreadyVerified?: boolean;
+  verificationUrl?: string | null;
+  returnUrl?: string;
+};
+
+async function getOrbitPlayerToken(forceRefresh = false) {
+  if (!orbitApiBaseUrl) throw new Error('EXPO_PUBLIC_ORBIT_API_URL is not configured.');
+  const user = auth.currentUser;
+  if (!user) throw new Error('Sign in to your Orbit Player account first.');
+  return { token: await user.getIdToken(forceRefresh), user };
+}
+
+export async function fetchPlayerIdentityStatus(forceTokenRefresh = false) {
+  const { token, user } = await getOrbitPlayerToken(forceTokenRefresh);
+  const response = await fetch(`${orbitApiBaseUrl}/player/identity/status`, {
+    headers: { authorization: `Bearer ${token}` }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.identity) throw new Error(payload.error || 'Unable to check age-verification status.');
+  const result = payload as PlayerIdentityResponse;
+  if (result.identity.ageVerified) await user.getIdToken(true);
+  return result.identity;
+}
+
+export async function createPlayerIdentityVerificationSession() {
+  const { token, user } = await getOrbitPlayerToken();
+  const response = await fetch(`${orbitApiBaseUrl}/player/identity/session`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json'
+    }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.identity) throw new Error(payload.error || 'Unable to start age verification.');
+  const result = payload as PlayerIdentityResponse;
+  if (result.identity.ageVerified) await user.getIdToken(true);
+  return result;
+}
+
 async function fetchLocalClubSnapshot(player: Pick<PlayerAccount, 'id' | 'name'>): Promise<SyncResult> {
   if (!localOrbitApiBaseUrl) return { ok: false, error: 'Local Orbit bridge is not configured.' };
   try {
@@ -129,10 +181,7 @@ function getSnapshotFreshness(snapshot: PlayerClubSnapshot) {
 }
 
 export async function createClubMembershipCheckout(input: { clubId: string; product: 'day' | 'monthly' | 'time-5'; playerName: string }) {
-  if (!orbitApiBaseUrl) throw new Error('EXPO_PUBLIC_ORBIT_API_URL is not configured.');
-  const user = auth.currentUser;
-  if (!user) throw new Error('Sign in to your Orbit Player account before purchasing a membership.');
-  const token = await user.getIdToken();
+  const { token } = await getOrbitPlayerToken();
   const response = await fetch(`${orbitApiBaseUrl}/player/membership-checkout`, {
     method: 'POST',
     headers: {
@@ -554,6 +603,15 @@ export function subscribeToAllClubSnapshots(
 export async function deleteCurrentPlayerAccount() {
   const user = auth.currentUser;
   if (!user) throw new Error('Sign in before deleting your account.');
+  if (orbitApiBaseUrl) {
+    const token = await user.getIdToken();
+    const response = await fetch(`${orbitApiBaseUrl}/player/identity`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${token}` }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Unable to remove identity-verification data.');
+  }
   await deleteDoc(doc(db, 'players', user.uid));
   await deleteUser(user);
 }

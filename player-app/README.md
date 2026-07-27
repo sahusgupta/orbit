@@ -12,6 +12,7 @@ Standalone Expo mobile app for players on iOS and Android.
 - Real-time game listeners plus a full 30-second refresh across every registered card house, with an immediate refresh when the app returns to the foreground.
 - Waitlist request flow that produces the same action payload shape the management app can ingest.
 - Club-by-club loyalty status, points, and tier progress.
+- Hosted Stripe Identity verification before player access actions, with a server-enforced 21+ result.
 
 The app syncs with the Orbit management app through Firebase Firestore. If no live club state has been published, the app shows an empty state; it never inserts demo clubs or games into production.
 
@@ -64,6 +65,8 @@ EXPO_PUBLIC_ORBIT_API_URL=https://your-orbit-api.example.com
 
 The API owns catalog defaults and platform credentials, verifies the Firebase player ID token, and creates Checkout on the selected card house's connected Stripe account. A published club must provide `stripeAccountId` (or `connectedStripeAccountId`). The API records memberships and time-wallet balances only after a signed Connect webhook confirms payment. `ORBIT_FIVE_HOUR_TIME_PRICE_CENTS` controls the fallback five-hour package price.
 
+The same API URL starts hosted Stripe Identity checks. Orbit stores only a private 21+ eligibility result and Firebase custom claims; Stripe handles the ID, selfie, date of birth, and document images. Configure the API return URL and Identity webhook events described in `apps/api/README.md` before testing access actions.
+
 ## Sync With Management Database
 
 The management app publishes player-safe card-house and game state to Firebase whenever it saves. The player app listens for live changes and also re-reads all registered card houses every 30 seconds so newly formed games, opened seats, waitlists, and table changes recover cleanly after network interruptions. Polling pauses while the app is backgrounded and refreshes immediately when it becomes active again.
@@ -101,6 +104,7 @@ Firestore layout:
 - `clubStates/{accountKey}/membershipRequests/{requestId}`: player join requests.
 - `clubStates/{accountKey}/waitlistRequests/{requestId}`: player waitlist requests.
 - `players/{uid}`: Firebase player profile, preferences, and per-club membership status.
+- `players/{uid}/private/identity`: server-only Stripe session reference and sanitized age-eligibility result.
 
 SQLite remains as a management-app local fallback/cache during the Firebase transition.
 

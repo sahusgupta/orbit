@@ -31,6 +31,13 @@ const {
 } = require('./orbitCore');
 const { getFirebasePublisherStatus, publishStateToFirebase } = require('./firebasePublisher');
 const {
+  createPlayerIdentitySession,
+  deletePlayerIdentity,
+  getIdentityServiceStatus,
+  getPlayerIdentityStatus,
+  requireVerifiedPlayerAge
+} = require('./identityService');
+const {
   createMembershipCheckout,
   getPaymentServiceStatus,
   handleRevenueCatWebhook,
@@ -184,11 +191,15 @@ app.get('/health', (_request, response) => {
     database: getDatabasePath(),
     firebase: getFirebasePublisherStatus(),
     payments: getPaymentServiceStatus(),
+    identity: getIdentityServiceStatus(),
     startedAt
   });
 });
 
-app.post('/player/membership-checkout', requireFirebasePlayer, asyncRoute(createMembershipCheckout));
+app.get('/player/identity/status', requireFirebasePlayer, asyncRoute(getPlayerIdentityStatus));
+app.post('/player/identity/session', requireFirebasePlayer, asyncRoute(createPlayerIdentitySession));
+app.delete('/player/identity', requireFirebasePlayer, asyncRoute(deletePlayerIdentity));
+app.post('/player/membership-checkout', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(createMembershipCheckout));
 
 app.get('/dashboard', requireDashboardAuth, (_request, response) => {
   response.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));

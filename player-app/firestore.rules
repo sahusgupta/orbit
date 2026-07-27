@@ -10,6 +10,13 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == playerId;
     }
 
+    function hasVerifiedPlayerAge() {
+      return isSignedIn()
+        && request.auth.token.ageVerified == true
+        && request.auth.token.ageLevel is int
+        && request.auth.token.ageLevel >= 21;
+    }
+
     function hasEmail() {
       return isSignedIn() && request.auth.token.email is string;
     }
@@ -93,7 +100,6 @@ service cloud.firestore {
         && request.resource.data.hostPlayerId is string
         && request.resource.data.hostPlayerPath == 'players/' + request.resource.data.hostPlayerId
         && request.resource.data.hostPlayerName is string
-        && request.resource.data.hostPlayerEmail is string
         && request.resource.data.name is string
         && request.resource.data.location is string
         && request.resource.data.createdAt is string
@@ -123,7 +129,8 @@ service cloud.firestore {
       allow delete: if false;
 
       match /membershipRequests/{requestId} {
-        allow create: if isPendingPlayerRequest(clubId, 'membership-request')
+        allow create: if hasVerifiedPlayerAge()
+          && isPendingPlayerRequest(clubId, 'membership-request')
           && isSelf(request.resource.data.player.id);
         allow read: if isClubAdmin(clubId) || isSelf(resource.data.player.id);
         allow update: if isClubAdmin(clubId) && marksRequestAppliedOnly();
@@ -131,7 +138,8 @@ service cloud.firestore {
       }
 
       match /waitlistRequests/{requestId} {
-        allow create: if isPendingPlayerRequest(clubId, 'waitlist-request')
+        allow create: if hasVerifiedPlayerAge()
+          && isPendingPlayerRequest(clubId, 'waitlist-request')
           && isSelf(request.resource.data.player.id)
           && request.resource.data.gameId is string
           && request.resource.data.gameId.size() > 0;
@@ -177,7 +185,7 @@ service cloud.firestore {
 
       match /tournamentRegistrations/{registrationId} {
         allow read: if isClubAdmin(clubId) || (isSignedIn() && resource.data.playerId == request.auth.uid);
-        allow create: if isSignedIn()
+        allow create: if hasVerifiedPlayerAge()
           && request.resource.data.playerId == request.auth.uid
           && request.resource.data.clubId == clubId
           && request.resource.data.status == 'registered'
@@ -204,7 +212,8 @@ service cloud.firestore {
       }
 
       match /membershipRequests/{requestId} {
-        allow create: if isPendingPlayerRequest(clubId, 'membership-request')
+        allow create: if hasVerifiedPlayerAge()
+          && isPendingPlayerRequest(clubId, 'membership-request')
           && isSelf(request.resource.data.player.id);
         allow read: if isClubAdmin(clubId) || isSelf(resource.data.player.id);
         allow update: if isClubAdmin(clubId) && marksRequestAppliedOnly();
@@ -212,7 +221,8 @@ service cloud.firestore {
       }
 
       match /waitlistRequests/{requestId} {
-        allow create: if isPendingPlayerRequest(clubId, 'waitlist-request')
+        allow create: if hasVerifiedPlayerAge()
+          && isPendingPlayerRequest(clubId, 'waitlist-request')
           && isSelf(request.resource.data.player.id)
           && request.resource.data.gameId is string
           && request.resource.data.gameId.size() > 0;
@@ -246,7 +256,8 @@ service cloud.firestore {
 
     match /privateGames/{gameId} {
       allow read: if true;
-      allow create: if isPrivateGameListing(gameId)
+      allow create: if hasVerifiedPlayerAge()
+        && isPrivateGameListing(gameId)
         && isSelf(request.resource.data.hostPlayerId)
         && hasActivePlayerPremium(request.resource.data.hostPlayerId)
         && !request.resource.data.keys().hasAny(['hostPlayerEmail']);
