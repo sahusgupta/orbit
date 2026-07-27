@@ -455,19 +455,22 @@ async function markRequestApplied(accountKey: string, collectionName: 'membershi
 async function updatePlayerMembershipStatus(playerId: string | undefined, clubId: string, request: PlayerMembershipRequest) {
   if (!playerId) return;
   const requestedAt = request.requestedAt || new Date().toISOString();
-  const membershipStart = requestedAt.slice(0, 10);
-  const membershipExpiration = addDays(membershipStart, request.membershipDurationDays ?? 365);
   await setDoc(
     doc(db, 'clubs', clubId, 'memberships', playerId),
     {
       clubId,
       playerId,
-      status: 'Active',
+      playerName: request.player.name,
+      status: request.paymentMethod === 'in-person' ? 'Requested' : 'Active',
       requestedAt,
-      joinedAt: membershipStart,
-      expiresAt: membershipExpiration,
+      joinedAt: request.paymentMethod === 'in-person' ? '' : requestedAt.slice(0, 10),
+      expiresAt: request.paymentMethod === 'in-person'
+        ? null
+        : addDays(requestedAt.slice(0, 10), request.membershipDurationDays ?? 365),
       planId: request.planId,
       planName: request.planName,
+      plan: request.plan,
+      paymentMethod: request.paymentMethod,
       updatedAt: serverTimestamp()
     },
     { merge: true }

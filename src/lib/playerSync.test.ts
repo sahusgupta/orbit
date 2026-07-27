@@ -410,4 +410,34 @@ describe('player sync snapshots', () => {
       paymentMethod: 'in-person'
     });
   });
+
+  it('publishes approval separately from activation for front-desk handoff', () => {
+    const approvedState = {
+      ...state,
+      profiles: [
+        ...state.profiles,
+        {
+          id: 'player-approved',
+          name: 'Approved Player',
+          membershipStartDate: '',
+          membershipExpirationDate: '',
+          membershipPlan: 'monthly' as const,
+          membershipPaymentMethod: 'in-person' as const,
+          membershipStatus: 'Approved' as const,
+          membershipRequestedAt: '2026-05-20T12:00:00.000Z',
+          totalTimePlayedHours: 0,
+          commonlyPlaysWithProfileIds: [],
+          usualCompanions: [],
+          preferredGameIds: ['nlh-1-2'],
+          preferredStakes: '1/2'
+        }
+      ]
+    };
+
+    expect(buildPlayerClubSnapshot(approvedState).memberships.find((membership) => membership.playerId === 'player-approved')).toMatchObject({
+      status: 'Approved',
+      paymentMethod: 'in-person',
+      expiresAt: undefined
+    });
+  });
 });

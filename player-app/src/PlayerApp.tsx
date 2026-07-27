@@ -439,7 +439,7 @@ export default function PlayerApp() {
         setPlayer(nextPlayer);
         setDraftPlayer(nextPlayer);
         setPremiumStatus(profile.premium?.status === 'active' || profile.subscriptionStatus === 'active' ? 'active' : 'inactive');
-        const clubIds = new Set(Object.entries(profile.clubMemberships ?? {}).filter(([, membership]) => membership.status === 'Active' || membership.status === 'Requested').map(([clubId]) => clubId));
+        const clubIds = new Set(Object.entries(profile.clubMemberships ?? {}).filter(([, membership]) => membership.status === 'Active' || membership.status === 'Approved' || membership.status === 'Requested').map(([clubId]) => clubId));
         const firstClub = clubs.find((club) => clubIds.has(club.club.id));
         if (firstClub) {
           setSelectedClubId(firstClub.club.id);
@@ -739,7 +739,10 @@ export default function PlayerApp() {
   };
 
   const openClubPayment = (club: PlayerClubSnapshot, product: ClubAccessProduct) => {
-    if (!requireVerifiedAge('clubSignup', 'purchasing card-house access')) return;
+    if (!player.name.trim() || !isValidEmail(player.email) || !isValidPhoneNumber(player.phone ?? '')) {
+      setClubMembershipMessage('Enter your name, a valid email, and a 10-digit phone number before applying.');
+      return;
+    }
     setSelectedClubId(club.club.id);
     setPendingClubProduct(product);
     setClubMembershipMessage('');
@@ -772,7 +775,6 @@ export default function PlayerApp() {
   };
 
   const requestInPersonMembership = async (club: PlayerClubSnapshot, product: ClubAccessProduct) => {
-    if (!requireVerifiedAge('clubPayment', 'requesting card-house access')) return;
     const prices = getClubMembershipPrices(club);
     const planLabel = getClubProductLabel(product, prices);
     setClubMembershipMessage(`Sending a ${planLabel} pay-in-person request to ${club.club.name}...`);
@@ -880,7 +882,7 @@ export default function PlayerApp() {
         replaceSyncedClub(result.snapshot);
         setScreen('clubs');
         setClubMembershipMessage(paymentMethod === 'in-person'
-          ? `Request sent. Pay at ${result.snapshot.club.name} to start the pass timer.`
+          ? `Application sent. ${result.snapshot.club.name} will review it, then you can show ID and pay at the door.`
           : `${plan === 'day' ? 'Day pass' : 'Monthly membership'} activated.`);
         setSyncStatus(`Membership updated with ${result.snapshot.club.name}`);
         return;
@@ -890,12 +892,24 @@ export default function PlayerApp() {
     updateClubSnapshot(club, (snapshot) => applyMembershipRequest(snapshot, request));
     setScreen('clubs');
     setClubMembershipMessage(paymentMethod === 'in-person'
-      ? `Request sent. Pay at ${club.club.name} to start the pass timer.`
+      ? `Application sent. ${club.club.name} will review it, then you can show ID and pay at the door.`
       : `${plan === 'day' ? 'Day pass' : 'Monthly membership'} activated.`);
   };
 
   const joinWaitlist = (club: PlayerClubSnapshot, game: PlayerSyncGame) => {
-    if (!requireVerifiedAge(screen, 'requesting a seat')) return;
+    const membership = club.memberships.find((record) => isPlayerMembership(record, player));
+    if (!membership || !isMembershipCurrentlyActive(membership, clockNow)) {
+      setSelectedClubId(club.club.id);
+      setScreen('clubs');
+      setClubMembershipMessage(
+        membership?.status === 'Approved'
+          ? 'Your membership is approved. Bring your ID and pay at the front desk to activate it before requesting a seat.'
+          : membership?.status === 'Requested'
+            ? 'Your membership application is still waiting for card-room approval.'
+            : `Join ${club.club.name} before requesting a seat.`
+      );
+      return;
+    }
     setSelectedClubId(club.club.id);
     setSeatRequestMessage('');
     setSeatRequestDraft({
@@ -910,10 +924,6 @@ export default function PlayerApp() {
 
   const submitSeatRequest = async () => {
     if (!seatRequestDraft) return;
-    if (!requireVerifiedAge(screen, 'requesting a seat')) {
-      setSeatRequestDraft(null);
-      return;
-    }
     const { club, game, attendance, expectedArrivalTime, availabilityStartTime, availabilityEndTime } = seatRequestDraft;
     if (attendance === 'confirmed' && !expectedArrivalTime.trim()) {
       setSeatRequestMessage('Enter what time you expect to arrive.');
@@ -1419,13 +1429,17 @@ export default function PlayerApp() {
 
                 {selectedMembership ? (
                   <>
-                    <MembershipWalletCard
-                      club={selectedClub}
-                      membership={selectedMembership}
-                      nowMs={clockNow}
-                      player={player}
-                    />
-                    <View style={styles.gameAlertCard}>
+                    {selectedMembership.status === 'Requested' ? (
+                      <MembershipApplicationStatusCard club={selectedClub} membership={selectedMembership} />
+                    ) : (
+                      <MembershipWalletCard
+                        club={selectedClub}
+                        membership={selectedMembership}
+                        nowMs={clockNow}
+                        player={player}
+                      />
+                    )}
+                    {isMembershipCurrentlyActive(selectedMembership, clockNow) ? <View style={styles.gameAlertCard}>
                       <View style={styles.gameAlertIcon}>
                         <Ionicons name="notifications" size={19} color={colors.primary} />
                       </View>
@@ -1437,7 +1451,7 @@ export default function PlayerApp() {
                         <View style={styles.alertOnDot} />
                         <Text style={styles.alertOnText}>LIVE</Text>
                       </View>
-                    </View>
+                    </View> : null}
                     {clubMembershipMessage ? <Text style={styles.privateGameStatus}>{clubMembershipMessage}</Text> : null}
                     <ClubHubSections
                       club={selectedClub}
@@ -1463,7 +1477,9 @@ export default function PlayerApp() {
                 club={selectedClub}
                 prices={getClubMembershipPrices(selectedClub)}
                 message={clubMembershipMessage}
+                player={player}
                 onBack={() => setScreen('clubs')}
+                onPlayerChange={(patch) => setPlayer((current) => ({ ...current, ...patch }))}
                 onSelectProduct={(product) => openClubPayment(selectedClub, product)}
               />
             ) : null}
@@ -3801,13 +3817,17 @@ function ClubMembershipPlanScreen({
   club,
   prices,
   message,
+  player,
   onBack,
+  onPlayerChange,
   onSelectProduct
 }: {
   club: PlayerClubSnapshot;
   prices: { day: string; monthly: string; timePack: string };
   message: string;
+  player: PlayerAccount;
   onBack: () => void;
+  onPlayerChange: (patch: Partial<PlayerAccount>) => void;
   onSelectProduct: (product: ClubAccessProduct) => void;
 }) {
   return (
@@ -3823,10 +3843,24 @@ function ClubMembershipPlanScreen({
         <View style={styles.membershipHeroCopy}>
           <Text style={styles.agentKicker}>Sold by {club.club.name}</Text>
           <Text style={styles.membershipTitle}>{club.club.name}</Text>
-          <Text style={styles.muted}>Choose access or prepaid time from the card house. Orbit provides the storefront and sends the purchase directly to the venue.</Text>
+          <Text style={styles.muted}>{club.club.address || 'Location details available from the card house'}</Text>
         </View>
       </View>
 
+      <View style={styles.membershipApplicationCard}>
+        <View>
+          <Text style={styles.cardTitle}>Apply to join</Text>
+          <Text style={styles.muted}>The card room reviews your information first. After approval, bring your ID and pay the membership fee at the door.</Text>
+        </View>
+        <Field label="Name" placeholder="Full name" value={player.name} onChangeText={(name) => onPlayerChange({ name })} />
+        <Field label="Email" placeholder="Email address" value={player.email} keyboardType="email-address" onChangeText={(email) => onPlayerChange({ email })} />
+        <Field label="Phone" placeholder="10-digit phone number" value={player.phone ?? ''} keyboardType="phone-pad" onChangeText={(phone) => onPlayerChange({ phone })} />
+      </View>
+
+      <View>
+        <Text style={styles.cardTitle}>Choose a membership</Text>
+        <Text style={styles.muted}>No payment is collected in Orbit for this demo.</Text>
+      </View>
       <View style={styles.planGrid}>
         {getClubFeeProfile(club).type === 'time' ? (
           <MembershipPlanCard
@@ -3991,9 +4025,9 @@ function ClubAccessCheckoutScreen({
       </Pressable>
       <View style={styles.paymentPlaceholder}>
         <View style={styles.paymentPlaceholderIcon}>
-          <Ionicons name="card-outline" size={28} color={colors.primary} />
+          <Ionicons name={connectedCheckoutEnabled ? 'card-outline' : 'person-add-outline'} size={28} color={colors.primary} />
         </View>
-        <Text style={styles.membershipTitle}>Payment</Text>
+        <Text style={styles.membershipTitle}>{connectedCheckoutEnabled ? 'Payment' : 'Review application'}</Text>
         <Text style={styles.muted}>
           {club.club.name} / {getClubProductName(product)} / {price}
         </Text>
@@ -4013,8 +4047,8 @@ function ClubAccessCheckoutScreen({
       <Pressable style={styles.payInPersonButton} onPress={onPayInPerson}>
         <Ionicons name="storefront-outline" size={18} color={colors.ink} />
         <View style={styles.payInPersonCopy}>
-          <Text style={styles.cardTitle}>{connectedCheckoutEnabled ? 'Pay in person' : 'Request at the card house'}</Text>
-          <Text style={styles.muted}>Send the request now. Staff will confirm payment and activate your access.</Text>
+          <Text style={styles.cardTitle}>{connectedCheckoutEnabled ? 'Pay in person' : 'Send membership application'}</Text>
+          <Text style={styles.muted}>{connectedCheckoutEnabled ? 'Staff will confirm payment and activate your access.' : 'The card room will review it. After approval, bring your ID and pay at the door.'}</Text>
         </View>
       </Pressable>
       {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
@@ -4062,6 +4096,27 @@ function formatFamiliar(value?: number) {
   return count > 0 ? ` - ${count} familiar player${count === 1 ? '' : 's'}` : '';
 }
 
+function MembershipApplicationStatusCard({
+  club,
+  membership
+}: {
+  club: PlayerClubSnapshot;
+  membership: PlayerClubSnapshot['memberships'][number];
+}) {
+  return (
+    <View style={styles.membershipApplicationStatus}>
+      <View style={styles.membershipApplicationStatusIcon}>
+        <Ionicons name="time-outline" size={21} color={colors.primary} />
+      </View>
+      <View style={styles.membershipApplicationStatusCopy}>
+        <Text style={styles.cardTitle}>Application received</Text>
+        <Text style={styles.muted}>{club.club.name} is reviewing your {membership.plan === 'day' ? 'day pass' : 'membership'} request. This screen updates as soon as staff approves it.</Text>
+      </View>
+      <View style={styles.statusPill}><Text style={styles.statusText}>Requested</Text></View>
+    </View>
+  );
+}
+
 function MembershipWalletCard({
   club,
   membership,
@@ -4074,6 +4129,7 @@ function MembershipWalletCard({
   player: PlayerAccount;
 }) {
   const active = isMembershipCurrentlyActive(membership, nowMs);
+  const approved = membership.status === 'Approved';
   const credential = `${club.club.id}-${membership.playerId || player.id}`.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 18);
   return (
     <LinearGradient colors={['#111827', '#172554', '#4338ca']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.membershipWalletCard}>
@@ -4107,8 +4163,10 @@ function MembershipWalletCard({
       <MembershipBarcode value={credential} />
 
       <View style={styles.checkedInBand}>
-        <Ionicons name="scan-outline" size={17} color="#bfdbfe" />
-        <Text style={styles.checkedInText}>Present this membership barcode at the front desk.</Text>
+        <Ionicons name={approved ? 'id-card-outline' : 'scan-outline'} size={17} color="#bfdbfe" />
+        <Text style={styles.checkedInText}>{approved
+          ? 'Approved. Bring your ID and pay the card-room fee at the front desk to activate.'
+          : 'Present this membership barcode at the front desk.'}</Text>
       </View>
     </LinearGradient>
   );
@@ -4266,13 +4324,14 @@ function ClubMembershipPanel({
   onBuyPass: () => void;
 }) {
   const active = isMembershipCurrentlyActive(membership, nowMs);
-  const awaitingPayment = membership.status === 'Requested' && membership.paymentMethod === 'in-person';
+  const requested = membership.status === 'Requested';
+  const approved = membership.status === 'Approved';
   return (
     <View style={styles.loyaltyCard}>
       <View style={styles.loyaltyHeader}>
         <View>
           <Text style={styles.cardTitle}>Membership</Text>
-          <Text style={styles.muted}>{membership.plan === 'day' ? 'Day pass' : 'Monthly membership'} · {awaitingPayment ? 'Payment pending' : active ? 'Active' : 'Expired'}</Text>
+          <Text style={styles.muted}>{membership.plan === 'day' ? 'Day pass' : 'Monthly membership'} · {requested ? 'Under review' : approved ? 'Approved' : active ? 'Active' : 'Expired'}</Text>
         </View>
         <View style={styles.loyaltyBadge}>
           <Text style={styles.loyaltyBadgeText}>{membership.loyalty.tier}</Text>
@@ -4280,15 +4339,19 @@ function ClubMembershipPanel({
       </View>
       <Text style={styles.points}>{membership.loyalty.points.toLocaleString()} pts</Text>
       <View style={[styles.passTimer, active ? styles.passTimerActive : styles.passTimerInactive]}>
-        <Ionicons name={awaitingPayment ? 'storefront-outline' : 'timer-outline'} size={18} color={active ? colors.teal : colors.ink} />
+        <Ionicons name={requested ? 'time-outline' : approved ? 'id-card-outline' : 'timer-outline'} size={18} color={active ? colors.teal : colors.ink} />
         <View style={styles.passTimerCopy}>
-          <Text style={styles.passTimerTitle}>{awaitingPayment
-            ? 'Pay at the club to activate'
+          <Text style={styles.passTimerTitle}>{requested
+            ? 'Application under review'
+            : approved
+              ? 'Visit the front desk to activate'
             : active
               ? formatPassCountdown(membership.expiresAt, nowMs)
               : 'Pass expired — buy a new pass'}</Text>
-          <Text style={styles.muted}>{awaitingPayment
-            ? 'The pass clock starts only after club staff confirms payment.'
+          <Text style={styles.muted}>{requested
+            ? 'The card room will approve or follow up on your application.'
+            : approved
+              ? 'Bring your ID and pay the membership fee. Staff will activate you at the door.'
             : membership.expiresAt
               ? `Ends ${new Date(membership.expiresAt).toLocaleString()}`
               : 'No active expiration time is set.'}</Text>
@@ -5969,6 +6032,14 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 5
   },
+  membershipApplicationCard: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 11,
+    padding: 14
+  },
   membershipTitle: {
     color: colors.ink,
     fontSize: 22,
@@ -6952,6 +7023,9 @@ const styles = StyleSheet.create({
   walletCountBadge: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 13, minWidth: 56, padding: 9 },
   walletCountValue: { color: colors.primary, fontSize: 20, fontWeight: '900' },
   walletCountLabel: { color: colors.primary, fontSize: 8, fontWeight: '900', letterSpacing: 0.8 },
+  membershipApplicationStatus: { alignItems: 'center', backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 15, borderWidth: 1, flexDirection: 'row', gap: 11, padding: 14 },
+  membershipApplicationStatusIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 11, height: 42, justifyContent: 'center', width: 42 },
+  membershipApplicationStatusCopy: { flex: 1, gap: 3 },
   membershipWalletCard: { borderRadius: 22, gap: 15, overflow: 'hidden', padding: 17, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 16 }, shadowOpacity: 0.18, shadowRadius: 28 },
   membershipWalletTop: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   membershipWalletBrand: { alignItems: 'center', flexDirection: 'row', gap: 10 },

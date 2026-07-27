@@ -171,11 +171,13 @@ function buildPlayerClubSnapshot(state, player = {}) {
       clubId,
       playerId: profile.id,
       playerName: profile.name,
-      status: profile.membershipStatus === 'Requested'
-        ? 'Requested'
+      status: profile.membershipStatus === 'Requested' || profile.membershipStatus === 'Approved'
+        ? profile.membershipStatus
         : isFutureDate(profile.membershipExpiresAt || profile.membershipExpirationDate) ? 'Active' : 'Expired',
-      joinedAt: profile.membershipStartDate || new Date().toISOString().slice(0, 10),
-      expiresAt: profile.membershipExpiresAt || profile.membershipExpirationDate,
+      joinedAt: profile.membershipStartDate || profile.membershipRequestedAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+      expiresAt: profile.membershipStatus === 'Requested' || profile.membershipStatus === 'Approved'
+        ? undefined
+        : profile.membershipExpiresAt || profile.membershipExpirationDate,
       plan: profile.membershipPlan,
       paymentMethod: profile.membershipPaymentMethod,
       requestedAt: profile.membershipRequestedAt,

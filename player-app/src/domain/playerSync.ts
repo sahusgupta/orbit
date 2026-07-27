@@ -86,7 +86,7 @@ export type PlayerMembership = {
   clubId: string;
   playerId: string;
   playerName: string;
-  status: 'Requested' | 'Active' | 'Expired';
+  status: 'Requested' | 'Approved' | 'Active' | 'Expired';
   joinedAt: string;
   expiresAt?: string;
   plan?: 'day' | 'monthly';
@@ -100,7 +100,7 @@ export type PlayerMembership = {
 
 export type PlayerClubMembershipRecord = {
   clubId: string;
-  status: 'Requested' | 'Active' | 'Expired' | 'Denied';
+  status: 'Requested' | 'Approved' | 'Active' | 'Expired' | 'Denied';
   requestedAt?: string;
   joinedAt?: string;
   expiresAt?: string;
@@ -139,7 +139,7 @@ export type PlayerInAppNotification = {
   gameId: string;
   title: string;
   body: string;
-  reason: 'game-forming' | 'seat-opened';
+  reason: 'game-forming' | 'seat-opened' | 'membership-approved' | 'membership-activated';
   createdAt: string;
   expiresAt?: string;
   targetPlayerIds?: string[];

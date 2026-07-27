@@ -80,7 +80,7 @@ export type PlayerMembership = {
   clubId: string;
   playerId: string;
   playerName: string;
-  status: 'Requested' | 'Active' | 'Expired';
+  status: 'Requested' | 'Approved' | 'Active' | 'Expired';
   joinedAt: string;
   expiresAt?: string;
   plan?: 'day' | 'monthly';
@@ -94,7 +94,7 @@ export type PlayerMembership = {
 
 export type PlayerClubMembershipRecord = {
   clubId: string;
-  status: 'Requested' | 'Active' | 'Expired' | 'Denied';
+  status: 'Requested' | 'Approved' | 'Active' | 'Expired' | 'Denied';
   requestedAt?: string;
   joinedAt?: string;
   expiresAt?: string;
@@ -168,7 +168,7 @@ export type PlayerInAppNotification = {
   gameId: string;
   title: string;
   body: string;
-  reason: 'game-forming' | 'seat-opened';
+  reason: 'game-forming' | 'seat-opened' | 'membership-approved' | 'membership-activated';
   createdAt: string;
   expiresAt?: string;
   targetPlayerIds?: string[];
@@ -221,7 +221,7 @@ type ManagementProfile = {
   membershipExpiresAt?: string;
   membershipPlan?: 'day' | 'monthly';
   membershipPaymentMethod?: 'app' | 'in-person' | 'core';
-  membershipStatus?: 'Requested' | 'Active' | 'Expired';
+  membershipStatus?: 'Requested' | 'Approved' | 'Active' | 'Expired';
   membershipRequestedAt?: string;
   membershipPriceLabel?: string;
   totalTimePlayedHours?: number;
@@ -370,13 +370,15 @@ export function buildPlayerClubSnapshot(
       clubId,
       playerId: profile.id,
       playerName: profile.name,
-      status: profile.membershipStatus === 'Requested'
-        ? 'Requested'
+      status: profile.membershipStatus === 'Requested' || profile.membershipStatus === 'Approved'
+        ? profile.membershipStatus
         : isFutureDate(profile.membershipExpiresAt ?? profile.membershipExpirationDate)
           ? 'Active'
           : 'Expired',
-      joinedAt: profile.membershipStartDate ?? profile.membershipRequestedAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-      expiresAt: profile.membershipExpiresAt ?? profile.membershipExpirationDate,
+      joinedAt: profile.membershipStartDate || profile.membershipRequestedAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+      expiresAt: profile.membershipStatus === 'Requested' || profile.membershipStatus === 'Approved'
+        ? undefined
+        : profile.membershipExpiresAt || profile.membershipExpirationDate,
       plan: profile.membershipPlan,
       paymentMethod: profile.membershipPaymentMethod,
       requestedAt: profile.membershipRequestedAt,
@@ -613,6 +615,11 @@ export function applyPlayerProfileDocumentToClubState(
               name: player.name || profile.name,
               membershipStartDate: profile.membershipStartDate || membershipStartDate,
               membershipExpirationDate: membership.status === 'Active' ? membershipExpirationDate : profile.membershipExpirationDate || membershipExpirationDate,
+              membershipExpiresAt: membership.status === 'Active' ? membership.expiresAt ?? profile.membershipExpiresAt : profile.membershipExpiresAt,
+              membershipPlan: membership.plan ?? profile.membershipPlan,
+              membershipPaymentMethod: membership.paymentMethod ?? profile.membershipPaymentMethod,
+              membershipStatus: membership.status === 'Active' ? 'Active' : profile.membershipStatus ?? membership.status,
+              membershipRequestedAt: membership.requestedAt ?? profile.membershipRequestedAt,
               preferredGameId: preferredGameIds[0] ?? profile.preferredGameId,
               preferredGameIds: mergeUnique([...(profile.preferredGameIds ?? []), ...preferredGameIds]),
               preferredStakes: membership.preferredStakes ?? player.preferredStakes ?? profile.preferredStakes,
@@ -634,6 +641,11 @@ export function applyPlayerProfileDocumentToClubState(
         birthday: '',
         membershipStartDate,
         membershipExpirationDate,
+        membershipExpiresAt: membership.status === 'Active' ? membership.expiresAt : undefined,
+        membershipPlan: membership.plan,
+        membershipPaymentMethod: membership.paymentMethod,
+        membershipStatus: membership.status,
+        membershipRequestedAt: membership.requestedAt,
         totalTimePlayedHours: 0,
         lastSessionTimePlayedHours: 0,
         commonlyPlaysWithProfileIds: [],

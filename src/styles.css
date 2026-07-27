@@ -6952,6 +6952,41 @@ body.low-light .tournament-prize-total { background: linear-gradient(120deg, rgb
 .orbit-shell { --sidebar-width: 244px; background: var(--canvas); min-height: 100vh; padding-left: var(--sidebar-width); }
 .orbit-shell.sidebar-collapsed { --sidebar-width: 72px; }
 .orbit-shell-content { min-height: 100vh; }
+.staff-request-notice {
+  align-items: center;
+  background: var(--panel-solid);
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--line));
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(17, 24, 39, 0.08);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin: 18px auto 0;
+  padding: 12px 14px;
+  width: min(calc(100% - 64px), 1536px);
+}
+.staff-request-notice-copy,
+.staff-request-notice-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+.staff-request-notice-copy > div {
+  display: grid;
+  gap: 2px;
+}
+.staff-request-notice-copy strong { font-size: 0.88rem; }
+.staff-request-notice-copy span:not(.staff-request-notice-icon) { color: var(--muted); font-size: 0.78rem; }
+.staff-request-notice-icon {
+  background: var(--primary-soft);
+  border-radius: 9px;
+  color: var(--primary);
+  display: grid;
+  height: 34px;
+  place-items: center;
+  width: 34px;
+}
+.staff-request-notice-actions .primary-button { min-height: 34px; padding: 0 14px; }
 .orbit-shell .app-shell { margin: 0 auto; padding: 32px; width: min(100%, 1600px); }
 .orbit-shell .compact-shell { width: min(100%, 1180px); }
 .orbit-sidebar { background: color-mix(in srgb, var(--panel-solid) 98%, var(--canvas)); border-right: 1px solid var(--line); display: flex; flex-direction: column; inset: 0 auto 0 0; padding: 16px 12px; position: fixed; width: var(--sidebar-width); z-index: 50; }
@@ -8065,4 +8100,31 @@ body.low-light .today-membership.active {
 
 .pending-membership-list .duplicate-card {
   align-items: center;
+}
+
+.pending-membership-list .duplicate-card > span {
+  display: grid;
+  gap: 3px;
+}
+
+.pending-membership-list .duplicate-card small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.approved-membership-panel {
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--line));
+}
+
+@media (max-width: 760px) {
+  .staff-request-notice {
+    align-items: stretch;
+    flex-direction: column;
+    margin-top: 12px;
+    width: calc(100% - 28px);
+  }
+
+  .staff-request-notice-actions {
+    justify-content: flex-end;
+  }
 }

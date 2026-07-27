@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
+  BadgeCheck,
+  Bell,
   ChevronDown,
   ChevronUp,
   Clock,
@@ -154,7 +156,7 @@ type PlayerProfile = {
   membershipExpiresAt?: string;
   membershipPlan?: 'day' | 'monthly';
   membershipPaymentMethod?: 'app' | 'in-person' | 'core';
-  membershipStatus?: 'Requested' | 'Active' | 'Expired';
+  membershipStatus?: 'Requested' | 'Approved' | 'Active' | 'Expired';
   membershipRequestedAt?: string;
   membershipPriceLabel?: string;
   totalTimePlayedHours: number;
@@ -172,6 +174,13 @@ type PlayerProfile = {
   usualCompanions: string[];
   preferredTags: TableTag[];
   notes: string;
+};
+
+type StaffRequestNotice = {
+  id: string;
+  kind: 'membership' | 'seat';
+  title: string;
+  body: string;
 };
 
 type GameSession = {
@@ -516,7 +525,7 @@ type PlayerInAppNotification = {
   gameId: string;
   title: string;
   body: string;
-  reason: 'game-forming' | 'seat-opened';
+  reason: 'game-forming' | 'seat-opened' | 'membership-approved' | 'membership-activated';
   createdAt: string;
   expiresAt?: string;
   targetPlayerIds?: string[];
@@ -2391,6 +2400,7 @@ function App() {
   const [summaryNotes, setSummaryNotes] = useState('');
   const [profileSearch, setProfileSearch] = useState('');
   const [profileFormMessage, setProfileFormMessage] = useState('');
+  const [staffRequestNotice, setStaffRequestNotice] = useState<StaffRequestNotice | null>(null);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [profileEditDraft, setProfileEditDraft] = useState<PlayerProfile | null>(null);
   const [groupMeText, setGroupMeText] = useState('');
@@ -2497,6 +2507,39 @@ function App() {
     [selectedTournamentId, state.tournaments]
   );
 
+  const announceIncomingPlayerRequest = (previousState: AppState, nextState: AppState) => {
+    const membershipRequest = nextState.profiles
+      .filter((profile) => profile.membershipStatus === 'Requested')
+      .filter((profile) => !previousState.profiles.some((candidate) =>
+        candidate.id === profile.id &&
+        candidate.membershipStatus === 'Requested' &&
+        candidate.membershipRequestedAt === profile.membershipRequestedAt
+      ))
+      .sort((left, right) => Date.parse(right.membershipRequestedAt || '') - Date.parse(left.membershipRequestedAt || ''))[0];
+    if (membershipRequest) {
+      setStaffRequestNotice({
+        id: `membership-${membershipRequest.id}-${membershipRequest.membershipRequestedAt || Date.now()}`,
+        kind: 'membership',
+        title: 'New membership request',
+        body: `${membershipRequest.name} applied from the player app.`
+      });
+      return;
+    }
+
+    const seatRequest = nextState.interests
+      .filter((interest) => !previousState.interests.some((candidate) => candidate.id === interest.id))
+      .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))[0];
+    if (seatRequest) {
+      const gameName = nextState.games.find((game) => game.id === seatRequest.gameId)?.name ?? 'a game';
+      setStaffRequestNotice({
+        id: `seat-${seatRequest.id}`,
+        kind: 'seat',
+        title: 'New seat request',
+        body: `${seatRequest.playerName} requested a seat in ${gameName}.`
+      });
+    }
+  };
+
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
@@ -2582,11 +2625,15 @@ function App() {
     );
   }, [state.profiles, profileSearch]);
   const activeMemberProfiles = useMemo(
-    () => filteredProfiles.filter((profile) => profile.membershipStatus !== 'Requested' && isFutureDate(profile.membershipExpiresAt || profile.membershipExpirationDate)),
+    () => filteredProfiles.filter((profile) => profile.membershipStatus === 'Active' && isFutureDate(profile.membershipExpiresAt || profile.membershipExpirationDate)),
     [filteredProfiles]
   );
   const pendingMembershipProfiles = useMemo(
     () => filteredProfiles.filter((profile) => profile.membershipStatus === 'Requested'),
+    [filteredProfiles]
+  );
+  const approvedMembershipProfiles = useMemo(
+    () => filteredProfiles.filter((profile) => profile.membershipStatus === 'Approved'),
     [filteredProfiles]
   );
   const todayPlayerActivity = useMemo<TodayPlayerRow[]>(() => {
@@ -2824,6 +2871,7 @@ function App() {
         const record = await response.json() as { state?: AppState };
         if (cancelled || !record.state) return;
         const latestState = stateRef.current;
+        announceIncomingPlayerRequest(latestState, record.state);
         const sameProfiles = JSON.stringify(record.state.profiles) === JSON.stringify(latestState.profiles);
         const sameInterests = JSON.stringify(record.state.interests) === JSON.stringify(latestState.interests);
         if (sameProfiles && sameInterests) return;
@@ -2866,6 +2914,7 @@ function App() {
         const nextState = await syncPlayerUpdatesToClubState<AppState>(stateRef.current);
         if (cancelled) return;
         const latestState = stateRef.current;
+        announceIncomingPlayerRequest(latestState, nextState);
         const sameProfiles = JSON.stringify(nextState.profiles) === JSON.stringify(latestState.profiles);
         const sameInterests = JSON.stringify(nextState.interests) === JSON.stringify(latestState.interests);
         const sameTournaments = JSON.stringify(nextState.tournaments) === JSON.stringify(latestState.tournaments);
@@ -4564,9 +4613,26 @@ function App() {
   };
 
   const activateInPersonMembership = (profile: PlayerProfile) => {
+    if (profile.membershipStatus !== 'Approved') {
+      setProfileFormMessage(`Approve ${profile.name}'s application before activating the membership.`);
+      return;
+    }
     const membership = createMembershipWindow(profile.membershipPlan || 'monthly');
     const { startedAt, expiresAt } = membership;
     const amount = parseMembershipPrice(profile.membershipPriceLabel);
+    const activatedAt = startedAt.toISOString();
+    const membershipNotification: PlayerInAppNotification = {
+      id: uid(),
+      clubId: getAccountKeyFromState(state),
+      gameId: '',
+      title: 'Membership active',
+      body: `Your membership at ${getClubDisplayName(state)} is active. You can now request seats from the player app.`,
+      reason: 'membership-activated',
+      createdAt: activatedAt,
+      expiresAt: new Date(startedAt.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      targetPlayerIds: [profile.id],
+      targetPlayerNames: [profile.name]
+    };
     persist({
       ...state,
       profiles: state.profiles.map((candidate) => candidate.id === profile.id ? {
@@ -4590,9 +4656,45 @@ function App() {
           playerName: profile.name,
           membershipPlan: profile.membershipPlan || 'monthly'
         }
-      ] : state.revenueTransactions
+      ] : state.revenueTransactions,
+      inAppNotifications: [
+        membershipNotification,
+        ...state.inAppNotifications.filter((notification) => !notification.expiresAt || notification.expiresAt > activatedAt).slice(0, 200)
+      ]
     }, true, { feature: 'Profiles', action: 'Activated in-person membership', metadata: { profileId: profile.id, plan: profile.membershipPlan || 'monthly' } });
     setProfileFormMessage(`${profile.name}'s ${profile.membershipPlan === 'day' ? 'day pass' : 'monthly membership'} is active.`);
+  };
+
+  const approveMembershipRequest = (profile: PlayerProfile) => {
+    if (profile.membershipStatus !== 'Requested') return;
+    const approvedAt = nowIso();
+    const membershipNotification: PlayerInAppNotification = {
+      id: uid(),
+      clubId: getAccountKeyFromState(state),
+      gameId: '',
+      title: 'Membership approved',
+      body: `${getClubDisplayName(state)} approved your application. Bring your ID and pay the club's fee at the front desk to activate it.`,
+      reason: 'membership-approved',
+      createdAt: approvedAt,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      targetPlayerIds: [profile.id],
+      targetPlayerNames: [profile.name]
+    };
+    persist({
+      ...state,
+      profiles: state.profiles.map((candidate) => candidate.id === profile.id ? {
+        ...candidate,
+        membershipStatus: 'Approved',
+        membershipStartDate: '',
+        membershipExpirationDate: '',
+        membershipExpiresAt: undefined
+      } : candidate),
+      inAppNotifications: [
+        membershipNotification,
+        ...state.inAppNotifications.filter((notification) => !notification.expiresAt || notification.expiresAt > approvedAt).slice(0, 200)
+      ]
+    }, true, { feature: 'Profiles', action: 'Approved membership application', metadata: { profileId: profile.id, plan: profile.membershipPlan || 'monthly' } });
+    setProfileFormMessage(`${profile.name} is approved. Verify ID and payment at the front desk to activate.`);
   };
 
   const addProfile = (event: React.FormEvent) => {
@@ -6033,6 +6135,36 @@ function App() {
       onSignOut={() => { persistSignIn(state, false); signOutOfFirebase().catch(() => undefined); setHasAuthenticated(false); }}
       commands={shellCommands}
     >
+      {staffRequestNotice ? (
+        <section className="staff-request-notice" role="status">
+          <div className="staff-request-notice-copy">
+            <span className="staff-request-notice-icon"><Bell size={18} /></span>
+            <div>
+              <strong>{staffRequestNotice.title}</strong>
+              <span>{staffRequestNotice.body}</span>
+            </div>
+          </div>
+          <div className="staff-request-notice-actions">
+            <button
+              className="primary-button"
+              onClick={() => {
+                setStaffRequestNotice(null);
+                if (staffRequestNotice.kind === 'membership') {
+                  setPlayerSection('memberships');
+                  navigatePrimary('players');
+                } else {
+                  navigatePrimary('floor');
+                }
+              }}
+            >
+              Review
+            </button>
+            <button className="icon-button" onClick={() => setStaffRequestNotice(null)} aria-label="Dismiss notification">
+              <X size={17} />
+            </button>
+          </div>
+        </section>
+      ) : null}
       {content}
     </AppShell>
   );
@@ -7020,7 +7152,7 @@ function App() {
 
         <nav className="route-tabs players-section-tabs" aria-label="Player sections">
           <button className={playerSection === 'memberships' ? 'active' : ''} onClick={() => setPlayerSection('memberships')}>
-            Membership database <span>{activeMemberProfiles.length + pendingMembershipProfiles.length}</span>
+            Memberships <span>{activeMemberProfiles.length + pendingMembershipProfiles.length + approvedMembershipProfiles.length}</span>
           </button>
           <button className={playerSection === 'today' ? 'active' : ''} onClick={() => setPlayerSection('today')}>
             Today <span>{todayPlayerActivity.length}</span>
@@ -7038,7 +7170,7 @@ function App() {
           <article>
             <span className="eyebrow">Memberships</span>
             <strong>{activeMemberProfiles.length} active</strong>
-            <small>{pendingMembershipProfiles.length} waiting for in-person payment</small>
+            <small>{pendingMembershipProfiles.length} new · {approvedMembershipProfiles.length} approved at door</small>
           </article>
           <div className="profile-command-actions">
             <button className="ghost-button" onClick={() => setProfileSearch('')}>
@@ -7049,13 +7181,36 @@ function App() {
 
         {pendingMembershipProfiles.length ? (
           <section className="panel pending-membership-panel">
-            <PanelTitle icon={<Clock />} title="Pay-in-person requests" />
-            <p className="muted-copy">Confirm payment here to start the player’s 24-hour or 30-day pass timer.</p>
+            <PanelTitle icon={<Bell />} title="New membership requests" />
+            <p className="muted-copy">Review the application. Approval tells the player to bring ID and pay the club at the front desk.</p>
             <div className="pending-membership-list">
               {pendingMembershipProfiles.map((profile) => (
                 <article className="duplicate-card" key={profile.id}>
-                  <span><strong>{profile.name}</strong> · {profile.membershipPlan === 'day' ? 'Day pass' : 'Monthly membership'}{profile.membershipPriceLabel ? ` · ${profile.membershipPriceLabel}` : ''}</span>
-                  <button className="primary-button" onClick={() => activateInPersonMembership(profile)}>Mark paid &amp; activate</button>
+                  <span>
+                    <strong>{profile.name}</strong> · {profile.membershipPlan === 'day' ? 'Day pass' : 'Monthly membership'}
+                    {profile.membershipPriceLabel ? ` · ${profile.membershipPriceLabel}` : ''}
+                    {profile.phone ? <small>{profile.phone}</small> : null}
+                  </span>
+                  <button className="primary-button" onClick={() => approveMembershipRequest(profile)}>Approve application</button>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {approvedMembershipProfiles.length ? (
+          <section className="panel pending-membership-panel approved-membership-panel">
+            <PanelTitle icon={<BadgeCheck />} title="Approved — awaiting arrival" />
+            <p className="muted-copy">At the front desk, check the player’s ID, collect the club’s fee, then activate the membership.</p>
+            <div className="pending-membership-list">
+              {approvedMembershipProfiles.map((profile) => (
+                <article className="duplicate-card" key={profile.id}>
+                  <span>
+                    <strong>{profile.name}</strong> · {profile.membershipPlan === 'day' ? 'Day pass' : 'Monthly membership'}
+                    {profile.membershipPriceLabel ? ` · ${profile.membershipPriceLabel}` : ''}
+                    {profile.phone ? <small>{profile.phone}</small> : null}
+                  </span>
+                  <button className="primary-button" onClick={() => activateInPersonMembership(profile)}>Verify ID, mark paid &amp; activate</button>
                 </article>
               ))}
             </div>
