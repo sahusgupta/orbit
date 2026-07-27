@@ -47,6 +47,8 @@
     "@radix-ui/react-tabs": "^1.1.17",
     "@radix-ui/react-tooltip": "^1.2.12",
     "@vitejs/plugin-react": "^5.0.4",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

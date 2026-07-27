@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as Dialog from '@radix-ui/react-dialog';
+import type { IScannerControls } from '@zxing/browser';
 import {
   BadgeCheck,
   Bell,
@@ -20,6 +21,7 @@ import {
   Plus,
   Play,
   Save,
+  ScanLine,
   Settings,
   Target,
   Trash2,
@@ -44,6 +46,7 @@ import {
   resolveGameId
 } from './lib/appCore';
 import { createMembershipWindow, parseMembershipPrice } from './lib/membership';
+import { validateMembershipQrCheckIn } from './lib/membershipQr';
 import { loadClubStateFromFirebase, saveClubStateToFirebase, signInOrCreateFirebaseEmailAccount, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
 import { rendererFirebaseSyncEnabled } from './lib/firebaseConfig';
 import { buildNightCloseTables, type NightCloseTable } from './lib/nightClose';
@@ -2466,7 +2469,12 @@ function App() {
   const stateRef = useRef(state);
   const [overviewTableId, setOverviewTableId] = useState('all-time-overview');
   const [waitlistPopupOpen, setWaitlistPopupOpen] = useState(false);
-  const [playerPopup, setPlayerPopup] = useState<'add' | 'ledger' | null>(null);
+  const [playerPopup, setPlayerPopup] = useState<'add' | 'ledger' | 'scan' | null>(null);
+  const [qrScanMessage, setQrScanMessage] = useState('Point the camera at an active Orbit membership QR code.');
+  const [qrManualValue, setQrManualValue] = useState('');
+  const [qrScanAttempt, setQrScanAttempt] = useState(0);
+  const qrVideoRef = useRef<HTMLVideoElement | null>(null);
+  const qrScannerControlsRef = useRef<IScannerControls | null>(null);
   const [playerSection, setPlayerSection] = useState<'memberships' | 'today'>('memberships');
   const [settingsSection, setSettingsSection] = useState<'club' | 'staff' | 'tables' | 'data' | 'display'>('club');
   const [reportMode, setReportMode] = useState<'kpis' | 'night' | 'close'>('kpis');
@@ -4960,17 +4968,17 @@ function App() {
     });
   };
 
-  const addProfileToClub = (profile: PlayerProfile) => {
-    const existingInterest = state.interests.find(
+  const addProfileToClub = (profile: PlayerProfile, sourceState = state) => {
+    const existingInterest = sourceState.interests.find(
       (interest: { profileId: string; playerName: string; status: InterestStatus; }) =>
         (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()) &&
         !inactiveInterestStatuses.includes(interest.status)
     );
-    const preferredGameId = profile.preferredGameIds[0] ?? state.games[0]?.id ?? 'nlh-1-2';
+    const preferredGameId = profile.preferredGameIds[0] ?? sourceState.games[0]?.id ?? 'nlh-1-2';
     const timestamp = nowIso();
     let nextState = {
-      ...state,
-      interests: ensureInterestEntry(state, profile, existingInterest?.gameId || preferredGameId, 'Arrived', 'Checked in at club entry', timestamp),
+      ...sourceState,
+      interests: ensureInterestEntry(sourceState, profile, existingInterest?.gameId || preferredGameId, 'Arrived', 'Checked in at club entry', timestamp),
       playerLedger: [
         {
           id: uid(),
@@ -4981,7 +4989,7 @@ function App() {
           timestamp,
           note: 'Checked in at club entry'
         },
-        ...state.playerLedger
+        ...sourceState.playerLedger
       ]
     };
 
@@ -4992,6 +5000,67 @@ function App() {
       metadata: { preferredGameId, seated: false }
     });
   };
+
+  const handleMembershipQrCheckIn = (rawValue: string) => {
+    const sourceState = stateRef.current;
+    const validation = validateMembershipQrCheckIn(rawValue, getAccountKeyFromState(sourceState), sourceState.profiles);
+    if (!validation.ok) {
+      const messages = {
+        invalid: 'That is not a valid Orbit membership QR code.',
+        'wrong-club': 'This membership belongs to a different card room.',
+        'not-found': 'No matching member was found in this card room.',
+        'approved-not-active': `${validation.profile?.name ?? 'This player'} is approved but not active. Verify ID and payment, then activate the membership first.`,
+        inactive: `${validation.profile?.name ?? 'This player'} does not have an active membership.`
+      };
+      setQrScanMessage(messages[validation.code]);
+      return;
+    }
+    const profile = validation.profile as PlayerProfile;
+
+    const alreadyInClub = getInClubInterests(sourceState).some(
+      (interest) => interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()
+    );
+    if (alreadyInClub) {
+      setQrScanMessage(`${profile.name} is already checked in.`);
+      return;
+    }
+
+    addProfileToClub(profile, sourceState);
+    setQrManualValue('');
+    setQrScanMessage(`${profile.name} checked in successfully.`);
+  };
+
+  useEffect(() => {
+    if (playerPopup !== 'scan' || !qrVideoRef.current) return undefined;
+    let disposed = false;
+    setQrScanMessage('Starting camera…');
+    import('@zxing/browser').then(({ BrowserQRCodeReader }) => {
+      if (disposed || !qrVideoRef.current) return;
+      const reader = new BrowserQRCodeReader();
+      return reader.decodeFromVideoDevice(undefined, qrVideoRef.current, (result, _error, controls) => {
+        if (!result || disposed) return;
+        controls.stop();
+        qrScannerControlsRef.current = null;
+        handleMembershipQrCheckIn(result.getText());
+      });
+    }).then((controls) => {
+      if (!controls) return;
+      if (disposed) {
+        controls.stop();
+        return;
+      }
+      qrScannerControlsRef.current = controls;
+      setQrScanMessage('Point the camera at an active Orbit membership QR code.');
+    }).catch(() => {
+      if (!disposed) setQrScanMessage('Camera unavailable. Use a USB scanner or paste the QR value below.');
+    });
+
+    return () => {
+      disposed = true;
+      qrScannerControlsRef.current?.stop();
+      qrScannerControlsRef.current = null;
+    };
+  }, [playerPopup, qrScanAttempt]);
 
   const removeProfileFromClub = (profile: PlayerProfile) => {
     persist({
@@ -7116,6 +7185,19 @@ function App() {
             <p className="page-subtitle">Active memberships and today's player activity</p>
           </div>
           <div className="topbar-actions players-header-actions">
+            <button
+              className="player-tool-icon"
+              onClick={() => {
+                setQrManualValue('');
+                setQrScanMessage('Point the camera at an active Orbit membership QR code.');
+                setQrScanAttempt((attempt) => attempt + 1);
+                setPlayerPopup('scan');
+              }}
+              title="Scan member QR"
+              aria-label="Scan member QR"
+            >
+              <ScanLine size={19} />
+            </button>
             <button className="player-tool-icon" onClick={() => setPlayerPopup('ledger')} title="Open player ledger" aria-label="Open player ledger"><Clock size={19} /></button>
             <button className="player-tool-icon primary" onClick={() => setPlayerPopup('add')} title="Add player" aria-label="Add player"><Plus size={19} /></button>
           </div>
@@ -7126,7 +7208,16 @@ function App() {
             <Dialog.Overlay className="player-popup-overlay" />
             <Dialog.Content className="player-popup-content">
               <div className="player-popup-header">
-                <div><Dialog.Title>{playerPopup === 'add' ? 'Add member' : 'Player ledger'}</Dialog.Title><Dialog.Description>{playerPopup === 'add' ? 'Record a walk-in membership paid at the club.' : 'Recent check-ins and transactions.'}</Dialog.Description></div>
+                <div>
+                  <Dialog.Title>{playerPopup === 'add' ? 'Add member' : playerPopup === 'scan' ? 'Scan member QR' : 'Player ledger'}</Dialog.Title>
+                  <Dialog.Description>
+                    {playerPopup === 'add'
+                      ? 'Record a walk-in membership paid at the club.'
+                      : playerPopup === 'scan'
+                        ? 'Scan an active membership from Orbit Player to check the member in.'
+                        : 'Recent check-ins and transactions.'}
+                  </Dialog.Description>
+                </div>
                 <Dialog.Close asChild><button className="icon-button" aria-label="Close"><X size={18} /></button></Dialog.Close>
               </div>
               {playerPopup === 'add' ? (
@@ -7141,6 +7232,49 @@ function App() {
                   <label><span>Birthday</span><input type="date" value={newProfile.birthday} onChange={(event) => setNewProfile({ ...newProfile, birthday: event.target.value })} /></label>
                   <div className="player-popup-actions"><Dialog.Close asChild><button className="ghost-button" type="button">Cancel</button></Dialog.Close><button className="primary-button" type="submit">Add active member</button></div>
                 </form>
+              ) : playerPopup === 'scan' ? (
+                <div className="membership-qr-scanner">
+                  <div className="membership-qr-camera">
+                    <video ref={qrVideoRef} autoPlay muted playsInline aria-label="Membership QR camera preview" />
+                    <span className="membership-qr-frame" aria-hidden="true" />
+                  </div>
+                  <p className="membership-qr-message" role="status">{qrScanMessage}</p>
+                  <form
+                    className="membership-qr-manual"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      qrScannerControlsRef.current?.stop();
+                      qrScannerControlsRef.current = null;
+                      handleMembershipQrCheckIn(qrManualValue);
+                    }}
+                  >
+                    <label>
+                      <span>USB scanner or QR value</span>
+                      <input
+                        value={qrManualValue}
+                        onChange={(event) => setQrManualValue(event.target.value)}
+                        placeholder="Scan or paste membership QR"
+                        autoComplete="off"
+                      />
+                    </label>
+                    <button className="primary-button" type="submit" disabled={!qrManualValue.trim()}>Check in</button>
+                  </form>
+                  <div className="membership-qr-actions">
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => {
+                        qrScannerControlsRef.current?.stop();
+                        qrScannerControlsRef.current = null;
+                        setQrScanMessage('Restarting camera…');
+                        setQrScanAttempt((attempt) => attempt + 1);
+                      }}
+                    >
+                      Restart camera
+                    </button>
+                    <Dialog.Close asChild><button className="secondary-button" type="button">Done</button></Dialog.Close>
+                  </div>
+                </div>
               ) : (
                 <div className="player-popup-ledger">
                   {state.playerLedger.length ? state.playerLedger.slice(0, 40).map((entry) => <article key={entry.id}><div><strong>{entry.playerName}</strong><span>{entry.type}{entry.note ? ` · ${entry.note}` : ''}</span></div><div><strong>{entry.amount ? `$${entry.amount.toLocaleString()}` : '—'}</strong><time>{formatClock(entry.timestamp)}</time></div></article>) : <div className="player-popup-empty"><strong>No ledger activity</strong><span>Check-ins and transactions will appear here.</span></div>}

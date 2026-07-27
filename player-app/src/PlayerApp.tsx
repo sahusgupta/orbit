@@ -7,6 +7,8 @@ import MapView, { Marker, PROVIDER_GOOGLE, Circle } from './components/MapView';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import QRCode from 'react-native-qrcode-svg';
+import { createMembershipQrValue } from './domain/membershipQr';
 import {
   formatPassCountdown,
   getPlayerGameStatusLabel,
@@ -1803,10 +1805,10 @@ function IdentityVerificationScreen({
         </Text>
         <Text style={styles.muted}>
           {verified
-            ? 'You can request seats, join card houses, check in, and purchase card-house access.'
+            ? 'Your age is verified for hosted games, tournament registration, and eligible connected purchases.'
             : underage
               ? `Orbit player access features are limited to verified players age ${status.minimumAge} or older.`
-              : 'Stripe securely checks a government-issued ID. Orbit receives only the verification result and age eligibility.'}
+              : 'Card-house membership ID is checked by staff at the door. Stripe verification is only used for hosted games, tournament registration, and eligible connected purchases.'}
         </Text>
       </View>
       {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
@@ -4130,7 +4132,9 @@ function MembershipWalletCard({
 }) {
   const active = isMembershipCurrentlyActive(membership, nowMs);
   const approved = membership.status === 'Approved';
-  const credential = `${club.club.id}-${membership.playerId || player.id}`.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 18);
+  const membershipPlayerId = membership.playerId || player.id;
+  const credential = getMembershipDisplayId(club.club.id, membershipPlayerId);
+  const qrValue = createMembershipQrValue(club.club.id, membershipPlayerId);
   return (
     <LinearGradient colors={['#111827', '#172554', '#4338ca']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.membershipWalletCard}>
       <View style={styles.membershipWalletTop}>
@@ -4160,33 +4164,40 @@ function MembershipWalletCard({
         </View>
       </View>
 
-      <MembershipBarcode value={credential} />
+      {active ? <MembershipQrCode value={qrValue} memberId={credential} /> : null}
 
       <View style={styles.checkedInBand}>
         <Ionicons name={approved ? 'id-card-outline' : 'scan-outline'} size={17} color="#bfdbfe" />
         <Text style={styles.checkedInText}>{approved
           ? 'Approved. Bring your ID and pay the card-room fee at the front desk to activate.'
-          : 'Present this membership barcode at the front desk.'}</Text>
+          : 'Have staff scan this QR code to check you in.'}</Text>
       </View>
     </LinearGradient>
   );
 }
 
-function MembershipBarcode({ value }: { value: string }) {
-  const bars = Array.from(value).flatMap((character, index) => {
-    const code = character.charCodeAt(0) + index;
-    return [1 + (code % 3), 1, 1 + ((code >> 2) % 2)];
-  });
+function MembershipQrCode({ value, memberId }: { value: string; memberId: string }) {
   return (
-    <View style={styles.barcodeShell}>
-      <View accessibilityLabel={`Membership barcode ${value}`} style={styles.barcodeBars}>
-        {bars.map((width, index) => (
-          <View key={`${index}-${width}`} style={[styles.barcodeBar, { width, height: index % 5 === 0 ? 44 : 38 }]} />
-        ))}
+    <View accessibilityLabel={`Membership check-in QR for member ${memberId}`} style={styles.membershipQrShell}>
+      <View style={styles.membershipQrCode}>
+        <QRCode value={value} size={142} color="#0f172a" backgroundColor="#ffffff" ecl="M" />
       </View>
-      <Text style={styles.barcodeValue}>{value}</Text>
+      <View style={styles.membershipQrCopy}>
+        <Text style={styles.membershipQrTitle}>SCAN TO CHECK IN</Text>
+        <Text style={styles.membershipQrMember}>Member {memberId}</Text>
+      </View>
     </View>
   );
+}
+
+function getMembershipDisplayId(clubId: string, playerId: string) {
+  const source = `${clubId}:${playerId}`;
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).toUpperCase().padStart(8, '0');
 }
 
 function ClubHubSections({
@@ -4548,11 +4559,11 @@ function getScreenTitle(screen: Screen) {
 }
 
 function getIdentityStatusLabel(status: PlayerIdentityStatus, signedIn: boolean) {
-  if (!signedIn) return 'Sign in to verify before joining or purchasing access';
+  if (!signedIn) return 'Optional for club membership; sign in for other age-gated features';
   if (status.ageVerified) return `Verified ${status.minimumAge}+`;
   if (status.status === 'processing') return 'Stripe is reviewing your verification';
   if (status.status === 'underage') return `Minimum age ${status.minimumAge} not met`;
-  return `Required before joining, checking in, or purchasing access`;
+  return 'Club ID is checked at the door; verify here for hosted games and eligible purchases';
 }
 
 function getCompatibilityPercent(item: GameOpportunity) {
@@ -7042,10 +7053,11 @@ const styles = StyleSheet.create({
   membershipIdentityLabel: { color: 'rgba(255,255,255,0.55)', fontSize: 8, fontWeight: '900', letterSpacing: 1 },
   membershipIdentityValue: { color: '#ffffff', fontSize: 13, fontWeight: '800', marginTop: 3 },
   membershipNumberBlock: { alignItems: 'flex-end' },
-  barcodeShell: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 13, gap: 3, paddingHorizontal: 13, paddingVertical: 9 },
-  barcodeBars: { alignItems: 'center', flexDirection: 'row', gap: 1, height: 46, justifyContent: 'center', overflow: 'hidden', width: '100%' },
-  barcodeBar: { backgroundColor: '#0f172a' },
-  barcodeValue: { color: '#334155', fontSize: 8, fontWeight: '800', letterSpacing: 2 },
+  membershipQrShell: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 16, flexDirection: 'row', gap: 15, padding: 12 },
+  membershipQrCode: { alignItems: 'center', backgroundColor: '#ffffff', height: 150, justifyContent: 'center', width: 150 },
+  membershipQrCopy: { flex: 1, gap: 5 },
+  membershipQrTitle: { color: '#0f172a', fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
+  membershipQrMember: { color: '#64748b', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   checkedInBand: { alignItems: 'center', backgroundColor: 'rgba(74,222,128,0.12)', borderRadius: 10, flexDirection: 'row', gap: 7, padding: 9 },
   checkedInText: { color: '#dcfce7', flex: 1, fontSize: 10, fontWeight: '800' },
   gameAlertCard: { alignItems: 'center', backgroundColor: '#f5f3ff', borderColor: '#ddd6fe', borderRadius: 15, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 13 },
