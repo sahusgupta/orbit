@@ -6144,6 +6144,7 @@ function App() {
               {pilotKeyError ? <p className="access-error">{pilotKeyError}</p> : null}
             </section>
 
+            {pendingPilotAccess ? (
             <form className="access-step account-form" onSubmit={activatePilotAccess}>
               <div className="access-step-title">
                 <Users size={20} />
@@ -6241,10 +6242,19 @@ function App() {
                 />
                 <span>Stay signed in until key expiration</span>
               </label>
-              <button className="primary-button" type="submit" disabled={!pendingPilotAccess}>
+              <button className="primary-button" type="submit">
                 Unlock Dashboard
               </button>
             </form>
+            ) : (
+              <section className="access-step">
+                <div className="access-step-title">
+                  <Users size={20} />
+                  <h2>Club Account</h2>
+                </div>
+                <p className="muted-copy">Choose a valid pilot key first. Club details and login setup will appear here after the key is verified.</p>
+              </section>
+            )}
           </div>
         </section>
       </main>

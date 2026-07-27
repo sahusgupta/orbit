@@ -18,6 +18,22 @@ Health is public:
 Invoke-RestMethod http://127.0.0.1:4629/health
 ```
 
+## Remove Stress-Test Clubs
+
+Preview the exact clubs whose root Firestore `name` contains `stress`, case-insensitively:
+
+```powershell
+npm run clubs:cleanup:stress
+```
+
+The command is dry-run-only unless both execution arguments are supplied:
+
+```powershell
+npm run clubs:cleanup:stress -- --execute --confirm DELETE_STRESS_CLUBS
+```
+
+Execution recursively removes each matched `clubs/{clubId}` document and its subcollections, then removes the matching `clubStates/{clubId}` saved state. Clubs without `stress` in their current root name are never selected, and each name is checked again immediately before deletion. Firebase Admin credentials are required through `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`.
+
 All other endpoints require `x-orbit-api-key`.
 
 ## Environment Variables

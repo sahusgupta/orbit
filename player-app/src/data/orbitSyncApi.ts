@@ -40,6 +40,7 @@ import type {
   PlayerWaitlistRequest
 } from '../domain/playerSync';
 import { getPlayerLoyalty } from '../domain/playerSync';
+import { isPlayerVisibleClubName, isPlayerVisibleGameName } from '../domain/clubVisibility';
 import {
   hasUncommittedFutureRevision,
   orbitSyncProtocolVersion,
@@ -166,12 +167,15 @@ async function submitLocalPlayerRequest(path: string, request: PlayerMembershipR
 
 function mergeSnapshotSources(...sources: PlayerClubSnapshot[][]) {
   const clubs = new Map<string, PlayerClubSnapshot>();
-  sources.flat().forEach((snapshot) => {
-    const current = clubs.get(snapshot.club.id);
-    if (!current || getSnapshotFreshness(snapshot) >= getSnapshotFreshness(current)) {
-      clubs.set(snapshot.club.id, snapshot);
-    }
-  });
+  sources
+    .flat()
+    .filter((snapshot) => isPlayerVisibleClubName(snapshot.club.name))
+    .forEach((snapshot) => {
+      const current = clubs.get(snapshot.club.id);
+      if (!current || getSnapshotFreshness(snapshot) >= getSnapshotFreshness(current)) {
+        clubs.set(snapshot.club.id, snapshot);
+      }
+    });
   return Array.from(clubs.values());
 }
 
@@ -197,8 +201,9 @@ export async function createClubMembershipCheckout(input: { clubId: string; prod
 
 export async function fetchPlayerTournaments(playerId: string) {
   const clubsSnapshot = await getDocs(collection(db, 'clubs'));
+  const visibleClubDocs = clubsSnapshot.docs.filter((clubDoc) => isPlayerVisibleClubName(clubDoc.data()?.name));
   const canReadRegistrations = Boolean(auth.currentUser && auth.currentUser.uid === playerId);
-  const rows = await Promise.all(clubsSnapshot.docs.map(async (clubDoc) => {
+  const rows = await Promise.all(visibleClubDocs.map(async (clubDoc) => {
     const events = await getDocs(collection(db, 'clubs', clubDoc.id, 'tournaments'));
     const registrations = canReadRegistrations
       ? await getDocs(query(collection(db, 'clubs', clubDoc.id, 'tournamentRegistrations'), where('playerId', '==', playerId)))
@@ -221,13 +226,15 @@ export function subscribeToPlayerTournaments(playerId: string, callback: (result
   const refresh = () => fetchPlayerTournaments(playerId).then((result) => active && callback(result)).catch(() => undefined);
   const rootUnsubscribe = onSnapshot(collection(db, 'clubs'), (clubsSnapshot) => {
     childUnsubscribers.forEach((unsubscribe) => unsubscribe());
-    childUnsubscribers = clubsSnapshot.docs.flatMap((clubDoc) => {
-      const subscriptions = [onSnapshot(collection(db, 'clubs', clubDoc.id, 'tournaments'), refresh, () => undefined)];
-      if (canReadRegistrations) {
-        subscriptions.push(onSnapshot(query(collection(db, 'clubs', clubDoc.id, 'tournamentRegistrations'), where('playerId', '==', playerId)), refresh, () => undefined));
-      }
-      return subscriptions;
-    });
+    childUnsubscribers = clubsSnapshot.docs
+      .filter((clubDoc) => isPlayerVisibleClubName(clubDoc.data()?.name))
+      .flatMap((clubDoc) => {
+        const subscriptions = [onSnapshot(collection(db, 'clubs', clubDoc.id, 'tournaments'), refresh, () => undefined)];
+        if (canReadRegistrations) {
+          subscriptions.push(onSnapshot(query(collection(db, 'clubs', clubDoc.id, 'tournamentRegistrations'), where('playerId', '==', playerId)), refresh, () => undefined));
+        }
+        return subscriptions;
+      });
     refresh();
   }, () => undefined);
   return () => {
@@ -498,7 +505,8 @@ export function subscribeToAllClubSnapshots(
   const parentUnsubscribe = onSnapshot(
     collection(db, 'clubs'),
     (clubsSnapshot) => {
-      const nextClubIds = new Set(clubsSnapshot.docs.map((clubDoc) => clubDoc.id));
+      const visibleClubDocs = clubsSnapshot.docs.filter((clubDoc) => isPlayerVisibleClubName(clubDoc.data()?.name));
+      const nextClubIds = new Set(visibleClubDocs.map((clubDoc) => clubDoc.id));
       for (const clubId of clubIds) {
         if (!nextClubIds.has(clubId)) {
           detachClub(clubId);
@@ -506,7 +514,7 @@ export function subscribeToAllClubSnapshots(
         }
       }
 
-      clubsSnapshot.docs.forEach((clubDoc) => {
+      visibleClubDocs.forEach((clubDoc) => {
         if (clubIds.has(clubDoc.id)) {
           const liveClubState = liveClubStates.get(clubDoc.id);
           if (liveClubState) {
@@ -771,13 +779,18 @@ async function applyWaitlistToLegacySnapshot(secureRequest: PlayerWaitlistReques
 
 async function getPublishedClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>) {
   const clubDocs = await getDocs(collection(db, 'clubs'));
-  const snapshots = await Promise.all(clubDocs.docs.map((clubDoc) => getPublishedClubSnapshot(clubDoc, player)));
+  const snapshots = await Promise.all(
+    clubDocs.docs
+      .filter((clubDoc) => isPlayerVisibleClubName(clubDoc.data()?.name))
+      .map((clubDoc) => getPublishedClubSnapshot(clubDoc, player))
+  );
   return snapshots;
 }
 
 async function readAnyClubSnapshot(clubId: string, player: Pick<PlayerAccount, 'id' | 'name'>) {
   const publishedClub = await getDoc(doc(db, 'clubs', clubId));
   if (publishedClub.exists()) {
+    if (!isPlayerVisibleClubName(publishedClub.data()?.name)) return null;
     const [snapshot] = await Promise.all([getPublishedClubSnapshot(publishedClub, player)]);
     return snapshot;
   }
@@ -791,7 +804,7 @@ function normalizePublishedGame(raw: Record<string, any>, documentId: string): P
   return {
     ...raw,
     id: String(raw.id || documentId),
-    name: String(raw.name || 'Published poker game'),
+    name: String(raw.name || '').trim(),
     maxSeats: numeric(raw.maxSeats, 10),
     collectionMode: raw.collectionMode === 'Time' || raw.collectionMode === 'Drop'
       ? raw.collectionMode
@@ -808,6 +821,7 @@ function normalizePublishedGame(raw: Record<string, any>, documentId: string): P
 
 async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: Pick<PlayerAccount, 'id' | 'name'>) {
   const club = clubDoc.data() as PublishedClubRecord;
+  if (!isPlayerVisibleClubName(club.name)) throw new Error(`Club ${clubDoc.id} is not player-visible.`);
   const [games, memberships, waitlists, notifications] = await Promise.all([
     getDocs(collection(db, 'clubs', clubDoc.id, 'games')),
     getDocs(playerScopedCollection(clubDoc.id, 'memberships', player.id)),
@@ -868,6 +882,7 @@ function buildPublishedClubSnapshot(
   player: Pick<PlayerAccount, 'id' | 'name'>
 ) {
   const club = clubDoc.data() as PublishedClubRecord;
+  if (!isPlayerVisibleClubName(club.name)) return null;
   const committedGames = selectCommittedGames(club, games);
   if (!committedGames) return null;
   if (
@@ -908,7 +923,7 @@ async function getLegacyClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>
   const snapshots = await getDocs(collection(db, 'clubStates'));
   return snapshots.docs
     .map((snapshot) => snapshot.data() as ClubStateRecord)
-    .filter((record) => record.snapshot)
+    .filter((record) => record.snapshot && isPlayerVisibleClubName(record.snapshot.club?.name))
     .map((record) => filterSnapshotForPlayer(record.snapshot, player));
 }
 
@@ -967,6 +982,7 @@ function filterSnapshotForPlayer(snapshot: PlayerClubSnapshot, player: Pick<Play
   const name = normalizeIdentity(player.name);
   return {
     ...snapshot,
+    games: snapshot.games.filter((game) => isPlayerVisibleGameName(game.name)),
     memberships: snapshot.memberships.filter((membership) =>
       Boolean(id && normalizeIdentity(membership.playerId) === id) ||
       Boolean(name && normalizeIdentity(membership.playerName) === name)

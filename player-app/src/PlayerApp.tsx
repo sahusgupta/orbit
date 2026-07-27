@@ -1939,7 +1939,7 @@ function OnboardingFlow({
   onComplete: () => void;
 }) {
   const stepOpacity = useRef(new Animated.Value(1)).current;
-  const [hoveredAction, setHoveredAction] = useState<'previous' | 'next' | null>(null);
+  const [hoveredAction, setHoveredAction] = useState<'previous' | null>(null);
   const finalStep = 3;
   const totalSteps = finalStep + 1;
   const phoneTrimmed = (draftPlayer.phone ?? '').trim();
@@ -2003,6 +2003,10 @@ function OnboardingFlow({
   return (
     <View style={styles.onboardingFlow}>
       <View style={styles.onboardingTopBar}>
+        <View>
+          <Text style={styles.onboardingBrand}>ORBIT</Text>
+          <Text style={styles.onboardingBrandSubtle}>PLAYER</Text>
+        </View>
         <OnboardingProgress activeStep={onboardingStep} totalSteps={totalSteps} />
       </View>
 
@@ -2032,17 +2036,11 @@ function OnboardingFlow({
         </Pressable>
         <Pressable
           disabled={!canSubmit}
-          onHoverIn={() => setHoveredAction('next')}
-          onHoverOut={() => setHoveredAction(null)}
           onPress={submitStep}
-          style={[styles.arrowAction, !canSubmit && styles.arrowActionDisabled]}
+          style={[styles.onboardingNextAction, !canSubmit && styles.arrowActionDisabled]}
         >
-          <Ionicons name="arrow-forward" size={24} color="#ffffff" />
-          {hoveredAction === 'next' && canSubmit ? (
-            <View pointerEvents="none" style={styles.iconTooltip}>
-              <Text style={styles.iconTooltipText}>{onboardingStep < finalStep ? 'Next step' : 'Finish setup'}</Text>
-            </View>
-          ) : null}
+          <Text style={styles.onboardingNextActionText}>{onboardingStep < finalStep ? 'Continue' : 'Start exploring'}</Text>
+          <Ionicons name="arrow-forward" size={18} color="#ffffff" />
         </Pressable>
       </View>
     </View>
@@ -2176,7 +2174,7 @@ function NameStep({
   onSubmit?: () => void;
 }) {
   return (
-    <Field label="Name" tone="light" value={draftPlayer.name} onChangeText={(name) => setDraftPlayer((current) => ({ ...current, name }))} onSubmit={onSubmit} />
+    <Field label="Name" placeholder="Your name" tone="light" value={draftPlayer.name} onChangeText={(name) => setDraftPlayer((current) => ({ ...current, name }))} onSubmit={onSubmit} />
   );
 }
 
@@ -2192,6 +2190,7 @@ function EmailStep({
   return (
     <Field
       label="Email"
+      placeholder="you@example.com"
       tone="light"
       value={draftPlayer.email}
       keyboardType="email-address"
@@ -2215,6 +2214,7 @@ function PhoneStep({
     <View style={styles.optionalStep}>
       <Field
         label="Phone Number"
+        placeholder="(555) 555-0123"
         tone="light"
         value={draftPlayer.phone ?? ''}
         keyboardType="phone-pad"
@@ -2239,6 +2239,7 @@ function HomeAreaStep({
   return (
     <Field
       label="Home Area"
+      placeholder="City or neighborhood"
       tone="light"
       value={draftPlayer.homeLocation ?? ''}
       onChangeText={(homeLocation) => setDraftPlayer((current) => ({ ...current, homeLocation }))}
@@ -4406,7 +4407,8 @@ function Field({
   tone,
   keyboardType,
   onSubmit,
-  error
+  error,
+  placeholder
 }: {
   label: string;
   value: string;
@@ -4415,6 +4417,7 @@ function Field({
   keyboardType?: React.ComponentProps<typeof TextInput>['keyboardType'];
   onSubmit?: () => void;
   error?: string;
+  placeholder?: string;
 }) {
   return (
     <View style={styles.field}>
@@ -4426,7 +4429,7 @@ function Field({
           if (event.nativeEvent.key === 'Enter') onSubmit?.();
         }}
         onSubmitEditing={onSubmit}
-        placeholder={label}
+        placeholder={placeholder ?? label}
         placeholderTextColor={tone === 'light' ? 'rgba(255,255,255,0.56)' : colors.muted}
         returnKeyType={onSubmit ? 'next' : 'done'}
         keyboardType={keyboardType}
@@ -4613,7 +4616,7 @@ function getClubFeeProfile(club: PlayerClubSnapshot, game?: PlayerSyncGame) {
     return configured.type === 'time' ? configured : { type: 'time' as const, hourly: '$10/hr' };
   }
   if (liveMode === 'Drop') {
-    return { type: 'rake' as const, percent: 'club-set drop' };
+    return { type: 'rake' as const, percent: 'House drop' };
   }
   return configured;
 }
@@ -4833,24 +4836,24 @@ const styles = StyleSheet.create({
   onboardingTopBar: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 16,
-    justifyContent: 'center',
+    gap: 20,
+    justifyContent: 'space-between',
     paddingHorizontal: 2,
     position: 'absolute',
     top: 0,
     width: '100%'
   },
   onboardingBrand: {
-    color: colors.ink,
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: 0
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 1.2
   },
   onboardingBrandSubtle: {
-    color: colors.muted,
-    fontSize: 11,
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: 9,
     fontWeight: '700',
-    letterSpacing: 0,
+    letterSpacing: 1.6,
     textTransform: 'uppercase'
   },
   onboardingProgressShell: {
@@ -5159,6 +5162,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 9,
     padding: 10
+  },
+  onboardingNextAction: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderColor: 'rgba(255,255,255,0.36)',
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 9,
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 142,
+    paddingHorizontal: 18
+  },
+  onboardingNextActionText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '800'
   },
   searchToolbar: {
     alignItems: 'center',
