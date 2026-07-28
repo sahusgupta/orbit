@@ -230,6 +230,14 @@ function asyncRoute(handler) {
   return (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next);
 }
 
+function optionalFirebasePlayer(request, response, next) {
+  if (!request.get('authorization')) {
+    next();
+    return;
+  }
+  requireFirebasePlayer(request, response, next);
+}
+
 async function publishStateForResponse(state) {
   try {
     return await publishStateToFirebase(state);
@@ -258,8 +266,8 @@ app.post('/player/identity/session', requireFirebasePlayer, asyncRoute(createPla
 app.delete('/player/identity', requireFirebasePlayer, asyncRoute(deletePlayerIdentity));
 app.post('/player/membership-checkout', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(createMembershipCheckout));
 app.get('/player/snapshot', requireFirebasePlayer, asyncRoute(handlePlayerSnapshot));
-app.post('/player/membership-requests', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handlePlayerMembershipRequest));
-app.post('/player/waitlist-requests', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handlePlayerWaitlistRequest));
+app.post('/player/membership-requests', optionalFirebasePlayer, asyncRoute(handlePlayerMembershipRequest));
+app.post('/player/waitlist-requests', optionalFirebasePlayer, asyncRoute(handlePlayerWaitlistRequest));
 
 app.get('/dashboard', requireDashboardAuth, (_request, response) => {
   response.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));
@@ -427,10 +435,14 @@ async function handlePlayerMembershipRequest(request, response) {
     ...request.body,
     player: {
       ...(request.body?.player || {}),
-      id: request.orbitPlayer.uid,
-      email: request.orbitPlayer.email || request.body?.player?.email || ''
+      id: request.orbitPlayer?.uid || request.body?.player?.id || request.body?.id,
+      email: request.orbitPlayer?.email || request.body?.player?.email || ''
     }
   };
+  if (!requestPayload.clubId || !requestPayload.id || !requestPayload.player.id || !requestPayload.player.name) {
+    response.status(400).json({ ok: false, error: 'A club, request ID, and player identity are required.' });
+    return;
+  }
   const record = loadState(requestPayload.clubId);
   if (!record?.state) {
     response.status(404).json({ ok: false, error: 'No matching club database was found for this membership request.' });
@@ -460,10 +472,14 @@ async function handlePlayerWaitlistRequest(request, response) {
     ...request.body,
     player: {
       ...(request.body?.player || {}),
-      id: request.orbitPlayer.uid,
-      email: request.orbitPlayer.email || request.body?.player?.email || ''
+      id: request.orbitPlayer?.uid || request.body?.player?.id || request.body?.id,
+      email: request.orbitPlayer?.email || request.body?.player?.email || ''
     }
   };
+  if (!requestPayload.clubId || !requestPayload.id || !requestPayload.gameId || !requestPayload.player.id || !requestPayload.player.name) {
+    response.status(400).json({ ok: false, error: 'A club, game, request ID, and player identity are required.' });
+    return;
+  }
   const record = loadState(requestPayload.clubId);
   if (!record?.state) {
     response.status(404).json({ ok: false, error: 'No matching club database was found for this waitlist request.' });
