@@ -3,11 +3,8 @@ import {
   createUserWithEmailAndPassword,
   deleteUser,
   getAuth,
-  GoogleAuthProvider,
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  signInWithPopup,
-  signInWithCredential,
   signOut,
   type User
 } from 'firebase/auth';
@@ -336,19 +333,6 @@ export function onFirebasePlayerChanged(callback: (identity: FirebasePlayerIdent
   return onAuthStateChanged(auth, (user) => callback(user ? toFirebasePlayerIdentity(user) : null));
 }
 
-export async function signInWithGoogleIdToken(idToken: string) {
-  const credential = GoogleAuthProvider.credential(idToken);
-  const result = await signInWithCredential(auth, credential);
-  return toFirebasePlayerIdentity(result.user);
-}
-
-export async function signInWithGooglePopup() {
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: 'select_account' });
-  const result = await signInWithPopup(auth, provider);
-  return toFirebasePlayerIdentity(result.user);
-}
-
 export async function signInOrCreatePlayerWithEmail(email: string, password: string) {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail || !password) throw new Error('Enter your email and password.');
@@ -367,10 +351,18 @@ export async function signInOrCreatePlayerWithEmail(email: string, password: str
   }
 }
 
+export async function signInOrCreatePlayerWithPhone(phone: string, password: string) {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 10 || digits.length > 15) throw new Error('Enter a valid phone number.');
+  // Firebase email/password is used behind the scenes so this works in Expo Go
+  // without a native SMS SDK. The real phone number remains on the player profile.
+  return signInOrCreatePlayerWithEmail(`phone-${digits}@players.orbit.local`, password);
+}
+
 export function ensureSignedInIdentity() {
   const identity = getCurrentFirebasePlayer();
   if (!identity) {
-    throw new Error('Google sign-in is required before syncing with Firebase.');
+    throw new Error('Sign in with your email address or phone number before syncing.');
   }
   return identity.uid;
 }

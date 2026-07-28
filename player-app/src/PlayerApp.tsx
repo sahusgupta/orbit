@@ -61,7 +61,7 @@ import {
   savePlayerProfile,
   signOutCurrentPlayer,
   signInOrCreatePlayerWithEmail,
-  signInWithGooglePopup,
+  signInOrCreatePlayerWithPhone,
   registerForTournament,
   subscribeToAllClubSnapshots,
   subscribeToPrivateGameListings,
@@ -187,7 +187,7 @@ const emptyIdentityStatus: PlayerIdentityStatus = {
 const legacyPlayerStorageKeys = ['tabletalk-player-account-v1', 'tabletalk-player-account-v2'];
 const playerStorageKey = 'orbit-player-account-v1';
 const dismissedAlertsStorageKey = 'orbit-player-dismissed-alerts-v1';
-const googleSignInReadyStatus = 'Connect Google or use email/password to register and sync your player profile.';
+const accountSignInReadyStatus = 'Use your email address or phone number to sync this player profile.';
 const defaultPremiumMonthlyPriceLabel = '$12.99/month';
 const supportPhone = '346-434-1402';
 const supportPhoneUrl = 'tel:+13464341402';
@@ -249,9 +249,13 @@ export default function PlayerApp() {
   const [identityBusy, setIdentityBusy] = useState(false);
   const [identityMessage, setIdentityMessage] = useState('');
   const [identityReturnScreen, setIdentityReturnScreen] = useState<Screen>('findGames');
-  const [authStatus, setAuthStatus] = useState(googleSignInReadyStatus);
+  const [authStatus, setAuthStatus] = useState(accountSignInReadyStatus);
+  const [playerAuthMethod, setPlayerAuthMethod] = useState<'email' | 'phone'>('email');
   const [playerAuthEmail, setPlayerAuthEmail] = useState('');
+  const [playerAuthPhone, setPlayerAuthPhone] = useState('');
   const [playerAuthPassword, setPlayerAuthPassword] = useState('');
+  const mainScrollRef = useRef<ScrollView>(null);
+  const membershipStatusRef = useRef<Record<string, string>>({});
   const [, setSyncStatus] = useState(
     isSyncConfigured() ? 'Connecting to Firebase club sync...' : 'Live club sync is not configured.'
   );
@@ -321,6 +325,19 @@ export default function PlayerApp() {
   }, [clubs, player.id, playerHomeCoordinate, tournamentClubFilter, tournamentDistanceFilter, tournamentFilter, tournamentQuery, tournamentRegistrations, tournaments]);
 
   useEffect(() => onFirebasePlayerChanged(setFirebaseIdentity), []);
+
+  useEffect(() => {
+    mainScrollRef.current?.scrollTo({ y: 0, animated: false });
+    setShowDiscoverySearch(false);
+    setShowDiscoveryFilters(false);
+    setShowTournamentFilters(false);
+    setShowMapFilters(false);
+    setSeatRequestDraft(null);
+    setSeatRequestMessage('');
+    if (screen !== 'gameDetails') setSelectedDiscoveryOpportunity(null);
+    if (screen !== 'findGames') setShowHostScreen(false);
+    if (screen !== 'clubPayment') setPendingClubProduct(null);
+  }, [screen]);
 
   useEffect(() => {
     if (!firebaseIdentity) {
@@ -474,6 +491,23 @@ export default function PlayerApp() {
         const liveClubs = result.clubs;
         setClubs(liveClubs);
         const existingMembershipClub = result.clubs.find((club) => club.memberships.some((membership) => isPlayerMembership(membership, player)));
+        const nextStatuses: Record<string, string> = {};
+        for (const club of liveClubs) {
+          const membership = club.memberships.find((record) => isPlayerMembership(record, player));
+          if (!membership) continue;
+          nextStatuses[club.club.id] = membership.status;
+          const previousStatus = membershipStatusRef.current[club.club.id];
+          if (previousStatus === 'Requested' && (membership.status === 'Approved' || membership.status === 'Active')) {
+            setSelectedClubId(club.club.id);
+            setClubMembershipMessage(
+              membership.status === 'Active'
+                ? `You are now a member of ${club.club.name}.`
+                : `${club.club.name} approved your membership.`
+            );
+            setScreen('clubs');
+          }
+        }
+        membershipStatusRef.current = nextStatuses;
         setSelectedClubId((current) => existingMembershipClub?.club.id ?? liveClubs.find((club) => club.club.id === current)?.club.id ?? liveClubs[0]?.club.id ?? '');
         setSyncStatus(`Showing ${result.clubs.length} live card house${result.clubs.length === 1 ? '' : 's'}.`);
       } else {
@@ -800,39 +834,32 @@ export default function PlayerApp() {
   };
 
   const finishFirebaseAccountConnection = async (identity: FirebasePlayerIdentity) => {
+    const usesPhoneAlias = identity.email.endsWith('@players.orbit.local');
     const nextPlayer: PlayerAccount = {
       ...player,
       id: identity.uid,
       name: identity.name || player.name,
-      email: identity.email || player.email
+      email: usesPhoneAlias ? player.email : identity.email || player.email,
+      phone: playerAuthMethod === 'phone' ? playerAuthPhone.trim() || player.phone : player.phone
     };
     setFirebaseIdentity(identity);
     setDraftPlayer(nextPlayer);
     setPlayer(nextPlayer);
     setHasAccount(true);
     await savePlayerProfile(nextPlayer);
-    setAuthStatus(`Connected as ${identity.email || identity.name}.`);
+    setAuthStatus(`Connected as ${playerAuthMethod === 'phone' ? nextPlayer.phone : nextPlayer.email}.`);
   };
 
-  const connectGoogleAccount = async () => {
-    setAuthStatus('Opening Google sign-in...');
-    try {
-      await finishFirebaseAccountConnection(await signInWithGooglePopup());
-    } catch (error) {
-      const code = (error as { code?: string }).code;
-      setAuthStatus(code === 'auth/operation-not-allowed'
-        ? 'Google is disabled in Firebase. Use email/password below or enable Google in Firebase Authentication.'
-        : error instanceof Error ? error.message : 'Google sign-in could not be completed.');
-    }
-  };
-
-  const connectEmailAccount = async () => {
+  const connectPlayerAccount = async () => {
     setAuthStatus('Signing in to your Orbit Player account...');
     try {
-      await finishFirebaseAccountConnection(await signInOrCreatePlayerWithEmail(playerAuthEmail, playerAuthPassword));
+      const identity = playerAuthMethod === 'email'
+        ? await signInOrCreatePlayerWithEmail(playerAuthEmail, playerAuthPassword)
+        : await signInOrCreatePlayerWithPhone(playerAuthPhone || player.phone || '', playerAuthPassword);
+      await finishFirebaseAccountConnection(identity);
       setPlayerAuthPassword('');
     } catch (error) {
-      setAuthStatus(error instanceof Error ? error.message : 'Email sign-in could not be completed.');
+      setAuthStatus(error instanceof Error ? error.message : 'Sign-in could not be completed.');
     }
   };
 
@@ -1218,7 +1245,7 @@ export default function PlayerApp() {
             </View>
           ) : null}
 
-          <ScrollView showsVerticalScrollIndicator={screen === 'tournaments' || screen === 'gameDetails'} contentContainerStyle={styles.content}>
+          <ScrollView ref={mainScrollRef} showsVerticalScrollIndicator={screen === 'tournaments' || screen === 'gameDetails'} contentContainerStyle={styles.content}>
             {screen === 'gameDetails' && activeDiscoveryOpportunity ? (
               <GameDetailsScreen
                 key={getOpportunityKey(activeDiscoveryOpportunity)}
@@ -1555,37 +1582,45 @@ export default function PlayerApp() {
             {screen === 'settings' ? (
               <View style={styles.accountCard}>
                 <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Profile</Text>
+                  <View>
+                    <Text style={styles.sectionTitle}>Profile & settings</Text>
+                    <Text style={styles.muted}>Keep your account and poker preferences current.</Text>
+                  </View>
                 </View>
-                {Platform.OS === 'web' ? <View style={styles.googleAuthPanel}>
-                  <View style={styles.googleAuthIcon}>
-                    <Ionicons name={firebaseIdentity ? 'checkmark-circle-outline' : 'logo-google'} size={20} color={firebaseIdentity ? colors.teal : colors.primaryDark} />
-                  </View>
-                  <View style={styles.googleAuthBody}>
-                    <Text style={styles.cardTitle}>{firebaseIdentity ? 'Google Connected' : 'Connect Google'}</Text>
-                    <Text style={styles.muted}>{firebaseIdentity ? firebaseIdentity.email || firebaseIdentity.name : authStatus}</Text>
-                  </View>
-                  {!firebaseIdentity ? (
-                    <Pressable style={styles.compactButton} onPress={connectGoogleAccount}>
-                      <Text style={styles.compactButtonText}>Sign in</Text>
-                    </Pressable>
-                  ) : null}
-                </View> : null}
                 {!firebaseIdentity ? (
                   <View style={styles.emailAuthPanel}>
-                    <Text style={styles.cardTitle}>Account</Text>
-                    <View style={styles.searchInputRow}>
-                      <Ionicons name="mail-outline" size={18} color={colors.muted} />
-                      <TextInput
-                        value={playerAuthEmail}
-                        onChangeText={setPlayerAuthEmail}
-                        autoCapitalize="none"
-                        keyboardType="email-address"
-                        placeholder="Player email"
-                        placeholderTextColor={colors.muted}
-                        style={styles.searchInput}
-                      />
+                    <Text style={styles.cardTitle}>Account access</Text>
+                    <Text style={styles.muted}>{authStatus}</Text>
+                    <View style={styles.chipRow}>
+                      <Chip label="Email address" active={playerAuthMethod === 'email'} onPress={() => setPlayerAuthMethod('email')} />
+                      <Chip label="Phone number" active={playerAuthMethod === 'phone'} onPress={() => setPlayerAuthMethod('phone')} />
                     </View>
+                    {playerAuthMethod === 'email' ? (
+                      <View style={styles.searchInputRow}>
+                        <Ionicons name="mail-outline" size={18} color={colors.muted} />
+                        <TextInput
+                          value={playerAuthEmail}
+                          onChangeText={setPlayerAuthEmail}
+                          autoCapitalize="none"
+                          keyboardType="email-address"
+                          placeholder="Email address"
+                          placeholderTextColor={colors.muted}
+                          style={styles.searchInput}
+                        />
+                      </View>
+                    ) : (
+                      <View style={styles.searchInputRow}>
+                        <Ionicons name="call-outline" size={18} color={colors.muted} />
+                        <TextInput
+                          value={playerAuthPhone}
+                          onChangeText={setPlayerAuthPhone}
+                          keyboardType="phone-pad"
+                          placeholder="Phone number"
+                          placeholderTextColor={colors.muted}
+                          style={styles.searchInput}
+                        />
+                      </View>
+                    )}
                     <View style={styles.searchInputRow}>
                       <Ionicons name="lock-closed-outline" size={18} color={colors.muted} />
                       <TextInput
@@ -1598,11 +1633,21 @@ export default function PlayerApp() {
                         style={styles.searchInput}
                       />
                     </View>
-                    <Pressable style={styles.compactButton} onPress={connectEmailAccount}>
+                    <Pressable style={styles.compactButton} onPress={connectPlayerAccount}>
                       <Text style={styles.compactButtonText}>Sign in or create account</Text>
                     </Pressable>
                   </View>
-                ) : null}
+                ) : (
+                  <View style={styles.googleAuthPanel}>
+                    <View style={styles.googleAuthIcon}>
+                      <Ionicons name="checkmark-circle-outline" size={20} color={colors.teal} />
+                    </View>
+                    <View style={styles.googleAuthBody}>
+                      <Text style={styles.cardTitle}>Account connected</Text>
+                      <Text style={styles.muted}>{player.phone || player.email}</Text>
+                    </View>
+                  </View>
+                )}
                 <SimpleMenuRow
                   icon="shield-checkmark-outline"
                   title="Identity & age"
@@ -1631,7 +1676,8 @@ export default function PlayerApp() {
                   </>
                 ) : null}
                 <Field label="Name" value={player.name} onChangeText={(name) => setPlayer((current) => ({ ...current, name }))} />
-                <Field label="Email" value={player.email} onChangeText={(email) => setPlayer((current) => ({ ...current, email }))} />
+                <Field label="Email address" keyboardType="email-address" value={player.email} onChangeText={(email) => setPlayer((current) => ({ ...current, email }))} />
+                <Field label="Phone number" keyboardType="phone-pad" value={player.phone ?? ''} onChangeText={(phone) => setPlayer((current) => ({ ...current, phone }))} />
                 <Field
                   label="Home area"
                   value={player.homeLocation ?? ''}
@@ -1652,6 +1698,12 @@ export default function PlayerApp() {
                   label="Preferred stakes"
                   value={player.preferredStakes ?? ''}
                   onChangeText={(preferredStakes) => setPlayer((current) => ({ ...current, preferredStakes }))}
+                />
+                <Field
+                  label="Typical availability"
+                  value={player.typicalAvailability ?? ''}
+                  placeholder="Evenings, weekends, after 6 PM..."
+                  onChangeText={(typicalAvailability) => setPlayer((current) => ({ ...current, typicalAvailability }))}
                 />
                 <View style={styles.simpleMenu}>
                   <SimpleMenuRow icon="call-outline" title="Support" subtitle={supportPhone} onPress={() => Linking.openURL(supportPhoneUrl)} />
@@ -1956,7 +2008,7 @@ function TournamentCard({
           <View style={styles.clubMain}><Text style={styles.cardTitle}>Registration confirmed</Text><Text style={styles.muted}>Status: {registration.status.replace(/-/g, ' ')}</Text></View>
         </View>
       ) : null}
-      {!hasOrbitAccount ? <Text style={styles.tournamentMessage}>Sign in with Google under Settings to register with your Orbit Player account.</Text> : null}
+      {!hasOrbitAccount ? <Text style={styles.tournamentMessage}>Sign in with your email address or phone number under Profile to register.</Text> : null}
       {message ? <Text style={styles.tournamentMessage}>{message}</Text> : null}
       {registration ? (
         canUnregister ? <Pressable style={styles.secondaryActionButton} onPress={onUnregister}><Text style={styles.secondaryActionText}>Unregister</Text></Pressable> : null
@@ -3139,6 +3191,12 @@ function DiscoveryDeck({
   const animating = useRef(false);
   const item = opportunities[0];
   const nextItem = opportunities[1];
+  const itemKey = item ? getOpportunityKey(item) : '';
+  useEffect(() => {
+    swipeX.setValue(0);
+    swipeY.setValue(0);
+    animating.current = false;
+  }, [itemKey, swipeX, swipeY]);
   const swipe = (decision: DiscoveryDecision) => {
     if (!item || animating.current) return;
     animating.current = true;
