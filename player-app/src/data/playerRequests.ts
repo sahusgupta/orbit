@@ -2,6 +2,7 @@ import type {
   PlayerAccount,
   PlayerClubSnapshot,
   PlayerMembershipRequest,
+  PlayerMembershipOption,
   PlayerWaitlistRequest
 } from '../domain/playerSync';
 import {
@@ -110,9 +111,17 @@ export function buildJoinRequest(
   clubId: string,
   plan: 'day' | 'monthly' = 'monthly',
   paymentMethod: 'app' | 'in-person' = 'app',
-  priceLabel?: string
+  priceLabel?: string,
+  membershipOption?: PlayerMembershipOption
 ) {
-  return createMembershipRequest(player, clubId, undefined, { plan, paymentMethod, priceLabel });
+  return createMembershipRequest(player, clubId, undefined, {
+    plan,
+    paymentMethod,
+    priceLabel: membershipOption?.priceLabel ?? priceLabel,
+    planId: membershipOption?.id,
+    planName: membershipOption?.name,
+    membershipDurationDays: membershipOption?.durationDays
+  });
 }
 
 export function buildWaitRequest(

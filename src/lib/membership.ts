@@ -9,13 +9,14 @@ export type MembershipWindow = {
 
 export function createMembershipWindow(
   plan: MembershipPlan,
-  startedAt: Date | string | number = new Date()
+  startedAt: Date | string | number = new Date(),
+  durationDays?: number
 ): MembershipWindow {
   const start = new Date(startedAt);
   if (!Number.isFinite(start.getTime())) throw new Error('Membership start time is invalid.');
 
   const expiresAt = new Date(start);
-  expiresAt.setDate(expiresAt.getDate() + (plan === 'day' ? 1 : 30));
+  expiresAt.setDate(expiresAt.getDate() + (Number.isFinite(durationDays) ? Math.max(1, Number(durationDays)) : plan === 'day' ? 1 : 30));
 
   return {
     startedAt: start,

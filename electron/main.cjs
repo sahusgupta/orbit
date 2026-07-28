@@ -40,7 +40,6 @@ let lastUpdateStatus = '';
 let lastUpdateEvent = '';
 let appStartedAt = new Date().toISOString();
 let lastUpdateProgressBucket = -1;
-let warnedAboutMissingApiKey = false;
 
 function writeOrbitApiLog(level, event, details = {}) {
   const entry = {
@@ -302,14 +301,9 @@ function getApiConfig() {
 async function postClientTelemetry(pathname, payload) {
   const { apiUrl, apiKey } = getApiConfig();
   if (!apiKey || typeof fetch !== 'function') {
-    if (!warnedAboutMissingApiKey) {
-      warnedAboutMissingApiKey = true;
-      writeOrbitApiLog('warn', 'request-skipped', { pathname, reason: !apiKey ? 'missing-api-key' : 'fetch-unavailable' });
-    }
     return;
   }
   const requestId = crypto.randomUUID();
-  const started = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 2500);
   try {
@@ -323,18 +317,9 @@ async function postClientTelemetry(pathname, payload) {
       body: JSON.stringify(payload),
       signal: controller.signal
     });
-    if (!response.ok) {
-      const { payload: responsePayload, responsePreview } = await readApiResponse(response);
-      writeOrbitApiLog('warn', 'telemetry-http-error', {
-        requestId, method: 'POST', pathname, status: response.status, durationMs: Date.now() - started,
-        error: responsePayload?.error || '', responsePreview
-      });
-    }
-  } catch (error) {
-    writeOrbitApiLog('warn', 'telemetry-network-error', {
-      requestId, method: 'POST', pathname, durationMs: Date.now() - started,
-      timedOut: controller.signal.aborted, ...orbitApiErrorDetails(error)
-    });
+    if (!response.ok) await readApiResponse(response);
+  } catch {
+    // Telemetry transport is intentionally silent; operational logs show domain changes only.
   } finally {
     clearTimeout(timeout);
   }
@@ -344,7 +329,6 @@ async function requestOrbitApi(pathname, options = {}) {
   const { apiUrl, apiKey } = getApiConfig();
   const authKey = options.authKey || apiKey;
   if (!authKey || typeof fetch !== 'function') {
-    writeOrbitApiLog('warn', 'request-skipped', { pathname, reason: !authKey ? 'missing-api-key' : 'fetch-unavailable' });
     return null;
   }
   const requestId = crypto.randomUUID();
@@ -367,19 +351,22 @@ async function requestOrbitApi(pathname, options = {}) {
     });
     const { payload, responsePreview } = await readApiResponse(response);
     if (!response.ok || payload?.ok === false) {
-      writeOrbitApiLog('warn', 'http-error', {
-        requestId, method, pathname, status: response.status, durationMs: Date.now() - started,
-        error: payload?.error || '', responsePreview
-      });
+      if (method !== 'GET') {
+        writeOrbitApiLog('warn', 'sync-update-failed', {
+          requestId, method, pathname, status: response.status, durationMs: Date.now() - started,
+          error: payload?.error || '', responsePreview
+        });
+      }
       return null;
     }
-    writeOrbitApiLog('info', 'request-succeeded', { requestId, method, pathname, status: response.status, durationMs: Date.now() - started });
     return payload;
   } catch (error) {
-    writeOrbitApiLog('error', 'network-error', {
-      requestId, method, pathname, durationMs: Date.now() - started,
-      timedOut: controller.signal.aborted, ...orbitApiErrorDetails(error)
-    });
+    if (method !== 'GET') {
+      writeOrbitApiLog('error', 'sync-update-failed', {
+        requestId, method, pathname, durationMs: Date.now() - started,
+        timedOut: controller.signal.aborted, ...orbitApiErrorDetails(error)
+      });
+    }
     return null;
   } finally {
     clearTimeout(timeout);
@@ -398,13 +385,9 @@ async function getRemoteBackendStatus() {
       headers: { 'x-orbit-request-id': requestId, ...(apiKey ? { 'x-orbit-api-key': apiKey } : {}) },
       signal: controller.signal
     });
-    const { payload, responsePreview } = await readApiResponse(response);
+    const { payload } = await readApiResponse(response);
     if (!response.ok || payload?.ok === false) throw new Error(payload?.error || `Orbit API returned ${response.status}`);
     const parsed = new URL(apiUrl);
-    writeOrbitApiLog('info', 'health-succeeded', {
-      requestId, pathname: '/health', status: response.status, durationMs: Date.now() - started,
-      service: payload.service || '', environment: payload.environment || ''
-    });
     return {
       running: true,
       host: parsed.hostname,
@@ -417,10 +400,6 @@ async function getRemoteBackendStatus() {
       latencyMs: Date.now() - started
     };
   } catch (error) {
-    writeOrbitApiLog('error', 'health-failed', {
-      requestId, pathname: '/health', durationMs: Date.now() - started,
-      timedOut: controller.signal.aborted, ...orbitApiErrorDetails(error)
-    });
     return null;
   } finally {
     clearTimeout(timeout);
@@ -928,7 +907,7 @@ function getMembershipWindow(request) {
   const active = paymentMethod !== 'in-person';
   const start = new Date(requestedAt);
   const expires = new Date(start);
-  expires.setDate(expires.getDate() + (plan === 'day' ? 1 : 30));
+  expires.setDate(expires.getDate() + (Number.isFinite(Number(request.membershipDurationDays)) ? Math.max(1, Number(request.membershipDurationDays)) : plan === 'day' ? 1 : 30));
   return { plan, paymentMethod, status: active ? 'Active' : 'Requested', requestedAt,
     startDate: active ? start.toISOString().slice(0, 10) : '',
     expirationDate: active ? expires.toISOString().slice(0, 10) : '',
@@ -1047,7 +1026,10 @@ function buildPlayerClubSnapshot(state, player) {
       id: clubId,
       name: account.clubName || 'Local Poker Club',
       address: account.address,
-      phone: account.phone
+      phone: account.phone,
+      membershipOptions: (state.settings?.membershipPlans || [])
+        .filter((plan) => plan.active !== false)
+        .map(({ id, name, priceLabel, durationDays, description }) => ({ id, name, priceLabel, durationDays, description }))
     },
     games: (state.games || []).map((game) => {
       const openTables = tables.filter((table) => table.gameId === game.id);
@@ -1105,6 +1087,8 @@ function applyMembershipRequestToState(state, request) {
               membershipStatus: membership.status,
               membershipRequestedAt: membership.requestedAt,
               membershipPriceLabel: request.priceLabel,
+              membershipPlanName: request.planName,
+              membershipDurationDays: request.membershipDurationDays,
               preferredGameId: player.preferredGameIds?.[0] || profile.preferredGameId,
               preferredGameIds: mergeUnique([...(profile.preferredGameIds || []), ...(player.preferredGameIds || [])]),
               preferredStakes: player.preferredStakes || profile.preferredStakes,
@@ -1134,6 +1118,8 @@ function applyMembershipRequestToState(state, request) {
         membershipStatus: membership.status,
         membershipRequestedAt: membership.requestedAt,
         membershipPriceLabel: request.priceLabel,
+        membershipPlanName: request.planName,
+        membershipDurationDays: request.membershipDurationDays,
         totalTimePlayedHours: 0,
         lastSessionTimePlayedHours: 0,
         commonlyPlaysWithProfileIds: [],
@@ -1337,7 +1323,16 @@ async function saveStateEverywhere(state) {
 }
 
 async function loadStateApiFirst(accountKey, access) {
-  return (await loadStateFromApi(accountKey, access)) || loadStateWithFirebaseFallback(accountKey);
+  const apiRecord = await loadStateFromApi(accountKey, access);
+  if (apiRecord) return apiRecord;
+
+  const fallbackRecord = await loadStateWithFirebaseFallback(accountKey);
+  if (fallbackRecord?.state) {
+    // A new API database may not have this licensed venue yet. Seed it from the
+    // local/Firebase source of truth so player requests have a matching target.
+    await saveStateToApi(fallbackRecord.state).catch(() => null);
+  }
+  return fallbackRecord;
 }
 
 async function saveStateApiFirst(state) {

@@ -440,4 +440,39 @@ describe('player sync snapshots', () => {
       expiresAt: undefined
     });
   });
+
+  it('publishes active membership options and preserves an optional player selection', () => {
+    const stateWithPlans = {
+      ...state,
+      settings: {
+        ...state.settings,
+        membershipPlans: [
+          { id: 'weekday', name: 'Weekday Access', priceLabel: '$35/mo', durationDays: 30, description: 'Monday through Thursday', active: true },
+          { id: 'hidden', name: 'Legacy Plan', priceLabel: '$10', durationDays: 1, active: false }
+        ]
+      }
+    };
+    expect(buildPlayerClubSnapshot(stateWithPlans).club.membershipOptions).toEqual([
+      { id: 'weekday', name: 'Weekday Access', priceLabel: '$35/mo', durationDays: 30, description: 'Monday through Thursday' }
+    ]);
+
+    const request = createMembershipRequest(
+      { id: 'player-plan', name: 'Plan Player', email: 'plan@example.com', preferredGameIds: [] },
+      'lucky-lodge',
+      '2026-05-20T12:00:00.000Z',
+      {
+        id: 'weekday',
+        name: 'Weekday Access',
+        priceLabel: '$35/mo',
+        durationDays: 30,
+        paymentMethod: 'in-person'
+      }
+    );
+    expect(request).toMatchObject({
+      planId: 'weekday',
+      planName: 'Weekday Access',
+      planPriceLabel: '$35/mo',
+      membershipDurationDays: 30
+    });
+  });
 });

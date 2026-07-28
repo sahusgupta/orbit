@@ -83,6 +83,7 @@ const localOrbitApiBaseUrl = (
   process.env.EXPO_PUBLIC_ORBIT_LOCAL_API_URL ||
   (typeof window !== 'undefined' ? 'http://127.0.0.1:4629' : '')
 ).replace(/\/$/, '');
+const activeSessionFreshnessWindowMs = 36 * 60 * 60 * 1000;
 
 export type PlayerIdentityStatus = {
   status: 'unverified' | 'requires_input' | 'processing' | 'verified' | 'underage' | 'canceled' | 'redacted';
@@ -162,6 +163,42 @@ async function submitLocalPlayerRequest(path: string, request: PlayerMembershipR
     return payload as SyncResult;
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Local Orbit bridge is unavailable.' };
+  }
+}
+
+async function fetchRemoteClubSnapshot(player: Pick<PlayerAccount, 'id' | 'name'>, accountKey: string): Promise<SyncResult> {
+  if (!orbitApiBaseUrl || !auth.currentUser) return { ok: false, error: 'Orbit API player sync is unavailable.' };
+  try {
+    const { token } = await getOrbitPlayerToken();
+    const params = new URLSearchParams({ accountKey, playerName: player.name || '' });
+    const response = await fetch(`${orbitApiBaseUrl}/player/snapshot?${params.toString()}`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.snapshot) throw new Error(payload?.error || 'Orbit API club snapshot is unavailable.');
+    return payload as SyncResult;
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Orbit API club snapshot is unavailable.' };
+  }
+}
+
+async function submitRemotePlayerRequest(path: string, request: PlayerMembershipRequest | PlayerWaitlistRequest): Promise<SyncResult> {
+  if (!orbitApiBaseUrl) return { ok: false, error: 'Orbit API is not configured.' };
+  try {
+    const { token } = await getOrbitPlayerToken();
+    const response = await fetch(`${orbitApiBaseUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify(request)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.snapshot) throw new Error(payload?.error || 'Orbit API request failed.');
+    return payload as SyncResult;
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Orbit API is unavailable.' };
   }
 }
 
@@ -420,8 +457,12 @@ export async function fetchAllClubSnapshots(player: Pick<PlayerAccount, 'id' | '
   const localClubs = localResult.ok ? [localResult.snapshot] : [];
   try {
     const publishedClubs = await getPublishedClubSnapshots(player);
-    if (publishedClubs.length || localClubs.length) {
-      return { ok: true as const, clubs: mergeSnapshotSources(publishedClubs, localClubs) };
+    const remoteResults = await Promise.all(
+      publishedClubs.map((club) => fetchRemoteClubSnapshot(player, club.club.id))
+    );
+    const remoteClubs = remoteResults.flatMap((result) => result.ok ? [result.snapshot] : []);
+    if (publishedClubs.length || remoteClubs.length || localClubs.length) {
+      return { ok: true as const, clubs: mergeSnapshotSources(publishedClubs, remoteClubs, localClubs) };
     }
     const clubs = await getLegacyClubSnapshots(player);
     return { ok: true as const, clubs: mergeSnapshotSources(clubs, localClubs) };
@@ -553,7 +594,7 @@ export function subscribeToAllClubSnapshots(
           onSnapshot(
             collection(db, 'clubs', clubDoc.id, 'games'),
             (snapshot) => {
-              childState.games = snapshot.docs.map((gameDoc) => normalizePublishedGame(gameDoc.data(), gameDoc.id));
+              childState.games = normalizePublishedGames(snapshot.docs);
               childState.updateClub();
             },
             handlePrivateCollectionError
@@ -675,8 +716,10 @@ export async function submitPrivateGameListing(listing: PlayerPrivateGameListing
 
 export async function submitMembershipRequest(request: PlayerMembershipRequest): Promise<SyncResult> {
   try {
-    const localPlayerId = request.player.id || stableLocalPlayerId(request.player.email, request.player.name);
-    const secureRequest = { ...request, player: { ...request.player, id: localPlayerId } };
+    const requestPlayerId = auth.currentUser?.uid || request.player.id || stableLocalPlayerId(request.player.email, request.player.name);
+    const secureRequest = { ...request, player: { ...request.player, id: requestPlayerId } };
+    const remoteResult = await submitRemotePlayerRequest('/player/membership-requests', secureRequest);
+    if (remoteResult.ok) return remoteResult;
     const localResult = await submitLocalPlayerRequest('/player/membership-requests', secureRequest);
     if (localResult.ok) return localResult;
     const expiresAt = getPassExpiration(request);
@@ -706,8 +749,10 @@ export async function submitMembershipRequest(request: PlayerMembershipRequest):
 
 export async function submitWaitlistRequest(request: PlayerWaitlistRequest): Promise<SyncResult> {
   try {
-    const localPlayerId = request.player.id || stableLocalPlayerId(request.player.email, request.player.name);
-    const secureRequest = { ...request, player: { ...request.player, id: localPlayerId } };
+    const requestPlayerId = auth.currentUser?.uid || request.player.id || stableLocalPlayerId(request.player.email, request.player.name);
+    const secureRequest = { ...request, player: { ...request.player, id: requestPlayerId } };
+    const remoteResult = await submitRemotePlayerRequest('/player/waitlist-requests', secureRequest);
+    if (remoteResult.ok) return remoteResult;
     const localResult = await submitLocalPlayerRequest('/player/waitlist-requests', secureRequest);
     if (localResult.ok) return localResult;
     await writeRequestToClubPaths(request.clubId, 'waitlistRequests', request.id, secureRequest);
@@ -819,6 +864,92 @@ function normalizePublishedGame(raw: Record<string, any>, documentId: string): P
   };
 }
 
+export function normalizePublishedGames(gameDocs: QueryDocumentSnapshot[]): PlayerSyncGame[] {
+  const records = gameDocs.map((gameDoc) => ({ documentId: gameDoc.id, raw: gameDoc.data() as Record<string, any> }));
+  const aggregateRecords = records.filter(({ raw }) => typeof raw.name === 'string' && raw.name.trim());
+
+  // Protocol-v2 aggregate records are committed atomically. Legacy clubs used
+  // this collection for both aggregate games and individual table sessions.
+  if (aggregateRecords.some(({ raw }) => raw.syncRevision)) {
+    return aggregateRecords.map(({ raw, documentId }) => normalizePublishedGame(raw, documentId));
+  }
+
+  const games = new Map<string, PlayerSyncGame>();
+  aggregateRecords.forEach(({ raw, documentId }) => {
+    const game = normalizePublishedGame(raw, documentId);
+    games.set(game.id, {
+      ...game,
+      openTables: [],
+      formingCount: 0,
+      availableSeats: 0,
+      knownPlayersCount: 0,
+      waitlistCount: 0
+    });
+  });
+
+  records
+    .filter(({ raw }) =>
+      typeof raw.gameId === 'string' &&
+      typeof raw.gameName === 'string' &&
+      (raw.status === 'Running' || raw.status === 'Forming' || raw.status === 'Paused') &&
+      isFreshActiveSession(raw)
+    )
+    .sort((left, right) => getSessionActivityTime(right.raw) - getSessionActivityTime(left.raw))
+    .forEach(({ raw, documentId }) => {
+      const gameId = String(raw.gameId).trim();
+      const gameName = String(raw.gameName).trim();
+      if (!gameId || !gameName) return;
+      const players = Array.isArray(raw.players) ? raw.players : [];
+      const activePlayers = players.filter((player: Record<string, any>) => !player?.leftAt);
+      const maxSeats = Number.isFinite(Number(raw.maxSeats)) ? Number(raw.maxSeats) : 10;
+      const seatsFilled = Math.min(maxSeats, activePlayers.length || Number(raw.seatsFilled) || 0);
+      const sessionWaitlist = Array.isArray(raw.waitlist) ? raw.waitlist : [];
+      const table = {
+        id: String(raw.id || documentId),
+        gameId,
+        label: String(raw.label || 'Active table'),
+        status: raw.status as 'Running' | 'Forming' | 'Paused',
+        seatsFilled,
+        maxSeats,
+        availableSeats: Math.max(0, maxSeats - seatsFilled),
+        collectionMode: raw.format === 'Time' ? 'Time' as const : 'Drop' as const,
+        tags: Array.isArray(raw.tags) ? raw.tags : [],
+        startedAt: String(raw.timeStarted || raw.startedAt || raw.updatedAt || new Date().toISOString()),
+        social: {
+          seatedPlayerCount: seatsFilled,
+          adminCount: 0,
+          knownPlayersCount: activePlayers.length
+        }
+      };
+      const existing = games.get(gameId);
+      const openTables = [...(existing?.openTables ?? []), table];
+      games.set(gameId, {
+        id: gameId,
+        name: gameName,
+        maxSeats,
+        collectionMode: table.collectionMode,
+        openTables,
+        waitlistCount: (existing?.waitlistCount ?? 0) + sessionWaitlist.length,
+        formingCount: openTables.filter((openTable) => openTable.status === 'Forming').length,
+        availableSeats: openTables.reduce((sum, openTable) => sum + openTable.availableSeats, 0),
+        knownPlayersCount: openTables.reduce((sum, openTable) => sum + openTable.social.knownPlayersCount, 0),
+        updatedAt: String(raw.updatedAt || raw.timeStarted || '')
+      });
+    });
+
+  return Array.from(games.values());
+}
+
+function getSessionActivityTime(raw: Record<string, any>) {
+  const timestamp = Date.parse(String(raw.updatedAt || raw.timeStarted || raw.startedAt || ''));
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function isFreshActiveSession(raw: Record<string, any>) {
+  const activityTime = getSessionActivityTime(raw);
+  return activityTime > 0 && Date.now() - activityTime <= activeSessionFreshnessWindowMs;
+}
+
 async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: Pick<PlayerAccount, 'id' | 'name'>) {
   const club = clubDoc.data() as PublishedClubRecord;
   if (!isPlayerVisibleClubName(club.name)) throw new Error(`Club ${clubDoc.id} is not player-visible.`);
@@ -839,7 +970,7 @@ async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: 
   );
   const committedGames = selectCommittedGames(
     club,
-    games.docs.map((gameDoc) => normalizePublishedGame(gameDoc.data(), gameDoc.id))
+    normalizePublishedGames(games.docs)
   );
   if (!committedGames) {
     throw new Error(`${club.name || clubDoc.id} is publishing a newer game revision.`);
@@ -857,6 +988,7 @@ async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: 
       name: club.name || 'Local Poker Club',
       address: club.address,
       phone: club.phone,
+      membershipOptions: club.membershipOptions,
       syncProtocolVersion: club.syncProtocolVersion,
       syncRevision: club.syncRevision,
       publishedAt: club.publishedAt ?? club.savedAt
@@ -902,6 +1034,7 @@ function buildPublishedClubSnapshot(
         name: club.name || 'Local Poker Club',
         address: club.address,
         phone: club.phone,
+        membershipOptions: club.membershipOptions,
         syncProtocolVersion: club.syncProtocolVersion,
         syncRevision: club.syncRevision,
         publishedAt: club.publishedAt ?? club.savedAt

@@ -162,6 +162,8 @@ type PlayerProfile = {
   membershipStatus?: 'Requested' | 'Approved' | 'Active' | 'Expired';
   membershipRequestedAt?: string;
   membershipPriceLabel?: string;
+  membershipPlanName?: string;
+  membershipDurationDays?: number;
   totalTimePlayedHours: number;
   lastSessionTimePlayedHours: number;
   commonlyPlaysWithProfileIds: string[];
@@ -2475,7 +2477,7 @@ function App() {
   const [qrScanAttempt, setQrScanAttempt] = useState(0);
   const qrVideoRef = useRef<HTMLVideoElement | null>(null);
   const qrScannerControlsRef = useRef<IScannerControls | null>(null);
-  const [playerSection, setPlayerSection] = useState<'memberships' | 'today'>('memberships');
+  const [playerSection, setPlayerSection] = useState<'memberships' | 'requests' | 'today'>('memberships');
   const [settingsSection, setSettingsSection] = useState<'club' | 'staff' | 'tables' | 'data' | 'display'>('club');
   const [reportMode, setReportMode] = useState<'kpis' | 'night' | 'close'>('kpis');
   const [nightCloseActuals, setNightCloseActuals] = useState<Record<string, string>>({});
@@ -2642,6 +2644,10 @@ function App() {
   );
   const approvedMembershipProfiles = useMemo(
     () => filteredProfiles.filter((profile) => profile.membershipStatus === 'Approved'),
+    [filteredProfiles]
+  );
+  const membershipDirectoryProfiles = useMemo(
+    () => filteredProfiles.filter((profile) => profile.membershipStatus !== 'Requested' && profile.membershipStatus !== 'Approved'),
     [filteredProfiles]
   );
   const todayPlayerActivity = useMemo<TodayPlayerRow[]>(() => {
@@ -2905,6 +2911,47 @@ function App() {
       window.clearInterval(timer);
     };
   }, [activeAccountKey, hasAuthenticated]);
+
+  useEffect(() => {
+    if (!hasAuthenticated || !activeAccountKey || !window.tableManagerDesktop || !state.settings.pilotAccess) return;
+    let cancelled = false;
+    let syncInFlight = false;
+
+    const syncDesktopApiUpdates = async () => {
+      if (syncInFlight) return;
+      syncInFlight = true;
+      try {
+        const record = await window.tableManagerDesktop?.loadStateForAccount(state.settings.pilotAccess!);
+        if (cancelled || !record?.state) return;
+        const remoteState = normalizeState(record.state);
+        const latestState = stateRef.current;
+        const sameProfiles = JSON.stringify(remoteState.profiles) === JSON.stringify(latestState.profiles);
+        const sameInterests = JSON.stringify(remoteState.interests) === JSON.stringify(latestState.interests);
+        if (sameProfiles && sameInterests) return;
+
+        announceIncomingPlayerRequest(latestState, remoteState);
+        const mergedState: AppState = {
+          ...latestState,
+          profiles: mergeSyncedList(latestState.profiles, remoteState.profiles),
+          interests: mergeSyncedList(latestState.interests, remoteState.interests)
+        };
+        stateRef.current = mergedState;
+        setState(mergedState);
+        setSaveStatus({ state: 'saved', message: 'Player app updates synced' });
+      } catch {
+        // The existing Firebase listener remains available if the API is offline.
+      } finally {
+        syncInFlight = false;
+      }
+    };
+
+    void syncDesktopApiUpdates();
+    const timer = window.setInterval(() => void syncDesktopApiUpdates(), 3_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeAccountKey, hasAuthenticated, state.settings.pilotAccess?.licenseId]);
 
   useEffect(() => {
     if (!activeAccountKey) return;
@@ -4625,7 +4672,7 @@ function App() {
       setProfileFormMessage(`Approve ${profile.name}'s application before activating the membership.`);
       return;
     }
-    const membership = createMembershipWindow(profile.membershipPlan || 'monthly');
+    const membership = createMembershipWindow(profile.membershipPlan || 'monthly', new Date(), profile.membershipDurationDays);
     const { startedAt, expiresAt } = membership;
     const amount = parseMembershipPrice(profile.membershipPriceLabel);
     const activatedAt = startedAt.toISOString();
@@ -7052,7 +7099,13 @@ function App() {
   }
 
   if (route === 'builder') {
-    const getGameFormat = (name: string) => /plo|omaha/i.test(name) ? 'Omaha' : /hold|nlh/i.test(name) ? 'Hold’em' : /mixed|mix/i.test(name) ? 'Mixed' : 'Other';
+    const getGameFormat = (name: string) =>
+      /\broe\b|round of each/i.test(name) ? 'ROE'
+      : /\bdc\b|dealer.?s choice/i.test(name) ? 'Dealer’s Choice'
+      : /\bplo\b|omaha/i.test(name) ? 'PLO'
+      : /\bnlh\b|hold.?em/i.test(name) ? 'NLH'
+      : /mixed|mix/i.test(name) ? 'Mixed'
+      : 'Other';
     const getGameStakes = (name: string) => name.match(/\d+\s*\/\s*\d+/)?.[0]?.replace(/\s/g, '') ?? 'Unspecified';
     const getGameStatus = (game: GameConfig) => {
       if (state.sessions.some((session) => session.gameId === game.id && session.status === 'Running')) return 'Running';
@@ -7091,6 +7144,48 @@ function App() {
           <label><span>Stakes</span><select value={gameStakesFilter} onChange={(event) => setGameStakesFilter(event.target.value)}>{gameStakes.map((stakes) => <option key={stakes}>{stakes}</option>)}</select></label>
           <label><span>Format</span><select value={gameFormatFilter} onChange={(event) => setGameFormatFilter(event.target.value)}>{gameFormats.map((format) => <option key={format}>{format}</option>)}</select></label>
           <label><span>Status</span><select value={gameStatusFilter} onChange={(event) => setGameStatusFilter(event.target.value)}>{['All statuses', 'Running', 'Ready', 'Needs players'].map((status) => <option key={status}>{status}</option>)}</select></label>
+        </section>
+
+        <section className="panel">
+          <div className="section-heading">
+            <div>
+              <h2>Player Game Requests</h2>
+              <p className="muted-copy">Member interest by exact stakes and format. Build a forming table when demand is ready.</p>
+            </div>
+          </div>
+          <div className="forming-list">
+            {state.games
+              .map((game) => ({ game, demand: getDemand(game, state.interests) }))
+              .filter(({ demand }) => demand.interested + demand.confirmed + demand.waiting > 0)
+              .sort((left, right) => right.demand.totalDemand - left.demand.totalDemand)
+              .map(({ game, demand }) => {
+                const activeSession = state.sessions.find((session) => session.gameId === game.id && ['Running', 'Forming', 'Paused'].includes(session.status));
+                const viability = getViabilityState(state, game);
+                return (
+                  <article className="forming-card" key={`request-${game.id}`}>
+                    <div>
+                      <strong>{game.name}</strong>
+                      <span className={`status-pill ${viability.state === 'Ready to Start' || viability.state === 'Likely to Start' ? 'likely' : ''}`}>
+                        {activeSession ? activeSession.status : viability.state}
+                      </span>
+                    </div>
+                    <p>{demand.interested} interested / {demand.confirmed} coming / {demand.inRoom} in room</p>
+                    <small>{viability.nextStep}</small>
+                    {!activeSession ? (
+                      <button className="secondary-button" onClick={() => addSession(game.id)}>
+                        Build {game.name}
+                      </button>
+                    ) : (
+                      <small>{activeSession.label} is already {activeSession.status.toLowerCase()}.</small>
+                    )}
+                  </article>
+                );
+              })}
+            {!state.games.some((game) => {
+              const demand = getDemand(game, state.interests);
+              return demand.interested + demand.confirmed + demand.waiting > 0;
+            }) ? <p className="muted-copy">No member game requests yet.</p> : null}
+          </div>
         </section>
 
         <section className="panel">
@@ -7286,7 +7381,10 @@ function App() {
 
         <nav className="route-tabs players-section-tabs" aria-label="Player sections">
           <button className={playerSection === 'memberships' ? 'active' : ''} onClick={() => setPlayerSection('memberships')}>
-            Memberships <span>{activeMemberProfiles.length + pendingMembershipProfiles.length + approvedMembershipProfiles.length}</span>
+            Memberships <span>{membershipDirectoryProfiles.length}</span>
+          </button>
+          <button className={playerSection === 'requests' ? 'active' : ''} onClick={() => setPlayerSection('requests')}>
+            Requests <span>{pendingMembershipProfiles.length + approvedMembershipProfiles.length}</span>
           </button>
           <button className={playerSection === 'today' ? 'active' : ''} onClick={() => setPlayerSection('today')}>
             Today <span>{todayPlayerActivity.length}</span>
@@ -7313,44 +7411,6 @@ function App() {
           </div>
         </section>
 
-        {pendingMembershipProfiles.length ? (
-          <section className="panel pending-membership-panel">
-            <PanelTitle icon={<Bell />} title="New membership requests" />
-            <p className="muted-copy">Review the application. Approval tells the player to bring ID and pay the club at the front desk.</p>
-            <div className="pending-membership-list">
-              {pendingMembershipProfiles.map((profile) => (
-                <article className="duplicate-card" key={profile.id}>
-                  <span>
-                    <strong>{profile.name}</strong> · {profile.membershipPlan === 'day' ? 'Day pass' : 'Monthly membership'}
-                    {profile.membershipPriceLabel ? ` · ${profile.membershipPriceLabel}` : ''}
-                    {profile.phone ? <small>{profile.phone}</small> : null}
-                  </span>
-                  <button className="primary-button" onClick={() => approveMembershipRequest(profile)}>Approve application</button>
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        {approvedMembershipProfiles.length ? (
-          <section className="panel pending-membership-panel approved-membership-panel">
-            <PanelTitle icon={<BadgeCheck />} title="Approved — awaiting arrival" />
-            <p className="muted-copy">At the front desk, check the player’s ID, collect the club’s fee, then activate the membership.</p>
-            <div className="pending-membership-list">
-              {approvedMembershipProfiles.map((profile) => (
-                <article className="duplicate-card" key={profile.id}>
-                  <span>
-                    <strong>{profile.name}</strong> · {profile.membershipPlan === 'day' ? 'Day pass' : 'Monthly membership'}
-                    {profile.membershipPriceLabel ? ` · ${profile.membershipPriceLabel}` : ''}
-                    {profile.phone ? <small>{profile.phone}</small> : null}
-                  </span>
-                  <button className="primary-button" onClick={() => activateInPersonMembership(profile)}>Verify ID, mark paid &amp; activate</button>
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
         <section className="profiles-layout">
           <section className="panel profile-directory-panel">
             <PanelTitle icon={<Users />} title="Player Directory" />
@@ -7360,7 +7420,7 @@ function App() {
                 onChange={(event: { target: { value: any; }; }) => setProfileSearch(event.target.value)}
                 placeholder="Search players, stakes, companions, notes"
               />
-              <span>{activeMemberProfiles.length} active shown</span>
+              <span>{membershipDirectoryProfiles.length} members shown</span>
             </div>
             {duplicateProfiles.length ? (
               <div className="duplicate-list">
@@ -7375,7 +7435,7 @@ function App() {
               </div>
             ) : null}
             <div className="profile-grid">
-              {activeMemberProfiles.map((profile) => {
+              {membershipDirectoryProfiles.map((profile) => {
                 const preferredGame = state.games.find((game) => game.id === profile.preferredGameId)?.name ?? profile.preferredStakes;
                 const gamePlayEntries = getGamePlayEntries(profile);
                 const mostPlayedGame = getMostPlayedGameName(profile);
@@ -7531,7 +7591,7 @@ function App() {
                   </article>
                 );
               })}
-              {!activeMemberProfiles.length ? <p className="muted-copy">No matching active memberships.</p> : null}
+              {!membershipDirectoryProfiles.length ? <p className="muted-copy">No matching memberships.</p> : null}
             </div>
           </section>
 
@@ -7694,7 +7754,56 @@ function App() {
             </section>
           </div>
         </section>
-        </> : (
+        </> : playerSection === 'requests' ? (
+          <section className="profiles-layout membership-requests-layout">
+            <section className="panel pending-membership-panel">
+              <PanelTitle
+                icon={<Bell />}
+                title={`New membership requests (${pendingMembershipProfiles.length})`}
+              />
+              <div className="pending-membership-list">
+                {pendingMembershipProfiles.map((profile) => (
+                  <article className="duplicate-card" key={profile.id}>
+                    <span>
+                      <strong>{profile.name}</strong> · {profile.membershipPlanName || 'Membership application'}
+                      {profile.membershipPriceLabel ? ` · ${profile.membershipPriceLabel}` : ''}
+                      {profile.phone ? <small>{profile.phone}</small> : null}
+                    </span>
+                    <button className="primary-button" onClick={() => approveMembershipRequest(profile)}>Approve application</button>
+                  </article>
+                ))}
+                {!pendingMembershipProfiles.length ? (
+                  <div className="player-popup-empty">
+                    <strong>No new requests</strong>
+                    <span>Membership applications submitted from Orbit Player will appear here.</span>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="panel pending-membership-panel approved-membership-panel">
+              <PanelTitle icon={<BadgeCheck />} title={`Approved — awaiting arrival (${approvedMembershipProfiles.length})`} />
+              <p className="muted-copy">Verify the player’s ID and payment at the front desk before activation.</p>
+              <div className="pending-membership-list">
+                {approvedMembershipProfiles.map((profile) => (
+                  <article className="duplicate-card" key={profile.id}>
+                    <span>
+                      <strong>{profile.name}</strong> · {profile.membershipPlanName || (profile.membershipPlan === 'day' ? 'Day pass' : 'Monthly membership')}
+                      {profile.membershipPriceLabel ? ` · ${profile.membershipPriceLabel}` : ''}
+                      {profile.phone ? <small>{profile.phone}</small> : null}
+                    </span>
+                    <button className="primary-button" onClick={() => activateInPersonMembership(profile)}>Verify ID, mark paid &amp; activate</button>
+                  </article>
+                ))}
+                {!approvedMembershipProfiles.length ? (
+                  <div className="player-popup-empty">
+                    <strong>No approved requests awaiting arrival</strong>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          </section>
+        ) : (
           <section className="panel today-players-panel">
             <div className="today-players-heading">
               <div>

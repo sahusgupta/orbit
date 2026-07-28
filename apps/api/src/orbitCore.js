@@ -55,7 +55,7 @@ function getMembershipWindow(request) {
   const active = paymentMethod !== 'in-person';
   const start = new Date(requestedAt);
   const expires = new Date(start);
-  expires.setDate(expires.getDate() + (plan === 'day' ? 1 : 30));
+  expires.setDate(expires.getDate() + (Number.isFinite(Number(request.membershipDurationDays)) ? Math.max(1, Number(request.membershipDurationDays)) : plan === 'day' ? 1 : 30));
   return {
     plan,
     paymentMethod,
@@ -192,7 +192,10 @@ function buildPlayerClubSnapshot(state, player = {}) {
       id: clubId,
       name: account.clubName || 'Local Poker Club',
       address: account.address,
-      phone: account.phone
+      phone: account.phone,
+      membershipOptions: (state.settings?.membershipPlans || [])
+        .filter((plan) => plan.active !== false)
+        .map(({ id, name, priceLabel, durationDays, description }) => ({ id, name, priceLabel, durationDays, description }))
     },
     games: (state.games || []).map((game) => {
       const openTables = tables.filter((table) => table.gameId === game.id);
@@ -251,6 +254,8 @@ function applyMembershipRequestToState(state, request) {
               membershipStatus: membership.status,
               membershipRequestedAt: membership.requestedAt,
               membershipPriceLabel: request.priceLabel,
+              membershipPlanName: request.planName,
+              membershipDurationDays: request.membershipDurationDays,
               preferredGameId: player.preferredGameIds?.[0] || profile.preferredGameId,
               preferredGameIds: mergeUnique([...(profile.preferredGameIds || []), ...(player.preferredGameIds || [])]),
               preferredStakes: player.preferredStakes || profile.preferredStakes,
@@ -282,6 +287,8 @@ function applyMembershipRequestToState(state, request) {
         membershipStatus: membership.status,
         membershipRequestedAt: membership.requestedAt,
         membershipPriceLabel: request.priceLabel,
+        membershipPlanName: request.planName,
+        membershipDurationDays: request.membershipDurationDays,
         totalTimePlayedHours: 0,
         lastSessionTimePlayedHours: 0,
         commonlyPlaysWithProfileIds: [],

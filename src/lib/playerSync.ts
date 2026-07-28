@@ -14,6 +14,15 @@ export type PlayerSyncClub = {
   name: string;
   phone?: string;
   address?: string;
+  membershipOptions?: PlayerMembershipOption[];
+};
+
+export type PlayerMembershipOption = {
+  id: string;
+  name: string;
+  priceLabel: string;
+  durationDays: number;
+  description?: string;
 };
 
 export type PlayerAccount = {
@@ -224,6 +233,8 @@ type ManagementProfile = {
   membershipStatus?: 'Requested' | 'Approved' | 'Active' | 'Expired';
   membershipRequestedAt?: string;
   membershipPriceLabel?: string;
+  membershipPlanName?: string;
+  membershipDurationDays?: number;
   totalTimePlayedHours?: number;
   lastSessionTimePlayedHours?: number;
   commonlyPlaysWithProfileIds?: string[];
@@ -275,6 +286,7 @@ type ManagementClubState = {
       authorizationCode?: string;
     };
     staffAccounts?: ManagementStaffAccount[];
+    membershipPlans?: Array<PlayerMembershipOption & { active?: boolean }>;
   };
 };
 
@@ -393,7 +405,10 @@ export function buildPlayerClubSnapshot(
       id: clubId,
       name: account?.clubName || 'Local Poker Club',
       address: account?.address,
-      phone: account?.phone
+      phone: account?.phone,
+      membershipOptions: (state.settings?.membershipPlans ?? [])
+        .filter((plan) => plan.active !== false)
+        .map(({ id, name, priceLabel, durationDays, description }) => ({ id, name, priceLabel, durationDays, description }))
     },
     games: state.games.map((game) => {
       const openTables = tables.filter((table) => table.gameId === game.id);
@@ -538,6 +553,8 @@ export function applyMembershipRequestToClubState(
               membershipStatus: activatesImmediately ? 'Active' : 'Requested',
               membershipRequestedAt: request.requestedAt,
               membershipPriceLabel: request.priceLabel,
+              membershipPlanName: request.planName,
+              membershipDurationDays: request.membershipDurationDays,
               preferredGameId: preferredGameIds[0] ?? profile.preferredGameId,
               preferredGameIds: mergeUnique([...(profile.preferredGameIds ?? []), ...preferredGameIds]),
               preferredStakes: request.player.preferredStakes ?? profile.preferredStakes,
@@ -567,6 +584,8 @@ export function applyMembershipRequestToClubState(
         membershipStatus: activatesImmediately ? 'Active' : 'Requested',
         membershipRequestedAt: request.requestedAt,
         membershipPriceLabel: request.priceLabel,
+        membershipPlanName: request.planName,
+        membershipDurationDays: request.membershipDurationDays,
         totalTimePlayedHours: 0,
         lastSessionTimePlayedHours: 0,
         commonlyPlaysWithProfileIds: [],

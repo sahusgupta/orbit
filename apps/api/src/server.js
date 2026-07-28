@@ -27,6 +27,7 @@ const {
   applyMembershipRequestToState,
   applyWaitlistRequestToState,
   buildPlayerClubSnapshot,
+  getAccountKeyFromState,
   sanitizeAccountKey
 } = require('./orbitCore');
 const { getFirebasePublisherStatus, publishStateToFirebase } = require('./firebasePublisher');
@@ -56,24 +57,80 @@ app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), handleSt
 app.post('/webhooks/revenuecat', express.json({ limit: '256kb' }), asyncRoute(handleRevenueCatWebhook));
 app.use(express.json({ limit: '2mb' }));
 app.use((request, response, next) => {
-  const started = Date.now();
   const requestId = request.get('x-orbit-request-id') || crypto.randomUUID();
   request.orbitRequestId = requestId;
   response.set('x-orbit-request-id', requestId);
-  response.on('finish', () => {
-    console.log(JSON.stringify({
-      timestamp: new Date().toISOString(),
-      event: 'api-request',
-      requestId,
-      method: request.method,
-      pathname: request.path,
-      status: response.statusCode,
-      durationMs: Date.now() - started,
-      authType: request.orbitAuth?.type || 'none'
-    }));
-  });
   next();
 });
+
+function logDomainChange(event, details = {}) {
+  console.log(`[orbit-api] ${JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: 'info',
+    event,
+    ...details
+  })}`);
+}
+
+function logStateChanges(previousState, nextState, accountKey) {
+  if (!previousState) {
+    logDomainChange('core-connected', { accountKey });
+    return;
+  }
+  const previousProfiles = new Map((previousState.profiles || []).map((profile) => [profile.id, profile]));
+  const previousSessions = new Map((previousState.sessions || []).map((session) => [session.id, session]));
+  const previousInterests = new Set((previousState.interests || []).map((interest) => interest.id));
+
+  for (const profile of nextState.profiles || []) {
+    const previous = previousProfiles.get(profile.id);
+    if (!previous) {
+      logDomainChange('player-added', { accountKey, playerId: profile.id, playerName: profile.name || 'Player' });
+    } else if (previous.membershipStatus !== profile.membershipStatus) {
+      logDomainChange('membership-status-changed', {
+        accountKey,
+        playerId: profile.id,
+        playerName: profile.name || 'Player',
+        from: previous.membershipStatus || 'None',
+        to: profile.membershipStatus || 'None'
+      });
+    }
+  }
+
+  for (const session of nextState.sessions || []) {
+    const previous = previousSessions.get(session.id);
+    if (!previous) {
+      logDomainChange('game-formed', {
+        accountKey,
+        sessionId: session.id,
+        gameId: session.gameId,
+        table: session.label || '',
+        status: session.status || ''
+      });
+    } else if (previous.status !== session.status) {
+      logDomainChange('game-status-changed', {
+        accountKey,
+        sessionId: session.id,
+        gameId: session.gameId,
+        table: session.label || '',
+        from: previous.status || '',
+        to: session.status || ''
+      });
+    }
+  }
+
+  for (const interest of nextState.interests || []) {
+    if (!previousInterests.has(interest.id)) {
+      logDomainChange('game-request-added', {
+        accountKey,
+        requestId: interest.id,
+        playerId: interest.profileId || '',
+        playerName: interest.playerName || 'Player',
+        gameId: interest.gameId,
+        status: interest.status || ''
+      });
+    }
+  }
+}
 
 function getReceivedApiKey(request) {
   return (
@@ -200,6 +257,9 @@ app.get('/player/identity/status', requireFirebasePlayer, asyncRoute(getPlayerId
 app.post('/player/identity/session', requireFirebasePlayer, asyncRoute(createPlayerIdentitySession));
 app.delete('/player/identity', requireFirebasePlayer, asyncRoute(deletePlayerIdentity));
 app.post('/player/membership-checkout', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(createMembershipCheckout));
+app.get('/player/snapshot', requireFirebasePlayer, asyncRoute(handlePlayerSnapshot));
+app.post('/player/membership-requests', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handlePlayerMembershipRequest));
+app.post('/player/waitlist-requests', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handlePlayerWaitlistRequest));
 
 app.get('/dashboard', requireDashboardAuth, (_request, response) => {
   response.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));
@@ -317,7 +377,10 @@ app.get('/venues/:venueId/clients', requireOwnerApiKey, (request, response) => {
 
 app.post('/state', asyncRoute(async (request, response) => {
   const state = request.body?.state || request.body;
+  const accountKey = getAccountKeyFromState(state);
+  const previous = loadState(accountKey);
   const result = saveState(state);
+  logStateChanges(previous?.state, state, result.accountKey);
   const firebase = await publishStateForResponse(state);
   response.status(201).json({ ok: true, ...result, firebase });
 }));
@@ -340,7 +403,7 @@ app.get('/state/:venueId', (request, response) => {
   response.json({ ok: true, ...record });
 });
 
-app.get('/player/snapshot', (request, response) => {
+async function handlePlayerSnapshot(request, response) {
   const accountKey = sanitizeAccountKey(request.query.accountKey || request.query.venueId || '');
   const record = accountKey ? loadState(accountKey) : loadLatestState();
   if (!record?.state) {
@@ -348,8 +411,8 @@ app.get('/player/snapshot', (request, response) => {
     return;
   }
   const player = {
-    id: request.query.playerId || '',
-    name: request.query.playerName || ''
+    id: request.orbitPlayer.uid,
+    name: request.query.playerName || request.orbitPlayer.name || ''
   };
   response.json({
     ok: true,
@@ -357,41 +420,72 @@ app.get('/player/snapshot', (request, response) => {
     savedAt: record.savedAt,
     snapshot: buildPlayerClubSnapshot(record.state, player)
   });
-});
+}
 
-app.post('/player/membership-requests', asyncRoute(async (request, response) => {
-  const record = loadState(request.body?.clubId);
+async function handlePlayerMembershipRequest(request, response) {
+  const requestPayload = {
+    ...request.body,
+    player: {
+      ...(request.body?.player || {}),
+      id: request.orbitPlayer.uid,
+      email: request.orbitPlayer.email || request.body?.player?.email || ''
+    }
+  };
+  const record = loadState(requestPayload.clubId);
   if (!record?.state) {
     response.status(404).json({ ok: false, error: 'No matching club database was found for this membership request.' });
     return;
   }
-  const nextState = applyMembershipRequestToState(record.state, request.body);
+  const nextState = applyMembershipRequestToState(record.state, requestPayload);
   const result = saveState(nextState);
+  logDomainChange('membership-request-sent', {
+    accountKey: result.accountKey,
+    requestId: requestPayload.id,
+    playerId: requestPayload.player.id,
+    playerName: requestPayload.player.name || 'Player',
+    planId: requestPayload.planId || '',
+    planName: requestPayload.planName || requestPayload.plan || ''
+  });
   const firebase = await publishStateForResponse(nextState);
   response.status(201).json({
     ok: true,
     ...result,
     firebase,
-    snapshot: buildPlayerClubSnapshot(nextState, request.body?.player)
+    snapshot: buildPlayerClubSnapshot(nextState, requestPayload.player)
   });
-}));
+}
 
-app.post('/player/waitlist-requests', asyncRoute(async (request, response) => {
-  const record = loadState(request.body?.clubId);
+async function handlePlayerWaitlistRequest(request, response) {
+  const requestPayload = {
+    ...request.body,
+    player: {
+      ...(request.body?.player || {}),
+      id: request.orbitPlayer.uid,
+      email: request.orbitPlayer.email || request.body?.player?.email || ''
+    }
+  };
+  const record = loadState(requestPayload.clubId);
   if (!record?.state) {
     response.status(404).json({ ok: false, error: 'No matching club database was found for this waitlist request.' });
     return;
   }
-  const nextState = applyWaitlistRequestToState(record.state, request.body);
+  const nextState = applyWaitlistRequestToState(record.state, requestPayload);
   const result = saveState(nextState);
+  logDomainChange(requestPayload.action === 'cancel' ? 'game-request-cancelled' : 'game-request-sent', {
+    accountKey: result.accountKey,
+    requestId: requestPayload.id,
+    playerId: requestPayload.player.id,
+    playerName: requestPayload.player.name || 'Player',
+    gameId: requestPayload.gameId
+  });
   const firebase = await publishStateForResponse(nextState);
   response.status(201).json({
     ok: true,
     ...result,
     firebase,
-    snapshot: buildPlayerClubSnapshot(nextState, request.body?.player)
+    snapshot: buildPlayerClubSnapshot(nextState, requestPayload.player)
   });
-}));
+}
 
 app.post('/analytical-reports', asyncRoute(async (request, response) => {
   response.status(201).json(storeAnalyticalReport(request.body));

@@ -8144,3 +8144,113 @@ body.low-light .today-membership.active {
     grid-template-columns: 1fr;
   }
 }
+
+/* Responsive density for smaller desktop and laptop displays. */
+.orbit-shell { --orbit-page-gutter: clamp(18px, 2.25vw, 32px); }
+.orbit-shell .app-shell { max-width: 1600px; padding: var(--orbit-page-gutter); }
+.orbit-shell main,
+.orbit-shell main > *,
+.orbit-shell .panel,
+.orbit-shell .profiles-layout,
+.orbit-shell .customization-layout { min-width: 0; }
+
+@media (max-width: 1360px), (max-height: 820px) {
+  .orbit-shell { --sidebar-width: 212px; --orbit-page-gutter: 20px; }
+  .orbit-shell.sidebar-collapsed { --sidebar-width: 64px; }
+  .orbit-sidebar { padding: 12px 10px; }
+  .orbit-sidebar-nav button { min-height: 36px; }
+  .orbit-command-trigger { margin: 12px 0 9px; min-height: 36px; }
+  .orbit-shell .topbar { margin-bottom: 18px; }
+  .topbar h1 { font-size: clamp(1.45rem, 2.2vw, 2rem); }
+  .page-subtitle { font-size: .8rem; }
+  .floor-summary-bar,
+  .route-tabs,
+  .report-mode-switch { margin-bottom: 18px; }
+  .orbit-shell main:has(.settings-nav),
+  .reports-mode-kpis { gap: 0 20px; grid-template-columns: 150px minmax(0, 1fr); }
+  .settings-nav button,
+  .metric-category-menu button { padding: 9px 10px; }
+  .owner-summary-grid,
+  .dashboard-kpi-grid,
+  .cash-ledger-summary,
+  .night-close-totals { gap: 10px; }
+}
+
+@media (max-width: 1120px) {
+  .orbit-shell { --sidebar-width: 72px; }
+  .orbit-sidebar-brand span,
+  .orbit-command-trigger span,
+  .orbit-command-trigger kbd,
+  .orbit-sidebar-nav span,
+  .orbit-sidebar-footer { display: none; }
+  .orbit-sidebar-brand { grid-template-columns: 32px 28px; }
+  .orbit-command-trigger,
+  .orbit-sidebar-nav button { justify-content: center; padding-inline: 0; }
+  .orbit-shell main:has(.settings-nav),
+  .reports-mode-kpis { display: block; }
+  .settings-nav,
+  .metric-category-menu {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    position: static;
+    scrollbar-width: thin;
+  }
+  .settings-nav button,
+  .metric-category-menu button {
+    border-bottom: 2px solid transparent;
+    border-left: 0;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .settings-nav button.active,
+  .metric-category-menu button.active { border-bottom-color: var(--primary); }
+  .route-tabs,
+  .report-mode-switch { overflow-x: auto; }
+  .game-filter-bar,
+  .player-popup-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 900px) {
+  .orbit-shell { --orbit-page-gutter: clamp(14px, 3vw, 20px); }
+  .orbit-sidebar-brand span,
+  .orbit-command-trigger span,
+  .orbit-command-trigger kbd,
+  .orbit-sidebar-nav span,
+  .orbit-sidebar-footer { display: initial; }
+  .orbit-sidebar-brand { grid-template-columns: 32px minmax(0, 1fr) 28px; }
+  .orbit-command-trigger,
+  .orbit-sidebar-nav button { justify-content: flex-start; padding-inline: 10px; }
+  .staff-request-notice { margin-inline: var(--orbit-page-gutter); width: auto; }
+  .topbar,
+  .topbar-actions,
+  .staff-request-notice { align-items: stretch; }
+  .topbar-actions { flex-wrap: wrap; }
+}
+
+@media (max-width: 680px) {
+  .route-tabs,
+  .report-mode-switch { display: flex; padding: 4px; }
+  .route-tabs button,
+  .report-mode-switch button { flex: 1 0 max-content; min-width: 104px; }
+  .game-filter-bar,
+  .player-popup-form-grid,
+  .membership-qr-manual { grid-template-columns: 1fr; }
+  .staff-request-notice,
+  .staff-request-notice-copy,
+  .staff-request-notice-actions { align-items: stretch; display: grid; }
+  .staff-request-notice-actions { grid-template-columns: 1fr auto; }
+  .player-popup-content,
+  .waitlist-popup-content {
+    border-radius: 10px;
+    max-height: calc(100dvh - 20px);
+    width: calc(100vw - 20px);
+  }
+  .player-popup-form,
+  .player-popup-header,
+  .waitlist-popup-header { padding: 16px; }
+  .waitlist-popup-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .waitlist-popup-row > :last-child { grid-column: 1 / -1; width: 100%; }
+}

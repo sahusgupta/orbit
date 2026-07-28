@@ -17,6 +17,15 @@ export type PlayerSyncClub = {
   syncProtocolVersion?: number;
   syncRevision?: string;
   publishedAt?: string;
+  membershipOptions?: PlayerMembershipOption[];
+};
+
+export type PlayerMembershipOption = {
+  id: string;
+  name: string;
+  priceLabel: string;
+  durationDays: number;
+  description?: string;
 };
 
 export type PlayerAccount = {
@@ -230,6 +239,10 @@ export type PlayerMembershipRequest = {
   plan: 'day' | 'monthly';
   paymentMethod: 'app' | 'in-person';
   priceLabel?: string;
+  planId?: string;
+  planName?: string;
+  planPriceLabel?: string;
+  membershipDurationDays?: number;
   requestedAt: string;
 };
 
@@ -276,7 +289,14 @@ export function createMembershipRequest(
   player: PlayerAccount,
   clubId: string,
   requestedAt = new Date().toISOString(),
-  options: { plan?: 'day' | 'monthly'; paymentMethod?: 'app' | 'in-person'; priceLabel?: string } = {}
+  options: {
+    plan?: 'day' | 'monthly';
+    paymentMethod?: 'app' | 'in-person';
+    priceLabel?: string;
+    planId?: string;
+    planName?: string;
+    membershipDurationDays?: number;
+  } = {}
 ): PlayerMembershipRequest {
   return {
     id: requestId('join', `${clubId}-${player.email || player.id}`, requestedAt),
@@ -286,6 +306,10 @@ export function createMembershipRequest(
     plan: options.plan ?? 'monthly',
     paymentMethod: options.paymentMethod ?? 'app',
     priceLabel: options.priceLabel,
+    planId: options.planId,
+    planName: options.planName,
+    planPriceLabel: options.priceLabel,
+    membershipDurationDays: options.membershipDurationDays,
     requestedAt
   };
 }

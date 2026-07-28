@@ -21,6 +21,7 @@ import {
   type PlayerClubMembershipRecord,
   type PlayerClubSnapshot,
   type PlayerInAppNotification,
+  type PlayerMembershipOption,
   type PlayerPrivateGameListing,
   type PlayerSyncGame,
   type PlayerTournament,
@@ -185,6 +186,7 @@ const emptyIdentityStatus: PlayerIdentityStatus = {
 };
 const legacyPlayerStorageKeys = ['tabletalk-player-account-v1', 'tabletalk-player-account-v2'];
 const playerStorageKey = 'orbit-player-account-v1';
+const dismissedAlertsStorageKey = 'orbit-player-dismissed-alerts-v1';
 const googleSignInReadyStatus = 'Connect Google or use email/password to register and sync your player profile.';
 const defaultPremiumMonthlyPriceLabel = '$12.99/month';
 const supportPhone = '346-434-1402';
@@ -213,6 +215,7 @@ export default function PlayerApp() {
   const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>('none');
   const [fitScoreFilterEnabled, setFitScoreFilterEnabled] = useState(false);
   const [showDiscoveryFilters, setShowDiscoveryFilters] = useState(false);
+  const [showDiscoverySearch, setShowDiscoverySearch] = useState(false);
   const [showTournamentFilters, setShowTournamentFilters] = useState(false);
   const [showMapFilters, setShowMapFilters] = useState(false);
   const [discoveryDecisions, setDiscoveryDecisions] = useState<Record<string, DiscoveryDecision>>({});
@@ -240,6 +243,7 @@ export default function PlayerApp() {
   const [tournamentMessage, setTournamentMessage] = useState('');
   const [selectedClubId, setSelectedClubId] = useState('');
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
+  const [dismissedAlertsLoaded, setDismissedAlertsLoaded] = useState(false);
   const [firebaseIdentity, setFirebaseIdentity] = useState<FirebasePlayerIdentity | null>(() => getCurrentFirebasePlayer());
   const [identityStatus, setIdentityStatus] = useState<PlayerIdentityStatus>(emptyIdentityStatus);
   const [identityBusy, setIdentityBusy] = useState(false);
@@ -254,8 +258,8 @@ export default function PlayerApp() {
 
   const selectedClub = clubs.find((club) => club.club.id === selectedClubId) ?? clubs[0];
   const activeInAppNotification = useMemo(
-    () => getLatestInAppNotification(clubs, dismissedNotificationIds),
-    [clubs, dismissedNotificationIds]
+    () => dismissedAlertsLoaded ? getLatestInAppNotification(clubs, dismissedNotificationIds) : null,
+    [clubs, dismissedAlertsLoaded, dismissedNotificationIds]
   );
   const memberships = clubs.flatMap((club) => club.memberships.filter((membership) => isPlayerMembership(membership, player)));
   const selectedMembership = selectedClub?.memberships.find((membership) => isPlayerMembership(membership, player));
@@ -376,6 +380,14 @@ export default function PlayerApp() {
     if (!accountLoaded || !hasAccount || !player.name.trim() || !player.email.trim()) return;
     AsyncStorage.setItem(playerStorageKey, JSON.stringify(player)).catch(() => undefined);
   }, [accountLoaded, hasAccount, player]);
+
+  useEffect(() => {
+    if (!accountLoaded || !hasAccount) return;
+    AsyncStorage.getItem(dismissedAlertsStorageKey)
+      .then((stored) => setDismissedNotificationIds(stored ? JSON.parse(stored) : []))
+      .catch(() => setDismissedNotificationIds([]))
+      .finally(() => setDismissedAlertsLoaded(true));
+  }, [accountLoaded, hasAccount]);
 
   useEffect(() => {
     if (!playerPremiumEnabled) return undefined;
@@ -536,6 +548,7 @@ export default function PlayerApp() {
           if (selectedFilterClubId !== 'all' && club.club.id !== selectedFilterClubId) return [];
         }
         return club.games
+          .filter(isActivePlayerGame)
           .filter((game) => !query || `${game.name} ${clubSearchText}`.toLowerCase().includes(query))
           .filter((game) => !stakesQuery || game.name.toLowerCase().includes(stakesQuery))
           .filter((game) => matchesGameTypeFilter(club, game, gameTypeFilter))
@@ -562,6 +575,8 @@ export default function PlayerApp() {
       })
       .filter((item) => !hasLocationFilter || distanceFilter === 'none' || isCasinoClub(item.club) || item.distanceMiles <= distanceFilter || Boolean(query && getClubSearchText(item.club).includes(query)))
       .sort((left, right) => {
+        const activityDifference = getActiveGameActivityTime(right.game) - getActiveGameActivityTime(left.game);
+        if (activityDifference) return activityDifference;
         const leftFavorite = favoriteClubIds.includes(left.club.club.id);
         const rightFavorite = favoriteClubIds.includes(right.club.club.id);
         if (leftFavorite !== rightFavorite) return leftFavorite ? -1 : 1;
@@ -871,12 +886,13 @@ export default function PlayerApp() {
   const requestMembership = async (
     club: PlayerClubSnapshot,
     plan: ClubMembershipPlan = 'monthly',
-    paymentMethod: ClubMembershipPaymentMethod = 'app'
+    paymentMethod: ClubMembershipPaymentMethod = 'app',
+    membershipOption?: PlayerMembershipOption
   ) => {
     setSelectedClubId(club.club.id);
     const prices = getClubMembershipPrices(club);
-    const priceLabel = plan === 'day' ? prices.day : prices.monthly;
-    const request = buildJoinRequest(player, club.club.id, plan, paymentMethod, priceLabel);
+    const priceLabel = membershipOption?.priceLabel ?? (plan === 'day' ? prices.day : prices.monthly);
+    const request = buildJoinRequest(player, club.club.id, plan, paymentMethod, priceLabel, membershipOption);
     if (isSyncConfigured()) {
       setSyncStatus(paymentMethod === 'in-person' ? 'Sending pay-in-person membership request...' : 'Activating membership...');
       const result = await submitMembershipRequest(request);
@@ -889,7 +905,10 @@ export default function PlayerApp() {
         setSyncStatus(`Membership updated with ${result.snapshot.club.name}`);
         return;
       }
-      setSyncStatus(`Saved locally - ${result.error}`);
+      setSyncStatus(`Membership request failed - ${result.error}`);
+      setClubMembershipMessage(`Could not send your application. ${result.error}`);
+      setScreen('clubs');
+      return;
     }
     updateClubSnapshot(club, (snapshot) => applyMembershipRequest(snapshot, request));
     setScreen('clubs');
@@ -917,7 +936,7 @@ export default function PlayerApp() {
     setSeatRequestDraft({
       club,
       game,
-      attendance: game.openTables.length ? 'arrived' : 'interested',
+      attendance: isActivePlayerGame(game) ? 'arrived' : 'interested',
       expectedArrivalTime: '',
       availabilityStartTime: '',
       availabilityEndTime: ''
@@ -1019,6 +1038,23 @@ export default function PlayerApp() {
       const favorites = current.favoriteClubIds ?? [];
       const favoriteClubIds = favorites.includes(clubId) ? favorites.filter((id) => id !== clubId) : [...favorites, clubId];
       return { ...current, favoriteClubIds };
+    });
+  };
+
+  const submitMembershipApplication = async (club: PlayerClubSnapshot, membershipOption?: PlayerMembershipOption) => {
+    if (!player.name.trim() || !isValidEmail(player.email) || !isValidPhoneNumber(player.phone ?? '')) {
+      setClubMembershipMessage('Enter a valid name, email, and phone number.');
+      return;
+    }
+    const plan: ClubMembershipPlan = membershipOption?.durationDays === 1 ? 'day' : 'monthly';
+    await requestMembership(club, plan, 'in-person', membershipOption);
+  };
+
+  const dismissInAppAlert = (notificationId: string) => {
+    setDismissedNotificationIds((current) => {
+      const next = Array.from(new Set([...current, notificationId]));
+      AsyncStorage.setItem(dismissedAlertsStorageKey, JSON.stringify(next)).catch(() => undefined);
+      return next;
     });
   };
 
@@ -1156,14 +1192,14 @@ export default function PlayerApp() {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.safeArea}>
-        <StatusBar style="dark" />
-        <LinearGradient colors={['#fcfcfb', '#f8f8f6', '#f4f5f2']} style={styles.appBackdrop} />
+        <StatusBar style="light" />
+        <LinearGradient colors={['#060c1a', '#0b1020', '#10182b']} style={styles.appBackdrop} />
         <View style={styles.shell}>
           {screen !== 'gameDetails' ? (
             <View style={styles.header}>
               <View>
-                <Text style={styles.eyebrow}>{screen === 'findGames' ? 'Poker near you' : screen === 'clubs' ? 'Your memberships' : screen === 'tournaments' ? 'Upcoming games' : screen === 'map' ? 'Browse nearby' : 'Orbit Player'}</Text>
-                <Text style={styles.title}>{screen === 'clubSignup' || screen === 'clubPayment' ? 'Card House Store' : screen === 'findGames' ? 'Discover' : getScreenTitle(screen)}</Text>
+                <Text style={[styles.eyebrow, styles.darkShellEyebrow]}>{screen === 'findGames' ? 'Poker near you' : screen === 'clubs' ? 'Your memberships' : screen === 'tournaments' ? 'Upcoming games' : screen === 'map' ? 'Browse nearby' : 'Orbit Player'}</Text>
+                <Text style={[styles.title, styles.darkShellTitle]}>{screen === 'clubSignup' || screen === 'clubPayment' ? 'Card House Store' : screen === 'findGames' ? 'Discover' : getScreenTitle(screen)}</Text>
               </View>
               <Pressable
                 accessibilityLabel="Open settings"
@@ -1183,12 +1219,6 @@ export default function PlayerApp() {
           ) : null}
 
           <ScrollView showsVerticalScrollIndicator={screen === 'tournaments' || screen === 'gameDetails'} contentContainerStyle={styles.content}>
-            {activeInAppNotification && screen !== 'gameDetails' && screen !== 'identityVerification' ? (
-              <InAppNotificationBanner
-                notification={activeInAppNotification}
-                onDismiss={() => setDismissedNotificationIds((ids) => [...ids, activeInAppNotification.id])}
-              />
-            ) : null}
             {screen === 'gameDetails' && activeDiscoveryOpportunity ? (
               <GameDetailsScreen
                 key={getOpportunityKey(activeDiscoveryOpportunity)}
@@ -1217,20 +1247,56 @@ export default function PlayerApp() {
             ) : null}
             {screen === 'findGames' && !showHostScreen ? (
               <>
-                <View style={styles.discoveryIntro}>
-                  <View style={styles.discoveryIntroCopy}>
-                    <Text style={styles.discoveryIntroTitle}>Find a game</Text>
-                    <Text style={styles.discoveryIntroBody}>Swipe left to skip or right to save.</Text>
-                  </View>
+                <View style={styles.discoveryToolbar}>
+                  <Pressable
+                    accessibilityLabel="Search games"
+                    onPress={() => setShowDiscoverySearch(true)}
+                    style={[styles.discoveryToolbarButton, gameQuery ? styles.discoveryToolbarButtonActive : null]}
+                  >
+                    <Ionicons name="search-outline" size={18} color={gameQuery ? '#ffffff' : '#9aabd0'} />
+                    <Text numberOfLines={1} style={[styles.discoveryToolbarText, gameQuery ? styles.discoveryToolbarTextActive : null]}>
+                      {gameQuery || 'Search'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="Show game filters"
+                    onPress={() => setShowDiscoveryFilters(true)}
+                    style={styles.discoveryToolbarButton}
+                  >
+                    <Ionicons name="options-outline" size={18} color="#9aabd0" />
+                    <Text style={styles.discoveryToolbarText}>Filters</Text>
+                  </Pressable>
                 </View>
-
-                <SearchToolbar
+                <DiscoverySearchModal
+                  visible={showDiscoverySearch}
                   value={gameQuery}
                   onChangeText={setGameQuery}
-                  placeholder="Search games, clubs, or stakes"
-                  filterLabel="game"
-                  onOpenFilters={() => setShowDiscoveryFilters(true)}
+                  onClose={() => setShowDiscoverySearch(false)}
                 />
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.discoveryQuickFilters}>
+                  {[
+                    { label: 'All', value: '' },
+                    { label: '$1/$2', value: '1/2' },
+                    { label: '$1/$3', value: '1/3' },
+                    { label: '$2/$5', value: '2/5' },
+                    { label: 'PLO', value: 'PLO' },
+                    { label: 'DC', value: 'DC' },
+                    { label: 'ROE', value: 'ROE' }
+                  ].map((filter) => {
+                    const active = stakesFilter === filter.value;
+                    return (
+                      <Pressable
+                        key={filter.label}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
+                        onPress={() => setStakesFilter(filter.value)}
+                        style={[styles.discoveryQuickFilter, active && styles.discoveryQuickFilterActive]}
+                      >
+                        <Text style={[styles.discoveryQuickFilterText, active && styles.discoveryQuickFilterTextActive]}>{filter.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
 
                 <DiscoveryDeck
                   opportunities={discoveryDeck}
@@ -1441,19 +1507,6 @@ export default function PlayerApp() {
                         player={player}
                       />
                     )}
-                    {isMembershipCurrentlyActive(selectedMembership, clockNow) ? <View style={styles.gameAlertCard}>
-                      <View style={styles.gameAlertIcon}>
-                        <Ionicons name="notifications" size={19} color={colors.primary} />
-                      </View>
-                      <View style={styles.gameAlertCopy}>
-                        <Text style={styles.cardTitle}>Game updates</Text>
-                        <Text style={styles.muted}>Watching {player.preferredStakes || 'your usual stakes'} at {selectedClub.club.name}</Text>
-                      </View>
-                      <View style={styles.alertOnPill}>
-                        <View style={styles.alertOnDot} />
-                        <Text style={styles.alertOnText}>LIVE</Text>
-                      </View>
-                    </View> : null}
                     {clubMembershipMessage ? <Text style={styles.privateGameStatus}>{clubMembershipMessage}</Text> : null}
                     <ClubHubSections
                       club={selectedClub}
@@ -1482,7 +1535,7 @@ export default function PlayerApp() {
                 player={player}
                 onBack={() => setScreen('clubs')}
                 onPlayerChange={(patch) => setPlayer((current) => ({ ...current, ...patch }))}
-                onSelectProduct={(product) => openClubPayment(selectedClub, product)}
+                onSubmit={(membershipOption) => submitMembershipApplication(selectedClub, membershipOption)}
               />
             ) : null}
 
@@ -1503,7 +1556,6 @@ export default function PlayerApp() {
               <View style={styles.accountCard}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Profile</Text>
-                  <Text style={styles.muted}>{player.email}</Text>
                 </View>
                 {Platform.OS === 'web' ? <View style={styles.googleAuthPanel}>
                   <View style={styles.googleAuthIcon}>
@@ -1521,10 +1573,7 @@ export default function PlayerApp() {
                 </View> : null}
                 {!firebaseIdentity ? (
                   <View style={styles.emailAuthPanel}>
-                    <View>
-                      <Text style={styles.cardTitle}>Orbit email sign-in</Text>
-                      <Text style={styles.muted}>Sign in to an existing player account, or create one with a new email.</Text>
-                    </View>
+                    <Text style={styles.cardTitle}>Account</Text>
                     <View style={styles.searchInputRow}>
                       <Ionicons name="mail-outline" size={18} color={colors.muted} />
                       <TextInput
@@ -1568,7 +1617,6 @@ export default function PlayerApp() {
                       </View>
                       <View style={styles.googleAuthBody}>
                         <Text style={styles.cardTitle}>{hasPlayerPremium ? 'Player Premium Active' : `Player Premium ${premiumMonthlyPriceLabel}`}</Text>
-                        <Text style={styles.muted}>{hasPlayerPremium ? 'Grinder recommendations and hosting are unlocked.' : 'Unlock grinder/table recommendations and player-hosted games.'}</Text>
                       </View>
                       {!hasPlayerPremium ? (
                         <Pressable style={styles.compactButton} onPress={openPremiumCheckout}>
@@ -1585,11 +1633,11 @@ export default function PlayerApp() {
                 <Field label="Name" value={player.name} onChangeText={(name) => setPlayer((current) => ({ ...current, name }))} />
                 <Field label="Email" value={player.email} onChangeText={(email) => setPlayer((current) => ({ ...current, email }))} />
                 <Field
-                  label="Home Area"
+                  label="Home area"
                   value={player.homeLocation ?? ''}
                   onChangeText={(homeLocation) => setPlayer((current) => ({ ...current, homeLocation }))}
                 />
-                <Text style={styles.fieldLabel}>Preferred Games</Text>
+                <Text style={styles.fieldLabel}>Preferred games</Text>
                 <View style={styles.chipRow}>
                   {gamePreferenceOptions.map((game) => (
                     <Chip
@@ -1601,14 +1649,14 @@ export default function PlayerApp() {
                   ))}
                 </View>
                 <Field
-                  label="Preferred Stakes"
+                  label="Preferred stakes"
                   value={player.preferredStakes ?? ''}
                   onChangeText={(preferredStakes) => setPlayer((current) => ({ ...current, preferredStakes }))}
                 />
                 <View style={styles.simpleMenu}>
-                  <SimpleMenuRow icon="call-outline" title="Contact support" subtitle={supportPhone} onPress={() => Linking.openURL(supportPhoneUrl)} />
+                  <SimpleMenuRow icon="call-outline" title="Support" subtitle={supportPhone} onPress={() => Linking.openURL(supportPhoneUrl)} />
                   {privacyPolicyUrl ? (
-                    <SimpleMenuRow icon="shield-checkmark-outline" title="Privacy policy" subtitle="How Orbit handles your data" onPress={() => Linking.openURL(privacyPolicyUrl)} />
+                    <SimpleMenuRow icon="shield-checkmark-outline" title="Privacy policy" subtitle="Legal" onPress={() => Linking.openURL(privacyPolicyUrl)} />
                   ) : null}
                 </View>
                 {firebaseIdentity ? (
@@ -1637,7 +1685,7 @@ export default function PlayerApp() {
                   }}
                   style={[styles.tab, screen === tab.id && styles.activeTab]}
                 >
-                  <Ionicons name={tab.icon} size={19} color={screen === tab.id ? colors.ink : '#6b7280'} />
+                  <Ionicons name={tab.icon} size={19} color={screen === tab.id ? '#6f91ff' : '#566680'} />
                   <Text style={[styles.tabText, screen === tab.id && styles.activeTabText]}>{tab.label}</Text>
                 </Pressable>
               ))}
@@ -1746,6 +1794,12 @@ export default function PlayerApp() {
           onClose={() => setSeatRequestDraft(null)}
           onSubmit={submitSeatRequest}
         />
+        {activeInAppNotification ? (
+          <InAppNotificationPopup
+            notification={activeInAppNotification}
+            onDismiss={() => dismissInAppAlert(activeInAppNotification.id)}
+          />
+        ) : null}
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -1920,7 +1974,7 @@ function formatEventDate(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-function InAppNotificationBanner({
+function InAppNotificationPopup({
   notification,
   onDismiss
 }: {
@@ -1928,18 +1982,20 @@ function InAppNotificationBanner({
   onDismiss: () => void;
 }) {
   return (
-    <View style={styles.inAppBanner}>
-      <View style={styles.inAppBannerIcon}>
-        <Ionicons name="notifications-outline" size={18} color={colors.primary} />
+    <Modal transparent visible animationType="fade" onRequestClose={onDismiss}>
+      <View style={styles.alertPopupBackdrop}>
+        <View style={styles.alertPopup}>
+          <View style={styles.alertPopupIcon}>
+            <Ionicons name="notifications-outline" size={22} color={colors.primary} />
+          </View>
+          <Text style={styles.alertPopupTitle}>{notification.title}</Text>
+          <Text style={styles.alertPopupBody}>{notification.body}</Text>
+          <Pressable accessibilityLabel="Dismiss alert" style={styles.alertPopupButton} onPress={onDismiss}>
+            <Text style={styles.alertPopupButtonText}>Got it</Text>
+          </Pressable>
+        </View>
       </View>
-      <View style={styles.inAppBannerCopy}>
-        <Text style={styles.inAppBannerTitle}>{notification.title}</Text>
-        <Text style={styles.inAppBannerBody}>{notification.body}</Text>
-      </View>
-      <Pressable style={styles.inAppBannerDismiss} onPress={onDismiss}>
-        <Ionicons name="close-outline" size={18} color={colors.muted} />
-      </Pressable>
-    </View>
+    </Modal>
   );
 }
 
@@ -2442,6 +2498,56 @@ function SearchToolbar({
         <Text style={styles.plainFiltersText}>Filters</Text>
       </Pressable>
     </View>
+  );
+}
+
+function DiscoverySearchModal({
+  visible,
+  value,
+  onChangeText,
+  onClose
+}: {
+  visible: boolean;
+  value: string;
+  onChangeText: (value: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+      <View style={styles.discoverySearchBackdrop}>
+        <Pressable accessibilityLabel="Close game search" onPress={onClose} style={styles.filterSheetDismiss} />
+        <View style={styles.discoverySearchPopup}>
+          <View style={styles.discoverySearchHeader}>
+            <Text style={styles.discoverySearchTitle}>Search games</Text>
+            <Pressable accessibilityLabel="Close game search" onPress={onClose} style={styles.discoverySearchClose}>
+              <Ionicons name="close" size={21} color="#9aabd0" />
+            </Pressable>
+          </View>
+          <View style={styles.discoverySearchInputShell}>
+            <Ionicons name="search-outline" size={20} color="#7184aa" />
+            <TextInput
+              autoFocus
+              value={value}
+              onChangeText={onChangeText}
+              onSubmitEditing={onClose}
+              returnKeyType="search"
+              placeholder="Games, clubs, or stakes"
+              placeholderTextColor="#7184aa"
+              selectionColor={colors.primary}
+              style={styles.discoverySearchInput}
+            />
+            {value ? (
+              <Pressable accessibilityLabel="Clear game search" onPress={() => onChangeText('')} style={styles.discoverySearchClose}>
+                <Ionicons name="close-circle" size={20} color="#7184aa" />
+              </Pressable>
+            ) : null}
+          </View>
+          <Pressable accessibilityLabel="Apply game search" onPress={onClose} style={styles.discoverySearchDone}>
+            <Text style={styles.discoverySearchDoneText}>Show results</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -3121,10 +3227,14 @@ function DiscoveryDeck({
           style={[styles.discoveryCard, styles.discoveryCardTop, { transform: [{ translateX: swipeX }, { translateY: swipeY }, { rotate: rotation }] }]}
         >
           <Animated.View pointerEvents="none" style={[styles.swipeFeedback, styles.swipeFeedbackPass, { opacity: passOpacity }]}>
-            <Ionicons name="close" size={62} color="#ffffff" />
+            <View style={[styles.swipeStamp, styles.swipeStampPass]}>
+              <Text style={[styles.swipeStampText, styles.swipeStampTextPass]}>PASS</Text>
+            </View>
           </Animated.View>
           <Animated.View pointerEvents="none" style={[styles.swipeFeedback, styles.swipeFeedbackPick, { opacity: likeOpacity }]}>
-            <Ionicons name="heart" size={52} color="#ffffff" />
+            <View style={[styles.swipeStamp, styles.swipeStampPick]}>
+              <Text style={[styles.swipeStampText, styles.swipeStampTextPick]}>SAVE</Text>
+            </View>
           </Animated.View>
           <DiscoveryCardContent item={item} onDetails={() => onDetails(item)} onPass={() => swipe('pass')} onPick={() => swipe('saved')} />
         </Animated.View>
@@ -3150,16 +3260,22 @@ function DiscoveryCardContent({
   const status = getGameStatusLabel(item.game);
   const venueKind = getVenueKind(item.club);
   const fee = getClubFeeProfile(item.club, item.game);
+  const accent = getDiscoveryAccent(item);
   return (
     <>
-      <LinearGradient colors={['#101827', '#172554', '#4D7CFE']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.discoveryCardHero, compact && styles.discoveryCardHeroCompact]}>
+      <AnimatedDiscoveryCardBackground accent={accent} />
+      <View style={[styles.discoveryCardHero, compact && styles.discoveryCardHeroCompact]}>
+        <Text pointerEvents="none" style={[styles.discoverySuit, styles.discoverySuitLarge, { color: accent.color }]}>♠</Text>
+        <Text pointerEvents="none" style={[styles.discoverySuit, styles.discoverySuitLeft]}>♣</Text>
+        <Text pointerEvents="none" style={[styles.discoverySuit, styles.discoverySuitSmall]}>♦</Text>
+        <View pointerEvents="none" style={[styles.discoveryAccentGlow, { backgroundColor: accent.color }]} />
         <View style={styles.discoveryCardHeroTop}>
           <View style={styles.venueTypeBadge}>
             <Ionicons name={venueKind === 'Card house' ? 'business-outline' : venueKind === 'Casino' ? 'diamond-outline' : 'people-outline'} size={13} color="#ffffff" />
             <Text style={styles.venueTypeText}>{venueKind}</Text>
           </View>
-          <View style={styles.compatibilityBadge}>
-            <Text style={styles.compatibilityValue}>{compatibility}%</Text>
+          <View style={[styles.compatibilityBadge, { borderColor: `${accent.color}55` }]}>
+            <Text style={[styles.compatibilityValue, { color: accent.color }]}>{compatibility}%</Text>
             <Text style={styles.compatibilityLabel}>MATCH</Text>
           </View>
         </View>
@@ -3168,38 +3284,39 @@ function DiscoveryCardContent({
             <View style={[styles.liveDot, !item.game.availableSeats && styles.liveDotWarm]} />
             <Text style={styles.liveStatusText}>{status}</Text>
           </View>
-          <Text style={styles.discoveryGameTitle}>{item.game.name}</Text>
+          <Text style={[styles.discoveryGameTitle, { color: accent.color, textShadowColor: `${accent.color}66` }]}>{item.game.name}</Text>
           <Text style={styles.discoveryClubName}>{item.club.club.name}</Text>
           <Text style={styles.discoveryLocation}>{getClubCity(item.club)} · {item.distanceMiles.toFixed(1)} mi away</Text>
         </View>
-      </LinearGradient>
+      </View>
       {!compact ? (
         <View style={styles.discoveryCardBody}>
-          <View style={styles.simpleFactsRow}>
-            <View style={styles.simpleFact}>
-              <Ionicons name="people-outline" size={16} color={colors.primary} />
-              <Text style={styles.simpleFactText}>{item.game.availableSeats ? `${item.game.availableSeats} seats open` : `${item.game.waitlistCount} waiting`}</Text>
-            </View>
-            <View style={styles.simpleFact}>
-              <Ionicons name={fee.type === 'time' ? 'timer-outline' : 'receipt-outline'} size={16} color={colors.primary} />
-              <Text style={styles.simpleFactText}>{fee.type === 'time' ? fee.hourly : formatDropFee(fee.percent)}</Text>
-            </View>
+          <View style={styles.discoveryMetrics}>
+            {[
+              { label: 'Seats', value: item.game.availableSeats || '—' },
+              { label: 'Playing', value: item.game.knownPlayersCount || '—' },
+              { label: 'Waitlist', value: item.game.waitlistCount || '—' }
+            ].map((metric) => (
+              <View key={metric.label} style={styles.discoveryMetric}>
+                <Text style={styles.discoveryMetricValue}>{metric.value}</Text>
+                <Text style={styles.discoveryMetricLabel}>{metric.label}</Text>
+              </View>
+            ))}
           </View>
-          <View style={styles.matchReasonBand}>
-            <Ionicons name="sparkles" size={16} color={colors.amber} />
-            <Text style={styles.matchReasonText}>{getCompatibilitySummary(item)}</Text>
+          <View style={styles.discoveryBuyInRow}>
+            <Text style={styles.discoveryBuyInLabel}>{fee.type === 'time' ? 'TIME' : 'DROP'}</Text>
+            <Text style={styles.discoveryBuyInValue}>{fee.type === 'time' ? fee.hourly : formatDropFee(fee.percent)}</Text>
           </View>
           {onDetails ? (
             <View style={styles.cardSelectionRow}>
               <Pressable accessibilityLabel={`Pass on ${item.game.name}`} onPress={onPass} style={[styles.cardCornerAction, styles.cardRejectAction]}>
                 <Ionicons name="close" size={29} color="#dc2626" />
               </Pressable>
-              <Pressable accessibilityLabel={`See full details for ${item.game.name}`} onPress={onDetails} style={styles.cardDetailsLink}>
-                <Text style={styles.cardDetailsLinkText}>Details</Text>
-                <Ionicons name="chevron-forward" size={15} color={colors.primary} />
-              </Pressable>
               <Pressable accessibilityLabel={`Save ${item.game.name}`} onPress={onPick} style={[styles.cardCornerAction, styles.cardPickAction]}>
-                <Ionicons name="heart" size={25} color="#ffffff" />
+                <Ionicons name="heart" size={29} color="#ffffff" />
+              </Pressable>
+              <Pressable accessibilityLabel={`See full details for ${item.game.name}`} onPress={onDetails} style={[styles.cardCornerAction, styles.cardDetailsAction]}>
+                <Ionicons name="location" size={24} color="#6f91ff" />
               </Pressable>
             </View>
           ) : null}
@@ -3207,6 +3324,47 @@ function DiscoveryCardContent({
       ) : null}
     </>
   );
+}
+
+function AnimatedDiscoveryCardBackground({ accent }: { accent: DiscoveryAccent }) {
+  const motion = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(motion, { toValue: 1, duration: 5200, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+        Animated.timing(motion, { toValue: 0, duration: 5200, easing: Easing.inOut(Easing.sin), useNativeDriver: false })
+      ])
+    ).start();
+  }, [motion]);
+  return (
+    <View pointerEvents="none" style={styles.discoveryAnimatedBackground}>
+      <LinearGradient colors={accent.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.appBackdrop} />
+      <Animated.View style={[styles.discoveryGradientDrift, {
+        opacity: motion.interpolate({ inputRange: [0, 1], outputRange: [0.28, 0.78] }),
+        transform: [
+          { translateX: motion.interpolate({ inputRange: [0, 1], outputRange: [-90, 80] }) },
+          { translateY: motion.interpolate({ inputRange: [0, 1], outputRange: [80, -70] }) },
+          { scale: motion.interpolate({ inputRange: [0, 1], outputRange: [1, 1.28] }) }
+        ]
+      }]}>
+        <LinearGradient colors={['transparent', `${accent.color}bb`, accent.secondary]} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={styles.appBackdrop} />
+      </Animated.View>
+      <LinearGradient colors={['transparent', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.72)']} locations={[0, 0.52, 1]} style={styles.appBackdrop} />
+    </View>
+  );
+}
+
+type DiscoveryAccent = { color: string; secondary: string; gradient: [string, string, string] };
+
+function getDiscoveryAccent(item: GameOpportunity): DiscoveryAccent {
+  const seed = `${item.game.name} ${item.club.club.name}`.toLowerCase();
+  if (seed.includes('plo') || seed.includes('omaha')) {
+    return { color: '#9B7BFF', secondary: 'rgba(55,22,110,0.82)', gradient: ['#0c071d', '#28135e', '#120833'] };
+  }
+  if (item.game.availableSeats > 3) {
+    return { color: '#25D99A', secondary: 'rgba(10,92,62,0.84)', gradient: ['#03130d', '#0b4430', '#061d17'] };
+  }
+  return { color: '#5B86FF', secondary: 'rgba(24,63,145,0.88)', gradient: ['#050d1c', '#102c65', '#091738'] };
 }
 
 function SavedGamesStrip({ opportunities, onOpen }: { opportunities: GameOpportunity[]; onOpen: (item: GameOpportunity) => void }) {
@@ -3822,7 +3980,7 @@ function ClubMembershipPlanScreen({
   player,
   onBack,
   onPlayerChange,
-  onSelectProduct
+  onSubmit
 }: {
   club: PlayerClubSnapshot;
   prices: { day: string; monthly: string; timePack: string };
@@ -3830,8 +3988,19 @@ function ClubMembershipPlanScreen({
   player: PlayerAccount;
   onBack: () => void;
   onPlayerChange: (patch: Partial<PlayerAccount>) => void;
-  onSelectProduct: (product: ClubAccessProduct) => void;
+  onSubmit: (membershipOption?: PlayerMembershipOption) => void;
 }) {
+  const membershipOptions: PlayerMembershipOption[] = club.club.membershipOptions?.length
+    ? club.club.membershipOptions
+    : [
+        { id: 'day', name: 'Day Pass', priceLabel: prices.day, durationDays: 1 },
+        { id: 'monthly', name: 'Monthly Membership', priceLabel: prices.monthly, durationDays: 30 },
+        ...(getClubFeeProfile(club).type === 'time'
+          ? [{ id: 'time-5', name: '5-Hour Time Pack', priceLabel: prices.timePack, durationDays: 1 }]
+          : [])
+      ];
+  const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
+  const selectedOption = membershipOptions.find((option) => option.id === selectedOptionId);
   return (
     <View style={styles.membershipScreen}>
       <Pressable style={styles.inlineBackAction} onPress={onBack}>
@@ -3843,16 +4012,14 @@ function ClubMembershipPlanScreen({
           <Text style={styles.membershipHeroText}>{club.club.name.slice(0, 1)}</Text>
         </View>
         <View style={styles.membershipHeroCopy}>
-          <Text style={styles.agentKicker}>Sold by {club.club.name}</Text>
           <Text style={styles.membershipTitle}>{club.club.name}</Text>
-          <Text style={styles.muted}>{club.club.address || 'Location details available from the card house'}</Text>
+          {club.club.address ? <Text style={styles.muted}>{club.club.address}</Text> : null}
         </View>
       </View>
 
       <View style={styles.membershipApplicationCard}>
         <View>
-          <Text style={styles.cardTitle}>Apply to join</Text>
-          <Text style={styles.muted}>The card room reviews your information first. After approval, bring your ID and pay the membership fee at the door.</Text>
+          <Text style={styles.cardTitle}>Membership request</Text>
         </View>
         <Field label="Name" placeholder="Full name" value={player.name} onChangeText={(name) => onPlayerChange({ name })} />
         <Field label="Email" placeholder="Email address" value={player.email} keyboardType="email-address" onChangeText={(email) => onPlayerChange({ email })} />
@@ -3860,41 +4027,27 @@ function ClubMembershipPlanScreen({
       </View>
 
       <View>
-        <Text style={styles.cardTitle}>Choose a membership</Text>
-        <Text style={styles.muted}>No payment is collected in Orbit for this demo.</Text>
+        <Text style={styles.cardTitle}>Available options</Text>
+        <Text style={styles.muted}>Optional</Text>
       </View>
       <View style={styles.planGrid}>
-        {getClubFeeProfile(club).type === 'time' ? (
+        {membershipOptions.map((option) => (
           <MembershipPlanCard
-            icon="time-outline"
-            title="5-Hour Time Pack"
-            price={prices.timePack}
-            body="Prepay table time with this card house and use it across eligible cash games."
-            onPress={() => onSelectProduct('time-5')}
-            featured
+            key={option.id}
+            icon={option.durationDays === 1 ? 'today-outline' : 'calendar-outline'}
+            title={option.name}
+            price={option.priceLabel}
+            description={option.description}
+            selected={selectedOptionId === option.id}
+            onPress={() => setSelectedOptionId((current) => current === option.id ? null : option.id)}
           />
-        ) : null}
-        <MembershipPlanCard
-          icon="today-outline"
-          title="Day Pass"
-          price={prices.day}
-          body="Good for a quick visit, checking in, and requesting a seat today."
-          onPress={() => onSelectProduct('day')}
-        />
-        <MembershipPlanCard
-          icon="calendar-outline"
-          title="Monthly Membership"
-          price={prices.monthly}
-          body="Best for regular players who want ongoing access to this club."
-          onPress={() => onSelectProduct('monthly')}
-          featured={getClubFeeProfile(club).type !== 'time'}
-        />
+        ))}
       </View>
 
-      <View style={styles.membershipNote}>
-        <Ionicons name="storefront-outline" size={17} color={colors.primary} />
-        <Text style={styles.lockedRecommendationText}>{club.club.name} sets the price and is the seller. Orbit never sells table time or club access itself.</Text>
-      </View>
+      <AnimatedButton variant="primary" onPress={() => onSubmit(selectedOption)} style={[styles.primaryButton, styles.fullWidthButton]}>
+        <Ionicons name="person-add-outline" size={18} color="#ffffff" />
+        <Text style={styles.primaryButtonText}>{selectedOption ? `Request ${selectedOption.name}` : 'Request membership'}</Text>
+      </AnimatedButton>
       {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
     </View>
   );
@@ -3914,7 +4067,7 @@ function SeatRequestModal({
   onSubmit: () => void;
 }) {
   if (!draft) return null;
-  const hasOpenTable = draft.game.openTables.length > 0;
+  const hasOpenTable = isActivePlayerGame(draft.game);
   const update = (patch: Partial<SeatRequestDraft>) => onChange((current) => current ? { ...current, ...patch } : current);
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onClose}>
@@ -4062,32 +4215,29 @@ function MembershipPlanCard({
   icon,
   title,
   price,
-  body,
-  featured,
+  description,
+  selected,
   onPress
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   price: string;
-  body: string;
-  featured?: boolean;
+  description?: string;
+  selected: boolean;
   onPress: () => void;
 }) {
   return (
-    <Pressable style={[styles.planCard, featured && styles.planCardFeatured]} onPress={onPress}>
-      <View style={[styles.planIcon, featured && styles.planIconFeatured]}>
-        <Ionicons name={icon} size={19} color={featured ? '#ffffff' : colors.primary} />
+    <Pressable accessibilityState={{ selected }} style={[styles.planCard, selected && styles.planCardFeatured]} onPress={onPress}>
+      <View style={styles.planIcon}>
+        <Ionicons name={icon} size={19} color={colors.primary} />
       </View>
       <View style={styles.planCardCopy}>
-        <View style={styles.planCardTitleRow}>
-          <Text style={styles.cardTitle}>{title}</Text>
-          {featured ? <Text style={styles.planInlineBadge}>Popular</Text> : null}
-        </View>
-        <Text style={styles.muted} numberOfLines={1}>{body}</Text>
+        <Text style={styles.cardTitle}>{title}</Text>
+        {description ? <Text style={styles.muted} numberOfLines={2}>{description}</Text> : null}
       </View>
       <View style={styles.planCardPriceBlock}>
         <Text style={styles.planCompactPrice}>{price}</Text>
-        <Ionicons name="chevron-forward" size={17} color={colors.muted} />
+        <Ionicons name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={selected ? colors.primary : colors.muted} />
       </View>
     </Pressable>
   );
@@ -4223,19 +4373,22 @@ function ClubHubSections({
 }) {
   const [openSection, setOpenSection] = useState<'games' | 'membership' | 'events' | null>(null);
   const toggle = (section: 'games' | 'membership' | 'events') => setOpenSection((current) => current === section ? null : section);
+  const activeGames = games.filter(isActivePlayerGame);
+  const requestableGames = games.filter((game) => !isActivePlayerGame(game));
   return (
     <View style={styles.clubHub}>
       <Pressable onPress={() => toggle('games')} style={styles.clubHubRow}>
         <View style={styles.clubHubIcon}><Ionicons name="layers-outline" size={19} color={colors.primary} /></View>
         <View style={styles.clubHubCopy}>
           <Text style={styles.cardTitle}>Games</Text>
-          <Text style={styles.muted}>{games.length} available now</Text>
+          <Text style={styles.muted}>{activeGames.length} active · {requestableGames.length} requestable</Text>
         </View>
         <Ionicons name={openSection === 'games' ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} />
       </Pressable>
       {openSection === 'games' ? (
         <View style={styles.clubHubPanel}>
-          {games.map((game) => {
+          {activeGames.length ? <Text style={styles.clubGameGroupLabel}>ACTIVE NOW</Text> : null}
+          {activeGames.map((game) => {
             const waitlist = waitlists.find((entry) => entry.gameId === game.id);
             return (
               <Pressable key={game.id} disabled={Boolean(waitlist)} onPress={() => onGame(game)} style={styles.compactGameRow}>
@@ -4244,11 +4397,37 @@ function ClubHubSections({
                   <Text style={styles.muted}>{getGameStatusLabel(game)}</Text>
                 </View>
                 <Text style={[styles.compactGameAction, waitlist && styles.compactGameActionMuted]}>
-                  {waitlist ? getPlayerGameStatusLabel(waitlist) : 'Join'}
+                  {waitlist ? getPlayerGameStatusLabel(waitlist) : 'Join game'}
                 </Text>
               </Pressable>
             );
           })}
+          {requestableGames.length ? (
+            <>
+              <View style={styles.clubRequestHeader}>
+                <Text style={styles.clubGameGroupLabel}>REQUEST ANOTHER GAME</Text>
+                <Text style={styles.muted}>Your interest helps the card house decide what to open.</Text>
+              </View>
+              {requestableGames.map((game) => {
+                const request = waitlists.find((entry) => entry.gameId === game.id);
+                return (
+                  <Pressable key={game.id} disabled={Boolean(request)} onPress={() => onGame(game)} style={[styles.compactGameRow, styles.requestGameRow]}>
+                    <View style={styles.compactGameCopy}>
+                      <Text style={styles.cardTitle}>{game.name}</Text>
+                      <Text style={styles.muted}>
+                        {game.waitlistCount
+                          ? `${game.waitlistCount} player${game.waitlistCount === 1 ? '' : 's'} interested`
+                          : 'No active table · Be the first to request it'}
+                      </Text>
+                    </View>
+                    <Text style={[styles.compactGameAction, request && styles.compactGameActionMuted]}>
+                      {request ? 'Requested' : 'Request game'}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </>
+          ) : null}
         </View>
       ) : null}
 
@@ -4559,11 +4738,11 @@ function getScreenTitle(screen: Screen) {
 }
 
 function getIdentityStatusLabel(status: PlayerIdentityStatus, signedIn: boolean) {
-  if (!signedIn) return 'Optional for club membership; sign in for other age-gated features';
+  if (!signedIn) return 'Not signed in';
   if (status.ageVerified) return `Verified ${status.minimumAge}+`;
-  if (status.status === 'processing') return 'Stripe is reviewing your verification';
-  if (status.status === 'underage') return `Minimum age ${status.minimumAge} not met`;
-  return 'Club ID is checked at the door; verify here for hosted games and eligible purchases';
+  if (status.status === 'processing') return 'Verification pending';
+  if (status.status === 'underage') return `Minimum age ${status.minimumAge}`;
+  return 'Not verified';
 }
 
 function getCompatibilityPercent(item: GameOpportunity) {
@@ -4666,6 +4845,19 @@ function compareFindGamesClubOrder(left: PlayerClubSnapshot, right: PlayerClubSn
 
 function buildFindGameClubs(clubs: PlayerClubSnapshot[]) {
   return clubs.slice().sort((left, right) => left.club.name.localeCompare(right.club.name));
+}
+
+function isActivePlayerGame(game: PlayerSyncGame) {
+  return (game.openTables ?? []).some((table) => table.status === 'Running' || table.status === 'Forming');
+}
+
+function getActiveGameActivityTime(game: PlayerSyncGame) {
+  const gameUpdatedAt = Date.parse(game.updatedAt || '');
+  const tableStartedAt = Math.max(
+    0,
+    ...(game.openTables ?? []).map((table) => Date.parse(table.startedAt || '') || 0)
+  );
+  return Math.max(Number.isFinite(gameUpdatedAt) ? gameUpdatedAt : 0, tableStartedAt);
 }
 
 function getLatestInAppNotification(clubs: PlayerClubSnapshot[], dismissedIds: string[]) {
@@ -4790,25 +4982,78 @@ function togglePlayerGame(gameId: string, setPlayer: React.Dispatch<React.SetSta
 }
 
 const colors = {
-  ink: '#0b1020',
-  muted: '#64748b',
-  canvas: '#f9fafb',
-  panel: '#ffffff',
-  line: 'rgba(100,116,139,0.16)',
+  ink: '#f4f7ff',
+  muted: '#8a9abd',
+  canvas: '#060c1a',
+  panel: '#10192c',
+  line: 'rgba(110,145,255,0.18)',
   primary: '#4d7cfe',
-  primaryDark: '#0b1020',
-  primarySoft: '#eef3ff',
-  teal: '#2563eb',
-  tealSoft: '#dbeafe',
-  amber: '#8b5cf6',
-  amberSoft: '#f3e8ff',
-  coral: '#dc2626'
+  primaryDark: '#080f1f',
+  primarySoft: '#182746',
+  teal: '#35d3a1',
+  tealSoft: '#102d2a',
+  amber: '#a98bff',
+  amberSoft: '#291d45',
+  coral: '#fb7185'
 };
 
-const styles = StyleSheet.create({
+function applyDarkComponentTheme<T extends Record<string, any>>(definitions: T): T {
+  const lightSurfaces: Record<string, string> = {
+    '#ffffff': '#10192c',
+    '#fff': '#10192c',
+    '#f8fafc': '#0d1628',
+    '#f9fafb': '#060c1a',
+    '#f4f4f1': '#151f34',
+    '#f6f6f3': '#121c30',
+    '#fbfffc': '#10211f',
+    '#fff7ed': '#2a201b',
+    '#f3f4f6': '#18233a',
+    '#eef3ff': '#182746',
+    '#dbeafe': '#142b43',
+    '#f3e8ff': '#291d45',
+    '#fff8ed': '#2a2119',
+    '#f4fbf8': '#10211f',
+    '#f7f7f4': '#141e31',
+    '#f5f3ff': '#211a39',
+    '#f8f7ff': '#171c38',
+    '#eeeeea': '#1a2334',
+    '#fff8e8': '#2a2117',
+    '#f1f2f4': '#172136',
+    '#f6f7fb': '#121c30',
+    '#eef4ff': '#162541',
+    '#fff0dc': '#2b2117',
+    '#f2fbf8': '#10211f',
+    'rgba(255,254,250,0.92)': '#10192c',
+    'rgba(255,255,255,0.84)': '#142039',
+    'rgba(255,255,255,0.88)': '#142039',
+    'rgba(255,255,255,0.9)': '#142039',
+    'rgba(255,255,255,0.76)': '#142039'
+  };
+  const darkForegrounds: Record<string, string> = {
+    '#0b1020': '#f4f7ff',
+    '#111827': '#eef3ff',
+    '#181716': '#f4f7ff',
+    '#1f2937': '#e6ecfa',
+    '#334155': '#c4cee3',
+    '#475569': '#aab8d2',
+    '#64748b': '#8a9abd'
+  };
+  Object.entries(definitions).forEach(([key, style]) => {
+    if (!style || typeof style !== 'object' || Array.isArray(style)) return;
+    const background = typeof style.backgroundColor === 'string' ? style.backgroundColor.toLowerCase() : '';
+    if (background && lightSurfaces[background]) {
+      style.backgroundColor = key === 'membershipQrCode' ? '#ffffff' : lightSurfaces[background];
+    }
+    const foreground = typeof style.color === 'string' ? style.color.toLowerCase() : '';
+    if (foreground && darkForegrounds[foreground]) style.color = darkForegrounds[foreground];
+  });
+  return definitions;
+}
+
+const styles = StyleSheet.create(applyDarkComponentTheme({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f9fafb'
+    backgroundColor: '#060c1a'
   },
   appBackdrop: {
     ...StyleSheet.absoluteFillObject
@@ -5081,9 +5326,11 @@ const styles = StyleSheet.create({
     maxWidth: 285,
     textShadowRadius: 0
   },
+  darkShellEyebrow: { color: '#7082a5' },
+  darkShellTitle: { color: '#f4f7ff' },
   avatar: {
     alignItems: 'center',
-    backgroundColor: colors.ink,
+    backgroundColor: colors.primaryDark,
     borderColor: 'rgba(255,255,255,0.9)',
     borderRadius: 999,
     borderWidth: 1,
@@ -5140,6 +5387,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 30
   },
+  alertPopupBackdrop: { alignItems: 'center', backgroundColor: 'rgba(2,6,18,0.76)', flex: 1, justifyContent: 'center', padding: 22 },
+  alertPopup: { alignItems: 'center', backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 22, borderWidth: 1, gap: 11, maxWidth: 440, padding: 22, width: '100%' },
+  alertPopupIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 999, height: 48, justifyContent: 'center', width: 48 },
+  alertPopupTitle: { color: colors.ink, fontSize: 19, fontWeight: '900', textAlign: 'center' },
+  alertPopupBody: { color: colors.muted, fontSize: 13, fontWeight: '600', lineHeight: 19, textAlign: 'center' },
+  alertPopupButton: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: colors.primary, borderRadius: 12, justifyContent: 'center', marginTop: 3, minHeight: 46 },
+  alertPopupButtonText: { color: '#ffffff', fontSize: 13, fontWeight: '900' },
   heroPanel: {
     borderRadius: 28,
     overflow: 'hidden',
@@ -5646,7 +5900,7 @@ const styles = StyleSheet.create({
   },
   iconTooltip: {
     alignItems: 'center',
-    backgroundColor: colors.ink,
+    backgroundColor: colors.primaryDark,
     borderRadius: 8,
     bottom: 48,
     maxWidth: 190,
@@ -6714,8 +6968,8 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,254,250,0.96)',
-    borderColor: colors.line,
+    backgroundColor: 'rgba(13,21,37,0.96)',
+    borderColor: 'rgba(77,124,254,0.16)',
     borderRadius: 14,
     borderWidth: 1,
     bottom: 18,
@@ -6735,7 +6989,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center'
   },
   activeTab: {
-    backgroundColor: colors.tealSoft
+    backgroundColor: '#1a294b'
   },
   tabText: {
     color: colors.muted,
@@ -6743,7 +6997,7 @@ const styles = StyleSheet.create({
     fontWeight: '900'
   },
   activeTabText: {
-    color: colors.ink
+    color: '#6f91ff'
   },
   tournamentCard: {
     backgroundColor: colors.panel,
@@ -6850,12 +7104,12 @@ const styles = StyleSheet.create({
   passTimerInactive: { backgroundColor: '#f4f4f1', borderColor: colors.line },
   passTimerCopy: { flex: 1, gap: 2 },
   passTimerTitle: { color: colors.ink, fontSize: 14, fontWeight: '900' },
-  buyAnotherPassButton: { alignItems: 'center', backgroundColor: colors.ink, borderRadius: 11, minHeight: 42, justifyContent: 'center', paddingHorizontal: 14 },
+  buyAnotherPassButton: { alignItems: 'center', backgroundColor: colors.primaryDark, borderRadius: 11, minHeight: 42, justifyContent: 'center', paddingHorizontal: 14 },
   buyAnotherPassText: { color: '#ffffff', fontSize: 13, fontWeight: '900' },
   discoveryIntro: {
     alignItems: 'flex-start',
-    backgroundColor: '#ffffff',
-    borderColor: colors.line,
+    backgroundColor: '#111a2d',
+    borderColor: 'rgba(77,124,254,0.18)',
     borderRadius: 18,
     borderWidth: 1,
     flexDirection: 'row',
@@ -6864,8 +7118,8 @@ const styles = StyleSheet.create({
   },
   discoveryIntroCopy: { flex: 1, gap: 4 },
   discoveryKicker: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
-  discoveryIntroTitle: { color: colors.ink, fontSize: 20, fontWeight: '900', lineHeight: 25 },
-  discoveryIntroBody: { color: colors.muted, fontSize: 12, fontWeight: '600', lineHeight: 17 },
+  discoveryIntroTitle: { color: '#f4f7ff', fontSize: 20, fontWeight: '900', lineHeight: 25 },
+  discoveryIntroBody: { color: '#8899bb', fontSize: 12, fontWeight: '600', lineHeight: 17 },
   discoveryFilterButton: {
     alignItems: 'center',
     backgroundColor: '#f3f4f6',
@@ -6877,17 +7131,36 @@ const styles = StyleSheet.create({
     width: 42
   },
   discoveryFilterButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  discoveryToolbar: { flexDirection: 'row', gap: 9 },
+  discoveryToolbarButton: { alignItems: 'center', backgroundColor: '#16213a', borderColor: 'rgba(77,124,254,0.20)', borderRadius: 13, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 8, justifyContent: 'center', minHeight: 46, paddingHorizontal: 14 },
+  discoveryToolbarButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  discoveryToolbarText: { color: '#9aabd0', fontSize: 12, fontWeight: '900', maxWidth: 150 },
+  discoveryToolbarTextActive: { color: '#ffffff' },
+  discoverySearchBackdrop: { alignItems: 'center', backgroundColor: 'rgba(2,6,18,0.72)', flex: 1, justifyContent: 'flex-start', paddingHorizontal: 18, paddingTop: Platform.OS === 'ios' ? 86 : 64 },
+  discoverySearchPopup: { backgroundColor: '#10192c', borderColor: 'rgba(91,134,255,0.26)', borderRadius: 22, borderWidth: 1, gap: 15, maxWidth: 600, padding: 17, shadowColor: '#000000', shadowOffset: { width: 0, height: 18 }, shadowOpacity: 0.42, shadowRadius: 32, width: '100%' },
+  discoverySearchHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  discoverySearchTitle: { color: '#f4f7ff', fontSize: 18, fontWeight: '900' },
+  discoverySearchClose: { alignItems: 'center', height: 34, justifyContent: 'center', width: 34 },
+  discoverySearchInputShell: { alignItems: 'center', backgroundColor: '#0a1120', borderColor: 'rgba(91,134,255,0.28)', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 9, minHeight: 52, paddingHorizontal: 13 },
+  discoverySearchInput: { color: '#ffffff', flex: 1, fontSize: 15, fontWeight: '700', minHeight: 50, paddingVertical: 0 },
+  discoverySearchDone: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 13, justifyContent: 'center', minHeight: 48 },
+  discoverySearchDoneText: { color: '#ffffff', fontSize: 13, fontWeight: '900' },
+  discoveryQuickFilters: { gap: 8, paddingHorizontal: 1, paddingVertical: 2 },
+  discoveryQuickFilter: { backgroundColor: '#16213a', borderColor: 'rgba(77,124,254,0.17)', borderRadius: 999, borderWidth: 1, minWidth: 55, paddingHorizontal: 14, paddingVertical: 8 },
+  discoveryQuickFilterActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  discoveryQuickFilterText: { color: '#8899bb', fontSize: 11, fontWeight: '900' },
+  discoveryQuickFilterTextActive: { color: '#ffffff' },
   discoveryDeckSection: { gap: 10 },
   discoveryProgressRow: { alignItems: 'center', flexDirection: 'row', gap: 9, paddingHorizontal: 4 },
-  discoveryProgressText: { color: colors.ink, fontSize: 11, fontWeight: '900' },
-  discoveryProgressTrack: { backgroundColor: '#e5e7eb', borderRadius: 99, flex: 1, height: 4, overflow: 'hidden' },
+  discoveryProgressText: { color: '#c5d0e8', fontSize: 11, fontWeight: '900' },
+  discoveryProgressTrack: { backgroundColor: '#202c47', borderRadius: 99, flex: 1, height: 4, overflow: 'hidden' },
   discoveryProgressFill: { backgroundColor: colors.primary, borderRadius: 99, height: 4 },
   discoverySavedCount: { color: colors.primary, fontSize: 11, fontWeight: '900' },
-  discoveryDeck: { height: 520, position: 'relative' },
+  discoveryDeck: { height: 540, position: 'relative' },
   discoveryCard: {
-    backgroundColor: '#ffffff',
-    borderColor: 'rgba(15,23,42,0.10)',
-    borderRadius: 26,
+    backgroundColor: '#0d1525',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 28,
     borderWidth: 1,
     bottom: 0,
     left: 0,
@@ -6896,18 +7169,25 @@ const styles = StyleSheet.create({
     right: 0,
     shadowColor: '#0f172a',
     shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.14,
-    shadowRadius: 28,
+    shadowOpacity: 0.28,
+    shadowRadius: 32,
     top: 0
   },
   discoveryCardTop: { zIndex: 2 },
-  discoveryCardBehind: { bottom: -6, opacity: 0.42, top: 14, transform: [{ scale: 0.955 }], zIndex: 1 },
-  discoveryCardHero: { height: 292, justifyContent: 'space-between', padding: 19 },
-  discoveryCardHeroCompact: { height: 292 },
+  discoveryCardBehind: { bottom: -8, opacity: 0.52, top: 15, transform: [{ scale: 0.955 }], zIndex: 1 },
+  discoveryCardHero: { height: 312, justifyContent: 'space-between', overflow: 'hidden', padding: 21 },
+  discoveryCardHeroCompact: { height: 312 },
+  discoveryAnimatedBackground: { ...StyleSheet.absoluteFillObject, backgroundColor: '#07101f', overflow: 'hidden' },
+  discoveryGradientDrift: { height: '140%', left: '-28%', position: 'absolute', top: '-20%', width: '156%' },
+  discoverySuit: { color: 'rgba(255,255,255,0.07)', fontSize: 70, fontWeight: '900', lineHeight: 76, position: 'absolute' },
+  discoverySuitLarge: { fontSize: 150, lineHeight: 160, opacity: 0.15, right: -20, top: 34, transform: [{ rotate: '-13deg' }] },
+  discoverySuitLeft: { bottom: 60, left: -12, transform: [{ rotate: '18deg' }] },
+  discoverySuitSmall: { fontSize: 44, right: 92, top: 15, transform: [{ rotate: '12deg' }] },
+  discoveryAccentGlow: { borderRadius: 999, height: 190, opacity: 0.10, position: 'absolute', right: -55, top: -45, width: 190 },
   discoveryCardHeroTop: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between' },
   venueTypeBadge: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.16)', borderColor: 'rgba(255,255,255,0.20)', borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingVertical: 7 },
   venueTypeText: { color: '#ffffff', fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
-  compatibilityBadge: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 18, minWidth: 66, paddingHorizontal: 10, paddingVertical: 8 },
+  compatibilityBadge: { alignItems: 'center', backgroundColor: 'rgba(8,12,24,0.72)', borderRadius: 16, borderWidth: 1, minWidth: 66, paddingHorizontal: 10, paddingVertical: 8 },
   compatibilityValue: { color: colors.primaryDark, fontSize: 20, fontWeight: '900', lineHeight: 22 },
   compatibilityLabel: { color: colors.primary, fontSize: 8, fontWeight: '900', letterSpacing: 1 },
   discoveryHeroBottom: { gap: 3 },
@@ -6915,17 +7195,20 @@ const styles = StyleSheet.create({
   liveDot: { backgroundColor: '#4ade80', borderRadius: 99, height: 7, width: 7 },
   liveDotWarm: { backgroundColor: '#fbbf24' },
   liveStatusText: { color: 'rgba(255,255,255,0.86)', fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
-  discoveryGameTitle: { color: '#ffffff', fontSize: 35, fontWeight: '900', letterSpacing: -0.9, lineHeight: 39 },
+  discoveryGameTitle: { color: '#ffffff', fontSize: 40, fontWeight: '900', letterSpacing: -1.1, lineHeight: 44, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 22 },
   discoveryClubName: { color: '#ffffff', fontSize: 18, fontWeight: '800' },
   discoveryLocation: { color: 'rgba(255,255,255,0.72)', fontSize: 12, fontWeight: '600' },
-  discoveryCardBody: { flex: 1, gap: 11, justifyContent: 'space-between', padding: 16 },
+  discoveryCardBody: { flex: 1, gap: 13, justifyContent: 'space-between', padding: 18, paddingTop: 15 },
   simpleFactsRow: { flexDirection: 'row', gap: 8 },
-  simpleFact: { alignItems: 'center', backgroundColor: '#f3f4f6', borderRadius: 10, flex: 1, flexDirection: 'row', gap: 6, minHeight: 36, paddingHorizontal: 9 },
-  simpleFactText: { color: colors.ink, fontSize: 11, fontWeight: '800' },
+  simpleFact: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 11, flex: 1, flexDirection: 'row', gap: 6, minHeight: 38, paddingHorizontal: 9 },
+  simpleFactText: { color: '#e8eeff', fontSize: 11, fontWeight: '800' },
   discoveryMetrics: { flexDirection: 'row', justifyContent: 'space-between' },
   discoveryMetric: { alignItems: 'center', flex: 1, gap: 1 },
-  discoveryMetricValue: { color: colors.ink, fontSize: 16, fontWeight: '900' },
-  discoveryMetricLabel: { color: colors.muted, fontSize: 10, fontWeight: '700' },
+  discoveryMetricValue: { color: '#ffffff', fontSize: 18, fontWeight: '900' },
+  discoveryMetricLabel: { color: 'rgba(255,255,255,0.38)', fontSize: 9, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase' },
+  discoveryBuyInRow: { alignItems: 'center', borderTopColor: 'rgba(255,255,255,0.10)', borderTopWidth: 1, flexDirection: 'row', justifyContent: 'space-between', paddingTop: 11 },
+  discoveryBuyInLabel: { color: 'rgba(255,255,255,0.32)', fontSize: 10, fontWeight: '900', letterSpacing: 1.4 },
+  discoveryBuyInValue: { color: 'rgba(255,255,255,0.72)', fontSize: 13, fontWeight: '800' },
   discoveryDivider: { backgroundColor: colors.line, height: 1 },
   discoveryAccessRow: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   discoveryAccessIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 11, height: 36, justifyContent: 'center', width: 36 },
@@ -6934,18 +7217,19 @@ const styles = StyleSheet.create({
   discoveryTagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   discoveryTag: { backgroundColor: '#f3f4f6', borderRadius: 99, paddingHorizontal: 9, paddingVertical: 5 },
   discoveryTagText: { color: colors.ink, fontSize: 10, fontWeight: '800' },
-  matchReasonBand: { alignItems: 'center', backgroundColor: '#faf5ff', borderRadius: 10, flexDirection: 'row', gap: 7, padding: 9 },
-  matchReasonText: { color: '#5b21b6', flex: 1, fontSize: 10, fontWeight: '700', lineHeight: 14 },
+  matchReasonBand: { alignItems: 'center', backgroundColor: 'rgba(139,92,246,0.12)', borderColor: 'rgba(139,92,246,0.20)', borderRadius: 10, borderWidth: 1, flexDirection: 'row', gap: 7, padding: 9 },
+  matchReasonText: { color: '#c4b5fd', flex: 1, fontSize: 10, fontWeight: '700', lineHeight: 14 },
   cardSelectionRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 'auto' },
-  cardCornerAction: { alignItems: 'center', borderRadius: 999, height: 54, justifyContent: 'center', width: 54 },
-  cardRejectAction: { backgroundColor: '#ffffff', borderColor: '#fecaca', borderWidth: 1.5 },
-  cardPickAction: { backgroundColor: colors.primary, shadowColor: colors.primary, shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.22, shadowRadius: 12 },
-  cardDetailsLink: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 999, flexDirection: 'row', gap: 4, minHeight: 38, paddingHorizontal: 14 },
-  cardDetailsLinkText: { color: colors.primary, fontSize: 12, fontWeight: '900' },
+  cardCornerAction: { alignItems: 'center', borderRadius: 999, height: 56, justifyContent: 'center', width: 56 },
+  cardRejectAction: { backgroundColor: '#1a2340', borderColor: '#f43f5e', borderWidth: 1.5 },
+  cardPickAction: { backgroundColor: colors.primary, height: 68, shadowColor: colors.primary, shadowOffset: { width: 0, height: 9 }, shadowOpacity: 0.44, shadowRadius: 18, width: 68 },
+  cardDetailsAction: { backgroundColor: '#1a2340', borderColor: 'rgba(77,124,254,0.42)', borderWidth: 1.5 },
+  cardDetailsLink: { alignItems: 'center', backgroundColor: 'rgba(77,124,254,0.14)', borderColor: 'rgba(77,124,254,0.25)', borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 4, minHeight: 38, paddingHorizontal: 14 },
+  cardDetailsLinkText: { color: '#8da8ff', fontSize: 12, fontWeight: '900' },
   swipeFeedback: { alignItems: 'center', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0, zIndex: 10 },
-  swipeFeedbackPass: { backgroundColor: 'rgba(220,38,38,0.72)' },
-  swipeFeedbackPick: { backgroundColor: 'rgba(21,127,109,0.72)' },
-  swipeStamp: { borderRadius: 8, borderWidth: 3, paddingHorizontal: 11, paddingVertical: 7, position: 'absolute', top: 94, zIndex: 9 },
+  swipeFeedbackPass: { backgroundColor: 'transparent' },
+  swipeFeedbackPick: { backgroundColor: 'transparent' },
+  swipeStamp: { backgroundColor: 'rgba(5,10,20,0.58)', borderRadius: 8, borderWidth: 3, paddingHorizontal: 11, paddingVertical: 7, position: 'absolute', top: 42, zIndex: 9 },
   swipeStampPass: { borderColor: '#ef4444', left: 24, transform: [{ rotate: '-10deg' }] },
   swipeStampPick: { borderColor: '#22c55e', right: 24, transform: [{ rotate: '10deg' }] },
   swipeStampText: { fontSize: 22, fontWeight: '900', letterSpacing: 1.4 },
@@ -7071,7 +7355,10 @@ const styles = StyleSheet.create({
   clubHubIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 10, height: 38, justifyContent: 'center', width: 38 },
   clubHubCopy: { flex: 1, gap: 2 },
   clubHubPanel: { backgroundColor: '#f8fafc', borderBottomColor: colors.line, borderBottomWidth: 1, gap: 8, padding: 11 },
+  clubGameGroupLabel: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 1.15, marginBottom: 2 },
+  clubRequestHeader: { gap: 3, marginTop: 8 },
   compactGameRow: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 11, flexDirection: 'row', minHeight: 52, paddingHorizontal: 11 },
+  requestGameRow: { backgroundColor: '#f8f7ff', borderColor: 'rgba(139,92,246,0.18)', borderWidth: 1 },
   compactGameCopy: { flex: 1, gap: 2 },
   compactGameAction: { color: colors.primary, fontSize: 12, fontWeight: '900' },
   compactGameActionMuted: { color: colors.muted },
@@ -7087,5 +7374,5 @@ const styles = StyleSheet.create({
   simpleMenuCopy: { flex: 1, gap: 2 },
   merchantBand: { alignItems: 'flex-start', backgroundColor: colors.tealSoft, borderColor: 'rgba(21,127,109,0.20)', borderRadius: 13, borderWidth: 1, flexDirection: 'row', gap: 9, padding: 12 },
   merchantBandText: { color: colors.teal, flex: 1, fontSize: 12, fontWeight: '800', lineHeight: 17 }
-});
+}));
 
