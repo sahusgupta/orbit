@@ -77,7 +77,10 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 
 export const syncBaseUrl = `firebase://${firebaseConfig.projectId}/clubs`;
-export const orbitApiBaseUrl = (process.env.EXPO_PUBLIC_ORBIT_API_URL || '').replace(/\/$/, '');
+export const orbitApiBaseUrl = (
+  process.env.EXPO_PUBLIC_ORBIT_API_URL ||
+  'https://orbitapp-one.vercel.app'
+).replace(/\/$/, '');
 export const cardHouseGameRefreshIntervalMs = 30_000;
 const localOrbitApiBaseUrl = (
   process.env.EXPO_PUBLIC_ORBIT_LOCAL_API_URL ||
