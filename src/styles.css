@@ -8254,3 +8254,155 @@ body.low-light .today-membership.active {
   .waitlist-popup-row { grid-template-columns: minmax(0, 1fr) auto; }
   .waitlist-popup-row > :last-child { grid-column: 1 / -1; width: 100%; }
 }
+
+/* Desktop notification toast and action center. */
+.staff-request-notice {
+  animation: orbit-notification-in 180ms ease-out;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 18px 50px rgba(2, 6, 23, .24);
+  margin: 0;
+  max-width: min(430px, calc(100vw - 32px));
+  position: fixed;
+  right: 20px;
+  top: 72px;
+  width: 430px;
+  z-index: 90;
+}
+
+.staff-notification-center {
+  position: fixed;
+  right: 20px;
+  top: 18px;
+  z-index: 91;
+}
+
+.staff-notification-trigger {
+  align-items: center;
+  background: color-mix(in srgb, var(--panel-solid) 95%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 26px rgba(2, 6, 23, .14);
+  color: var(--ink);
+  display: flex;
+  height: 40px;
+  justify-content: center;
+  position: relative;
+  width: 40px;
+}
+
+.staff-notification-trigger > span {
+  align-items: center;
+  background: #dc2626;
+  border: 2px solid var(--panel-solid);
+  border-radius: 99px;
+  color: #fff;
+  display: flex;
+  font-size: .58rem;
+  font-weight: 900;
+  height: 18px;
+  justify-content: center;
+  min-width: 18px;
+  padding: 0 3px;
+  position: absolute;
+  right: -7px;
+  top: -7px;
+}
+
+.staff-notification-panel {
+  animation: orbit-notification-in 160ms ease-out;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 24px 70px rgba(2, 6, 23, .28);
+  max-height: min(620px, calc(100vh - 80px));
+  overflow: hidden;
+  position: absolute;
+  right: 0;
+  top: 48px;
+  width: min(390px, calc(100vw - 32px));
+}
+
+.staff-notification-panel > header {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  padding: 15px 16px;
+}
+
+.staff-notification-panel > header > div {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.staff-notification-panel > header > div:first-child {
+  align-items: flex-start;
+  display: grid;
+  gap: 2px;
+}
+
+.staff-notification-panel header strong { font-size: .92rem; }
+.staff-notification-panel header span { color: var(--muted); font-size: .68rem; }
+.staff-notification-panel header button {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: .7rem;
+  font-weight: 800;
+  padding: 5px;
+}
+
+.staff-notification-list {
+  max-height: min(540px, calc(100vh - 150px));
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.staff-notification-list > button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--ink);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  padding: 11px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.staff-notification-list > button:hover { background: var(--primary-soft); }
+.staff-notification-list > button.unread { background: color-mix(in srgb, var(--primary-soft) 58%, transparent); }
+.staff-notification-list > button > span:nth-child(2) { display: grid; gap: 3px; min-width: 0; }
+.staff-notification-list small { color: var(--muted); font-size: .72rem; line-height: 1.35; }
+.staff-notification-list time { color: var(--muted); font-size: .62rem; }
+.staff-notification-item-icon {
+  align-items: center;
+  background: var(--primary-soft);
+  border-radius: 9px;
+  color: var(--primary);
+  display: flex;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.staff-notification-empty { color: var(--muted); font-size: .78rem; padding: 42px 18px; text-align: center; }
+
+@keyframes orbit-notification-in {
+  from { opacity: 0; transform: translateY(-8px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 680px) {
+  .staff-notification-center { right: 14px; top: 10px; }
+  .staff-request-notice {
+    align-items: stretch;
+    display: grid;
+    right: 14px;
+    top: 60px;
+    width: calc(100vw - 28px);
+  }
+}

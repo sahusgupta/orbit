@@ -9,6 +9,7 @@ import {
   ChevronUp,
   Clock,
   ChevronLeft,
+  ChevronRight,
   Download,
   Edit3,
   Eye,
@@ -186,6 +187,8 @@ type StaffRequestNotice = {
   kind: 'membership' | 'seat';
   title: string;
   body: string;
+  createdAt: string;
+  read: boolean;
 };
 
 type GameSession = {
@@ -2406,6 +2409,14 @@ function App() {
   const [profileSearch, setProfileSearch] = useState('');
   const [profileFormMessage, setProfileFormMessage] = useState('');
   const [staffRequestNotice, setStaffRequestNotice] = useState<StaffRequestNotice | null>(null);
+  const [staffNotifications, setStaffNotifications] = useState<StaffRequestNotice[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(`${storageKey}:staff-notifications`) || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [profileEditDraft, setProfileEditDraft] = useState<PlayerProfile | null>(null);
   const [groupMeText, setGroupMeText] = useState('');
@@ -2518,6 +2529,15 @@ function App() {
   );
 
   const announceIncomingPlayerRequest = (previousState: AppState, nextState: AppState) => {
+    const showNotification = (notice: Omit<StaffRequestNotice, 'createdAt' | 'read'>) => {
+      const notification: StaffRequestNotice = { ...notice, createdAt: nowIso(), read: false };
+      setStaffRequestNotice(notification);
+      setStaffNotifications((current) => {
+        const next = [notification, ...current.filter((item) => item.id !== notification.id)].slice(0, 100);
+        localStorage.setItem(`${storageKey}:staff-notifications`, JSON.stringify(next));
+        return next;
+      });
+    };
     const membershipRequest = nextState.profiles
       .filter((profile) => profile.membershipStatus === 'Requested')
       .filter((profile) => !previousState.profiles.some((candidate) =>
@@ -2527,7 +2547,7 @@ function App() {
       ))
       .sort((left, right) => Date.parse(right.membershipRequestedAt || '') - Date.parse(left.membershipRequestedAt || ''))[0];
     if (membershipRequest) {
-      setStaffRequestNotice({
+      showNotification({
         id: `membership-${membershipRequest.id}-${membershipRequest.membershipRequestedAt || Date.now()}`,
         kind: 'membership',
         title: 'New membership request',
@@ -2541,7 +2561,7 @@ function App() {
       .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))[0];
     if (seatRequest) {
       const gameName = nextState.games.find((game) => game.id === seatRequest.gameId)?.name ?? 'a game';
-      setStaffRequestNotice({
+      showNotification({
         id: `seat-${seatRequest.id}`,
         kind: 'seat',
         title: 'New seat request',
@@ -6241,6 +6261,22 @@ function App() {
     { id: 'add-interest', label: 'Add player interest', group: 'Actions', action: () => { closeRoute(); setOpenPanels((panels) => ({ ...panels, quickAdd: true })); } },
     { id: 'open-reports', label: 'Open night report', group: 'Actions', action: () => openRoute('summary') }
   ];
+  const openStaffNotification = (notification: StaffRequestNotice) => {
+    setStaffNotifications((current) => {
+      const next = current.map((item) => item.id === notification.id ? { ...item, read: true } : item);
+      localStorage.setItem(`${storageKey}:staff-notifications`, JSON.stringify(next));
+      return next;
+    });
+    setStaffRequestNotice((current) => current?.id === notification.id ? null : current);
+    setNotificationCenterOpen(false);
+    if (notification.kind === 'membership') {
+      setPlayerSection('requests');
+      navigatePrimary('players');
+    } else {
+      navigatePrimary('floor');
+    }
+  };
+  const unreadStaffNotificationCount = staffNotifications.filter((notification) => !notification.read).length;
   const withShell = (active: PrimaryDestination, content: React.ReactNode) => (
     <AppShell
       active={active}
@@ -6252,7 +6288,7 @@ function App() {
       commands={shellCommands}
     >
       {staffRequestNotice ? (
-        <section className="staff-request-notice" role="status">
+        <section className="staff-request-notice" role="status" aria-live="polite">
           <div className="staff-request-notice-copy">
             <span className="staff-request-notice-icon"><Bell size={18} /></span>
             <div>
@@ -6263,15 +6299,7 @@ function App() {
           <div className="staff-request-notice-actions">
             <button
               className="primary-button"
-              onClick={() => {
-                setStaffRequestNotice(null);
-                if (staffRequestNotice.kind === 'membership') {
-                  setPlayerSection('memberships');
-                  navigatePrimary('players');
-                } else {
-                  navigatePrimary('floor');
-                }
-              }}
+              onClick={() => openStaffNotification(staffRequestNotice)}
             >
               Review
             </button>
@@ -6281,6 +6309,54 @@ function App() {
           </div>
         </section>
       ) : null}
+      <div className="staff-notification-center">
+        <button
+          className="staff-notification-trigger"
+          type="button"
+          aria-label={`Notifications${unreadStaffNotificationCount ? `, ${unreadStaffNotificationCount} unread` : ''}`}
+          onClick={() => setNotificationCenterOpen((open) => !open)}
+        >
+          <Bell size={19} />
+          {unreadStaffNotificationCount ? <span>{unreadStaffNotificationCount > 99 ? '99+' : unreadStaffNotificationCount}</span> : null}
+        </button>
+        {notificationCenterOpen ? (
+          <section className="staff-notification-panel" aria-label="Notifications">
+            <header>
+              <div><strong>Notifications</strong><span>{unreadStaffNotificationCount} unread</span></div>
+              <div>
+                {unreadStaffNotificationCount ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = staffNotifications.map((notification) => ({ ...notification, read: true }));
+                      setStaffNotifications(next);
+                      localStorage.setItem(`${storageKey}:staff-notifications`, JSON.stringify(next));
+                    }}
+                  >
+                    Mark all read
+                  </button>
+                ) : null}
+                <button type="button" onClick={() => setNotificationCenterOpen(false)} aria-label="Close notifications"><X size={16} /></button>
+              </div>
+            </header>
+            <div className="staff-notification-list">
+              {staffNotifications.map((notification) => (
+                <button
+                  className={notification.read ? '' : 'unread'}
+                  type="button"
+                  key={notification.id}
+                  onClick={() => openStaffNotification(notification)}
+                >
+                  <span className="staff-notification-item-icon">{notification.kind === 'membership' ? <BadgeCheck size={17} /> : <Users size={17} />}</span>
+                  <span><strong>{notification.title}</strong><small>{notification.body}</small><time>{formatClock(notification.createdAt)}</time></span>
+                  <ChevronRight size={16} />
+                </button>
+              ))}
+              {!staffNotifications.length ? <div className="staff-notification-empty">No notifications yet.</div> : null}
+            </div>
+          </section>
+        ) : null}
+      </div>
       {content}
     </AppShell>
   );

@@ -1982,20 +1982,20 @@ function InAppNotificationPopup({
   onDismiss: () => void;
 }) {
   return (
-    <Modal transparent visible animationType="fade" onRequestClose={onDismiss}>
-      <View style={styles.alertPopupBackdrop}>
-        <View style={styles.alertPopup}>
-          <View style={styles.alertPopupIcon}>
-            <Ionicons name="notifications-outline" size={22} color={colors.primary} />
-          </View>
+    <View pointerEvents="box-none" style={styles.alertToastHost}>
+      <View style={styles.alertPopup}>
+        <View style={styles.alertPopupIcon}>
+          <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+        </View>
+        <View style={styles.alertPopupCopy}>
           <Text style={styles.alertPopupTitle}>{notification.title}</Text>
           <Text style={styles.alertPopupBody}>{notification.body}</Text>
-          <Pressable accessibilityLabel="Dismiss alert" style={styles.alertPopupButton} onPress={onDismiss}>
-            <Text style={styles.alertPopupButtonText}>Got it</Text>
-          </Pressable>
         </View>
+        <Pressable accessibilityLabel="Dismiss notification" style={styles.alertPopupClose} onPress={onDismiss}>
+          <Ionicons name="close" size={18} color={colors.muted} />
+        </Pressable>
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -5387,13 +5387,13 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
     justifyContent: 'center',
     width: 30
   },
-  alertPopupBackdrop: { alignItems: 'center', backgroundColor: 'rgba(2,6,18,0.76)', flex: 1, justifyContent: 'center', padding: 22 },
-  alertPopup: { alignItems: 'center', backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 22, borderWidth: 1, gap: 11, maxWidth: 440, padding: 22, width: '100%' },
-  alertPopupIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 999, height: 48, justifyContent: 'center', width: 48 },
-  alertPopupTitle: { color: colors.ink, fontSize: 19, fontWeight: '900', textAlign: 'center' },
-  alertPopupBody: { color: colors.muted, fontSize: 13, fontWeight: '600', lineHeight: 19, textAlign: 'center' },
-  alertPopupButton: { alignItems: 'center', alignSelf: 'stretch', backgroundColor: colors.primary, borderRadius: 12, justifyContent: 'center', marginTop: 3, minHeight: 46 },
-  alertPopupButtonText: { color: '#ffffff', fontSize: 13, fontWeight: '900' },
+  alertToastHost: { left: 14, position: 'absolute', right: 14, top: 58, zIndex: 200 },
+  alertPopup: { alignItems: 'flex-start', backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 16, borderWidth: 1, elevation: 12, flexDirection: 'row', gap: 11, padding: 14, shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.28, shadowRadius: 24 },
+  alertPopupIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 11, height: 40, justifyContent: 'center', width: 40 },
+  alertPopupCopy: { flex: 1, gap: 3, paddingTop: 1 },
+  alertPopupTitle: { color: colors.ink, fontSize: 15, fontWeight: '900' },
+  alertPopupBody: { color: colors.muted, fontSize: 12, fontWeight: '600', lineHeight: 17 },
+  alertPopupClose: { alignItems: 'center', height: 32, justifyContent: 'center', marginRight: -5, marginTop: -5, width: 32 },
   heroPanel: {
     borderRadius: 28,
     overflow: 'hidden',
