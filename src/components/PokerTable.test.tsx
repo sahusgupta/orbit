@@ -6,6 +6,8 @@ import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import PokerTable from './PokerTable';
 
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 describe('PokerTable seat rendering', () => {
   it('renders and supports clicking the largest configured table cap', () => {
     const container = document.createElement('div');
@@ -30,6 +32,53 @@ describe('PokerTable seat rendering', () => {
     });
 
     expect(onSeatClick).toHaveBeenCalledWith(10);
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('moves a seated player by dragging them onto an open seat', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const onChangeSeat = vi.fn();
+    const player = {
+      id: 'player-1',
+      name: 'Alex',
+      seatNumber: 1,
+      membershipId: 'member-1',
+      joinedAt: Date.now()
+    };
+
+    act(() => {
+      root.render(<PokerTable players={[player]} maxPlayers={9} onChangeSeat={onChangeSeat} />);
+    });
+
+    const dragSource = container.querySelector<HTMLButtonElement>('button[aria-label="Move Alex from seat 1"]');
+    const targetSeat = container.querySelector<HTMLButtonElement>('button[title="Add player to seat 4"]');
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      effectAllowed: 'none',
+      dropEffect: 'none',
+      setData: (type: string, value: string) => data.set(type, value),
+      getData: (type: string) => data.get(type) ?? ''
+    };
+    const dispatchDragEvent = (element: Element | null, type: string) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'dataTransfer', { value: dataTransfer });
+      element?.dispatchEvent(event);
+    };
+
+    act(() => {
+      dispatchDragEvent(dragSource, 'dragstart');
+      dispatchDragEvent(targetSeat, 'dragover');
+      dispatchDragEvent(targetSeat, 'drop');
+      dispatchDragEvent(dragSource, 'dragend');
+    });
+
+    expect(onChangeSeat).toHaveBeenCalledWith('player-1', 4);
 
     act(() => {
       root.unmount();

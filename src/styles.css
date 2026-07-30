@@ -5827,6 +5827,7 @@ body.low-light .poker-table-surface {
 
 .poker-seat-card { z-index: 10; }
 .poker-seat-card.open { z-index: 40; }
+.poker-seat-card.dragging { opacity: .48; z-index: 50; }
 .poker-seat-remove-button { display: none; }
 .poker-seat-card-inner,
 body.low-light .poker-seat-card-inner {
@@ -5844,6 +5845,32 @@ body.low-light .poker-seat-card-inner {
   padding: 0;
   text-align: center;
   width: 54px;
+}
+
+.poker-seat-card-inner[draggable="true"] { cursor: grab; }
+.poker-seat-card-inner[draggable="true"]:active { cursor: grabbing; }
+.poker-table-shell.is-dragging-player .poker-position-marker.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.poker-position-marker.drop-target {
+  animation: poker-seat-drop-pulse 1.2s ease-in-out infinite;
+  background: rgba(77,124,254,.18);
+  border-color: rgba(123,167,255,.8);
+  color: #a9c5ff;
+}
+.poker-position-marker.drag-over {
+  animation: none;
+  background: #4d7cfe;
+  border-color: #b8ccff;
+  box-shadow: 0 0 0 7px rgba(77,124,254,.18), 0 0 28px rgba(77,124,254,.72);
+  color: #07111f;
+  transform: translate(-50%,-50%) scale(1.22);
+}
+
+@keyframes poker-seat-drop-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(77,124,254,.08), 0 0 14px rgba(77,124,254,.22); }
+  50% { box-shadow: 0 0 0 5px rgba(77,124,254,.12), 0 0 24px rgba(77,124,254,.42); }
 }
 
 .poker-seat-card.dense .poker-seat-card-inner { width: 50px; height: 50px; }

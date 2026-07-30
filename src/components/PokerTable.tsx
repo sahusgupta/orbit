@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Clock, DollarSign, Plus, X } from 'lucide-react';
 import { getTimerStatusFromSeconds } from '../lib/appCore';
 
@@ -43,6 +43,9 @@ interface PlayerCardProps {
   showTimeRemaining: boolean;
   isOpen: boolean;
   onToggle: () => void;
+  isDragging: boolean;
+  onDragStart: (playerId: string) => void;
+  onDragEnd: () => void;
   onAddTime?: (playerId: string, minutes: number) => void;
   onAddBuyIn?: (playerId: string, amount: number, note: string) => void;
   onRemovePlayer?: (playerId: string) => void;
@@ -77,6 +80,9 @@ function PlayerCard({
   showTimeRemaining,
   isOpen,
   onToggle,
+  isDragging,
+  onDragStart,
+  onDragEnd,
   onAddTime,
   onAddBuyIn,
   onRemovePlayer,
@@ -89,6 +95,7 @@ function PlayerCard({
   const [customMinutes, setCustomMinutes] = useState('');
   const [buyInAmount, setBuyInAmount] = useState('');
   const [buyInNote, setBuyInNote] = useState('');
+  const suppressClickRef = useRef(false);
 
   useEffect(() => {
     const interval = window.setInterval(() => setCurrentTime(Date.now()), 1000);
@@ -126,7 +133,7 @@ function PlayerCard({
   };
 
   return (
-    <div className={`poker-seat-card ${seatEdgeClass} ${isOpen ? 'open' : ''} ${isDense ? 'dense' : ''}`} style={{ left: `${seat.x}%`, top: `${seat.y}%` }}>
+    <div className={`poker-seat-card ${seatEdgeClass} ${isOpen ? 'open' : ''} ${isDense ? 'dense' : ''} ${isDragging ? 'dragging' : ''}`} style={{ left: `${seat.x}%`, top: `${seat.y}%` }}>
       <button
         className="poker-seat-remove-button"
         type="button"
@@ -141,7 +148,23 @@ function PlayerCard({
       <button
         className={`poker-seat-card-inner ${isOpen ? 'open' : ''}`}
         type="button"
-        onClick={onToggle}
+        draggable
+        aria-label={`Move ${player.name} from seat ${player.seatNumber ?? position + 1}`}
+        onClick={() => {
+          if (!suppressClickRef.current) onToggle();
+        }}
+        onDragStart={(event) => {
+          suppressClickRef.current = true;
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', player.id);
+          onDragStart(player.id);
+        }}
+        onDragEnd={() => {
+          onDragEnd();
+          window.setTimeout(() => {
+            suppressClickRef.current = false;
+          }, 0);
+        }}
         onContextMenu={(event) => {
           event.preventDefault();
           onToggle();
@@ -282,6 +305,8 @@ export default function PokerTable({
   onMovePlayer
 }: PokerTableProps) {
   const [openPlayerId, setOpenPlayerId] = useState<string | null>(null);
+  const [draggedPlayerId, setDraggedPlayerId] = useState<string | null>(null);
+  const [dragOverSeatNumber, setDragOverSeatNumber] = useState<number | null>(null);
   const seatCount = Math.max(1, maxPlayers);
   const tablePositionCount = seatCount + 1;
   const isDense = seatCount >= 8;
@@ -291,7 +316,7 @@ export default function PokerTable({
     .sort((a, b) => (a.seatNumber ?? 99) - (b.seatNumber ?? 99));
 
   return (
-    <div className={`poker-table-shell ${isDense ? 'dense' : ''}`}>
+    <div className={`poker-table-shell ${isDense ? 'dense' : ''} ${draggedPlayerId ? 'is-dragging-player' : ''}`}>
       <div className="poker-table-stage">
         <div className="poker-table-rail">
           <div className="poker-table-ring">
@@ -310,10 +335,30 @@ export default function PokerTable({
                   return (
                     <button
                       key={i}
-                      className={`poker-position-marker ${occupied ? 'occupied' : 'open'} ${selectedSeatNumber === seatNumber ? 'selected' : ''}`}
+                      className={`poker-position-marker ${occupied ? 'occupied' : 'open'} ${selectedSeatNumber === seatNumber ? 'selected' : ''} ${draggedPlayerId && !occupied ? 'drop-target' : ''} ${dragOverSeatNumber === seatNumber ? 'drag-over' : ''}`}
                       type="button"
                       disabled={occupied}
                       onClick={() => onSeatClick?.(seatNumber)}
+                      onDragEnter={() => {
+                        if (draggedPlayerId && !occupied) setDragOverSeatNumber(seatNumber);
+                      }}
+                      onDragLeave={() => {
+                        setDragOverSeatNumber((current) => current === seatNumber ? null : current);
+                      }}
+                      onDragOver={(event) => {
+                        if (!draggedPlayerId || occupied) return;
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = 'move';
+                      }}
+                      onDrop={(event) => {
+                        if (occupied) return;
+                        event.preventDefault();
+                        const playerId = draggedPlayerId || event.dataTransfer.getData('text/plain');
+                        if (playerId) onChangeSeat?.(playerId, seatNumber);
+                        setDraggedPlayerId(null);
+                        setDragOverSeatNumber(null);
+                        setOpenPlayerId(null);
+                      }}
                       style={{ left: `${marker.x}%`, top: `${marker.y}%` }}
                       title={occupied ? `Seat ${seatNumber} occupied` : `Add player to seat ${seatNumber}`}
                     >
@@ -341,6 +386,15 @@ export default function PokerTable({
               showTimeRemaining={showTimeRemaining}
               isOpen={openPlayerId === player.id}
               onToggle={() => setOpenPlayerId((current) => (current === player.id ? null : player.id))}
+              isDragging={draggedPlayerId === player.id}
+              onDragStart={(playerId) => {
+                setOpenPlayerId(null);
+                setDraggedPlayerId(playerId);
+              }}
+              onDragEnd={() => {
+                setDraggedPlayerId(null);
+                setDragOverSeatNumber(null);
+              }}
               onAddTime={onAddTime}
               onAddBuyIn={onAddBuyIn}
               onRemovePlayer={onRemovePlayer}
