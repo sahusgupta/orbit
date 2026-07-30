@@ -3,7 +3,9 @@ import {
   canonicalPayload,
   countActivePlayersForTable,
   createBackupEnvelope,
+  filterRecentActivityAfterClose,
   getGameFrequencyRank,
+  getLatestLockedNightCloseAt,
   getProfilesWithGameInTopTwoByFrequency,
   getTimerStatusFromMinutes,
   getTimerStatusFromSeconds,
@@ -75,6 +77,35 @@ describe('table seat counts', () => {
         'a'
       )
     ).toBe(2);
+  });
+});
+
+describe('recent activity day boundary', () => {
+  it('finds the newest locked night close', () => {
+    expect(
+      getLatestLockedNightCloseAt([
+        { status: 'Locked', lockedAt: '2026-07-28T05:00:00.000Z' },
+        { status: 'Draft' },
+        { status: 'Locked', lockedAt: '2026-07-29T05:00:00.000Z' }
+      ])
+    ).toBe('2026-07-29T05:00:00.000Z');
+  });
+
+  it('hides activity through the close and keeps new-day activity', () => {
+    const activity = [
+      { id: 'before', timestamp: '2026-07-29T04:59:59.000Z' },
+      { id: 'close-event', timestamp: '2026-07-29T05:00:00.000Z' },
+      { id: 'after', timestamp: '2026-07-29T05:00:01.000Z' }
+    ];
+
+    expect(filterRecentActivityAfterClose(activity, '2026-07-29T05:00:00.000Z').map((item) => item.id)).toEqual([
+      'after'
+    ]);
+    expect(filterRecentActivityAfterClose(activity).map((item) => item.id)).toEqual([
+      'before',
+      'close-event',
+      'after'
+    ]);
   });
 });
 

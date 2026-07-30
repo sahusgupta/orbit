@@ -120,6 +120,26 @@ export function countActivePlayersForTable<TPlayer extends { tableId: string; le
   return players.filter((player) => player.tableId === tableId && !player.leftAt).length;
 }
 
+type LockedNightClose = {
+  status: string;
+  lockedAt?: string;
+};
+
+export function getLatestLockedNightCloseAt(nightCloses: LockedNightClose[]) {
+  return nightCloses.reduce<string | undefined>((latest, close) => {
+    if (close.status !== 'Locked' || !close.lockedAt) return latest;
+    return !latest || close.lockedAt > latest ? close.lockedAt : latest;
+  }, undefined);
+}
+
+export function filterRecentActivityAfterClose<TActivity extends { timestamp: string }>(
+  activity: TActivity[],
+  latestLockedAt?: string
+) {
+  if (!latestLockedAt) return activity;
+  return activity.filter((item) => item.timestamp > latestLockedAt);
+}
+
 type GameFrequencyProfile = {
   id: string;
   gamePlayCounts?: Record<string, number>;

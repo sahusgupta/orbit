@@ -40,7 +40,9 @@ import {
   canonicalPayload,
   countActivePlayersForTable,
   createBackupEnvelope,
+  filterRecentActivityAfterClose,
   getGameFrequencyRank,
+  getLatestLockedNightCloseAt,
   getTimerStatusFromMinutes,
   getTimerStatusFromSeconds,
   readBackupEnvelope,
@@ -635,7 +637,7 @@ type ParticipantCandidate = {
   profile?: PlayerProfile;
   confidence: number;
   reasons: string[];
-  source: 'interest' | 'connected-profile';
+  source: 'interest';
 };
 
 type BalancePlan = {
@@ -911,6 +913,77 @@ const getReportFinancials = (state: AppState, window: ReportWindow) => {
     collectionByGame,
     timeFeeEntries,
     paidRevenue
+  };
+};
+
+const getTableFinancialOverview = (state: AppState, session: GameSession) => {
+  const totalBuyIns = state.buyIns
+    .filter((entry) => entry.tableId === session.id)
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const totalCashOuts = state.playerLedger
+    .filter((entry) => entry.tableId === session.id && entry.type === 'Cash-Out')
+    .reduce((sum, entry) => sum + (entry.amount ?? 0), 0);
+  const totalDrop = state.dropLogs
+    .filter((entry) => entry.tableId === session.id)
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const tableTimeFeeLogs = state.timeFeeLogs.filter((entry) => entry.tableId === session.id);
+  const loggedPlayerSessionIds = new Set(tableTimeFeeLogs.map((entry) => entry.playerSessionId));
+  const exactTimeFees = tableTimeFeeLogs.reduce((sum, entry) => sum + entry.amount, 0);
+  const legacyTimeFees = session.collectionMode === 'Time' || session.timeFeeBased
+    ? state.playerSessions
+        .filter((playerSession) =>
+          playerSession.tableId === session.id &&
+          !loggedPlayerSessionIds.has(playerSession.id) &&
+          (playerSession.timePurchasedMinutes ?? 0) > 0
+        )
+        .reduce(
+          (sum, playerSession) =>
+            sum + ((playerSession.timePurchasedMinutes ?? 0) / 60) * getCollectionProfile(state, session.gameId).hourlyFee,
+          0
+        )
+    : 0;
+  const totalTimeFees = exactTimeFees + legacyTimeFees;
+  const tableProfit = totalDrop + totalTimeFees;
+
+  return {
+    totalBuyIns,
+    totalCashOuts,
+    totalDrop,
+    totalTimeFees,
+    tableProfit,
+    cashInPlay: totalBuyIns - totalCashOuts - tableProfit
+  };
+};
+
+const getTablePlayerFinancialOverview = (state: AppState, session: GameSession, playerSession: PlayerSession) => {
+  const normalizedPlayerName = playerSession.playerName.trim().toLowerCase();
+  const belongsToPlayer = (profileId: string | undefined, playerName: string) =>
+    playerSession.profileId && profileId
+      ? playerSession.profileId === profileId
+      : playerName.trim().toLowerCase() === normalizedPlayerName;
+  const totalBuyIns = state.buyIns
+    .filter((entry) => entry.tableId === session.id && belongsToPlayer(entry.profileId, entry.playerName))
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const totalCashOuts = state.playerLedger
+    .filter((entry) =>
+      entry.tableId === session.id &&
+      entry.type === 'Cash-Out' &&
+      belongsToPlayer(entry.profileId, entry.playerName)
+    )
+    .reduce((sum, entry) => sum + (entry.amount ?? 0), 0);
+  const exactTimeFeeLogs = state.timeFeeLogs.filter((entry) => entry.playerSessionId === playerSession.id);
+  const exactTimeFees = exactTimeFeeLogs.reduce((sum, entry) => sum + entry.amount, 0);
+  const legacyTimeFees =
+    !exactTimeFeeLogs.length &&
+    (session.collectionMode === 'Time' || session.timeFeeBased) &&
+    (playerSession.timePurchasedMinutes ?? 0) > 0
+      ? ((playerSession.timePurchasedMinutes ?? 0) / 60) * getCollectionProfile(state, session.gameId).hourlyFee
+      : 0;
+
+  return {
+    totalBuyIns,
+    totalCashOuts,
+    totalTimeFees: exactTimeFees + legacyTimeFees
   };
 };
 
@@ -2140,7 +2213,6 @@ function getParticipantPool(state: AppState, gameId: string, seats: number): Par
   };
   const available = state.interests.filter((interest) => activeInterestStatuses.includes(interest.status) && interest.gameId === gameId);
   const inClubNames = getInClubNames(state);
-  const interestNames = new Set(state.interests.map((interest) => interest.playerName.toLowerCase()));
 
   const interestCandidates = available
     .map((interest) => {
@@ -2181,34 +2253,7 @@ function getParticipantPool(state: AppState, gameId: string, seats: number): Par
       };
     });
 
-  const connectedProfileCandidates = state.profiles
-    .filter((profile) => !interestNames.has(profile.name.toLowerCase()))
-    .map((profile) => {
-      const connectedNames = profile.usualCompanions.filter((name) => inClubNames.has(name));
-      const gameMatch = profile.preferredGameIds.includes(gameId) || profile.preferredStakes.includes(state.games.find((game) => game.id === gameId)?.name ?? '');
-      const tagMatches = profile.preferredTags.filter((tag) =>
-        state.sessions.some((session) => session.gameId === gameId && session.tags.includes(tag))
-      );
-      if (!connectedNames.length && !gameMatch) return null;
-      const buyInAverage = profile.typicalBuyInMax > 0 ? Math.round((profile.typicalBuyInMin + profile.typicalBuyInMax) / 2) : 0;
-      const confidence = (gameMatch ? 62 : 20) + connectedNames.length * 22 + tagMatches.length * 8 + Math.min(18, Math.round(buyInAverage / 100));
-      return {
-        id: `profile-${profile.id}`,
-        playerName: profile.name,
-        profile,
-        confidence,
-        reasons: [
-          gameMatch ? 'game/stakes fit' : 'possible fit',
-          tagMatches.length ? `fits ${tagMatches.join(', ')}` : '',
-          connectedNames.length ? `connected to ${connectedNames.join(', ')}` : '',
-          buyInAverage ? `$${buyInAverage} typical buy-in` : ''
-        ].filter(Boolean),
-        source: 'connected-profile' as const
-      };
-    })
-    .filter((candidate): candidate is ParticipantCandidate => Boolean(candidate));
-
-  return [...interestCandidates, ...connectedProfileCandidates]
+  return interestCandidates
     .sort((a, b) => b.confidence - a.confidence)
     .slice(0, seats);
 }
@@ -2475,12 +2520,15 @@ function App() {
     currentTables: true,
     waitlist: true,
     tableOverview: true,
+    tableFinancials: true,
+    recentActivity: true,
     formingGames: true,
     kpis: false,
     quickAdd: false
   });
   const stateRef = useRef(state);
   const [overviewTableId, setOverviewTableId] = useState('all-time-overview');
+  const [financialOverviewTableId, setFinancialOverviewTableId] = useState('all-table-financials');
   const [waitlistPopupOpen, setWaitlistPopupOpen] = useState(false);
   const [playerPopup, setPlayerPopup] = useState<'add' | 'ledger' | 'scan' | null>(null);
   const [qrScanMessage, setQrScanMessage] = useState('Point the camera at an active Orbit membership QR code.');
@@ -2506,6 +2554,14 @@ function App() {
   const reportState = useMemo(() => getReportState(state, reportWindow), [state, reportWindow]);
   const reportAnalytics = useMemo(() => getAnalytics(reportState), [reportState]);
   const reportFinancials = useMemo(() => getReportFinancials(state, reportWindow), [state, reportWindow]);
+  const nightCloseReportDate = toLocalDateValue(new Date(clockNow));
+  const nightCloseReportWindow = useMemo(() => getReportWindow('day', nightCloseReportDate), [nightCloseReportDate]);
+  const nightCloseFinancials = useMemo(
+    () => getReportFinancials(state, nightCloseReportWindow),
+    [state, nightCloseReportWindow]
+  );
+  const nightCloseTotalProfit =
+    nightCloseFinancials.recordedDrop + nightCloseFinancials.timeFees + nightCloseFinancials.membershipRevenue;
   const reportHourlyBreakdown = useMemo(() => getReportHourlyBreakdown(state, reportWindow, reportFinancials), [state, reportWindow, reportFinancials]);
   const reportDealerBreakdown = useMemo(() => getDealerReport(state, reportWindow), [state, reportWindow]);
   const reportOpportunities = useMemo(() => getOperationalOpportunities(reportState, reportAnalytics), [reportState, reportAnalytics]);
@@ -2573,6 +2629,17 @@ function App() {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    if (!openPanels.quickAdd) return;
+    const closeQuickAddOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenPanels((panels) => ({ ...panels, quickAdd: false }));
+      }
+    };
+    window.addEventListener('keydown', closeQuickAddOnEscape);
+    return () => window.removeEventListener('keydown', closeQuickAddOnEscape);
+  }, [openPanels.quickAdd]);
 
   useEffect(() => {
     if (!selectedTournamentId && state.tournaments[0]) {
@@ -3156,6 +3223,14 @@ function App() {
     const existingProfile = state.profiles.find(
       (profile: { name: string; }) => profile.name.trim().toLowerCase() === playerName.toLowerCase()
     );
+    const existingActiveInterest = state.interests.find(
+      (interest) =>
+        !inactiveInterestStatuses.includes(interest.status) &&
+        (
+          (existingProfile && interest.profileId === existingProfile.id) ||
+          interest.playerName.trim().toLowerCase() === playerName.toLowerCase()
+        )
+    );
     if (form.status === 'Seated') {
       const openSessions = getOpenSeatSessions(form.gameId);
       const selectedOpenSession = form.tableId ? openSessions.find((session) => session.id === form.tableId) : undefined;
@@ -3209,26 +3284,51 @@ function App() {
       window.alert('No open seats are available for that game.');
       return;
     }
-    const nextState = promptDemandAction({
-      ...state,
-      interests: [
-        {
+    const timestamp = nowIso();
+    const statusTimestamps =
+      form.status === 'Confirmed Coming'
+        ? { confirmedAt: timestamp, closedAt: undefined }
+        : form.status === 'Arrived'
+          ? { arrivedAt: timestamp, closedAt: undefined }
+          : ['Declined', 'No-Show', 'Left Before Seated', 'Removed'].includes(form.status)
+            ? { closedAt: timestamp }
+            : { closedAt: undefined };
+    const nextInterest: Interest = existingActiveInterest
+      ? {
+          ...existingActiveInterest,
+          profileId: existingProfile?.id ?? existingActiveInterest.profileId,
+          playerName,
+          gameId: form.gameId,
+          status: form.status,
+          notes: form.notes.trim(),
+          timestamp,
+          ...statusTimestamps
+        }
+      : {
           id: uid(),
           profileId: existingProfile?.id,
           playerName,
           gameId: form.gameId,
           status: form.status,
           notes: form.notes.trim(),
-          timestamp: nowIso(),
-          interestedAt: nowIso(),
-          confirmedAt: form.status === 'Confirmed Coming' ? nowIso() : undefined,
-          arrivedAt: form.status === 'Arrived' ? nowIso() : undefined,
-          seatedAt: form.status === 'Seated' ? nowIso() : undefined
-        },
-        ...state.interests
-      ]
+          timestamp,
+          interestedAt: timestamp,
+          confirmedAt: form.status === 'Confirmed Coming' ? timestamp : undefined,
+          arrivedAt: form.status === 'Arrived' ? timestamp : undefined,
+          seatedAt: form.status === 'Seated' ? timestamp : undefined,
+          closedAt: ['Declined', 'No-Show', 'Left Before Seated', 'Removed'].includes(form.status) ? timestamp : undefined
+        };
+    const nextState = promptDemandAction({
+      ...state,
+      interests: existingActiveInterest
+        ? state.interests.map((interest) => interest.id === existingActiveInterest.id ? nextInterest : interest)
+        : [nextInterest, ...state.interests]
     }, form.gameId);
-    persist(nextState, true, { feature: 'Waitlist', action: 'Added interest', metadata: { status: form.status, gameId: form.gameId } });
+    persist(nextState, true, {
+      feature: 'Waitlist',
+      action: existingActiveInterest ? 'Updated active member status' : 'Added interest',
+      metadata: { status: form.status, gameId: form.gameId }
+    });
     setForm({ ...form, playerName: '', notes: '', tableId: '', seatNumber: '', initialBuyIn: '' });
   };
 
@@ -3245,8 +3345,22 @@ function App() {
   };
 
   const checkInProfileFromSearch = (profile: PlayerProfile) => {
-    addProfileToClub(profile);
+    const existingInterest = state.interests.find(
+      (interest) =>
+        !inactiveInterestStatuses.includes(interest.status) &&
+        (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase())
+    );
+    setForm({
+      playerName: profile.name,
+      gameId: existingInterest?.gameId ?? profile.preferredGameIds[0] ?? form.gameId,
+      status: existingInterest?.status ?? 'Confirmed Coming',
+      notes: existingInterest?.notes ?? (profile.notes ? `Profile note: ${profile.notes}` : ''),
+      tableId: '',
+      seatNumber: '',
+      initialBuyIn: ''
+    });
     setCheckInSearch('');
+    window.requestAnimationFrame(() => document.getElementById('quick-add-status')?.focus());
   };
 
   const updateInterest = (id: string, patch: Partial<Interest>) => {
@@ -5489,7 +5603,9 @@ function App() {
       window.alert('Staff sign-off is required before manager approval.');
       return;
     }
-    if (!window.confirm(`Lock tonight's reconciliation with a ${nightCloseTotals.discrepancy < 0 ? '-' : '+'}$${Math.abs(nightCloseTotals.discrepancy).toFixed(2)} discrepancy?`)) return;
+    if (!window.confirm(
+      `Lock tonight's reconciliation with a ${nightCloseTotals.discrepancy < 0 ? '-' : '+'}$${Math.abs(nightCloseTotals.discrepancy).toFixed(2)} discrepancy?\n\nThis will close every current table, remove all seated players, and reset Recent Activity.`
+    )) return;
     const timestamp = nowIso();
     const approval = makeNightCloseAudit('Manager Approved', `Locked with discrepancy ${nightCloseTotals.discrepancy.toFixed(2)}`);
     const lockedTables = nightCloseTables.map((table) => ({ ...table, warnings: table.warnings.filter((warning) => warning !== 'Table is still open') }));
@@ -7222,7 +7338,7 @@ function App() {
           <label><span>Status</span><select value={gameStatusFilter} onChange={(event) => setGameStatusFilter(event.target.value)}>{['All statuses', 'Running', 'Ready', 'Needs players'].map((status) => <option key={status}>{status}</option>)}</select></label>
         </section>
 
-        <section className="panel">
+        <section className="panel game-requests-panel">
           <div className="section-heading">
             <div>
               <h2>Player Game Requests</h2>
@@ -7308,7 +7424,6 @@ function App() {
                       ? `$${candidate.profile.typicalBuyInMin}-${candidate.profile.typicalBuyInMax} buy-in`
                       : 'No profile'}
                   </small>
-                  {candidate.source === 'connected-profile' ? <small>Profile connection, not currently listed</small> : null}
                 </div>
               </article>
             ))}
@@ -8209,6 +8324,29 @@ function App() {
             <article className={nightCloseHasMissingActual ? 'pending' : Math.abs(nightCloseTotals.discrepancy) < .01 ? 'balanced' : 'unbalanced'}><span>Over / short</span><strong>{nightCloseHasMissingActual ? 'Pending' : `${nightCloseTotals.discrepancy >= 0 ? '+' : '-'}$${Math.abs(nightCloseTotals.discrepancy).toLocaleString(undefined, { maximumFractionDigits: 2 })}`}</strong></article>
           </div>
 
+          <section className="night-close-profit-panel" aria-label="Tonight's total profits">
+            <div className="night-close-profit-tab">Total profits</div>
+            <div className="night-close-profit-total">
+              <span>Tonight's total</span>
+              <strong>${nightCloseTotalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+              <small>Recorded drop + time fees + membership fees</small>
+            </div>
+            <div className="night-close-profit-breakdown">
+              <article>
+                <span>Recorded drop</span>
+                <strong>${nightCloseFinancials.recordedDrop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+              </article>
+              <article>
+                <span>Time fees</span>
+                <strong>${nightCloseFinancials.timeFees.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+              </article>
+              <article>
+                <span>Membership fees</span>
+                <strong>${nightCloseFinancials.membershipRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+              </article>
+            </div>
+          </section>
+
           <section className="night-close-table-panel">
             <div className="night-close-section-title"><div><h3>Table reconciliation</h3><span>{nightCloseTables.length} tables in this shift</span></div><code>Buy-ins − cash-outs − drop/time = expected</code></div>
             <div className="night-close-table-head"><span>Table</span><span>Buy-ins</span><span>Cash-outs</span><span>Fees</span><span>Expected</span><span>Actual count</span><span>Over / short</span></div>
@@ -8234,6 +8372,41 @@ function App() {
             </section>
             <section className="night-close-signoff">
               <div className="night-close-section-title"><div><h3>Approval</h3><span>Every action is retained in the audit log</span></div></div>
+              <div className="night-close-operator">
+                <label htmlFor="night-close-staff">Staff member using this station</label>
+                {state.settings.staffAccounts.some((staff) => staff.active) ? (
+                  <>
+                    <select
+                      id="night-close-staff"
+                      value={state.settings.staffAccounts.some((staff) => staff.active && staff.id === state.settings.activeStaffId) ? state.settings.activeStaffId : ''}
+                      onChange={(event) => selectActiveStaff(event.target.value)}
+                      disabled={currentNightClose?.status === 'Locked'}
+                    >
+                      <option value="">Select a staff member</option>
+                      {state.settings.staffAccounts.filter((staff) => staff.active).map((staff) => (
+                        <option key={staff.id} value={staff.id}>{staff.name} - {staff.role}</option>
+                      ))}
+                    </select>
+                    <small>
+                      Select the staff signer first. After staff sign-off, select a Manager or Owner here to approve and lock.
+                    </small>
+                  </>
+                ) : (
+                  <div className="night-close-no-staff">
+                    <span>No active staff accounts are available.</span>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => {
+                        setSettingsSection('staff');
+                        openRoute('customization');
+                      }}
+                    >
+                      Add staff in Settings
+                    </button>
+                  </div>
+                )}
+              </div>
               <textarea value={nightCloseNotes || currentNightClose?.notes || ''} onChange={(event) => setNightCloseNotes(event.target.value)} disabled={Boolean(currentNightClose && currentNightClose.status !== 'Draft')} placeholder="Close notes, discrepancy explanation, cage count, or manager comments" />
               <div className="night-close-signatures">
                 <article className={currentNightClose?.staffSignOff ? 'complete' : ''}><span>Staff sign-off</span><strong>{currentNightClose?.staffSignOff?.staffName ?? 'Pending'}</strong><small>{currentNightClose?.staffSignOff ? formatClock(currentNightClose.staffSignOff.timestamp) : 'Actual counts required'}</small></article>
@@ -8543,7 +8716,8 @@ function App() {
     ));
   }
 
-  const liveFeedItems = [
+  const latestLockedNightCloseAt = getLatestLockedNightCloseAt(state.nightCloses);
+  const liveFeedItems = filterRecentActivityAfterClose([
     ...state.playerLedger.map((entry) => {
       const game = state.games.find((item) => item.id === entry.gameId);
       const amount = entry.amount ? ` $${entry.amount.toLocaleString()}` : '';
@@ -8578,7 +8752,7 @@ function App() {
         kind: 'drop'
       };
     })
-  ]
+  ], latestLockedNightCloseAt)
     .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
     .slice(0, 18);
 
@@ -9468,9 +9642,131 @@ function App() {
           })() : null}
         </section>
 
-        <section className="panel floor-panel live-feed-panel">
-          <PanelTitle icon={<MessageCircle />} title="Recent Activity" />
-          <div className="live-feed-list" aria-live="polite">
+        <section className={`panel floor-panel table-financial-overview-panel ${openPanels.tableFinancials ? '' : 'collapsed-panel'}`}>
+          <PanelTitle
+            icon={<WalletCards />}
+            title="Table Overview"
+            collapsed={!openPanels.tableFinancials}
+            onToggle={() => togglePanel('tableFinancials')}
+          />
+          {openPanels.tableFinancials ? (() => {
+            const allTableFinancialsId = 'all-table-financials';
+            const openSessions = state.sessions.filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start');
+            const selectedTable = openSessions.find((session) => session.id === financialOverviewTableId);
+            const isAllTables = financialOverviewTableId === allTableFinancialsId || !selectedTable;
+            const sessionsToShow: GameSession[] = isAllTables || !selectedTable ? openSessions : [selectedTable];
+            return openSessions.length ? (
+              <div className="table-financial-content">
+                <select
+                  className="table-financial-selector"
+                  value={isAllTables ? allTableFinancialsId : selectedTable?.id ?? allTableFinancialsId}
+                  onChange={(event) => setFinancialOverviewTableId(event.target.value)}
+                  aria-label="Choose table financial overview"
+                >
+                  <option value={allTableFinancialsId}>All Tables - Financial Overview</option>
+                  {openSessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      {session.label} - {state.games.find((game) => game.id === session.gameId)?.name ?? 'Unknown'}
+                    </option>
+                  ))}
+                </select>
+                <div className="table-financial-list">
+                {sessionsToShow.map((session) => {
+                  const game = state.games.find((entry) => entry.id === session.gameId);
+                  const currentDealer = state.dealerAssignments
+                    .filter((assignment) => assignment.tableId === session.id && !assignment.endedAt)
+                    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
+                  const tablePlayers = getActivePlayerSessionsForTable(state, session.id)
+                    .sort((left, right) => (left.seatNumber ?? Number.MAX_SAFE_INTEGER) - (right.seatNumber ?? Number.MAX_SAFE_INTEGER));
+                  const seatedCount = tablePlayers.length;
+                  const financials = getTableFinancialOverview(state, session);
+                  const currency = (amount: number) =>
+                    `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+                  return (
+                    <article className="table-financial-card" key={session.id}>
+                      <div className="table-financial-head">
+                        <div>
+                          <strong>{session.label}</strong>
+                          <span>{game?.name ?? 'Unknown game'} · {session.collectionMode ?? (session.timeFeeBased ? 'Time' : 'Drop')}</span>
+                        </div>
+                        <em>{seatedCount}/{session.maxSeats} seated</em>
+                      </div>
+                      <div className="table-financial-metrics">
+                        <div>
+                          <span>Buy-ins</span>
+                          <strong>{currency(financials.totalBuyIns)}</strong>
+                        </div>
+                        <div className="table-profit-metric">
+                          <span>Table profit</span>
+                          <strong>{currency(financials.tableProfit)}</strong>
+                          <small>{currency(financials.totalDrop)} drop · {currency(financials.totalTimeFees)} time</small>
+                        </div>
+                        <div>
+                          <span>Cash in play</span>
+                          <strong>{currency(financials.cashInPlay)}</strong>
+                        </div>
+                      </div>
+                      <div className="table-financial-footer">
+                        <div>
+                          <span>Current dealer</span>
+                          <strong>{currentDealer?.dealerName ?? 'Unassigned'}</strong>
+                        </div>
+                        <div>
+                          <span>Cash-outs</span>
+                          <strong>{currency(financials.totalCashOuts)}</strong>
+                        </div>
+                      </div>
+                      {!isAllTables ? (
+                        <div className="table-player-financials">
+                          <div className="table-player-financials-title">
+                            <strong>Players at this table</strong>
+                            <span>{tablePlayers.length} currently seated</span>
+                          </div>
+                          {tablePlayers.length ? (
+                            <div className="table-player-financial-list">
+                              {tablePlayers.map((playerSession) => {
+                                const playerFinancials = getTablePlayerFinancialOverview(state, session, playerSession);
+                                return (
+                                  <article className="table-player-financial-row" key={playerSession.id}>
+                                    <div className="table-player-financial-head">
+                                      <strong>{playerSession.playerName}</strong>
+                                      <span>Seat {playerSession.seatNumber ?? '-'}</span>
+                                    </div>
+                                    <div className="table-player-financial-metrics">
+                                      <div><span>Buy-ins</span><strong>{currency(playerFinancials.totalBuyIns)}</strong></div>
+                                      <div><span>Cash-outs</span><strong>{currency(playerFinancials.totalCashOuts)}</strong></div>
+                                      <div><span>Time paid</span><strong>{currency(playerFinancials.totalTimeFees)}</strong></div>
+                                    </div>
+                                  </article>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="muted-copy">No players are currently seated at this table.</p>
+                          )}
+                          <small className="table-player-financial-note">Recorded drop stays in the table total because it is not assigned to an individual player.</small>
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+                </div>
+              </div>
+            ) : (
+              <p className="muted-copy">No open tables to summarize.</p>
+            );
+          })() : null}
+        </section>
+
+        <section className={`panel floor-panel live-feed-panel ${openPanels.recentActivity ? '' : 'collapsed-panel'}`}>
+          <PanelTitle
+            icon={<MessageCircle />}
+            title="Recent Activity"
+            collapsed={!openPanels.recentActivity}
+            onToggle={() => togglePanel('recentActivity')}
+          />
+          {openPanels.recentActivity ? <div className="live-feed-list" aria-live="polite">
             {liveFeedItems.length ? (
               liveFeedItems.map((item) => (
                 <article className={`live-feed-item ${item.kind}`} key={item.id}>
@@ -9487,7 +9783,7 @@ function App() {
             ) : (
               <p className="muted-copy">Live floor events will appear here.</p>
             )}
-          </div>
+          </div> : null}
         </section>
 
         <section className={`panel floor-panel shown-interest-panel ${openPanels.formingGames ? '' : 'collapsed-panel'}`}>
@@ -9650,7 +9946,26 @@ function App() {
           </div> : null}
         </section>
 
+        {openPanels.quickAdd ? (
+          <button
+            className="quick-add-drawer-backdrop"
+            type="button"
+            aria-label="Close Quick Add"
+            onClick={() => setOpenPanels((panels) => ({ ...panels, quickAdd: false }))}
+          />
+        ) : null}
         <section className={`panel floor-panel quick-add-panel ${openPanels.quickAdd ? '' : 'collapsed-panel'}`}>
+          {openPanels.quickAdd ? (
+            <button
+              className="quick-add-drawer-close"
+              type="button"
+              aria-label="Close Quick Add"
+              title="Close Quick Add"
+              onClick={() => setOpenPanels((panels) => ({ ...panels, quickAdd: false }))}
+            >
+              <X size={19} />
+            </button>
+          ) : null}
           <PanelTitle icon={<Plus />} title="Quick Add" collapsed={!openPanels.quickAdd} onToggle={() => togglePanel('quickAdd')} />
           {openPanels.quickAdd ? <>
           <form className="quick-form" onSubmit={addInterest}>
@@ -9667,6 +9982,7 @@ function App() {
               ))}
             </select>
             <select
+              id="quick-add-status"
               value={form.status}
               onChange={(event) =>
                 setForm({
@@ -9732,6 +10048,7 @@ function App() {
               onChange={(event) => setCheckInSearch(event.target.value)}
               placeholder="Search first or last name"
             />
+            <p className="check-in-help">Choose a member, then use the game and status options above.</p>
             <div className="check-in-results">
               {checkInMatches.length ? (
                 checkInMatches.map((profile) => {
@@ -9740,12 +10057,12 @@ function App() {
                     (interest) => interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()
                   );
                   return (
-                    <button className="check-in-result" key={profile.id} onClick={() => checkInProfileFromSearch(profile)}>
+                    <button className="check-in-result" type="button" key={profile.id} onClick={() => checkInProfileFromSearch(profile)}>
                       <span>
                         <strong>{profile.name}</strong>
                         <small>{preferredGame || 'No preferred game'}</small>
                       </span>
-                      <em>{inClub ? 'In club' : 'Check in'}</em>
+                      <em>{inClub ? 'Edit status' : 'Choose'}</em>
                     </button>
                   );
                 })
