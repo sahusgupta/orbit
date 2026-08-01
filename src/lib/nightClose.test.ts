@@ -19,13 +19,54 @@ const state = {
 };
 
 describe('buildNightCloseTables', () => {
-  it('reconciles raw transactions without combining buy-in events', () => {
-    const [table] = buildNightCloseTables(state, { 'table-1': '268' });
+  it('adds separately paid time fees without counting recorded drop twice', () => {
+    const [table] = buildNightCloseTables(state, { 'table-1': '312' });
     expect(table.buyIns).toBe(700);
     expect(table.cashOuts).toBe(400);
     expect(table.drop).toBe(20);
     expect(table.timeFees).toBe(12);
-    expect(table.expectedCash).toBe(268);
+    expect(table.expectedCash).toBe(312);
+    expect(table.discrepancy).toBe(0);
+  });
+
+  it('reconciles the house cash when buy-ins and cash-outs balance and time was paid separately', () => {
+    const [table] = buildNightCloseTables({
+      ...state,
+      playerSessions: [
+        { playerName: 'Winner', profileId: 'winner', tableId: 'table-1', seatedAt: '2026-07-19T01:05:00Z', timePurchasedMinutes: 225 },
+        { playerName: 'Other player', profileId: 'other', tableId: 'table-1', seatedAt: '2026-07-19T01:10:00Z', timePurchasedMinutes: 0 }
+      ],
+      buyIns: [
+        { tableId: 'table-1', amount: 500, timestamp: '2026-07-19T01:05:00Z' },
+        { tableId: 'table-1', amount: 300, timestamp: '2026-07-19T01:10:00Z' }
+      ],
+      dropLogs: [],
+      playerLedger: [
+        { tableId: 'table-1', type: 'Cash-Out', profileId: 'winner', playerName: 'Winner', amount: 800, timestamp: '2026-07-19T03:00:00Z' },
+        { tableId: 'table-1', type: 'Cash-Out', profileId: 'other', playerName: 'Other player', amount: 0, timestamp: '2026-07-19T03:00:00Z' }
+      ]
+    }, { 'table-1': '45' });
+
+    expect(table.buyIns).toBe(800);
+    expect(table.cashOuts).toBe(800);
+    expect(table.timeFees).toBe(45);
+    expect(table.expectedCash).toBe(45);
+    expect(table.discrepancy).toBe(0);
+  });
+
+  it('uses reduced cash-outs to recognize drop as house cash', () => {
+    const [table] = buildNightCloseTables({
+      ...state,
+      sessions: [{ ...state.sessions[0], collectionMode: 'Drop' as const }],
+      playerSessions: [],
+      buyIns: [{ tableId: 'table-1', amount: 800, timestamp: '2026-07-19T01:05:00Z' }],
+      dropLogs: [{ tableId: 'table-1', amount: 45, timestamp: '2026-07-19T02:30:00Z' }],
+      playerLedger: [{ tableId: 'table-1', type: 'Cash-Out', playerName: 'Players', amount: 755, timestamp: '2026-07-19T03:00:00Z' }]
+    }, { 'table-1': '45' });
+
+    expect(table.drop).toBe(45);
+    expect(table.timeFees).toBe(0);
+    expect(table.expectedCash).toBe(45);
     expect(table.discrepancy).toBe(0);
   });
 
