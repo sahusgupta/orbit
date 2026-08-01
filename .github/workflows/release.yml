@@ -31,12 +31,16 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             player-app/package-lock.json
+            apps/api/package-lock.json
 
       - name: Install desktop dependencies
         run: npm ci
 
       - name: Install player app dependencies
         run: npm ci --prefix player-app
+
+      - name: Install API dependencies
+        run: npm ci --prefix apps/api
 
       - name: Use a unique update version
         shell: bash

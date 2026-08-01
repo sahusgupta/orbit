@@ -32,8 +32,9 @@ let database;
 let embeddedBackend;
 let embeddedBackendStatus = { running: false, host: '127.0.0.1', port: 0, reportCount: 0 };
 let updateCheckTimer;
-let updateInstallTimer;
 let updateInstallPending = false;
+let updateInstallStarted = false;
+const pendingUpdateStateFlushes = new Map();
 let clientHeartbeatTimer;
 let cachedDeviceId;
 let lastUpdateStatus = '';
@@ -1518,37 +1519,37 @@ function broadcastUpdateStatus(status) {
   }
 }
 
-function hasActiveOperations() {
-  try {
-    const state = readLocalDatabase()?.state;
-    const activeTableStatuses = new Set(['Running', 'Forming', 'Paused']);
-    const activeTournamentStatuses = new Set(['Running', 'Paused']);
-    return Boolean(
-      state?.sessions?.some((session) => activeTableStatuses.has(session.status)) ||
-      state?.tournaments?.some((tournament) => activeTournamentStatuses.has(tournament.status))
-    );
-  } catch (error) {
-    writeOrbitApiLog('warn', 'update-active-operation-check-failed', orbitApiErrorDetails(error));
-    return true;
-  }
+async function preserveRendererStateBeforeUpdate() {
+  const availableWindows = BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed());
+  const authoritativeWindow = windows.get('floor') || BrowserWindow.getFocusedWindow() || availableWindows[0];
+  if (!authoritativeWindow || authoritativeWindow.isDestroyed()) return;
+
+  await new Promise((resolve) => {
+    const requestId = crypto.randomUUID();
+    const timeout = setTimeout(() => {
+      pendingUpdateStateFlushes.delete(requestId);
+      writeOrbitApiLog('warn', 'update-state-flush-timed-out', { requestId });
+      resolve(false);
+    }, 15 * 1000);
+    pendingUpdateStateFlushes.set(requestId, (ok) => {
+      clearTimeout(timeout);
+      pendingUpdateStateFlushes.delete(requestId);
+      resolve(ok);
+    });
+    authoritativeWindow.webContents.send('prepare-for-update', requestId);
+  });
 }
 
-function installDownloadedUpdateWhenSafe() {
-  if (!updateInstallPending) return;
-  if (hasActiveOperations()) {
-    sendClientUpdateEvent('update-waiting-for-idle', 'downloaded');
-    broadcastUpdateStatus({ state: 'waiting-for-idle' });
-    return;
-  }
-
+async function installDownloadedUpdate() {
+  if (!updateInstallPending || updateInstallStarted) return;
+  updateInstallStarted = true;
+  sendClientUpdateEvent('update-preserving-state', 'downloaded');
+  broadcastUpdateStatus({ state: 'preserving-state' });
+  await preserveRendererStateBeforeUpdate();
   updateInstallPending = false;
-  if (updateInstallTimer) {
-    clearInterval(updateInstallTimer);
-    updateInstallTimer = undefined;
-  }
   sendClientUpdateEvent('update-installing-automatically', 'installing');
   broadcastUpdateStatus({ state: 'installing' });
-  setTimeout(() => autoUpdater.quitAndInstall(false, true), 5000);
+  setTimeout(() => autoUpdater.quitAndInstall(false, true), 3000);
 }
 
 function startAutoUpdates() {
@@ -1584,10 +1585,7 @@ function startAutoUpdates() {
     sendClientUpdateEvent('update-downloaded', 'downloaded', { version: info.version });
     broadcastUpdateStatus({ state: 'downloaded', version: info.version });
     updateInstallPending = true;
-    installDownloadedUpdateWhenSafe();
-    if (updateInstallPending && !updateInstallTimer) {
-      updateInstallTimer = setInterval(installDownloadedUpdateWhenSafe, 60 * 1000);
-    }
+    void installDownloadedUpdate();
   });
   autoUpdater.on('before-quit-for-update', () => {
     sendClientEvent('update-installing', 'update', { updateStatus: lastUpdateStatus, updateEvent: lastUpdateEvent });
@@ -1621,6 +1619,22 @@ ipcMain.handle('load-state', async () => loadStateApiFirst());
 ipcMain.handle('load-state-for-account', async (_event, access) => loadStateApiFirst(getAccountKeyFromAccess(access), access));
 
 ipcMain.handle('save-state', async (_event, state) => saveStateApiFirst(state));
+
+ipcMain.handle('preserve-state-for-update', async (_event, requestId, state) => {
+  let ok = false;
+  try {
+    validateStatePayload(state);
+    writeLocalDatabase(state);
+    ok = true;
+    void saveStateToApi(state).catch((error) => {
+      writeOrbitApiLog('warn', 'update-cloud-state-flush-failed', orbitApiErrorDetails(error));
+    });
+  } catch (error) {
+    writeOrbitApiLog('error', 'update-local-state-flush-failed', orbitApiErrorDetails(error));
+  }
+  pendingUpdateStateFlushes.get(requestId)?.(ok);
+  return { ok };
+});
 
 ipcMain.handle('get-backend-status', async () =>
   (await getRemoteBackendStatus()) || { ...embeddedBackendStatus, reportCount: getReportCount(), mode: embeddedBackendStatus.running ? 'legacy-embedded' : 'local-fallback' }
@@ -1821,10 +1835,6 @@ app.on('before-quit', () => {
   if (updateCheckTimer) {
     clearInterval(updateCheckTimer);
     updateCheckTimer = undefined;
-  }
-  if (updateInstallTimer) {
-    clearInterval(updateInstallTimer);
-    updateInstallTimer = undefined;
   }
   if (embeddedBackend) {
     embeddedBackend.close();

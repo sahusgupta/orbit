@@ -65,6 +65,8 @@ declare global {
       loadState: () => Promise<{ schemaVersion: number; savedAt: string; state: Partial<AppState> } | null>;
       loadStateForAccount: (access: PilotAccess) => Promise<{ schemaVersion: number; savedAt: string; state: Partial<AppState> } | null>;
       saveState: (state: AppState) => Promise<{ ok: boolean; path: string; accountKey?: string }>;
+      preserveStateForUpdate: (requestId: string, state: AppState) => Promise<{ ok: boolean }>;
+      onPrepareForUpdate: (callback: (requestId: string) => void) => () => void;
       getBackendStatus: () => Promise<BackendStatus>;
       validatePilotAccess: (access: PilotAccess) => Promise<{
         ok: boolean;
@@ -2916,6 +2918,14 @@ function App() {
     const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const desktop = window.tableManagerDesktop;
+    if (!desktop?.onPrepareForUpdate) return undefined;
+    return desktop.onPrepareForUpdate((requestId) => {
+      void desktop.preserveStateForUpdate(requestId, state);
+    });
+  }, [state]);
 
   useEffect(() => {
     window.tableManagerDesktop?.getBackendStatus()
