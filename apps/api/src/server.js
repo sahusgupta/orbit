@@ -252,6 +252,12 @@ async function requireClientAuth(request, response, next) {
       response.status(401).json({ ok: false, error: 'Pilot license is not registered.' });
       return;
     }
+    const isLegacyStatusCheck = request.method === 'GET' && request.path === '/license/status';
+    const isLegacyVenueRead = request.method === 'GET' && request.path.startsWith('/state/');
+    if (!isLegacyStatusCheck && !isLegacyVenueRead) {
+      response.status(401).json({ ok: false, error: 'Pilot license is not registered. Sync the activated desktop installation to complete migration.' });
+      return;
+    }
     request.orbitAuth = {
       type: 'legacy-pilot-key',
       accountKey: '',
@@ -376,7 +382,7 @@ app.get('/license/status', asyncRoute(async (request, response) => {
       response.json({ ok: true, managed: true, active: license.status === 'active', license });
       return;
     }
-    response.json({ ok: true, managed: false, active: true, license: null });
+    response.json({ ok: true, managed: false, active: false, license: null });
     return;
   }
   response.json({ ok: true, managed: true, active: true, license: request.orbitAuth?.license || null });
