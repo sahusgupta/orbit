@@ -43,7 +43,10 @@ export function buildNightCloseTables(state: NightCloseSource, actuals: Record<s
     const timeFees = session.collectionMode === 'Time' || session.timeFeeBased
       ? playerSessions.reduce((sum, player) => sum + ((player.timePurchasedMinutes ?? 0) / 60) * hourlyFee, 0)
       : 0;
-    const expectedCash = buyIns - cashOuts - drop - timeFees;
+    // Time fees are paid separately to the house. Recorded drop is already
+    // reflected in reduced player cash-outs, so adding or subtracting it here
+    // would count the same house revenue twice.
+    const expectedCash = buyIns + timeFees - cashOuts;
     const rawActual = actuals[session.id];
     const actualCash = rawActual === '' || rawActual === undefined ? undefined : Number(rawActual);
     const warnings: string[] = [];

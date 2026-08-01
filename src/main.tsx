@@ -962,7 +962,7 @@ const getTableFinancialOverview = (state: AppState, session: GameSession) => {
     totalDrop,
     totalTimeFees,
     tableProfit,
-    cashInPlay: totalBuyIns - totalCashOuts - tableProfit
+    cashInPlay: totalBuyIns - totalCashOuts - totalDrop
   };
 };
 
@@ -8407,14 +8407,14 @@ function App() {
           </section>
 
           <section className="night-close-table-panel">
-            <div className="night-close-section-title"><div><h3>Table reconciliation</h3><span>{nightCloseTables.length} tables in this shift</span></div><code>Buy-ins − cash-outs − drop/time = expected</code></div>
-            <div className="night-close-table-head"><span>Table</span><span>Buy-ins</span><span>Cash-outs</span><span>Fees</span><span>Expected</span><span>Actual count</span><span>Over / short</span></div>
+            <div className="night-close-section-title"><div><h3>Table reconciliation</h3><span>{nightCloseTables.length} tables in this shift</span></div><code>Buy-ins + time − cash-outs = expected; drop is reflected in cash-outs</code></div>
+            <div className="night-close-table-head"><span>Table</span><span>Buy-ins</span><span>Cash-outs</span><span>Drop / time</span><span>Expected</span><span>Actual count</span><span>Over / short</span></div>
             <div className="night-close-table-list">
               {nightCloseTables.map((table) => <article className="night-close-table-row" key={table.tableId}>
                 <div><strong>{table.tableLabel}</strong><span>{table.gameName}</span></div>
                 <strong>${table.buyIns.toLocaleString()}</strong>
                 <strong>${table.cashOuts.toLocaleString()}</strong>
-                <strong>${(table.drop + table.timeFees).toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                <strong>−${table.drop.toLocaleString(undefined, { maximumFractionDigits: 2 })} / +${table.timeFees.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
                 <strong>${table.expectedCash.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
                 <label><span>Actual cash</span><input type="number" min="0" step=".01" disabled={Boolean(currentNightClose && currentNightClose.status !== 'Draft')} value={effectiveNightCloseActuals[table.tableId] ?? ''} onChange={(event) => setNightCloseActuals((actuals) => ({ ...actuals, [table.tableId]: event.target.value }))} placeholder="$0.00" /></label>
                 <strong className={(table.discrepancy ?? 0) === 0 ? 'balanced' : 'unbalanced'}>{table.discrepancy === undefined ? '—' : `${table.discrepancy >= 0 ? '+' : '-'}$${Math.abs(table.discrepancy).toFixed(2)}`}</strong>
@@ -10175,13 +10175,13 @@ function TableBuyInLedger({ state, session }: { state: AppState; session: GameSe
   const totalCashOuts = cashOuts.reduce((sum, entry) => sum + (entry.amount ?? 0), 0);
   const totalDrop = drops.reduce((sum, entry) => sum + entry.amount, 0);
   const totalTimeFees = timeFees.reduce((sum, entry) => sum + entry.amount, 0);
-  const totalRemoved = totalDrop + totalTimeFees;
-  const cashInPlay = totalBuyIns - totalCashOuts - totalRemoved;
+  const totalHouseRevenue = totalDrop + totalTimeFees;
+  const cashInPlay = totalBuyIns - totalCashOuts - totalDrop;
   const entries = [
     ...buyIns.map((entry) => ({ ...entry, kind: 'Buy-in', direction: 'in' as const })),
     ...cashOuts.map((entry) => ({ ...entry, amount: entry.amount ?? 0, kind: 'Cash-out', direction: 'out' as const })),
     ...drops.map((entry) => ({ ...entry, playerName: 'House collection', kind: 'Drop', direction: 'fee' as const })),
-    ...timeFees.map((entry) => ({ ...entry, kind: 'Time fee', direction: 'fee' as const }))
+    ...timeFees.map((entry) => ({ ...entry, kind: 'Time fee', direction: 'in' as const }))
   ].sort((left, right) => {
     const timestampOrder = right.timestamp.localeCompare(left.timestamp);
     if (timestampOrder !== 0) return timestampOrder;
@@ -10194,12 +10194,12 @@ function TableBuyInLedger({ state, session }: { state: AppState; session: GameSe
       <div className="cash-ledger-summary">
         <article><span>Total buy-ins</span><strong>${totalBuyIns.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
         <article><span>Cash-outs</span><strong>${totalCashOuts.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
-        <article><span>Drop + time</span><strong>${totalRemoved.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
+        <article><span>House revenue</span><strong>${totalHouseRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
         <article className="cash-ledger-balance"><span>Cash in play</span><strong>${cashInPlay.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
       </div>
       <div className="cash-ledger-reconcile">
         <span>Reconciliation</span>
-        <code>${totalBuyIns.toLocaleString()} − ${totalCashOuts.toLocaleString()} − ${totalRemoved.toLocaleString(undefined, { maximumFractionDigits: 2 })} = ${cashInPlay.toLocaleString(undefined, { maximumFractionDigits: 2 })}</code>
+        <code>${totalBuyIns.toLocaleString()} − ${totalCashOuts.toLocaleString()} − ${totalDrop.toLocaleString(undefined, { maximumFractionDigits: 2 })} drop = ${cashInPlay.toLocaleString(undefined, { maximumFractionDigits: 2 })} in play; +${totalTimeFees.toLocaleString(undefined, { maximumFractionDigits: 2 })} time paid separately</code>
       </div>
       <div className="cash-ledger-log">
         {entries.length ? entries.map((entry) => (
