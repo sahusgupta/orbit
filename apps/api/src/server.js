@@ -333,16 +333,32 @@ app.get('/dashboard.css', requireDashboardAuth, (_request, response) => {
 });
 
 app.get('/dashboard/data', requireDashboardAuth, asyncRoute(async (_request, response) => {
+  const eventPage = listTelemetryEvents({ limit: 101 });
   response.json({
     ok: true,
     summary: getTelemetrySummary(),
     clients: listClients(),
     venues: listVenues(),
-    events: listTelemetryEvents({ limit: 200 }),
+    events: eventPage.slice(0, 100),
+    eventHistory: { hasMore: eventPage.length > 100 },
     errors: listClientErrors({ limit: 100 }),
     licenses: await listPilotLicenses()
   });
 }));
+
+app.get('/dashboard/history/events', requireDashboardAuth, (request, response) => {
+  const limit = Math.min(Math.max(Number(request.query.limit || 100), 1), 250);
+  const events = listTelemetryEvents({
+    limit: limit + 1,
+    beforeOccurredAt: request.query.beforeOccurredAt,
+    beforeId: request.query.beforeId
+  });
+  response.json({
+    ok: true,
+    events: events.slice(0, limit),
+    hasMore: events.length > limit
+  });
+});
 
 app.post('/dashboard/licenses/:licenseDocumentId/renew', requireDashboardAuth, asyncRoute(async (request, response) => {
   const license = await renewPilotLicense(request.params.licenseDocumentId, request.body || {});

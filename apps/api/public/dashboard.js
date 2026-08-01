@@ -2,6 +2,9 @@ const state = {
   apiKey: localStorage.getItem('orbit-dashboard-api-key') || '',
   source: null,
   events: [],
+  totalEvents: 0,
+  eventHistoryHasMore: false,
+  eventHistoryLoading: false,
   errors: [],
   clients: [],
   venues: [],
@@ -18,6 +21,7 @@ const elements = {
   venues: document.querySelector('#venues'),
   licenses: document.querySelector('#licenses'),
   eventCount: document.querySelector('#event-count'),
+  eventHistoryStatus: document.querySelector('#event-history-status'),
   errorCount: document.querySelector('#error-count'),
   clientCount: document.querySelector('#client-count'),
   venueCount: document.querySelector('#venue-count'),
@@ -65,7 +69,15 @@ function renderList(target, items, renderItem, emptyText) {
 }
 
 function render() {
-  elements.eventCount.textContent = String(state.events.length);
+  elements.eventCount.textContent = state.totalEvents > state.events.length
+    ? `${state.events.length} / ${state.totalEvents}`
+    : String(state.events.length);
+  elements.eventHistoryStatus.hidden = !state.eventHistoryLoading && !state.eventHistoryHasMore;
+  elements.eventHistoryStatus.textContent = state.eventHistoryLoading
+    ? 'Loading earlier events…'
+    : state.eventHistoryHasMore
+      ? 'Scroll for earlier events'
+      : 'Complete event history loaded';
   elements.errorCount.textContent = String(state.errors.length);
   elements.clientCount.textContent = String(state.clients.length);
   elements.venueCount.textContent = String(state.venues.length);
@@ -180,11 +192,12 @@ function setSummary(summary) {
   elements.metricClients.textContent = String(summary.clients || 0);
   elements.metricActive.textContent = String(summary.activeClients24h || 0);
   elements.metricEvents.textContent = String(summary.events || 0);
+  state.totalEvents = Number(summary.events || 0);
   elements.metricErrors.textContent = String(summary.errors || 0);
   elements.metricTables.textContent = String(summary.tableStarts24h || 0);
 }
 
-async function loadDashboard() {
+async function loadDashboard({ preserveEventHistory = false } = {}) {
   if (!state.apiKey) {
     setStatus('Enter the same ORBIT_CLIENT_API_KEY used by the API.');
     return;
@@ -192,7 +205,14 @@ async function loadDashboard() {
   const response = await fetch('/dashboard/data', { headers: { 'x-orbit-api-key': state.apiKey } });
   const payload = await response.json();
   if (!response.ok || !payload.ok) throw new Error(payload.error || `API returned ${response.status}`);
-  state.events = payload.events || [];
+  const latestEvents = payload.events || [];
+  if (preserveEventHistory && state.events.length) {
+    const latestIds = new Set(latestEvents.map((event) => event.id));
+    state.events = [...latestEvents, ...state.events.filter((event) => !latestIds.has(event.id))];
+  } else {
+    state.events = latestEvents;
+    state.eventHistoryHasMore = Boolean(payload.eventHistory?.hasMore);
+  }
   state.errors = payload.errors || [];
   state.clients = payload.clients || [];
   state.venues = payload.venues || [];
@@ -201,25 +221,56 @@ async function loadDashboard() {
   render();
 }
 
+async function loadEarlierEvents() {
+  if (!state.apiKey || state.eventHistoryLoading || !state.eventHistoryHasMore || !state.events.length) return;
+  state.eventHistoryLoading = true;
+  render();
+  const oldest = state.events[state.events.length - 1];
+  try {
+    const query = new URLSearchParams({
+      limit: '100',
+      beforeOccurredAt: oldest.occurredAt,
+      beforeId: String(oldest.id)
+    });
+    const response = await fetch(`/dashboard/history/events?${query}`, {
+      headers: { 'x-orbit-api-key': state.apiKey }
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `API returned ${response.status}`);
+    const knownIds = new Set(state.events.map((event) => event.id));
+    state.events = [...state.events, ...(payload.events || []).filter((event) => !knownIds.has(event.id))];
+    state.eventHistoryHasMore = Boolean(payload.hasMore);
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : 'Unable to load earlier events.', 'error');
+  } finally {
+    state.eventHistoryLoading = false;
+    render();
+  }
+}
+
 function connectLive() {
   if (state.source) state.source.close();
   if (!state.apiKey) return;
   state.source = new EventSource(`/dashboard/events?apiKey=${encodeURIComponent(state.apiKey)}`);
   state.source.addEventListener('ready', () => setStatus('Live dashboard connected.', 'live'));
   state.source.addEventListener('telemetry', (message) => {
-    state.events = [JSON.parse(message.data), ...state.events].slice(0, 200);
-    loadDashboard().catch(() => render());
+    const event = JSON.parse(message.data);
+    if (!state.events.some((existing) => existing.id === event.id)) {
+      state.events = [event, ...state.events];
+      state.totalEvents += 1;
+    }
+    render();
   });
   state.source.addEventListener('error', (message) => {
     if (message.data) {
       state.errors = [JSON.parse(message.data), ...state.errors].slice(0, 100);
-      loadDashboard().catch(() => render());
+      loadDashboard({ preserveEventHistory: true }).catch(() => render());
       return;
     }
     setStatus('Live stream disconnected. Reconnecting...', 'error');
   });
   state.source.addEventListener('client', () => {
-    loadDashboard().catch(() => undefined);
+    loadDashboard({ preserveEventHistory: true }).catch(() => undefined);
   });
 }
 
@@ -239,6 +290,11 @@ async function connect(apiKey) {
 elements.form.addEventListener('submit', (event) => {
   event.preventDefault();
   connect(elements.key.value);
+});
+
+elements.events.addEventListener('scroll', () => {
+  const remaining = elements.events.scrollHeight - elements.events.scrollTop - elements.events.clientHeight;
+  if (remaining < 160) void loadEarlierEvents();
 });
 
 elements.licenses.addEventListener('click', async (event) => {

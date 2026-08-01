@@ -344,12 +344,20 @@ function listTelemetryEvents(filters = {}) {
     where.push('device_id = ?');
     params.push(String(filters.deviceId || '').trim());
   }
+  if (filters.beforeOccurredAt) {
+    where.push('(occurred_at < ? OR (occurred_at = ? AND id < ?))');
+    params.push(
+      String(filters.beforeOccurredAt),
+      String(filters.beforeOccurredAt),
+      Number(filters.beforeId || Number.MAX_SAFE_INTEGER)
+    );
+  }
   const limit = Math.min(Math.max(Number(filters.limit || 200), 1), 1000);
   return getDatabase()
     .prepare(`
       SELECT * FROM client_telemetry_events
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-      ORDER BY occurred_at DESC
+      ORDER BY occurred_at DESC, id DESC
       LIMIT ${limit}
     `)
     .all(...params)
