@@ -32,6 +32,13 @@ const {
 } = require('./orbitCore');
 const { getFirebasePublisherStatus, publishStateToFirebase } = require('./firebasePublisher');
 const {
+  authenticatePilotLicense,
+  listPilotLicenses,
+  registerPilotLicense,
+  renewPilotLicense,
+  revokePilotLicense
+} = require('./licenseService');
+const {
   createPlayerIdentitySession,
   deletePlayerIdentity,
   getIdentityServiceStatus,
@@ -157,6 +164,11 @@ function requireDashboardAuth(request, response, next) {
   }
 
   const header = request.get('authorization') || '';
+  const dashboardKey = request.get('x-orbit-api-key') || request.query.apiKey || '';
+  if (dashboardKey && safeEqual(dashboardKey, configuredPassword)) {
+    next();
+    return;
+  }
   const [scheme, credentials] = header.split(/\s+/, 2);
   if (scheme?.toLowerCase() === 'basic' && credentials) {
     const decoded = Buffer.from(credentials, 'base64').toString('utf8');
@@ -192,7 +204,7 @@ function requireOwnerApiKey(request, response, next) {
   next();
 }
 
-function requireClientAuth(request, response, next) {
+async function requireClientAuth(request, response, next) {
   const remoteAddress = request.socket?.remoteAddress || '';
   const isLoopbackRequest = remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
   if (process.env.NODE_ENV !== 'production' && isLoopbackRequest) {
@@ -208,9 +220,42 @@ function requireClientAuth(request, response, next) {
     return;
   }
   if (isPilotAuthorizationCode(received)) {
+    const result = await authenticatePilotLicense(received);
+    if (result.managed) {
+      if (!result.active) {
+        response.status(403).json({ ok: false, error: `Pilot license ${result.license?.status || 'expired'}.`, license: result.license });
+        return;
+      }
+      request.orbitAuth = {
+        type: 'pilot-key',
+        accountKey: result.license.accountKey,
+        license: result.license
+      };
+      next();
+      return;
+    }
+
+    const legacyBootstrapEnabled = process.env.ORBIT_LICENSE_ALLOW_LEGACY_BOOTSTRAP !== 'false';
+    const state = request.body?.state || request.body;
+    const access = state?.settings?.pilotAccess;
+    if (legacyBootstrapEnabled && access?.authorizationCode === received) {
+      const license = await registerPilotLicense(access);
+      if (!license || license.status !== 'active') {
+        response.status(403).json({ ok: false, error: 'Pilot license is expired.', license });
+        return;
+      }
+      request.orbitAuth = { type: 'pilot-key', accountKey: license.accountKey, license };
+      next();
+      return;
+    }
+    if (!legacyBootstrapEnabled) {
+      response.status(401).json({ ok: false, error: 'Pilot license is not registered.' });
+      return;
+    }
     request.orbitAuth = {
-      type: 'pilot-key',
-      accountKey: sanitizeAccountKey(received)
+      type: 'legacy-pilot-key',
+      accountKey: '',
+      authorizationCode: received
     };
     next();
     return;
@@ -219,7 +264,7 @@ function requireClientAuth(request, response, next) {
 }
 
 function blockLatestStateForPilotAuth(request, response, next) {
-  if (request.orbitAuth?.type === 'pilot-key') {
+  if (request.orbitAuth?.type === 'pilot-key' || request.orbitAuth?.type === 'legacy-pilot-key') {
     response.status(403).json({ ok: false, error: 'Pilot-authenticated clients must request their own venue state.' });
     return;
   }
@@ -281,16 +326,29 @@ app.get('/dashboard.css', requireDashboardAuth, (_request, response) => {
   response.sendFile(path.join(__dirname, '..', 'public', 'dashboard.css'));
 });
 
-app.get('/dashboard/data', requireDashboardAuth, (_request, response) => {
+app.get('/dashboard/data', requireDashboardAuth, asyncRoute(async (_request, response) => {
   response.json({
     ok: true,
     summary: getTelemetrySummary(),
     clients: listClients(),
     venues: listVenues(),
     events: listTelemetryEvents({ limit: 200 }),
-    errors: listClientErrors({ limit: 100 })
+    errors: listClientErrors({ limit: 100 }),
+    licenses: await listPilotLicenses()
   });
-});
+}));
+
+app.post('/dashboard/licenses/:licenseDocumentId/renew', requireDashboardAuth, asyncRoute(async (request, response) => {
+  const license = await renewPilotLicense(request.params.licenseDocumentId, request.body || {});
+  logDomainChange('pilot-license-renewed', { licenseId: license.licenseId, issuedTo: license.issuedTo, expiresAt: license.expiresAt });
+  response.json({ ok: true, license });
+}));
+
+app.post('/dashboard/licenses/:licenseDocumentId/revoke', requireDashboardAuth, asyncRoute(async (request, response) => {
+  const license = await revokePilotLicense(request.params.licenseDocumentId);
+  logDomainChange('pilot-license-revoked', { licenseId: license.licenseId, issuedTo: license.issuedTo });
+  response.json({ ok: true, license });
+}));
 
 app.get('/dashboard/events', requireDashboardAuth, (request, response) => {
   response.writeHead(200, {
@@ -307,6 +365,22 @@ app.get('/dashboard/events', requireDashboardAuth, (request, response) => {
 });
 
 app.use(requireClientAuth);
+
+app.get('/license/status', asyncRoute(async (request, response) => {
+  if (request.orbitAuth?.type === 'legacy-pilot-key') {
+    const accountKey = sanitizeAccountKey(request.query.accountKey || '');
+    const record = accountKey ? loadState(accountKey) : null;
+    const access = record?.state?.settings?.pilotAccess;
+    if (access) {
+      const license = await registerPilotLicense(access);
+      response.json({ ok: true, managed: true, active: license.status === 'active', license });
+      return;
+    }
+    response.json({ ok: true, managed: false, active: true, license: null });
+    return;
+  }
+  response.json({ ok: true, managed: true, active: true, license: request.orbitAuth?.license || null });
+}));
 
 function broadcastLive(type, payload) {
   const body = `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`;
@@ -386,6 +460,10 @@ app.get('/venues/:venueId/clients', requireOwnerApiKey, (request, response) => {
 app.post('/state', asyncRoute(async (request, response) => {
   const state = request.body?.state || request.body;
   const accountKey = getAccountKeyFromState(state);
+  if (request.orbitAuth?.type === 'pilot-key' && request.orbitAuth.accountKey !== accountKey) {
+    response.status(403).json({ ok: false, error: 'This pilot license cannot write another venue account.' });
+    return;
+  }
   const previous = loadState(accountKey);
   const result = saveState(state);
   logStateChanges(previous?.state, state, result.accountKey);
@@ -403,7 +481,18 @@ app.get('/state/latest', blockLatestStateForPilotAuth, (request, response) => {
 });
 
 app.get('/state/:venueId', (request, response) => {
+  if (request.orbitAuth?.type === 'pilot-key' && request.orbitAuth.accountKey !== sanitizeAccountKey(request.params.venueId)) {
+    response.status(403).json({ ok: false, error: 'This pilot license cannot read another venue account.' });
+    return;
+  }
   const record = loadState(request.params.venueId);
+  if (
+    request.orbitAuth?.type === 'legacy-pilot-key' &&
+    record?.state?.settings?.pilotAccess?.authorizationCode !== request.orbitAuth.authorizationCode
+  ) {
+    response.status(403).json({ ok: false, error: 'This legacy pilot key cannot read another venue account.' });
+    return;
+  }
   if (!record) {
     response.status(404).json({ ok: false, error: 'Venue state not found.' });
     return;

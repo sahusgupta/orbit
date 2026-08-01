@@ -99,7 +99,7 @@ button {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -109,6 +109,87 @@ button {
   border: 1px solid #dce2e9;
   border-radius: 8px;
   background: #fff;
+}
+
+.licenses-panel {
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
+.panel-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.panel-head p {
+  font-size: 12px;
+}
+
+.license-row {
+  display: grid;
+  gap: 12px;
+  padding: 15px 16px;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.license-row.expired,
+.license-row.revoked {
+  background: #fffafa;
+}
+
+.license-main,
+.license-renewal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.license-status {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #e9f7ef;
+  color: #14683d;
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.license-status.expired,
+.license-status.revoked {
+  background: #fdecec;
+  color: #9f2525;
+}
+
+.license-renewal {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.license-renewal label {
+  display: grid;
+  gap: 4px;
+}
+
+.license-renewal label span {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.license-renewal input {
+  min-width: 160px;
+}
+
+button.secondary {
+  border-color: #ccd3dc;
+  background: #fff;
+  color: #17202a;
+}
+
+button.danger {
+  border-color: #c83c3c;
+  background: #fff;
+  color: #a02525;
 }
 
 .metrics article {

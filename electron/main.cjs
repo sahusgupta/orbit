@@ -406,6 +406,37 @@ async function getRemoteBackendStatus() {
   }
 }
 
+async function validatePilotAccessApi(access) {
+  const { apiUrl } = getApiConfig();
+  const authKey = getClientAuthKeyFromAccess(access);
+  const accountKey = getAccountKeyFromAccess(access);
+  if (!authKey || typeof fetch !== 'function') return { ok: false, managed: false, active: false, error: 'Pilot authorization is unavailable.' };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`${apiUrl}/license/status?accountKey=${encodeURIComponent(accountKey)}`, {
+      headers: {
+        'x-orbit-api-key': authKey,
+        'x-orbit-auth-key': authKey,
+        'x-orbit-request-id': crypto.randomUUID()
+      },
+      signal: controller.signal
+    });
+    const { payload } = await readApiResponse(response);
+    return {
+      ok: response.ok && payload?.ok !== false,
+      managed: Boolean(payload?.managed || payload?.license),
+      active: Boolean(payload?.active),
+      license: payload?.license || null,
+      error: payload?.error || (response.ok ? '' : `Orbit API returned ${response.status}`)
+    };
+  } catch (error) {
+    return { ok: false, managed: false, active: false, error: error instanceof Error ? error.message : 'Unable to validate pilot access.' };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function loadStateFromApi(accountKey, access) {
   const resolvedAccountKey = sanitizeAccountKey(accountKey || getLocalAccountKey());
   const pathname = resolvedAccountKey ? `/state/${encodeURIComponent(resolvedAccountKey)}` : '/state/latest';
@@ -1594,6 +1625,8 @@ ipcMain.handle('save-state', async (_event, state) => saveStateApiFirst(state));
 ipcMain.handle('get-backend-status', async () =>
   (await getRemoteBackendStatus()) || { ...embeddedBackendStatus, reportCount: getReportCount(), mode: embeddedBackendStatus.running ? 'legacy-embedded' : 'local-fallback' }
 );
+
+ipcMain.handle('validate-pilot-access', async (_event, access) => validatePilotAccessApi(access));
 
 ipcMain.handle('submit-analytical-report', (_event, report) => submitAnalyticalReportApiFirst(report));
 

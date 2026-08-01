@@ -53,6 +53,7 @@ import { validateMembershipQrCheckIn } from './lib/membershipQr';
 import { loadClubStateFromFirebase, saveClubStateToFirebase, signInOrCreateFirebaseEmailAccount, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
 import { rendererFirebaseSyncEnabled } from './lib/firebaseConfig';
 import { buildNightCloseTables, type NightCloseTable } from './lib/nightClose';
+import { normalizePlayerSessionSeats } from './lib/seatNormalization';
 import './styles.css';
 
 declare global {
@@ -65,6 +66,13 @@ declare global {
       loadStateForAccount: (access: PilotAccess) => Promise<{ schemaVersion: number; savedAt: string; state: Partial<AppState> } | null>;
       saveState: (state: AppState) => Promise<{ ok: boolean; path: string; accountKey?: string }>;
       getBackendStatus: () => Promise<BackendStatus>;
+      validatePilotAccess: (access: PilotAccess) => Promise<{
+        ok: boolean;
+        managed: boolean;
+        active: boolean;
+        license?: { licenseId?: string; accountKey?: string; issuedTo?: string; expiresAt?: string; status?: string } | null;
+        error?: string;
+      }>;
       submitAnalyticalReport: (report: AnalyticalReportPayload) => Promise<ReportSubmissionResult>;
       recordClientEvent: (
         event: string,
@@ -441,6 +449,7 @@ type PilotAccess = {
   issuedTo?: string;
   issuedAt?: string;
   licenseId?: string;
+  serverManaged?: boolean;
 };
 
 type ClubAccount = {
@@ -1580,23 +1589,15 @@ function normalizeState(parsed: Partial<AppState>): AppState {
       };
     }),
     playerSessions: (() => {
-      const occupiedSeatsByTable = new Map<string, Set<number>>();
-      return (parsed.playerSessions ?? []).map((session) => {
+      return normalizePlayerSessionSeats(parsed.playerSessions ?? [], (session) => {
         const gameId = resolveGameId(games, session.gameId, fallbackGameId);
         const table = (parsed.sessions ?? []).find((item) => item.id === session.tableId);
-        const maxSeats = normalizeTableCap(table?.maxSeats ?? games.find((game) => game.id === gameId)?.maxSeats ?? defaultTableCap);
-        const occupiedSeats = occupiedSeatsByTable.get(session.tableId) ?? new Set<number>();
-        const requestedSeat = Number(session.seatNumber);
-        const seatNumber =
-          Number.isInteger(requestedSeat) && requestedSeat >= 1 && requestedSeat <= maxSeats && !occupiedSeats.has(requestedSeat)
-            ? requestedSeat
-            : Array.from({ length: maxSeats }, (_, index) => index + 1).find((seat) => !occupiedSeats.has(seat)) ?? Math.min(maxSeats, occupiedSeats.size + 1);
-        occupiedSeats.add(seatNumber);
-        occupiedSeatsByTable.set(session.tableId, occupiedSeats);
+        return normalizeTableCap(table?.maxSeats ?? games.find((game) => game.id === gameId)?.maxSeats ?? defaultTableCap);
+      }).map((session) => {
+        const gameId = resolveGameId(games, session.gameId, fallbackGameId);
         return {
           ...session,
           gameId,
-          seatNumber,
           timePurchasedMinutes: session.timePurchasedMinutes ?? 0,
           timeRemainingMinutes: session.timeRemainingMinutes ?? 0,
           lastTimeTickAt: session.lastTimeTickAt ?? session.seatedAt,
@@ -2921,6 +2922,54 @@ function App() {
       .then((status) => setBackendStatus(status))
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    const access = state.settings.pilotAccess;
+    const validatePilotAccess = window.tableManagerDesktop?.validatePilotAccess;
+    if (!access?.authorizationCode || !validatePilotAccess) return undefined;
+    let cancelled = false;
+
+    const refresh = async () => {
+      let result = await validatePilotAccess(access).catch(() => null);
+      if (cancelled || !result) return;
+      if (!result.managed) {
+        // One-time migration: publishing the already activated signed key lets the
+        // API register it without asking the venue to load a replacement file.
+        await window.tableManagerDesktop?.saveState(state).catch(() => undefined);
+        result = await validatePilotAccess(access).catch(() => null);
+      }
+      if (cancelled || !result?.managed || !result.license?.expiresAt) return;
+      setState((current) => {
+        const currentAccess = current.settings.pilotAccess;
+        if (!currentAccess || currentAccess.authorizationCode !== access.authorizationCode) return current;
+        if (currentAccess.expiresAt === result.license!.expiresAt && currentAccess.serverManaged) return current;
+        const next = {
+          ...current,
+          settings: {
+            ...current.settings,
+            pilotAccess: {
+              ...currentAccess,
+              expiresAt: result.license!.expiresAt!,
+              issuedTo: result.license!.issuedTo || currentAccess.issuedTo,
+              licenseId: result.license!.licenseId || currentAccess.licenseId,
+              serverManaged: true
+            }
+          }
+        };
+        localStorage.setItem(getStorageKeyForState(next), JSON.stringify(next));
+        localStorage.setItem(`${storageKey}:last-account`, getStorageKeyForState(next));
+        window.tableManagerDesktop?.saveState(next).catch(() => undefined);
+        return next;
+      });
+    };
+
+    void refresh();
+    const timer = window.setInterval(refresh, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [state.settings.pilotAccess?.authorizationCode, state.settings.pilotAccess?.licenseId]);
 
   useEffect(() => {
     setClubDraft(state.settings.clubAccount ?? emptyClubAccount);

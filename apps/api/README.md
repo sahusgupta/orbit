@@ -40,6 +40,9 @@ All other endpoints require `x-orbit-api-key`.
 
 - `API_PORT`: API port, defaults to `4629`.
 - `ORBIT_CLIENT_API_KEY`: owner/shared service key. Desktop clients may also authenticate with their signed pilot key authorization code.
+- `ORBIT_DASHBOARD_USER`: Basic-auth username for `/dashboard`; defaults to `orbit-admin`.
+- `ORBIT_DASHBOARD_PASSWORD`: password for the protected operations dashboard and its license-management requests. Keep this server-side only.
+- `ORBIT_LICENSE_ALLOW_LEGACY_BOOTSTRAP`: defaults to `true` during migration. It allows an already activated signed pilot key to register itself in the server-managed license collection on its next state sync. Set it to `false` after every active installation appears in the dashboard.
 - `DATABASE_URL`: SQLite path for local development, for example `file:./data/orbit-api.sqlite3`. On Vercel, the API defaults to `file:/tmp/orbit-api.sqlite3` when `DATABASE_URL` is unset.
 - `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`: optional Firebase service account credentials. When configured, API state saves player-safe live game documents at `clubs/{licenseKey}/games/{gameId}`, operational session history at `clubs/{licenseKey}/gameSessions/{sessionId}`, and canonical player documents at `clubs/{licenseKey}/players/{playerId}`. Membership players are documents in the `players` subcollection and are not duplicated as an array on the club document.
 - `NODE_ENV`: `development`, `staging`, or `production`.
@@ -71,6 +74,28 @@ On launch it creates or reuses a stable `deviceId`, then sends `POST /clients/he
 If `ORBIT_CLIENT_API_KEY` is not packaged with the app, Electron uses the activated card-house pilot `authorizationCode` as the client auth key. The API accepts these `TT-PILOT-...` authorization codes for client write/state/report operations, so existing card houses can connect on the next app launch with the key they already loaded.
 
 Owner/admin read endpoints such as `/clients`, `/venues`, and `/telemetry/*` still require the real `ORBIT_CLIENT_API_KEY`. The dashboard remains protected by `ORBIT_DASHBOARD_USER` and `ORBIT_DASHBOARD_PASSWORD`.
+
+## Server-Managed Pilot Licenses
+
+Pilot authorization codes are stable credentials. Their operational expiration is stored by the API in the server-only Firestore `pilotLicenses` collection, using a SHA-256 authorization-code identifier rather than storing the raw key. The desktop checks `GET /license/status` at startup and every five minutes. Changing a license expiration in the dashboard therefore updates connected installations without issuing another key file or changing the venue account identifier.
+
+Open the protected dashboard at:
+
+```text
+https://orbitapp-one.vercel.app/dashboard
+```
+
+The Pilot licenses section shows active, expired, and revoked keys; the venue; key suffix; last use; and expiration. An administrator can set an exact date, extend by 30 or 90 days, or revoke the license immediately.
+
+Existing signed keys migrate automatically after this desktop/API release:
+
+1. Deploy the API with Firebase Admin credentials and `ORBIT_LICENSE_ALLOW_LEGACY_BOOTSTRAP=true`.
+2. Release the desktop once so clients begin refreshing authorization through the API.
+3. Wait for active installations to sync; their existing codes appear in the dashboard automatically.
+4. Renew or adjust expiration dates in the dashboard as needed.
+5. Set `ORBIT_LICENSE_ALLOW_LEGACY_BOOTSTRAP=false` after all expected licenses appear, closing the legacy format-only compatibility path.
+
+After that one migration release, ordinary renewals require neither a client update nor a replacement key file. If the API cannot be reached, the desktop retains its last server-confirmed expiration instead of granting a new renewal offline.
 
 Desktop state/report operations are API-first:
 

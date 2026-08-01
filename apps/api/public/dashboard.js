@@ -4,7 +4,8 @@ const state = {
   events: [],
   errors: [],
   clients: [],
-  venues: []
+  venues: [],
+  licenses: []
 };
 
 const elements = {
@@ -15,15 +16,18 @@ const elements = {
   errors: document.querySelector('#errors'),
   clients: document.querySelector('#clients'),
   venues: document.querySelector('#venues'),
+  licenses: document.querySelector('#licenses'),
   eventCount: document.querySelector('#event-count'),
   errorCount: document.querySelector('#error-count'),
   clientCount: document.querySelector('#client-count'),
   venueCount: document.querySelector('#venue-count'),
+  licenseCount: document.querySelector('#license-count'),
   metricClients: document.querySelector('#metric-clients'),
   metricActive: document.querySelector('#metric-active'),
   metricEvents: document.querySelector('#metric-events'),
   metricErrors: document.querySelector('#metric-errors'),
-  metricTables: document.querySelector('#metric-tables')
+  metricTables: document.querySelector('#metric-tables'),
+  metricLicenses: document.querySelector('#metric-licenses')
 };
 
 elements.key.value = state.apiKey;
@@ -65,6 +69,39 @@ function render() {
   elements.errorCount.textContent = String(state.errors.length);
   elements.clientCount.textContent = String(state.clients.length);
   elements.venueCount.textContent = String(state.venues.length);
+  elements.licenseCount.textContent = String(state.licenses.length);
+  elements.metricLicenses.textContent = String(state.licenses.filter((license) => license.status === 'active').length);
+
+  renderList(
+    elements.licenses,
+    state.licenses,
+    (license) => `
+      <article class="license-row ${escapeHtml(license.status)}">
+        <div class="license-main">
+          <div>
+            <strong>${escapeHtml(license.issuedTo || license.licenseId)}</strong>
+            <div class="meta">
+              <span>${escapeHtml(license.licenseId)}</span>
+              <span>key ending ${escapeHtml(license.codeLast4 || '----')}</span>
+              <span>last used ${escapeHtml(formatTime(license.lastAuthenticatedAt) || 'never')}</span>
+            </div>
+          </div>
+          <span class="license-status ${escapeHtml(license.status)}">${escapeHtml(license.status)}</span>
+        </div>
+        <div class="license-renewal">
+          <label>
+            <span>Valid through</span>
+            <input data-license-expiration="${escapeHtml(license.id)}" type="date" value="${escapeHtml(String(license.expiresAt || '').slice(0, 10))}" />
+          </label>
+          <button type="button" data-license-action="renew-date" data-license-id="${escapeHtml(license.id)}">Save date</button>
+          <button type="button" class="secondary" data-license-action="extend" data-license-days="30" data-license-id="${escapeHtml(license.id)}">+30 days</button>
+          <button type="button" class="secondary" data-license-action="extend" data-license-days="90" data-license-id="${escapeHtml(license.id)}">+90 days</button>
+          ${license.status !== 'revoked' ? `<button type="button" class="danger" data-license-action="revoke" data-license-id="${escapeHtml(license.id)}">Revoke</button>` : ''}
+        </div>
+      </article>
+    `,
+    'No managed pilot licenses yet. Existing signed keys appear after their next API sync.'
+  );
 
   renderList(
     elements.errors,
@@ -159,6 +196,7 @@ async function loadDashboard() {
   state.errors = payload.errors || [];
   state.clients = payload.clients || [];
   state.venues = payload.venues || [];
+  state.licenses = payload.licenses || [];
   setSummary(payload.summary || {});
   render();
 }
@@ -201,6 +239,37 @@ async function connect(apiKey) {
 elements.form.addEventListener('submit', (event) => {
   event.preventDefault();
   connect(elements.key.value);
+});
+
+elements.licenses.addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-license-action]');
+  if (!button) return;
+  const id = button.dataset.licenseId;
+  const action = button.dataset.licenseAction;
+  if (!id || !action) return;
+  if (action === 'revoke' && !window.confirm('Revoke this pilot license immediately?')) return;
+  const expirationInput = elements.licenses.querySelector(`[data-license-expiration="${id}"]`);
+  const body = action === 'renew-date'
+    ? { expiresAt: expirationInput?.value }
+    : action === 'extend'
+      ? { extendDays: Number(button.dataset.licenseDays) }
+      : {};
+  button.disabled = true;
+  setStatus(action === 'revoke' ? 'Revoking pilot license...' : 'Renewing pilot license...');
+  try {
+    const response = await fetch(`/dashboard/licenses/${encodeURIComponent(id)}/${action === 'revoke' ? 'revoke' : 'renew'}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-orbit-api-key': state.apiKey },
+      body: JSON.stringify(body)
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `API returned ${response.status}`);
+    await loadDashboard();
+    setStatus(action === 'revoke' ? 'Pilot license revoked.' : 'Pilot license renewed. Clients will refresh automatically.', 'live');
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : 'License update failed.', 'error');
+    button.disabled = false;
+  }
 });
 
 if (state.apiKey) {

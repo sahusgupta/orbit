@@ -394,6 +394,10 @@ export function isPlayerWaitlistEntry(entry: PlayerWaitlistEntry, player: Player
   );
 }
 
+export function isActivePlayerGameRequest(entry: PlayerWaitlistEntry) {
+  return ['Interested', 'Confirmed Coming', 'Arrived', 'Seated'].includes(entry.status);
+}
+
 export function getWaitlistAheadText(entry: PlayerWaitlistEntry) {
   if (entry.status === 'Confirmed Coming') return 'Confirmed coming - Core has your RSVP.';
   if (entry.status === 'Arrived') return 'Checked in - Core has you marked as arrived.';

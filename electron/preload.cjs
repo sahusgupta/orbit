@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('tableManagerDesktop', {
   loadStateForAccount: (access) => ipcRenderer.invoke('load-state-for-account', access),
   saveState: (state) => ipcRenderer.invoke('save-state', state),
   getBackendStatus: () => ipcRenderer.invoke('get-backend-status'),
+  validatePilotAccess: (access) => ipcRenderer.invoke('validate-pilot-access', access),
   submitAnalyticalReport: (report) => ipcRenderer.invoke('submit-analytical-report', report),
   sendTextMessages: (payload) => ipcRenderer.invoke('send-text-messages', payload),
   recordClientEvent: (event, category, details, route) => ipcRenderer.invoke('record-client-event', event, category, details, route),

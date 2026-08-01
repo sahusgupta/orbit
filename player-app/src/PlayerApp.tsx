@@ -13,6 +13,7 @@ import {
   formatPassCountdown,
   getPlayerGameStatusLabel,
   getWaitlistAheadText,
+  isActivePlayerGameRequest,
   isMembershipCurrentlyActive,
   isPlayerMembership,
   isPlayerWaitlistEntry,
@@ -116,7 +117,7 @@ type PrivateGameDraft = {
 };
 
 const tabs: Array<{ id: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
-  { id: 'findGames', label: 'Discover', icon: 'flame-outline' },
+  { id: 'findGames', label: 'Games', icon: 'flame-outline' },
   { id: 'tournaments', label: 'Events', icon: 'trophy-outline' },
   { id: 'map', label: 'Map', icon: 'map-outline' },
   { id: 'clubs', label: 'Clubs', icon: 'business-outline' },
@@ -268,6 +269,21 @@ export default function PlayerApp() {
   const memberships = clubs.flatMap((club) => club.memberships.filter((membership) => isPlayerMembership(membership, player)));
   const selectedMembership = selectedClub?.memberships.find((membership) => isPlayerMembership(membership, player));
   const playerWaitlists = selectedClub?.waitlists.filter((entry) => isPlayerWaitlistEntry(entry, player)) ?? [];
+  const activePlayerGames = useMemo(
+    () => clubs.flatMap((club) =>
+      club.waitlists
+        .filter((entry) => isPlayerWaitlistEntry(entry, player) && isActivePlayerGameRequest(entry))
+        .flatMap((entry) => {
+          const game = club.games.find((item) => item.id === entry.gameId);
+          return game ? [{ club, game, entry }] : [];
+        })
+    ),
+    [clubs, player]
+  );
+  const activePlayerGameKeys = useMemo(
+    () => new Set(activePlayerGames.map(({ club, game }) => `${club.club.id}:${game.id}`)),
+    [activePlayerGames]
+  );
   const joinedClubIds = new Set(memberships.filter((membership) => isMembershipCurrentlyActive(membership, clockNow)).map((membership) => membership.clubId));
   const membershipClubIds = new Set(memberships.map((membership) => membership.clubId));
   const favoriteClubIds = player.favoriteClubIds ?? [];
@@ -583,6 +599,7 @@ export default function PlayerApp() {
         }
         return club.games
           .filter(isActivePlayerGame)
+          .filter((game) => !activePlayerGameKeys.has(`${club.club.id}:${game.id}`))
           .filter((game) => !query || `${game.name} ${clubSearchText}`.toLowerCase().includes(query))
           .filter((game) => !stakesQuery || game.name.toLowerCase().includes(stakesQuery))
           .filter((game) => matchesGameTypeFilter(club, game, gameTypeFilter))
@@ -617,7 +634,7 @@ export default function PlayerApp() {
         if (fitScoreFilterEnabled) return right.score - left.score || left.distanceMiles - right.distanceMiles;
         return right.score - left.score || left.distanceMiles - right.distanceMiles;
       });
-  }, [distanceFilter, favoriteClubIds, findGameClubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, joinedClubIds, player.homeLocation, player.preferredGameIds, playerHomeCoordinate, selectedCasinoFilter, selectedFilterClubId, stakesFilter]);
+  }, [activePlayerGameKeys, distanceFilter, favoriteClubIds, findGameClubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, joinedClubIds, player.homeLocation, player.preferredGameIds, playerHomeCoordinate, selectedCasinoFilter, selectedFilterClubId, stakesFilter]);
 
   const displayedOpportunities = opportunities;
   const discoveryDeck = useMemo(
@@ -790,8 +807,8 @@ export default function PlayerApp() {
   };
 
   const openClubPayment = (club: PlayerClubSnapshot, product: ClubAccessProduct) => {
-    if (!player.name.trim() || !isValidEmail(player.email) || !isValidPhoneNumber(player.phone ?? '')) {
-      setClubMembershipMessage('Enter your name, a valid email, and a 10-digit phone number before applying.');
+    if (!player.id || !player.name.trim()) {
+      setClubMembershipMessage('Finish creating your Orbit profile before continuing.');
       return;
     }
     setSelectedClubId(club.club.id);
@@ -1069,8 +1086,8 @@ export default function PlayerApp() {
   };
 
   const submitMembershipApplication = async (club: PlayerClubSnapshot, membershipOption?: PlayerMembershipOption) => {
-    if (!player.name.trim() || !isValidEmail(player.email) || !isValidPhoneNumber(player.phone ?? '')) {
-      setClubMembershipMessage('Enter a valid name, email, and phone number.');
+    if (!player.id || !player.name.trim()) {
+      setClubMembershipMessage('Finish creating your Orbit profile before applying.');
       return;
     }
     const plan: ClubMembershipPlan = membershipOption?.durationDays === 1 ? 'day' : 'monthly';
@@ -1274,6 +1291,17 @@ export default function PlayerApp() {
             ) : null}
             {screen === 'findGames' && !showHostScreen ? (
               <>
+                <MyGamesSection
+                  games={activePlayerGames}
+                  onBuyTime={(club) => openClubPayment(club, 'time-5')}
+                  onCancel={(club, game, entry) => cancelWaitlist(club, game, entry)}
+                />
+                <View style={styles.sectionHeader}>
+                  <View>
+                    <Text style={styles.sectionTitle}>Discover games</Text>
+                    <Text style={styles.muted}>Games you have already requested are kept in My Games.</Text>
+                  </View>
+                </View>
                 <View style={styles.discoveryToolbar}>
                   <Pressable
                     accessibilityLabel="Search games"
@@ -1561,7 +1589,6 @@ export default function PlayerApp() {
                 message={clubMembershipMessage}
                 player={player}
                 onBack={() => setScreen('clubs')}
-                onPlayerChange={(patch) => setPlayer((current) => ({ ...current, ...patch }))}
                 onSubmit={(membershipOption) => submitMembershipApplication(selectedClub, membershipOption)}
               />
             ) : null}
@@ -4031,13 +4058,74 @@ function GameCard({
   );
 }
 
+function MyGamesSection({
+  games,
+  onBuyTime,
+  onCancel
+}: {
+  games: Array<{ club: PlayerClubSnapshot; game: PlayerSyncGame; entry: PlayerWaitlistEntry }>;
+  onBuyTime: (club: PlayerClubSnapshot) => void;
+  onCancel: (club: PlayerClubSnapshot, game: PlayerSyncGame, entry: PlayerWaitlistEntry) => void;
+}) {
+  if (!games.length) return null;
+  return (
+    <View style={styles.myGamesSection}>
+      <View style={styles.sectionHeader}>
+        <View>
+          <Text style={styles.sectionTitle}>My Games</Text>
+          <Text style={styles.muted}>Your active requests and seats</Text>
+        </View>
+        <View style={styles.myGamesCount}>
+          <Text style={styles.myGamesCountText}>{games.length}</Text>
+        </View>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.myGamesRail}>
+        {games.map(({ club, game, entry }) => {
+          const canCancel = ['Interested', 'Confirmed Coming', 'Arrived'].includes(entry.status);
+          const sellsTime = getClubFeeProfile(club).type === 'time';
+          return (
+            <View key={`${club.club.id}:${game.id}`} style={styles.myGameCard}>
+              <View style={styles.myGameCardHeader}>
+                <View style={styles.myGameStatusIcon}>
+                  <Ionicons name={entry.status === 'Seated' ? 'checkmark-circle' : 'time-outline'} size={18} color={colors.primary} />
+                </View>
+                <View style={styles.myGameCardCopy}>
+                  <Text style={styles.cardTitle}>{game.name}</Text>
+                  <Text style={styles.muted}>{club.club.name}</Text>
+                </View>
+              </View>
+              <View style={styles.myGameStatusBand}>
+                <Text style={styles.myGameStatusLabel}>{getPlayerGameStatusLabel(entry)}</Text>
+                <Text style={styles.myGameStatusDetail}>{getWaitlistAheadText(entry)}</Text>
+              </View>
+              <View style={styles.myGameActions}>
+                {sellsTime ? (
+                  <Pressable accessibilityLabel={`Buy more time from ${club.club.name}`} onPress={() => onBuyTime(club)} style={styles.myGamePrimaryAction}>
+                    <Ionicons name="timer-outline" size={16} color="#ffffff" />
+                    <Text style={styles.myGamePrimaryActionText}>Buy more time</Text>
+                  </Pressable>
+                ) : null}
+                {canCancel ? (
+                  <Pressable accessibilityLabel={`Cancel request for ${game.name}`} onPress={() => onCancel(club, game, entry)} style={styles.myGameSecondaryAction}>
+                    <Text style={styles.myGameSecondaryActionText}>Cancel</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              {sellsTime ? <Text style={styles.myGameMerchantNote}>Sold by {club.club.name}</Text> : null}
+            </View>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
 function ClubMembershipPlanScreen({
   club,
   prices,
   message,
   player,
   onBack,
-  onPlayerChange,
   onSubmit
 }: {
   club: PlayerClubSnapshot;
@@ -4045,7 +4133,6 @@ function ClubMembershipPlanScreen({
   message: string;
   player: PlayerAccount;
   onBack: () => void;
-  onPlayerChange: (patch: Partial<PlayerAccount>) => void;
   onSubmit: (membershipOption?: PlayerMembershipOption) => void;
 }) {
   const membershipOptions: PlayerMembershipOption[] = club.club.membershipOptions?.length
@@ -4077,11 +4164,19 @@ function ClubMembershipPlanScreen({
 
       <View style={styles.membershipApplicationCard}>
         <View>
-          <Text style={styles.cardTitle}>Membership request</Text>
+          <Text style={styles.cardTitle}>Apply with your Orbit profile</Text>
+          <Text style={styles.muted}>Your identity and poker profile are shared securely with this card house. Nothing needs to be entered again.</Text>
         </View>
-        <Field label="Name" placeholder="Full name" value={player.name} onChangeText={(name) => onPlayerChange({ name })} />
-        <Field label="Email" placeholder="Email address" value={player.email} keyboardType="email-address" onChangeText={(email) => onPlayerChange({ email })} />
-        <Field label="Phone" placeholder="10-digit phone number" value={player.phone ?? ''} keyboardType="phone-pad" onChangeText={(phone) => onPlayerChange({ phone })} />
+        <View style={styles.membershipProfileSummary}>
+          <View style={styles.membershipProfileAvatar}>
+            <Text style={styles.membershipProfileAvatarText}>{player.name.slice(0, 1).toUpperCase()}</Text>
+          </View>
+          <View style={styles.membershipProfileCopy}>
+            <Text style={styles.cardTitle}>{player.name}</Text>
+            <Text style={styles.muted}>Orbit Player profile</Text>
+          </View>
+          <Ionicons name="shield-checkmark-outline" size={21} color={colors.teal} />
+        </View>
       </View>
 
       <View>
@@ -5541,6 +5636,23 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
     paddingHorizontal: 2,
     paddingTop: 2
   },
+  myGamesSection: { gap: 10 },
+  myGamesCount: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 999, height: 28, justifyContent: 'center', minWidth: 28, paddingHorizontal: 8 },
+  myGamesCountText: { color: '#ffffff', fontSize: 12, fontWeight: '900' },
+  myGamesRail: { gap: 11, paddingBottom: 3, paddingRight: 2 },
+  myGameCard: { backgroundColor: '#ffffff', borderColor: 'rgba(77,124,254,0.20)', borderRadius: 17, borderWidth: 1, gap: 11, padding: 14, width: 286 },
+  myGameCardHeader: { alignItems: 'center', flexDirection: 'row', gap: 10 },
+  myGameStatusIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 11, height: 40, justifyContent: 'center', width: 40 },
+  myGameCardCopy: { flex: 1, gap: 2 },
+  myGameStatusBand: { backgroundColor: '#f7f8ff', borderRadius: 11, gap: 3, padding: 10 },
+  myGameStatusLabel: { color: colors.primaryDark, fontSize: 12, fontWeight: '900' },
+  myGameStatusDetail: { color: colors.muted, fontSize: 10, fontWeight: '700', lineHeight: 14 },
+  myGameActions: { flexDirection: 'row', gap: 8 },
+  myGamePrimaryAction: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 10, flex: 1, flexDirection: 'row', gap: 6, justifyContent: 'center', minHeight: 42, paddingHorizontal: 11 },
+  myGamePrimaryActionText: { color: '#ffffff', fontSize: 11, fontWeight: '900' },
+  myGameSecondaryAction: { alignItems: 'center', borderColor: colors.line, borderRadius: 10, borderWidth: 1, justifyContent: 'center', minHeight: 42, paddingHorizontal: 13 },
+  myGameSecondaryActionText: { color: colors.ink, fontSize: 11, fontWeight: '900' },
+  myGameMerchantNote: { color: colors.muted, fontSize: 9, fontWeight: '700', textAlign: 'center' },
   searchPanel: {
     backgroundColor: 'rgba(255,254,250,0.92)',
     borderColor: colors.line,
@@ -6363,6 +6475,10 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
     gap: 11,
     padding: 14
   },
+  membershipProfileSummary: { alignItems: 'center', backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 11 },
+  membershipProfileAvatar: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 10, height: 40, justifyContent: 'center', width: 40 },
+  membershipProfileAvatarText: { color: colors.primary, fontSize: 17, fontWeight: '900' },
+  membershipProfileCopy: { flex: 1, gap: 2 },
   membershipTitle: {
     color: colors.ink,
     fontSize: 22,
