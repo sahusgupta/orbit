@@ -53,8 +53,11 @@ npx eas build --profile preview --platform android
 
 ```bash
 cd player-app
-npx eas build --profile production --platform all
+npm run build:testflight
+npm run submit:testflight
 ```
+
+The production iOS profile creates a physical-device App Store archive, uses a remotely auto-incremented build number, points the app to the production Orbit API, and exposes the hosted privacy policy from Profile & Settings. `submit:testflight` uploads the latest successful production build to App Store Connect; Apple account access and an App Store Connect app record for `com.orbit.player` are still required.
 
 ## Important Production Hardening
 

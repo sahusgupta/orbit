@@ -15,7 +15,6 @@
     },
     "ios": {
       "supportsTablet": false,
-      "buildNumber": "1",
       "bundleIdentifier": "com.orbit.player",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -50,7 +49,7 @@
       "revenueCatAppleApiKey": "",
       "playerPremiumEntitlementId": "player_premium",
       "applePremiumProductId": "com.orbit.player.premium.monthly",
-      "privacyPolicyUrl": "",
+      "privacyPolicyUrl": "https://orbitapp-one.vercel.app/privacy",
       "supportPhone": "346-434-1402",
       "eas": {
         "projectId": "bb2059b7-91b3-4a6b-a66e-d5618e794fd3"

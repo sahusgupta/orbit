@@ -320,6 +320,18 @@ app.get('/player/snapshot', requireFirebasePlayer, asyncRoute(handlePlayerSnapsh
 app.post('/player/membership-requests', optionalFirebasePlayer, asyncRoute(handlePlayerMembershipRequest));
 app.post('/player/waitlist-requests', optionalFirebasePlayer, asyncRoute(handlePlayerWaitlistRequest));
 
+app.get(['/privacy', '/privacy.html'], (_request, response) => {
+  response.sendFile(path.join(__dirname, '..', 'public', 'privacy.html'));
+});
+
+app.get(['/support', '/support.html'], (_request, response) => {
+  response.sendFile(path.join(__dirname, '..', 'public', 'support.html'));
+});
+
+app.get('/legal.css', (_request, response) => {
+  response.sendFile(path.join(__dirname, '..', 'public', 'legal.css'));
+});
+
 app.get('/dashboard', requireDashboardAuth, (_request, response) => {
   response.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));
 });

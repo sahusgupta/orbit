@@ -85,4 +85,34 @@ describe('PokerTable seat rendering', () => {
     });
     container.remove();
   });
+
+  it('keeps player name, buy-in, and timer inside the circular seat control', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const player = {
+      id: 'player-details',
+      name: 'Alexandra Montgomery',
+      seatNumber: 3,
+      membershipId: 'member-details',
+      joinedAt: Date.now(),
+      buyInTotal: 1250,
+      timeRemainingSeconds: 1199
+    };
+
+    act(() => {
+      root.render(<PokerTable players={[player]} maxPlayers={9} showTimeRemaining />);
+    });
+
+    const seat = container.querySelector<HTMLButtonElement>('button[aria-label="Move Alexandra Montgomery from seat 3"]');
+    expect(seat?.querySelector('.poker-seat-player-name')?.textContent).toBe('Alexandra Montgomery');
+    expect(seat?.querySelector('.poker-seat-buyin')?.textContent).toBe('$1,250');
+    expect(seat?.querySelector('.poker-seat-time')?.textContent).toBe('19:59');
+    expect(container.querySelector('.poker-seat-player-label')).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
 });

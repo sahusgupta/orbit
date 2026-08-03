@@ -4,6 +4,9 @@ import { isPlayerVisibleClubName, isPlayerVisibleGameName } from './clubVisibili
 describe('player club visibility', () => {
   it('keeps named demo clubs and hides stress-test clubs', () => {
     expect(isPlayerVisibleClubName('Orbit Demo Club')).toBe(true);
+    expect(isPlayerVisibleClubName('Test Club')).toBe(false);
+    expect(isPlayerVisibleClubName('  test club  ')).toBe(false);
+    expect(isPlayerVisibleClubName('Test Clubhouse')).toBe(true);
     expect(isPlayerVisibleClubName('Stress Test Club 14')).toBe(false);
     expect(isPlayerVisibleClubName('LOAD-STRESS-HOUSTON')).toBe(false);
   });

@@ -65,14 +65,6 @@ const formatDuration = (seconds: number) => {
     : `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
 };
 
-const getInitials = (name: string) =>
-  name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join('') || '?';
-
 function PlayerCard({
   player,
   position,
@@ -150,6 +142,7 @@ function PlayerCard({
         type="button"
         draggable
         aria-label={`Move ${player.name} from seat ${player.seatNumber ?? position + 1}`}
+        title={`${player.name} · $${(player.buyInTotal ?? 0).toLocaleString()} · ${showTimeRemaining ? `${timeRemainingDisplay} remaining` : `${timeAtTableDisplay} at table`}`}
         onClick={() => {
           if (!suppressClickRef.current) onToggle();
         }}
@@ -171,13 +164,12 @@ function PlayerCard({
         }}
       >
         <span className="poker-seat-number">{player.seatNumber ?? position + 1}</span>
-        <span className="poker-seat-initials">{getInitials(player.name)}</span>
+        <strong className="poker-seat-player-name">{player.name}</strong>
+        <span className="poker-seat-buyin">${(player.buyInTotal ?? 0).toLocaleString()}</span>
+        {showTimeRemaining
+          ? <em className={`poker-seat-time ${timerStatus}`}>{timeRemainingDisplay}</em>
+          : <em className="poker-seat-time">{timeAtTableDisplay}</em>}
       </button>
-      <div className="poker-seat-player-label">
-        <strong>{player.name}</strong>
-        <span>${(player.buyInTotal ?? 0).toLocaleString()}</span>
-        {showTimeRemaining ? <em className={timerStatus}>{timeRemainingDisplay}</em> : <em>{timeAtTableDisplay}</em>}
-      </div>
       {isOpen ? (
         <div className={`poker-seat-menu ${menuPositionClass}`} onClick={(event) => event.stopPropagation()}>
           <div className="poker-seat-menu-header">
