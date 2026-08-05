@@ -16,3 +16,16 @@
 - Final verification: `npm run typecheck` retained 94 diagnostics; Player typecheck passed; 17 files/81 tests passed; Vite built 1,910 modules; aggregate `npm run verify` exited 1 only because of the root baseline failure.
 
 Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
+
+## 2026-08-05 — TYPE-001 approved narrow implementation
+
+- Started from a clean worktree on `chore/prepare-codex-workflow`; confirmed `TYPE-001` was `review_required`.
+- Re-recorded the untouched baseline: 94 diagnostics in 6 files, including exactly 6 `TS2550` diagnostics owned by `TYPE-001`.
+- Changed only root `tsconfig.json` library declarations from ES2020 to ES2022 while preserving DOM libraries and `target: ES2020`.
+- First post-change typecheck: 88 diagnostics in the same 6 files, zero `TS2550`, and no new diagnostic code or path.
+- Confirmed the remaining 88 diagnostics sum exactly across `TYPE-002` through `TYPE-014`.
+- Marked `TYPE-001` complete and only `TYPE-005`, `TYPE-006`, and `TYPE-012` ready; their sole dependency is now complete.
+- Added separate planned tasks `TYPE-015` through `TYPE-022` for the eight approved future compiler-boundary areas; implemented none of them.
+- Retained no project references, no new `checkJs`, no source exclusions, and no ambient-type change.
+- Final verification: root typecheck retained the expected 88 diagnostics and zero `TS2550`; Player typecheck passed; 17 files/81 tests passed in 3.50 seconds; Vite transformed 1,910 modules and built in 17.57 seconds.
+- Aggregate `npm run verify` ran all four gates and exited 1 only for the expected root baseline; its nested Player typecheck, 17/81 tests, and 1,910-module build passed.

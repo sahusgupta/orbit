@@ -1,7 +1,7 @@
 queue: root-typescript-remediation
 temporary: true
 source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
-baseline_diagnostics: 94
+baseline_diagnostics: 88
 baseline_files: 6
 status: partial_failure
 ordering:
@@ -14,8 +14,10 @@ tasks:
   - id: TYPE-001
     title: Decide and align the root ECMAScript library boundary
     classification: CONFIGURATION_BOUNDARY
-    diagnostics: 6
-    status: review_required
+    diagnostics: 0
+    diagnostics_before: 6
+    diagnostics_after: 0
+    status: complete
     safe_autonomous: false
     human_review: true
     blocks_refactoring: true
@@ -23,7 +25,7 @@ tasks:
     depends_on: []
     spec: docs/agent/tasks/TYPE-001.md
     decision: docs/agent/TYPE-001_BOUNDARY_DECISION.md
-    human_decision: authorize_narrow_boundary_or_expand_to_multi_project_checking
+    resolution: approved_narrow_es2022_library_correction
   - id: TYPE-002
     title: Canonicalize the Player snapshot contract
     classification: STALE_OR_DEAD_CODE
@@ -61,7 +63,7 @@ tasks:
     title: Restore synchronized-list tuple inference
     classification: REAL_TYPE_ERROR
     diagnostics: 9
-    status: pending
+    status: ready
     safe_autonomous: true
     human_review: false
     blocks_refactoring: true
@@ -72,7 +74,7 @@ tasks:
     title: Repair map/filter result narrowing
     classification: REAL_TYPE_ERROR
     diagnostics: 6
-    status: pending
+    status: ready
     safe_autonomous: true
     human_review: false
     blocks_refactoring: true
@@ -138,7 +140,7 @@ tasks:
     title: Correct root test-only type contracts
     classification: TEST_TYPE_ERROR
     diagnostics: 2
-    status: pending
+    status: ready
     safe_autonomous: true
     human_review: false
     blocks_refactoring: true
@@ -167,3 +169,96 @@ tasks:
     blocks_player_web: false
     depends_on: []
     spec: docs/agent/tasks/TYPE-014.md
+  - id: TYPE-015
+    title: Separate renderer and root unit-test compiler projects
+    classification: CONFIGURATION_BOUNDARY
+    diagnostics: 0
+    status: planned
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: false
+    blocks_player_web: false
+    depends_on: [TYPE-012, TYPE-021]
+    spec: docs/agent/tasks/TYPE-015.md
+  - id: TYPE-016
+    title: Add Electron main and preload compiler checking
+    classification: VERIFICATION_GAP
+    diagnostics: 0
+    observed_probe_diagnostics: 3
+    status: planned
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: false
+    blocks_player_web: false
+    depends_on: [TYPE-001]
+    spec: docs/agent/tasks/TYPE-016.md
+  - id: TYPE-017
+    title: Add Node and Vite tooling compiler checking
+    classification: VERIFICATION_GAP
+    diagnostics: 0
+    observed_probe_diagnostics: 2
+    status: planned
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: false
+    blocks_player_web: false
+    depends_on: [TYPE-001]
+    spec: docs/agent/tasks/TYPE-017.md
+  - id: TYPE-018
+    title: Add API compiler coverage
+    classification: VERIFICATION_GAP
+    diagnostics: 0
+    observed_probe_diagnostics: 7
+    status: planned
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: false
+    blocks_player_web: indirect
+    depends_on: []
+    spec: docs/agent/tasks/TYPE-018.md
+  - id: TYPE-019
+    title: Add download-site compiler coverage
+    classification: VERIFICATION_GAP
+    diagnostics: 0
+    observed_probe_diagnostics: 2
+    status: planned
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: false
+    blocks_player_web: false
+    depends_on: [TYPE-001]
+    spec: docs/agent/tasks/TYPE-019.md
+  - id: TYPE-020
+    title: Add E2E compiler coverage
+    classification: VERIFICATION_GAP
+    diagnostics: 0
+    observed_probe_diagnostics: 2
+    status: planned
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: false
+    blocks_player_web: false
+    depends_on: [TYPE-016]
+    spec: docs/agent/tasks/TYPE-020.md
+  - id: TYPE-021
+    title: Remove unintended Player modules from root compiler scope
+    classification: CONFIGURATION_BOUNDARY
+    diagnostics: 0
+    status: planned
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: false
+    blocks_player_web: true
+    depends_on: [TYPE-002]
+    spec: docs/agent/tasks/TYPE-021.md
+  - id: TYPE-022
+    title: Remove unnecessary Node globals from sandboxed renderer
+    classification: CONFIGURATION_BOUNDARY
+    diagnostics: 0
+    status: planned
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: false
+    blocks_player_web: false
+    depends_on: [TYPE-015]
+    spec: docs/agent/tasks/TYPE-022.md

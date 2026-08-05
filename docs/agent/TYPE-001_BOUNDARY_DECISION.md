@@ -6,7 +6,7 @@ Branch: `chore/prepare-codex-workflow`
 
 Starting commit: `2897a35`
 
-Decision state: `review_required`
+Decision state: `complete`
 
 ## Executive decision
 
@@ -21,7 +21,7 @@ The present compiler boundary is nevertheless broader in globals and narrower in
 - Electron main, preload, API, download-site JavaScript, scripts, and e2e harnesses have no semantic TypeScript/check-JS project;
 - Vitest discovers tests across the root, API, and Player packages, which is a different scope from both root and Player TypeScript.
 
-A narrow `tsconfig.json` correction (`lib: ES2022` plus explicit Vite globals) was proven read-only to reduce the root count from 94 to 88 with no new diagnostic. It was not applied because the request permits implementation only when every production runtime is covered by a TypeScript project and the resulting command is more complete. Meeting that condition requires a multi-project/check-JS expansion outside `TYPE-001`'s allowed areas and exposes existing, unqueued JavaScript diagnostics. A human must decide whether to authorize the narrow exception or expand the task.
+A narrow `tsconfig.json` correction was subsequently approved and implemented: the existing browser libraries were retained while the standard library changed from `ES2020` to `ES2022`. Root diagnostics fell from 94 to exactly 88, all six assigned `TS2550` diagnostics disappeared, and no new diagnostic appeared. `target: ES2020`, ambient `types`, includes, strictness, module resolution, `noEmit`, and the empty project-reference list remain unchanged. The multi-project/check-JS expansion remains future work in `TYPE-015` through `TYPE-022`.
 
 ## 1. Current runtime map
 
@@ -51,7 +51,7 @@ Only two repository TypeScript configurations exist.
 | Setting | Current value | Boundary finding |
 | --- | --- | --- |
 | `target` | `ES2020` | May remain; root is `noEmit` and Vite owns renderer output. |
-| `lib` | `DOM`, `DOM.Iterable`, `ES2020` | Too old for the proven renderer floor; causes all six `TYPE-001` diagnostics. |
+| `lib` | `DOM`, `DOM.Iterable`, `ES2022` | Corrected to match the proven renderer floor; the six `TYPE-001` diagnostics are gone. |
 | `jsx` | `react-jsx` | Correct for React renderer and the JSX unit test. It also makes TypeScript resolve a Player-local JSX runtime while following Player `.ts` files. |
 | `module` | `ESNext` | Consistent with Vite renderer source. |
 | `moduleResolution` | `Node` (effective `node10`) | Works for current renderer imports but does not match Vite's package-export-aware resolution; it cannot resolve `@vitejs/plugin-react` when `vite.config.ts` is added to this project. |
@@ -97,7 +97,7 @@ The effective Player project includes production files, three Player unit tests,
 2. Root tests directly import two Player domain files. Root TypeScript follows them under root compiler options while their normal owner checks them under Expo's independent options. TypeScript resolves `react/jsx-runtime` relative to those Player files, so both React declaration versions enter the root compilation.
 3. Root `types` is unspecified. The renderer project therefore sees `@types/node` and numerous transitive global declaration packages even though Electron disables renderer Node integration. This is a compiler/security-boundary mismatch even though current renderer code does not use `process` or `Buffer`.
 4. `Window.tableManagerDesktop` is declared inline in `src/main.tsx`, while the runtime bridge is implemented separately in JavaScript preload. The two sides can drift; `TYPE-009` already owns one observed nullability disagreement.
-5. `lib: ES2020` contradicts both the packaged Electron Chromium floor and Vite's build target. These are the six diagnostics assigned to `TYPE-001`.
+5. Resolved by `TYPE-001`: the former `lib: ES2020` declaration contradicted both the packaged Electron Chromium floor and Vite's build target. The renderer now declares ES2022 libraries.
 
 ### Files included by root TypeScript but not the production renderer build
 
@@ -118,7 +118,7 @@ The effective Player project includes production files, three Player unit tests,
 
 ### Vite, Electron, tests, TypeScript, and CI disagreement
 
-- Vite starts at `index.html`, follows only production imports, uses package-export-aware bundler resolution, and targets its installed baseline browsers. Root TypeScript includes every file below `src`, uses effective `node10` module resolution, and declares ES2020 libraries.
+- Vite starts at `index.html`, follows only production imports, uses package-export-aware bundler resolution, and targets its installed baseline browsers. Root TypeScript includes every file below `src`, uses effective `node10` module resolution, and now declares ES2022 libraries.
 - Electron packages `dist/**/*` and `electron/**/*`, but root TypeScript checks neither Electron file nor Vite configuration.
 - Vitest discovers 17 test files across all three package trees. Root TypeScript checks nine root tests and two imported Player modules; Player TypeScript checks three Player tests; API tests are JavaScript and untyped.
 - CI runs tests, Player typecheck, and Vite build but omits root typecheck and `npm run verify`. The release workflow runs tests and a renderer/package build but no TypeScript check.
@@ -133,8 +133,7 @@ Exact files:
 - retain `include: ["src"]` and the empty `references` list;
 - retain `target: ES2020`, `module: ESNext`, `moduleResolution: Node`, strictness, JSX, and `noEmit`;
 - change `lib` to `DOM`, `DOM.Iterable`, `ES2022`;
-- add `types: ["vite/client"]` to prevent automatic admission of Node globals;
-- retain `src/vite-env.d.ts` for standard Vite asset/environment declarations.
+- leave `types` unspecified and retain `src/vite-env.d.ts`; renderer-global restriction is deliberately deferred to `TYPE-022`.
 
 Root verification command: unchanged, `tsc --noEmit` through `npm run typecheck`.
 
@@ -142,7 +141,6 @@ Advantages:
 
 - exactly matches the proven renderer runtime;
 - removes only the six assigned diagnostics;
-- strengthens the browser boundary by removing automatic Node globals;
 - keeps all current production source and tests checked;
 - is one small compiler-only change with no output/runtime change.
 
@@ -151,6 +149,7 @@ Disadvantages:
 - tests remain mixed into the renderer project;
 - Player source is still reached transitively under root options;
 - `vite.config.ts`, Electron, scripts, API, download site, and e2e remain unchecked;
+- automatic Node-global admission remains until `TYPE-022`;
 - the root command is more accurate but does not gain file coverage.
 
 Migration risk: low.
@@ -203,7 +202,7 @@ Migration risk: medium/high because the verification surface expands significant
 
 Expected diagnostic impact from read-only probes:
 
-- renderer with corrected library/types: 88 existing diagnostics;
+- renderer with the corrected ES2022 library: 88 existing diagnostics;
 - Electron check-JS: 3 new diagnostics in `electron/main.cjs`;
 - root scripts/tooling check-JS: 2 new diagnostics;
 - e2e check-JS: 2 new diagnostics after providing Node and DOM libraries;
@@ -213,36 +212,38 @@ Expected diagnostic impact from read-only probes:
 
 Runtime behavior: none if introduced as check-only projects.
 
-Downstream validity: all existing remediation tasks remain valid, but the new diagnostics need separately approved task ownership. `TYPE-005` and `TYPE-006` should not start while `TYPE-001` remains `review_required`.
+Downstream validity: all existing remediation tasks remain valid. `TYPE-005`, `TYPE-006`, and `TYPE-012` are now ready because `TYPE-001` was their complete dependency set. Newly observed unchecked diagnostics remain future task work.
 
 ## 6. Recommended boundary
 
 The correct architecture is the environment-separated boundary in Option B, introduced in stages. Renderer, Electron main/preload, tests, and Node tooling have materially different globals and module-resolution rules; keeping Node globals ambient in a sandboxed browser project is particularly undesirable. API and Player should remain package-owned rather than being merged into the root renderer project.
 
-For the existing narrow `TYPE-001`, the first stage should be Option A: declare `ES2022` libraries and explicit Vite globals without changing target, source, runtime, or Player configuration. The remaining projects should be separately authorized follow-up work because check-JS adoption creates new remediation obligations and exceeds the existing task specification.
+For the existing narrow `TYPE-001`, the approved first stage was the ES2022 library declaration only, without changing target, source, runtime, Player configuration, or ambient types. Explicit renderer-global restriction is `TYPE-022`; the remaining projects are separately planned because check-JS adoption creates new remediation obligations and exceeds this task.
 
 TypeScript project references should not be used yet for source sharing. No reusable compiled package exists, all current projects use `noEmit`, and root tests import source across package boundaries. References would either duplicate source checking, require declaration output, or create misleading ownership. A root solution may later use references purely for orchestration after renderer/test/tooling ownership is implemented and a shared package has a real public boundary.
 
 ## 7. Files affected
 
-This investigation changes documentation only:
+The approved implementation affects:
 
+- `tsconfig.json`;
 - `docs/agent/TYPE-001_BOUNDARY_DECISION.md`;
 - `docs/agent/tasks/TYPE-001.md`;
 - `docs/agent/TASKS.yaml`;
 - `docs/agent/JOURNAL.md`;
 - `docs/agent/BASELINE.md`;
-- `docs/agent/ROOT_TYPECHECK_REBASELINE.md`.
+- `docs/agent/ROOT_TYPECHECK_REBASELINE.md`;
+- `docs/agent/tasks/TYPE-015.md` through `TYPE-022.md`.
 
-`docs/architecture/testing-and-verification.md` does not exist, so it was not updated. No source, TypeScript configuration, package manifest, lockfile, test, or runtime file was changed.
+`docs/architecture/testing-and-verification.md` does not exist, so it was not updated. No production source, package manifest, lockfile, test, project reference, or runtime file changed.
 
 ## 8. Expected impact on downstream tasks
 
-- `TYPE-005`, `TYPE-006`, and `TYPE-012` directly depend on `TYPE-001`; their dependencies are not satisfied while this task is `review_required`.
+- `TYPE-005`, `TYPE-006`, and `TYPE-012` directly depended only on `TYPE-001`; all three are now `ready`.
 - `TYPE-007` depends transitively on `TYPE-001` through `TYPE-005` and `TYPE-006`.
-- The six `TYPE-001` diagnostics remain in the baseline because no compiler change was authorized.
+- The six `TYPE-001` diagnostics are removed; the root baseline is now 88.
 - The recommended ES2022 contract does not alter the diagnosis or intended repairs for any downstream task.
-- No downstream task was marked ready.
+- No other downstream task was marked ready because its dependency set is incomplete or it remains future planned architecture work.
 
 ## 9. Verification evidence
 
@@ -254,7 +255,7 @@ This investigation changes documentation only:
 
 ### Read-only compiler probes
 
-- root `tsc --showConfig`: 26 root files below `src`, ES2020 libraries, effective `node10` resolution, no explicit types.
+- pre-change root `tsc --showConfig`: 26 root files below `src`, ES2020 libraries, effective `node10` resolution, no explicit types.
 - root `tsc --listFilesOnly`: 29 repository files after following JSON and Player imports.
 - Player `tsc --showConfig`/`--listFilesOnly`: 16 repository files, Expo inheritance described above.
 - root probe with `lib: DOM,DOM.Iterable,ES2022` and `types: vite/client`: exit 2 with exactly 88 diagnostics and no new code.
@@ -272,13 +273,13 @@ No production service, Electron runtime, e2e harness, API server, Firebase path,
 
 | Command | Exact result |
 | --- | --- |
-| `npm run typecheck` | Failed as expected: TypeScript exit 2 with the unchanged 94 diagnostics in 6 files, including all 6 `TYPE-001` `TS2550` diagnostics. |
+| `npm run typecheck` | Failed as expected: TypeScript exit 2 with exactly 88 diagnostics in 6 files. All 6 `TYPE-001` `TS2550` diagnostics disappeared, and no diagnostic code or path count increased. |
 | `npm run player:typecheck` | Passed with no diagnostics. |
-| `npm test` | Passed: 17 files and 81 tests; zero failed or skipped; 3.78 seconds. Node emitted the existing experimental SQLite warning. |
-| `npm run build` | Passed: Vite 7.3.5 transformed 1,910 modules and built in 18.61 seconds. The existing ExcelJS `eval` and chunk-size warnings remained. |
-| `npm run verify` | Exited 1 after running every gate. Summary: root TypeScript failed; Player TypeScript, 17/81 tests, and the 1,910-module renderer build passed. The existing SQLite, ExcelJS, and chunk-size warnings remained. |
+| `npm test` | Passed: 17 files and 81 tests; zero failed or skipped; 3.50 seconds. Node emitted the existing experimental SQLite warning. |
+| `npm run build` | Passed: Vite 7.3.5 transformed 1,910 modules and built in 17.57 seconds. The existing ExcelJS `eval` and chunk-size warnings remained. |
+| `npm run verify` | Exited 1 after running every gate. Root TypeScript alone failed with the expected 88 diagnostics; Player TypeScript, 17/81 tests, and the 1,910-module renderer build passed. The nested test and build durations were 3.50 and 18.78 seconds. The existing SQLite, ExcelJS, and chunk-size warnings remained. |
 
-No focused behavior test was added because the deliverable is documentation and the proposed compiler settings were not committed. The read-only compiler probes are the direct evidence for the configuration decision; the full existing unit suite and production renderer build show that documentation work caused no runtime regression.
+No focused behavior test was added because the only implementation is a `noEmit` compiler-library declaration. The exact diagnostic comparison is the direct test of that change; the complete existing unit suite and production renderer build provide regression evidence without changing runtime behavior.
 
 ## 10. Remaining risks
 
@@ -290,11 +291,13 @@ No focused behavior test was added because the deliverable is documentation and 
 - CI and release workflows can publish while root TypeScript remains red because neither runs the root typecheck.
 - Vite's baseline is an installed-tool default rather than an explicit repository policy; a Vite major upgrade can change it. The supported renderer floor should be written explicitly when the compiler correction is approved.
 
-## 11. Required human decision
+## 11. Human decision and resolution
 
-Choose one scope before implementation:
+The human approved the narrow library-only correction:
 
-1. Authorize the narrow Option A correction as the completion of `TYPE-001`, explicitly accepting that Electron/tooling/API/download check-JS coverage will be separate tasks. This would remove the six assigned diagnostics, leave 88 known diagnostics, and unblock the declared downstream dependencies.
-2. Expand `TYPE-001` to Option B, approve the new configuration/script/CI areas, and create owners for the 16 newly exposed JavaScript diagnostics before implementation.
+- retain `target: ES2020` and the existing DOM libraries;
+- use ES2022 standard-library declarations;
+- change no runtime code, project references, JavaScript checking, exclusions, or ambient Node-global behavior;
+- represent broader compiler architecture as eight separate future tasks.
 
-Until that decision is made, `TYPE-001` is `review_required`, not `complete` or `blocked`.
+Those conditions are met. `TYPE-001` is complete. `TYPE-015` through `TYPE-022` record the approved future plan and were not implemented.

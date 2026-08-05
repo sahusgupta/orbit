@@ -1,6 +1,6 @@
 # TYPE-001: Decide and align the root ECMAScript library boundary
 
-Status: `review_required`
+Status: `complete`
 
 Investigation decision: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`
 
@@ -69,11 +69,18 @@ Repository evidence establishes that the supported renderer floor accepts the tw
 
 The investigation also proved that root TypeScript is not a whole-desktop check. It omits Vite configuration, Electron main/preload, scripts, API, download-site code, and e2e harnesses, while its unspecified `types` admits Node globals into the sandboxed browser project and two tests pull Player source plus Player-local React declarations into the root program.
 
-No compiler change was implemented. The request requires every production runtime to remain covered by an appropriate TypeScript project and the verification command to become more complete. Satisfying that requirement needs separate renderer, Electron/check-JS, test, and Node-tooling projects plus package-specific ownership. That exceeds this specification's allowed areas and exposes existing JavaScript diagnostics needing separate ownership.
+No compiler change was implemented during the investigation. The request at that time required every production runtime to be covered by an appropriate TypeScript project and the verification command to become more complete. Satisfying that broader requirement needs separate renderer, Electron/check-JS, test, and Node-tooling projects plus package-specific ownership. That exceeds this specification's allowed areas and exposes existing JavaScript diagnostics needing separate ownership.
 
-Human decision required:
+The subsequent human decision approved the narrow renderer-library correction and explicitly deferred the multi-project boundary to separate follow-up tasks.
 
-1. approve the narrow ES2022/Vite-global correction as sufficient for this task and defer expanded check-JS coverage; or
-2. expand this task's scope to the multi-project boundary and authorize follow-up ownership for newly exposed diagnostics.
+## Completion — 2026-08-05
 
-Until then this task is `review_required`. Its dependencies for `TYPE-005`, `TYPE-006`, and `TYPE-012` are not satisfied, and no downstream task is ready.
+- Changed only root `tsconfig.json` library declarations from `DOM`, `DOM.Iterable`, `ES2020` to `DOM`, `DOM.Iterable`, `ES2022`.
+- Retained `target: ES2020`, `moduleResolution: Node`, strictness, `noEmit`, `include: ["src"]`, the empty project-reference list, and existing ambient-type behavior.
+- Changed no production source, test behavior, runtime configuration, package manifest, dependency, or emitted-JavaScript target.
+- Root diagnostics changed from 94 to exactly 88. All six `TS2550` diagnostics assigned to this task disappeared and no new diagnostic appeared.
+- The remaining 88 diagnostics map exactly to `TYPE-002` through `TYPE-014`.
+- `TYPE-005`, `TYPE-006`, and `TYPE-012` are now `ready` because `TYPE-001` was their only dependency. No other downstream task became ready.
+- Broader boundary work is represented separately by `TYPE-015` through `TYPE-022`; none was implemented here.
+
+No behavior test was added because the only implementation is a `noEmit` standard-library declaration change. Root typecheck is the direct behavioral boundary; the full unit suite and Vite build verify that runtime behavior remains unchanged.

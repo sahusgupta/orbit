@@ -8,7 +8,7 @@ Dependency-restoration starting commit: `02cdd71`
 
 ## Verification state: partial failure
 
-The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, and the remaining 94 diagnostics are application, test, configuration, or platform contract errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
+The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, `TYPE-001` has aligned the renderer library contract, and the remaining 88 diagnostics are application, test, stale-contract, or platform errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
 
 No production source was changed during this rebaseline. No compiler setting was weakened, no file was excluded, and no diagnostic suppression or unsafe cast was added.
 
@@ -34,12 +34,14 @@ Post-install dependency-tree inspection found one physical root React 19.2.6 ins
 | --- | ---: |
 | Before dependency installation | 3,630 diagnostics in 12 files |
 | After dependency installation | 94 diagnostics in 6 files |
-| Net displayed-diagnostic reduction | 3,536 |
+| After `TYPE-001` library correction | 88 diagnostics in 6 files |
+| Dependency-restoration displayed-diagnostic reduction | 3,536 |
+| Current net displayed-diagnostic reduction | 3,542 |
 | Missing React/ReactDOM cascade diagnostics removed | 3,598 |
 | Previously visible non-cascade diagnostics retained | 32 |
 | Previously masked diagnostics exposed | 62 |
 
-The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The arithmetic is `3,630 - 3,598 + 62 = 94`.
+The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The dependency-restoration arithmetic is `3,630 - 3,598 + 62 = 94`; the six diagnostics removed by `TYPE-001` then establish the current total of 88.
 
 No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency issue is resolved; the root gate remains red because the declarations revealed real contracts that the previous untyped React layer could not check.
 
@@ -55,34 +57,33 @@ No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency
 | `TS2352` | 1 |
 | `TS2353` | 1 |
 | `TS2367` | 1 |
-| `TS2550` | 6 |
 | `TS2677` | 3 |
 | `TS2739` | 2 |
 | `TS2740` | 1 |
 | `TS2769` | 6 |
 | `TS7006` | 2 |
 | `TS7017` | 1 |
-| **Total** | **94** |
+| **Total** | **88** |
 
 ### By affected path
 
 | Path | Count | Application/package |
 | --- | ---: | --- |
-| `src/main.tsx` | 79 | Root management renderer |
+| `src/main.tsx` | 77 | Root management renderer |
 | `src/lib/firebaseClubSync.ts` | 5 | Root renderer/Firebase sync boundary |
 | `src/lib/playerSync.ts` | 2 | Root renderer/player-sync domain copy |
-| `src/lib/playerSync.test.ts` | 6 | Root package tests |
+| `src/lib/playerSync.test.ts` | 2 | Root package tests |
 | `src/lib/appCore.test.ts` | 1 | Root package tests |
 | `src/components/PokerTable.test.tsx` | 1 | Root renderer test |
-| **Total** | **94** | |
+| **Total** | **88** | |
 
-Production root source accounts for 86 diagnostics and root tests account for 8. Electron, API, Player, download-site, e2e, generated output, and dependency source account for zero diagnostics because they are not part of this root TypeScript project's `include: ["src"]` boundary.
+Production root source accounts for 84 diagnostics and root tests account for 4. Electron, API, Player, download-site, e2e, generated output, and dependency source account for zero diagnostics because they are not part of this root TypeScript project's `include: ["src"]` boundary.
 
 ## Root-cause summary
 
 | Task | Classification | Diagnostics | Root cause | Blocks refactoring | Blocks Player web | Safe autonomous repair | Human architecture review |
 | --- | --- | ---: | --- | --- | --- | --- | --- |
-| `TYPE-001` | `CONFIGURATION_BOUNDARY` | 6 | ES2020 library contract versus `replaceAll`/`at` usage | Yes | Yes if code is shared | No | Yes |
+| `TYPE-001` | `CONFIGURATION_BOUNDARY` | 0 | Resolved: ES2022 library declarations now match the supported renderer | No | No | Completed | Completed |
 | `TYPE-002` | `STALE_OR_DEAD_CODE` | 4 | Root/Player snapshot public-contract drift | Yes | Yes | No | Yes |
 | `TYPE-003` | `REAL_TYPE_ERROR` | 4 | Firebase transforms erase `ManagementClubState` and tournament types | Yes | Indirectly | No | Yes |
 | `TYPE-004` | `REAL_TYPE_ERROR` | 1 | Membership `Denied` narrowing is lost across a callback | Yes | Yes | No | Yes |
@@ -96,7 +97,7 @@ Production root source accounts for 86 diagnostics and root tests account for 8.
 | `TYPE-012` | `TEST_TYPE_ERROR` | 2 | Missing act global and heterogeneous fixture inference | Yes as a gate | No | Yes | No |
 | `TYPE-013` | `STALE_OR_DEAD_CODE` | 1 | Legacy settings migration is represented by an incompatible whole-object cast | Yes | No | No | Yes |
 | `TYPE-014` | `STALE_OR_DEAD_CODE` | 1 | `addInterest` compares a form status union to unreachable `Seated` | Yes | No direct block | No | Yes |
-| **Total** | | **94** | | | | | |
+| **Total** | | **88** | | | | | |
 
 No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISMATCH`, or `UNKNOWN_REQUIRES_INVESTIGATION`. Those dependency/configuration discovery issues are resolved or have been converted into evidence-backed tasks.
 
@@ -107,11 +108,10 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 - Classification: `CONFIGURATION_BOUNDARY`.
 - Representative diagnostic: `TS2550` for `String.replaceAll` at `src/main.tsx:2311` and `Array.at` at `src/main.tsx:5178` and four `playerSync.test.ts` locations.
 - Affected symbols: `renderScriptTemplate`, `mergeDuplicateProfiles`, and player-sync tests.
-- Root cause: root `lib` is ES2020 while source assumes ES2021/ES2022 APIs; Player's independent ESNext configuration does not establish the desktop/browser support policy.
-- Confidence: high. Pre-existing: yes. Runtime may be incorrect on a genuinely ES2020-only target.
-- Recommended correction: decide the supported Electron/browser runtime, then either raise only the library contract with evidence or replace the built-ins.
-- Risk/tests: medium; verify supported runtime behavior, root typecheck, tests, and build.
-- Autonomous correction: no until the runtime target decision is reviewed.
+- Root cause: root `lib` was ES2020 while source assumed ES2021/ES2022 APIs; repository runtime evidence proved ES2022 support.
+- Correction: `lib` is now `DOM`, `DOM.Iterable`, and `ES2022`; `target: ES2020` and all runtime source remain unchanged.
+- Result: all six assigned `TS2550` diagnostics are gone, with no new diagnostic.
+- Status: complete after human approval and full verification.
 
 ### TYPE-002 — Player snapshot contract drift
 
@@ -258,17 +258,18 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 
 ## Recommended repair order
 
-1. `TYPE-001`: decide the root runtime/library contract.
+1. Completed: `TYPE-001` aligned the renderer runtime/library contract.
 2. `TYPE-002`: canonicalize the shared Player snapshot contract.
 3. `TYPE-003` and `TYPE-004`: characterize sync and membership boundaries.
-4. `TYPE-005` and `TYPE-006`: repair pure collection helpers to remove 15 diagnostics safely.
-5. `TYPE-007`: split renderer state transitions into characterized behavior batches.
-6. `TYPE-008`, `TYPE-009`, and `TYPE-010`: repair import, persistence, and GroupMe boundaries independently.
+4. Ready: `TYPE-005` and `TYPE-006` may repair pure collection helpers in their own tasks.
+5. `TYPE-007`: split renderer state transitions into characterized behavior batches after `TYPE-005` and `TYPE-006`.
+6. `TYPE-008`, `TYPE-009`, and `TYPE-010`: repair import, persistence, and GroupMe boundaries independently when their dependencies are complete.
 7. `TYPE-011`: repair Web Crypto only with security fixtures.
-8. `TYPE-012`: repair test-only types.
+8. Ready: `TYPE-012` may repair test-only types in its own task.
 9. `TYPE-013` and `TYPE-014`: obtain human decisions on legacy/dead behavior.
+10. Future compiler-boundary work is split across `TYPE-015` through `TYPE-022` and must not be implemented as one task.
 
-The executable queue is `docs/agent/TASKS.yaml`; detailed specifications are under `docs/agent/tasks/TYPE-001.md` through `TYPE-014.md`. This is a temporary TypeScript-remediation queue, not the broader refactor plan.
+The executable queue is `docs/agent/TASKS.yaml`; detailed specifications are under `docs/agent/tasks/TYPE-001.md` through `TYPE-022.md`. This is a temporary TypeScript-remediation and compiler-boundary queue, not the broader product refactor plan.
 
 ## Verification record
 
@@ -283,22 +284,28 @@ Final individual results:
 
 `npm run verify` then ran all four gates, exited 1 after 31.3 seconds, and accurately summarized only the root TypeScript failure. Its nested Player typecheck, 17/81 tests, and 1,910-module renderer build all passed. Repository verification is therefore a documented partial failure, not a green gate.
 
-## TYPE-001 boundary investigation update — 2026-08-05
+## TYPE-001 completion update — 2026-08-05
 
-`TYPE-001` is now `review_required`; it is not complete and its downstream dependencies remain unsatisfied. No compiler or runtime file changed, so the official rebaseline stays at 94 diagnostics in 6 files.
+The human approved the narrow renderer-library correction. Root `tsconfig.json` now declares `lib: ["DOM", "DOM.Iterable", "ES2022"]` while retaining `target: ES2020`, the existing include, strictness, ambient types, module resolution, `noEmit`, and no project references.
 
-The investigation established:
+The first post-change root typecheck produced exactly 88 diagnostics in the same 6 files:
 
-- `lib: ES2020` is the sole cause of the six assigned `TS2550` diagnostics;
-- the actual supported renderer floor justifies `ES2022` libraries while retaining `target: ES2020`;
-- an explicit `types: ["vite/client"]` browser boundary prevents automatic Node-global admission without producing a new diagnostic;
-- the current root project has 26 configured files but 29 repository files in its resolved graph because two root tests cross into Player domain source and the renderer imports `branding.config.json`;
-- the root program currently loads both root and Player React declarations and Node globals;
-- Vite configuration and all active Electron JavaScript remain outside semantic checking;
-- CI does not run root TypeScript.
+- all 6 former `TS2550` diagnostics disappeared;
+- `src/main.tsx` decreased from 79 to 77 diagnostics;
+- `src/lib/playerSync.test.ts` decreased from 6 to 2 diagnostics;
+- every other error-code and path count stayed unchanged;
+- no new diagnostic appeared.
 
-A read-only narrow correction probe reduced 94 diagnostics to 88, exactly removing the six `TYPE-001` diagnostics. It was not committed because the request's implementation conditions require a more complete all-runtime check. The comprehensive boundary would add renderer, root-test, Electron check-JS, Node-tooling, and e2e projects while preserving independent Player/API ownership; probes found 16 additional JavaScript diagnostics across Electron (3), root tooling (2), e2e (2), API (7), and download-site code (2). That expansion is not one small change within the existing `TYPE-001` allowed areas.
+All remaining 88 diagnostics map to `TYPE-002` through `TYPE-014`. `TYPE-005`, `TYPE-006`, and `TYPE-012` are now ready because `TYPE-001` was their only dependency. No other downstream task became ready.
 
-See `docs/agent/TYPE-001_BOUNDARY_DECISION.md` for the complete runtime/compiler table, options, exact proposed ownership, project-reference decision, risks, and human decision required.
+Future boundary work is represented separately by `TYPE-015` through `TYPE-022`: renderer/test separation, Electron, Node/Vite tooling, API, download site, e2e, Player-root scope, and renderer Node-global restriction. Project references remain deferred.
 
-Post-documentation commands confirmed no baseline change: root typecheck retained 94 diagnostics; Player typecheck passed; all 17 files/81 tests passed; the renderer built 1,910 modules; and aggregate verification exited 1 only for the root TypeScript failure.
+Final implementation verification:
+
+- EXPECTED FAILURE: `npm run typecheck` — exactly 88 diagnostics in 6 files; TypeScript exit code 2; zero `TS2550`; no new diagnostics.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 17 files and 81 tests passed, zero failed/skipped, in 3.50 seconds; the existing Node experimental SQLite warning remained.
+- PASS: `npm run build` — 1,910 modules transformed and built in 17.57 seconds; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 88 diagnostics, while the nested Player typecheck, 17/81 tests, and 1,910-module build passed. The nested test and build durations were 3.50 and 18.78 seconds.
+
+See `docs/agent/TYPE-001_BOUNDARY_DECISION.md` for the runtime/compiler map and approved resolution.

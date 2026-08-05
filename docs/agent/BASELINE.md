@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types now reduce the truthful current baseline to 94 diagnostics in 6 files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, and the completed `TYPE-001` library correction now establishes the truthful current baseline at 88 diagnostics in 6 files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -198,7 +198,7 @@ The root runtime resolves `react` and `react-dom` to 19.2.6. Root dev dependenci
 
 The first complete post-install `npm run typecheck` run failed with exactly 94 diagnostics across 6 files. This is a net reduction of 3,536 from the prior 3,630-diagnostic baseline. All 3,598 missing React/ReactDOM cascade diagnostics were removed, while exactly 62 previously masked semantic diagnostics became visible.
 
-### Current diagnostics by code
+### Post-install rebaseline diagnostics by code
 
 | Code | Count |
 | --- | ---: |
@@ -217,7 +217,7 @@ The first complete post-install `npm run typecheck` run failed with exactly 94 d
 | `TS7017` | 1 |
 | **Total** | **94** |
 
-### Current diagnostics by path
+### Post-install rebaseline diagnostics by path
 
 | Path | Count |
 | --- | ---: |
@@ -230,7 +230,7 @@ The first complete post-install `npm run typecheck` run failed with exactly 94 d
 
 The 94 diagnostics are assigned to 14 bounded groups: 6 configuration-boundary, 6 stale/dead-contract, 79 real implementation type errors, 1 platform conflict, and 2 test-only errors. No missing-generated-type, dependency-type-mismatch, or unknown diagnostic remains. The complete classification, duplicate mapping, correction risks, block status, and ordered task specifications are in `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/tasks/TYPE-001.md` through `TYPE-014.md`.
 
-Repository verification remains a partial failure until the 94 diagnostics are repaired through those bounded tasks. No production source was changed during dependency restoration and rebaselining.
+At that rebaseline stage, repository verification remained a partial failure with 94 diagnostics assigned to those bounded tasks. No production source was changed during dependency restoration and rebaselining.
 
 ### Rebaseline completion verification
 
@@ -254,7 +254,7 @@ The compiler/runtime map is more complex than the earlier 26-file root `include`
 
 Locked runtime/build evidence supports an ES2022 renderer library contract without changing the ES2020 TypeScript target: Electron 42.1.0 maps to Chromium 148.0.7778.97, while Vite 7.3.5's installed default target is Chrome 107, Edge 107, Firefox 104, and Safari 16. A read-only compiler probe using `DOM`, `DOM.Iterable`, `ES2022`, and explicit `vite/client` globals produced exactly 88 diagnostics. It removed all six `TYPE-001` `TS2550` diagnostics and exposed no new diagnostic.
 
-No compiler change was applied. A narrow change is safe but does not satisfy the investigation's requirement that every production runtime be covered by an appropriate project and that the command become more complete. A comprehensive renderer/Electron/test/tooling boundary exceeds the current task specification and read-only probes expose 16 additional JavaScript diagnostics across Electron, tooling, e2e, API, and the download site. `TYPE-001` is therefore `review_required`, and the official baseline remains 94 diagnostics.
+No compiler change was applied during the investigation. At that point a comprehensive renderer/Electron/test/tooling boundary exceeded the task specification and read-only probes exposed 16 additional JavaScript diagnostics across Electron, tooling, e2e, API, and the download site. `TYPE-001` was therefore marked `review_required` pending a human scope decision.
 
 Full evidence, options, recommended ownership, and the required human scope decision are in `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 
@@ -265,3 +265,25 @@ Final post-documentation verification retained the same partial-failure state:
 - PASS: `npm test` — 17 files and 81 tests in 3.78 seconds; the existing SQLite warning remained.
 - PASS: `npm run build` — 1,910 modules in 18.61 seconds; the existing ExcelJS and chunk-size warnings remained.
 - PARTIAL FAILURE: `npm run verify` — exit 1 after all four gates; only root TypeScript failed.
+
+## TYPE-001 Narrow Implementation — 2026-08-05
+
+The human approved only the renderer library correction. Root `tsconfig.json` now retains `target: ES2020` and the existing DOM libraries while changing the standard library declaration from ES2020 to ES2022. No source, runtime, emitted-JavaScript target, ambient types, include/exclude rule, strictness option, JavaScript checking, package dependency, or project reference changed.
+
+The first committed-configuration typecheck result is exactly 88 diagnostics in the same 6 files:
+
+- all 6 `TYPE-001` `TS2550` diagnostics are removed;
+- no new diagnostic appeared;
+- `src/main.tsx` changed from 79 to 77 diagnostics;
+- `src/lib/playerSync.test.ts` changed from 6 to 2 diagnostics;
+- all other path and code counts are unchanged.
+
+The 88 remaining diagnostics map exactly to `TYPE-002` through `TYPE-014`. `TYPE-005`, `TYPE-006`, and `TYPE-012` are newly ready because `TYPE-001` was their only dependency. `TYPE-015` through `TYPE-022` separately record approved future compiler-boundary work; none was implemented, and project references remain deferred.
+
+Final implementation verification:
+
+- EXPECTED FAILURE: `npm run typecheck` — exactly 88 diagnostics in 6 files, zero `TS2550`, no new diagnostics, TypeScript exit code 2.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 17 files and 81 tests passed, zero failed/skipped, in 3.50 seconds; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,910 modules transformed and built in 17.57 seconds; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` — exit 1 after all four gates; root TypeScript alone failed with 88 diagnostics, while Player TypeScript, 17/81 tests, and the 1,910-module renderer build passed. The nested test and build durations were 3.50 and 18.78 seconds.
