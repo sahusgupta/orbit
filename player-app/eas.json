@@ -9,14 +9,18 @@
       "distribution": "internal",
       "env": {
         "APP_ENV": "development",
-        "EXPO_PUBLIC_ORBIT_API_URL": "https://orbitapp-one.vercel.app"
+        "EXPO_PUBLIC_ORBIT_API_URL": "https://orbitapp-one.vercel.app",
+        "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://orbitapp-one.vercel.app/privacy",
+        "EXPO_PUBLIC_TERMS_OF_SERVICE_URL": "https://orbitapp-one.vercel.app/terms"
       }
     },
     "preview": {
       "distribution": "internal",
       "env": {
         "APP_ENV": "preview",
-        "EXPO_PUBLIC_ORBIT_API_URL": "https://orbitapp-one.vercel.app"
+        "EXPO_PUBLIC_ORBIT_API_URL": "https://orbitapp-one.vercel.app",
+        "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://orbitapp-one.vercel.app/privacy",
+        "EXPO_PUBLIC_TERMS_OF_SERVICE_URL": "https://orbitapp-one.vercel.app/terms"
       }
     },
     "production": {
@@ -28,7 +32,8 @@
       "env": {
         "APP_ENV": "production",
         "EXPO_PUBLIC_ORBIT_API_URL": "https://orbitapp-one.vercel.app",
-        "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://orbitapp-one.vercel.app/privacy"
+        "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://orbitapp-one.vercel.app/privacy",
+        "EXPO_PUBLIC_TERMS_OF_SERVICE_URL": "https://orbitapp-one.vercel.app/terms"
       }
     }
   },

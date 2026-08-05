@@ -13,6 +13,7 @@ import {
   Download,
   Edit3,
   Eye,
+  FileText,
   KeyRound,
   LayoutDashboard,
   LockKeyhole,
@@ -2540,7 +2541,7 @@ function App() {
   const qrVideoRef = useRef<HTMLVideoElement | null>(null);
   const qrScannerControlsRef = useRef<IScannerControls | null>(null);
   const [playerSection, setPlayerSection] = useState<'memberships' | 'requests' | 'today'>('memberships');
-  const [settingsSection, setSettingsSection] = useState<'club' | 'staff' | 'tables' | 'data' | 'display'>('club');
+  const [settingsSection, setSettingsSection] = useState<'club' | 'staff' | 'tables' | 'data' | 'display' | 'legal'>('club');
   const [reportMode, setReportMode] = useState<'kpis' | 'night' | 'close'>('kpis');
   const [nightCloseActuals, setNightCloseActuals] = useState<Record<string, string>>({});
   const [nightCloseNotes, setNightCloseNotes] = useState('');
@@ -6960,7 +6961,7 @@ function App() {
         <header className="topbar">
           <div>
             <h1>Settings</h1>
-            <p className="page-subtitle">Club, staff, tables, data, and display</p>
+            <p className="page-subtitle">Club, staff, tables, data, display, and legal information</p>
           </div>
           <button className="ghost-button" onClick={closeRoute}>
             <X size={18} />
@@ -6969,7 +6970,7 @@ function App() {
         </header>
 
         <nav className="settings-nav" aria-label="Settings sections">
-          <button className={settingsSection === 'club' ? 'active' : ''} onClick={() => setSettingsSection('club')}>Club & license</button><button className={settingsSection === 'staff' ? 'active' : ''} onClick={() => setSettingsSection('staff')}>Staff</button><button className={settingsSection === 'tables' ? 'active' : ''} onClick={() => setSettingsSection('tables')}>Tables & fees</button><button className={settingsSection === 'data' ? 'active' : ''} onClick={() => setSettingsSection('data')}>Data</button><button className={settingsSection === 'display' ? 'active' : ''} onClick={() => setSettingsSection('display')}>Display</button>
+          <button className={settingsSection === 'club' ? 'active' : ''} onClick={() => setSettingsSection('club')}>Club & license</button><button className={settingsSection === 'staff' ? 'active' : ''} onClick={() => setSettingsSection('staff')}>Staff</button><button className={settingsSection === 'tables' ? 'active' : ''} onClick={() => setSettingsSection('tables')}>Tables & fees</button><button className={settingsSection === 'data' ? 'active' : ''} onClick={() => setSettingsSection('data')}>Data</button><button className={settingsSection === 'display' ? 'active' : ''} onClick={() => setSettingsSection('display')}>Display</button><button className={settingsSection === 'legal' ? 'active' : ''} onClick={() => setSettingsSection('legal')}>Legal & support</button>
         </nav>
         <section className="customization-layout">
           <section className="panel settings-panel account-management-panel" id="settings-club">
@@ -7344,6 +7345,24 @@ function App() {
               </article>
             </div>
           </section>
+
+          <section className="panel settings-panel" id="settings-legal">
+            <PanelTitle icon={<FileText />} title="Legal & Support" />
+            <div className="preference-list">
+              <article className="preference-row">
+                <div><strong>Privacy Policy</strong><span>Read how Orbit collects, uses, discloses, and retains personal data.</span></div>
+                <a className="secondary-button" href="https://orbitapp-one.vercel.app/privacy" target="_blank" rel="noreferrer">Read policy</a>
+              </article>
+              <article className="preference-row">
+                <div><strong>Terms of Service</strong><span>Read the terms that govern Orbit websites, software, apps, events, APIs, and related services.</span></div>
+                <a className="secondary-button" href="https://orbitapp-one.vercel.app/terms" target="_blank" rel="noreferrer">Read terms</a>
+              </article>
+              <article className="preference-row">
+                <div><strong>Support</strong><span>Contact Orbit for account, installation, or operating assistance.</span></div>
+                <a className="secondary-button" href="https://orbitapp-one.vercel.app/support" target="_blank" rel="noreferrer">Open support</a>
+              </article>
+            </div>
+          </section>
         </section>
       </main>
     ));
@@ -7386,7 +7405,7 @@ function App() {
         </header>
 
         <nav className="route-tabs" aria-label="Games sections">
-          <button className="active">Tonight</button>
+          <span className="active" aria-current="page">Tonight</span>
           <button onClick={() => openRoute('signals')}>Outreach</button>
           <button onClick={() => openRoute('customization')}>Configuration</button>
         </nav>
@@ -7622,7 +7641,7 @@ function App() {
                 </div>
               ) : (
                 <div className="player-popup-ledger">
-                  {state.playerLedger.length ? state.playerLedger.slice(0, 40).map((entry) => <article key={entry.id}><div><strong>{entry.playerName}</strong><span>{entry.type}{entry.note ? ` · ${entry.note}` : ''}</span></div><div><strong>{entry.amount ? `$${entry.amount.toLocaleString()}` : '—'}</strong><time>{formatClock(entry.timestamp)}</time></div></article>) : <div className="player-popup-empty"><strong>No ledger activity</strong><span>Check-ins and transactions will appear here.</span></div>}
+                  {state.playerLedger.length ? state.playerLedger.slice(0, 40).map((entry) => <article key={entry.id}><div><strong>{entry.playerName}</strong><span>{entry.type}{entry.note ? ` · ${entry.note}` : ''}</span></div><div><strong>{entry.amount ? `$${entry.amount.toLocaleString()}` : 'Not recorded'}</strong><time>{formatClock(entry.timestamp)}</time></div></article>) : <div className="player-popup-empty"><strong>No ledger activity</strong><span>Check-ins and transactions will appear here.</span></div>}
                 </div>
               )}
             </Dialog.Content>
@@ -8032,7 +8051,7 @@ function App() {
             </section>
 
             <section className="panel pending-membership-panel approved-membership-panel">
-              <PanelTitle icon={<BadgeCheck />} title={`Approved — awaiting arrival (${approvedMembershipProfiles.length})`} />
+              <PanelTitle icon={<BadgeCheck />} title={`Approved, awaiting arrival (${approvedMembershipProfiles.length})`} />
               <p className="muted-copy">Verify the player’s ID and payment at the front desk before activation.</p>
               <div className="pending-membership-list">
                 {approvedMembershipProfiles.map((profile) => (
@@ -8128,7 +8147,7 @@ function App() {
 
         <nav className="route-tabs" aria-label="Games sections">
           <button onClick={() => openRoute('builder')}>Tonight</button>
-          <button className="active">Outreach</button>
+          <span className="active" aria-current="page">Outreach</span>
           <button onClick={() => openRoute('customization')}>Configuration</button>
         </nav>
 
@@ -8417,7 +8436,7 @@ function App() {
                 <strong>−${table.drop.toLocaleString(undefined, { maximumFractionDigits: 2 })} / +${table.timeFees.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
                 <strong>${table.expectedCash.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
                 <label><span>Actual cash</span><input type="number" min="0" step=".01" disabled={Boolean(currentNightClose && currentNightClose.status !== 'Draft')} value={effectiveNightCloseActuals[table.tableId] ?? ''} onChange={(event) => setNightCloseActuals((actuals) => ({ ...actuals, [table.tableId]: event.target.value }))} placeholder="$0.00" /></label>
-                <strong className={(table.discrepancy ?? 0) === 0 ? 'balanced' : 'unbalanced'}>{table.discrepancy === undefined ? '—' : `${table.discrepancy >= 0 ? '+' : '-'}$${Math.abs(table.discrepancy).toFixed(2)}`}</strong>
+                <strong className={(table.discrepancy ?? 0) === 0 ? 'balanced' : 'unbalanced'}>{table.discrepancy === undefined ? 'Not recorded' : `${table.discrepancy >= 0 ? '+' : '-'}$${Math.abs(table.discrepancy).toFixed(2)}`}</strong>
                 {table.warnings.length ? <div className="night-close-row-warnings">{table.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div> : <div className="night-close-row-clear">Reconciled inputs complete</div>}
               </article>)}
               {!nightCloseTables.length ? <div className="night-close-empty"><strong>No current-shift tables</strong><span>Open or operate a table before starting night close.</span></div> : null}
@@ -9225,7 +9244,7 @@ function App() {
                         openTables.length ? (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <button className="secondary-button waitlist-seat-button">Seat at table</button>
+                              <button className="secondary-button waitlist-seat-button" type="button">Seat at table</button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="waitlist-action-menu">
                               {openTables.map((session) => (
@@ -9860,7 +9879,7 @@ function App() {
                     const forming = state.sessions.some((session) => session.gameId === game.id && session.status === 'Forming');
                     return (
                       <option key={game.id} value={game.id}>
-                        {game.name}{forming ? ' — forming' : ''}{demand.inRoom ? ` — ${demand.inRoom} in room` : ''}
+                        {game.name}{forming ? ', forming' : ''}{demand.inRoom ? `, ${demand.inRoom} in room` : ''}
                       </option>
                     );
                   })}

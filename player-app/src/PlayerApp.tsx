@@ -101,11 +101,6 @@ type GameOpportunity = {
   distanceMiles: number;
   isJoined: boolean;
   isPreferred: boolean;
-  score: number;
-  seatScore: number;
-  socialScore: number;
-  profileScore: number;
-  waitScore: number;
 };
 
 type PrivateGameDraft = {
@@ -192,7 +187,8 @@ const accountSignInReadyStatus = 'Use your email address or phone number to sync
 const defaultPremiumMonthlyPriceLabel = '$12.99/month';
 const supportPhone = '346-434-1402';
 const supportPhoneUrl = 'tel:+13464341402';
-const privacyPolicyUrl = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || '';
+const privacyPolicyUrl = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || 'https://orbitapp-one.vercel.app/privacy';
+const termsOfServiceUrl = process.env.EXPO_PUBLIC_TERMS_OF_SERVICE_URL || 'https://orbitapp-one.vercel.app/terms';
 const playerPremiumEnabled = process.env.EXPO_PUBLIC_ENABLE_PLAYER_PREMIUM === 'true';
 const cardHouseCheckoutEnabled = process.env.EXPO_PUBLIC_ENABLE_CARD_HOUSE_CHECKOUT === 'true';
 
@@ -605,22 +601,12 @@ export default function PlayerApp() {
           .filter((game) => matchesGameTypeFilter(club, game, gameTypeFilter))
           .map((game) => {
             const isPreferred = player.preferredGameIds.includes(game.id);
-            const seatScore = game.availableSeats * 16 + game.formingCount * 7;
-            const socialScore = game.knownPlayersCount * 9 + (club.social?.knownPlayersInHouse ?? 0) * 3;
-            const profileScore = (isJoined ? 42 : 0) + (isPreferred ? 28 : 0);
-            const favoriteScore = favoriteClubIds.includes(club.club.id) ? 18 : 0;
-            const waitScore = Math.max(0, 18 - game.waitlistCount * 3);
             return {
               club,
               game,
               distanceMiles,
               isJoined,
-              isPreferred,
-              seatScore,
-              socialScore,
-              profileScore,
-              waitScore,
-              score: seatScore + socialScore + profileScore + favoriteScore + waitScore - distanceMiles * 2
+              isPreferred
             };
           });
       })
@@ -631,8 +617,13 @@ export default function PlayerApp() {
         const leftFavorite = favoriteClubIds.includes(left.club.club.id);
         const rightFavorite = favoriteClubIds.includes(right.club.club.id);
         if (leftFavorite !== rightFavorite) return leftFavorite ? -1 : 1;
-        if (fitScoreFilterEnabled) return right.score - left.score || left.distanceMiles - right.distanceMiles;
-        return right.score - left.score || left.distanceMiles - right.distanceMiles;
+        if (fitScoreFilterEnabled) {
+          if (left.isPreferred !== right.isPreferred) return left.isPreferred ? -1 : 1;
+          if (left.isJoined !== right.isJoined) return left.isJoined ? -1 : 1;
+          if (left.game.availableSeats !== right.game.availableSeats) return right.game.availableSeats - left.game.availableSeats;
+          if (left.game.waitlistCount !== right.game.waitlistCount) return left.game.waitlistCount - right.game.waitlistCount;
+        }
+        return left.distanceMiles - right.distanceMiles;
       });
   }, [activePlayerGameKeys, distanceFilter, favoriteClubIds, findGameClubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, joinedClubIds, player.homeLocation, player.preferredGameIds, playerHomeCoordinate, selectedCasinoFilter, selectedFilterClubId, stakesFilter]);
 
@@ -1734,9 +1725,8 @@ export default function PlayerApp() {
                 />
                 <View style={styles.simpleMenu}>
                   <SimpleMenuRow icon="call-outline" title="Support" subtitle={supportPhone} onPress={() => Linking.openURL(supportPhoneUrl)} />
-                  {privacyPolicyUrl ? (
-                    <SimpleMenuRow icon="shield-checkmark-outline" title="Privacy policy" subtitle="Legal" onPress={() => Linking.openURL(privacyPolicyUrl)} />
-                  ) : null}
+                  <SimpleMenuRow icon="shield-checkmark-outline" title="Privacy Policy" subtitle="Legal" onPress={() => Linking.openURL(privacyPolicyUrl)} />
+                  <SimpleMenuRow icon="document-text-outline" title="Terms of Service" subtitle="Legal" onPress={() => Linking.openURL(termsOfServiceUrl)} />
                 </View>
                 {firebaseIdentity ? (
                   <>
@@ -2163,7 +2153,7 @@ function OnboardingFlow({
         <OnboardingProgress activeStep={onboardingStep} totalSteps={totalSteps} />
       </View>
 
-      <Text style={styles.onboardingTitle}>Find Your Game</Text>
+      <Text style={styles.onboardingTitle}>Find live games and join the right room</Text>
 
       <AnimatedStepCard stepKey={onboardingStep} opacity={stepOpacity}>
         {onboardingStep === 0 ? <NameStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={canSubmit ? submitStep : undefined} /> : null}
@@ -2201,39 +2191,8 @@ function OnboardingFlow({
 }
 
 function AnimatedGradientBackground() {
-  const drift = useRef(new Animated.Value(0)).current;
-  const breathe = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.timing(drift, {
-        toValue: 1,
-        duration: 9000,
-        easing: Easing.inOut(Easing.sin),
-        useNativeDriver: false
-      })
-    ).start();
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(breathe, {
-          toValue: 1,
-          duration: 4200,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: false
-        }),
-        Animated.timing(breathe, {
-          toValue: 0,
-          duration: 4200,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: false
-        })
-      ])
-    ).start();
-  }, [breathe, drift]);
-
   return (
     <View style={styles.animatedGradientRoot}>
-      <LinearGradient colors={['#0B1020', '#1E3A8A', '#4D7CFE', '#F9FAFB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.appBackdrop} />
       <View style={styles.orbitPattern} pointerEvents="none">
         <View style={styles.orbitHalo}>
           <View style={styles.orbitRing} />
@@ -2243,27 +2202,6 @@ function AnimatedGradientBackground() {
           <View style={[styles.orbitNode, styles.orbitNodeFour]} />
         </View>
       </View>
-      <Animated.View
-        style={[
-          styles.gradientDriftLayer,
-          {
-            opacity: breathe.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.82] }),
-            transform: [
-              {
-                translateX: drift.interpolate({ inputRange: [0, 1], outputRange: [-130, 130] })
-              },
-              {
-                translateY: drift.interpolate({ inputRange: [0, 1], outputRange: [90, -90] })
-              },
-              {
-                scale: breathe.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] })
-              }
-            ]
-          }
-        ]}
-      >
-        <LinearGradient colors={['rgba(249,250,251,0)', 'rgba(249,250,251,0.46)', 'rgba(139,92,246,0.34)']} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }} style={styles.appBackdrop} />
-      </Animated.View>
       <View style={styles.gradientShade} />
     </View>
   );
@@ -2928,7 +2866,7 @@ function GameFilterPanel({
         onPress={() => setFitScoreEnabled(!fitScoreEnabled)}
       >
         <Ionicons name="analytics-outline" size={16} color={fitScoreEnabled ? colors.teal : colors.muted} />
-        <Text style={styles.lockedFilterText}>Sort by compatibility</Text>
+        <Text style={styles.lockedFilterText}>Sort by my preferences</Text>
       </Pressable>
     </View>
   );
@@ -3108,14 +3046,15 @@ function PremiumPaywall({
         Payment is charged to your Apple Account. The subscription renews monthly unless canceled at least 24 hours before the current period ends. Manage or cancel it in your Apple subscription settings.
       </Text>
       <View style={styles.contextRow}>
-        <Pressable onPress={() => Linking.openURL('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')}>
-          <Text style={styles.inlineBackText}>Terms of Use</Text>
+        <Pressable onPress={() => Linking.openURL(termsOfServiceUrl)}>
+          <Text style={styles.inlineBackText}>Orbit Terms</Text>
         </Pressable>
-        {privacyPolicyUrl ? (
-          <Pressable onPress={() => Linking.openURL(privacyPolicyUrl)}>
-            <Text style={styles.inlineBackText}>Privacy Policy</Text>
-          </Pressable>
-        ) : null}
+        <Pressable onPress={() => Linking.openURL(privacyPolicyUrl)}>
+          <Text style={styles.inlineBackText}>Privacy Policy</Text>
+        </Pressable>
+        <Pressable onPress={() => Linking.openURL('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')}>
+          <Text style={styles.inlineBackText}>Apple EULA</Text>
+        </Pressable>
       </View>
       {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
     </AnimatedSurface>
@@ -3282,7 +3221,7 @@ function DiscoveryDeck({
         <View style={styles.discoveryEmptyIcon}>
           <Ionicons name="checkmark-done-outline" size={30} color={colors.teal} />
         </View>
-        <Text style={styles.discoveryEmptyTitle}>You’ve seen every match</Text>
+        <Text style={styles.discoveryEmptyTitle}>You’ve reviewed every available game</Text>
         <Text style={styles.muted}>{savedCount ? `${savedCount} saved game${savedCount === 1 ? '' : 's'} are waiting below.` : 'Refresh the deck or loosen your filters to see more games.'}</Text>
         <Pressable accessibilityLabel="Refresh discovery deck" onPress={onReset} style={styles.discoveryResetButton}>
           <Ionicons name="refresh-outline" size={17} color="#ffffff" />
@@ -3341,7 +3280,6 @@ function DiscoveryCardContent({
   onPass?: () => void;
   onPick?: () => void;
 }) {
-  const compatibility = getCompatibilityPercent(item);
   const status = getGameStatusLabel(item.game);
   const venueKind = getVenueKind(item.club);
   const fee = getClubFeeProfile(item.club, item.game);
@@ -3350,9 +3288,6 @@ function DiscoveryCardContent({
     <>
       <AnimatedDiscoveryCardBackground accent={accent} />
       <View style={[styles.discoveryCardHero, compact && styles.discoveryCardHeroCompact]}>
-        <Text pointerEvents="none" style={[styles.discoverySuit, styles.discoverySuitLarge, { color: accent.color }]}>♠</Text>
-        <Text pointerEvents="none" style={[styles.discoverySuit, styles.discoverySuitLeft]}>♣</Text>
-        <Text pointerEvents="none" style={[styles.discoverySuit, styles.discoverySuitSmall]}>♦</Text>
         <View pointerEvents="none" style={[styles.discoveryAccentGlow, { backgroundColor: accent.color }]} />
         <View style={styles.discoveryCardHeroTop}>
           <View style={styles.venueTypeBadge}>
@@ -3360,8 +3295,8 @@ function DiscoveryCardContent({
             <Text style={styles.venueTypeText}>{venueKind}</Text>
           </View>
           <View style={[styles.compatibilityBadge, { borderColor: `${accent.color}55` }]}>
-            <Text style={[styles.compatibilityValue, { color: accent.color }]}>{compatibility}%</Text>
-            <Text style={styles.compatibilityLabel}>MATCH</Text>
+            <Text style={[styles.compatibilityValue, { color: accent.color }]}>{getOpportunityLabel(item)}</Text>
+            <Text style={styles.compatibilityLabel}>WHY SHOWN</Text>
           </View>
         </View>
         <View style={styles.discoveryHeroBottom}>
@@ -3378,9 +3313,9 @@ function DiscoveryCardContent({
         <View style={styles.discoveryCardBody}>
           <View style={styles.discoveryMetrics}>
             {[
-              { label: 'Seats', value: item.game.availableSeats || '—' },
-              { label: 'Playing', value: item.game.knownPlayersCount || '—' },
-              { label: 'Waitlist', value: item.game.waitlistCount || '—' }
+              { label: 'Seats', value: item.game.availableSeats || 'Not listed' },
+              { label: 'Playing', value: item.game.knownPlayersCount || 'Not listed' },
+              { label: 'Waitlist', value: item.game.waitlistCount || 'Not listed' }
             ].map((metric) => (
               <View key={metric.label} style={styles.discoveryMetric}>
                 <Text style={styles.discoveryMetricValue}>{metric.value}</Text>
@@ -3412,44 +3347,22 @@ function DiscoveryCardContent({
 }
 
 function AnimatedDiscoveryCardBackground({ accent }: { accent: DiscoveryAccent }) {
-  const motion = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(motion, { toValue: 1, duration: 5200, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
-        Animated.timing(motion, { toValue: 0, duration: 5200, easing: Easing.inOut(Easing.sin), useNativeDriver: false })
-      ])
-    ).start();
-  }, [motion]);
   return (
-    <View pointerEvents="none" style={styles.discoveryAnimatedBackground}>
-      <LinearGradient colors={accent.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.appBackdrop} />
-      <Animated.View style={[styles.discoveryGradientDrift, {
-        opacity: motion.interpolate({ inputRange: [0, 1], outputRange: [0.28, 0.78] }),
-        transform: [
-          { translateX: motion.interpolate({ inputRange: [0, 1], outputRange: [-90, 80] }) },
-          { translateY: motion.interpolate({ inputRange: [0, 1], outputRange: [80, -70] }) },
-          { scale: motion.interpolate({ inputRange: [0, 1], outputRange: [1, 1.28] }) }
-        ]
-      }]}>
-        <LinearGradient colors={['transparent', `${accent.color}bb`, accent.secondary]} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={styles.appBackdrop} />
-      </Animated.View>
-      <LinearGradient colors={['transparent', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.72)']} locations={[0, 0.52, 1]} style={styles.appBackdrop} />
-    </View>
+    <View pointerEvents="none" style={[styles.discoveryAnimatedBackground, { backgroundColor: accent.background }]} />
   );
 }
 
-type DiscoveryAccent = { color: string; secondary: string; gradient: [string, string, string] };
+type DiscoveryAccent = { color: string; background: string };
 
 function getDiscoveryAccent(item: GameOpportunity): DiscoveryAccent {
   const seed = `${item.game.name} ${item.club.club.name}`.toLowerCase();
   if (seed.includes('plo') || seed.includes('omaha')) {
-    return { color: '#9B7BFF', secondary: 'rgba(55,22,110,0.82)', gradient: ['#0c071d', '#28135e', '#120833'] };
+    return { color: '#2DD4BF', background: '#0B2F32' };
   }
   if (item.game.availableSeats > 3) {
-    return { color: '#25D99A', secondary: 'rgba(10,92,62,0.84)', gradient: ['#03130d', '#0b4430', '#061d17'] };
+    return { color: '#25D99A', background: '#0B3528' };
   }
-  return { color: '#5B86FF', secondary: 'rgba(24,63,145,0.88)', gradient: ['#050d1c', '#102c65', '#091738'] };
+  return { color: '#5B86FF', background: '#102C65' };
 }
 
 function SavedGamesStrip({ opportunities, onOpen }: { opportunities: GameOpportunity[]; onOpen: (item: GameOpportunity) => void }) {
@@ -3459,14 +3372,14 @@ function SavedGamesStrip({ opportunities, onOpen }: { opportunities: GameOpportu
       <Pressable onPress={() => setExpanded((current) => !current)} style={styles.savedGamesHeader}>
         <View>
           <Text style={styles.sectionTitle}>Saved games</Text>
-          <Text style={styles.muted}>{opportunities.length} match{opportunities.length === 1 ? '' : 'es'}</Text>
+          <Text style={styles.muted}>{opportunities.length} saved</Text>
         </View>
         <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={19} color={colors.muted} />
       </Pressable>
       {expanded ? opportunities.map((item) => (
         <Pressable key={getOpportunityKey(item)} onPress={() => onOpen(item)} style={styles.savedGameRow}>
           <View style={styles.savedGameScore}>
-            <Text style={styles.savedGameScoreValue}>{getCompatibilityPercent(item)}%</Text>
+            <Text style={styles.savedGameScoreValue}>{item.game.availableSeats ? `${item.game.availableSeats} open` : 'Saved'}</Text>
           </View>
           <View style={styles.savedGameCopy}>
             <Text style={styles.cardTitle}>{item.game.name} · {item.club.club.name}</Text>
@@ -3522,8 +3435,8 @@ function GameDetailsScreen({
             <Text style={styles.venueTypeText}>{venueKind}</Text>
           </View>
           <View style={styles.gameDetailsScore}>
-            <Text style={styles.gameDetailsScoreValue}>{getCompatibilityPercent(item)}%</Text>
-            <Text style={styles.compatibilityLabel}>MATCH</Text>
+            <Text style={styles.gameDetailsScoreValue}>{getOpportunityLabel(item)}</Text>
+            <Text style={styles.compatibilityLabel}>WHY SHOWN</Text>
           </View>
         </View>
         <View style={styles.gameDetailsHeroCopy}>
@@ -3630,8 +3543,8 @@ function DiscoveryDetailsModal({
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.discoveryDetailsContent}>
             <View style={styles.discoveryDetailsHeader}>
               <View style={styles.discoveryDetailsScore}>
-                <Text style={styles.discoveryDetailsScoreValue}>{getCompatibilityPercent(item)}%</Text>
-                <Text style={styles.compatibilityLabel}>MATCH</Text>
+                <Text style={styles.discoveryDetailsScoreValue}>{getOpportunityLabel(item)}</Text>
+                <Text style={styles.compatibilityLabel}>WHY SHOWN</Text>
               </View>
               <View style={styles.discoveryDetailsTitleBlock}>
                 <Text style={styles.agentKicker}>{getVenueKind(item.club)} · {getGameStatusLabel(item.game)}</Text>
@@ -3654,17 +3567,17 @@ function DiscoveryDetailsModal({
             <View style={styles.detailsDisclosureGroup}>
               <Pressable onPress={() => setExpandedSection((current) => current === 'fit' ? null : 'fit')} style={styles.detailsDisclosureRow}>
                 <View style={styles.detailsDisclosureLabel}>
-                  <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
-                  <Text style={styles.cardTitle}>Why it fits</Text>
+                  <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
+                  <Text style={styles.cardTitle}>Why this appears</Text>
                 </View>
                 <Ionicons name={expandedSection === 'fit' ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} />
               </Pressable>
               {expandedSection === 'fit' ? (
                 <View style={styles.fitBreakdown}>
-                  <FitBreakdownRow label="Preferences" value={item.isPreferred ? 96 : 78} />
-                  <FitBreakdownRow label="Availability" value={Math.min(98, 62 + item.game.availableSeats * 6)} />
-                  <FitBreakdownRow label="Social" value={Math.min(96, 64 + item.game.knownPlayersCount * 8)} />
-                  <FitBreakdownRow label="Distance" value={Math.max(28, Math.round(98 - item.distanceMiles * 1.4))} />
+                  <DetailRow icon="heart-outline" label="Preferences" value={item.isPreferred ? 'Saved game preference' : 'Available room listing'} />
+                  <DetailRow icon="people-outline" label="Availability" value={item.game.availableSeats ? `${item.game.availableSeats} seats open` : `${item.game.waitlistCount} waiting`} />
+                  <DetailRow icon="person-outline" label="Familiar players" value={`${item.game.knownPlayersCount || 0} listed`} />
+                  <DetailRow icon="navigate-outline" label="Distance" value={`${item.distanceMiles.toFixed(1)} mi away`} />
                 </View>
               ) : null}
               <Pressable onPress={() => setExpandedSection((current) => current === 'details' ? null : 'details')} style={styles.detailsDisclosureRow}>
@@ -3719,20 +3632,6 @@ function DiscoveryDetailsModal({
         </View>
       </View>
     </Modal>
-  );
-}
-
-function FitBreakdownRow({ label, value }: { label: string; value: number }) {
-  return (
-    <View style={styles.fitBreakdownRow}>
-      <View style={styles.fitBreakdownLabelRow}>
-        <Text style={styles.fitBreakdownLabel}>{label}</Text>
-        <Text style={styles.fitBreakdownValue}>{value}%</Text>
-      </View>
-      <View style={styles.fitBreakdownTrack}>
-        <View style={[styles.fitBreakdownFill, { width: `${value}%` as DimensionValue }]} />
-      </View>
-    </View>
   );
 }
 
@@ -3863,7 +3762,6 @@ function OpportunityCard({
       : item.game.formingCount
         ? 'Forming'
         : 'Waitlist';
-  const recommendationLabel = item.score >= 80 ? 'Best play' : item.score >= 55 ? 'Strong option' : item.score >= 30 ? 'Watchlist' : 'Low edge';
   const feeProfile = getClubFeeProfile(item.club, item.game);
   const accessProfileText = getAccessProfileText(item.club, item.game);
   const waitlistAheadText = waitlistEntry ? getWaitlistAheadText(waitlistEntry) : '';
@@ -3916,30 +3814,30 @@ function OpportunityCard({
         <>
           <View style={styles.recommendationBand}>
             <View style={styles.recommendationBadge}>
-              <Ionicons name="analytics-outline" size={14} color={colors.teal} />
-              <Text style={styles.recommendationBadgeText}>Grinder ranking: {recommendationLabel}</Text>
+              <Ionicons name="information-circle-outline" size={14} color={colors.teal} />
+              <Text style={styles.recommendationBadgeText}>Why this game appears</Text>
             </View>
             <Text style={styles.recommendationText}>{getRecommendationReason(item)}</Text>
           </View>
           <View style={styles.valueRow}>
             <View style={styles.valuePill}>
-              <Ionicons name="speedometer-outline" size={13} color={colors.primaryDark} />
-              <Text style={styles.valuePillText}>{Math.round(item.score)} score</Text>
-            </View>
-            <View style={styles.valuePill}>
-              <Ionicons name="person-add-outline" size={13} color={colors.primaryDark} />
-              <Text style={styles.valuePillText}>{item.seatScore} table fit</Text>
+              <Ionicons name="people-outline" size={13} color={colors.primaryDark} />
+              <Text style={styles.valuePillText}>{item.game.availableSeats ? `${item.game.availableSeats} open seats` : `${item.game.waitlistCount} waiting`}</Text>
             </View>
             <View style={styles.valuePill}>
               <Ionicons name="heart-outline" size={13} color={colors.primaryDark} />
-              <Text style={styles.valuePillText}>{item.profileScore} profile</Text>
+              <Text style={styles.valuePillText}>{item.isPreferred ? 'Preferred game' : 'Room listing'}</Text>
+            </View>
+            <View style={styles.valuePill}>
+              <Ionicons name="navigate-outline" size={13} color={colors.primaryDark} />
+              <Text style={styles.valuePillText}>{item.distanceMiles.toFixed(1)} mi away</Text>
             </View>
           </View>
         </>
       ) : (
         <View style={styles.lockedRecommendationBand}>
           <Ionicons name="lock-closed-outline" size={15} color={colors.muted} />
-          <Text style={styles.lockedRecommendationText}>Premium unlocks grinder ranking and table fit analysis.</Text>
+          <Text style={styles.lockedRecommendationText}>Premium explains why each game appears and can sort by saved preferences.</Text>
         </View>
       )}
       <View style={styles.gameActionRow}>
@@ -4439,7 +4337,7 @@ function MembershipWalletCard({
   const credential = getMembershipDisplayId(club.club.id, membershipPlayerId);
   const qrValue = createMembershipQrValue(club.club.id, membershipPlayerId);
   return (
-    <LinearGradient colors={['#111827', '#172554', '#4338ca']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.membershipWalletCard}>
+    <LinearGradient colors={['#111827', '#12384A', '#155E75']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.membershipWalletCard}>
       <View style={styles.membershipWalletTop}>
         <View style={styles.membershipWalletBrand}>
           <View style={styles.membershipWalletMonogram}>
@@ -4690,7 +4588,7 @@ function ClubMembershipPanel({
               ? 'Visit the front desk to activate'
             : active
               ? formatPassCountdown(membership.expiresAt, nowMs)
-              : 'Pass expired — buy a new pass'}</Text>
+              : 'Pass expired, buy a new pass'}</Text>
           <Text style={styles.muted}>{requested
             ? 'The card room will approve or follow up on your application.'
             : approved
@@ -4898,14 +4796,12 @@ function getIdentityStatusLabel(status: PlayerIdentityStatus, signedIn: boolean)
   return 'Not verified';
 }
 
-function getCompatibilityPercent(item: GameOpportunity) {
-  const preference = item.isPreferred ? 22 : 10;
-  const access = item.isJoined ? 8 : 3;
-  const seats = Math.min(18, item.game.availableSeats * 4 + item.game.formingCount * 2);
-  const social = Math.min(14, item.game.knownPlayersCount * 5 + (item.club.social?.knownPlayersInHouse ?? 0) * 2);
-  const distance = Math.max(0, 18 - Math.round(item.distanceMiles / 3));
-  const wait = Math.max(2, 12 - item.game.waitlistCount);
-  return Math.max(54, Math.min(98, 30 + preference + access + seats + social + distance + wait));
+function getOpportunityLabel(item: GameOpportunity) {
+  if (item.isPreferred) return 'Preferred';
+  if (item.isJoined) return 'Member';
+  if (item.game.availableSeats) return 'Seats open';
+  if (item.distanceMiles <= 10) return 'Nearby';
+  return 'Available';
 }
 
 function getCompatibilitySummary(item: GameOpportunity) {
@@ -5167,8 +5063,8 @@ function applyDarkComponentTheme<T extends Record<string, any>>(definitions: T):
     '#fff8ed': '#2a2119',
     '#f4fbf8': '#10211f',
     '#f7f7f4': '#141e31',
-    '#f5f3ff': '#211a39',
-    '#f8f7ff': '#171c38',
+    '#edf7f5': '#142f31',
+    '#f1f7f6': '#172d30',
     '#eeeeea': '#1a2334',
     '#fff8e8': '#2a2117',
     '#f1f2f4': '#172136',
@@ -5213,15 +5109,8 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
   },
   animatedGradientRoot: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#0b1020',
+    backgroundColor: '#102a34',
     overflow: 'hidden'
-  },
-  gradientDriftLayer: {
-    height: '128%',
-    left: '-18%',
-    position: 'absolute',
-    top: '-14%',
-    width: '136%'
   },
   orbitPattern: {
     ...StyleSheet.absoluteFillObject,
@@ -5239,7 +5128,7 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
     width: 420
   },
   orbitRing: {
-    borderColor: 'rgba(139,92,246,0.34)',
+    borderColor: 'rgba(45,212,191,0.34)',
     borderRadius: 999,
     borderWidth: 14,
     bottom: 28,
@@ -7352,17 +7241,12 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
   discoveryCardHero: { height: 312, justifyContent: 'space-between', overflow: 'hidden', padding: 21 },
   discoveryCardHeroCompact: { height: 312 },
   discoveryAnimatedBackground: { ...StyleSheet.absoluteFillObject, backgroundColor: '#07101f', overflow: 'hidden' },
-  discoveryGradientDrift: { height: '140%', left: '-28%', position: 'absolute', top: '-20%', width: '156%' },
-  discoverySuit: { color: 'rgba(255,255,255,0.07)', fontSize: 70, fontWeight: '900', lineHeight: 76, position: 'absolute' },
-  discoverySuitLarge: { fontSize: 150, lineHeight: 160, opacity: 0.15, right: -20, top: 34, transform: [{ rotate: '-13deg' }] },
-  discoverySuitLeft: { bottom: 60, left: -12, transform: [{ rotate: '18deg' }] },
-  discoverySuitSmall: { fontSize: 44, right: 92, top: 15, transform: [{ rotate: '12deg' }] },
   discoveryAccentGlow: { borderRadius: 999, height: 190, opacity: 0.10, position: 'absolute', right: -55, top: -45, width: 190 },
   discoveryCardHeroTop: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between' },
   venueTypeBadge: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.16)', borderColor: 'rgba(255,255,255,0.20)', borderRadius: 999, borderWidth: 1, flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingVertical: 7 },
   venueTypeText: { color: '#ffffff', fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
   compatibilityBadge: { alignItems: 'center', backgroundColor: 'rgba(8,12,24,0.72)', borderRadius: 16, borderWidth: 1, minWidth: 66, paddingHorizontal: 10, paddingVertical: 8 },
-  compatibilityValue: { color: colors.primaryDark, fontSize: 20, fontWeight: '900', lineHeight: 22 },
+  compatibilityValue: { color: colors.primaryDark, fontSize: 11, fontWeight: '900', lineHeight: 14, textAlign: 'center' },
   compatibilityLabel: { color: colors.primary, fontSize: 8, fontWeight: '900', letterSpacing: 1 },
   discoveryHeroBottom: { gap: 3 },
   liveStatusRow: { alignItems: 'center', flexDirection: 'row', gap: 6, marginBottom: 2 },
@@ -7391,8 +7275,8 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
   discoveryTagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   discoveryTag: { backgroundColor: '#f3f4f6', borderRadius: 99, paddingHorizontal: 9, paddingVertical: 5 },
   discoveryTagText: { color: colors.ink, fontSize: 10, fontWeight: '800' },
-  matchReasonBand: { alignItems: 'center', backgroundColor: 'rgba(139,92,246,0.12)', borderColor: 'rgba(139,92,246,0.20)', borderRadius: 10, borderWidth: 1, flexDirection: 'row', gap: 7, padding: 9 },
-  matchReasonText: { color: '#c4b5fd', flex: 1, fontSize: 10, fontWeight: '700', lineHeight: 14 },
+  matchReasonBand: { alignItems: 'center', backgroundColor: 'rgba(15,118,110,0.12)', borderColor: 'rgba(15,118,110,0.20)', borderRadius: 10, borderWidth: 1, flexDirection: 'row', gap: 7, padding: 9 },
+  matchReasonText: { color: '#99f6e4', flex: 1, fontSize: 10, fontWeight: '700', lineHeight: 14 },
   cardSelectionRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: 'auto' },
   cardCornerAction: { alignItems: 'center', borderRadius: 999, height: 56, justifyContent: 'center', width: 56 },
   cardRejectAction: { backgroundColor: '#1a2340', borderColor: '#f43f5e', borderWidth: 1.5 },
@@ -7429,8 +7313,8 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
   savedGamesSection: { gap: 8 },
   savedGamesHeader: { alignItems: 'center', backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 14, borderWidth: 1, flexDirection: 'row', justifyContent: 'space-between', padding: 12 },
   savedGameRow: { alignItems: 'center', backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 11 },
-  savedGameScore: { alignItems: 'center', backgroundColor: colors.tealSoft, borderRadius: 11, height: 44, justifyContent: 'center', width: 50 },
-  savedGameScoreValue: { color: colors.teal, fontSize: 14, fontWeight: '900' },
+  savedGameScore: { alignItems: 'center', backgroundColor: colors.tealSoft, borderRadius: 11, justifyContent: 'center', minHeight: 44, paddingHorizontal: 8, width: 62 },
+  savedGameScoreValue: { color: colors.teal, fontSize: 10, fontWeight: '900', textAlign: 'center' },
   savedGameCopy: { flex: 1, gap: 2 },
   gameDetailsPage: { gap: 13, paddingBottom: 18 },
   gameDetailsNav: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', minHeight: 48 },
@@ -7441,7 +7325,7 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
   gameDetailsHero: { borderRadius: 25, height: 330, justifyContent: 'space-between', overflow: 'hidden', padding: 20 },
   gameDetailsHeroTop: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between' },
   gameDetailsScore: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 18, minWidth: 68, paddingHorizontal: 10, paddingVertical: 8 },
-  gameDetailsScoreValue: { color: colors.primaryDark, fontSize: 21, fontWeight: '900', lineHeight: 23 },
+  gameDetailsScoreValue: { color: colors.primaryDark, fontSize: 11, fontWeight: '900', lineHeight: 14, textAlign: 'center' },
   gameDetailsHeroCopy: { gap: 4 },
   gameDetailsStatus: { color: '#bfdbfe', fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase' },
   gameDetailsTitle: { color: '#ffffff', fontSize: 38, fontWeight: '900', letterSpacing: -1, lineHeight: 42 },
@@ -7458,7 +7342,7 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
   discoveryDetailsContent: { gap: 13, padding: 18, paddingTop: 12 },
   discoveryDetailsHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 11 },
   discoveryDetailsScore: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 15, minWidth: 62, padding: 9 },
-  discoveryDetailsScoreValue: { color: colors.primary, fontSize: 20, fontWeight: '900' },
+  discoveryDetailsScoreValue: { color: colors.primary, fontSize: 11, fontWeight: '900', textAlign: 'center' },
   discoveryDetailsTitleBlock: { flex: 1, gap: 3 },
   detailsQuickSummary: { alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 6, padding: 11 },
   detailsQuickValue: { color: colors.ink, fontSize: 11, fontWeight: '800' },
@@ -7467,17 +7351,11 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
   detailsDisclosureRow: { alignItems: 'center', backgroundColor: '#ffffff', borderBottomColor: colors.line, borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between', minHeight: 50, paddingHorizontal: 13 },
   detailsDisclosureLabel: { alignItems: 'center', flexDirection: 'row', gap: 9 },
   fitBreakdown: { backgroundColor: '#f8fafc', borderColor: colors.line, borderRadius: 14, borderWidth: 1, gap: 10, padding: 13 },
-  fitBreakdownRow: { gap: 5 },
-  fitBreakdownLabelRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  fitBreakdownLabel: { color: colors.ink, fontSize: 11, fontWeight: '800' },
-  fitBreakdownValue: { color: colors.primary, fontSize: 11, fontWeight: '900' },
-  fitBreakdownTrack: { backgroundColor: '#e5e7eb', borderRadius: 99, height: 5, overflow: 'hidden' },
-  fitBreakdownFill: { backgroundColor: colors.primary, borderRadius: 99, height: 5 },
   detailsInfoCard: { backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 14, borderWidth: 1, gap: 10, padding: 13 },
   detailRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 8, justifyContent: 'space-between' },
   detailRowLabel: { alignItems: 'center', flexDirection: 'row', gap: 7 },
   detailRowValue: { color: colors.ink, flex: 1, fontSize: 12, fontWeight: '800', textAlign: 'right' },
-  notificationPromise: { alignItems: 'flex-start', backgroundColor: '#f5f3ff', borderColor: '#ddd6fe', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 13 },
+  notificationPromise: { alignItems: 'flex-start', backgroundColor: '#edf7f5', borderColor: '#b9d9d3', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 13 },
   notificationPromiseIcon: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 10, height: 36, justifyContent: 'center', width: 36 },
   notificationPromiseCopy: { flex: 1, gap: 3 },
   storeButton: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 12, flexDirection: 'row', gap: 9, minHeight: 52, paddingHorizontal: 12 },
@@ -7518,7 +7396,7 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
   membershipQrMember: { color: '#64748b', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   checkedInBand: { alignItems: 'center', backgroundColor: 'rgba(74,222,128,0.12)', borderRadius: 10, flexDirection: 'row', gap: 7, padding: 9 },
   checkedInText: { color: '#dcfce7', flex: 1, fontSize: 10, fontWeight: '800' },
-  gameAlertCard: { alignItems: 'center', backgroundColor: '#f5f3ff', borderColor: '#ddd6fe', borderRadius: 15, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 13 },
+  gameAlertCard: { alignItems: 'center', backgroundColor: '#edf7f5', borderColor: '#b9d9d3', borderRadius: 15, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 13 },
   gameAlertIcon: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 11, height: 40, justifyContent: 'center', width: 40 },
   gameAlertCopy: { flex: 1, gap: 2 },
   alertOnPill: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 99, flexDirection: 'row', gap: 4, paddingHorizontal: 8, paddingVertical: 5 },
@@ -7532,7 +7410,7 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
   clubGameGroupLabel: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 1.15, marginBottom: 2 },
   clubRequestHeader: { gap: 3, marginTop: 8 },
   compactGameRow: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 11, flexDirection: 'row', minHeight: 52, paddingHorizontal: 11 },
-  requestGameRow: { backgroundColor: '#f8f7ff', borderColor: 'rgba(139,92,246,0.18)', borderWidth: 1 },
+  requestGameRow: { backgroundColor: '#f1f7f6', borderColor: 'rgba(15,118,110,0.18)', borderWidth: 1 },
   compactGameCopy: { flex: 1, gap: 2 },
   compactGameAction: { color: colors.primary, fontSize: 12, fontWeight: '900' },
   compactGameActionMuted: { color: colors.muted },

@@ -3,88 +3,53 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Orbit Download</title>
+    <meta name="description" content="Orbit connects live poker room demand, waitlists, seating, tables, memberships, tournaments, and reporting." />
+    <title>Orbit | Live poker room operations</title>
     <link rel="icon" type="image/svg+xml" href="./orbit-logo.svg" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <header class="site-header">
+      <a class="site-brand" href="./index.html" aria-label="Orbit home"><img src="./orbit-logo.svg" alt="" /><span>Orbit</span></a>
+      <nav aria-label="Primary navigation"><a href="./product.html">Product</a><a href="./support.html">Support</a><a href="./privacy.html">Privacy</a><a href="./terms.html">Terms</a></nav>
+    </header>
+
     <main class="download-shell">
       <section class="hero">
         <div class="hero-copy">
-          <div class="brand-mark" aria-label="Orbit">
-            <img src="./orbit-logo.svg" alt="" />
-          </div>
-          <p class="eyebrow">Live Poker, Connected.</p>
-          <h1>Find Your Game.</h1>
-          <p class="lead">
-            Download the Windows desktop build for connected card room operations: demand, waitlists, tables, rewards, and live player flow.
-          </p>
+          <p class="eyebrow">Live poker room operations</p>
+          <h1>Run the room from one shared operating view.</h1>
+          <p class="lead">Orbit connects player demand, waitlists, check-in, seating, table state, memberships, tournaments, and closeout reporting. Staff can act on the same live information instead of reconciling separate lists and screens.</p>
           <div class="download-actions">
-            <a class="primary-button" id="installer-link" href="https://github.com/sahusgupta/orbit/releases/latest">
-              Download Windows Installer
-            </a>
+            <a class="primary-button" id="installer-link" href="https://github.com/sahusgupta/orbit/releases/latest">Download for Windows</a>
+            <a class="secondary-button" href="./product.html">See how Orbit works</a>
           </div>
-          <dl class="build-meta">
-            <div>
-              <dt>Version</dt>
-              <dd id="version">0.1.13</dd>
-            </div>
-            <div>
-              <dt>Platform</dt>
-              <dd>Windows x64</dd>
-            </div>
-            <div>
-              <dt>Updated</dt>
-              <dd id="updated">Latest staged build</dd>
-            </div>
+          <dl class="build-meta" aria-label="Current desktop build">
+            <div><dt>Version</dt><dd id="version">0.1.15</dd></div>
+            <div><dt>Platform</dt><dd>Windows x64</dd></div>
+            <div><dt>Published</dt><dd id="updated">Checking release</dd></div>
           </dl>
         </div>
 
-        <div class="preview-panel" aria-label="Orbit preview">
-          <div class="window-bar">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-          <div class="preview-content">
-            <div class="preview-header">
-              <strong>Room Network</strong>
-              <span>Live demand</span>
-            </div>
-            <div class="orbit-network">
-              <span class="node node-main">
-                <img src="./orbit-logo.svg" alt="Orbit" />
-              </span>
-              <span class="node node-a">Players</span>
-              <span class="node node-b">Games</span>
-              <span class="node node-c">Rooms</span>
-            </div>
-            <div class="preview-grid">
-              <span>Waitlist flow</span>
-              <strong>4</strong>
-              <span>Table signals</span>
-              <strong>2</strong>
-            </div>
-          </div>
-        </div>
+        <aside class="workflow-panel" aria-label="Orbit operating workflow">
+          <header><span>Shared room state</span><strong>From demand to closeout</strong></header>
+          <ol>
+            <li><span>01</span><div><strong>Capture demand</strong><p>Collect player interest, arrival status, and exact game requests.</p></div></li>
+            <li><span>02</span><div><strong>Open and fill tables</strong><p>Move people from waitlist to seat with table state visible to staff.</p></div></li>
+            <li><span>03</span><div><strong>Operate the floor</strong><p>Track seating, time, buy-ins, table activity, and staff actions.</p></div></li>
+            <li><span>04</span><div><strong>Close with records</strong><p>Review exceptions and export an auditable end-of-night report.</p></div></li>
+          </ol>
+        </aside>
       </section>
 
-      <section class="support-grid">
-        <article>
-          <h2>Before Installing</h2>
-          <p>Close any running Orbit windows before installing a newer build.</p>
-        </article>
-        <article>
-          <h2>Pilot Access</h2>
-          <p>You will need the pilot key file provided for your club to unlock the app after install.</p>
-        </article>
-        <article>
-          <h2>Backup First</h2>
-          <p>If you are replacing an existing install, export a backup from Customization before updating.</p>
-        </article>
+      <section class="outcome-grid" aria-label="Orbit product areas">
+        <article><p class="eyebrow">Orbit Core</p><h2>One console for live room work</h2><p>Manage the floor, player records, game formation, tables, tournaments, memberships, and reports in the desktop app.</p></article>
+        <article><p class="eyebrow">Orbit Player</p><h2>Requests flow directly to staff</h2><p>Players can discover participating rooms and send membership or waitlist requests without creating a second manual queue.</p></article>
+        <article><p class="eyebrow">Connected records</p><h2>Decisions retain their context</h2><p>Staff actions, table events, and operational history remain attached to the room state used to make the decision.</p></article>
       </section>
     </main>
 
+    <footer class="site-footer"><span>Orbit Technologies LLC</span><nav><a href="./product.html">Product</a><a href="./privacy.html">Privacy</a><a href="./terms.html">Terms</a><a href="./support.html">Support</a></nav></footer>
     <script type="module" src="./main.js"></script>
   </body>
 </html>

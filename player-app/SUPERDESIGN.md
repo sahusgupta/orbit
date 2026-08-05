@@ -34,7 +34,7 @@ The app uses rounded cards, pill buttons, animated press feedback, bottom tabs, 
 
 ## Core Color Scheme
 
-The player app uses a clean Orbit palette built around deep navy, electric blue, violet, white surfaces, and quiet slate neutrals.
+The player app uses a clean Orbit palette built around deep navy, teal, electric blue, amber, white surfaces, and quiet slate neutrals.
 
 | Role | Color | Use |
 | --- | --- | --- |
@@ -48,25 +48,27 @@ The player app uses a clean Orbit palette built around deep navy, electric blue,
 | Primary Soft | `#EEF3FF` | Soft buttons, badges, avatars, sync panels. |
 | Blue | `#2563EB` | Positive/active states, joined clubs, progress, eyebrow labels. |
 | Blue Soft | `#DBEAFE` | Active tabs, preference bands, open/available states. |
-| Violet | `#8B5CF6` | Selected map pins and attention states. |
-| Violet Soft | `#F3E8FF` | Pending/waitlist/status pill backgrounds. |
+| Teal | `#0F766E` | Selected map pins, joined clubs, and healthy activity. |
+| Teal Soft | `#DFF4EF` | Membership and positive-status backgrounds. |
+| Amber | `#D97706` | Attention states and selected items. |
+| Amber Soft | `#FEF3C7` | Pending and waitlist backgrounds. |
 | Red | `#DC2626` | Destructive or warning accents, used sparingly. |
 
 ## Backgrounds
 
-The app should remain light by default. Main screens use a subtle gradient:
+The app should remain light by default. Main screens use a flat, quiet canvas:
 
 ```text
-#ffffff -> #f9fafb -> #eef3ff
+#F9FAFB
 ```
 
-Onboarding uses a slightly brighter version:
+Onboarding uses a solid navy hero surface:
 
 ```text
-#0B1020 -> #1E3A8A -> #4D7CFE
+#10233A
 ```
 
-These gradients should stay quiet. They are atmospheric support for white panels and Orbit blue/violet accents, not the visual centerpiece.
+Color blocks should provide clear hierarchy without becoming decoration. White panels, navy type, teal status cues, and amber attention states carry the interface.
 
 ## Surface Language
 
@@ -82,7 +84,7 @@ Borders are usually soft white or `rgba(100,116,139,0.16)`. Shadows are navy-tin
 
 ## Typography
 
-The app uses system-native sans-serif typography with a strong weight scale. Headings and key metrics are heavy and compact; supporting text is smaller, muted, and still fairly bold for readability on mobile.
+The app uses system-native sans-serif typography with a strong weight scale. Headings and key statuses are heavy and compact; supporting text is smaller, muted, and still fairly bold for readability on mobile.
 
 - Screen titles are large, dark, and heavy.
 - Eyebrows are Orbit blue, uppercase, and concise.
@@ -92,19 +94,19 @@ The app uses system-native sans-serif typography with a strong weight scale. Hea
 
 ## Interaction Color Rules
 
-Primary actions use a navy-to-blue gradient:
+Primary actions use solid navy:
 
 ```text
-#0B1020 -> #4D7CFE
+#0B1020
 ```
 
-Disabled actions shift to slate:
+Disabled actions use solid slate:
 
 ```text
-#94a3b8 -> #7f8ea3
+#94A3B8
 ```
 
-Active selections usually use soft blue backgrounds with dark navy text. Pending or waitlist states use soft violet. Warning/destructive cues may use red, but should not dominate the screen.
+Active selections usually use soft blue backgrounds with dark navy text. Pending or waitlist states use soft amber. Warning/destructive cues may use red, but should not dominate the screen.
 
 ## Components
 
@@ -114,7 +116,7 @@ Game cards are the core discovery unit. They should be white, rounded, and light
 
 ### Club Cards
 
-Club cards should read as quick comparison rows: club identity, distance or membership state, and an immediate affordance. Selected cards use a cool purple-blue border accent (`#9ba8ee`) but should still live inside the broader navy/teal system.
+Club cards should read as quick comparison rows: club identity, distance or membership state, and an immediate affordance. Selected cards use an amber border accent (`#D97706`) inside the broader navy and teal system.
 
 ### Map UI
 
@@ -122,10 +124,10 @@ Maps should feel integrated into the app, not embedded as a generic widget. Use 
 
 ### Onboarding
 
-Onboarding should feel guided and trustworthy. The hero uses a deeper gradient:
+Onboarding should feel guided and trustworthy. The hero uses a deep solid surface:
 
 ```text
-#10233a -> #1e5f57 -> #edf8f4
+#10233A
 ```
 
 The step surface is a soft white card below it. Keep copy short and action-oriented. The progress bar uses navy, reinforcing the sense of steady setup rather than marketing flourish.

@@ -50,6 +50,7 @@ module.exports = ({ config }) => ({
     playerPremiumEntitlementId: process.env.EXPO_PUBLIC_REVENUECAT_PREMIUM_ENTITLEMENT_ID || 'player_premium',
     applePremiumProductId: process.env.EXPO_PUBLIC_APPLE_PREMIUM_PRODUCT_ID || 'com.orbit.player.premium.monthly',
     privacyPolicyUrl: process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || 'https://orbitapp-one.vercel.app/privacy',
+    termsOfServiceUrl: process.env.EXPO_PUBLIC_TERMS_OF_SERVICE_URL || 'https://orbitapp-one.vercel.app/terms',
     supportPhone: '346-434-1402'
   }
 });

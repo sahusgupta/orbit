@@ -324,12 +324,20 @@ app.get(['/privacy', '/privacy.html'], (_request, response) => {
   response.sendFile(path.join(__dirname, '..', 'public', 'privacy.html'));
 });
 
+app.get(['/terms', '/terms.html'], (_request, response) => {
+  response.sendFile(path.join(__dirname, '..', 'public', 'terms.html'));
+});
+
 app.get(['/support', '/support.html'], (_request, response) => {
   response.sendFile(path.join(__dirname, '..', 'public', 'support.html'));
 });
 
 app.get('/legal.css', (_request, response) => {
   response.sendFile(path.join(__dirname, '..', 'public', 'legal.css'));
+});
+
+app.get('/orbit-logo.svg', (_request, response) => {
+  response.sendFile(path.join(__dirname, '..', 'public', 'orbit-logo.svg'));
 });
 
 app.get('/dashboard', requireDashboardAuth, (_request, response) => {

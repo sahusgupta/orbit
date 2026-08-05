@@ -56,7 +56,7 @@ const formatRunningTime = (seconds: number) => {
 };
 
 const formatBlinds = (level?: TournamentTvLevel) => {
-  if (!level) return '—';
+  if (!level) return 'Not set';
   return `${level.smallBlind.toLocaleString()} / ${level.bigBlind.toLocaleString()}${level.ante ? ` (${level.ante.toLocaleString()})` : ''}`;
 };
 
@@ -105,7 +105,7 @@ export default function TournamentTvView({ tournament, nowMs, remainingSeconds, 
   const lateRegistrationSeconds = getLateRegistrationSeconds(tournament, nowMs, remainingSeconds);
   const lateRegistrationOpen = tournament.status !== 'Finished' && lateRegistrationSeconds > 0;
   const lowTime = remainingSeconds <= 60 && tournament.status === 'Running';
-  const clockLabel = tournament.status === 'Paused' ? 'PAUSED' : tournament.status === 'Finished' ? 'FINAL' : `LEVEL ${currentLevel?.level ?? '—'}`;
+  const clockLabel = tournament.status === 'Paused' ? 'PAUSED' : tournament.status === 'Finished' ? 'FINAL' : `LEVEL ${currentLevel?.level ?? 'NOT SET'}`;
 
   const statistics = [
     { label: 'Total entries', value: totalEntries.toLocaleString() },

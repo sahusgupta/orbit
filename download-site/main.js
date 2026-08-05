@@ -31,7 +31,7 @@ async function loadManifest() {
     const manifest = await response.json();
     const updatedAt = manifest.installer?.updatedAt || manifest.zip?.updatedAt || manifest.generatedAt;
 
-    versionElement.textContent = manifest.version || '0.1.13';
+    versionElement.textContent = manifest.version || '0.1.15';
     updatedElement.textContent = updatedAt
       ? new Date(updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
       : 'Latest staged build';

@@ -11,14 +11,14 @@
   --primary-soft: #eef3ff;
   --teal: #2563eb;
   --teal-soft: #dbeafe;
-  --amber: #8b5cf6;
-  --amber-soft: #f3e8ff;
+  --amber: #c66a2b;
+  --amber-soft: #fff0e5;
   --rose: #a33a3a;
   --rose-soft: #f3dfdf;
   --background-start: #e7ebf0;
   --background-accent-primary: rgba(56, 80, 109, 0.08);
   --background-accent-secondary: rgba(37, 99, 235, 0.06);
-  --brand-font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --brand-font-family: Bahnschrift, Aptos, "Segoe UI Variable", sans-serif;
   color: var(--ink);
   background: var(--canvas);
   font-family: var(--brand-font-family);
@@ -37,7 +37,7 @@ body {
   overflow-x: hidden;
   background:
     linear-gradient(135deg, rgba(77, 124, 254, 0.05) 0 1px, transparent 1px 28px),
-    linear-gradient(45deg, rgba(139, 92, 246, 0.045) 0 1px, transparent 1px 34px),
+    linear-gradient(45deg, rgba(15, 118, 110, 0.045) 0 1px, transparent 1px 34px),
     linear-gradient(180deg, var(--background-start) 0%, var(--canvas) 100%);
 }
 
@@ -54,8 +54,8 @@ body.low-light {
   --primary-soft: #172554;
   --teal: #93c5fd;
   --teal-soft: #172554;
-  --amber: #c4b5fd;
-  --amber-soft: #2e1065;
+  --amber: #f0a35c;
+  --amber-soft: #4a2b18;
   --rose: #fda4af;
   --rose-soft: #4b1f2a;
   --background-start: #111827;
@@ -63,7 +63,7 @@ body.low-light {
   --background-accent-secondary: rgba(125, 211, 199, 0.1);
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 28px),
-    linear-gradient(45deg, rgba(139, 92, 246, 0.05) 0 1px, transparent 1px 34px),
+    linear-gradient(45deg, rgba(45, 212, 191, 0.05) 0 1px, transparent 1px 34px),
     linear-gradient(180deg, var(--background-start) 0%, var(--canvas) 100%);
 }
 
@@ -3827,7 +3827,7 @@ body.low-light {
   --line-strong: #364253;
   --primary: #345ee8;
   --primary-dark: #7da0ff;
-  --primary-soft: rgba(139, 92, 246, 0.14);
+  --primary-soft: rgba(77, 124, 254, 0.14);
   --teal: #21b6a4;
   --teal-soft: rgba(33, 182, 164, 0.13);
   --amber: #d8a24d;
@@ -3835,7 +3835,7 @@ body.low-light {
   --rose: #ef6f79;
   --rose-soft: rgba(239, 111, 121, 0.13);
   --background-start: #10151d;
-  --background-accent-primary: rgba(139, 92, 246, 0.1);
+  --background-accent-primary: rgba(77, 124, 254, 0.1);
   --background-accent-secondary: rgba(255, 255, 255, 0.035);
   color-scheme: dark;
 }
@@ -3849,7 +3849,7 @@ body.low-light {
 
 body.low-light {
   background:
-    radial-gradient(circle at 22% 0%, rgba(139, 92, 246, 0.08), transparent 28rem),
+    radial-gradient(circle at 22% 0%, rgba(15, 118, 110, 0.08), transparent 28rem),
     linear-gradient(180deg, #111720 0%, #0f141b 100%);
   position: relative;
 }
@@ -4225,7 +4225,7 @@ textarea::placeholder {
 
 .poker-table-surface {
   background:
-    radial-gradient(ellipse at center, rgba(139, 92, 246, 0.24), rgba(139, 92, 246, 0.1) 52%, rgba(13, 27, 32, 0.8) 100%),
+    radial-gradient(ellipse at center, rgba(15, 118, 110, 0.24), rgba(15, 118, 110, 0.1) 52%, rgba(13, 27, 32, 0.8) 100%),
     #10231f;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.035);
 }
@@ -4270,7 +4270,7 @@ textarea::placeholder {
 
 .poker-position-marker.open:hover,
 .poker-position-marker.selected {
-  background: rgba(139, 92, 246, 0.18);
+  background: rgba(15, 118, 110, 0.18);
   border-color: var(--primary-dark);
   box-shadow: 0 0 0 1px rgba(77, 124, 254, 0.25);
 }
@@ -5347,7 +5347,7 @@ body::before {
   background:
     radial-gradient(circle at 24% 22%, rgba(77, 124, 254, 0.16), transparent 0 18rem),
     radial-gradient(circle at 78% 12%, rgba(75, 103, 132, 0.18), transparent 0 20rem),
-    radial-gradient(circle at 64% 86%, rgba(139, 92, 246, 0.13), transparent 0 22rem);
+    radial-gradient(circle at 64% 86%, rgba(15, 118, 110, 0.13), transparent 0 22rem);
   filter: blur(10px);
   height: 100vh;
   left: 0;
@@ -6432,7 +6432,7 @@ body.low-light .table-financial-metrics .table-profit-metric strong {
 
 .tournament-new-card > span {
   align-items: center;
-  background: linear-gradient(135deg, #4f46e5, #db2777);
+  background: linear-gradient(135deg, #155e75, #0f766e);
   border-radius: 16px;
   color: #fff;
   display: flex;
@@ -6881,14 +6881,14 @@ body.low-light .tournament-prize-total { background: linear-gradient(120deg, rgb
 .orbit-tournament-display {
   --tv-blue: #4d7cfe;
   --tv-blue-soft: #7da0ff;
-  --tv-violet: #8b5cf6;
+  --tv-accent: #2dd4bf;
   --tv-line: rgba(125, 160, 255, 0.16);
   height: 100vh;
   min-height: 540px;
   overflow: hidden;
   color: #f7f9ff;
   background: radial-gradient(circle at 50% 43%, rgba(77, 124, 254, 0.1), transparent 34%), #070b15;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: Bahnschrift, Aptos, "Segoe UI Variable", sans-serif;
   isolation: isolate;
   position: relative;
 }
@@ -6896,10 +6896,9 @@ body.low-light .tournament-prize-total { background: linear-gradient(120deg, rgb
 .orbit-tournament-display * { box-sizing: border-box; }
 
 .orbit-tournament-display::before {
-  animation: orbit-tv-ambient-shift 18s ease-in-out infinite alternate;
   background:
     radial-gradient(circle at 18% 28%, rgba(77, 124, 254, .14), transparent 27%),
-    radial-gradient(circle at 82% 68%, rgba(139, 92, 246, .11), transparent 30%);
+    radial-gradient(circle at 82% 68%, rgba(15, 118, 110, .11), transparent 30%);
   content: '';
   inset: -18%;
   opacity: .72;
@@ -6923,8 +6922,7 @@ body.low-light .tournament-prize-total { background: linear-gradient(120deg, rgb
 }
 
 .orbit-tournament-display-header::after {
-  animation: orbit-tv-header-flow 9s ease-in-out infinite;
-  background: linear-gradient(90deg, transparent 5%, rgba(77,124,254,.7) 38%, rgba(139,92,246,.65) 62%, transparent 95%);
+  background: linear-gradient(90deg, transparent 5%, rgba(77,124,254,.7) 38%, rgba(45,212,191,.65) 62%, transparent 95%);
   background-size: 180% 100%;
   bottom: -1px;
   content: '';
@@ -7088,7 +7086,7 @@ body.low-light .tournament-prize-total { background: linear-gradient(120deg, rgb
   animation: orbit-tv-blue-breathe 4.8s ease-in-out infinite;
 }
 .orbit-tv-clock-ring.low-time .orbit-tv-clock-progress { stroke: #fb7185; }
-.orbit-tv-clock-ring.paused .orbit-tv-clock-progress { stroke: var(--tv-violet); }
+.orbit-tv-clock-ring.paused .orbit-tv-clock-progress { stroke: var(--tv-accent); }
 
 .orbit-tv-clock-ring > div {
   position: absolute;
@@ -7159,7 +7157,7 @@ body.low-light .tournament-prize-total { background: linear-gradient(120deg, rgb
   flex-direction: column;
   justify-content: center;
   border-top: 1px solid var(--tv-line);
-  background: linear-gradient(145deg, rgba(77, 124, 254, 0.08), rgba(139, 92, 246, 0.05));
+  background: linear-gradient(145deg, rgba(77, 124, 254, 0.08), rgba(15, 118, 110, 0.05));
 }
 
 .orbit-tv-next-level strong { margin: 8px 0 5px; color: #f2f5ff; font-size: clamp(20px, 1.8vw, 30px); }
@@ -7305,14 +7303,14 @@ body.low-light .tournament-prize-total { background: linear-gradient(120deg, rgb
 .floor-summary-bar { align-items: center; border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 24px; margin: -8px 0 24px; min-height: 52px; padding: 8px 2px; }
 .floor-summary-bar span { color: var(--muted); font-size: .82rem; }.floor-summary-bar strong { color: var(--ink); font-size: .95rem; margin-right: 4px; }.floor-summary-bar .alert, .floor-summary-bar .alert strong { color: #dc2626; }
 .route-tabs { background: var(--canvas); border: 1px solid var(--line); border-radius: 9px; display: grid; gap: 4px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: -6px 0 24px; padding: 4px; width: 100%; }
-.route-tabs button { background: transparent; border: 0; border-radius: 6px; color: var(--muted); font-size: .8rem; font-weight: 800; line-height: 1.3; min-height: 36px; padding: 8px 14px; text-align: center; }
-.route-tabs button.active { background: var(--panel-solid); box-shadow: 0 2px 8px rgba(15,23,42,.08); color: var(--ink); }
+.route-tabs :is(button, span) { align-items: center; background: transparent; border: 0; border-radius: 6px; color: var(--muted); display: flex; font-size: .8rem; font-weight: 800; justify-content: center; line-height: 1.3; min-height: 36px; padding: 8px 14px; text-align: center; }
+.route-tabs :is(button, span).active { background: var(--panel-solid); box-shadow: 0 2px 8px rgba(15,23,42,.08); color: var(--ink); }
 .game-filter-bar { align-items: end; display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 18px; }.game-filter-bar label { display: grid; gap: 6px; }.game-filter-bar label span { color: var(--muted); font-size: .7rem; font-weight: 800; text-transform: uppercase; }.game-filter-bar select { background: var(--panel-solid); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); min-height: 40px; padding: 0 10px; }
 .settings-nav { align-self: start; background: transparent; display: grid; gap: 3px; position: sticky; top: 24px; }
 .settings-nav button { background: transparent; border: 0; border-left: 3px solid transparent; border-radius: 0 7px 7px 0; color: var(--muted); font-size: .82rem; font-weight: 700; padding: 11px 12px; text-align: left; }.settings-nav button:hover { background: color-mix(in srgb, var(--primary-soft) 45%, transparent); color: var(--ink); }.settings-nav button.active { background: var(--primary-soft); border-left-color: var(--primary); color: var(--primary); }
 .orbit-shell .customization-layout { align-items: start; display: grid; gap: 18px; grid-template-columns: 1fr; }
 .orbit-shell main:has(.settings-nav) { display: grid; gap: 0 28px; grid-template-columns: 170px minmax(0, 1fr); }.orbit-shell main:has(.settings-nav) > .topbar { grid-column: 1 / -1; }.orbit-shell main:has(.settings-nav) > .settings-nav { grid-column: 1; }.orbit-shell main:has(.settings-nav) > .customization-layout { grid-column: 2; }
-.settings-page .settings-panel { display: none; }.settings-view-club #settings-club, .settings-view-staff #settings-staff, .settings-view-tables #settings-tables, .settings-view-data #settings-data, .settings-view-display #settings-display { display: block; }
+.settings-page .settings-panel { display: none; }.settings-view-club #settings-club, .settings-view-staff #settings-staff, .settings-view-tables #settings-tables, .settings-view-data #settings-data, .settings-view-display #settings-display, .settings-view-legal #settings-legal { display: block; }
 .report-mode-switch { background: var(--canvas); border: 1px solid var(--line); border-radius: 9px; display: grid; gap: 4px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 24px; padding: 4px; width: 100%; }.report-mode-switch button { background: transparent; border: 0; border-radius: 6px; color: var(--muted); font-size: .8rem; font-weight: 800; line-height: 1.3; min-height: 36px; padding: 8px 14px; text-align: center; }.report-mode-switch button.active { background: var(--panel-solid); box-shadow: 0 2px 8px rgba(15,23,42,.08); color: var(--ink); }
 .reports-mode-kpis .summary-report { display: none; }.reports-mode-night .owner-summary-grid { display: none; }.reports-mode-night .summary-report { max-width: 900px; margin: 0 auto; }.reports-mode-close > .owner-summary-grid, .reports-mode-close > .summary-report { display: none; }
 .reports-mode-kpis { display: grid; gap: 0 28px; grid-template-columns: 170px minmax(0, 1fr); }.reports-mode-kpis > .topbar, .reports-mode-kpis > .report-mode-switch { grid-column: 1 / -1; }.metric-category-menu { align-self: start; display: grid; gap: 3px; grid-column: 1; position: sticky; top: 24px; }.metric-category-menu button { background: transparent; border: 0; border-left: 3px solid transparent; border-radius: 0 7px 7px 0; color: var(--muted); font-size: .82rem; font-weight: 750; padding: 11px 12px; text-align: left; }.metric-category-menu button.active { background: var(--primary-soft); border-left-color: var(--primary); color: var(--primary); }.reports-mode-kpis .owner-summary-grid { grid-column: 2; }.reports-mode-kpis .owner-metric { display: none; }
@@ -8194,7 +8192,7 @@ body:not(.low-light) .tournament-library-main small {
 }
 
 .today-player-summary article[data-status="Confirmed Coming"] {
-  --today-status-color: #7c3aed;
+  --today-status-color: #0f766e;
 }
 
 .today-player-summary article[data-status="Arrived"] {
@@ -8289,7 +8287,7 @@ body:not(.low-light) .tournament-library-main small {
 }
 
 .today-player-status[data-status="Interested"] { --today-status-color: #2563eb; }
-.today-player-status[data-status="Confirmed Coming"] { --today-status-color: #7c3aed; }
+.today-player-status[data-status="Confirmed Coming"] { --today-status-color: #0f766e; }
 .today-player-status[data-status="Arrived"] { --today-status-color: #0891b2; }
 .today-player-status[data-status="Seated"] { --today-status-color: #15803d; }
 .today-player-status[data-status="Declined"],
@@ -8512,7 +8510,7 @@ body.low-light .today-membership.active {
 @media (max-width: 680px) {
   .route-tabs,
   .report-mode-switch { display: flex; padding: 4px; }
-  .route-tabs button,
+  .route-tabs :is(button, span),
   .report-mode-switch button { flex: 1 0 max-content; min-width: 104px; }
   .game-filter-bar,
   .player-popup-form-grid,
