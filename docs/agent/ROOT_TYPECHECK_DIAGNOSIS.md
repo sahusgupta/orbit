@@ -8,6 +8,8 @@ Starting commit: `bd6fd1c030291c1dbeda2bf28791689ef92879bb`
 
 ## Executive conclusion
 
+> Rebaseline update, 2026-08-05: the compatible root React type packages are now installed. The missing-type group described below is resolved, and the definitive current baseline is 94 diagnostics across 6 files. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`. Historical counts below are retained to explain the original 3,632-diagnostic failure.
+
 `npm run typecheck` is a renderer-and-renderer-test check, not a whole-repository TypeScript check. It runs `tsc --noEmit` against the root `tsconfig.json`, whose effective scope is 25 files under `src/`. It does not typecheck Electron, the API, Player, Vite configuration, scripts, the download site, or a shared package.
 
 The initial diagnosis run produced 3,632 diagnostics in 13 files. The dominant failure is not 3,632 independent implementation defects: the root package has React 19 and ReactDOM 19 but owns neither `@types/react` nor `@types/react-dom`. Missing React JSX/contextual types cause 3,598 initial diagnostics, including all 3,041 `TS7026` errors and most implicit-`any` errors.
@@ -129,22 +131,22 @@ After the Vite declaration correction, `src/lib/firebaseConfig.ts` has no errors
 
 All groups were present before this diagnosis unless explicitly marked resolved. Counts sum to the initial 3,632.
 
-### 1. Missing root React and ReactDOM declarations — `DEPENDENCY_TYPE_MISMATCH`
+### 1. Missing root React and ReactDOM declarations — `DEPENDENCY_TYPE_MISMATCH` (resolved)
 
 - Initial count: 3,598.
 - Codes: all 16 `TS7016`; all 3,041 `TS7026`; 501 `TS7006`; all 22 `TS7031`; all 5 `TS18046`; 10 `TS2322`; 3 `TS2339`.
 - Representative errors: missing declarations for `react`, `react/jsx-runtime`, and `react-dom/client`; missing `JSX.IntrinsicElements`.
 - Affected files: `src/main.tsx`, `src/components/AppShell.tsx`, `PokerTable.tsx`, `PokerTable.test.tsx`, `TournamentTvView.tsx`, and UI badge/button/dropdown modules.
-- Underlying cause: root React 19.1.1 and ReactDOM 19.1.1 are installed without root-owned compatible declaration packages. Player owns `@types/react`, but independently locked nested dependencies are not a valid root type source.
+- Underlying cause: the root manifest declared React/ReactDOM `^19.1.1` and the committed lock resolved both to 19.2.6, but the root owned no declaration packages. Player owns an independent 19.1 type tree, which is not a valid root type source.
 - Duplicate mechanism: once React is untyped, JSX, hook state, component props, event handlers, Radix props, array callbacks, and destructured callback parameters lose contextual types. Thousands of downstream diagnostics describe that one missing foundation.
 - Pre-existing: yes.
 - Real implementation defect: the missing development type dependencies are real; most individual downstream messages are duplicates, not distinct runtime defects.
 - Project-boundary defect: dependency boundary, not an incorrect file inclusion.
 - Confidence: high. A read-only probe using Player's compatible React declarations eliminated 3,596 diagnostics; the two remaining `TS7016` errors are ReactDOM.
-- Recommended correction: add compatible root `@types/react` and `@types/react-dom` development dependencies through the root lockfile. Do not point root `typeRoots` at `player-app/node_modules`.
+- Correction completed: root dev dependencies now own `@types/react` 19.2.18 and `@types/react-dom` 19.2.4 through the root lockfile. Root `typeRoots` was not pointed at `player-app/node_modules`.
 - Risk: low runtime risk, medium verification risk because correct React types expose additional semantic failures.
 - Verification: lockfile review, `npm run typecheck`, `npm run player:typecheck`, `npm test`, and `npm run build`.
-- Safe for autonomous repair: yes only as a separately reviewed foundational dependency change; stop after rebaselining rather than attempting all newly visible repairs in the same step.
+- Safe for autonomous repair: completed as the separately scoped foundational dependency change; no newly visible production error was repaired in the same step.
 - Blocks refactoring: yes. Renderer refactors cannot be trusted while React contracts are absent.
 - Blocks website development: conditionally. A separately configured website is not directly blocked, but reusing root components or types is unsafe until this is repaired.
 
@@ -315,9 +317,9 @@ The React-only probe was deliberately read-only and did not modify dependency re
 
 With the Vite declaration present, the equivalent probe reports 96 diagnostics: 3,596 removed, 34 current diagnostics retained, and the same 62 newly exposed.
 
-The 62 latent diagnostics are 22 `TS2322`, 31 `TS2345`, 2 `TS2339`, 1 `TS2367`, 1 `TS2677`, and 5 `TS2769`, all in `src/main.tsx`. Most concern state-array callbacks, partial objects, literal widening, and React state setters. Classification: `UNKNOWN_REQUIRES_INVESTIGATION` until root-owned React and ReactDOM types are installed and the definitive diagnostic stream is captured. Confidence is high that they are genuine compile-time contract problems, but their exact count and messages may change once ReactDOM and all root dependencies are typed.
+The dependency restoration confirmed exactly 62 previously masked diagnostics: 22 `TS2322`, 31 `TS2345`, 2 `TS2339`, 1 `TS2367`, 1 `TS2677`, and 5 `TS2769`, all in `src/main.tsx`. Together with 32 retained non-cascade diagnostics, they form the definitive 94-diagnostic rebaseline. They are no longer `UNKNOWN_REQUIRES_INVESTIGATION`; `ROOT_TYPECHECK_REBASELINE.md` assigns every diagnostic to an evidence-backed root-cause task.
 
-These latent errors are pre-existing, likely block safe renderer refactoring, and are not safe for bulk autonomous repair. They require grouping by behavior boundary and characterization tests after the dependency foundation is corrected.
+These errors are pre-existing, block safe renderer refactoring, and are not safe for bulk repair. They are grouped by behavior boundary in `docs/agent/tasks/TYPE-001.md` through `TYPE-014.md`.
 
 ## Generated, obsolete, test, and platform-specific assessment
 
@@ -331,8 +333,8 @@ These latent errors are pre-existing, likely block safe renderer refactoring, an
 
 ## Recommended remediation sequence
 
-1. Add root-owned, React-19-compatible `@types/react` and `@types/react-dom` development dependencies. Review the lockfile and rerun only the four required checks; do not repair the newly exposed errors in the same dependency commit.
-2. Capture a new definitive error inventory. Replace the 62-error probe estimate with the actual post-dependency stream.
+1. Completed: add root-owned, React-19.2-compatible `@types/react` and `@types/react-dom` development dependencies without changing the runtime packages.
+2. Completed: capture the definitive 94-diagnostic inventory and replace the 62-error probe estimate with exact task ownership.
 3. Decide and document root browser/runtime support. Align `lib` with that decision or replace unsupported built-ins; do not change `target`/`lib` merely to silence errors.
 4. Fix the two isolated test typing gaps.
 5. Characterize and canonicalize the cross-application snapshot/membership types before changing the stale root declarations.
@@ -353,3 +355,7 @@ After the Vite declaration correction, the required commands produced these resu
 - PASS: `npm run build` transformed 1,910 modules and completed in 15.55 seconds. The existing ExcelJS `eval` warning and chunk-size warnings remained.
 
 The expected root failure therefore remains visible, with the safe correction reducing only the two Vite environment diagnostics. The same results are recorded in `docs/agent/BASELINE.md`.
+
+## Dependency-restoration verification update
+
+Installing root-owned `@types/react` 19.2.18 and `@types/react-dom` 19.2.4 removed all 3,598 missing-type cascade diagnostics. The displayed count fell from 3,630 to 94 rather than 32 because 62 semantic diagnostics became visible. The complete current code/path/root-cause inventory and ordered repair queue are in `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.

@@ -37,6 +37,7 @@ All installs used lockfile-preserving commands.
 | `npm ci` | Passed in 53.1 seconds; added 619 packages and audited 620. npm reported six deprecated transitive packages and three high-severity vulnerabilities in the install summary. |
 | `npm ci --prefix apps/api` | Passed in 14.7 seconds; added 231 packages and audited 232; zero vulnerabilities reported. |
 | `npm ci --prefix player-app` | Passed in 70.4 seconds; added 788 packages and audited 789; three high-severity vulnerabilities reported. |
+| `npm install --save-dev @types/react@19.2.18 @types/react-dom@19.2.4` | Passed during the TypeScript rebaseline; added only the two root type packages and their `csstype` dependency. npm continued to report four high-severity findings. No audit fix was run. |
 
 No automatic audit fix or dependency upgrade was run.
 
@@ -88,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics. The safe Vite environment declaration correction reduces the current count to 3,630; the gate remains red. See `docs/agent/ROOT_TYPECHECK_DIAGNOSIS.md` for the complete classification and remediation sequence.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types now reduce the truthful current baseline to 94 diagnostics in 6 files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -190,3 +191,51 @@ After the narrow Vite declaration correction, the required commands were rerun i
 - PASS: `npm run build` transformed 1,910 modules and completed in 15.55 seconds; the existing ExcelJS `eval` and chunk-size warnings remained.
 
 The root gate remains intentionally red and quantified. No production code, public API, stored shape, TypeScript strictness setting, include boundary, or runtime behavior was changed.
+
+## React Type Dependency Rebaseline — 2026-08-05
+
+The root runtime resolves `react` and `react-dom` to 19.2.6. Root dev dependencies now own `@types/react` 19.2.18 and `@types/react-dom` 19.2.4. Player remains independently locked to React/ReactDOM 19.1.0, React Native 0.81.5, and `@types/react` 19.1.17.
+
+The first complete post-install `npm run typecheck` run failed with exactly 94 diagnostics across 6 files. This is a net reduction of 3,536 from the prior 3,630-diagnostic baseline. All 3,598 missing React/ReactDOM cascade diagnostics were removed, while exactly 62 previously masked semantic diagnostics became visible.
+
+### Current diagnostics by code
+
+| Code | Count |
+| --- | ---: |
+| `TS2322` | 29 |
+| `TS2339` | 5 |
+| `TS2345` | 36 |
+| `TS2352` | 1 |
+| `TS2353` | 1 |
+| `TS2367` | 1 |
+| `TS2550` | 6 |
+| `TS2677` | 3 |
+| `TS2739` | 2 |
+| `TS2740` | 1 |
+| `TS2769` | 6 |
+| `TS7006` | 2 |
+| `TS7017` | 1 |
+| **Total** | **94** |
+
+### Current diagnostics by path
+
+| Path | Count |
+| --- | ---: |
+| `src/main.tsx` | 79 |
+| `src/lib/firebaseClubSync.ts` | 5 |
+| `src/lib/playerSync.ts` | 2 |
+| `src/lib/playerSync.test.ts` | 6 |
+| `src/lib/appCore.test.ts` | 1 |
+| `src/components/PokerTable.test.tsx` | 1 |
+
+The 94 diagnostics are assigned to 14 bounded groups: 6 configuration-boundary, 6 stale/dead-contract, 79 real implementation type errors, 1 platform conflict, and 2 test-only errors. No missing-generated-type, dependency-type-mismatch, or unknown diagnostic remains. The complete classification, duplicate mapping, correction risks, block status, and ordered task specifications are in `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/tasks/TYPE-001.md` through `TYPE-014.md`.
+
+Repository verification remains a partial failure until the 94 diagnostics are repaired through those bounded tasks. No production source was changed during dependency restoration and rebaselining.
+
+### Rebaseline completion verification
+
+- FAIL: `npm run typecheck` — exactly 94 diagnostics in 6 files; TypeScript exit code 2.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 17 files and 81 tests passed, zero failed/skipped, in 3.44 seconds; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,910 modules transformed and built in 14.99 seconds; the existing ExcelJS `eval` and large-chunk warnings remained.
+- PARTIAL FAILURE: `npm run verify` exited 1 after 31.3 seconds because root TypeScript failed; its Player typecheck, 17/81 tests, and 1,910-module build all passed.
