@@ -88,7 +88,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript fails with 3,632 diagnostics. See `docs/agent/tasks/root-typecheck-remediation.md` for the intentionally separate remediation scope.
+1. Root strict TypeScript initially failed with 3,632 diagnostics. The safe Vite environment declaration correction reduces the current count to 3,630; the gate remains red. See `docs/agent/ROOT_TYPECHECK_DIAGNOSIS.md` for the complete classification and remediation sequence.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -116,3 +116,77 @@ Use explicit localhost overrides and disabled sync for isolated development.
 - PASS: Desktop renderer build (`npm run build`) — 1,910 modules transformed; the existing `eval` and chunk-size warnings remained.
 
 The aggregate runner therefore preserves the failure while still executing and reporting every other configured verification step.
+
+## Root TypeScript Diagnosis Update — 2026-08-05
+
+The required exact `npm run typecheck` diagnosis run produced 3,632 diagnostics across 13 root renderer/test files. The root script is `tsc --noEmit`; its effective project is the 25 files under `src/`, not Electron, API, Player, Vite configuration, scripts, e2e, or a shared package.
+
+### Error counts by code
+
+| Code | Initial count | Primary category |
+| --- | ---: | --- |
+| `TS18046` | 5 | React contextual-type cascade |
+| `TS2322` | 17 | 10 React cascade; 7 real state/domain assignments |
+| `TS2339` | 8 | 3 React cascade; 3 stale snapshot uses; 2 missing Vite environment types |
+| `TS2345` | 5 | Test, Web Crypto, GroupMe, and game callback errors |
+| `TS2352` | 1 | Legacy persisted-settings compatibility cast |
+| `TS2353` | 1 | Stale snapshot declaration |
+| `TS2550` | 6 | ES2020 library boundary versus ES2021/ES2022 methods |
+| `TS2677` | 2 | Invalid null-filter type predicates |
+| `TS2739` | 2 | Firebase state-shape loss |
+| `TS2740` | 1 | Over-narrow profile callback annotation |
+| `TS2769` | 1 | Lost tuple inference for `Map` construction |
+| `TS7006` | 503 | 501 React cascade; 2 Firebase implicit-any errors |
+| `TS7016` | 16 | Missing root React/ReactDOM declarations |
+| `TS7017` | 1 | Missing test-global declaration |
+| `TS7026` | 3,041 | Missing React JSX intrinsic types |
+| `TS7031` | 22 | React contextual-type cascade |
+| **Total** | **3,632** | |
+
+### Root-cause categories
+
+| Classification | Initial diagnostics | Affected paths | Likely cause | Refactor block | Player website block |
+| --- | ---: | --- | --- | --- | --- |
+| `DEPENDENCY_TYPE_MISMATCH` | 3,598 | `src/main.tsx`, root React components, `PokerTable.test.tsx` | Root owns React/ReactDOM runtime packages but no compatible root declaration packages. | Yes | Conditional if root UI/types are reused |
+| `MISSING_GENERATED_TYPE` | 2, now resolved | `src/main.tsx`, `src/lib/firebaseConfig.ts` | Missing standard Vite client environment declaration. | No after correction | No |
+| `CONFIGURATION_BOUNDARY` | 6 | `src/main.tsx`, `src/lib/playerSync.test.ts` | Root `lib` is ES2020 while code uses `replaceAll`/`at`. | Yes | Yes if shared/browser target is unresolved |
+| `STALE_OR_DEAD_CODE` | 5 | `src/lib/playerSync.ts`, `src/lib/firebaseClubSync.ts`, `src/lib/playerSync.test.ts`, `src/main.tsx` | Stale duplicated snapshot type plus an unmodeled legacy settings field. | Yes | Yes for snapshot schema; no for legacy desktop setting |
+| `REAL_TYPE_ERROR` | 18 | `src/main.tsx`, `src/lib/playerSync.ts`, `src/lib/firebaseClubSync.ts` | Firebase shape loss, membership narrowing, and renderer state/collection transformations. | Yes | Yes for shared sync/membership; otherwise indirect |
+| `PLATFORM_TYPE_CONFLICT` | 1 | `src/main.tsx` | Typed-array proof does not meet DOM Web Crypto `BufferSource`. | Yes for licensing work | No direct block |
+| `TEST_TYPE_ERROR` | 2 | `src/components/PokerTable.test.tsx`, `src/lib/appCore.test.ts` | Missing test global and heterogeneous fixture inference. | Yes as a gate | No direct block |
+| **Total** | **3,632** | | | | |
+
+### Affected-path counts
+
+| Path | Initial diagnostics |
+| --- | ---: |
+| `src/main.tsx` | 3,593 |
+| `src/components/AppShell.tsx` | 4 |
+| `src/components/PokerTable.test.tsx` | 4 |
+| `src/components/PokerTable.tsx` | 4 |
+| `src/components/TournamentTvView.tsx` | 1 |
+| `src/components/ui/badge.tsx` | 2 |
+| `src/components/ui/button.tsx` | 7 |
+| `src/components/ui/dropdown-menu.tsx` | 2 |
+| `src/lib/appCore.test.ts` | 1 |
+| `src/lib/firebaseClubSync.ts` | 5 |
+| `src/lib/firebaseConfig.ts` | 1 |
+| `src/lib/playerSync.test.ts` | 6 |
+| `src/lib/playerSync.ts` | 2 |
+
+The standard `src/vite-env.d.ts` correction removes the two `MISSING_GENERATED_TYPE` diagnostics without adding errors. The current expected baseline is therefore 3,630 diagnostics across 12 files: `src/lib/firebaseConfig.ts` becomes clean and `src/main.tsx` decreases to 3,592.
+
+A React-only diagnostic probe removed 3,596 displayed diagnostics but exposed 62 additional semantic diagnostics in `src/main.tsx`. These latent errors are not included in the 3,632 initial count and require a definitive rebaseline after root-owned React and ReactDOM declaration packages are installed. They are classified `UNKNOWN_REQUIRES_INVESTIGATION` until then.
+
+Full representative errors, underlying causes, confidence, correction risk, required verification, autonomous-repair safety, project-boundary findings, and remediation order are documented in `docs/agent/ROOT_TYPECHECK_DIAGNOSIS.md`.
+
+### Diagnosis completion verification
+
+After the narrow Vite declaration correction, the required commands were rerun individually:
+
+- FAIL: `npm run typecheck` reported exactly 3,630 diagnostics. The two former `ImportMeta.env` diagnostics were absent and no new diagnostic appeared.
+- PASS: `npm run player:typecheck` completed with no diagnostics.
+- PASS: `npm test` ran 17 files and 81 tests with zero failures or skips; the existing experimental SQLite warning remained.
+- PASS: `npm run build` transformed 1,910 modules and completed in 15.55 seconds; the existing ExcelJS `eval` and chunk-size warnings remained.
+
+The root gate remains intentionally red and quantified. No production code, public API, stored shape, TypeScript strictness setting, include boundary, or runtime behavior was changed.
