@@ -3,6 +3,10 @@ node_modules/
 dist/
 release/
 *.log
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3-shm
+*.sqlite3-wal
 .pilot-license-private-key.pem
 *-pilot-key.json
 *-firebase-adminsdk-*.json

@@ -6354,9 +6354,164 @@ body.low-light .table-financial-metrics .table-profit-metric strong {
   width: min(62vw, 900px);
 }
 
+/* Keep every table control on the same visual grid and make the live table legible at a glance. */
+.poker-table-shell {
+  --poker-seat-size: 108px;
+}
+
+.poker-table-shell.dense {
+  --poker-seat-size: 104px;
+}
+
+.poker-position-marker,
+.poker-seat-card-inner,
+.poker-seat-card.dense .poker-seat-card-inner {
+  height: var(--poker-seat-size);
+  min-height: var(--poker-seat-size);
+  width: var(--poker-seat-size);
+}
+
+.poker-position-marker {
+  font-size: .95rem;
+}
+
+.poker-seat-card-inner,
+body.low-light .poker-seat-card-inner {
+  align-content: center;
+  display: grid;
+  gap: 3px;
+  grid-template-rows: 13px minmax(26px, auto) 14px 14px;
+  justify-items: center;
+  padding: 10px 9px;
+}
+
+.poker-seat-number {
+  font-size: .69rem;
+  left: auto;
+  position: static;
+  top: auto;
+  transform: none;
+}
+
+.poker-seat-player-name,
+.poker-seat-card.dense .poker-seat-player-name {
+  align-self: center;
+  font-size: .78rem;
+  line-height: 1.06;
+  max-width: 84px;
+}
+
+.poker-seat-card:not(.dense) .poker-seat-player-name {
+  font-size: .86rem;
+  max-width: 90px;
+}
+
+.poker-seat-buyin,
+.poker-seat-card.dense .poker-seat-buyin {
+  font-size: .8rem;
+}
+
+.poker-seat-card:not(.dense) .poker-seat-buyin {
+  font-size: .88rem;
+}
+
+.poker-seat-time,
+.poker-seat-card.dense .poker-seat-time {
+  font-size: .66rem;
+}
+
+.poker-seat-card:not(.dense) .poker-seat-time {
+  font-size: .71rem;
+}
+
+.poker-dealer-position {
+  align-items: center;
+  border-radius: 50%;
+  bottom: 1.5%;
+  display: flex;
+  font-size: .63rem;
+  height: 54px;
+  justify-content: center;
+  padding: 0;
+  width: 54px;
+}
+
+.poker-table-center span {
+  font-size: .73rem;
+}
+
+.poker-seat-menu-row :is(button, input, select),
+.poker-seat-cashout {
+  min-height: 40px;
+}
+
+.poker-seat-menu-row .mini-button,
+.poker-seat-menu-row .secondary-button {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+  padding: 8px 11px;
+}
+
+.table-view-topbar h1 {
+  font-size: .95rem;
+}
+
+.table-view-stats strong,
+.table-view-stats em,
+.table-view-stats span {
+  font-size: .76rem;
+}
+
+.table-view-shell :is(.primary-button, .secondary-button, .ghost-button) {
+  min-height: 40px;
+  padding: 9px 14px;
+}
+
+.table-view-shell .icon-button {
+  height: 40px;
+  min-height: 40px;
+  min-width: 40px;
+  width: 40px;
+}
+
+.table-live-feed-title { font-size: .73rem; }
+.table-live-feed-title em { font-size: .65rem; }
+.table-live-feed-items > span > span { font-size: .78rem; }
+.table-live-feed-items strong { font-size: .63rem; }
+.table-live-feed-items time { font-size: .65rem; }
+.table-live-feed-items small { font-size: .8rem; }
+.table-buyin-float-title { font-size: .88rem; }
+.table-buyin-float-rows i { font-size: .73rem; }
+.table-buyin-float-rows span { font-size: .93rem; }
+.table-buyin-float-rows > span > span small { font-size: .7rem; }
+.table-buyin-float-rows em { font-size: .65rem; }
+.table-buyin-float-rows strong { font-size: 1rem; }
+.table-buyin-float-rows > small { font-size: .78rem; }
+.table-buyin-float-total span { font-size: .65rem; }
+.table-buyin-float-total strong { font-size: 1.5rem; }
+.table-view-time-overview .table-view-panel-title > span { font-size: .88rem; }
+.table-view-time-list article span { font-size: .76rem; }
+.table-view-time-list article strong { font-size: 1.1rem; }
+.table-view-time-list .time-left-pill { font-size: .94rem; min-width: 96px; }
+
 @media (max-width: 1180px), (max-height: 720px) {
   .table-view-table .poker-table-shell { padding: 58px 120px 52px; }
   .table-view-table .poker-table-stage { height: auto; width: min(72vw, 820px); }
+}
+
+@media (max-width: 900px) {
+  .poker-table-shell,
+  .poker-table-shell.dense {
+    --poker-seat-size: 94px;
+  }
+
+  .poker-seat-player-name,
+  .poker-seat-card.dense .poker-seat-player-name,
+  .poker-seat-card:not(.dense) .poker-seat-player-name {
+    font-size: .74rem;
+    max-width: 76px;
+  }
 }
 
 .tournament-manager-shell .page-header {
