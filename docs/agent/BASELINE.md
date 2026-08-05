@@ -239,3 +239,29 @@ Repository verification remains a partial failure until the 94 diagnostics are r
 - PASS: `npm test` — 17 files and 81 tests passed, zero failed/skipped, in 3.44 seconds; the existing experimental SQLite warning remained.
 - PASS: `npm run build` — 1,910 modules transformed and built in 14.99 seconds; the existing ExcelJS `eval` and large-chunk warnings remained.
 - PARTIAL FAILURE: `npm run verify` exited 1 after 31.3 seconds because root TypeScript failed; its Player typecheck, 17/81 tests, and 1,910-module build all passed.
+
+## TYPE-001 Boundary Investigation — 2026-08-05
+
+The untouched pre-investigation `npm run typecheck` result remains exactly 94 diagnostics in 6 files with TypeScript exit code 2. The worktree was clean on `chore/prepare-codex-workflow`, and `TYPE-001` was confirmed as a direct prerequisite of `TYPE-005`, `TYPE-006`, and `TYPE-012` and a transitive prerequisite of `TYPE-007`.
+
+The compiler/runtime map is more complex than the earlier 26-file root `include` summary:
+
+- root `tsconfig.json` declares 26 files below `src`, including nine unit-test files;
+- TypeScript's actual repository file graph has 29 files after following `branding.config.json` and two test imports into `player-app/src/domain/playerSync.ts` and `syncProtocol.ts`;
+- root `types` is unspecified, so Node and other transitive globals are admitted to the browser project, and following Player source loads Player-local React declarations alongside root React declarations;
+- Vite's production graph contains 14 root TypeScript modules from `index.html`/`src/main.tsx` and excludes root tests plus the currently unreferenced badge/button modules;
+- `vite.config.ts`, Electron main/preload, API, scripts, download-site code, and e2e harnesses are not semantically typechecked by the current root command.
+
+Locked runtime/build evidence supports an ES2022 renderer library contract without changing the ES2020 TypeScript target: Electron 42.1.0 maps to Chromium 148.0.7778.97, while Vite 7.3.5's installed default target is Chrome 107, Edge 107, Firefox 104, and Safari 16. A read-only compiler probe using `DOM`, `DOM.Iterable`, `ES2022`, and explicit `vite/client` globals produced exactly 88 diagnostics. It removed all six `TYPE-001` `TS2550` diagnostics and exposed no new diagnostic.
+
+No compiler change was applied. A narrow change is safe but does not satisfy the investigation's requirement that every production runtime be covered by an appropriate project and that the command become more complete. A comprehensive renderer/Electron/test/tooling boundary exceeds the current task specification and read-only probes expose 16 additional JavaScript diagnostics across Electron, tooling, e2e, API, and the download site. `TYPE-001` is therefore `review_required`, and the official baseline remains 94 diagnostics.
+
+Full evidence, options, recommended ownership, and the required human scope decision are in `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
+
+Final post-documentation verification retained the same partial-failure state:
+
+- FAIL: `npm run typecheck` — unchanged 94 diagnostics in 6 files.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 17 files and 81 tests in 3.78 seconds; the existing SQLite warning remained.
+- PASS: `npm run build` — 1,910 modules in 18.61 seconds; the existing ExcelJS and chunk-size warnings remained.
+- PARTIAL FAILURE: `npm run verify` — exit 1 after all four gates; only root TypeScript failed.

@@ -282,3 +282,23 @@ Final individual results:
 - PASS: `npm run build` — 1,910 modules transformed and built in 14.99 seconds; the existing ExcelJS `eval` and large-chunk warnings remained.
 
 `npm run verify` then ran all four gates, exited 1 after 31.3 seconds, and accurately summarized only the root TypeScript failure. Its nested Player typecheck, 17/81 tests, and 1,910-module renderer build all passed. Repository verification is therefore a documented partial failure, not a green gate.
+
+## TYPE-001 boundary investigation update — 2026-08-05
+
+`TYPE-001` is now `review_required`; it is not complete and its downstream dependencies remain unsatisfied. No compiler or runtime file changed, so the official rebaseline stays at 94 diagnostics in 6 files.
+
+The investigation established:
+
+- `lib: ES2020` is the sole cause of the six assigned `TS2550` diagnostics;
+- the actual supported renderer floor justifies `ES2022` libraries while retaining `target: ES2020`;
+- an explicit `types: ["vite/client"]` browser boundary prevents automatic Node-global admission without producing a new diagnostic;
+- the current root project has 26 configured files but 29 repository files in its resolved graph because two root tests cross into Player domain source and the renderer imports `branding.config.json`;
+- the root program currently loads both root and Player React declarations and Node globals;
+- Vite configuration and all active Electron JavaScript remain outside semantic checking;
+- CI does not run root TypeScript.
+
+A read-only narrow correction probe reduced 94 diagnostics to 88, exactly removing the six `TYPE-001` diagnostics. It was not committed because the request's implementation conditions require a more complete all-runtime check. The comprehensive boundary would add renderer, root-test, Electron check-JS, Node-tooling, and e2e projects while preserving independent Player/API ownership; probes found 16 additional JavaScript diagnostics across Electron (3), root tooling (2), e2e (2), API (7), and download-site code (2). That expansion is not one small change within the existing `TYPE-001` allowed areas.
+
+See `docs/agent/TYPE-001_BOUNDARY_DECISION.md` for the complete runtime/compiler table, options, exact proposed ownership, project-reference decision, risks, and human decision required.
+
+Post-documentation commands confirmed no baseline change: root typecheck retained 94 diagnostics; Player typecheck passed; all 17 files/81 tests passed; the renderer built 1,910 modules; and aggregate verification exited 1 only for the root TypeScript failure.

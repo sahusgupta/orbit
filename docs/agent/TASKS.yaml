@@ -15,13 +15,15 @@ tasks:
     title: Decide and align the root ECMAScript library boundary
     classification: CONFIGURATION_BOUNDARY
     diagnostics: 6
-    status: pending
+    status: review_required
     safe_autonomous: false
     human_review: true
     blocks_refactoring: true
     blocks_player_web: conditional
     depends_on: []
     spec: docs/agent/tasks/TYPE-001.md
+    decision: docs/agent/TYPE-001_BOUNDARY_DECISION.md
+    human_decision: authorize_narrow_boundary_or_expand_to_multi_project_checking
   - id: TYPE-002
     title: Canonicalize the Player snapshot contract
     classification: STALE_OR_DEAD_CODE
