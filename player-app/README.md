@@ -24,7 +24,7 @@ The app syncs with the Orbit management app through Firebase Firestore. If no li
 
 ```bash
 cd player-app
-npm install
+npm ci
 npm run start
 ```
 

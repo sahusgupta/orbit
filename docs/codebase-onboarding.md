@@ -10,7 +10,7 @@ The product has three major surfaces:
 
 - Desktop management app: React + Vite + Electron.
 - Local/cloud API: Express + SQLite for telemetry, state, reports, and player sync.
-- Player/mobile integration: sync helpers and a separate `player-app` folder that is intentionally ignored in this repo setup.
+- Player/mobile integration: sync helpers and a tracked Expo application in `player-app/`. The current `orbit.config.json` excludes that directory from assistant indexing, but Git does not ignore it.
 
 ## Start Here
 
@@ -27,10 +27,12 @@ Read these files first:
 
 ## How To Run
 
-Install dependencies:
+Install all three lockfiles without rewriting them:
 
 ```powershell
-npm install
+npm ci
+npm ci --prefix apps/api
+npm ci --prefix player-app
 ```
 
 Run the web app:
@@ -50,6 +52,14 @@ Run tests:
 ```powershell
 npm test
 ```
+
+Run the complete repository verification entrypoint:
+
+```powershell
+npm run verify
+```
+
+The current root TypeScript baseline is documented in `docs/agent/BASELINE.md`; do not describe verification as fully passing while that check remains red.
 
 Run the API:
 

@@ -5,7 +5,7 @@ Standalone backend foundation for Orbit desktop, the future mobile app, and a fu
 ## Run Locally
 
 ```powershell
-npm run api:install
+npm ci --prefix apps/api
 $env:ORBIT_CLIENT_API_KEY="dev-orbit-key"
 $env:API_PORT="4629"
 $env:DATABASE_URL="file:./data/orbit-api.sqlite3"
