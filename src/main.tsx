@@ -55,6 +55,7 @@ import { loadClubStateFromFirebase, saveClubStateToFirebase, signInOrCreateFireb
 import { rendererFirebaseSyncEnabled } from './lib/firebaseConfig';
 import { buildNightCloseTables, type NightCloseTable } from './lib/nightClose';
 import { normalizePlayerSessionSeats } from './lib/seatNormalization';
+import { mergeSyncedList } from './lib/syncedList';
 import './styles.css';
 
 declare global {
@@ -1176,27 +1177,6 @@ const publishStateToLocalOrbitBridge = (state: AppState) =>
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ state })
   }).catch(() => undefined);
-const mergeSyncedList = <T extends { id?: string; name?: string; playerName?: string }>(latest: T[], synced: T[]) => {
-  const syncedByKey = new Map(
-    synced.map((item) => [
-      item.id || item.name?.trim().toLowerCase() || item.playerName?.trim().toLowerCase() || '',
-      item
-    ]).filter(([key]) => key)
-  );
-  const latestKeys = new Set<string>();
-  const merged = latest.map((item) => {
-    const key = item.id || item.name?.trim().toLowerCase() || item.playerName?.trim().toLowerCase() || '';
-    if (key) latestKeys.add(key);
-    return key && syncedByKey.has(key) ? syncedByKey.get(key)! : item;
-  });
-  return [
-    ...merged,
-    ...synced.filter((item) => {
-      const key = item.id || item.name?.trim().toLowerCase() || item.playerName?.trim().toLowerCase() || '';
-      return key && !latestKeys.has(key);
-    })
-  ];
-};
 const hasPersistedSignIn = (state: AppState) => {
   if (!isPilotAccessActive(state.settings.pilotAccess)) return false;
   try {

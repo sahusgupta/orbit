@@ -29,3 +29,15 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Retained no project references, no new `checkJs`, no source exclusions, and no ambient-type change.
 - Final verification: root typecheck retained the expected 88 diagnostics and zero `TS2550`; Player typecheck passed; 17 files/81 tests passed in 3.50 seconds; Vite transformed 1,910 modules and built in 17.57 seconds.
 - Aggregate `npm run verify` ran all four gates and exited 1 only for the expected root baseline; its nested Player typecheck, 17/81 tests, and 1,910-module build passed.
+
+## 2026-08-06 — TYPE-005 synchronized-list tuple inference
+
+- Started from a clean `fix/type-005-synchronized-list-tuples` branch based on the latest `chore/prepare-codex-workflow` commit, `1ffba52`; confirmed `TYPE-005` was `ready` and its dependency `TYPE-001` was complete.
+- Re-recorded the untouched baseline: exactly 88 diagnostics in 6 files, including the assigned `TS2769` at `src/main.tsx:1181` and 8 downstream `TS2322` diagnostics at lines 3041, 3042, 3082, 3083, and 3128–3131.
+- Extracted only `mergeSyncedList` to a pure renderer-owned helper, typed its entries as `[string, T]`, its map as `Map<string, T>`, and its result as `T[]`, without an assertion or suppression.
+- Added 6 focused tests for id/name/playerName key selection, local replacement, duplicate behavior, missing/empty keys, local ordering, and remote append ordering.
+- Focused tests passed, and the complete suite increased from 17 files/81 tests to 18 files/87 tests with zero failures or skips.
+- Root diagnostics changed from 88 to exactly 79 in the same 6 affected files. `TS2322` changed from 29 to 21 and `TS2769` from 6 to 5; all other code and path counts were unchanged, and the 9 owned diagnostics were absent.
+- Player typecheck passed; the renderer build passed with 1,911 modules transformed; the existing SQLite, ExcelJS `eval`, and chunk-size warnings remained.
+- Aggregate `npm run verify` ran all four gates and exited 1 only for the expected 79-diagnostic root failure; Player TypeScript, 18/87 tests, and the renderer build passed.
+- Marked only `TYPE-005` complete. `TYPE-007` remains pending on incomplete `TYPE-006`, so no downstream task became newly ready.

@@ -8,7 +8,7 @@ Dependency-restoration starting commit: `02cdd71`
 
 ## Verification state: partial failure
 
-The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, `TYPE-001` has aligned the renderer library contract, and the remaining 88 diagnostics are application, test, stale-contract, or platform errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
+The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, `TYPE-001` has aligned the renderer library contract, `TYPE-005` has restored synchronized-list tuple inference, and the remaining 79 diagnostics are application, test, stale-contract, or platform errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
 
 No production source was changed during this rebaseline. No compiler setting was weakened, no file was excluded, and no diagnostic suppression or unsafe cast was added.
 
@@ -35,13 +35,14 @@ Post-install dependency-tree inspection found one physical root React 19.2.6 ins
 | Before dependency installation | 3,630 diagnostics in 12 files |
 | After dependency installation | 94 diagnostics in 6 files |
 | After `TYPE-001` library correction | 88 diagnostics in 6 files |
+| After `TYPE-005` tuple-inference correction | 79 diagnostics in 6 files |
 | Dependency-restoration displayed-diagnostic reduction | 3,536 |
-| Current net displayed-diagnostic reduction | 3,542 |
+| Current net displayed-diagnostic reduction | 3,551 |
 | Missing React/ReactDOM cascade diagnostics removed | 3,598 |
 | Previously visible non-cascade diagnostics retained | 32 |
 | Previously masked diagnostics exposed | 62 |
 
-The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The dependency-restoration arithmetic is `3,630 - 3,598 + 62 = 94`; the six diagnostics removed by `TYPE-001` then establish the current total of 88.
+The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The dependency-restoration arithmetic is `3,630 - 3,598 + 62 = 94`; the 6 diagnostics removed by `TYPE-001` and the 9 removed by `TYPE-005` establish the current total of 79.
 
 No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency issue is resolved; the root gate remains red because the declarations revealed real contracts that the previous untyped React layer could not check.
 
@@ -51,7 +52,7 @@ No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency
 
 | Code | Count |
 | --- | ---: |
-| `TS2322` | 29 |
+| `TS2322` | 21 |
 | `TS2339` | 5 |
 | `TS2345` | 36 |
 | `TS2352` | 1 |
@@ -60,24 +61,24 @@ No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency
 | `TS2677` | 3 |
 | `TS2739` | 2 |
 | `TS2740` | 1 |
-| `TS2769` | 6 |
+| `TS2769` | 5 |
 | `TS7006` | 2 |
 | `TS7017` | 1 |
-| **Total** | **88** |
+| **Total** | **79** |
 
 ### By affected path
 
 | Path | Count | Application/package |
 | --- | ---: | --- |
-| `src/main.tsx` | 77 | Root management renderer |
+| `src/main.tsx` | 68 | Root management renderer |
 | `src/lib/firebaseClubSync.ts` | 5 | Root renderer/Firebase sync boundary |
 | `src/lib/playerSync.ts` | 2 | Root renderer/player-sync domain copy |
 | `src/lib/playerSync.test.ts` | 2 | Root package tests |
 | `src/lib/appCore.test.ts` | 1 | Root package tests |
 | `src/components/PokerTable.test.tsx` | 1 | Root renderer test |
-| **Total** | **88** | |
+| **Total** | **79** | |
 
-Production root source accounts for 84 diagnostics and root tests account for 4. Electron, API, Player, download-site, e2e, generated output, and dependency source account for zero diagnostics because they are not part of this root TypeScript project's `include: ["src"]` boundary.
+Production root source accounts for 75 diagnostics and root tests account for 4. Electron, API, Player, download-site, e2e, generated output, and dependency source account for zero diagnostics because they are not part of this root TypeScript project's `include: ["src"]` boundary.
 
 ## Root-cause summary
 
@@ -87,7 +88,7 @@ Production root source accounts for 84 diagnostics and root tests account for 4.
 | `TYPE-002` | `STALE_OR_DEAD_CODE` | 4 | Root/Player snapshot public-contract drift | Yes | Yes | No | Yes |
 | `TYPE-003` | `REAL_TYPE_ERROR` | 4 | Firebase transforms erase `ManagementClubState` and tournament types | Yes | Indirectly | No | Yes |
 | `TYPE-004` | `REAL_TYPE_ERROR` | 1 | Membership `Denied` narrowing is lost across a callback | Yes | Yes | No | Yes |
-| `TYPE-005` | `REAL_TYPE_ERROR` | 9 | `mergeSyncedList` loses tuple/value inference, causing eight duplicate assignment errors | Yes | Indirectly | Yes, with focused tests | No |
+| `TYPE-005` | `REAL_TYPE_ERROR` | 0 | Resolved: explicit synchronized-entry tuples preserve the helper's generic value type | No | No | Completed | No |
 | `TYPE-006` | `REAL_TYPE_ERROR` | 6 | Three map/filter pipelines use invalid result type predicates | Yes | No direct block | Yes, with focused tests | No |
 | `TYPE-007` | `REAL_TYPE_ERROR` | 51 | Hand-written structural callback types discard optional/required domain fields | Yes | No direct block | No as one repair | Yes for behavior grouping |
 | `TYPE-008` | `REAL_TYPE_ERROR` | 2 | Profile import paths do not validate/narrow unknown input to `PlayerProfile` | Yes | No direct block | No | Yes |
@@ -97,7 +98,7 @@ Production root source accounts for 84 diagnostics and root tests account for 4.
 | `TYPE-012` | `TEST_TYPE_ERROR` | 2 | Missing act global and heterogeneous fixture inference | Yes as a gate | No | Yes | No |
 | `TYPE-013` | `STALE_OR_DEAD_CODE` | 1 | Legacy settings migration is represented by an incompatible whole-object cast | Yes | No | No | Yes |
 | `TYPE-014` | `STALE_OR_DEAD_CODE` | 1 | `addInterest` compares a form status union to unreachable `Seated` | Yes | No direct block | No | Yes |
-| **Total** | | **88** | | | | | |
+| **Total** | | **79** | | | | | |
 
 No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISMATCH`, or `UNKNOWN_REQUIRES_INVESTIGATION`. Those dependency/configuration discovery issues are resolved or have been converted into evidence-backed tasks.
 
@@ -149,13 +150,13 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 ### TYPE-005 — Synchronized-list tuple inference
 
 - Classification: `REAL_TYPE_ERROR`.
-- Representative diagnostic: `new Map` rejects `(string | T)[][]` at `mergeSyncedList`; its unknown value type produces eight `{}`-array assignment diagnostics at the three sync call sites.
+- Resolved diagnostics: `new Map` rejected `(string | T)[][]` at `mergeSyncedList`; its unknown value type produced eight `{}`-array assignment diagnostics at the three sync call sites.
 - Affected symbols: `mergeSyncedList`, `syncLocalPlayerUpdates`, `syncDesktopApiUpdates`, and `syncPlayerUpdates`.
 - Root cause: the map callback is inferred as an array rather than a `[string, T]` tuple. Eight assignment errors are duplicates of that lost value type.
-- Confidence: high; pre-existing but previously masked: yes. Runtime behavior is likely correct, but duplicate-key/empty-key behavior requires preservation.
-- Recommended correction: make tuple/result types explicit without assertions and characterize merge ordering, replacement, and append behavior.
-- Risk/tests: low/medium; pure helper tests plus root tests/typecheck/build.
-- Autonomous correction: yes as a dedicated task with focused tests.
+- Correction: moved the pure helper to `src/lib/syncedList.ts`, typed its entries as `[string, T]`, its map as `Map<string, T>`, and its return as `T[]`, without an assertion or suppression.
+- Characterization: 6 focused tests preserve id/name/playerName key precedence, local replacement and ordering, duplicate behavior, empty keys, and remote append ordering.
+- Result: all 9 assigned diagnostics are gone with no new diagnostic; runtime merge behavior and all call sites remain unchanged.
+- Status: complete after focused and full verification.
 
 ### TYPE-006 — Invalid map/filter narrowing
 
@@ -261,8 +262,8 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 1. Completed: `TYPE-001` aligned the renderer runtime/library contract.
 2. `TYPE-002`: canonicalize the shared Player snapshot contract.
 3. `TYPE-003` and `TYPE-004`: characterize sync and membership boundaries.
-4. Ready: `TYPE-005` and `TYPE-006` may repair pure collection helpers in their own tasks.
-5. `TYPE-007`: split renderer state transitions into characterized behavior batches after `TYPE-005` and `TYPE-006`.
+4. Completed: `TYPE-005` restored synchronized-list tuple inference; `TYPE-006` remains ready for its separate map/filter repair.
+5. `TYPE-007`: remains pending on `TYPE-006`, then split renderer state transitions into characterized behavior batches.
 6. `TYPE-008`, `TYPE-009`, and `TYPE-010`: repair import, persistence, and GroupMe boundaries independently when their dependencies are complete.
 7. `TYPE-011`: repair Web Crypto only with security fixtures.
 8. Ready: `TYPE-012` may repair test-only types in its own task.
@@ -309,3 +310,28 @@ Final implementation verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 88 diagnostics, while the nested Player typecheck, 17/81 tests, and 1,910-module build passed. The nested test and build durations were 3.50 and 18.78 seconds.
 
 See `docs/agent/TYPE-001_BOUNDARY_DECISION.md` for the runtime/compiler map and approved resolution.
+
+## TYPE-005 completion update — 2026-08-06
+
+The renderer's pure synchronized-list merge now uses explicit `[string, T]` entries, `Map<string, T>`, and a `T[]` result. The helper moved to `src/lib/syncedList.ts` so focused tests can import it without loading the application entrypoint. No public API, persisted or Firebase shape, sync scheduling, transport, conflict rule, key precedence, ordering, or duplicate behavior changed.
+
+The first post-change root typecheck produced exactly 79 diagnostics in the same 6 affected files:
+
+- the assigned `TS2769` formerly at `src/main.tsx:1181` disappeared;
+- the 8 assigned `TS2322` diagnostics formerly at `src/main.tsx:3041`, `3042`, `3082`, `3083`, `3128`, `3129`, `3130`, and `3131` disappeared;
+- `TS2322` decreased from 29 to 21, `TS2769` decreased from 6 to 5, and every other diagnostic-code count stayed unchanged;
+- `src/main.tsx` decreased from 77 to 68 diagnostics, while every other affected-path count stayed unchanged; and
+- neither `src/lib/syncedList.ts` nor its focused test introduced a diagnostic.
+
+Focused characterization covers id/name/playerName key selection, replacement, local and remote ordering, duplicate behavior, and missing/empty keys. No conflicting expectation was found across the behavior used by the three sync sources.
+
+Final implementation verification:
+
+- PASS: focused Vitest run — 1 file and 6 tests passed.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 79 diagnostics in 6 files; all 9 assigned diagnostics absent; no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 18 files and 87 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,911 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 79 diagnostics, while Player TypeScript, 18/87 tests, and the 1,911-module build passed.
+
+`TYPE-005` is complete. `TYPE-007` remains pending because `TYPE-006` is not complete, so no downstream task became newly ready.

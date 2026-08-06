@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, and the completed `TYPE-001` library correction now establishes the truthful current baseline at 88 diagnostics in 6 files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, and completed `TYPE-005` now establishes the truthful current baseline at 79 diagnostics in the same 6 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -287,3 +287,26 @@ Final implementation verification:
 - PASS: `npm test` — 17 files and 81 tests passed, zero failed/skipped, in 3.50 seconds; the existing experimental SQLite warning remained.
 - PASS: `npm run build` — 1,910 modules transformed and built in 17.57 seconds; the existing ExcelJS `eval` and large-chunk warnings remained.
 - EXPECTED PARTIAL FAILURE: `npm run verify` — exit 1 after all four gates; root TypeScript alone failed with 88 diagnostics, while Player TypeScript, 17/81 tests, and the 1,910-module renderer build passed. The nested test and build durations were 3.50 and 18.78 seconds.
+
+## TYPE-005 Synchronized-List Tuple Inference — 2026-08-06
+
+The pure `mergeSyncedList` helper now preserves its generic item type through explicit `[string, T]` entries, `Map<string, T>`, and a `T[]` return. It moved from `src/main.tsx` to `src/lib/syncedList.ts` solely to permit focused pure characterization tests. The three renderer sync flows still call the same helper with unchanged arguments, key precedence, replacement behavior, ordering, duplicate handling, and empty-key behavior.
+
+The first post-change root typecheck produced exactly 79 diagnostics in the same 6 affected files:
+
+- all 9 `TYPE-005` diagnostics disappeared: the `TS2769` formerly at `src/main.tsx:1181` and the 8 downstream `TS2322` diagnostics formerly at lines 3041, 3042, 3082, 3083, and 3128–3131;
+- `TS2322` decreased from 29 to 21 and `TS2769` decreased from 6 to 5;
+- `src/main.tsx` decreased from 77 to 68 diagnostics;
+- every other diagnostic-code and affected-path count stayed unchanged; and
+- neither the helper nor its focused test has a diagnostic.
+
+Final implementation verification:
+
+- PASS: focused Vitest run — 1 file and 6 tests passed.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 79 diagnostics in 6 files, no assigned `TYPE-005` diagnostic, and no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 18 files and 87 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,911 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` — exit 1 after all four gates; root TypeScript alone failed with 79 diagnostics, while Player TypeScript, 18/87 tests, and the 1,911-module renderer build passed.
+
+`TYPE-005` is complete. `TYPE-007` remains pending because `TYPE-006` is not complete, so no downstream task became newly ready.
