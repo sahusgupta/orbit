@@ -7439,6 +7439,7 @@ body.low-light .tournament-prize-total { background: linear-gradient(120deg, rgb
 .orbit-account-summary strong { font-size: .8rem; }.orbit-account-summary span { color: var(--muted); font-size: .7rem; }
 .orbit-sync-state { align-items: center; color: var(--muted); display: flex; font-size: .7rem; gap: 6px; }
 .orbit-sync-state i { background: #22c55e; border-radius: 99px; height: 7px; width: 7px; }.orbit-sync-state i.error { background: #ef4444; }
+.orbit-version { color: var(--muted); font-size: .68rem; font-variant-numeric: tabular-nums; }
 .orbit-signout { background: transparent; border: 0; color: var(--muted); font-size: .75rem; padding: 0; text-align: left; }
 .sidebar-collapsed .orbit-sidebar-brand span, .sidebar-collapsed .orbit-command-trigger span, .sidebar-collapsed .orbit-command-trigger kbd, .sidebar-collapsed .orbit-sidebar-nav span, .sidebar-collapsed .orbit-sidebar-footer { display: none; }
 .sidebar-collapsed .orbit-sidebar-brand { grid-template-columns: 32px 28px; }.sidebar-collapsed .orbit-command-trigger, .sidebar-collapsed .orbit-sidebar-nav button { justify-content: center; padding: 0; }

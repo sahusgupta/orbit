@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Command } from 'cmdk';
 import * as Dialog from '@radix-ui/react-dialog';
 import { BarChart3, ChevronLeft, ChevronRight, CircleUserRound, Gamepad2, LayoutDashboard, Menu, Search, Settings, Trophy, Users, X } from 'lucide-react';
+import packageJson from '../../package.json';
 import { cn } from '../lib/utils';
 
 export type PrimaryDestination = 'floor' | 'players' | 'games' | 'tournaments' | 'reports' | 'settings';
@@ -55,6 +56,7 @@ export default function AppShell({ active, clubName, operator, saveState, onNavi
         <div className="orbit-sidebar-footer">
           <div className="orbit-account-summary"><CircleUserRound size={20} /><div><strong>{operator || 'No operator'}</strong><span>{clubName}</span></div></div>
           <div className="orbit-sync-state"><i className={saveState === 'error' ? 'error' : ''} /><span>{saveState === 'error' ? 'Sync issue' : 'Synced'}</span></div>
+          <div className="orbit-version" aria-label={`Orbit version ${packageJson.version}`}>Version {packageJson.version}</div>
           <button className="orbit-signout" onClick={onSignOut}>Sign out</button>
         </div>
         <button className="orbit-mobile-close" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button>
