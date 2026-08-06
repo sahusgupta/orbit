@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { createUserWithEmailAndPassword, getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { createUserWithEmailAndPassword, getAuth, sendPasswordResetEmail, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { collection, getDocs, initializeFirestore, getFirestore, doc, getDoc, onSnapshot, setDoc, serverTimestamp, updateDoc, writeBatch, type Unsubscribe } from 'firebase/firestore';
 import { firebaseConfig } from './firebaseConfig';
 import {
@@ -74,6 +74,10 @@ export async function signInToFirebaseWithEmail(email: string, password: string)
 export async function createFirebaseEmailAccount(email: string, password: string) {
   const credential = await createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
   return credential.user;
+}
+
+export async function sendFirebasePasswordResetEmail(email: string) {
+  await sendPasswordResetEmail(auth, email.trim().toLowerCase());
 }
 
 /**

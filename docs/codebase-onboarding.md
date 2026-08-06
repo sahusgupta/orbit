@@ -89,7 +89,7 @@ Important workflows inside it:
 
 `src/lib/playerSync.ts` contains sync transformations between player accounts and club state.
 
-`src/lib/firebaseClubSync.ts` handles Firebase state sync and player request subscriptions.
+`src/lib/firebaseClubSync.ts` handles Firebase state sync, management-account authentication and password-reset email delivery, and player request subscriptions. Management password recovery verifies the new Firebase credential before replacing the desktop account's local password salt and hash.
 
 ### Electron
 

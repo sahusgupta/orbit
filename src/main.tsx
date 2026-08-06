@@ -49,9 +49,10 @@ import {
   readBackupEnvelope,
   resolveGameId
 } from './lib/appCore';
+import { AccountRecoveryValidationError, recoverAccountLogin } from './lib/accountRecovery';
 import { createMembershipWindow, parseMembershipPrice } from './lib/membership';
 import { validateMembershipQrCheckIn } from './lib/membershipQr';
-import { loadClubStateFromFirebase, saveClubStateToFirebase, signInOrCreateFirebaseEmailAccount, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
+import { loadClubStateFromFirebase, saveClubStateToFirebase, sendFirebasePasswordResetEmail, signInOrCreateFirebaseEmailAccount, signInToFirebaseWithEmail, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
 import { rendererFirebaseSyncEnabled } from './lib/firebaseConfig';
 import { buildNightCloseTables, type NightCloseTable } from './lib/nightClose';
 import { normalizePlayerSessionSeats } from './lib/seatNormalization';
@@ -2477,6 +2478,8 @@ function App() {
   const [hasAuthenticated, setHasAuthenticated] = useState(() => hasPersistedSignIn(state));
   const hasPublishedStartupSnapshot = useRef(false);
   const [loginDraft, setLoginDraft] = useState({ username: '', password: '', staySignedIn: false });
+  const [passwordRecoveryStage, setPasswordRecoveryStage] = useState<'idle' | 'sending' | 'sent' | 'verifying'>('idle');
+  const [passwordRecoveryNotice, setPasswordRecoveryNotice] = useState('');
   const [setupDraft, setSetupDraft] = useState({
     username: '',
     password: '',
@@ -6142,6 +6145,79 @@ function App() {
     persist(next, false, { feature: 'Account', action: 'Signed in', route: 'access' });
   };
 
+  const resetPasswordRecovery = () => {
+    setPasswordRecoveryStage('idle');
+    setPasswordRecoveryNotice('');
+    setPilotKeyError('');
+    setLoginDraft((current) => ({ ...current, password: '' }));
+  };
+
+  const requestAccountPasswordReset = async () => {
+    const accountLogin = state.settings.accountLogin;
+    if (!accountLogin) return;
+    if (!canUseRendererFirebaseAuth()) {
+      setPilotKeyError('Password recovery requires Firebase connectivity. Contact Orbit support if this installation is offline.');
+      return;
+    }
+
+    setPasswordRecoveryStage('sending');
+    setPasswordRecoveryNotice('');
+    setPilotKeyError('');
+    setLoginDraft((current) => ({ ...current, username: accountLogin.username, password: '' }));
+    try {
+      await sendFirebasePasswordResetEmail(accountLogin.username);
+      setPasswordRecoveryStage('sent');
+      setPasswordRecoveryNotice('A password reset link was sent to the card house login email. Choose a new password there, then return here to finish recovery.');
+    } catch {
+      setPasswordRecoveryStage('idle');
+      setPilotKeyError('Orbit could not send the password reset email. Confirm the internet connection and contact Orbit support if the problem continues.');
+    }
+  };
+
+  const completeAccountPasswordRecovery = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const accountLogin = state.settings.accountLogin;
+    if (!accountLogin || passwordRecoveryStage !== 'sent') return;
+    if (!isPilotAccessActive(state.settings.pilotAccess)) {
+      setPilotKeyError('This pilot key has expired. Load a current key to continue.');
+      return;
+    }
+
+    setPasswordRecoveryStage('verifying');
+    setPilotKeyError('');
+    try {
+      const recoveredLogin = await recoverAccountLogin({
+        accountLogin,
+        username: loginDraft.username,
+        password: loginDraft.password,
+        authenticate: signInToFirebaseWithEmail,
+        createSalt: randomToken,
+        hashPassword: hashStaffPin,
+        now: nowIso
+      });
+      const next = {
+        ...state,
+        settings: {
+          ...state.settings,
+          accountLogin: recoveredLogin
+        }
+      };
+      persistSignIn(next, loginDraft.staySignedIn);
+      setHasAuthenticated(true);
+      setPasswordRecoveryStage('idle');
+      setPasswordRecoveryNotice('');
+      setPilotKeyError('');
+      persist(next, false, { feature: 'Account', action: 'Recovered login', route: 'access' });
+    } catch (error) {
+      setPasswordRecoveryStage('sent');
+      setPilotKeyError(
+        error instanceof AccountRecoveryValidationError
+          ? error.message
+          : 'Firebase could not verify the new password. Complete the reset email first, then try again.'
+      );
+    }
+  };
+
   const createLoginForExistingAccount = async (event: React.FormEvent) => {
     event.preventDefault();
     const accountLogin = await createAccountLogin();
@@ -6589,15 +6665,25 @@ function App() {
               <p>Use the login created for this card house. Access remains limited by the pilot key expiration.</p>
             </div>
           </div>
-          <form className="access-step account-form" onSubmit={signInToAccount}>
-            <input value={loginDraft.username} onChange={(event) => setLoginDraft({ ...loginDraft, username: event.target.value })} placeholder="Email" type="email" autoComplete="email" />
-            <input value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} placeholder="Password" type="password" />
+          <form className="access-step account-form" onSubmit={passwordRecoveryStage === 'idle' ? signInToAccount : completeAccountPasswordRecovery}>
+            <input value={loginDraft.username} onChange={(event) => setLoginDraft({ ...loginDraft, username: event.target.value })} placeholder="Email" type="email" autoComplete="email" readOnly={passwordRecoveryStage !== 'idle'} />
+            <input value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} placeholder={passwordRecoveryStage === 'sent' ? 'New password' : 'Password'} type="password" autoComplete={passwordRecoveryStage === 'sent' ? 'new-password' : 'current-password'} />
             <label className="switch-control">
               <input type="checkbox" checked={loginDraft.staySignedIn} onChange={(event) => setLoginDraft({ ...loginDraft, staySignedIn: event.target.checked })} />
               <span>Stay signed in until key expiration</span>
             </label>
-            <button className="primary-button" type="submit">Sign In</button>
-            <button className="ghost-button" type="button" onClick={() => setState(seedState)}>Use a different key</button>
+            {passwordRecoveryNotice ? <p className="success-copy" role="status">{passwordRecoveryNotice}</p> : null}
+            <button className="primary-button" type="submit" disabled={passwordRecoveryStage === 'sending' || passwordRecoveryStage === 'verifying'}>
+              {passwordRecoveryStage === 'sent' || passwordRecoveryStage === 'verifying'
+                ? passwordRecoveryStage === 'verifying' ? 'Verifying...' : 'Finish Password Reset'
+                : 'Sign In'}
+            </button>
+            {passwordRecoveryStage === 'idle' ? (
+              <button className="ghost-button" type="button" onClick={requestAccountPasswordReset}>Forgot password?</button>
+            ) : (
+              <button className="ghost-button" type="button" onClick={resetPasswordRecovery} disabled={passwordRecoveryStage === 'sending' || passwordRecoveryStage === 'verifying'}>Back to sign in</button>
+            )}
+            <button className="ghost-button" type="button" onClick={() => { resetPasswordRecovery(); setState(seedState); }}>Use a different key</button>
             {pilotKeyError ? <p className="access-error">{pilotKeyError}</p> : null}
           </form>
         </section>

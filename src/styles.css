@@ -245,6 +245,8 @@ button {
 .account-form textarea,
 .account-form .segmented-control,
 .account-form .switch-control,
+.account-form .access-error,
+.account-form .success-copy,
 .account-form button {
   grid-column: 1 / -1;
 }
