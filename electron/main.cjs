@@ -8,6 +8,7 @@ const os = require('os');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 const branding = require('../branding.config.json');
+const { findReplacementAccountRecord, migrateStateToPilotAccess } = require('./accountMigration.cjs');
 const {
   fetchPendingPlayerRequests,
   isFirebaseConfigured,
@@ -674,6 +675,45 @@ function readLocalDatabase(accountKey) {
   }
 
   return null;
+}
+
+function migrateLocalAccountToPilotAccess(access) {
+  const targetAccountKey = getAccountKeyFromAccess(access);
+  if (!targetAccountKey || !String(access?.issuedTo || '').trim()) return null;
+  if (readLocalDatabase(targetAccountKey)?.state) return null;
+
+  // Import an older single-account store first, if this installation has not
+  // yet materialized it in account_state.
+  readLocalDatabase();
+
+  const records = getDatabase()
+    .prepare('SELECT account_key, schema_version, saved_at, state_json FROM account_state ORDER BY saved_at DESC')
+    .all()
+    .flatMap((row) => {
+      try {
+        return [{
+          accountKey: row.account_key,
+          schemaVersion: row.schema_version,
+          savedAt: row.saved_at,
+          state: JSON.parse(row.state_json)
+        }];
+      } catch {
+        return [];
+      }
+    });
+  const source = findReplacementAccountRecord(records, access, targetAccountKey);
+  if (!source?.state) return null;
+
+  const state = migrateStateToPilotAccess(source.state, access);
+  const savedAt = new Date().toISOString();
+  const result = writeLocalDatabase(state);
+  return {
+    schemaVersion: source.schemaVersion || 3,
+    savedAt,
+    state,
+    accountKey: result.accountKey,
+    source: 'local-account-migration'
+  };
 }
 
 function writeLocalDatabase(state) {
@@ -1358,7 +1398,10 @@ async function loadStateApiFirst(accountKey, access) {
   const apiRecord = await loadStateFromApi(accountKey, access);
   if (apiRecord) return apiRecord;
 
-  const fallbackRecord = await loadStateWithFirebaseFallback(accountKey);
+  let fallbackRecord = await loadStateWithFirebaseFallback(accountKey);
+  if (!fallbackRecord?.state && access) {
+    fallbackRecord = migrateLocalAccountToPilotAccess(access);
+  }
   if (fallbackRecord?.state) {
     // A new API database may not have this licensed venue yet. Seed it from the
     // local/Firebase source of truth so player requests have a matching target.
