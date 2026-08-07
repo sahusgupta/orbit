@@ -1,0 +1,85 @@
+queue: orbit-large-refactor
+status: active
+current: REF-001
+tasks:
+  - id: REF-001
+    title: Extract canonical management domain types
+    status: ready
+    boundary: renderer_types
+    risk: low_runtime_high_contract
+    depends_on: []
+    characterization:
+      - existing_stabilization_renderer_suites
+      - root_and_player_typechecks
+    acceptance:
+      - canonical management types live under src/domain
+      - main runtime behavior and persisted shapes are unchanged
+      - renderer and test compiler ownership remains exact
+  - id: REF-002
+    title: Extract state defaults and persisted-state normalization
+    status: planned
+    boundary: renderer_persistence
+    risk: high
+    depends_on: [REF-001]
+    characterization:
+      - src/lib/accountRestore.test.ts
+      - src/lib/stateCorrections.test.ts
+  - id: REF-003
+    title: Extract report windows and financial analytics
+    status: planned
+    boundary: renderer_reporting
+    risk: medium
+    depends_on: [REF-001]
+    characterization:
+      - add_direct_report_and_financial_fixtures_before_move
+  - id: REF-004
+    title: Extract licensing and staff-auth helpers
+    status: planned
+    boundary: renderer_identity
+    risk: high
+    depends_on: [REF-001]
+    characterization:
+      - src/lib/pilotSignature.test.ts
+      - add_direct_staff_hash_fixtures_before_move
+  - id: REF-005
+    title: Extract remaining demand, table-health, and participant rules
+    status: planned
+    boundary: renderer_domain
+    risk: high
+    depends_on: [REF-001, REF-002]
+    characterization:
+      - existing_table_waitlist_participant_suites
+  - id: REF-006
+    title: Split renderer route sections into typed feature components
+    status: planned
+    boundary: renderer_ui
+    risk: high
+    depends_on: [REF-002, REF-003, REF-004, REF-005]
+    execution: one_route_and_one_characterization_boundary_per_subtask
+  - id: REF-007
+    title: Split the ordered global stylesheet by feature
+    status: planned
+    boundary: renderer_css
+    risk: high_visual
+    depends_on: [REF-006]
+    verification: browser_rendered_comparison_required
+  - id: REF-008
+    title: Extract Electron process modules
+    status: gated
+    boundary: electron
+    risk: high_security
+    depends_on: [TYPE-016]
+    prohibited: production_connected_stress_harness
+  - id: REF-009
+    title: Establish and migrate to a shared sync core
+    status: gated
+    boundary: cross_runtime_sync
+    risk: high_architecture
+    depends_on: [TYPE-016, TYPE-018]
+    blocker: shared_package_ownership_decision_if_no_single_behavior_preserving_boundary_emerges
+  - id: REF-010
+    title: Split API database and route responsibilities
+    status: gated
+    boundary: api
+    risk: high_data
+    depends_on: [TYPE-018, REF-009]

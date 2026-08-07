@@ -6,7 +6,7 @@ This audit identifies the areas most worth redoing so the TableManager codebase 
 
 ### `src/main.tsx`
 
-Current size: about 6,300 lines.
+Current size: 10,171 lines as of 2026-08-07.
 
 This file is doing too many jobs:
 
@@ -62,7 +62,7 @@ Good first extraction:
 
 ### `src/styles.css`
 
-Current size: about 4,700 lines.
+Current size: 8,840 lines as of 2026-08-07.
 
 This stylesheet likely mirrors the same problem as `src/main.tsx`: everything for every screen is in one global file.
 
@@ -85,7 +85,7 @@ The compactness goal is not fewer CSS lines at all costs. The goal is for a new 
 
 ### `electron/main.cjs`
 
-Current size: about 1,300 lines.
+Current size: 1,856 lines as of 2026-08-07.
 
 This file mixes:
 
@@ -137,7 +137,7 @@ Then both the frontend and API can depend on the same behavior.
 
 ### `apps/api/src/database.js`
 
-Current size: about 500 lines.
+Current size: 556 lines as of 2026-08-07.
 
 This is not dangerously large yet, but it mixes schema creation, row mapping, writes, reads, telemetry queries, state persistence, and reports.
 
@@ -155,7 +155,7 @@ apps/api/src/db/
 
 ### `apps/api/src/server.js`
 
-Current size: about 300 lines.
+Current size: 668 lines as of 2026-08-07.
 
 This file is still manageable, but route groups should eventually move into files:
 

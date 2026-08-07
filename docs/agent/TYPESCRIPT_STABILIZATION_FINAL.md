@@ -148,29 +148,29 @@ Approved and implemented: authoritative profile ID plus a unique normalized unli
 
 Approved and implemented: canonical `time-package`, authoritative transaction/player identity, complete tournament-status validation/mapping, conservative malformed-record skipping, and no invented legacy semantics.
 
-## Planned compiler-coverage recommendations
+## Post-green compiler-coverage decisions
 
-The explicit root-zero gate is now met. The following recommendations from the existing TYPE-015 through TYPE-022 specifications are provisional until the post-green compiler-coverage reassessment is complete.
+The post-green reassessment is complete. Details and the boundary verification matrix are in `docs/agent/POST_STABILIZATION_VERIFICATION_PLAN.md`.
 
-| Task | Provisional classification | Recommendation |
+| Task | Decision | Result or trigger |
 | --- | --- | --- |
-| TYPE-021 | `DO_BEFORE_REFACTOR` | Move Player implementation imports out of root test ownership first; this is also required before Player web and is a prerequisite for TYPE-015. |
-| TYPE-015 | `DO_BEFORE_REFACTOR` | Separate renderer and test compiler environments so refactor diagnostics have clear ownership. |
-| TYPE-022 | `DO_BEFORE_REFACTOR` | After TYPE-015, restrict sandboxed renderer globals to browser/Vite types. |
-| TYPE-016 | `DO_DURING_REFACTOR` | Add Electron check-JS before any refactor touches main/preload/security boundaries; three probe diagnostics need separate ownership. |
-| TYPE-018 | `DO_BEFORE_PLAYER_WEB` | Add API check-JS before expanding web/API integration; seven probe diagnostics touch Firebase, licensing, and payment code. |
-| TYPE-017 | `DO_DURING_REFACTOR` | Add static Node/Vite tooling coverage without executing administrative scripts. |
-| TYPE-019 | `DEFER` | Download-site coverage is valuable but does not currently block the product refactor or Player web. |
-| TYPE-020 | `DEFER` | Keep static e2e coverage deferred until the harness is secret-free and localhost-only; never execute the current production-connected stress path for verification. |
+| TYPE-021 | Required now; complete. | Player implementation paths removed from root compiler ownership in `2c62779`; all nine tests remain. |
+| TYPE-015 | Required now; complete. | Renderer and root-test projects separated with non-short-circuiting orchestration in `ef9156d`. |
+| TYPE-022 | Required now; complete. | Renderer ambient types restricted to `vite/client` in `f9ae262`; zero Node ambient files remain. |
+| TYPE-016 | Trigger before Electron refactoring. | Three probe diagnostics still need ownership before main/preload/security work. |
+| TYPE-017 | Trigger before tooling refactoring. | Static-only Node/Vite script coverage is independent of the renderer phase. |
+| TYPE-018 | Trigger before API/shared-core work or Player web/API expansion. | Seven probe diagnostics touch privileged Firebase/licensing/payment boundaries. |
+| TYPE-019 | Defer until download-site work. | It does not guard the management renderer refactor. |
+| TYPE-020 | Defer pending TYPE-016 and a secret-free localhost-only harness. | Never execute the current production-connected stress path for verification. |
 
 ## Refactor and Player-web readiness
 
-- Large refactor: the TypeScript stabilization gate is satisfied; compiler-coverage prerequisites still require the planned post-green reassessment.
-- Orbit Player web: shared publication/payment identity is resolved; TYPE-021/TYPE-018 remain compiler-coverage considerations.
+- Large refactor: ready for the renderer-foundation phase; required TYPE-021/015/022 coverage is complete. Electron/API phases remain trigger-gated.
+- Orbit Player web: shared publication/payment identity and Player compiler ownership are resolved; complete TYPE-018 before web/API expansion.
 
 ## Stabilization commit list
 
-The sequence after dependency-restoration starting commit `02cdd71` contains these 53 preceding commits. The TYPE-003 implementation/documentation commit is intentionally reported by the handoff because a commit cannot contain its own stable hash.
+The sequence after dependency-restoration starting commit `02cdd71` contains these 57 preceding commits. The architecture-audit documentation commit is intentionally reported by the handoff because a commit cannot contain its own stable hash.
 
 1. `2897a35` — chore: restore React types and rebaseline TypeScript
 2. `11039ef` — docs: analyze TypeScript project boundaries
@@ -225,7 +225,11 @@ The sequence after dependency-restoration starting commit `02cdd71` contains the
 51. `8985cd4` — fix: preserve authoritative profile relationships
 52. `6a71e6c` — test: characterize Firebase club synchronization
 53. `760f6a0` — test: characterize tournament registration events
+54. `dc10ea5` — fix: validate Firebase club synchronization
+55. `2c62779` — test: assign Player domain suites to Player
+56. `ef9156d` — chore: separate renderer and test typechecks
+57. `f9ae262` — chore: restrict renderer ambient globals
 
 ## Immediate next action
 
-Complete the post-green compiler-coverage reassessment against TYPE-015 through TYPE-022, implement only the coverage needed to make the authorized large refactor materially safer, and then continue the architecture audit/refactor task queue.
+Execute REF-001, the type-only extraction of canonical management contracts, using the recently committed renderer characterization suites before and after the move.
