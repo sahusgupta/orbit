@@ -80,7 +80,14 @@ vi.mock('./firebaseConfig', () => ({
   firebaseConfig: { projectId: 'type-003-project' }
 }));
 
-import { saveClubStateToFirebase, syncPlayerUpdatesToClubState } from './firebaseClubSync';
+import {
+  saveClubStateToFirebase,
+  syncPlayerUpdatesToClubState,
+  type FirebaseSyncState,
+  type ManagementRevenueTransaction,
+  type ManagementTournament,
+  type ManagementTournamentPlayer
+} from './firebaseClubSync';
 
 const clubId = 'type-003-fixture';
 const paths = {
@@ -126,7 +133,9 @@ const buildProfile = (id: string, name: string, overrides: Record<string, unknow
   ...overrides
 });
 
-const buildTournament = (id: string, players: StoredDocument[] = []) => ({
+type TestTournament = ManagementTournament & { preservedTournamentField: string };
+
+const buildTournament = (id: string, players: ManagementTournamentPlayer[] = []): TestTournament => ({
   id,
   name: `Tournament ${id}`,
   status: 'Draft',
@@ -162,24 +171,14 @@ const buildTournament = (id: string, players: StoredDocument[] = []) => ({
   preservedTournamentField: `${id}-preserved`
 });
 
-type TestState = {
-  games: Array<typeof game>;
-  inAppNotifications: StoredDocument[];
-  interests: StoredDocument[];
-  playerSessions: StoredDocument[];
+type TestState = Omit<FirebaseSyncState, 'tournaments'> & {
   preservedRootField: { enabled: boolean };
-  profiles: Array<ReturnType<typeof buildProfile>>;
-  revenueTransactions: StoredDocument[];
-  sessions: StoredDocument[];
-  settings: {
+  settings: NonNullable<FirebaseSyncState['settings']> & {
     clubAccount: { clubName: string; email: string };
-    collectionProfiles: StoredDocument[];
     defaultCollectionMode: 'Time' | 'Drop';
-    membershipPlans: StoredDocument[];
     pilotAccess: { licenseId: string };
-    staffAccounts: StoredDocument[];
   };
-  tournaments: Array<ReturnType<typeof buildTournament>>;
+  tournaments: TestTournament[];
 };
 
 const buildState = (overrides: Partial<TestState> = {}): TestState => ({
@@ -226,7 +225,7 @@ beforeEach(() => {
 
 describe('Firebase club synchronization transforms', () => {
   it('preserves canonical revenue fields, time-package, authoritative transaction IDs, order, and idempotency', async () => {
-    const existing = {
+    const existing: ManagementRevenueTransaction = {
       id: 'transaction-existing',
       type: 'other',
       amountCents: 100,
@@ -235,7 +234,7 @@ describe('Firebase club synchronization transforms', () => {
       source: 'manual',
       playerName: 'Mutable Display'
     };
-    const untouched = {
+    const untouched: ManagementRevenueTransaction = {
       id: 'transaction-untouched',
       type: 'refund',
       amountCents: 50,
@@ -287,7 +286,7 @@ describe('Firebase club synchronization transforms', () => {
     expect(first.profiles).toEqual(state.profiles);
   });
 
-  it('currently applies paid membership by the first ID, email-note, or name match and fabricates a profile from a transaction ID', async () => {
+  it('applies paid membership only by authoritative player ID and does not fabricate a profile without one', async () => {
     const wrongSameName = buildProfile('profile-wrong-name', 'Paid Player');
     const wrongEmailNote = buildProfile('profile-wrong-email', 'Another Player', { notes: 'Contact payer@example.test' });
     const authoritative = buildProfile('profile-authoritative', 'Authoritative Player');
@@ -321,22 +320,18 @@ describe('Firebase club synchronization transforms', () => {
     const result = await syncPlayerUpdatesToClubState(state);
 
     expect(state).toEqual(stateSnapshot);
-    expect(result.profiles[0]).toEqual({
-      ...wrongSameName,
+    expect(result.profiles[0]).toBe(state.profiles[0]);
+    expect(result.profiles[1]).toBe(state.profiles[1]);
+    expect(result.profiles[2]).toEqual({
+      ...authoritative,
       membershipStartDate: '2026-08-03',
       membershipExpirationDate: '2026-09-02'
     });
-    expect(result.profiles[1]).toBe(state.profiles[1]);
-    expect(result.profiles[2]).toBe(state.profiles[2]);
-    expect(result.profiles[3]).toMatchObject({
-      id: missingPlayerId.id,
-      name: missingPlayerId.playerName,
-      membershipStartDate: '2026-08-04',
-      membershipExpirationDate: '2026-08-05'
-    });
+    expect(result.profiles).toHaveLength(3);
+    expect(result.revenueTransactions).toEqual([payment, missingPlayerId]);
   });
 
-  it('currently stores unknown payment types and records without authoritative transaction IDs', async () => {
+  it('skips unknown payment types and records without authoritative transaction IDs', async () => {
     const unknownType = {
       id: 'transaction-unknown',
       type: 'invented-payment-type',
@@ -354,12 +349,14 @@ describe('Firebase club synchronization transforms', () => {
     };
     setRemoteDocuments(paths.transactions, [unknownType, missingId]);
 
-    const result = await syncPlayerUpdatesToClubState(buildState());
+    const state = buildState();
+    const result = await syncPlayerUpdatesToClubState(state);
 
-    expect(result.revenueTransactions).toEqual([unknownType, missingId]);
+    expect(result).toBe(state);
+    expect(result.revenueTransactions).toEqual([]);
   });
 
-  it('currently imports valid registrations, collapses finished and unknown statuses, and admits a missing registration ID', async () => {
+  it('imports every valid registration status and skips unknown or missing authoritative identity', async () => {
     const tournament = buildTournament('tournament-one');
     const unrelatedTournament = buildTournament('tournament-unrelated');
     const registrations = [
@@ -463,15 +460,13 @@ describe('Firebase club synchronization transforms', () => {
       id: tournament.id,
       preservedTournamentField: tournament.preservedTournamentField
     });
-    expect(result.tournaments[0].players.map((player: StoredDocument) => [player.id, player.status])).toEqual([
+    expect(result.tournaments[0].players.map((player) => [player.id, player.status])).toEqual([
       ['registration-registered', 'Registered'],
       ['registration-checked-in', 'Checked In'],
       ['registration-eliminated', 'Eliminated'],
-      ['registration-finished', 'Registered'],
+      ['registration-finished', 'Finished'],
       ['registration-rebought', 'Registered'],
-      ['registration-add-on', 'Registered'],
-      ['registration-unknown', 'Registered'],
-      [undefined, 'Registered']
+      ['registration-add-on', 'Registered']
     ]);
     expect(result.tournaments[0].players[2]).toMatchObject({
       profileId: 'profile-eliminated',
@@ -485,8 +480,8 @@ describe('Firebase club synchronization transforms', () => {
     expect(result.tournaments[1]).toBe(state.tournaments[1]);
   });
 
-  it('currently ignores authoritative updates to an existing registration while remaining idempotent', async () => {
-    const existingPlayer = {
+  it('updates existing registrations by authoritative ID while preserving unrelated player fields and idempotency', async () => {
+    const existingPlayer: ManagementTournamentPlayer = {
       id: 'registration-existing',
       registrationId: 'registration-existing',
       profileId: 'profile-existing-player',
@@ -507,22 +502,84 @@ describe('Firebase club synchronization transforms', () => {
       tournamentId: 'tournament-one',
       playerId: existingPlayer.profileId,
       playerName: existingPlayer.name,
-      playerEmail: existingPlayer.email,
       status: 'finished',
       rebuys: 3,
       addOns: 1,
       registeredAt: existingPlayer.registeredAt
     };
     const state = buildState({ tournaments: [buildTournament('tournament-one', [existingPlayer])] });
+    const stateSnapshot = structuredClone(state);
     setRemoteDocuments(paths.registrations, [registrationUpdate]);
 
     const first = await syncPlayerUpdatesToClubState(state);
     const second = await syncPlayerUpdatesToClubState(first);
 
-    expect(first).toEqual(state);
-    expect(first.tournaments[0]).toBe(state.tournaments[0]);
-    expect(first.tournaments[0].players[0]).toBe(state.tournaments[0].players[0]);
+    expect(state).toEqual(stateSnapshot);
+    expect(first.tournaments[0]).not.toBe(state.tournaments[0]);
+    expect(first.tournaments[0].players[0]).toEqual({
+      ...existingPlayer,
+      rebuys: 3,
+      addOns: 1,
+      status: 'Finished'
+    });
     expect(second).toEqual(first);
+  });
+
+  it('treats rebuy and add-on statuses as count updates without replacing the established tournament status', async () => {
+    const rebuyPlayer: ManagementTournamentPlayer = {
+      id: 'registration-rebuy-update',
+      registrationId: 'registration-rebuy-update',
+      profileId: 'profile-rebuy-update',
+      name: 'Rebuy Update Player',
+      buyIn: 100,
+      rebuys: 0,
+      addOns: 0,
+      startingStack: 20_000,
+      status: 'Checked In',
+      registeredAt: '2026-08-01T10:00:00.000Z'
+    };
+    const addOnPlayer: ManagementTournamentPlayer = {
+      id: 'registration-add-on-update',
+      registrationId: 'registration-add-on-update',
+      profileId: 'profile-add-on-update',
+      name: 'Add-on Update Player',
+      buyIn: 100,
+      rebuys: 1,
+      addOns: 0,
+      startingStack: 20_000,
+      status: 'Active',
+      registeredAt: '2026-08-01T10:05:00.000Z'
+    };
+    const state = buildState({ tournaments: [buildTournament('tournament-one', [rebuyPlayer, addOnPlayer])] });
+    setRemoteDocuments(paths.registrations, [
+      {
+        id: rebuyPlayer.registrationId,
+        tournamentId: 'tournament-one',
+        playerId: rebuyPlayer.profileId,
+        playerName: rebuyPlayer.name,
+        status: 'rebought',
+        rebuys: 2,
+        addOns: 0,
+        registeredAt: rebuyPlayer.registeredAt
+      },
+      {
+        id: addOnPlayer.registrationId,
+        tournamentId: 'tournament-one',
+        playerId: addOnPlayer.profileId,
+        playerName: addOnPlayer.name,
+        status: 'add-on-purchased',
+        rebuys: 1,
+        addOns: 1,
+        registeredAt: addOnPlayer.registeredAt
+      }
+    ]);
+
+    const result = await syncPlayerUpdatesToClubState(state);
+
+    expect(result.tournaments[0].players).toEqual([
+      { ...rebuyPlayer, rebuys: 2, status: 'Checked In' },
+      { ...addOnPlayer, addOns: 1, status: 'Active' }
+    ]);
   });
 });
 

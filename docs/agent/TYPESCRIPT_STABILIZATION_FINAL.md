@@ -4,7 +4,7 @@ Report date: 2026-08-07
 
 Branch: `fix/type-005-synchronized-list-tuples`
 
-Outcome: condition B reached. The autonomous current-diagnostic queue is exhausted, but stabilization is not green. Root TypeScript has 14 diagnostics, all owned by two documented tasks that require human product/data/identity decisions. Player TypeScript, all unit tests, and the renderer build pass; aggregate verification fails only on the root TypeScript gate.
+Outcome: stabilization complete. After the two documented human decisions were approved, `TYPE-007H` and `TYPE-003` were characterized and implemented in separate commits. Root TypeScript, Player TypeScript, all unit tests, the renderer build, and aggregate verification now pass.
 
 No production service, Firebase data, payment system, identity system, credential, deployment, publication workflow, or push was used.
 
@@ -43,8 +43,10 @@ The installed root type packages match the locked React 19.2 runtime. Player rem
 | TYPE-010 | 16 | 2 |
 | TYPE-008 | 14 | 2 |
 | TYPE-013 compatibility audit | 14 | 2 |
+| TYPE-007H | 4 | 1 |
+| TYPE-003 | 0 | 0 |
 
-The semantic phase removed 80 diagnostics from the truthful 94-diagnostic baseline. The complete reduction from 3,630 is 3,616 diagnostics.
+The semantic phase removed all 94 diagnostics from the truthful baseline. The complete reduction from 3,630 is 3,630 diagnostics.
 
 ## Completed remediation tasks
 
@@ -52,6 +54,7 @@ The semantic phase removed 80 diagnostics from the truthful 94-diagnostic baseli
 | --- | --- |
 | TYPE-001 | Aligned the renderer library contract with supported ES2022 APIs. |
 | TYPE-002 | Added the already-emitted `social` field to the canonical Player snapshot contract without changing publication. |
+| TYPE-003 | Validated Firebase revenue and tournament records, preserved `time-package`, and enforced authoritative payment/registration identity. |
 | TYPE-004 | Preserved non-Denied membership status narrowing across profile update/create callbacks. |
 | TYPE-005 | Restored explicit synchronized-list tuple inference and complete generic values. |
 | TYPE-006 | Restored exact map/filter result narrowing in three collection builders. |
@@ -62,6 +65,7 @@ The semantic phase removed 80 diagnostics from the truthful 94-diagnostic baseli
 | TYPE-007E | Preserved forming/balanced table construction, ordering, and planned IDs. |
 | TYPE-007F | Applied approved Option C: optional participant fields remain optional while runtime stays interest-only. |
 | TYPE-007G | Preserved complete table lifecycle/session/event transformations. |
+| TYPE-007H | Applied the approved authoritative-ID plus unique-unlinked-name-fallback policy across profile relationships. |
 | TYPE-007I | Preserved canonical table-event report and CSV projection callbacks. |
 | TYPE-007J | Preserved canonical floor rendering collection callbacks. |
 | TYPE-008 | Added a guarded `unknown` boundary and complete normalization for pasted profile imports. |
@@ -72,24 +76,24 @@ The semantic phase removed 80 diagnostics from the truthful 94-diagnostic baseli
 | TYPE-013 | Retained the historically proven `defaultRakeMode` input through a narrow legacy settings contract. |
 | TYPE-014 | Preserved direct seating and removed only the unreachable ordinary-interest seated timestamp comparison. |
 
-The TYPE-007 umbrella remains incomplete because TYPE-007H retains 10 diagnostics. TYPE-003 retains 4 diagnostics. Every other current remediation task is complete.
+All current remediation tasks and the TYPE-007 umbrella are complete.
 
 ## Behavior defects and risks discovered
 
 | Finding | Disposition |
 | --- | --- |
 | Duplicate-name departure could update multiple logically distinct profiles. | Fixed in TYPE-007D2: ambiguous fallback performs no profile mutation while the session departure still completes. |
-| Profile club-presence operations can retarget/remove or display multiple same-name identities. | Not changed; blocked on TYPE-007H's identity decision. |
-| API revenue emits `time-package`, which the management persisted union excludes while runtime stores/reports it as other revenue. | Not changed; blocked on TYPE-003's persisted financial meaning decision. |
-| Paid membership synchronization can select the first email/name match despite an authoritative API `playerId`. | Not changed; blocked on TYPE-003's entitlement identity decision. |
-| Player tournament status `finished` is collapsed to management `Registered`. | Not changed; blocked on TYPE-003's tournament mapping decision. |
+| Profile club-presence operations can retarget/remove or display multiple same-name identities. | Fixed in TYPE-007H with authoritative IDs and conservative unique unlinked-name fallback. |
+| API revenue emits `time-package`, which the management persisted union excluded. | Fixed in TYPE-003: `time-package` is canonical and remains categorized as other revenue. |
+| Paid membership synchronization can select the first email/name match despite an authoritative API `playerId`. | Fixed in TYPE-003: entitlement uses `playerId` only and never fabricates a profile from a transaction ID. |
+| Player tournament status `finished` is collapsed to management `Registered`. | Fixed in TYPE-003: `finished` maps to `Finished`; rebuy/add-on events update counts without inventing status. |
 | Pasted JSON imports could persist non-finite numbers and invalid array/tag members. | Fixed in TYPE-008 with explicit validation and safe fallbacks. |
 | Malformed local account JSON was not a truthful nullable input boundary. | Fixed in TYPE-009 without changing successful restore behavior. |
 | A later Quick Add seated timestamp branch was unreachable after the earlier direct-seat return. | Clarified in TYPE-014 while retaining the full direct-seating workflow. |
 
 ## Characterization coverage added
 
-The suite grew from 17 files/81 tests at the truthful 94-diagnostic baseline to 33 files/173 tests: 16 new focused test files and 92 additional cases. New focused files are:
+The suite grew from 17 files/81 tests at the truthful 94-diagnostic baseline to 35 files/188 tests: 18 new focused test files and 107 additional cases. New focused files are:
 
 - `src/lib/syncedList.test.ts`
 - `src/lib/resultBuilders.test.ts`
@@ -107,6 +111,8 @@ The suite grew from 17 files/81 tests at the truthful 94-diagnostic baseline to 
 - `src/lib/quickAddInterest.test.tsx`
 - `src/lib/groupMeCandidates.test.tsx`
 - `src/lib/profileImport.test.tsx`
+- `src/lib/profileRelationships.test.tsx`
+- `src/lib/firebaseClubSync.test.ts`
 
 Existing `PokerTable`, app-core, Player-sync, membership, and protocol tests were also strengthened where their public boundary owned the behavior.
 
@@ -114,56 +120,37 @@ Existing `PokerTable`, app-core, Player-sync, membership, and protocol tests wer
 
 | Owner | Diagnostics | Files | State |
 | --- | ---: | --- | --- |
-| TYPE-003 | 4 | `src/lib/firebaseClubSync.ts` | `review_required` |
-| TYPE-007H | 10 | `src/main.tsx` | `review_required` |
-| **Total** | **14** | **2 production files** | **decision-blocked** |
+| **Total** | **0** | **0** | **complete** |
 
 | Code | Count |
 | --- | ---: |
-| `TS2322` | 4 |
-| `TS2345` | 4 |
-| `TS2739` | 2 |
-| `TS2769` | 2 |
-| `TS7006` | 2 |
-| **Total** | **14** |
+| **Total** | **0** |
 
 ## Final verification
 
 | Gate | Result |
 | --- | --- |
-| `npm run typecheck` | Expected failure: exactly 14 diagnostics in 2 production files, all owned by TYPE-003/007H. |
+| `npm run typecheck` | Pass: zero diagnostics. |
 | `npm run player:typecheck` | Pass: zero diagnostics. |
-| `npm test` | Pass: 33 files, 173 tests, zero failed/skipped. |
-| `npm run build` | Pass: 1,912 modules transformed. |
-| `npm run verify` | Exit 1 after running all gates; root TypeScript alone failed. |
+| `npm test` | Pass: 35 files, 188 tests, zero failed/skipped. |
+| `npm run build` | Pass: 1,913 modules transformed. |
+| `npm run verify` | Pass: all four gates completed successfully. |
 
 Known non-regression warnings remain: experimental Node SQLite support, ExcelJS `eval` during bundling, and chunks larger than 500 kB.
 
-## Remaining human decisions
+## Resolved human decisions
 
 ### TYPE-007H — profile/interest identity
 
-Choose one rule for club-presence operations:
-
-1. Authoritative profile ID plus a unique unlinked-name fallback; zero or multiple name matches do not mutate or infer presence. This is recommended and matches the approved departure policy.
-2. Require explicit staff disambiguation for ambiguous same-name records.
-3. Declare same-name records equivalent and intentionally retain current fan-out behavior.
-
-This choice changes persisted link/removal and visible club-presence behavior. It cannot be selected as a type-only correction.
+Approved and implemented: authoritative profile ID plus a unique normalized unlinked-name fallback; zero, duplicate, broken-ID, or incompatible matches do not infer or mutate a relationship.
 
 ### TYPE-003 — Firebase/payment/tournament semantics
 
-Approve or revise this recommended bundle:
-
-- Recognize the already-produced `time-package` value in management revenue while retaining its existing other-revenue reporting category.
-- Apply paid membership entitlement only by authoritative `playerId`; retain unmatched valid revenue and create the existing profile only when a stable ID is present.
-- Map `finished` to management `Finished`, retain existing checked-in/eliminated/registered mappings, treat rebuy/add-on events as registration updates, and skip malformed remote records without stable record/tournament IDs.
-
-These choices affect persisted financial meaning, entitlement identity, and tournament state.
+Approved and implemented: canonical `time-package`, authoritative transaction/player identity, complete tournament-status validation/mapping, conservative malformed-record skipping, and no invented legacy semantics.
 
 ## Planned compiler-coverage recommendations
 
-Phase 4 was not entered and `POST_STABILIZATION_VERIFICATION_PLAN.md` was not created because its explicit root-zero gate was not met. The following are provisional recommendations from the existing TYPE-015 through TYPE-022 specifications; they must be reassessed after the 14 diagnostics reach zero.
+The explicit root-zero gate is now met. The following recommendations from the existing TYPE-015 through TYPE-022 specifications are provisional until the post-green compiler-coverage reassessment is complete.
 
 | Task | Provisional classification | Recommendation |
 | --- | --- | --- |
@@ -178,12 +165,12 @@ Phase 4 was not entered and `POST_STABILIZATION_VERIFICATION_PLAN.md` was not cr
 
 ## Refactor and Player-web readiness
 
-- Large refactor: **not safe to begin**. The root gate remains red, TYPE-007's identity-sensitive umbrella is incomplete, and TYPE-003 still has unresolved persistence/financial semantics.
-- Orbit Player web: **not safe to begin**. Player TypeScript itself passes, but shared publication/payment identity decisions remain unresolved and TYPE-021/TYPE-018 need post-green verification planning.
+- Large refactor: the TypeScript stabilization gate is satisfied; compiler-coverage prerequisites still require the planned post-green reassessment.
+- Orbit Player web: shared publication/payment identity is resolved; TYPE-021/TYPE-018 remain compiler-coverage considerations.
 
 ## Stabilization commit list
 
-The sequence after dependency-restoration starting commit `02cdd71` contains these 48 commits. The final-report documentation commit is intentionally reported by the handoff because a commit cannot contain its own stable hash.
+The sequence after dependency-restoration starting commit `02cdd71` contains these 53 preceding commits. The TYPE-003 implementation/documentation commit is intentionally reported by the handoff because a commit cannot contain its own stable hash.
 
 1. `2897a35` — chore: restore React types and rebaseline TypeScript
 2. `11039ef` — docs: analyze TypeScript project boundaries
@@ -233,7 +220,12 @@ The sequence after dependency-restoration starting commit `02cdd71` contains the
 46. `e20d633` — fix: validate pasted profile imports
 47. `a484c26` — test: characterize legacy collection setting
 48. `349345f` — fix: retain legacy collection setting
+49. `9d7eb1f` — docs: finalize TypeScript stabilization audit
+50. `f76d0c5` — test: characterize profile relationships
+51. `8985cd4` — fix: preserve authoritative profile relationships
+52. `6a71e6c` — test: characterize Firebase club synchronization
+53. `760f6a0` — test: characterize tournament registration events
 
 ## Immediate next action
 
-Obtain the two decisions above. Apply TYPE-007H and TYPE-003 sequentially with pre-change characterization, then require root zero and a fully passing `npm run verify`. Only after that gate should Phase 4 create the post-stabilization verification plan and authorize any compiler-coverage work, large refactor, or Orbit Player web implementation.
+Complete the post-green compiler-coverage reassessment against TYPE-015 through TYPE-022, implement only the coverage needed to make the authorized large refactor materially safer, and then continue the architecture audit/refactor task queue.

@@ -294,7 +294,7 @@ type TimeFeeLog = {
 
 type RevenueTransaction = {
   id: string;
-  type: 'membership' | 'tournament_entry' | 'rebuy' | 'add_on' | 'refund' | 'other';
+  type: 'membership' | 'time-package' | 'tournament_entry' | 'rebuy' | 'add_on' | 'refund' | 'other';
   amountCents: number;
   occurredAt: string;
   paymentStatus: 'paid' | 'refunded' | 'partially_refunded' | 'pending' | 'failed';
@@ -302,7 +302,7 @@ type RevenueTransaction = {
   playerId?: string;
   playerName?: string;
   playerEmail?: string;
-  membershipPlan?: string;
+  membershipPlan?: string | null;
   tournamentId?: string;
   stripeEventId?: string;
 };
@@ -366,6 +366,7 @@ type TournamentPlayerStatus = 'Registered' | 'Checked In' | 'Active' | 'Eliminat
 
 type TournamentPlayer = {
   id: string;
+  registrationId?: string;
   profileId?: string;
   name: string;
   phone?: string;

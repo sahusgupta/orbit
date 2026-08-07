@@ -7,6 +7,7 @@ import {
   applyWaitlistRequestToClubState,
   buildPlayerClubSnapshot,
   getClubIdFromState,
+  type ManagementClubState,
   type PlayerClubSnapshot,
   type PlayerMembershipRequest,
   type PlayerWaitlistRequest
@@ -17,6 +18,111 @@ type FirebaseClubStateRecord<TState> = {
   savedAt: string;
   state: TState;
   snapshot: PlayerClubSnapshot;
+};
+
+type RevenueTransactionType = 'membership' | 'time-package' | 'tournament_entry' | 'rebuy' | 'add_on' | 'refund' | 'other';
+type RevenuePaymentStatus = 'paid' | 'refunded' | 'partially_refunded' | 'pending' | 'failed';
+type RevenueSource = 'stripe' | 'manual' | 'import';
+
+export type ManagementRevenueTransaction = {
+  id: string;
+  type: RevenueTransactionType;
+  amountCents: number;
+  occurredAt: string;
+  paymentStatus: RevenuePaymentStatus;
+  source: RevenueSource;
+  playerId?: string;
+  playerName?: string;
+  playerEmail?: string;
+  membershipPlan?: string | null;
+  tournamentId?: string;
+  stripeEventId?: string;
+};
+
+type PlayerTournamentRegistrationStatus =
+  | 'registered'
+  | 'checked-in'
+  | 'eliminated'
+  | 'rebought'
+  | 'add-on-purchased'
+  | 'finished';
+
+type ManagementTournamentPlayerStatus = 'Registered' | 'Checked In' | 'Active' | 'Eliminated' | 'Finished';
+
+export type ManagementTournamentPlayer = {
+  id: string;
+  registrationId?: string;
+  profileId?: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  buyIn: number;
+  rebuys: number;
+  addOns: number;
+  startingStack: number;
+  currentStack?: number;
+  status: ManagementTournamentPlayerStatus;
+  registeredAt: string;
+  eliminatedAt?: string;
+  finishPlace?: number;
+  tableNumber?: number;
+  seatNumber?: number;
+};
+
+export type ManagementTournament = {
+  id: string;
+  name: string;
+  status: 'Draft' | 'Running' | 'Paused' | 'Finished';
+  createdAt: string;
+  scheduledAt?: string;
+  startedAt?: string;
+  registrationOpensAt?: string;
+  registrationClosesAt?: string;
+  registrationStatus?: 'open' | 'closed';
+  currentLevelIndex: number;
+  buyIn: number;
+  startingStack: number;
+  rebuyPrizePercent: number;
+  rebuyPrice?: number;
+  rebuyStack?: number;
+  unlimitedRebuys?: boolean;
+  addOnPrice?: number;
+  addOnStack?: number;
+  lateRegistrationThroughLevel?: number;
+  tableSize: number;
+  levels: Array<{
+    id: string;
+    level: number;
+    smallBlind: number;
+    bigBlind: number;
+    ante: number;
+    durationMinutes: number;
+    breakAfter: boolean;
+    breakMinutes: number;
+  }>;
+  players: ManagementTournamentPlayer[];
+  payouts: Array<{ place: number; percent: number }>;
+  prizePoolLabel?: string;
+  rules?: string[];
+  unregisterAllowed?: boolean;
+  featured?: boolean;
+};
+
+export type FirebaseSyncState = ManagementClubState & {
+  tournaments: ManagementTournament[];
+  revenueTransactions: ManagementRevenueTransaction[];
+};
+
+type ValidTournamentRegistration = {
+  id: string;
+  tournamentId: string;
+  playerId: string;
+  playerName: string;
+  playerEmail?: string;
+  status: PlayerTournamentRegistrationStatus;
+  rebuys: number;
+  addOns: number;
+  registeredAt: string;
 };
 
 const firebaseSyncTimeoutMs = 2500;
@@ -108,14 +214,14 @@ export function getFirebaseSyncStatus() {
   };
 }
 
-export async function saveClubStateToFirebase<TState extends object>(state: TState) {
+export async function saveClubStateToFirebase(state: FirebaseSyncState) {
   const user = await withFirebaseTimeout(ensureFirebaseSession(), null);
   if (!user) throw new Error('Firebase authentication timed out before synchronization.');
   const syncedState = await syncPlayerUpdatesToClubState(state);
-  const accountKey = getClubIdFromState(syncedState as Parameters<typeof getClubIdFromState>[0]);
+  const accountKey = getClubIdFromState(syncedState);
   const savedAt = new Date().toISOString();
   const syncRevision = createSyncRevision(savedAt);
-  const snapshot = buildPlayerClubSnapshot(syncedState as Parameters<typeof buildPlayerClubSnapshot>[0]);
+  const snapshot = buildPlayerClubSnapshot(syncedState);
   const record = {
     accountKey,
     savedAt,
@@ -145,9 +251,10 @@ export async function loadClubStateFromFirebase<TState = unknown>(accountKey: st
   return snapshot.data() as FirebaseClubStateRecord<TState>;
 }
 
-export async function syncPlayerUpdatesToClubState<TState extends object>(state: TState): Promise<TState> {
-  const accountKey = getClubIdFromState(state as Parameters<typeof getClubIdFromState>[0]);
-  let nextState = state as Parameters<typeof applyMembershipRequestToClubState>[0];
+export function syncPlayerUpdatesToClubState<TState extends FirebaseSyncState>(state: TState): Promise<TState>;
+export async function syncPlayerUpdatesToClubState(state: FirebaseSyncState): Promise<FirebaseSyncState> {
+  const accountKey = getClubIdFromState(state);
+  let nextState = state;
 
   const membershipRequests = await fetchPendingRequestDocs(accountKey, 'membershipRequests');
   if (membershipRequests.length) {
@@ -157,7 +264,8 @@ export async function syncPlayerUpdatesToClubState<TState extends object>(state:
       if (appliedIds.has(request.id)) continue;
       if (request.status === 'applied') continue;
       appliedIds.add(request.id);
-      nextState = applyMembershipRequestToClubState(nextState, request);
+      const updatedState = applyMembershipRequestToClubState(nextState, request);
+      if (updatedState !== nextState) nextState = { ...nextState, ...updatedState };
       await updatePlayerMembershipStatus(request.player.id, accountKey, request);
       await markRequestApplied(accountKey, 'membershipRequests', request.id);
     }
@@ -171,7 +279,8 @@ export async function syncPlayerUpdatesToClubState<TState extends object>(state:
       if (appliedIds.has(request.id)) continue;
       if (request.status === 'applied') continue;
       appliedIds.add(request.id);
-      nextState = applyWaitlistRequestToClubState(nextState, request);
+      const updatedState = applyWaitlistRequestToClubState(nextState, request);
+      if (updatedState !== nextState) nextState = { ...nextState, ...updatedState };
       await markRequestApplied(accountKey, 'waitlistRequests', request.id);
     }
   }
@@ -183,7 +292,7 @@ export async function syncPlayerUpdatesToClubState<TState extends object>(state:
   nextState = applyTournamentRegistrations(nextState, registrationDocs?.docs.map((item) => item.data()) ?? []);
   nextState = applyRevenueTransactions(nextState, transactionDocs?.docs.map((item) => item.data()) ?? []);
 
-  return nextState as TState;
+  return nextState;
 }
 
 export function subscribeToPlayerRequestUpdates(accountKey: string, callback: () => void) {
@@ -221,7 +330,7 @@ async function publishClubSnapshot(
   accountKey: string,
   snapshot: PlayerClubSnapshot,
   savedAt: string,
-  state: Record<string, any>,
+  state: FirebaseSyncState,
   syncRevision: string
 ) {
   const [existingGames, existingMemberships, existingWaitlists, existingNotifications, existingTournaments] = await Promise.all([
@@ -298,8 +407,8 @@ async function publishClubSnapshot(
   existingTournaments.docs.forEach((tournamentDoc) => {
     if (!tournamentIds.has(tournamentDoc.id)) batch.delete(tournamentDoc.ref);
   });
-  (state.tournaments ?? []).forEach((tournament: Record<string, any>) => {
-    (tournament.players ?? []).forEach((player: Record<string, any>) => {
+  state.tournaments.forEach((tournament) => {
+    tournament.players.forEach((player) => {
       if (!player.registrationId) return;
       const status = player.status === 'Checked In' || player.status === 'Active'
         ? 'checked-in'
@@ -323,10 +432,10 @@ async function publishClubSnapshot(
   await batch.commit();
 }
 
-function toPlayerTournament(tournament: Record<string, any>) {
+function toPlayerTournament(tournament: ManagementTournament) {
   const startsAt = tournament.scheduledAt || tournament.startedAt || tournament.createdAt || new Date().toISOString();
-  const entrants = tournament.players ?? [];
-  const prizePool = entrants.reduce((sum: number, player: Record<string, any>) =>
+  const entrants = tournament.players;
+  const prizePool = entrants.reduce((sum, player) =>
     sum + Number(player.buyIn ?? tournament.buyIn ?? 0)
       + Number(player.rebuys ?? 0) * Number(tournament.rebuyPrice ?? tournament.buyIn ?? 0)
       + Number(player.addOns ?? 0) * Number(tournament.addOnPrice ?? tournament.buyIn ?? 0), 0);
@@ -350,63 +459,227 @@ function toPlayerTournament(tournament: Record<string, any>) {
     rules: tournament.rules ?? ['House rules and staff decisions are final.'],
     unregisterAllowed: tournament.unregisterAllowed ?? tournament.status === 'Draft',
     entrantCount: entrants.length,
-    totalRebuys: entrants.reduce((sum: number, player: Record<string, any>) => sum + Number(player.rebuys ?? 0), 0),
-    totalAddOns: entrants.reduce((sum: number, player: Record<string, any>) => sum + Number(player.addOns ?? 0), 0),
+    totalRebuys: entrants.reduce((sum, player) => sum + Number(player.rebuys ?? 0), 0),
+    totalAddOns: entrants.reduce((sum, player) => sum + Number(player.addOns ?? 0), 0),
     featured: Boolean(tournament.featured)
   };
 }
 
-function applyTournamentRegistrations(state: Record<string, any>, registrations: Record<string, any>[]) {
-  if (!registrations.length) return state;
+const revenueTransactionTypes: RevenueTransactionType[] = [
+  'membership',
+  'time-package',
+  'tournament_entry',
+  'rebuy',
+  'add_on',
+  'refund',
+  'other'
+];
+const revenuePaymentStatuses: RevenuePaymentStatus[] = ['paid', 'refunded', 'partially_refunded', 'pending', 'failed'];
+const revenueSources: RevenueSource[] = ['stripe', 'manual', 'import'];
+const tournamentRegistrationStatuses: PlayerTournamentRegistrationStatus[] = [
+  'registered',
+  'checked-in',
+  'eliminated',
+  'rebought',
+  'add-on-purchased',
+  'finished'
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isValidTimestamp(value: unknown): value is string {
+  return isNonEmptyString(value) && Number.isFinite(Date.parse(value));
+}
+
+function isRevenueTransactionType(value: unknown): value is RevenueTransactionType {
+  return revenueTransactionTypes.some((candidate) => candidate === value);
+}
+
+function isRevenuePaymentStatus(value: unknown): value is RevenuePaymentStatus {
+  return revenuePaymentStatuses.some((candidate) => candidate === value);
+}
+
+function isRevenueSource(value: unknown): value is RevenueSource {
+  return revenueSources.some((candidate) => candidate === value);
+}
+
+function isTournamentRegistrationStatus(value: unknown): value is PlayerTournamentRegistrationStatus {
+  return tournamentRegistrationStatuses.some((candidate) => candidate === value);
+}
+
+function optionalString(value: unknown) {
+  return isNonEmptyString(value) ? value : undefined;
+}
+
+function parseRevenueTransaction(value: unknown): ManagementRevenueTransaction | undefined {
+  if (
+    !isRecord(value) ||
+    !isNonEmptyString(value.id) ||
+    !isRevenueTransactionType(value.type) ||
+    typeof value.amountCents !== 'number' ||
+    !Number.isFinite(value.amountCents) ||
+    !isValidTimestamp(value.occurredAt) ||
+    !isRevenuePaymentStatus(value.paymentStatus) ||
+    !isRevenueSource(value.source)
+  ) {
+    return undefined;
+  }
   return {
-    ...state,
-    tournaments: (state.tournaments ?? []).map((tournament: Record<string, any>) => {
-      const existingIds = new Set((tournament.players ?? []).map((player: Record<string, any>) => player.registrationId || player.id));
-      const additions = registrations
-        .filter((registration) => registration.tournamentId === tournament.id && !existingIds.has(registration.id))
-        .map((registration) => ({
-          id: registration.id,
-          registrationId: registration.id,
-          profileId: registration.playerId,
-          name: registration.playerName,
-          email: registration.playerEmail,
-          buyIn: Number(tournament.buyIn ?? 0),
-          rebuys: Number(registration.rebuys ?? 0),
-          addOns: Number(registration.addOns ?? 0),
-          startingStack: Number(tournament.startingStack ?? 0),
-          status: registration.status === 'checked-in' ? 'Checked In' : registration.status === 'eliminated' ? 'Eliminated' : 'Registered',
-          registeredAt: registration.registeredAt || new Date().toISOString()
-        }));
-      return additions.length ? { ...tournament, players: [...(tournament.players ?? []), ...additions] } : tournament;
-    })
+    ...value,
+    id: value.id,
+    type: value.type,
+    amountCents: value.amountCents,
+    occurredAt: value.occurredAt,
+    paymentStatus: value.paymentStatus,
+    source: value.source,
+    playerId: optionalString(value.playerId),
+    playerName: optionalString(value.playerName),
+    playerEmail: optionalString(value.playerEmail),
+    membershipPlan: value.membershipPlan === null ? null : optionalString(value.membershipPlan),
+    tournamentId: optionalString(value.tournamentId),
+    stripeEventId: optionalString(value.stripeEventId)
   };
 }
 
-function applyRevenueTransactions(state: Record<string, any>, transactions: Record<string, any>[]) {
-  if (!transactions.length) return state;
-  const existing = new Map((state.revenueTransactions ?? []).map((transaction: Record<string, any>) => [transaction.id, transaction]));
-  transactions.forEach((transaction) => existing.set(transaction.id, transaction));
-  const paidMemberships = transactions.filter((transaction) => transaction.type === 'membership' && transaction.paymentStatus === 'paid');
-  const profiles = [...(state.profiles ?? [])];
-  paidMemberships.forEach((transaction) => {
-    const profileIndex = profiles.findIndex((profile) =>
-      profile.id === transaction.playerId ||
-      (transaction.playerEmail && String(profile.notes || '').includes(transaction.playerEmail)) ||
-      String(profile.name || '').toLowerCase() === String(transaction.playerName || '').toLowerCase()
+function parseTournamentRegistration(value: unknown): ValidTournamentRegistration | undefined {
+  if (
+    !isRecord(value) ||
+    !isNonEmptyString(value.id) ||
+    !isNonEmptyString(value.tournamentId) ||
+    !isNonEmptyString(value.playerId) ||
+    !isNonEmptyString(value.playerName) ||
+    !isTournamentRegistrationStatus(value.status) ||
+    typeof value.rebuys !== 'number' ||
+    !Number.isFinite(value.rebuys) ||
+    value.rebuys < 0 ||
+    typeof value.addOns !== 'number' ||
+    !Number.isFinite(value.addOns) ||
+    value.addOns < 0 ||
+    !isValidTimestamp(value.registeredAt)
+  ) {
+    return undefined;
+  }
+  return {
+    id: value.id,
+    tournamentId: value.tournamentId,
+    playerId: value.playerId,
+    playerName: value.playerName,
+    playerEmail: optionalString(value.playerEmail),
+    status: value.status,
+    rebuys: value.rebuys,
+    addOns: value.addOns,
+    registeredAt: value.registeredAt
+  };
+}
+
+function uniqueAuthoritativeRecords<T extends { id: string }>(records: T[]) {
+  const counts = new Map<string, number>();
+  records.forEach((record) => counts.set(record.id, (counts.get(record.id) ?? 0) + 1));
+  return records.filter((record) => counts.get(record.id) === 1);
+}
+
+function toManagementTournamentStatus(
+  status: PlayerTournamentRegistrationStatus,
+  existingStatus?: ManagementTournamentPlayerStatus
+): ManagementTournamentPlayerStatus {
+  if (status === 'checked-in') return 'Checked In';
+  if (status === 'eliminated') return 'Eliminated';
+  if (status === 'finished') return 'Finished';
+  if (status === 'rebought' || status === 'add-on-purchased') return existingStatus ?? 'Registered';
+  return 'Registered';
+}
+
+function applyTournamentRegistrations(state: FirebaseSyncState, rawRegistrations: unknown[]): FirebaseSyncState {
+  const registrations = uniqueAuthoritativeRecords(
+    rawRegistrations.map(parseTournamentRegistration).filter((registration) => registration !== undefined)
+  );
+  if (!registrations.length) return state;
+
+  let changed = false;
+  const tournaments = state.tournaments.map((tournament) => {
+    const registrationsById = new Map(
+      registrations
+        .filter((registration) => registration.tournamentId === tournament.id)
+        .map((registration) => [registration.id, registration])
     );
-    const membershipStartDate = String(transaction.occurredAt || new Date().toISOString()).slice(0, 10);
-    const membershipExpirationDate = addDays(membershipStartDate, transaction.membershipPlan === 'day' ? 1 : 30);
-    if (profileIndex >= 0) {
-      profiles[profileIndex] = {
-        ...profiles[profileIndex],
-        membershipStartDate,
-        membershipExpirationDate,
-        notes: profiles[profileIndex].notes || `Verified payment: ${transaction.playerEmail || transaction.playerId || ''}`
+    if (!registrationsById.size) return tournament;
+
+    const players = tournament.players.map((player) => {
+      const registrationId = player.registrationId ?? player.id;
+      const registration = registrationsById.get(registrationId);
+      if (!registration) return player;
+      registrationsById.delete(registrationId);
+      changed = true;
+      return {
+        ...player,
+        registrationId: registration.id,
+        profileId: registration.playerId,
+        name: registration.playerName,
+        email: registration.playerEmail ?? player.email,
+        rebuys: registration.rebuys,
+        addOns: registration.addOns,
+        status: toManagementTournamentStatus(registration.status, player.status),
+        registeredAt: registration.registeredAt
       };
-    } else {
+    });
+    const additions = [...registrationsById.values()].map((registration): ManagementTournamentPlayer => ({
+      id: registration.id,
+      registrationId: registration.id,
+      profileId: registration.playerId,
+      name: registration.playerName,
+      email: registration.playerEmail,
+      buyIn: tournament.buyIn,
+      rebuys: registration.rebuys,
+      addOns: registration.addOns,
+      startingStack: tournament.startingStack,
+      status: toManagementTournamentStatus(registration.status),
+      registeredAt: registration.registeredAt
+    }));
+    if (!additions.length && players.every((player, index) => player === tournament.players[index])) return tournament;
+    changed = true;
+    return { ...tournament, players: [...players, ...additions] };
+  });
+
+  return changed ? { ...state, tournaments } : state;
+}
+
+function applyRevenueTransactions(state: FirebaseSyncState, rawTransactions: unknown[]): FirebaseSyncState {
+  const transactions = uniqueAuthoritativeRecords(
+    rawTransactions.map(parseRevenueTransaction).filter((transaction) => transaction !== undefined)
+  );
+  if (!transactions.length) return state;
+
+  const existing = new Map(state.revenueTransactions.map((transaction) => [transaction.id, transaction]));
+  transactions.forEach((transaction) => existing.set(transaction.id, transaction));
+  const profiles = [...state.profiles];
+  transactions
+    .filter((transaction) => transaction.type === 'membership' && transaction.paymentStatus === 'paid')
+    .forEach((transaction) => {
+      if (!transaction.playerId || (transaction.membershipPlan !== 'day' && transaction.membershipPlan !== 'monthly')) return;
+      const profileIndex = profiles.findIndex((profile) => profile.id === transaction.playerId);
+      const membershipStartDate = transaction.occurredAt.slice(0, 10);
+      const membershipExpirationDate = addDays(membershipStartDate, transaction.membershipPlan === 'day' ? 1 : 30);
+      if (profileIndex >= 0) {
+        const profile = profiles[profileIndex];
+        profiles[profileIndex] = {
+          ...profile,
+          membershipStartDate,
+          membershipExpirationDate,
+          notes: profile.notes || `Verified payment: ${transaction.playerEmail || transaction.playerId}`
+        };
+        return;
+      }
+      if (!transaction.playerName) return;
+      const preferredGameId = state.games[0]?.id ?? '';
       profiles.push({
-        id: transaction.playerId || transaction.id,
-        name: transaction.playerName || transaction.playerEmail || 'Paid member',
+        id: transaction.playerId,
+        name: transaction.playerName,
         phone: '',
         birthday: '',
         membershipStartDate,
@@ -414,7 +687,7 @@ function applyRevenueTransactions(state: Record<string, any>, transactions: Reco
         totalTimePlayedHours: 0,
         lastSessionTimePlayedHours: 0,
         commonlyPlaysWithProfileIds: [],
-        preferredGameId: state.games?.[0]?.id || '',
+        preferredGameId,
         preferredGameIds: [],
         preferredStakes: '',
         typicalBuyInMin: 0,
@@ -423,10 +696,9 @@ function applyRevenueTransactions(state: Record<string, any>, transactions: Reco
         typicalAvailability: '',
         preferredTags: [],
         usualCompanions: [],
-        notes: `Verified Stripe membership: ${transaction.playerEmail || transaction.playerId || ''}`
+        notes: `Verified Stripe membership: ${transaction.playerEmail || transaction.playerId}`
       });
-    }
-  });
+    });
   return { ...state, profiles, revenueTransactions: [...existing.values()] };
 }
 

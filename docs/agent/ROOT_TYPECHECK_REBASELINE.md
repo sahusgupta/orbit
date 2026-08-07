@@ -6,9 +6,9 @@ Branch: `chore/prepare-codex-workflow`
 
 Dependency-restoration starting commit: `02cdd71`
 
-## Verification state: partial failure
+## Verification state: pass
 
-The root TypeScript project still fails, but its result is now truthful: the dependency cascade is gone, every renderer callback batch in `TYPE-007` is complete, and the approved `TYPE-007H` policy now preserves authoritative IDs while admitting only a unique normalized unlinked-name fallback. The remaining 4 diagnostics are all assigned to `TYPE-003` in the Firebase synchronization boundary. Player TypeScript, unit tests, and the renderer build remain separate gates.
+The root TypeScript project now passes with zero diagnostics. The dependency cascade is gone, all bounded remediation tasks are complete, `TYPE-007H` preserves authoritative profile identity, and `TYPE-003` validates Firebase revenue and tournament records without invented semantic values. Player TypeScript, unit tests, and the renderer build also pass as separate gates.
 
 No production source was changed during this rebaseline. No compiler setting was weakened, no file was excluded, and no diagnostic suppression or unsafe cast was added.
 
@@ -56,15 +56,16 @@ Post-install dependency-tree inspection found one physical root React 19.2.6 ins
 | After `TYPE-008` profile-import repair | 14 diagnostics in 2 files |
 | After `TYPE-013` legacy-setting audit | 14 diagnostics in 2 files |
 | After `TYPE-007H` profile-relationship repair | 4 diagnostics in 1 file |
+| After `TYPE-003` Firebase-sync repair | 0 diagnostics in 0 files |
 | Dependency-restoration displayed-diagnostic reduction | 3,536 |
-| Current net displayed-diagnostic reduction | 3,626 |
+| Current net displayed-diagnostic reduction | 3,630 |
 | Missing React/ReactDOM cascade diagnostics removed | 3,598 |
 | Previously visible non-cascade diagnostics retained | 32 |
 | Previously masked diagnostics exposed | 62 |
 
-The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The dependency-restoration arithmetic is `3,630 - 3,598 + 62 = 94`; the gated task sequence through `TYPE-013` reduced that result to 14, and `TYPE-007H` removed the final 10 renderer diagnostics to establish the current total of 4. TYPE-009 owned two of its three-diagnostic reduction; its explicit partial-settings input also removed TYPE-013's cast symptom.
+The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The dependency-restoration arithmetic is `3,630 - 3,598 + 62 = 94`; the gated task sequence through `TYPE-013` reduced that result to 14, `TYPE-007H` removed 10 renderer diagnostics, and `TYPE-003` removed the final 4 synchronization diagnostics. TYPE-009 owned two of its three-diagnostic reduction; its explicit partial-settings input also removed TYPE-013's cast symptom.
 
-No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency issue is resolved; the root gate remains red because the declarations revealed real contracts that the previous untyped React layer could not check.
+No TypeScript diagnostic remains. The dependency issue and every exposed application contract are resolved; the root gate is green without suppressions, exclusions, weakened strictness, or arbitrary casts.
 
 ## Exact remaining inventory
 
@@ -72,18 +73,15 @@ No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency
 
 | Code | Count |
 | --- | ---: |
-| `TS2739` | 2 |
-| `TS7006` | 2 |
-| **Total** | **4** |
+| **Total** | **0** |
 
 ### By affected path
 
 | Path | Count | Application/package |
 | --- | ---: | --- |
-| `src/lib/firebaseClubSync.ts` | 4 | Root renderer/Firebase sync boundary |
-| **Total** | **4** | |
+| **Total** | **0** | |
 
-Production root source accounts for all 4 diagnostics and root tests account for zero. Electron, API, Player, download-site, e2e, generated output, and dependency source account for zero diagnostics because they are not part of this root TypeScript project's `include: ["src"]` boundary.
+Production root source and root tests account for zero diagnostics. Electron, API, Player, download-site, e2e, generated output, and dependency source remain separate compiler-boundary considerations because they are not all part of this root TypeScript project's `include: ["src"]` boundary.
 
 ## Root-cause summary
 
@@ -91,7 +89,7 @@ Production root source accounts for all 4 diagnostics and root tests account for
 | --- | --- | ---: | --- | --- | --- | --- | --- |
 | `TYPE-001` | `CONFIGURATION_BOUNDARY` | 0 | Resolved: ES2022 library declarations now match the supported renderer | No | No | Completed | Completed |
 | `TYPE-002` | `STALE_OR_DEAD_CODE` | 0 | Resolved: required pre-publication `social` plus explicit protocol-v2/legacy compatibility ownership | No | No | Completed | No |
-| `TYPE-003` | `REAL_TYPE_ERROR` | 4 | Approved remediation pending: validate and normalize persisted revenue, payment identity, and tournament status without invented values | Yes | Indirectly | Yes after characterization | Completed |
+| `TYPE-003` | `REAL_TYPE_ERROR` | 0 | Resolved: validated canonical revenue/payment identity and tournament status preserve independent valid records | No | No | Completed | Completed |
 | `TYPE-004` | `REAL_TYPE_ERROR` | 0 | Resolved: the post-guard non-Denied status is captured across both profile branches | No | No | Completed | No |
 | `TYPE-005` | `REAL_TYPE_ERROR` | 0 | Resolved: explicit synchronized-entry tuples preserve the helper's generic value type | No | No | Completed | No |
 | `TYPE-006` | `REAL_TYPE_ERROR` | 0 | Resolved: exact mapper result types and non-null narrowing preserve all three pipelines | No | No direct block | Completed | No |
@@ -103,7 +101,7 @@ Production root source accounts for all 4 diagnostics and root tests account for
 | `TYPE-012` | `TEST_TYPE_ERROR` | 0 | Resolved: exact act global and production-facing fixture typing | No | No | Completed | No |
 | `TYPE-013` | `STALE_OR_DEAD_CODE` | 0 | Resolved: retain the historically proven key through a narrow legacy input contract | No | No | Completed | No |
 | `TYPE-014` | `STALE_OR_DEAD_CODE` | 0 | Resolved: direct seating returns through the table workflow before ordinary interest construction | No | No direct block | Completed | No |
-| **Total** | | **4** | | | | | |
+| **Total** | | **0** | | | | | |
 
 No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISMATCH`, or `UNKNOWN_REQUIRES_INVESTIGATION`. Those dependency/configuration discovery issues are resolved or have been converted into evidence-backed tasks.
 
@@ -265,9 +263,9 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 
 1. Completed: `TYPE-001` aligned the renderer runtime/library contract.
 2. Completed: `TYPE-002` canonicalized the shared Player snapshot contract without changing publication behavior.
-3. `TYPE-004` is complete; `TYPE-003` is decision-blocked on revenue type, payment identity, and tournament status semantics.
+3. Completed: `TYPE-003` validates domain-preserving Firebase synchronization and `TYPE-004` preserves membership narrowing.
 4. Completed: `TYPE-005` restored synchronized-list tuple inference and `TYPE-006` repaired exact map/filter result narrowing.
-5. In progress by bounded child: `TYPE-007A`, `TYPE-007B`, `TYPE-007C`, `TYPE-007D`, `TYPE-007E`, `TYPE-007F`, `TYPE-007G`, `TYPE-007I`, and `TYPE-007J` are complete; the umbrella retains the 10 decision-blocked `TYPE-007H` diagnostics and is not complete.
+5. Completed: all ten bounded `TYPE-007` children and the umbrella, including the approved `TYPE-007H` identity policy.
 6. `TYPE-008`, `TYPE-009`, and `TYPE-010` are complete; the procedural TYPE-008/010 dependencies were removed after non-overlap proof while preserving `TYPE-007H` identity behavior.
 7. Completed: `TYPE-011` now provides Web Crypto an owned signature buffer after security characterization.
 8. Completed: `TYPE-012` corrected the two root test-only contracts.

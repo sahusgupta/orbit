@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, and the gated remediation sequence through `TYPE-013` reduced it to 14. The approved `TYPE-007H` identity repair now establishes the truthful current baseline at 4 diagnostics in 1 affected production file; the gate remains red only for `TYPE-003`. The profile repair removed all 10 renderer diagnostics without weakening optional identity, changing persisted shapes, or permitting ambiguous name inference. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, the gated remediation sequence through `TYPE-013` reduced it to 14, `TYPE-007H` reduced it to 4, and the approved `TYPE-003` synchronization repair now establishes the truthful current baseline at zero diagnostics. `npm run typecheck` and the aggregate verifier pass. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -742,3 +742,20 @@ Final verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed on the four remaining `TYPE-003` diagnostics.
 
 `TYPE-007H` and its `TYPE-007` umbrella are complete. No live service, deployment, or push was involved.
+
+## TYPE-003 Validated Firebase Synchronization — 2026-08-07
+
+The approved conservative synchronization policy is implemented at the raw Firestore boundary. Canonical revenue records retain authoritative IDs, ordering, metadata, and distinct `time-package` meaning; malformed/unknown records are skipped without affecting valid peers. Paid memberships resolve only by `playerId` and no longer use name/email inference or transaction-ID profile fabrication.
+
+Tournament registrations validate stable registration/tournament/player IDs, timestamps, counts, and the six canonical Player statuses. Existing players update by registration ID without losing table, seat, stack, or other management fields; `finished` becomes `Finished`; rebuy/add-on events update counts while preserving established status. Repository evidence showed no legacy aliases, so no semantic mapping was invented.
+
+Final verification:
+
+- PASS: `npx --no-install vitest run src/lib/firebaseClubSync.test.ts src/lib/playerSync.test.ts` — 2 files and 30 tests.
+- PASS: `npm run typecheck` — zero diagnostics.
+- PASS: `npm run player:typecheck` — zero diagnostics.
+- PASS: `npm test` — 35 files and 188 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,913 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- PASS: `npm run verify` — all four gates passed.
+
+`TYPE-003` and the current root TypeScript stabilization queue are complete. No live Firebase access, production data, deployment, or push was involved.

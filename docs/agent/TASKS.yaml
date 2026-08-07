@@ -1,14 +1,14 @@
 queue: root-typescript-remediation
 temporary: true
 source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
-baseline_diagnostics: 4
-baseline_files: 1
-status: partial_failure
-terminal_condition: approved_TYPE-003_implementation_remaining
+baseline_diagnostics: 0
+baseline_files: 0
+status: complete
+terminal_condition: all_current_root_diagnostics_resolved
 blocked_diagnostics: 0
 blocked_tasks: []
-pending_diagnostics: 4
-pending_tasks: [TYPE-003]
+pending_diagnostics: 0
+pending_tasks: []
 ordering:
   - project_boundary_configuration
   - shared_contract_public_interface
@@ -48,9 +48,11 @@ tasks:
   - id: TYPE-003
     title: Preserve domain types through Firebase synchronization
     classification: REAL_TYPE_ERROR
-    safety: APPROVED_AFTER_CHARACTERIZATION
-    diagnostics: 4
-    status: ready
+    safety: RESOLVED_AFTER_HUMAN_DECISION
+    diagnostics: 0
+    diagnostics_before: 4
+    diagnostics_after: 0
+    status: complete
     safe_autonomous: true
     human_review: false
     blocks_refactoring: true
@@ -58,6 +60,7 @@ tasks:
     depends_on: [TYPE-002]
     spec: docs/agent/tasks/TYPE-003.md
     decision: conservative_domain_preservation_bundle
+    resolution: validated_domain_preserving_revenue_and_tournament_sync
   - id: TYPE-004
     title: Prove membership status narrowing across synchronization
     classification: REAL_TYPE_ERROR

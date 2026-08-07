@@ -267,7 +267,7 @@ type ManagementStaffAccount = {
   active?: boolean;
 };
 
-type ManagementClubState = {
+export type ManagementClubState = {
   games: ManagementGame[];
   sessions: ManagementSession[];
   playerSessions?: ManagementPlayerSession[];

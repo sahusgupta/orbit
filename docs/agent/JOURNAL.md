@@ -347,3 +347,13 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Root TypeScript decreased from 14 to exactly 4 diagnostics in one production file; all 10 TYPE-007H diagnostics disappeared and no new diagnostic appeared.
 - Focused 3-file/19-test coverage passed; Player TypeScript passed; all 34 files/181 tests passed; the 1,913-module build passed; aggregate verification failed only on the expected four-diagnostic TYPE-003 root baseline.
 - Marked TYPE-007H and the TYPE-007 umbrella complete. No production service, deployment, or push was involved.
+
+## 2026-08-07 - TYPE-003 validated Firebase synchronization
+
+- Confirmed repository producers use canonical `time-package` directly and found no evidence for a legacy payment or tournament-status alias.
+- Added six mocked-Firebase characterization cases against unchanged production as `6a71e6c`, then committed explicit rebuy/add-on event coverage as `760f6a0`; no live client, production data, or remote service was used.
+- Replaced broad Firestore record casts with guarded `unknown` validation for authoritative IDs, canonical revenue/status unions, finite amounts/counts, and valid timestamps. Malformed independent records are skipped while valid peers continue.
+- Preserved `time-package`, transaction identity/order/metadata, and protocol-v2 publication. Paid membership now resolves only by `playerId` and never fabricates a profile from a transaction ID.
+- Updated existing tournament players by registration ID, mapped `finished` to `Finished`, and treated rebuy/add-on statuses as count updates that preserve established management status and unrelated fields.
+- Root TypeScript decreased from 4 to zero diagnostics. Focused 2-file/30-test coverage, Player TypeScript, all 35 files/188 tests, the 1,913-module build, and aggregate verification all passed.
+- Marked TYPE-003 and root TypeScript stabilization complete. No deployment or push occurred.

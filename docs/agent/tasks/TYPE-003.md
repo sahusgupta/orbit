@@ -1,8 +1,8 @@
 # TYPE-003: Preserve domain types through Firebase synchronization
 
-Status: `ready`
+Status: `complete`
 
-Safety: `APPROVED_AFTER_CHARACTERIZATION`
+Safety: `RESOLVED_AFTER_HUMAN_DECISION`
 
 ## Objective
 
@@ -80,4 +80,14 @@ After that decision, add isolated pure-transform fixtures for registration, reve
 
 The human-approved conservative domain-preservation bundle requires canonical `time-package` preservation; authoritative persisted payment IDs; validated or explicitly normalized tournament statuses; and boundary validation that skips or isolates malformed records without fabricated IDs, payment types, statuses, or other semantic defaults. Known legacy mappings may be added only when repository evidence proves a one-to-one meaning and tests protect it. Independent valid records should continue synchronizing when existing behavior permits partial synchronization.
 
-Implementation remains gated on characterization against unchanged production behavior for canonical and malformed revenue/registration inputs, identity, ordering, idempotency, field preservation, and input immutability.
+Implementation was gated on characterization against unchanged production behavior for canonical and malformed revenue/registration inputs, identity, ordering, idempotency, field preservation, and input immutability.
+
+## Completed implementation — 2026-08-07
+
+Six Firebase-boundary cases were committed against unchanged production as `6a71e6c`, with canonical rebuy/add-on event evidence added separately as `760f6a0`. Together with the existing player-sync suite, they cover canonical and `time-package` revenue, authoritative transaction IDs, ordering/idempotency, paid-membership identity, malformed revenue, all six Player tournament statuses, existing registration updates, independent malformed records, raw/state immutability, complete field preservation, and protocol-v2 publication/revision shape.
+
+The implementation validates raw Firestore transaction and registration documents from `unknown`, preserves only canonical revenue/status values, keeps `time-package` distinct, and skips ambiguous duplicate IDs plus malformed independent records. Paid membership applies only by a valid `playerId`; a valid unmatched payment may create a profile only with that ID and a real player name. Existing tournament players update by registration ID, `finished` maps to `Finished`, and rebuy/add-on events update counts while retaining established management status.
+
+No legacy payment alias or tournament-status alias exists in repository producers/history, so none was invented. Transaction metadata survives validation, input records remain unchanged, state and nested non-target fields remain intact, and protocol-v2 publication behavior is unchanged.
+
+Final verification passed: focused sync/player tests (2 files/30 tests), root TypeScript with zero diagnostics, Player TypeScript, all 35 files/188 tests, the 1,913-module renderer build, and `npm run verify`.
