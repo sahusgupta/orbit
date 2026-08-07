@@ -1,13 +1,15 @@
 queue: orbit-large-refactor
 status: active
-current: REF-001
+current: REF-002
 tasks:
   - id: REF-001
     title: Extract canonical management domain types
-    status: ready
+    status: complete
     boundary: renderer_types
     risk: low_runtime_high_contract
     depends_on: []
+    spec: docs/agent/tasks/REF-001.md
+    resolution: type_only_canonical_management_contract_module
     characterization:
       - existing_stabilization_renderer_suites
       - root_and_player_typechecks
@@ -17,7 +19,7 @@ tasks:
       - renderer and test compiler ownership remains exact
   - id: REF-002
     title: Extract state defaults and persisted-state normalization
-    status: planned
+    status: ready
     boundary: renderer_persistence
     risk: high
     depends_on: [REF-001]

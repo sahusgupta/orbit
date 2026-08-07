@@ -376,3 +376,10 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Restricted the renderer compiler project to explicit `vite/client` ambient types after TYPE-015 separated test ownership.
 - Renderer TypeScript passed with 21 workspace inputs, zero test roots, and zero `@types/node` files; the root test project retained explicit Node/Vitest capabilities.
 - Player TypeScript, all 35 files/188 tests, the 1,913-module renderer build, and aggregate verification passed. No renderer shim, preload bridge, IPC, or runtime source changed.
+
+## 2026-08-07 - REF-001 canonical management types
+
+- Reused the green stabilization characterization because the task moved types only; no runtime behavior was added or changed.
+- Moved 45 management/persisted contracts from `src/main.tsx` into `src/domain/types.ts` and replaced them with type-only imports.
+- The 15 renderer-mount suites passed 76 tests; both root compiler projects, Player TypeScript, all 35 files/188 tests, the 1,913-module build, and aggregate verification passed.
+- Generated renderer asset names and sizes were identical before/after. `src/main.tsx` decreased from 10,171 to 9,751 lines.

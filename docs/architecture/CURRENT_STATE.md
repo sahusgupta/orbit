@@ -25,6 +25,8 @@ Date: 2026-08-07
 
 The previous compactness audit's approximate 6,300/4,700/1,300-line figures for the renderer, stylesheet, and Electron main process are obsolete.
 
+REF-001 subsequently moved 45 type-only contracts into `src/domain/types.ts`. `src/main.tsx` is now 9,751 lines; its generated JavaScript asset names and sizes remained identical, so the concentration changed without a runtime change.
+
 ## Renderer dependency shape
 
 `src/main.tsx` imports focused helpers from `src/lib/`, but it remains the sole owner of the canonical management `AppState` and most related types. Existing characterization suites import `main.tsx` through a mocked renderer mount to exercise persistence, licensing, identity, waitlist, seating, table, and reporting behavior. This makes a type-only contract extraction the smallest first step: it creates shared type ownership without moving runtime behavior.
