@@ -29,9 +29,11 @@ REF-001 subsequently moved 45 type-only contracts into `src/domain/types.ts`. `s
 
 REF-002 then moved characterized defaults and persisted-state normalization into `src/domain/state.ts`. `src/main.tsx` is now 9,364 lines; browser storage/publication orchestration deliberately remains in the entrypoint for a separately bounded task.
 
+REF-003 moved characterized report windows, report-state projection, collection lookup, and financial/dealer summaries into `src/domain/reporting.ts`. `src/main.tsx` is now 9,072 lines, and the reporting suite exercises the pure module without mounting React or mocking Firebase.
+
 ## Renderer dependency shape
 
-`src/domain/types.ts` now owns the canonical management `AppState` and related persisted contracts, and `src/domain/state.ts` owns characterized defaults and normalization. `src/main.tsx` remains their orchestration consumer and still imports focused behavior from `src/lib/`. Existing characterization suites import `main.tsx` through a mocked renderer mount to exercise persistence, licensing, identity, waitlist, seating, table, and reporting behavior.
+`src/domain/types.ts` now owns the canonical management `AppState` and related persisted contracts, `src/domain/state.ts` owns characterized defaults and normalization, and `src/domain/reporting.ts` owns pure reporting projections. `src/main.tsx` remains their orchestration consumer and still imports focused behavior from `src/lib/`. Renderer-mount characterization remains for persistence, licensing, identity, waitlist, seating, and table behavior; reporting now has a direct pure-module boundary.
 
 The next runtime extractions should follow dependency direction:
 

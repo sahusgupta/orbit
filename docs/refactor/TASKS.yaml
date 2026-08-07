@@ -1,6 +1,6 @@
 queue: orbit-large-refactor
 status: active
-current: REF-003
+current: REF-004
 tasks:
   - id: REF-001
     title: Extract canonical management domain types
@@ -30,16 +30,17 @@ tasks:
       - src/lib/stateCorrections.test.ts
   - id: REF-003
     title: Extract report windows and financial analytics
-    status: ready
+    status: complete
     boundary: renderer_reporting
     risk: medium
     depends_on: [REF-001]
     spec: docs/agent/tasks/REF-003.md
+    resolution: characterized_pure_reporting_projection_module
     characterization:
-      - add_direct_report_and_financial_fixtures_before_move
+      - src/domain/reporting.test.ts
   - id: REF-004
     title: Extract licensing and staff-auth helpers
-    status: planned
+    status: ready
     boundary: renderer_identity
     risk: high
     depends_on: [REF-001]

@@ -1,37 +1,7 @@
-/**
- * @vitest-environment jsdom
- */
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as reporting from './reporting';
 import { seedState } from './state';
 import type { AppState, GameSession, PlayerSession } from './types';
-
-vi.mock('react-dom/client', () => ({
-  createRoot: () => ({ render: vi.fn() })
-}));
-vi.mock('../lib/firebaseConfig', () => ({ rendererFirebaseSyncEnabled: false }));
-vi.mock('../lib/firebaseClubSync', () => ({
-  loadClubStateFromFirebase: vi.fn(async () => null),
-  saveClubStateToFirebase: vi.fn(async () => undefined),
-  signInOrCreateFirebaseEmailAccount: vi.fn(async () => undefined),
-  signOutOfFirebase: vi.fn(async () => undefined),
-  subscribeToPlayerRequestUpdates: vi.fn(() => () => undefined),
-  syncPlayerUpdatesToClubState: vi.fn(async <T,>(state: T) => state)
-}));
-
-type ReportingModule = Pick<
-  typeof import('../main'),
-  | 'getDealerReport'
-  | 'getReportFinancials'
-  | 'getReportHourlyBreakdown'
-  | 'getReportState'
-  | 'getReportWindow'
-  | 'getTableFinancialOverview'
-  | 'getTablePlayerFinancialOverview'
-  | 'shiftReportAnchor'
-  | 'timestampInReportWindow'
->;
-
-let reporting: ReportingModule;
 
 const reportWindow = {
   startMs: Date.parse('2026-08-07T00:00:00.000Z'),
@@ -143,11 +113,6 @@ const buildState = (): AppState => ({
   }
 });
 
-beforeAll(async () => {
-  document.body.innerHTML = '<div id="root"></div>';
-  reporting = await import('../main');
-});
-
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-08-07T21:00:00.000Z'));
@@ -156,7 +121,6 @@ beforeEach(() => {
 afterAll(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
-  document.body.innerHTML = '';
 });
 
 describe('management reporting projections', () => {

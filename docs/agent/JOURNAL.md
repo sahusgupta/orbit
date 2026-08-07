@@ -390,3 +390,10 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Moved state defaults, ID/date helpers, proven legacy mappings, seed state, normalization, and persisted-JSON parsing into `src/domain/state.ts`.
 - Kept browser storage selection, Desktop/Firebase publication, and restore orchestration in `src/main.tsx`; no external service was used.
 - Both root compiler projects, 15 renderer-mount files/77 tests, Player TypeScript, all 35 files/189 tests, the 1,914-module build, and aggregate verification passed.
+
+## 2026-08-07 - REF-003 management reporting projections
+
+- Added and separately committed three unchanged-behavior fixtures for half-open report windows, financial categories and precedence, table/player totals, report-state clipping, hourly buckets, dealer ordering, and input immutability.
+- Moved the characterized projections and collection-profile lookup into `src/domain/reporting.ts`; `src/main.tsx` now imports the pure boundary and no longer exposes test-only reporting exports.
+- Rewired the characterization suite from a mocked renderer mount to direct pure-module imports. Focused reporting/table-event coverage passed 2 files/5 tests.
+- Both root compiler projects, Player TypeScript, all 36 files/192 tests, the 1,915-module build, and aggregate verification passed. `src/main.tsx` decreased from 9,364 to 9,072 lines; no external service, deployment, or push was involved.
