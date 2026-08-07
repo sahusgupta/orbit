@@ -353,6 +353,60 @@ describe('persisted account restore boundary', () => {
     expect(settings.pilotAccess).toEqual(access);
   });
 
+  it('retains the historical default collection mode key', async () => {
+    harness.loadForAccountResult = {
+      schemaVersion: 1,
+      savedAt: '2026-08-07T21:00:00.000Z',
+      state: {
+        settings: { defaultRakeMode: 'Time' }
+      }
+    } satisfies PersistedRecord;
+
+    const result = await invokeRestore(inspectorSession);
+    const restored = readPersistedState();
+    const settings = Reflect.get(restored, 'settings') as Record<string, unknown>;
+
+    expect(result.result.value).toBe(true);
+    expect(settings.defaultCollectionMode).toBe('Time');
+    expect(Reflect.has(settings, 'defaultRakeMode')).toBe(false);
+  });
+
+  it('gives the current collection mode precedence over the historical key', async () => {
+    harness.loadForAccountResult = {
+      schemaVersion: 4,
+      savedAt: '2026-08-07T21:00:00.000Z',
+      state: {
+        settings: { defaultCollectionMode: 'Drop', defaultRakeMode: 'Time' }
+      }
+    } satisfies PersistedRecord;
+
+    const result = await invokeRestore(inspectorSession);
+    const restored = readPersistedState();
+    const settings = Reflect.get(restored, 'settings') as Record<string, unknown>;
+
+    expect(result.result.value).toBe(true);
+    expect(settings.defaultCollectionMode).toBe('Drop');
+    expect(Reflect.has(settings, 'defaultRakeMode')).toBe(false);
+  });
+
+  it('falls back safely for corrupt historical collection modes', async () => {
+    harness.loadForAccountResult = {
+      schemaVersion: 1,
+      savedAt: '2026-08-07T21:00:00.000Z',
+      state: {
+        settings: { defaultRakeMode: 'Hourly' }
+      }
+    } satisfies PersistedRecord;
+
+    const result = await invokeRestore(inspectorSession);
+    const restored = readPersistedState();
+    const settings = Reflect.get(restored, 'settings') as Record<string, unknown>;
+
+    expect(result.result.value).toBe(true);
+    expect(settings.defaultCollectionMode).toBe('Drop');
+    expect(Reflect.has(settings, 'defaultRakeMode')).toBe(false);
+  });
+
   it('never persists malformed local JSON', async () => {
     localStorage.setItem(accountStorageKey, '{not-json');
 
