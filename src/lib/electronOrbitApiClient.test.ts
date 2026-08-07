@@ -326,6 +326,63 @@ describe('Electron API-first orchestration characterization', () => {
 });
 
 describe('Electron client telemetry characterization', () => {
+  it('reuses a persisted device identifier without rewriting it', () => {
+    const fs = {
+      existsSync: vi.fn().mockReturnValue(true),
+      readFileSync: vi.fn().mockReturnValue('{"deviceId":"persisted-device"}'),
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn()
+    };
+    const getOrCreateDeviceId = loadFunction<() => string>('getOrCreateDeviceId', {
+      Date,
+      cachedDeviceId: undefined,
+      crypto: { randomUUID: vi.fn().mockReturnValue('generated-device') },
+      fs,
+      getDeviceIdPath: () => 'C:/isolated/orbit-device.json',
+      path: { dirname: () => 'C:/isolated' }
+    });
+
+    expect(getOrCreateDeviceId()).toBe('persisted-device');
+    expect(getOrCreateDeviceId()).toBe('persisted-device');
+    expect(fs.readFileSync).toHaveBeenCalledOnce();
+    expect(fs.mkdirSync).not.toHaveBeenCalled();
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it('generates, caches, and best-effort persists a missing device identifier with its creation timestamp', () => {
+    class FixedDate extends Date {
+      constructor() {
+        super('2026-08-07T11:58:00.000Z');
+      }
+    }
+    const fs = {
+      existsSync: vi.fn().mockReturnValue(false),
+      readFileSync: vi.fn(),
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn(() => {
+        throw new Error('read-only directory');
+      })
+    };
+    const randomUUID = vi.fn().mockReturnValue('generated-device');
+    const getOrCreateDeviceId = loadFunction<() => string>('getOrCreateDeviceId', {
+      Date: FixedDate,
+      cachedDeviceId: undefined,
+      crypto: { randomUUID },
+      fs,
+      getDeviceIdPath: () => 'C:/isolated/orbit-device.json',
+      path: { dirname: () => 'C:/isolated' }
+    });
+
+    expect(getOrCreateDeviceId()).toBe('generated-device');
+    expect(getOrCreateDeviceId()).toBe('generated-device');
+    expect(randomUUID).toHaveBeenCalledOnce();
+    expect(fs.mkdirSync).toHaveBeenCalledWith('C:/isolated', { recursive: true });
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      'C:/isolated/orbit-device.json',
+      '{\n  "deviceId": "generated-device",\n  "createdAt": "2026-08-07T11:58:00.000Z"\n}'
+    );
+  });
+
   it('builds base client identity/status fields and lets explicit overrides win', () => {
     class FixedDate extends Date {
       constructor() {
