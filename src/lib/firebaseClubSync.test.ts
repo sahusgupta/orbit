@@ -405,6 +405,26 @@ describe('Firebase club synchronization transforms', () => {
         registeredAt: '2026-08-05T12:03:00.000Z'
       },
       {
+        id: 'registration-rebought',
+        tournamentId: tournament.id,
+        playerId: 'profile-rebought',
+        playerName: 'Rebuy Player',
+        status: 'rebought',
+        rebuys: 2,
+        addOns: 0,
+        registeredAt: '2026-08-05T12:03:30.000Z'
+      },
+      {
+        id: 'registration-add-on',
+        tournamentId: tournament.id,
+        playerId: 'profile-add-on',
+        playerName: 'Add-on Player',
+        status: 'add-on-purchased',
+        rebuys: 0,
+        addOns: 1,
+        registeredAt: '2026-08-05T12:03:45.000Z'
+      },
+      {
         id: 'registration-unknown',
         tournamentId: tournament.id,
         playerId: 'profile-unknown',
@@ -448,6 +468,8 @@ describe('Firebase club synchronization transforms', () => {
       ['registration-checked-in', 'Checked In'],
       ['registration-eliminated', 'Eliminated'],
       ['registration-finished', 'Registered'],
+      ['registration-rebought', 'Registered'],
+      ['registration-add-on', 'Registered'],
       ['registration-unknown', 'Registered'],
       [undefined, 'Registered']
     ]);
