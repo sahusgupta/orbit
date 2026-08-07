@@ -471,6 +471,45 @@ describe('planned participant construction and persistence', () => {
     document.body.innerHTML = '';
   });
 
+  it('renders the Tonight route navigation, filters, sections, and primary controls', () => {
+    expect(document.querySelector('h1')?.textContent).toBe('Games');
+    expect(document.querySelector('.page-subtitle')?.textContent).toBe("Tonight's demand and forming tables");
+
+    const routeTabs = document.querySelector('.route-tabs');
+    expect(routeTabs?.getAttribute('aria-label')).toBe('Games sections');
+    expect(Array.from(routeTabs?.children ?? [], (tab) => tab.textContent)).toEqual([
+      'Tonight',
+      'Outreach',
+      'Configuration'
+    ]);
+    expect(routeTabs?.querySelector('[aria-current="page"]')?.textContent).toBe('Tonight');
+
+    const filterLabels = Array.from(
+      document.querySelectorAll('.game-filter-bar label'),
+      (label) => label.querySelector('span')?.textContent
+    );
+    expect(filterLabels).toEqual(['Stakes', 'Format', 'Status']);
+    expect(
+      Array.from(document.querySelectorAll('.game-filter-bar select'), (select) =>
+        Array.from(select.querySelectorAll('option'), (option) => option.textContent)
+      )
+    ).toEqual([
+      ['All stakes', '1/2', 'Unspecified'],
+      ['All formats', 'NLH', 'PLO'],
+      ['All statuses', 'Running', 'Ready', 'Needs players']
+    ]);
+
+    expect(Array.from(document.querySelectorAll('.panel h2'), (heading) => heading.textContent)).toEqual([
+      'Player Game Requests',
+      'Two-Table Balance Option'
+    ]);
+    expect(Array.from(document.querySelectorAll('.topbar-actions button'), (button) => button.textContent?.trim())).toEqual([
+      'Export Pilot',
+      'Close'
+    ]);
+    expect(document.querySelector('.builder-controls button')?.textContent?.trim()).toBe('Start Forming Table');
+  });
+
   it('builds and renders only ranked interest-backed candidates while allowing an absent profile', async () => {
     await replaceCapturedState(inspectorSession);
 
