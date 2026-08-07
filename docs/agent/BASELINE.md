@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, `TYPE-007C` reduced it to 53, completed `TYPE-007D` reduced it to 47, `TYPE-007G` reduced it to 39, `TYPE-007E` reduced it to 35, `TYPE-007F` reduced it to 30, `TYPE-002` reduced it to 26, `TYPE-004` reduced it to 25, and `TYPE-009` now establishes the truthful current baseline at 22 diagnostics in 2 affected production files; the gate remains red. TYPE-009 removed its two owned diagnostics, while its accurate partial-settings input also removed TYPE-013's cast symptom without yet resolving the separate historical-retention audit. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, `TYPE-007C` reduced it to 53, completed `TYPE-007D` reduced it to 47, `TYPE-007G` reduced it to 39, `TYPE-007E` reduced it to 35, `TYPE-007F` reduced it to 30, `TYPE-002` reduced it to 26, `TYPE-004` reduced it to 25, `TYPE-009` reduced it to 22, and `TYPE-011` now establishes the truthful current baseline at 21 diagnostics in 2 affected production files; the gate remains red. TYPE-009 removed its two owned diagnostics plus TYPE-013's cast symptom, while TYPE-011 removed the Web Crypto platform diagnostic. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -626,3 +626,24 @@ Final verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 22 diagnostics, while Player TypeScript, 29/151 tests, and the 1,912-module renderer build passed.
 
 `TYPE-009` is complete. No live service, stored production data, deployment, or push occurred.
+
+## TYPE-011 Owned Web Crypto Signature Buffer — 2026-08-07
+
+Before production changed, `src/lib/pilotSignature.test.ts` was committed separately as `bed3a83`. It generates non-secret P-256/RSA fixtures entirely in memory, injects only the test public key, and captures the existing verifier without exposing a repository private key or contacting an external service.
+
+Five cases cover valid raw and DER P-256 signatures, exact DER-to-raw bytes, wrong-key signatures, a modified payload, malformed DER, a wrong-length raw signature, and an RSA public key unsupported by the P-256 verifier. The unchanged implementation passed all cases.
+
+Production changed only the raw 64-byte fast path from returning the caller's `ArrayBufferLike` backing store to `Uint8Array.from(signature).buffer`. That preserves signature bytes and verification behavior while proving and constructing an owned `ArrayBuffer`; no cast, algorithm/payload/license-format change, bypass, failure-message change, or key logging was added.
+
+The first post-change root typecheck produced exactly 21 diagnostics in 2 production files. TYPE-011's sole `TS2345` disappeared, `TS2345` decreased from 10 to 9, and no new diagnostic appeared.
+
+Final verification:
+
+- PASS before and after implementation: `npx --no-install vitest run src/lib/pilotSignature.test.ts` — 1 file and 5 tests.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 21 diagnostics in 2 files; the assigned diagnostic is absent; no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 30 files and 156 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,912 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 21 diagnostics, while Player TypeScript, 30/156 tests, and the 1,912-module renderer build passed.
+
+`TYPE-011` is complete. No live service, repository private key, deployment, or push was involved.

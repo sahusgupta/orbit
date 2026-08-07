@@ -283,3 +283,12 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Root TypeScript decreased from 25 to exactly 22 diagnostics in the same 2 production files. Both owned `TS2322` errors disappeared, and the more accurate partial-settings input also removed TYPE-013's `TS2352` symptom; TYPE-013 remains a separate historical-support audit.
 - Player TypeScript passed; all 29 files/151 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 22-diagnostic root baseline. Existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
 - Marked TYPE-009 complete. No live service, stored production data, deployment, or push occurred.
+
+## 2026-08-07 - TYPE-011 owned Web Crypto signature buffer
+
+- Added and separately committed `src/lib/pilotSignature.test.ts` as `bed3a83`, using only in-memory non-secret P-256/RSA keys, disabled Firebase, and stubbed network access.
+- Five unchanged-production cases proved valid raw/DER verification and exact conversion, wrong-key and modified-payload rejection, malformed-DER and wrong-length rejection, and unsupported-key failure semantics.
+- Changed only the raw 64-byte fast path to `Uint8Array.from(signature).buffer`, producing an owned `ArrayBuffer` by construction without a cast or any payload, format, algorithm, authorization, or failure-message change.
+- Root TypeScript decreased from 22 to exactly 21 diagnostics in the same 2 production files; TYPE-011's `TS2345` disappeared and no new diagnostic appeared.
+- Player TypeScript passed; all 30 files/156 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 21-diagnostic root baseline.
+- Marked TYPE-011 complete. No live service, repository private key, deployment, or push was involved.

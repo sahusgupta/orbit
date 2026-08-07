@@ -49,3 +49,10 @@ None.
 ## Stop conditions
 
 Stop if current verification cannot be characterized with non-secret test keys or if the fix would alter the signed payload/license format.
+
+## Resolution record — 2026-08-07
+
+- In-memory non-secret test keys characterize valid raw and DER signatures, wrong-key signatures, modified payloads, malformed DER, wrong-length raw input, and an RSA key unsupported by the P-256 verifier.
+- The raw 64-byte fast path now copies with `Uint8Array.from(signature).buffer`, matching the DER path's owned `ArrayBuffer` construction.
+- No `BufferSource` assertion, payload/format change, algorithm change, verification bypass, key logging, or external service was introduced.
+- The owned diagnostic disappeared and all five focused cases pass before and after the production change.

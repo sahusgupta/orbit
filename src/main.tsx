@@ -1234,7 +1234,7 @@ const leftPadSignatureInteger = (bytes: Uint8Array) => {
   return padded;
 };
 const derToRawP256Signature = (signature: Uint8Array) => {
-  if (signature.length === 64) return signature.buffer;
+  if (signature.length === 64) return Uint8Array.from(signature).buffer;
   if (signature[0] !== 0x30) throw new Error('Invalid signature format.');
   let offset = 2;
   if (signature[offset] !== 0x02) throw new Error('Invalid signature format.');
