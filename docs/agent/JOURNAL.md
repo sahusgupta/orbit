@@ -404,3 +404,10 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Moved staff secret behavior into `src/domain/staffAuth.ts` and license/account identity behavior into `src/domain/licensing.ts`; `src/main.tsx` retains UI, Firebase authentication, and account orchestration.
 - Replaced the signature suite's Node-inspector/React-mount harness with direct focused-module tests, reducing the focused runtime while preserving all eight cryptographic and identity cases.
 - Both root compiler projects, Player TypeScript, all 36 files/195 tests, the 1,917-module build, and aggregate verification passed. `src/main.tsx` decreased from 9,072 to 8,918 lines; no external service, deployment, or push was involved.
+
+## 2026-08-07 - REF-005 operational domain projections
+
+- Added and separately committed three dense unchanged-behavior fixtures for demand/session/table rules, participant scoring and identity, operational/usage analytics, analytical payloads, scripts, opportunities, ordering, and immutability.
+- Moved characterized table/demand/session rules into `src/domain/operations.ts`, analytics/payload rules into `src/domain/analytics.ts`, and participant/interest rules into `src/domain/participants.ts`.
+- Rewired the direct operational suite from a mocked renderer import to Node-level module imports; the direct and existing table/waitlist/participant mutation suites passed 7 files/43 tests.
+- Both root compiler projects, Player TypeScript, all 37 files/198 tests, the 1,920-module build, and aggregate verification passed. `src/main.tsx` decreased from 8,918 to 8,342 lines; no external service, deployment, or push was involved.

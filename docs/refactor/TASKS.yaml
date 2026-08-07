@@ -1,6 +1,6 @@
 queue: orbit-large-refactor
 status: active
-current: REF-005
+current: REF-006
 tasks:
   - id: REF-001
     title: Extract canonical management domain types
@@ -51,17 +51,18 @@ tasks:
       - direct_staff_hash_license_key_and_persisted_sign_in_fixtures
   - id: REF-005
     title: Extract remaining demand, table-health, and participant rules
-    status: ready_after_characterization
+    status: complete
     boundary: renderer_domain
     risk: high
     depends_on: [REF-001, REF-002]
     spec: docs/agent/tasks/REF-005.md
+    resolution: characterized_operations_analytics_and_participant_modules
     characterization:
       - existing_table_waitlist_participant_suites
       - src/domain/operations.test.ts
   - id: REF-006
     title: Split renderer route sections into typed feature components
-    status: planned
+    status: ready
     boundary: renderer_ui
     risk: high
     depends_on: [REF-002, REF-003, REF-004, REF-005]

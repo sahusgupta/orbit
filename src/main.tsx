@@ -53,8 +53,7 @@ import { validateMembershipQrCheckIn } from './lib/membershipQr';
 import {
   findUniqueProfileReference,
   getProfileReferenceMatches,
-  hasProfileReference,
-  resolveProfileForReference
+  hasProfileReference
 } from './lib/profileRelationships';
 import { loadClubStateFromFirebase, saveClubStateToFirebase, signInOrCreateFirebaseEmailAccount, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
 import { rendererFirebaseSyncEnabled } from './lib/firebaseConfig';
@@ -62,7 +61,6 @@ import { buildNightCloseTables } from './lib/nightClose';
 import { getBalancePlans, getTodayPlayerActivity, parseGroupMeMessages } from './lib/resultBuilders';
 import { mergeSyncedList } from './lib/syncedList';
 import {
-  defaultScriptTemplates,
   defaultTournamentLevels,
   defaultTournamentPayouts,
   nextYearDate,
@@ -99,19 +97,51 @@ import {
   validatePilotKey
 } from './domain/licensing';
 import { hashStaffPin, verifyStaffSecret } from './domain/staffAuth';
+import {
+  buildAnalyticalReportPayload,
+  getAnalytics,
+  getOperationalOpportunities,
+  getUsageAnalytics,
+  type AnalyticalReportPayload
+} from './domain/analytics';
+import {
+  getAverageStackForTable,
+  getClosestGameLabel,
+  getDemand,
+  getOpenSessions,
+  getOverflowOpportunities,
+  getPlayerLoggedHours,
+  getRunningSessions,
+  getSessionBuyIns,
+  getSessionSeatHours,
+  getStaffScripts,
+  getTableHealth,
+  getTimeRemainingMinutes,
+  getViabilityState,
+  hoursBetween
+} from './domain/operations';
+import {
+  activeInterestStatuses,
+  getInClubInterests,
+  getLikelyParticipants,
+  getParticipantPool,
+  getProfileForInterest,
+  hasParticipantInterest,
+  inactiveInterestStatuses,
+  lacksParticipantInterest,
+  type ParticipantCandidate
+} from './domain/participants';
 import type {
   AppRoute,
   AppState,
   ClubAccount,
   CollectionProfile,
-  FeedbackEntry,
   GameConfig,
   GameSession,
   GameStatus,
   Interest,
   InterestStatus,
   NightCloseAudit,
-  NightRecord,
   NightCloseRecord,
   NightCloseStatus,
   PersistedAppState,
@@ -246,54 +276,6 @@ type TextMessageBatchResult = {
   error?: string;
 };
 
-type AnalyticalReportPayload = {
-  app: 'TableManager';
-  kind: 'analytical-report';
-  version: 1;
-  generatedAt: string;
-  account: {
-    accountKey: string;
-    clubName: string;
-    accountName: string;
-    contactName: string;
-    email: string;
-    license: string;
-  };
-  operational: Record<string, string | number | boolean>;
-  collectionByGame: ReturnType<typeof getAnalytics>['collectionValueByGame'];
-  usage: {
-    totalEvents: number;
-    eventsLast24Hours: number;
-    eventsLast7Days: number;
-    features: ReturnType<typeof getUsageAnalytics>['eventsByFeature'];
-    actions: ReturnType<typeof getUsageAnalytics>['eventsByAction'];
-    staff: ReturnType<typeof getUsageAnalytics>['eventsByStaff'];
-    recentEvents: UsageEvent[];
-  };
-  feedback: FeedbackEntry[];
-};
-
-type ParticipantCandidate = {
-  id: string;
-  playerName: string;
-  interest?: Interest;
-  profile?: PlayerProfile;
-  confidence: number;
-  reasons: string[];
-  source: 'interest';
-};
-
-type ParticipantCandidateWithInterest = ParticipantCandidate & { interest: Interest };
-type ParticipantCandidateWithoutInterest = ParticipantCandidate & { interest?: undefined };
-
-const hasParticipantInterest = (
-  candidate: ParticipantCandidate
-): candidate is ParticipantCandidateWithInterest => candidate.interest !== undefined;
-
-const lacksParticipantInterest = (
-  candidate: ParticipantCandidate
-): candidate is ParticipantCandidateWithoutInterest => candidate.interest === undefined;
-
 type BalancePlan = {
   game: GameConfig;
   demand: ReturnType<typeof getDemand>;
@@ -347,9 +329,7 @@ const statuses: InterestStatus[] = [
   'Left Before Seated',
   'Removed'
 ];
-const activeInterestStatuses: InterestStatus[] = ['Interested', 'Confirmed Coming', 'Arrived'];
 const closedInterestStatuses: InterestStatus[] = ['Seated', 'Declined', 'No-Show', 'Left Before Seated', 'Removed'];
-const inactiveInterestStatuses: InterestStatus[] = ['Declined', 'No-Show', 'Left Before Seated', 'Removed'];
 const tableCaps = [6, 8, 10] as const satisfies readonly TableCap[];
 const gameQualityTags: TableTag[] = [
   'Social',
@@ -374,8 +354,6 @@ const toLocalDateValue = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-const hoursBetween = (start: string, end = nowIso()) =>
-  Math.max(0, (new Date(end).getTime() - new Date(start).getTime()) / 36e5);
 const formatClock = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '-');
 const minutesSince = (iso?: string) => (iso ? Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000)) : 0);
 const formatHours = (hours: number) => `${hours.toFixed(1)}h`;
@@ -418,12 +396,6 @@ const formatMinutesLeft = (minutes: number) => {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
   return hours ? `${hours}h ${mins}m` : `${mins}m`;
-};
-const getTimeRemainingMinutes = (session: PlayerSession, nowMs = Date.now()) => {
-  if (!session.timeFeeEnabled) return 0;
-  const baseRemaining = session.timeRemainingMinutes ?? 0;
-  const lastTick = new Date(session.lastTimeTickAt ?? session.seatedAt).getTime();
-  return Math.max(0, baseRemaining - Math.floor((nowMs - lastTick) / 60000));
 };
 const getTimeRemainingSeconds = (session: PlayerSession, nowMs = Date.now()) => {
   if (!session.timeFeeEnabled) return 0;
@@ -485,12 +457,6 @@ const applyBrandTheme = (theme: BrandTheme) => {
   });
   document.body.style.setProperty('--brand-font-family', branding.theme.fontFamily);
 };
-const median = (values: number[]) => {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-};
 function loadState(): AppState {
   try {
     const lastKey = localStorage.getItem(`${storageKey}:last-account`);
@@ -521,548 +487,6 @@ function saveState(state: AppState) {
   return localSave.then((result) => {
     return { ...result, cloud: 'firebase-pending' };
   });
-}
-
-function getDemand(game: GameConfig, interests: Interest[]) {
-  const gameInterests = interests.filter((interest) => interest.gameId === game.id);
-  const inRoom = gameInterests.filter((interest) => interest.status === 'Arrived' || interest.status === 'Seated').length;
-  const confirmed = gameInterests.filter((interest) => interest.status === 'Confirmed Coming').length;
-  const interested = gameInterests.filter((interest) => interest.status === 'Interested').length;
-  const waiting = gameInterests.filter((interest) => interest.status === 'Arrived').length;
-  const flexibleDemand = confirmed + interested + waiting;
-  const totalDemand = inRoom + flexibleDemand;
-  const likely = inRoom >= game.minInRoomForLikely && flexibleDemand >= game.minFlexibleForLikely;
-  const needs = Math.max(0, game.minTotalForViable - totalDemand);
-
-  return {
-    inRoom,
-    confirmed,
-    interested,
-    waiting,
-    flexibleDemand,
-    totalDemand,
-    likely,
-    needs,
-    status: likely ? 'Likely to Start' : needs === 0 ? 'Viable' : `Needs ${needs} More`
-  };
-}
-
-function getRunningSessions(state: AppState, gameId: string) {
-  return state.sessions.filter((session) => session.gameId === gameId && session.status === 'Running');
-}
-
-function getOpenSessions(state: AppState, gameId: string) {
-  return state.sessions.filter((session) => session.gameId === gameId && session.status !== 'Closed' && session.status !== 'Failed to Start');
-}
-
-function getPlayerLoggedHours(state: AppState, playerSession: PlayerSession) {
-  const samePlayerSessions = state.playerSessions.filter((session) =>
-    playerSession.profileId
-      ? session.profileId === playerSession.profileId
-      : session.playerName.toLowerCase() === playerSession.playerName.toLowerCase()
-  );
-  const total = samePlayerSessions.reduce((sum, session) => sum + hoursBetween(session.seatedAt, session.leftAt ?? nowIso()), 0);
-  const tonight = state.playerSessions
-    .filter((session) => session.id === playerSession.id || (
-      !session.leftAt &&
-      (playerSession.profileId
-        ? session.profileId === playerSession.profileId
-        : session.playerName.toLowerCase() === playerSession.playerName.toLowerCase())
-    ))
-    .reduce((sum, session) => sum + hoursBetween(session.seatedAt, session.leftAt ?? nowIso()), 0);
-  return { tonight, total };
-}
-
-function getSessionBuyIns(state: AppState, playerSession: PlayerSession) {
-  return state.buyIns.filter((buyIn) =>
-    buyIn.tableId === playerSession.tableId &&
-    buyIn.gameId === playerSession.gameId &&
-    (playerSession.profileId ? buyIn.profileId === playerSession.profileId : buyIn.playerName.toLowerCase() === playerSession.playerName.toLowerCase())
-  );
-}
-
-function getAverageStackForTable(state: AppState, tableId: string) {
-  const activePlayers = state.playerSessions.filter((playerSession) => playerSession.tableId === tableId && !playerSession.leftAt);
-  if (!activePlayers.length) return 0;
-  const totalBuyIns = activePlayers.reduce(
-    (sum, playerSession) => sum + getSessionBuyIns(state, playerSession).reduce((buyInSum, buyIn) => buyInSum + buyIn.amount, 0),
-    0
-  );
-  return Math.round(totalBuyIns / activePlayers.length);
-}
-
-function getSessionSeatHours(state: AppState, session: GameSession) {
-  return state.playerSessions
-    .filter((playerSession) => playerSession.tableId === session.id)
-    .reduce((sum, playerSession) => sum + hoursBetween(playerSession.seatedAt, playerSession.leftAt), 0);
-}
-
-function getViabilityState(state: AppState, game: GameConfig) {
-  const demand = getDemand(game, state.interests);
-  const running = getRunningSessions(state, game.id);
-  const fullTable = running.some((session) => session.seatsFilled >= session.maxSeats);
-
-  if (running.length && fullTable && demand.flexibleDemand >= game.minFlexibleForLikely) {
-    return { state: 'Likely to Start', nextStep: 'Second table likely' };
-  }
-
-  if (!running.length && demand.inRoom >= game.minInRoomForLikely && demand.totalDemand >= game.minTotalForViable) {
-    return { state: 'Ready to Start', nextStep: 'Enough in-room demand to start' };
-  }
-
-  if (running.length) {
-    const totalSeats = running.reduce((sum, session) => sum + session.seatsFilled, 0);
-    const totalCapacity = running.reduce((sum, session) => sum + session.maxSeats, 0);
-    if (totalSeats <= Math.floor(totalCapacity * 0.55) && demand.flexibleDemand < 2) {
-      return { state: 'Fragile', nextStep: 'Game may not sustain yet' };
-    }
-    return { state: 'Running', nextStep: demand.waiting ? `${demand.waiting} waiting` : 'Game is active' };
-  }
-
-  if (demand.likely) return { state: 'Likely to Start', nextStep: 'Coordinate arrivals' };
-  if (demand.totalDemand >= Math.max(2, game.minTotalForViable - 2)) {
-    return { state: 'Building', nextStep: `Needs ${demand.needs} more player${demand.needs === 1 ? '' : 's'}` };
-  }
-  return { state: 'Not Enough Interest', nextStep: `Needs ${demand.needs} more players` };
-}
-
-function getTableHealth(state: AppState, session: GameSession) {
-  const demand = getDemand(state.games.find((game) => game.id === session.gameId)!, state.interests);
-  const fillRate = session.maxSeats ? session.seatsFilled / session.maxSeats : 0;
-  if (session.status === 'Forming') return 'Building';
-  if (fillRate >= 0.75 || demand.waiting > 0) return 'Healthy';
-  if (fillRate >= 0.55 || demand.flexibleDemand >= 2) return 'Needs Attention';
-  return 'Fragile';
-}
-
-function getOverflowOpportunities(state: AppState) {
-  return state.games
-    .map((game) => {
-      const demand = getDemand(game, state.interests);
-      const fullTables = getRunningSessions(state, game.id).filter((session) => session.seatsFilled >= session.maxSeats);
-      return {
-        game,
-        demand,
-        fullTables,
-        label: `${game.name} full - ${demand.flexibleDemand} waiting/interested - ${
-          demand.flexibleDemand >= game.minFlexibleForLikely ? 'second table possible' : 'keep gathering interest'
-        }`
-      };
-    })
-    .filter((item) => item.fullTables.length && item.demand.flexibleDemand > 0);
-}
-
-function getAnalytics(state: AppState) {
-  const activeSessions = state.sessions.filter((session) => session.status === 'Running' || session.status === 'Forming');
-  const completedSessions = state.sessions.filter((session) => session.endedAt);
-  const liveSeatHours = activeSessions.reduce(
-    (sum, session) => sum + session.seatsFilled * hoursBetween(session.startedAt),
-    0
-  );
-  const completedSeatHours = completedSessions.reduce(
-    (sum, session) => sum + session.seatsFilled * hoursBetween(session.startedAt, session.endedAt),
-    0
-  );
-  const playerSeatHours = state.playerSessions.reduce(
-    (sum, session) => sum + hoursBetween(session.seatedAt, session.leftAt),
-    0
-  );
-  const completedWaits = state.interests.filter((interest) => interest.arrivedAt && interest.seatedAt);
-  const waitMinutes = completedWaits.map(
-    (interest) => (new Date(interest.seatedAt!).getTime() - new Date(interest.arrivedAt!).getTime()) / 60000
-  );
-  const arrivalWaits = state.interests.filter((interest) => interest.interestedAt && interest.arrivedAt);
-  const confirmedComing = state.interests.filter((interest) => interest.confirmedAt || interest.status === 'Confirmed Coming');
-  const confirmedArrived = confirmedComing.filter((interest) => interest.arrivedAt || interest.status === 'Arrived' || interest.status === 'Seated');
-  const durations = state.sessions.map((session) => hoursBetween(session.startedAt, session.endedAt));
-  const conversionEligible = state.interests.filter((interest) => interest.status !== 'Removed');
-  const convertedWaiters = state.interests.filter((interest) => interest.seatedAt).length;
-  const noShows = state.interests.filter((interest) => interest.status === 'No-Show').length;
-  const declined = state.interests.filter((interest) => interest.status === 'Declined').length;
-  const leftBeforeSeated = state.interests.filter((interest) => interest.status === 'Left Before Seated').length;
-  const totalArrivals = state.interests.filter((interest) => interest.arrivedAt || interest.status === 'Arrived' || interest.status === 'Seated').length;
-  const seatHoursByGame = state.games.map((game) => ({
-    game: game.name,
-    hours: state.playerSessions
-      .filter((session) => session.gameId === game.id)
-      .reduce((sum, session) => sum + hoursBetween(session.seatedAt, session.leftAt), 0)
-  }));
-  const seatHoursByTable = state.sessions.map((session) => ({
-    table: session.label,
-    game: state.games.find((game) => game.id === session.gameId)?.name ?? 'Unknown',
-    hours: state.playerSessions
-      .filter((playerSession) => playerSession.tableId === session.id)
-      .reduce((sum, playerSession) => sum + hoursBetween(playerSession.seatedAt, playerSession.leftAt), 0)
-  }));
-  const estimatedTimeFeeRevenue = state.playerSessions.reduce((sum, playerSession) => {
-    const session = state.sessions.find((item) => item.id === playerSession.tableId);
-    if (!session || session.collectionMode !== 'Time') return sum;
-    const profile = getCollectionProfile(state, playerSession.gameId);
-    return sum + ((playerSession.timePurchasedMinutes ?? 0) / 60) * profile.hourlyFee;
-  }, 0);
-  const expiredTimeFeeSeats = state.playerSessions.filter((playerSession) => {
-    const session = state.sessions.find((item) => item.id === playerSession.tableId);
-    return session?.collectionMode === 'Time' && !playerSession.leftAt && (playerSession.timePurchasedMinutes ?? 0) > 0 && getTimeRemainingMinutes(playerSession) <= 0;
-  }).length;
-  const recordedDropTotal = state.dropLogs.reduce((sum, drop) => sum + drop.amount, 0);
-  const estimatedDropRevenue = state.sessions.reduce((sum, session) => {
-    if (session.collectionMode !== 'Drop') return sum;
-    return sum + getSessionSeatHours(state, session) * getCollectionProfile(state, session.gameId).estimatedDropPerSeatHour;
-  }, 0);
-  const collectionValueByGame = state.games.map((game) => {
-    const timeRevenue = state.playerSessions
-      .filter((playerSession) => playerSession.gameId === game.id)
-      .reduce((sum, playerSession) => {
-        const session = state.sessions.find((item) => item.id === playerSession.tableId);
-        return session?.collectionMode === 'Time'
-          ? sum + ((playerSession.timePurchasedMinutes ?? 0) / 60) * getCollectionProfile(state, game.id).hourlyFee
-          : sum;
-      }, 0);
-    const recordedDrop = state.dropLogs
-      .filter((drop) => drop.gameId === game.id)
-      .reduce((sum, drop) => sum + drop.amount, 0);
-    const estimatedDrop = state.sessions
-      .filter((session) => session.gameId === game.id && session.collectionMode === 'Drop')
-      .reduce((sum, session) => sum + getSessionSeatHours(state, session) * getCollectionProfile(state, game.id).estimatedDropPerSeatHour, 0);
-    return { game: game.name, timeRevenue, recordedDrop, estimatedDrop };
-  });
-  const waitByGame = state.games.map((game) => {
-    const waits = completedWaits
-      .filter((interest) => interest.gameId === game.id)
-      .map((interest) => (new Date(interest.seatedAt!).getTime() - new Date(interest.arrivedAt!).getTime()) / 60000);
-    return {
-      game: game.name,
-      averageMinutes: waits.length ? waits.reduce((sum, value) => sum + value, 0) / waits.length : 0,
-      count: waits.length
-    };
-  });
-  const failedStartEvents = state.tableEvents.filter((event) => event.type === 'Failed to Start');
-  const lostSeatHourEstimate = failedStartEvents.length * 2 + leftBeforeSeated * 1.5;
-  const currentNight: NightRecord = {
-    id: 'current',
-    date: new Date().toISOString().slice(0, 10),
-    occupiedSeatHours: Math.max(liveSeatHours + completedSeatHours, playerSeatHours),
-    gamesStarted: state.sessions.filter((session) => session.status !== 'Closed').length,
-    averageSessionDurationHours: durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : 0,
-    averageActiveTables: activeSessions.length,
-    waitlistConversionRate: conversionEligible.length ? convertedWaiters / conversionEligible.length : 0,
-    hadTwoPlusTables: activeSessions.length >= 2
-  };
-  return {
-    currentNight,
-    activeTables: activeSessions.length,
-    averageSeatsOccupied: activeSessions.length
-      ? activeSessions.reduce((sum, session) => sum + session.seatsFilled, 0) / activeSessions.length
-      : 0,
-    averageSeatHoursPerPlayer: state.playerSessions.length ? playerSeatHours / state.playerSessions.length : 0,
-    averageWaitMinutes: waitMinutes.length ? waitMinutes.reduce((sum, value) => sum + value, 0) / waitMinutes.length : 0,
-    medianWaitMinutes: median(waitMinutes),
-    averageInterestToArrivalMinutes: arrivalWaits.length
-      ? arrivalWaits.reduce((sum, interest) => sum + (new Date(interest.arrivedAt!).getTime() - new Date(interest.interestedAt).getTime()) / 60000, 0) /
-        arrivalWaits.length
-      : 0,
-    conversionRate: conversionEligible.length ? convertedWaiters / conversionEligible.length : 0,
-    noShowRate: conversionEligible.length ? noShows / conversionEligible.length : 0,
-    declineRate: conversionEligible.length ? declined / conversionEligible.length : 0,
-    leftBeforeSeatedRate: conversionEligible.length ? leftBeforeSeated / conversionEligible.length : 0,
-    noShows,
-    declined,
-    leftBeforeSeated,
-    confirmedArrivalRate: confirmedComing.length ? confirmedArrived.length / confirmedComing.length : 0,
-    waitlistAbandonmentCount: leftBeforeSeated + declined,
-    lostSeatHourEstimate,
-    failedStarts: state.tableEvents.filter((event) => event.type === 'Failed to Start').length,
-    tableBreaks: state.tableEvents.filter((event) => event.type === 'Broke' || event.type === 'Closed').length,
-    secondTablesStarted: state.sessions.filter((session) => session.status !== 'Failed to Start' && session.label !== 'Main Table').length,
-    totalArrivals,
-    peakWaitlistPressure: Math.max(...state.games.map((game) => getDemand(game, state.interests).waiting + getDemand(game, state.interests).interested), 0),
-    seatHoursByGame,
-    seatHoursByTable,
-    estimatedTimeFeeRevenue,
-    expiredTimeFeeSeats,
-    recordedDropTotal,
-    estimatedDropRevenue,
-    collectionValueByGame,
-    waitByGame,
-    peakActiveTables: Math.max(activeSessions.length, state.history.reduce((max, night) => Math.max(max, night.averageActiveTables), 0)),
-    peakInterestedByGame: state.games
-      .map((game) => ({ game: game.name, count: getDemand(game, state.interests).totalDemand }))
-      .sort((a, b) => b.count - a.count)[0]
-  };
-}
-
-function getUsageAnalytics(state: AppState) {
-  const events = state.usageEvents ?? [];
-  const eventsByFeature = [...events.reduce((map, event) => {
-    const current = map.get(event.feature) ?? { feature: event.feature, count: 0, lastUsedAt: '' };
-    current.count += 1;
-    current.lastUsedAt = current.lastUsedAt && current.lastUsedAt > event.timestamp ? current.lastUsedAt : event.timestamp;
-    map.set(event.feature, current);
-    return map;
-  }, new Map<string, { feature: string; count: number; lastUsedAt: string }>()).values()].sort((a, b) => b.count - a.count);
-  const eventsByAction = [...events.reduce((map, event) => {
-    const key = `${event.feature}:${event.action}`;
-    const current = map.get(key) ?? { key, feature: event.feature, action: event.action, count: 0, lastUsedAt: '' };
-    current.count += 1;
-    current.lastUsedAt = current.lastUsedAt && current.lastUsedAt > event.timestamp ? current.lastUsedAt : event.timestamp;
-    map.set(key, current);
-    return map;
-  }, new Map<string, { key: string; feature: string; action: string; count: number; lastUsedAt: string }>()).values()].sort((a, b) => b.count - a.count);
-  const eventsByStaff = [...events.reduce((map, event) => {
-    const key = event.staffId || 'unassigned';
-    const current = map.get(key) ?? { key, staffName: event.staffName || 'Unassigned', staffRole: event.staffRole || '', count: 0, lastUsedAt: '' };
-    current.count += 1;
-    current.lastUsedAt = current.lastUsedAt && current.lastUsedAt > event.timestamp ? current.lastUsedAt : event.timestamp;
-    map.set(key, current);
-    return map;
-  }, new Map<string, { key: string; staffName: string; staffRole: string; count: number; lastUsedAt: string }>()).values()].sort((a, b) => b.count - a.count);
-  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-
-  return {
-    totalEvents: events.length,
-    eventsLast24Hours: events.filter((event) => new Date(event.timestamp).getTime() >= oneDayAgo).length,
-    eventsLast7Days: events.filter((event) => new Date(event.timestamp).getTime() >= sevenDaysAgo).length,
-    eventsByFeature,
-    eventsByAction,
-    eventsByStaff,
-    recentEvents: [...events].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 20)
-  };
-}
-
-function buildAnalyticalReportPayload(
-  state: AppState,
-  analytics: ReturnType<typeof getAnalytics>,
-  usageAnalytics: ReturnType<typeof getUsageAnalytics>
-): AnalyticalReportPayload {
-  const account = state.settings.clubAccount;
-  const access = state.settings.pilotAccess;
-  return {
-    app: 'TableManager',
-    kind: 'analytical-report',
-    version: 1,
-    generatedAt: nowIso(),
-    account: {
-      accountKey: getAccountKeyFromState(state),
-      clubName: account?.clubName ?? '',
-      accountName: account?.accountName ?? '',
-      contactName: account?.contactName ?? '',
-      email: account?.email ?? '',
-      license: access?.licenseId || access?.authorizationCode || ''
-    },
-    operational: {
-      occupiedSeatHours: Number(analytics.currentNight.occupiedSeatHours.toFixed(1)),
-      averageWaitMinutes: Number(analytics.averageWaitMinutes.toFixed(0)),
-      waitlistConversionRate: Number((analytics.conversionRate * 100).toFixed(0)),
-      gamesStarted: analytics.currentNight.gamesStarted,
-      tableBreaks: analytics.tableBreaks,
-      failedStarts: analytics.failedStarts,
-      medianWaitMinutes: Number(analytics.medianWaitMinutes.toFixed(0)),
-      noShows: analytics.noShows,
-      declined: analytics.declined,
-      leftBeforeSeated: analytics.leftBeforeSeated,
-      confirmedArrivalRate: Number((analytics.confirmedArrivalRate * 100).toFixed(0)),
-      lostSeatHourEstimate: Number(analytics.lostSeatHourEstimate.toFixed(1)),
-      secondTablesStarted: analytics.secondTablesStarted,
-      totalArrivals: analytics.totalArrivals,
-      activeTables: analytics.activeTables,
-      estimatedTimeFeeRevenue: Number(analytics.estimatedTimeFeeRevenue.toFixed(2)),
-      expiredTimeFeeSeats: analytics.expiredTimeFeeSeats,
-      recordedDropTotal: Number(analytics.recordedDropTotal.toFixed(2)),
-      estimatedDropRevenue: Number(analytics.estimatedDropRevenue.toFixed(2))
-    },
-    collectionByGame: analytics.collectionValueByGame,
-    usage: {
-      totalEvents: usageAnalytics.totalEvents,
-      eventsLast24Hours: usageAnalytics.eventsLast24Hours,
-      eventsLast7Days: usageAnalytics.eventsLast7Days,
-      features: usageAnalytics.eventsByFeature,
-      actions: usageAnalytics.eventsByAction,
-      staff: usageAnalytics.eventsByStaff,
-      recentEvents: usageAnalytics.recentEvents
-    },
-    feedback: state.feedback
-  };
-}
-
-function getClosestGameLabel(state: AppState) {
-  const closest = state.games
-    .map((game) => ({ game, demand: getDemand(game, state.interests) }))
-    .sort((a, b) => a.demand.needs - b.demand.needs || b.demand.totalDemand - a.demand.totalDemand)[0];
-
-  if (!closest) return '-';
-  return closest.demand.likely ? `${closest.game.name} likely` : `${closest.game.name}: needs ${closest.demand.needs}`;
-}
-
-function getProfileForInterest(interest: Interest, profiles: PlayerProfile[]) {
-  return resolveProfileForReference(interest, profiles);
-}
-
-function getInClubInterests(state: AppState) {
-  return state.interests.filter((interest) => interest.status === 'Arrived' || interest.status === 'Seated');
-}
-
-function getInClubNames(state: AppState) {
-  return new Set(getInClubInterests(state).map((interest) => interest.playerName));
-}
-
-function getParticipantPool(state: AppState, gameId: string, seats: number): ParticipantCandidate[] {
-  const availabilityScore: Record<InterestStatus, number> = {
-    Arrived: 100,
-    Seated: 96,
-    Interested: 58,
-    'Confirmed Coming': 76,
-    Declined: 0,
-    'No-Show': 0,
-    'Left Before Seated': 0,
-    Removed: 0
-  };
-  const available = state.interests.filter((interest) => activeInterestStatuses.includes(interest.status) && interest.gameId === gameId);
-  const inClubNames = getInClubNames(state);
-
-  const interestCandidates = available
-    .map((interest) => {
-      const profile = getProfileForInterest(interest, state.profiles);
-      const companions = profile?.usualCompanions ?? [];
-      const companionMatches = companions.filter((name) => inClubNames.has(name));
-      const gameMatch = interest.gameId === gameId || !!profile?.preferredGameIds.includes(gameId);
-      const tagMatches = profile?.preferredTags.filter((tag) =>
-        state.sessions.some((session) => session.gameId === gameId && session.tags.includes(tag))
-      ) ?? [];
-      const buyInAverage =
-        profile && profile.typicalBuyInMax > 0
-          ? Math.round((profile.typicalBuyInMin + profile.typicalBuyInMax) / 2)
-          : 0;
-      const buyInScore = buyInAverage ? Math.min(18, Math.round(buyInAverage / 100)) : 0;
-      const confidence =
-        availabilityScore[interest.status] +
-        (gameMatch ? 28 : -18) +
-        Math.min(14, tagMatches.length * 7) +
-        Math.min(24, companionMatches.length * 8) +
-        buyInScore;
-      const reasons = [
-        interest.status,
-        gameMatch ? 'game/stakes fit' : 'alternate game',
-        tagMatches.length ? `fits ${tagMatches.join(', ')}` : '',
-        companionMatches.length ? `connected to ${companionMatches.join(', ')}` : '',
-        buyInAverage ? `$${buyInAverage} typical buy-in` : ''
-      ].filter(Boolean);
-
-      return {
-        id: interest.id,
-        playerName: interest.playerName,
-        interest,
-        profile,
-        confidence,
-        reasons,
-        source: 'interest' as const
-      };
-    });
-
-  return interestCandidates
-    .sort((a, b) => b.confidence - a.confidence)
-    .slice(0, seats);
-}
-
-function getLikelyParticipants(state: AppState) {
-  const activePlayerNames = getInClubNames(state);
-
-  return state.games
-    .flatMap((game) => {
-      const demand = getDemand(game, state.interests);
-      return state.profiles
-        .filter((profile) => !activePlayerNames.has(profile.name))
-        .map((profile) => {
-          const prefersGame = profile.preferredGameIds.includes(game.id) || profile.preferredStakes.includes(game.name);
-          const tagMatches = profile.preferredTags.filter((tag) =>
-            state.sessions.some((session) => session.gameId === game.id && session.tags.includes(tag))
-          );
-          const companionMatches = profile.usualCompanions.filter((name) => activePlayerNames.has(name));
-          const buyInAverage =
-            profile.typicalBuyInMax > 0 ? Math.round((profile.typicalBuyInMin + profile.typicalBuyInMax) / 2) : 0;
-          const confidence =
-            (prefersGame ? 55 : 8) +
-            demand.totalDemand * 7 +
-            companionMatches.length * 18 +
-            tagMatches.length * 8 +
-            Math.min(20, Math.round(buyInAverage / 100));
-          const reason = [
-            prefersGame ? `prefers ${game.name}` : `possible ${game.name}`,
-            tagMatches.length ? `fits ${tagMatches.join(', ')}` : '',
-            demand.totalDemand ? `${demand.totalDemand} already interested` : '',
-            companionMatches.length ? `connected to ${companionMatches.join(', ')}` : '',
-            demand.needs ? `needs ${demand.needs}` : 'table viable'
-          ].filter(Boolean);
-
-          return {
-            id: `${profile.id}-${game.id}`,
-            profile,
-            game,
-            confidence,
-            reason,
-            message: `${profile.name}, ${game.name} is close to forming. ${demand.totalDemand} players are already in or interested. Would you want a seat if it starts?`
-          };
-        });
-    })
-    .sort((a, b) => b.confidence - a.confidence)
-    .slice(0, 8);
-}
-
-function renderScriptTemplate(template: string, game: GameConfig, demand: ReturnType<typeof getDemand>) {
-  return template
-    .replaceAll('{game}', game.name)
-    .replaceAll('{inRoom}', demand.inRoom.toString())
-    .replaceAll('{coming}', demand.confirmed.toString())
-    .replaceAll('{waiting}', (demand.interested + demand.waiting).toString())
-    .replaceAll('{needs}', demand.needs.toString());
-}
-
-function getStaffScripts(state: AppState) {
-  const gameScripts = state.games.flatMap((game) => {
-    const demand = getDemand(game, state.interests);
-    const running = getRunningSessions(state, game.id);
-    const full = running.some((session) => session.seatsFilled >= session.maxSeats);
-    const scripts = [{ label: `${game.name}: current demand`, text: renderScriptTemplate(state.scriptTemplates[0] ?? defaultScriptTemplates[0], game, demand) }];
-    if (full && demand.flexibleDemand > 0) {
-      scripts.push({
-        label: `${game.name}: overflow`,
-        text: renderScriptTemplate(state.scriptTemplates[1] ?? defaultScriptTemplates[1], game, demand)
-      });
-    }
-    if (demand.needs > 0) {
-      scripts.push({
-        label: `${game.name}: needs more`,
-        text: renderScriptTemplate(state.scriptTemplates[2] ?? defaultScriptTemplates[2], game, demand)
-      });
-    } else {
-      scripts.push({
-        label: `${game.name}: likely`,
-        text: renderScriptTemplate(state.scriptTemplates[3] ?? defaultScriptTemplates[3], game, demand)
-      });
-    }
-    return scripts;
-  });
-  return gameScripts.slice(0, 8);
-}
-
-function getOperationalOpportunities(state: AppState, analytics: ReturnType<typeof getAnalytics>) {
-  const opportunities: string[] = [];
-  if (analytics.failedStarts >= 2) {
-    opportunities.push('Repeated failed starts: review arrival confirmation process.');
-  }
-  if (analytics.averageWaitMinutes >= 30 && analytics.conversionRate < 0.5) {
-    opportunities.push('High wait with low conversion: reduce uncertainty for incoming players.');
-  }
-  if ((analytics.peakInterestedByGame?.count ?? 0) >= 8 && analytics.currentNight.gamesStarted <= 1) {
-    opportunities.push('Strong demand with few starts: focus on second-table coordination.');
-  }
-  if (analytics.tableBreaks >= 2) {
-    opportunities.push('Table breaks above normal: review late-night sustainability.');
-  }
-  if (!opportunities.length) {
-    opportunities.push('No major operational flags yet. Keep tracking wait pressure and table starts.');
-  }
-  return opportunities;
 }
 
 function App() {
@@ -8910,30 +8334,6 @@ function TagPicker({ selected, onChange }: { selected: TableTag[]; onChange: (ta
     </div>
   );
 }
-
-export {
-  buildAnalyticalReportPayload,
-  getAnalytics,
-  getAverageStackForTable,
-  getClosestGameLabel,
-  getDemand,
-  getLikelyParticipants,
-  getOpenSessions,
-  getOperationalOpportunities,
-  getOverflowOpportunities,
-  getParticipantPool,
-  getPlayerLoggedHours,
-  getRunningSessions,
-  getSessionBuyIns,
-  getSessionSeatHours,
-  getStaffScripts,
-  getTableHealth,
-  getUsageAnalytics,
-  getViabilityState,
-  hasParticipantInterest,
-  lacksParticipantInterest,
-  renderScriptTemplate
-};
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

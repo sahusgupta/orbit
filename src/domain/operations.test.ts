@@ -1,49 +1,11 @@
-/**
- * @vitest-environment jsdom
- */
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as analytics from './analytics';
+import * as operationalRules from './operations';
+import * as participantRules from './participants';
 import { seedState } from './state';
 import type { AppState, GameConfig, GameSession, Interest, PlayerProfile, PlayerSession } from './types';
 
-vi.mock('react-dom/client', () => ({
-  createRoot: () => ({ render: vi.fn() })
-}));
-vi.mock('../lib/firebaseConfig', () => ({ rendererFirebaseSyncEnabled: false }));
-vi.mock('../lib/firebaseClubSync', () => ({
-  loadClubStateFromFirebase: vi.fn(async () => null),
-  saveClubStateToFirebase: vi.fn(async () => undefined),
-  signInOrCreateFirebaseEmailAccount: vi.fn(async () => undefined),
-  signOutOfFirebase: vi.fn(async () => undefined),
-  subscribeToPlayerRequestUpdates: vi.fn(() => () => undefined),
-  syncPlayerUpdatesToClubState: vi.fn(async <T,>(state: T) => state)
-}));
-
-type OperationsModule = Pick<
-  typeof import('../main'),
-  | 'buildAnalyticalReportPayload'
-  | 'getAnalytics'
-  | 'getAverageStackForTable'
-  | 'getClosestGameLabel'
-  | 'getDemand'
-  | 'getLikelyParticipants'
-  | 'getOpenSessions'
-  | 'getOperationalOpportunities'
-  | 'getOverflowOpportunities'
-  | 'getParticipantPool'
-  | 'getPlayerLoggedHours'
-  | 'getRunningSessions'
-  | 'getSessionBuyIns'
-  | 'getSessionSeatHours'
-  | 'getStaffScripts'
-  | 'getTableHealth'
-  | 'getUsageAnalytics'
-  | 'getViabilityState'
-  | 'hasParticipantInterest'
-  | 'lacksParticipantInterest'
-  | 'renderScriptTemplate'
->;
-
-let operations: OperationsModule;
+const operations = { ...analytics, ...operationalRules, ...participantRules };
 
 const game: GameConfig = {
   id: 'game-fixture',
@@ -237,11 +199,6 @@ const buildAnalyticsState = (): AppState => {
   };
 };
 
-beforeAll(async () => {
-  document.body.innerHTML = '<div id="root"></div>';
-  operations = await import('../main');
-});
-
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-08-07T22:00:00.000Z'));
@@ -250,7 +207,6 @@ beforeEach(() => {
 afterAll(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
-  document.body.innerHTML = '';
 });
 
 describe('management operational domain projections', () => {
