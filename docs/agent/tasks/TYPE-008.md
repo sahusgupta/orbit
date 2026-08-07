@@ -46,7 +46,7 @@ Medium/high: compatibility and imported persisted data can change subtly.
 
 ## Dependencies
 
-Complete the relevant callback-contract batch in `TYPE-007` first if it changes nearby inference.
+Complete `TYPE-007A` and `TYPE-007H` first. Those batches establish complete `PlayerProfile` values and profile-link callbacks adjacent to the import commit path; unrelated table/report children of the `TYPE-007` umbrella do not gate this work.
 
 ## Stop conditions
 

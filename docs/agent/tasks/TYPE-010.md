@@ -46,7 +46,7 @@ Medium: a partial-state update can lose candidate data or change waitlist timest
 
 ## Dependencies
 
-Complete the relevant renderer callback batch in `TYPE-007` first or coordinate the changes explicitly.
+Complete the `TYPE-007` umbrella first. No single child owns the GroupMe setter contract, and retaining the parent dependency avoids overlapping edits to the same large renderer callback surface before its decomposition is complete.
 
 ## Stop conditions
 

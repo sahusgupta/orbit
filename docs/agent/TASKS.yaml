@@ -88,16 +88,201 @@ tasks:
     spec: docs/agent/tasks/TYPE-006.md
     resolution: exact_mapper_results_with_non_null_narrowing
   - id: TYPE-007
-    title: Repair renderer callback domain contracts in bounded batches
+    title: Coordinate renderer callback domain-contract batches
     classification: REAL_TYPE_ERROR
-    diagnostics: 51
+    diagnostics: 0
+    diagnostics_delegated: 51
+    status: pending
+    role: umbrella
+    children: [TYPE-007A, TYPE-007B, TYPE-007C, TYPE-007D, TYPE-007E, TYPE-007F, TYPE-007G, TYPE-007H, TYPE-007I, TYPE-007J]
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-007A, TYPE-007B, TYPE-007C, TYPE-007D, TYPE-007E, TYPE-007F, TYPE-007G, TYPE-007H, TYPE-007I, TYPE-007J]
+    spec: docs/agent/tasks/TYPE-007.md
+    decomposition: docs/agent/TYPE-007_DECOMPOSITION.md
+  - id: TYPE-007A
+    title: Preserve complete profiles while grouping duplicates
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 2
     status: ready
+    safe_autonomous: false
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    owned_diagnostics:
+      - "src/main.tsx:2631:24 TS2322"
+      - "src/main.tsx:2631:52 TS2740"
+    spec: docs/agent/tasks/TYPE-007A.md
+  - id: TYPE-007B
+    title: Preserve waitlist entries through patch updates
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 5
+    status: ready
+    safe_autonomous: false
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    owned_diagnostics:
+      - "src/main.tsx:3244:38 TS2345"
+      - "src/main.tsx:3261:7 TS2345"
+      - "src/main.tsx:3261:74 TS2339"
+      - "src/main.tsx:3262:30 TS2345"
+      - "src/main.tsx:3262:57 TS2339"
+    spec: docs/agent/tasks/TYPE-007B.md
+  - id: TYPE-007C
+    title: Preserve full records through timestamp corrections
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 6
+    status: ready
+    safe_autonomous: false
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    owned_diagnostics:
+      - "src/main.tsx:3274:7 TS2322"
+      - "src/main.tsx:3274:38 TS2345"
+      - "src/main.tsx:3277:7 TS2322"
+      - "src/main.tsx:3277:48 TS2345"
+      - "src/main.tsx:3289:7 TS2322"
+      - "src/main.tsx:3289:48 TS2345"
+    spec: docs/agent/tasks/TYPE-007C.md
+  - id: TYPE-007D
+    title: Preserve player records across table moves and departures
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 6
+    status: ready
+    safe_autonomous: false
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    owned_diagnostics:
+      - "src/main.tsx:4261:48 TS2345"
+      - "src/main.tsx:4280:55 TS2345"
+      - "src/main.tsx:4299:7 TS2769"
+      - "src/main.tsx:4312:66 TS2345"
+      - "src/main.tsx:4314:13 TS2345"
+      - "src/main.tsx:4358:81 TS2345"
+    spec: docs/agent/tasks/TYPE-007D.md
+  - id: TYPE-007E
+    title: Preserve forming and balanced table construction
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 4
+    status: ready
+    safe_autonomous: false
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    owned_diagnostics:
+      - "src/main.tsx:4402:63 TS2345"
+      - "src/main.tsx:4467:9 TS2322"
+      - "src/main.tsx:4467:31 TS2345"
+      - "src/main.tsx:4478:9 TS2322"
+    spec: docs/agent/tasks/TYPE-007E.md
+  - id: TYPE-007F
+    title: Decide the planned-participant domain contract
+    classification: REAL_TYPE_ERROR
+    safety: HUMAN_DECISION_REQUIRED
+    diagnostics: 5
+    status: review_required
     safe_autonomous: false
     human_review: true
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: [TYPE-005, TYPE-006]
-    spec: docs/agent/tasks/TYPE-007.md
+    owned_diagnostics:
+      - "src/main.tsx:4415:15 TS2769"
+      - "src/main.tsx:4416:12 TS2345"
+      - "src/main.tsx:4441:39 TS2769"
+      - "src/main.tsx:4441:98 TS2345"
+      - "src/main.tsx:7298:34 TS2345"
+    spec: docs/agent/tasks/TYPE-007F.md
+  - id: TYPE-007G
+    title: Preserve table lifecycle and event transitions
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 8
+    status: ready
+    safe_autonomous: false
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    owned_diagnostics:
+      - "src/main.tsx:4519:7 TS2322"
+      - "src/main.tsx:4519:36 TS2345"
+      - "src/main.tsx:4551:7 TS2322"
+      - "src/main.tsx:4551:36 TS2345"
+      - "src/main.tsx:4561:7 TS2322"
+      - "src/main.tsx:4561:36 TS2345"
+      - "src/main.tsx:4573:7 TS2322"
+      - "src/main.tsx:4575:38 TS2345"
+    spec: docs/agent/tasks/TYPE-007G.md
+  - id: TYPE-007H
+    title: Preserve profile relationships during profile mutations
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 10
+    status: ready
+    safe_autonomous: false
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    owned_diagnostics:
+      - "src/main.tsx:4856:7 TS2322"
+      - "src/main.tsx:4856:38 TS2345"
+      - "src/main.tsx:5007:7 TS2322"
+      - "src/main.tsx:5008:7 TS2322"
+      - "src/main.tsx:5008:38 TS2345"
+      - "src/main.tsx:5011:7 TS2322"
+      - "src/main.tsx:5011:48 TS2345"
+      - "src/main.tsx:5019:7 TS2769"
+      - "src/main.tsx:5115:9 TS2769"
+      - "src/main.tsx:7520:19 TS2345"
+    spec: docs/agent/tasks/TYPE-007H.md
+  - id: TYPE-007I
+    title: Preserve table-event report projections
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 2
+    status: ready
+    safe_autonomous: false
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    owned_diagnostics:
+      - "src/main.tsx:5594:14 TS2345"
+      - "src/main.tsx:8468:151 TS2345"
+    spec: docs/agent/tasks/TYPE-007I.md
+  - id: TYPE-007J
+    title: Preserve canonical domain items in floor render callbacks
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 3
+    status: ready
+    safe_autonomous: false
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    owned_diagnostics:
+      - "src/main.tsx:9697:40 TS2345"
+      - "src/main.tsx:9698:58 TS2345"
+      - "src/main.tsx:9802:22 TS2345"
+    spec: docs/agent/tasks/TYPE-007J.md
   - id: TYPE-008
     title: Validate and normalize profile imports
     classification: REAL_TYPE_ERROR
@@ -107,7 +292,7 @@ tasks:
     human_review: true
     blocks_refactoring: true
     blocks_player_web: false
-    depends_on: [TYPE-007]
+    depends_on: [TYPE-007A, TYPE-007H]
     spec: docs/agent/tasks/TYPE-008.md
   - id: TYPE-009
     title: Define the persisted account-restore input contract

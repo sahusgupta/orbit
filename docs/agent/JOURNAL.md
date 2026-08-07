@@ -66,3 +66,18 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Focused tests passed: 2 files and 16 tests. Player typecheck passed; all 19 files/96 tests passed; the renderer build passed with 1,912 modules transformed. The existing SQLite, ExcelJS `eval`, and large-chunk warnings remained.
 - Aggregate `npm run verify` ran all four gates and exited 1 only for the expected 71-diagnostic root failure; Player TypeScript, 19/96 tests, and the renderer build passed.
 - Marked `TYPE-012` complete. `TYPE-015` remains planned because `TYPE-021` is incomplete, so no downstream task became newly ready.
+
+## 2026-08-06 — TYPE-007 renderer callback decomposition
+
+- Started from a clean `fix/type-005-synchronized-list-tuples` worktree; confirmed the branch was not `main`.
+- Confirmed completed `TYPE-005` and `TYPE-006` satisfy both former `TYPE-007` dependencies and that the pre-decomposition queue marked `TYPE-007` ready with human review required.
+- Re-ran `npm run typecheck`: it retained exactly 71 diagnostics in 4 files. After excluding the 20 diagnostics explicitly owned by the other current remediation tasks, the live `TYPE-007` inventory is exactly 51 diagnostics, all in `src/main.tsx`.
+- Traced every diagnostic through its containing function/callback, canonical `AppState`/domain type, downstream helper, existing tests, and renderer architecture notes.
+- Split the 51 diagnostics into ten behavior contracts: profile grouping (2), waitlist patching (5), correction propagation (6), player move/leave transitions (6), forming/balanced table construction (4), planned participants (5), table lifecycle/events (8), profile relationships (10), table-event reporting (2), and floor rendering (3).
+- Classified nine children `SAFE_AFTER_TESTS`. None is `SAFE_AUTONOMOUS` because the affected callbacks live in the explicitly risky `src/main.tsx` boundary and lack focused characterization.
+- Classified `TYPE-007F` `HUMAN_DECISION_REQUIRED`: current candidate construction is interest-only, while the canonical type permits missing interests/profiles and `addPlannedSession` contains a dormant profile-only interest-creation path. Recommended preserving the broad guarded contract without activating new behavior until a separate product decision (medium confidence, 0.75).
+- Converted `TYPE-007` into a zero-direct-ownership umbrella that depends on `TYPE-007A` through `TYPE-007J`; the ten children own 51 unique diagnostics. `TYPE-008` now depends on profile batches `TYPE-007A` and `TYPE-007H`; `TYPE-010` conservatively retains the parent dependency. Neither downstream task became ready.
+- Added `docs/agent/TYPE-007_DECOMPOSITION.md` and one complete task specification for every child. No production source, test, compiler setting, dependency, persisted shape, API, Firebase contract, or runtime behavior changed.
+- Mechanical validation found 51 inventory entries, 51 unique child-spec entries, zero ownership difference from the live compiler set, 10/10 child specs with all required sections, a parsed YAML queue totaling 71 current diagnostics, and zero dependency cycles.
+- Final `npm run typecheck` retained exactly 71 diagnostics in the same 4 files and identical code counts; documentation changed no compiler output.
+- Final `npm run verify` exited 1 only for that expected root TypeScript baseline. Player TypeScript passed, all 19 files/96 tests passed, and the renderer build passed with 1,912 modules transformed; the existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
