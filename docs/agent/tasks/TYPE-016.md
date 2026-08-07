@@ -1,6 +1,6 @@
 # TYPE-016: Add Electron main and preload compiler checking
 
-Status: `planned`
+Status: `active`
 
 ## Objective
 
@@ -45,3 +45,15 @@ Depends on completed `TYPE-001`. Any semantic findings must receive separate beh
 ## Autonomous implementation
 
 Not safe for autonomous implementation because it exposes production Electron diagnostics and touches a security-sensitive boundary.
+
+## Trigger and characterized findings
+
+REF-008 is now the next refactor task, so the documented compiler trigger is satisfied under the approved instruction to implement only coverage required for the upcoming refactor.
+
+The original probe was reproduced with `skipLibCheck` at the dependency boundary and still reports exactly three production diagnostics:
+
+- `electron/main.cjs:72` reads `code` from an external unknown error/cause value.
+- `electron/main.cjs:161` reads `message` from unknown JSON returned by Twilio.
+- `electron/main.cjs:1590` registers `before-quit-for-update` on the `electron-updater` emitter even though installed runtime/type evidence exposes that event on Electron's native `autoUpdater`.
+
+`src/lib/electronMainCompilerFindings.test.ts` characterizes the unchanged error/cause projection, Twilio message/status fallback, and current update-listener registration before production edits. The first two repairs must preserve output exactly. The third is an explicit correction to attach the already-intended installation telemetry listener to the emitter that actually produces the event; it must not change download/install control flow or renderer privileges.

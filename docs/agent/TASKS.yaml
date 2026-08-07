@@ -487,7 +487,7 @@ tasks:
     classification: VERIFICATION_GAP
     diagnostics: 0
     observed_probe_diagnostics: 3
-    status: planned
+    status: active
     safe_autonomous: false
     human_review: true
     blocks_refactoring: false
