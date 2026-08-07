@@ -1,6 +1,6 @@
 queue: orbit-large-refactor
 status: active
-current: REF-008
+current: TYPE-018
 tasks:
   - id: REF-001
     title: Extract canonical management domain types
@@ -80,12 +80,12 @@ tasks:
     verification: browser_rendered_comparison_required
   - id: REF-008
     title: Extract Electron process modules
-    status: active
+    status: complete
     boundary: electron
     risk: high_security
     depends_on: [TYPE-016]
     spec: docs/agent/tasks/REF-008.md
-    current_subtask: REF-008F
+    resolution: extracted_electron_process_modules_with_characterized_composition_boundary
     prohibited: production_connected_stress_harness
   - id: REF-009
     title: Establish and migrate to a shared sync core

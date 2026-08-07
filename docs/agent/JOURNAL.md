@@ -1,5 +1,13 @@
 # Agent Journal
 
+## 2026-08-07 - REF-008 Electron process module extraction
+
+- Completed six characterization-first boundaries: runtime utilities, API transport and telemetry, local SQLite/report storage, embedded localhost backend, update orchestration, and final window/IPC composition.
+- Extracted process-local CommonJS modules with explicit dependencies while preserving the preload bridge, exact IPC channels, API-first/Firebase/local fallback behavior, SQLite and report shapes, embedded-server trust policy, updater sequence, navigation rules, and BrowserWindow isolation settings.
+- Deliberately retained Firebase/player request transformation in `electron/main.cjs` for REF-009, along with cohesive IPC/window/application lifecycle composition and outreach transport/logging.
+- The final composition audit required no production correction. Its six tests pin 11 preload/invoke channels, argument/event forwarding, route normalization, external protocols, development/packaged hashes, popup denial, navigation allowlisting, and sandbox/context-isolation/node-integration invariants.
+- Final Electron check-JS, both root compiler projects, Player TypeScript, 46 files/264 tests, the 1,930-module renderer build, and `npm run verify` passed. No Electron process, socket, updater, tracked database, network endpoint, SMTP provider, hosted API, or Firebase path was invoked.
+
 ## 2026-08-07 - TYPE-016 Electron check-JS boundary
 
 - Triggered TYPE-016 only when REF-008 became the next refactor task and reproduced the three documented Electron diagnostics with no DOM library.
