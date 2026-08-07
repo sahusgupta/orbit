@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, and completed `TYPE-006` now establishes the truthful current baseline at 73 diagnostics in the same 6 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, and completed `TYPE-012` now establishes the truthful current baseline at 71 diagnostics in 4 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -333,3 +333,25 @@ Final implementation verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` — exit 1 after all four gates; root TypeScript alone failed with 73 diagnostics, while Player TypeScript, 19/96 tests, and the 1,912-module renderer build passed.
 
 `TYPE-006` is complete. With `TYPE-005` and `TYPE-006` both complete, `TYPE-007` is newly ready; it was not started.
+
+## TYPE-012 Root Test-Only Contracts — 2026-08-06
+
+The two affected tests now express their existing contracts precisely. `PokerTable.test.tsx` declares React's act-environment flag as a boolean test global before assigning it, and `appCore.test.ts` derives its frequency-profile fixture type from the public helper's input parameter. No production source, runtime shim, public interface, compiler configuration, dependency, test behavior, assertion, suppression, or exclusion changed.
+
+The first post-change root typecheck produced exactly 71 diagnostics in 4 affected files:
+
+- both `TYPE-012` diagnostics disappeared: `TS7017` formerly at `src/components/PokerTable.test.tsx:9:12` and `TS2345` formerly at `src/lib/appCore.test.ts:138:51`;
+- `TS7017` decreased from 1 to 0 and `TS2345` decreased from 36 to 35;
+- every other diagnostic-code count and unaffected path count stayed unchanged; and
+- neither affected test file retains a root diagnostic.
+
+Final implementation verification:
+
+- PASS: focused Vitest run — 2 files and 16 tests passed.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 71 diagnostics in 4 files; both assigned diagnostics absent; no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 19 files and 96 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,912 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 71 diagnostics, while Player TypeScript, 19/96 tests, and the 1,912-module build passed.
+
+`TYPE-012` is complete. `TYPE-015` remains planned because its other dependency, `TYPE-021`, is incomplete; no downstream task became newly ready.

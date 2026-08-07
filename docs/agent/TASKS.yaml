@@ -1,8 +1,8 @@
 queue: root-typescript-remediation
 temporary: true
 source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
-baseline_diagnostics: 73
-baseline_files: 6
+baseline_diagnostics: 71
+baseline_files: 4
 status: partial_failure
 ordering:
   - project_boundary_configuration
@@ -145,14 +145,17 @@ tasks:
   - id: TYPE-012
     title: Correct root test-only type contracts
     classification: TEST_TYPE_ERROR
-    diagnostics: 2
-    status: ready
+    diagnostics: 0
+    diagnostics_before: 2
+    diagnostics_after: 0
+    status: complete
     safe_autonomous: true
     human_review: false
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: [TYPE-001]
     spec: docs/agent/tasks/TYPE-012.md
+    resolution: exact_test_global_and_typed_frequency_fixture
   - id: TYPE-013
     title: Decide the legacy settings migration contract
     classification: STALE_OR_DEAD_CODE

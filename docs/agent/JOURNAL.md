@@ -54,3 +54,15 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Player typecheck passed; all 19 files/96 tests passed; the renderer build passed with 1,912 modules transformed; the existing SQLite, ExcelJS `eval`, and large-chunk warnings remained.
 - Aggregate `npm run verify` ran all four gates and exited 1 only for the expected 73-diagnostic root failure; Player TypeScript, 19/96 tests, and the renderer build passed.
 - Marked `TYPE-006` complete. With both dependencies complete, `TYPE-007` is newly ready; it was not started.
+
+## 2026-08-06 — TYPE-012 root test-only contracts
+
+- Started from a clean `fix/type-005-synchronized-list-tuples` branch at completed `TYPE-006` commit `16785e2`; confirmed the branch contains the preparation work and completed `TYPE-001`, `TYPE-005`, and `TYPE-006`.
+- Confirmed `TYPE-012` was `ready`, its only dependency `TYPE-001` was complete, and the untouched root baseline was exactly 73 diagnostics in 6 files.
+- Confirmed the assigned diagnostics were `TS7017` at `src/components/PokerTable.test.tsx:9:12` and `TS2345` at `src/lib/appCore.test.ts:138:51`.
+- Declared the React act-environment flag as an exact boolean test global and typed the frequency fixture from the public helper's parameter contract.
+- Changed only the two affected tests; no production source, runtime shim, public export, compiler setting, dependency, test behavior, assertion, suppression, or exclusion changed.
+- Root diagnostics changed from 73 to exactly 71. `TS7017` changed from 1 to 0 and `TS2345` from 36 to 35; every other diagnostic-code count and unaffected path count remained unchanged, and neither affected test path retained a diagnostic.
+- Focused tests passed: 2 files and 16 tests. Player typecheck passed; all 19 files/96 tests passed; the renderer build passed with 1,912 modules transformed. The existing SQLite, ExcelJS `eval`, and large-chunk warnings remained.
+- Aggregate `npm run verify` ran all four gates and exited 1 only for the expected 71-diagnostic root failure; Player TypeScript, 19/96 tests, and the renderer build passed.
+- Marked `TYPE-012` complete. `TYPE-015` remains planned because `TYPE-021` is incomplete, so no downstream task became newly ready.
