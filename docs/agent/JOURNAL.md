@@ -273,3 +273,13 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Found a tournament status conflict: Player supports `finished`, but current management import collapses it and all non-checked-in/non-eliminated statuses to `Registered`.
 - Marked TYPE-003 `review_required` with all 4 diagnostics retained. Recommended recognizing the existing `time-package` value, authoritative player-ID entitlement, complete finished-status mapping, defined rebuy/add-on updates, and stable-ID validation; alternatives are recorded in the task spec.
 - The truthful baseline remains 25 diagnostics in 2 production files. The immediately preceding full gate run failed only on root TypeScript while Player TypeScript, 28 files/146 tests, and the 1,912-module renderer build passed.
+
+## 2026-08-07 - TYPE-009 persisted account restore contract
+
+- Added and separately committed a local jsdom/inspector characterization as `799abf7`; it reached the existing private restore callback through a normal React rerender with Firebase disabled and network access stubbed.
+- The final five cases cover a null desktop result, unavailable desktop bridge with no local record, a current schema-version-4 desktop record, partial legacy local settings after bridge failure, malformed JSON, normalization defaults, pilot-access replacement, persistence, route behavior, and no-write no-record behavior.
+- Defined `PersistedStateRecord` for nullable/versioned desktop responses and `PersistedAppState` for optional top-level input with independently partial settings. `normalizeState` still produces the complete current state; local parsing now treats malformed/non-object envelopes as no record.
+- Preserved persisted output, pilot validation, account-key derivation, schema-version behavior, bridge calls, and current/legacy normalization values.
+- Root TypeScript decreased from 25 to exactly 22 diagnostics in the same 2 production files. Both owned `TS2322` errors disappeared, and the more accurate partial-settings input also removed TYPE-013's `TS2352` symptom; TYPE-013 remains a separate historical-support audit.
+- Player TypeScript passed; all 29 files/151 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 22-diagnostic root baseline. Existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
+- Marked TYPE-009 complete. No live service, stored production data, deployment, or push occurred.

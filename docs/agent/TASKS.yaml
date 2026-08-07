@@ -1,7 +1,7 @@
 queue: root-typescript-remediation
 temporary: true
 source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
-baseline_diagnostics: 25
+baseline_diagnostics: 22
 baseline_files: 2
 status: partial_failure
 ordering:
@@ -370,14 +370,17 @@ tasks:
   - id: TYPE-009
     title: Define the persisted account-restore input contract
     classification: REAL_TYPE_ERROR
-    diagnostics: 2
-    status: pending
-    safe_autonomous: false
-    human_review: true
+    diagnostics: 0
+    diagnostics_before: 2
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: []
     spec: docs/agent/tasks/TYPE-009.md
+    resolution: explicit_versioned_record_and_partial_settings_normalization_boundary
   - id: TYPE-010
     title: Align GroupMe candidate state and editor callbacks
     classification: REAL_TYPE_ERROR
@@ -417,7 +420,9 @@ tasks:
   - id: TYPE-013
     title: Decide the legacy settings migration contract
     classification: STALE_OR_DEAD_CODE
-    diagnostics: 1
+    diagnostics: 0
+    diagnostics_before: 1
+    diagnostics_after: 0
     status: pending
     safe_autonomous: false
     human_review: true
@@ -425,6 +430,7 @@ tasks:
     blocks_player_web: false
     depends_on: []
     spec: docs/agent/tasks/TYPE-013.md
+    compiler_symptom_removed_by: TYPE-009
   - id: TYPE-014
     title: Decide whether direct seating belongs in add-interest
     classification: STALE_OR_DEAD_CODE

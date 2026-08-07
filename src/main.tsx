@@ -65,8 +65,8 @@ declare global {
       platform: string;
       isDesktop: boolean;
       openWindow: (route: AppRoute, context?: { sessionId?: string; tournamentId?: string }) => Promise<void>;
-      loadState: () => Promise<{ schemaVersion: number; savedAt: string; state: Partial<AppState> } | null>;
-      loadStateForAccount: (access: PilotAccess) => Promise<{ schemaVersion: number; savedAt: string; state: Partial<AppState> } | null>;
+      loadState: () => Promise<PersistedStateRecord | null>;
+      loadStateForAccount: (access: PilotAccess) => Promise<PersistedStateRecord | null>;
       saveState: (state: AppState) => Promise<{ ok: boolean; path: string; accountKey?: string }>;
       preserveStateForUpdate: (requestId: string, state: AppState) => Promise<{ ok: boolean }>;
       onPrepareForUpdate: (callback: (requestId: string) => void) => () => void;
@@ -642,6 +642,16 @@ type AppState = {
     activeStaffId?: string;
     accountLogin?: AccountLogin;
   };
+};
+
+type PersistedAppState = Omit<Partial<AppState>, 'settings'> & {
+  settings?: Partial<AppState['settings']>;
+};
+
+type PersistedStateRecord = {
+  schemaVersion: number;
+  savedAt: string;
+  state: PersistedAppState;
 };
 
 type ParticipantCandidate = {
@@ -1425,7 +1435,7 @@ const seedState: AppState = {
     }
 };
 
-function normalizeState(parsed: Partial<AppState>): AppState {
+function normalizeState(parsed: PersistedAppState): AppState {
   const defaultTableCap = normalizeTableCap(parsed.settings?.defaultTableCap);
   const games = (parsed.games ?? seedState.games).map((game) =>
     ({ ...game, maxSeats: normalizeTableCap(game.maxSeats ?? defaultTableCap) })
@@ -1700,12 +1710,27 @@ function normalizeState(parsed: Partial<AppState>): AppState {
   };
 }
 
+function parsePersistedAppState(serialized: string): PersistedAppState | null {
+  try {
+    const parsed: unknown = JSON.parse(serialized);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+    const settings: unknown = Reflect.get(parsed, 'settings');
+    if (settings !== undefined && (typeof settings !== 'object' || settings === null || Array.isArray(settings))) {
+      return null;
+    }
+    return parsed as PersistedAppState;
+  } catch {
+    return null;
+  }
+}
+
 function loadState(): AppState {
   try {
     const lastKey = localStorage.getItem(`${storageKey}:last-account`);
     const stored = localStorage.getItem(lastKey || storageKey) ?? localStorage.getItem(storageKey);
     if (!stored) return seedState;
-    return normalizeState(JSON.parse(stored) as Partial<AppState>);
+    const parsed = parsePersistedAppState(stored);
+    return parsed ? normalizeState(parsed) : seedState;
   } catch {
     return seedState;
   }
@@ -5547,7 +5572,7 @@ function App() {
     if (!file) return;
     try {
       const parsed = JSON.parse(await file.text());
-      const backup = readBackupEnvelope<Partial<AppState>>(parsed);
+      const backup = readBackupEnvelope<PersistedAppState>(parsed);
       const restored = normalizeState(backup.state);
       if (!window.confirm(`Restore backup from ${backup.exportedAt || 'unknown date'}? This replaces the current local app state.`)) return;
       persist(restored, true, { feature: 'Data safety', action: 'Restored backup' });
@@ -6008,7 +6033,7 @@ function App() {
   };
 
   const loadExistingAccountState = async (access: PilotAccess) => {
-    let desktopRecord: { state?: Partial<AppState> } | undefined;
+    let desktopRecord: PersistedStateRecord | null | undefined;
     try {
       desktopRecord = await window.tableManagerDesktop?.loadStateForAccount(access);
     } catch {
@@ -6019,7 +6044,9 @@ function App() {
       ? desktopRecord
       : (() => {
           const stored = localStorage.getItem(`${storageKey}:${getAccountKeyFromAccess(access)}`);
-          return stored ? { state: JSON.parse(stored) as Partial<AppState> } : null;
+          if (!stored) return null;
+          const restoredState = parsePersistedAppState(stored);
+          return restoredState ? { state: restoredState } : null;
         })();
     if (!localRecord?.state) return false;
 

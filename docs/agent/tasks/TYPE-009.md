@@ -51,3 +51,11 @@ Coordinate with `TYPE-013` if legacy settings retention affects normalization fi
 ## Stop conditions
 
 Stop if existing persisted schema versions cannot be established or if a migration/public API change is required.
+
+## Resolution record — 2026-08-07
+
+- Desktop records are explicitly nullable and versioned through `PersistedStateRecord`; local legacy storage remains an unversioned state object.
+- `PersistedAppState` models optional top-level state plus independently partial settings, and `normalizeState` continues to supply all required current defaults.
+- Local parsing now rejects malformed JSON and non-object/settings envelopes as a no-record result without persisting or changing routes.
+- Five focused cases cover unavailable bridge/no local record, a null desktop result, a current schema-version-4 record, a partial legacy settings record after bridge failure, malformed JSON, and supplied pilot-access replacement.
+- The two owned diagnostics disappeared. The more accurate settings input also removed TYPE-013's cast diagnostic, but TYPE-013 remains a separate legacy-retention audit until its historical fixtures and support intent are established.

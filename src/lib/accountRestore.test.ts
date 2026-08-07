@@ -280,6 +280,20 @@ describe('persisted account restore boundary', () => {
     expect(localStorage.getItem(accountStorageKey)).toBeNull();
   });
 
+  it('returns false when neither a desktop bridge nor a local account record exists', async () => {
+    const desktopBridge = Reflect.get(window, 'tableManagerDesktop');
+    Reflect.deleteProperty(window, 'tableManagerDesktop');
+    try {
+      const result = await invokeRestore(inspectorSession);
+
+      expect(result.result.value).toBe(false);
+      expect(harness.savedStates).toHaveLength(0);
+      expect(localStorage.getItem(accountStorageKey)).toBeNull();
+    } finally {
+      Reflect.set(window, 'tableManagerDesktop', desktopBridge);
+    }
+  });
+
   it('loads a current versioned desktop record and replaces only pilot access', async () => {
     harness.loadForAccountResult = {
       schemaVersion: 4,
@@ -342,12 +356,9 @@ describe('persisted account restore boundary', () => {
   it('never persists malformed local JSON', async () => {
     localStorage.setItem(accountStorageKey, '{not-json');
 
-    try {
-      await invokeRestore(inspectorSession);
-    } catch {
-      // The pre-remediation implementation rejects; corrected behavior may return false.
-    }
+    const result = await invokeRestore(inspectorSession);
 
+    expect(result.result.value).toBe(false);
     expect(harness.savedStates).toHaveLength(0);
     expect(localStorage.getItem(accountStorageKey)).toBe('{not-json');
     expect(window.location.hash).toBe('#access');

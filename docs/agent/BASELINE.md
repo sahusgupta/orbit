@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, `TYPE-007C` reduced it to 53, completed `TYPE-007D` reduced it to 47, `TYPE-007G` reduced it to 39, `TYPE-007E` reduced it to 35, `TYPE-007F` reduced it to 30, `TYPE-002` reduced it to 26, and completed `TYPE-004` now establishes the truthful current baseline at 25 diagnostics in 2 affected production files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, `TYPE-007C` reduced it to 53, completed `TYPE-007D` reduced it to 47, `TYPE-007G` reduced it to 39, `TYPE-007E` reduced it to 35, `TYPE-007F` reduced it to 30, `TYPE-002` reduced it to 26, `TYPE-004` reduced it to 25, and `TYPE-009` now establishes the truthful current baseline at 22 diagnostics in 2 affected production files; the gate remains red. TYPE-009 removed its two owned diagnostics, while its accurate partial-settings input also removed TYPE-013's cast symptom without yet resolving the separate historical-retention audit. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -606,3 +606,23 @@ Read-only tracing reached the task's schema/behavior stop condition before any T
 The exact recommended decision bundle is recorded in `docs/agent/tasks/TYPE-003.md`: recognize the already-emitted `time-package` persisted value, use authoritative `playerId` for paid entitlement, map `finished` to `Finished`, define rebuy/add-on handling, and skip malformed remote records without stable IDs. Alternatives are explicit mapping/exclusion, a unique fallback identity policy, or intentionally retaining the tournament status collapse.
 
 Because these choices affect persisted revenue, paid membership identity, and tournament state, TYPE-003 is now `review_required` with all 4 diagnostics retained. The truthful baseline remains 25 diagnostics in 2 production files; the immediately preceding full verification failed only on that root baseline while Player TypeScript, 28 files/146 tests, and the 1,912-module build passed. No live service, stored production data, deployment, or push was involved.
+
+## TYPE-009 Persisted Account Restore Contract — 2026-08-07
+
+Before production changed, a local jsdom/inspector characterization was committed separately as `799abf7`. It exercises the existing App-local restore closure with Firebase disabled and network access stubbed. The final five cases cover a null desktop result, no desktop bridge/no local record, a current schema-version-4 desktop record, a partial legacy local record after bridge failure, malformed local JSON, normalization defaults, pilot-access replacement, persistence, and route behavior.
+
+Production now distinguishes `PersistedStateRecord` from `PersistedAppState`: desktop records are nullable and versioned, while legacy state input has optional top-level fields and independently partial settings. `normalizeState` remains the only producer of complete current settings. Guarded local parsing rejects malformed/non-object envelopes as no record; persisted output, pilot validation, account keys, schema versions, and bridge behavior are unchanged.
+
+The first post-change root typecheck produced exactly 22 diagnostics in 2 production files. Both TYPE-009 `TS2322` errors disappeared; the corrected partial-settings input also removed TYPE-013's `TS2352` cast symptom. TYPE-013 remains pending as a historical-support audit rather than an owned compiler diagnostic. No new diagnostic appeared.
+
+Final verification:
+
+- PASS before implementation: `npx --no-install vitest run src/lib/accountRestore.test.ts` — 1 file and 4 tests.
+- PASS after implementation: `npx --no-install vitest run src/lib/accountRestore.test.ts` — 1 file and 5 tests.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 22 diagnostics in 2 files; both assigned diagnostics absent; no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 29 files and 151 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,912 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 22 diagnostics, while Player TypeScript, 29/151 tests, and the 1,912-module renderer build passed.
+
+`TYPE-009` is complete. No live service, stored production data, deployment, or push occurred.
