@@ -1,6 +1,6 @@
 # TYPE-007E: Preserve forming and balanced table construction
 
-Status: `ready`
+Status: `complete`
 
 Safety: `SAFE_AFTER_TESTS`
 
@@ -72,3 +72,12 @@ Not required unless balance candidates without interests are encountered; that d
 ## Stop conditions
 
 Stop if a balance plan can contain a candidate without an interest, or if exact event/session values differ across callers.
+
+## Completion record
+
+- Added `src/lib/tablePlanning.test.ts` and committed it before production changes.
+- Characterized first/subsequent labels, configured/default collection modes, capped start-player drafts, complete session/event/notification payloads, balance ordering, optional planned IDs, moved-ID removal, persistence, usage tracking, and input immutability.
+- Confirmed current balance plans are interest-backed, so the stop condition was not triggered.
+- Typed the forming-table `nextState` as canonical `AppState` and the balance mapper item as canonical `GameSession`; no construction or balancing expression changed.
+- Root TypeScript decreased from 39 to 35 diagnostics, removing exactly the four owned errors with no replacement diagnostic.
+- Final verification: focused 2 files/13 tests passed; Player TypeScript passed; all 27 files/134 tests passed; the 1,912-module renderer build passed; aggregate verification failed only on the expected 35-diagnostic root baseline.

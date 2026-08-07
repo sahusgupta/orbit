@@ -4373,7 +4373,7 @@ function App() {
     const currentCount = state.sessions.filter((session: { gameId: string; status: string; }) => session.gameId === gameId && session.status !== 'Closed').length;
     const sessionId = uid();
     const defaultStartPlayerIds = getSeatOptions(gameId).slice(0, game.maxSeats).map((interest) => interest.id);
-    const nextState = {
+    const nextState: AppState = {
       ...state,
       sessions: [
         ...state.sessions,
@@ -4467,7 +4467,7 @@ function App() {
     persist({
       ...state,
       sessions: [
-        ...state.sessions.map((session: { id: string; plannedPlayerIds: any; }) =>
+        ...state.sessions.map((session: GameSession) =>
           session.id === plan.fromTable.id
             ? {
                 ...session,

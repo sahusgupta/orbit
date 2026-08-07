@@ -1,7 +1,7 @@
 queue: root-typescript-remediation
 temporary: true
 source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
-baseline_diagnostics: 39
+baseline_diagnostics: 35
 baseline_files: 4
 status: partial_failure
 ordering:
@@ -92,8 +92,8 @@ tasks:
     classification: REAL_TYPE_ERROR
     diagnostics: 0
     diagnostics_before: 51
-    diagnostics_delegated: 19
-    diagnostics_resolved: 32
+    diagnostics_delegated: 15
+    diagnostics_resolved: 36
     status: pending
     role: umbrella
     children: [TYPE-007A, TYPE-007B, TYPE-007C, TYPE-007D, TYPE-007E, TYPE-007F, TYPE-007G, TYPE-007H, TYPE-007I, TYPE-007J]
@@ -225,19 +225,22 @@ tasks:
     title: Preserve forming and balanced table construction
     classification: REAL_TYPE_ERROR
     safety: SAFE_AFTER_TESTS
-    diagnostics: 4
-    status: ready
-    safe_autonomous: false
+    diagnostics: 0
+    diagnostics_before: 4
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
     human_review: false
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: [TYPE-005, TYPE-006]
-    owned_diagnostics:
-      - "src/main.tsx:4402:63 TS2345"
-      - "src/main.tsx:4467:9 TS2322"
-      - "src/main.tsx:4467:31 TS2345"
-      - "src/main.tsx:4478:9 TS2322"
+    resolved_diagnostics:
+      - "src/main.tsx:4405:63 TS2345"
+      - "src/main.tsx:4470:9 TS2322"
+      - "src/main.tsx:4470:31 TS2345"
+      - "src/main.tsx:4481:9 TS2322"
     spec: docs/agent/tasks/TYPE-007E.md
+    resolution: canonical_game_session_construction_with_characterization
   - id: TYPE-007F
     title: Decide the planned-participant domain contract
     classification: REAL_TYPE_ERROR

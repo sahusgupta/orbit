@@ -202,3 +202,15 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - `npm run player:typecheck` passed; `npm test` passed 26 files/130 tests; and `npm run build` passed with 1,912 modules transformed. Existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
 - `npm run verify` ran all four gates and exited 1 only for the expected 39-diagnostic root baseline; Player TypeScript, all 26 files/130 tests, and the 1,912-module renderer build passed.
 - Marked only `TYPE-007G` complete. The `TYPE-007` umbrella remains pending on `TYPE-007E`, `TYPE-007F`, and `TYPE-007H`; `TYPE-008` still waits on `TYPE-007H`, `TYPE-010` still waits on the umbrella, no task became newly ready, and nothing was pushed.
+
+## 2026-08-07 - TYPE-007E forming and balanced table construction
+
+- Started from the clean non-`main` `fix/type-005-synchronized-list-tuples` branch at completed `TYPE-007G` commit `3f2796e`; re-ran root TypeScript and confirmed exactly 39 diagnostics in 4 files with the four current `TYPE-007E` locations and no ownership drift.
+- Traced `addSession`, `createBalancedTable`, canonical `GameSession`/`AppState`, configured/default collection profiles, start-player drafts, balance-plan production, notification inputs, persistence, usage tracking, and existing construction call sites.
+- Added only `src/lib/tablePlanning.test.ts` for the characterization gate. With Firebase disabled and network access stubbed, the focused 2-file command passed 13 tests against unchanged production and root TypeScript remained exactly 39 diagnostics with no test-file error. Committed the test-only checkpoint as `3bd7fe5`.
+- Characterization covers first/subsequent labels; configured Time/default Drop modes; capped, ordered start-player IDs; complete session/event/notification payloads; source-table planned IDs with and without the optional field; moved-ID removal; existing session references/order; appended Table B fields/order; persistence; usage events; and prior-state/plan immutability.
+- Confirmed the balance-plan producer emits interest-backed movers, so the task's missing-interest stop condition was not triggered.
+- Added an explicit `AppState` boundary to the forming-table state and changed only the balance mapper parameter from a fragment to canonical `GameSession`. No construction or balancing expression changed.
+- The post-change focused command again passed 2 files/13 tests. Root TypeScript decreased from 39 to exactly 35 diagnostics: `TS2322` changed from 10 to 8, `TS2345` from 15 to 13, and `src/main.tsx` from 30 to 26; all four owned diagnostics disappeared and no new diagnostic appeared.
+- Player TypeScript passed; all 27 files/134 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 35-diagnostic root baseline.
+- Marked `TYPE-007E` complete. The parent umbrella remains pending on `TYPE-007F` and `TYPE-007H`; no downstream task became newly ready and nothing was pushed.
