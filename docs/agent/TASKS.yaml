@@ -558,10 +558,11 @@ tasks:
     title: Remove unnecessary Node globals from sandboxed renderer
     classification: CONFIGURATION_BOUNDARY
     diagnostics: 0
-    status: planned
-    safe_autonomous: false
-    human_review: true
+    status: complete
+    safe_autonomous: true
+    human_review: false
     blocks_refactoring: false
     blocks_player_web: false
     depends_on: [TYPE-015]
     spec: docs/agent/tasks/TYPE-022.md
+    resolution: renderer_ambient_types_restricted_to_vite_client

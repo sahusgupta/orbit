@@ -1,6 +1,6 @@
 # TYPE-022: Remove unnecessary Node globals from the sandboxed renderer
 
-Status: `planned`
+Status: `complete`
 
 ## Objective
 
@@ -44,3 +44,9 @@ Depends on `TYPE-015` so test-only Node globals can move to a dedicated test pro
 ## Autonomous implementation
 
 Safe only after `TYPE-015` is complete and the exact renderer file list is verified; until then human review is required.
+
+## Completed implementation — 2026-08-07
+
+After TYPE-015 established exact ownership, the renderer project was restricted to `types: ["vite/client"]`. The root test project retains its explicit Node/Vitest/Vite ambient types, so legitimate test capabilities are unchanged.
+
+The renderer typecheck passed with the same 21 workspace inputs and zero test roots. Its effective configuration lists only `vite/client`, and `--listFilesOnly` contains zero `@types/node` files. Root test TypeScript, Player TypeScript, all 35 files/188 tests, the 1,913-module build, and `npm run verify` passed without renderer shims or preload/IPC changes.

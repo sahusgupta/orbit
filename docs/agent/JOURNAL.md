@@ -370,3 +370,9 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Added a non-short-circuiting root typecheck runner so renderer and test failures retain separate ownership while `npm run typecheck` remains the stable entrypoint.
 - Verified 21 renderer workspace inputs with zero test roots and 25 root test roots with zero Player implementation paths.
 - Both compiler projects, Player TypeScript, all 35 files/188 tests, the 1,913-module build, and aggregate verification passed.
+
+## 2026-08-07 - TYPE-022 sandboxed renderer globals
+
+- Restricted the renderer compiler project to explicit `vite/client` ambient types after TYPE-015 separated test ownership.
+- Renderer TypeScript passed with 21 workspace inputs, zero test roots, and zero `@types/node` files; the root test project retained explicit Node/Vitest capabilities.
+- Player TypeScript, all 35 files/188 tests, the 1,913-module renderer build, and aggregate verification passed. No renderer shim, preload bridge, IPC, or runtime source changed.
