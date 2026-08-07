@@ -209,6 +209,47 @@ describe('pasted profile import boundary', () => {
     document.body.innerHTML = '';
   });
 
+  it('renders the memberships route navigation, directory panels, and profile import controls', () => {
+    expect(document.querySelector('h1')?.textContent).toBe('Players');
+    expect(document.querySelector('.page-subtitle')?.textContent).toBe(
+      "Active memberships and today's player activity"
+    );
+    expect(
+      Array.from(document.querySelectorAll('.players-header-actions button'), (button) =>
+        button.getAttribute('aria-label')
+      )
+    ).toEqual(['Scan member QR', 'Open player ledger', 'Add player']);
+
+    const tabs = document.querySelector('.players-section-tabs');
+    expect(tabs?.getAttribute('aria-label')).toBe('Player sections');
+    expect(Array.from(tabs?.querySelectorAll('button') ?? [], (button) => button.textContent?.trim())).toEqual([
+      'Memberships 0',
+      'Requests 0',
+      'Today 0'
+    ]);
+    expect(tabs?.querySelector('button.active')?.textContent?.trim()).toBe('Memberships 0');
+
+    expect(Array.from(document.querySelectorAll('.profile-command-strip .eyebrow'), (label) => label.textContent)).toEqual([
+      'Directory health',
+      'Memberships'
+    ]);
+    expect(Array.from(document.querySelectorAll('.panel h2'), (heading) => heading.textContent)).toEqual([
+      'Player Directory',
+      'In Club',
+      'Add Players',
+      'Player Ledger'
+    ]);
+    expect(document.querySelector('.profile-search-row input')?.getAttribute('placeholder')).toBe(
+      'Search players, stakes, companions, notes'
+    );
+    expect(document.querySelector('textarea.import-box')?.getAttribute('placeholder')).toContain('Import CSV');
+    expect(
+      Array.from(document.querySelectorAll('.inline-actions > button, .inline-actions > label'), (control) =>
+        control.textContent?.trim()
+      )
+    ).toEqual(['Import Pasted People', 'Upload CSV / XLSX']);
+  });
+
   it('normalizes valid JSON arrays, aliases, arrays, and numeric strings without losing fields', async () => {
     await importPastedProfiles(
       JSON.stringify([
