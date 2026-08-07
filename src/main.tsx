@@ -5326,67 +5326,89 @@ function App() {
     }
   };
 
+  const isImportedObject = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+
+  const isImportedJsonProfile = (value: unknown): value is Record<string, unknown> =>
+    isImportedObject(value) && typeof value.name === 'string' && Boolean(value.name.trim());
+
+  const importedJsonNumber = (value: unknown) => {
+    const parsed = Number(value ?? 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const importedJsonStringArray = (value: unknown) =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
+  const isTableTag = (value: unknown): value is TableTag =>
+    typeof value === 'string' && gameQualityTags.some((tag) => tag === value);
+
+  const profileFromPastedJsonRecord = (item: Record<string, unknown>): PlayerProfile => {
+    const rawPreferredGameIds = importedJsonStringArray(item.preferredGameIds);
+    const preferredGameId = resolveGameId(
+      state.games,
+      String(item.preferredGameId ?? rawPreferredGameIds[0] ?? item.preferredGame ?? item.stakes ?? ''),
+      state.games[0]?.id ?? 'nlh-1-2'
+    );
+    const companionNames = Array.isArray(item.usualCompanions)
+      ? importedJsonStringArray(item.usualCompanions)
+      : String(item.usualCompanions ?? item.commonlyPlaysWith ?? item.companions ?? '')
+          .split(/[|;]/)
+          .map((name) => name.trim())
+          .filter(Boolean);
+    const preferredGameIds = rawPreferredGameIds
+      .map((gameId) => resolveGameId(state.games, gameId, ''))
+      .filter((gameId): gameId is string => Boolean(gameId));
+    const gamePlayCountsSource = isImportedObject(item.gamePlayCounts) ? item.gamePlayCounts : {};
+
+    return {
+      id: String(item.id ?? memberId()),
+      name: String(item.name).trim(),
+      phone: String(item.phone ?? item.phoneNumber ?? item.mobile ?? item.cell ?? ''),
+      birthday: String(item.birthday ?? ''),
+      membershipStartDate: String(item.membershipStartDate ?? item.memberSince ?? todayDate()),
+      membershipExpirationDate: String(item.membershipExpirationDate ?? item.expiresAt ?? nextYearDate()),
+      totalTimePlayedHours: importedJsonNumber(item.totalTimePlayedHours ?? item.totalTimePlayed),
+      lastSessionTimePlayedHours: importedJsonNumber(item.lastSessionTimePlayedHours ?? item.lastSessionTimePlayed),
+      commonlyPlaysWithProfileIds: importedJsonStringArray(item.commonlyPlaysWithProfileIds),
+      preferredGameId,
+      preferredGameIds: preferredGameIds.length ? Array.from(new Set(preferredGameIds)) : [preferredGameId],
+      gamePlayCounts: Object.entries(gamePlayCountsSource).reduce<Record<string, number>>((counts, [gameId, count]) => {
+        const resolvedGameId = resolveGameId(state.games, gameId, '');
+        const numericCount = Number(count);
+        if (resolvedGameId && Number.isFinite(numericCount) && numericCount > 0) counts[resolvedGameId] = numericCount;
+        return counts;
+      }, {}),
+      mostPlayedGameId: resolveGameId(state.games, String(item.mostPlayedGameId ?? ''), preferredGameId),
+      preferredStakes: String(item.preferredStakes ?? item.stakes ?? state.games.find((game) => game.id === preferredGameId)?.name ?? ''),
+      typicalBuyInMin: importedJsonNumber(item.typicalBuyInMin ?? item.buyInMin),
+      typicalBuyInMax: importedJsonNumber(item.typicalBuyInMax ?? item.buyInMax),
+      willingnessToMove: Boolean(item.willingnessToMove ?? item.moveTables ?? false),
+      typicalAvailability: String(item.typicalAvailability ?? item.availability ?? ''),
+      preferredTags: Array.isArray(item.preferredTags) ? item.preferredTags.filter(isTableTag) : [],
+      usualCompanions: companionNames,
+      notes: String(item.notes ?? '')
+    };
+  };
+
   const importProfiles = () => {
     const raw = importText.trim();
     if (!raw) return;
 
     let imported: PlayerProfile[] = [];
     try {
-      const parsed = JSON.parse(raw);
+      const parsed: unknown = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         imported = parsed
-          .filter((item) => item?.name)
-          .map((item) => {
-            const preferredGameId = resolveGameId(
-              state.games,
-              String(item.preferredGameId ?? item.preferredGameIds?.[0] ?? item.preferredGame ?? item.stakes ?? ''),
-              state.games[0]?.id ?? 'nlh-1-2'
-            );
-            const companionNames = Array.isArray(item.usualCompanions)
-              ? item.usualCompanions.map(String)
-              : String(item.usualCompanions ?? item.commonlyPlaysWith ?? item.companions ?? '')
-                  .split(/[|;]/)
-                  .map((name) => name.trim())
-                  .filter(Boolean);
-            const preferredGameIds = Array.isArray(item.preferredGameIds)
-              ? Array.from(new Set(item.preferredGameIds.map((gameId: unknown) => resolveGameId(state.games, String(gameId), '')).filter(Boolean)))
-              : [preferredGameId];
-            return {
-            id: String(item.id ?? memberId()),
-            name: String(item.name).trim(),
-            phone: String(item.phone ?? item.phoneNumber ?? item.mobile ?? item.cell ?? ''),
-            birthday: String(item.birthday ?? ''),
-            membershipStartDate: String(item.membershipStartDate ?? item.memberSince ?? todayDate()),
-            membershipExpirationDate: String(item.membershipExpirationDate ?? item.expiresAt ?? nextYearDate()),
-            totalTimePlayedHours: Number(item.totalTimePlayedHours ?? item.totalTimePlayed ?? 0),
-            lastSessionTimePlayedHours: Number(item.lastSessionTimePlayedHours ?? item.lastSessionTimePlayed ?? 0),
-            commonlyPlaysWithProfileIds: Array.isArray(item.commonlyPlaysWithProfileIds) ? item.commonlyPlaysWithProfileIds.map(String) : [],
-            preferredGameId,
-            preferredGameIds: preferredGameIds.length ? preferredGameIds : [preferredGameId],
-            gamePlayCounts: Object.entries((item.gamePlayCounts ?? {}) as Record<string, unknown>).reduce<Record<string, number>>((counts, [gameId, count]) => {
-              const resolvedGameId = resolveGameId(state.games, gameId, '');
-              const numericCount = Number(count);
-              if (resolvedGameId && Number.isFinite(numericCount) && numericCount > 0) counts[resolvedGameId] = numericCount;
-              return counts;
-            }, {}),
-            mostPlayedGameId: resolveGameId(state.games, String(item.mostPlayedGameId ?? ''), preferredGameId),
-            preferredStakes: String(item.preferredStakes ?? item.stakes ?? state.games.find((game) => game.id === preferredGameId)?.name ?? ''),
-            typicalBuyInMin: Number(item.typicalBuyInMin ?? item.buyInMin ?? 0),
-            typicalBuyInMax: Number(item.typicalBuyInMax ?? item.buyInMax ?? 0),
-            willingnessToMove: Boolean(item.willingnessToMove ?? item.moveTables ?? false),
-            typicalAvailability: String(item.typicalAvailability ?? item.availability ?? ''),
-            preferredTags: Array.isArray(item.preferredTags) ? item.preferredTags : [],
-            usualCompanions: companionNames,
-            notes: String(item.notes ?? '')
-          };
-          });
+          .filter(isImportedJsonProfile)
+          .map(profileFromPastedJsonRecord);
       }
     } catch {
       imported = raw
         .split(/\r?\n/)
         .map((line: string) => line.trim())
         .filter(Boolean)
-        .map((line: { split: (arg0: string) => { (): any; new(): any; map: { (arg0: (part: any) => any): [any, ("" | undefined)?, ("0" | undefined)?, ("0" | undefined)?, ("" | undefined)?, ("" | undefined)?, ("yes" | undefined)?]; new(): any; }; }; }) => {
+        .map((line: string) => {
           const [name, preferredStakes = '', birthday = '', membershipStart = todayDate(), membershipExpiration = nextYearDate(), companions = '', availability = '', moveTables = 'yes'] = line.split(',').map((part: string) => part.trim());
           const preferredGameId = resolveGameId(state.games, preferredStakes, state.games[0]?.id ?? 'nlh-1-2');
           return {

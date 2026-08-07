@@ -292,6 +292,48 @@ describe('pasted profile import boundary', () => {
     });
   });
 
+  it('rejects malformed array members and normalizes invalid JSON field values to safe fallbacks', async () => {
+    await importPastedProfiles(
+      JSON.stringify([
+        null,
+        'not a profile',
+        { name: '' },
+        { name: { invalid: true } },
+        {
+          id: 'json-malformed',
+          name: 'Malformed Fields',
+          totalTimePlayedHours: 'not-a-number',
+          lastSessionTimePlayedHours: {},
+          commonlyPlaysWithProfileIds: [null, 7, 'profile-valid'],
+          preferredGameId: { invalid: true },
+          preferredGameIds: [null, 42, {}, 'missing-game'],
+          gamePlayCounts: ['not', 'a', 'record'],
+          typicalBuyInMin: 'invalid',
+          typicalBuyInMax: [],
+          preferredTags: ['Action', 'Not A Tag', 42],
+          usualCompanions: [null, 'Bob', 7]
+        }
+      ])
+    );
+
+    expect(getLatestState().profiles).toHaveLength(1);
+    expect(getLatestState().profiles[0]).toMatchObject({
+      id: 'json-malformed',
+      name: 'Malformed Fields',
+      totalTimePlayedHours: 0,
+      lastSessionTimePlayedHours: 0,
+      commonlyPlaysWithProfileIds: ['profile-valid'],
+      preferredGameId: 'nlh-1-2',
+      preferredGameIds: ['nlh-1-2'],
+      gamePlayCounts: {},
+      mostPlayedGameId: 'nlh-1-2',
+      typicalBuyInMin: 0,
+      typicalBuyInMax: 0,
+      preferredTags: ['Action'],
+      usualCompanions: ['Bob']
+    });
+  });
+
   it('retains malformed-JSON fallback to the accepted single-line text format', async () => {
     await importPastedProfiles('{Alice,1/2 NLH');
 

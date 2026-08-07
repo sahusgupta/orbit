@@ -310,3 +310,13 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Root TypeScript decreased from 20 to exactly 16 diagnostics in the same 2 production files; all four TYPE-010 diagnostics disappeared and no new diagnostic appeared.
 - The focused 2-file/11-test command passed; Player TypeScript passed; all 32 files/166 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 16-diagnostic root baseline.
 - Marked TYPE-010 complete. No production service, deployment, or push was involved.
+
+## 2026-08-07 - TYPE-008 pasted profile import boundary
+
+- Reassessed the `TYPE-007H` dependency as procedural: parsing completes before the unchanged commit/linking path, whose current same-name identity behavior remains unchanged.
+- Added and separately committed three passing UI-level characterization cases as `2c4df0f`, then added a fourth invalid-input case at the same boundary.
+- Treated parsed JSON as `unknown`, admitted only non-empty named objects, validated nested arrays/count objects/tags, rejected invalid non-string IDs and companions, normalized non-finite numbers to zero, and restored the text mapper's actual string parameter.
+- Preserved valid JSON arrays, aliases, numeric coercion, game resolution/de-duplication, delimited rows, missing defaults, invalid-game fallback, malformed-JSON text fallback, stored shape, duplicate behavior, and companion linking.
+- Root TypeScript decreased from 16 to exactly 14 diagnostics in the same 2 production files; both TYPE-008 diagnostics disappeared and no new diagnostic appeared.
+- The focused 1-file/4-test command passed; Player TypeScript passed; all 33 files/170 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 14-diagnostic root baseline.
+- Marked TYPE-008 complete. No production service, deployment, or push was involved.
