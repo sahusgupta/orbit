@@ -1,44 +1,55 @@
 import path from 'node:path';
-import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
 
-const electronMainSource = readFileSync(new URL('../../electron/main.cjs', import.meta.url), 'utf8');
+const require = createRequire(import.meta.url);
 
-function extractFunctionSource(name: string) {
-  const asyncStart = electronMainSource.indexOf(`async function ${name}(`);
-  const start = asyncStart >= 0 ? asyncStart : electronMainSource.indexOf(`function ${name}(`);
-  if (start < 0) throw new Error(`Could not find ${name} in electron/main.cjs.`);
-  const parametersStart = electronMainSource.indexOf('(', start);
-  let parameterDepth = 0;
-  let parametersEnd = -1;
-  for (let index = parametersStart; index < electronMainSource.length; index += 1) {
-    if (electronMainSource[index] === '(') parameterDepth += 1;
-    if (electronMainSource[index] === ')') parameterDepth -= 1;
-    if (parameterDepth === 0) {
-      parametersEnd = index;
-      break;
-    }
-  }
-  const bodyStart = electronMainSource.indexOf('{', parametersEnd);
-  let depth = 0;
-  for (let index = bodyStart; index < electronMainSource.length; index += 1) {
-    if (electronMainSource[index] === '{') depth += 1;
-    if (electronMainSource[index] === '}') depth -= 1;
-    if (depth === 0) return electronMainSource.slice(start, index + 1);
-  }
-  throw new Error(`Could not find the end of ${name} in electron/main.cjs.`);
+type LocalStore = {
+  buildReportEmailText: (report: Record<string, unknown>) => string;
+  closeDatabase: () => void;
+  forwardReportIfConfigured: (report: Record<string, unknown>) => Promise<unknown>;
+  getDataPath: () => string;
+  getDatabase: () => unknown;
+  getLegacyDataPath: () => string;
+  getReportCount: () => number;
+  getSmtpTransport: () => unknown;
+  readLegacyLocalDatabase: () => unknown;
+  readLocalDatabase: (accountKey?: string) => unknown;
+  sendReportEmail: (report: Record<string, unknown>, emailTo: string) => Promise<void>;
+  storeAnalyticalReport: (report: Record<string, unknown>) => Promise<unknown>;
+  validateReportPayload: (report: unknown) => void;
+  writeLocalDatabase: (state: Record<string, unknown>) => unknown;
+};
+
+const { createLocalStore }: { createLocalStore: (dependencies: Record<string, unknown>) => LocalStore } = require('../../electron/localStore.cjs');
+
+function createDefaultDatabase() {
+  return {
+    close: vi.fn(),
+    exec: vi.fn(),
+    prepare: vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue(undefined), run: vi.fn() })
+  };
 }
 
-function loadFunction<T>(name: string, globals: Record<string, unknown> = {}): T {
-  const names = Object.keys(globals);
-  const factory = Function(...names, `${extractFunctionSource(name)}; return ${name};`);
-  return factory(...names.map((key) => globals[key])) as T;
-}
-
-class FixedDate extends Date {
-  constructor() {
-    super('2026-08-07T13:00:00.000Z');
-  }
+function baseDependencies(overrides: Record<string, unknown> = {}) {
+  const database = createDefaultDatabase();
+  return {
+    app: { getPath: () => 'C:\\isolated-user-data' },
+    DatabaseSync: vi.fn(function DatabaseConstructor() { return database; }),
+    environment: {},
+    fetchImpl: vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+    fileSystem: {
+      existsSync: vi.fn().mockReturnValue(false),
+      readFileSync: vi.fn(),
+      mkdirSync: vi.fn()
+    },
+    mailer: { createTransport: vi.fn().mockReturnValue({ sendMail: vi.fn().mockResolvedValue(undefined) }) },
+    now: () => new Date('2026-08-07T13:00:00.000Z'),
+    randomUUID: () => 'report-001',
+    updateBackendReportCount: (reportCount: number) => ({ running: true, host: '127.0.0.1', port: 4312, reportCount }),
+    userDataPath: () => 'C:\\isolated-user-data',
+    ...overrides
+  };
 }
 
 const validState = {
@@ -64,36 +75,27 @@ const validState = {
   ]
 };
 
-describe('Electron local SQLite characterization', () => {
+describe('Electron local SQLite store', () => {
   it('resolves the legacy JSON and SQLite paths under Electron userData', () => {
-    const globals = { app: { getPath: () => 'C:\\isolated-user-data' }, path };
-    const getLegacyDataPath = loadFunction<() => string>('getLegacyDataPath', globals);
-    const getDataPath = loadFunction<() => string>('getDataPath', globals);
+    const store = createLocalStore(baseDependencies());
 
-    expect(getLegacyDataPath()).toBe(path.join('C:\\isolated-user-data', 'tablemanager-db.json'));
-    expect(getDataPath()).toBe(path.join('C:\\isolated-user-data', 'tablemanager.sqlite3'));
+    expect(store.getLegacyDataPath()).toBe(path.join('C:\\isolated-user-data', 'tablemanager-db.json'));
+    expect(store.getDataPath()).toBe(path.join('C:\\isolated-user-data', 'tablemanager.sqlite3'));
   });
 
-  it('creates and caches one SQLite connection with the exact schema families enabled', () => {
+  it('creates, caches, closes, and reopens SQLite with the exact schema families enabled', () => {
     const exec = vi.fn();
-    const databaseInstance = { exec };
-    const DatabaseSync = vi.fn(function DatabaseConstructor() {
-      return databaseInstance;
-    });
-    const fs = { mkdirSync: vi.fn() };
-    const getDatabase = loadFunction<() => typeof databaseInstance>('getDatabase', {
-      DatabaseSync,
-      database: undefined,
-      fs,
-      getDataPath: () => 'C:\\isolated\\tablemanager.sqlite3',
-      path
-    });
+    const close = vi.fn();
+    const databaseInstance = { close, exec, prepare: vi.fn() };
+    const DatabaseSync = vi.fn(function DatabaseConstructor() { return databaseInstance; });
+    const fileSystem = { existsSync: vi.fn(), readFileSync: vi.fn(), mkdirSync: vi.fn() };
+    const store = createLocalStore(baseDependencies({ DatabaseSync, fileSystem }));
 
-    expect(getDatabase()).toBe(databaseInstance);
-    expect(getDatabase()).toBe(databaseInstance);
+    expect(store.getDatabase()).toBe(databaseInstance);
+    expect(store.getDatabase()).toBe(databaseInstance);
     expect(DatabaseSync).toHaveBeenCalledOnce();
-    expect(DatabaseSync).toHaveBeenCalledWith('C:\\isolated\\tablemanager.sqlite3');
-    expect(fs.mkdirSync).toHaveBeenCalledWith('C:\\isolated', { recursive: true });
+    expect(DatabaseSync).toHaveBeenCalledWith('C:\\isolated-user-data\\tablemanager.sqlite3');
+    expect(fileSystem.mkdirSync).toHaveBeenCalledWith('C:\\isolated-user-data', { recursive: true });
     const schema = String(exec.mock.calls[0][0]);
     expect(schema).toContain('PRAGMA journal_mode = WAL');
     expect(schema).toContain('PRAGMA foreign_keys = ON');
@@ -102,90 +104,95 @@ describe('Electron local SQLite characterization', () => {
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS account_profiles');
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS account_profile_companions');
     expect(schema).toContain('CREATE TABLE IF NOT EXISTS analytical_reports');
+
+    store.closeDatabase();
+    store.closeDatabase();
+    expect(close).toHaveBeenCalledOnce();
+    expect(store.getDatabase()).toBe(databaseInstance);
+    expect(DatabaseSync).toHaveBeenCalledTimes(2);
   });
 
-  it('reads a normalized account row without consulting either legacy store', () => {
+  it('reads a normalized account row without consulting the legacy file', () => {
     const get = vi.fn().mockReturnValue({
       schema_version: 4,
       saved_at: '2026-08-07T12:00:00.000Z',
       state_json: '{"settings":{"clubAccount":{"clubName":"Orbit"}}}'
     });
     const prepare = vi.fn().mockReturnValue({ get });
-    const readLegacyLocalDatabase = vi.fn();
-    const writeLocalDatabase = vi.fn();
-    const readLocalDatabase = loadFunction<(accountKey?: string) => unknown>('readLocalDatabase', {
-      getDatabase: () => ({ prepare }),
-      readLegacyLocalDatabase,
-      sanitizeAccountKey: () => 'club-one',
-      writeLocalDatabase
-    });
+    const fileSystem = { existsSync: vi.fn(), readFileSync: vi.fn(), mkdirSync: vi.fn() };
+    const store = createLocalStore(baseDependencies({
+      DatabaseSync: vi.fn(function DatabaseConstructor() { return { close: vi.fn(), exec: vi.fn(), prepare }; }),
+      fileSystem
+    }));
 
-    expect(readLocalDatabase(' Club One ')).toEqual({
+    expect(store.readLocalDatabase(' Club One ')).toEqual({
       schemaVersion: 4,
       savedAt: '2026-08-07T12:00:00.000Z',
       state: { settings: { clubAccount: { clubName: 'Orbit' } } }
     });
     expect(prepare).toHaveBeenCalledWith('SELECT schema_version, saved_at, state_json FROM account_state WHERE account_key = ?');
     expect(get).toHaveBeenCalledWith('club-one');
-    expect(readLegacyLocalDatabase).not.toHaveBeenCalled();
-    expect(writeLocalDatabase).not.toHaveBeenCalled();
+    expect(fileSystem.existsSync).not.toHaveBeenCalled();
   });
 
   it('does not cross account boundaries when a requested account row is absent', () => {
     const prepare = vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue(undefined) });
-    const readLegacyLocalDatabase = vi.fn();
-    const writeLocalDatabase = vi.fn();
-    const readLocalDatabase = loadFunction<(accountKey?: string) => unknown>('readLocalDatabase', {
-      getDatabase: () => ({ prepare }),
-      readLegacyLocalDatabase,
-      sanitizeAccountKey: () => 'missing-club',
-      writeLocalDatabase
-    });
+    const fileSystem = { existsSync: vi.fn(), readFileSync: vi.fn(), mkdirSync: vi.fn() };
+    const store = createLocalStore(baseDependencies({
+      DatabaseSync: vi.fn(function DatabaseConstructor() { return { close: vi.fn(), exec: vi.fn(), prepare }; }),
+      fileSystem
+    }));
 
-    expect(readLocalDatabase('missing-club')).toBeNull();
+    expect(store.readLocalDatabase('missing-club')).toBeNull();
     expect(prepare).toHaveBeenCalledTimes(1);
-    expect(readLegacyLocalDatabase).not.toHaveBeenCalled();
-    expect(writeLocalDatabase).not.toHaveBeenCalled();
+    expect(fileSystem.existsSync).not.toHaveBeenCalled();
   });
 
   it('migrates the legacy singleton SQLite row only after the last-opened account lookup misses', () => {
-    const legacyState = { settings: { clubAccount: { clubName: 'Legacy Room' } } };
-    const prepare = vi.fn((sql: string) => ({
-      get: vi.fn().mockReturnValue(sql.includes('FROM app_state')
-        ? { schema_version: 2, saved_at: 'legacy-time', state_json: JSON.stringify(legacyState) }
-        : undefined)
-    }));
-    const writeLocalDatabase = vi.fn();
-    const readLegacyLocalDatabase = vi.fn();
-    const readLocalDatabase = loadFunction<() => unknown>('readLocalDatabase', {
-      getDatabase: () => ({ prepare }),
-      readLegacyLocalDatabase,
-      sanitizeAccountKey: () => '',
-      writeLocalDatabase
+    const legacyState = { games: [], sessions: [], playerSessions: [], settings: { clubAccount: { clubName: 'Legacy Room' } } };
+    const exec = vi.fn();
+    const prepare = vi.fn((sql: string) => {
+      if (sql.includes('FROM app_state')) {
+        return { get: vi.fn().mockReturnValue({ schema_version: 2, saved_at: 'legacy-time', state_json: JSON.stringify(legacyState) }) };
+      }
+      if (sql.startsWith('SELECT')) return { get: vi.fn().mockReturnValue(undefined) };
+      return { run: vi.fn() };
     });
+    const store = createLocalStore(baseDependencies({
+      DatabaseSync: vi.fn(function DatabaseConstructor() { return { close: vi.fn(), exec, prepare }; })
+    }));
 
-    expect(readLocalDatabase()).toEqual({ schemaVersion: 2, savedAt: 'legacy-time', state: legacyState });
-    expect(prepare.mock.calls.map((call) => call[0])).toEqual([
+    expect(store.readLocalDatabase()).toEqual({ schemaVersion: 2, savedAt: 'legacy-time', state: legacyState });
+    expect(prepare.mock.calls.slice(0, 2).map((call) => call[0])).toEqual([
       'SELECT schema_version, saved_at, state_json FROM account_state WHERE is_last_opened = 1 ORDER BY saved_at DESC LIMIT 1',
       'SELECT schema_version, saved_at, state_json FROM app_state WHERE id = 1'
     ]);
-    expect(writeLocalDatabase).toHaveBeenCalledWith(legacyState);
-    expect(readLegacyLocalDatabase).not.toHaveBeenCalled();
+    expect(exec.mock.calls.slice(-2).map((call) => call[0])).toEqual(['BEGIN IMMEDIATE', 'COMMIT']);
   });
 
   it('falls back to and migrates the legacy JSON record when both SQLite lookups miss', () => {
-    const legacyRecord = { schemaVersion: 1, savedAt: 'json-time', state: { settings: {} } };
-    const prepare = vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue(undefined) });
-    const writeLocalDatabase = vi.fn();
-    const readLocalDatabase = loadFunction<() => unknown>('readLocalDatabase', {
-      getDatabase: () => ({ prepare }),
-      readLegacyLocalDatabase: () => legacyRecord,
-      sanitizeAccountKey: () => '',
-      writeLocalDatabase
-    });
+    const legacyRecord = {
+      schemaVersion: 1,
+      savedAt: 'json-time',
+      state: { games: [], sessions: [], playerSessions: [], settings: {} }
+    };
+    const exec = vi.fn();
+    const prepare = vi.fn((sql: string) => sql.startsWith('SELECT')
+      ? { get: vi.fn().mockReturnValue(undefined) }
+      : { run: vi.fn() });
+    const fileSystem = {
+      existsSync: vi.fn().mockReturnValue(true),
+      readFileSync: vi.fn().mockReturnValue(JSON.stringify(legacyRecord)),
+      mkdirSync: vi.fn()
+    };
+    const store = createLocalStore(baseDependencies({
+      DatabaseSync: vi.fn(function DatabaseConstructor() { return { close: vi.fn(), exec, prepare }; }),
+      fileSystem
+    }));
 
-    expect(readLocalDatabase()).toBe(legacyRecord);
-    expect(writeLocalDatabase).toHaveBeenCalledWith(legacyRecord.state);
+    expect(store.readLocalDatabase()).toEqual(legacyRecord);
+    expect(fileSystem.readFileSync).toHaveBeenCalledWith('C:\\isolated-user-data\\tablemanager-db.json', 'utf8');
+    expect(exec.mock.calls.slice(-2).map((call) => call[0])).toEqual(['BEGIN IMMEDIATE', 'COMMIT']);
   });
 
   it('writes account state and profile projections transactionally while filtering invalid companions', () => {
@@ -196,21 +203,17 @@ describe('Electron local SQLite characterization', () => {
       return { run };
     });
     const exec = vi.fn();
-    const writeLocalDatabase = loadFunction<(state: typeof validState) => unknown>('writeLocalDatabase', {
-      Date: FixedDate,
-      getAccountKeyFromState: () => 'club-one',
-      getDataPath: () => 'C:\\isolated\\tablemanager.sqlite3',
-      getDatabase: () => ({ exec, prepare }),
-      validateStatePayload: vi.fn()
-    });
+    const store = createLocalStore(baseDependencies({
+      DatabaseSync: vi.fn(function DatabaseConstructor() { return { close: vi.fn(), exec, prepare }; })
+    }));
 
-    expect(writeLocalDatabase(validState)).toEqual({
+    expect(store.writeLocalDatabase(validState)).toEqual({
       ok: true,
-      path: 'C:\\isolated\\tablemanager.sqlite3',
+      path: 'C:\\isolated-user-data\\tablemanager.sqlite3',
       engine: 'sqlite',
       accountKey: 'club-one'
     });
-    expect(exec.mock.calls.map((call) => call[0])).toEqual(['BEGIN IMMEDIATE', 'COMMIT']);
+    expect(exec.mock.calls.slice(-2).map((call) => call[0])).toEqual(['BEGIN IMMEDIATE', 'COMMIT']);
 
     const statement = (prefix: string) => [...runs.entries()].find(([sql]) => sql.startsWith(prefix))?.[1];
     expect(statement('UPDATE account_state')?.mock.calls[0]).toEqual([]);
@@ -240,20 +243,16 @@ describe('Electron local SQLite characterization', () => {
     const prepare = vi.fn((sql: string) => ({
       run: sql.startsWith('UPDATE account_state') ? vi.fn(() => { throw new Error('write failed'); }) : vi.fn()
     }));
-    const writeLocalDatabase = loadFunction<(state: typeof validState) => unknown>('writeLocalDatabase', {
-      Date: FixedDate,
-      getAccountKeyFromState: () => 'club-one',
-      getDataPath: vi.fn(),
-      getDatabase: () => ({ exec, prepare }),
-      validateStatePayload: vi.fn()
-    });
+    const store = createLocalStore(baseDependencies({
+      DatabaseSync: vi.fn(function DatabaseConstructor() { return { close: vi.fn(), exec, prepare }; })
+    }));
 
-    expect(() => writeLocalDatabase(validState)).toThrow('write failed');
-    expect(exec.mock.calls.map((call) => call[0])).toEqual(['BEGIN IMMEDIATE', 'ROLLBACK']);
+    expect(() => store.writeLocalDatabase(validState)).toThrow('write failed');
+    expect(exec.mock.calls.slice(-2).map((call) => call[0])).toEqual(['BEGIN IMMEDIATE', 'ROLLBACK']);
   });
 });
 
-describe('Electron analytical report characterization', () => {
+describe('Electron analytical report store', () => {
   const report = {
     account: { accountKey: ' Club One ', clubName: 'Orbit Room' },
     operational: {
@@ -275,75 +274,69 @@ describe('Electron analytical report characterization', () => {
   };
 
   it('validates each required report object with exact failures', () => {
-    const validateReportPayload = loadFunction<(value: unknown) => void>('validateReportPayload', {
-      isRecord: (value: unknown) => Boolean(value && typeof value === 'object' && !Array.isArray(value))
-    });
+    const store = createLocalStore(baseDependencies());
 
-    expect(() => validateReportPayload(report)).not.toThrow();
-    expect(() => validateReportPayload(null)).toThrow('Report payload must be an object.');
-    expect(() => validateReportPayload({ ...report, account: null })).toThrow('Report payload is missing account details.');
-    expect(() => validateReportPayload({ ...report, operational: null })).toThrow('Report payload is missing operational metrics.');
-    expect(() => validateReportPayload({ ...report, usage: null })).toThrow('Report payload is missing usage metrics.');
+    expect(() => store.validateReportPayload(report)).not.toThrow();
+    expect(() => store.validateReportPayload(null)).toThrow('Report payload must be an object.');
+    expect(() => store.validateReportPayload({ ...report, account: null })).toThrow('Report payload is missing account details.');
+    expect(() => store.validateReportPayload({ ...report, operational: null })).toThrow('Report payload is missing operational metrics.');
+    expect(() => store.validateReportPayload({ ...report, usage: null })).toThrow('Report payload is missing usage metrics.');
   });
 
   it('keeps unconfigured delivery stored and preserves endpoint-before-email delivery order', async () => {
-    const noDelivery = loadFunction<(value: unknown) => Promise<unknown>>('forwardReportIfConfigured', {
-      Date: FixedDate,
-      fetch: vi.fn(),
-      process: { env: {} },
-      sendReportEmail: vi.fn()
-    });
-    await expect(noDelivery(report)).resolves.toEqual({ status: 'stored' });
+    const noDelivery = createLocalStore(baseDependencies());
+    await expect(noDelivery.forwardReportIfConfigured(report)).resolves.toEqual({ status: 'stored' });
 
     const order: string[] = [];
-    const fetch = vi.fn(async () => {
+    const fetchImpl = vi.fn(async () => {
       order.push('endpoint');
       return { ok: true, status: 200 };
     });
-    const sendReportEmail = vi.fn(async () => {
+    const sendMail = vi.fn(async () => {
       order.push('email');
     });
-    const configuredDelivery = loadFunction<(value: unknown) => Promise<unknown>>('forwardReportIfConfigured', {
-      Date: FixedDate,
-      fetch,
-      process: { env: { TABLEMANAGER_REPORT_ENDPOINT: 'http://127.0.0.1:4311/report', TABLEMANAGER_REPORT_EMAIL_TO: 'local@example.test' } },
-      sendReportEmail
-    });
+    const mailer = { createTransport: vi.fn().mockReturnValue({ sendMail }) };
+    const configuredDelivery = createLocalStore(baseDependencies({
+      environment: {
+        TABLEMANAGER_REPORT_ENDPOINT: 'http://127.0.0.1:4311/report',
+        TABLEMANAGER_REPORT_EMAIL_TO: 'local@example.test',
+        TABLEMANAGER_SMTP_HOST: '127.0.0.1',
+        TABLEMANAGER_SMTP_USER: 'local-user',
+        TABLEMANAGER_SMTP_PASS: 'local-pass'
+      },
+      fetchImpl,
+      mailer
+    }));
 
-    await expect(configuredDelivery(report)).resolves.toEqual({
+    await expect(configuredDelivery.forwardReportIfConfigured(report)).resolves.toEqual({
       status: 'delivered',
       deliveredAt: '2026-08-07T13:00:00.000Z',
       channels: ['endpoint', 'email']
     });
     expect(order).toEqual(['endpoint', 'email']);
-    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:4311/report', {
+    expect(fetchImpl).toHaveBeenCalledWith('http://127.0.0.1:4311/report', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(report)
     });
-    expect(sendReportEmail).toHaveBeenCalledWith(report, 'local@example.test');
+    expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'local@example.test' }));
   });
 
   it('creates SMTP transport only from complete configuration and selects TLS for port 465', () => {
     const createTransport = vi.fn().mockReturnValue({ sendMail: vi.fn() });
-    const missingConfig = loadFunction<() => unknown>('getSmtpTransport', {
-      nodemailer: { createTransport },
-      process: { env: {} }
-    });
-    expect(() => missingConfig()).toThrow('Email delivery requires TABLEMANAGER_SMTP_HOST, TABLEMANAGER_SMTP_USER, and TABLEMANAGER_SMTP_PASS.');
+    const missingConfig = createLocalStore(baseDependencies({ mailer: { createTransport } }));
+    expect(() => missingConfig.getSmtpTransport()).toThrow('Email delivery requires TABLEMANAGER_SMTP_HOST, TABLEMANAGER_SMTP_USER, and TABLEMANAGER_SMTP_PASS.');
 
-    const configured = loadFunction<() => unknown>('getSmtpTransport', {
-      nodemailer: { createTransport },
-      process: {
-        env: {
-          TABLEMANAGER_SMTP_HOST: '127.0.0.1',
-          TABLEMANAGER_SMTP_PORT: '465',
-          TABLEMANAGER_SMTP_USER: 'local-user',
-          TABLEMANAGER_SMTP_PASS: 'local-pass'
-        }
-      }
-    });
-    configured();
+    const configured = createLocalStore(baseDependencies({
+      environment: {
+        TABLEMANAGER_SMTP_HOST: '127.0.0.1',
+        TABLEMANAGER_SMTP_PORT: '465',
+        TABLEMANAGER_SMTP_USER: 'local-user',
+        TABLEMANAGER_SMTP_PASS: 'local-pass'
+      },
+      mailer: { createTransport }
+    }));
+    configured.getSmtpTransport();
     expect(createTransport).toHaveBeenCalledWith({
       host: '127.0.0.1',
       port: 465,
@@ -353,8 +346,17 @@ describe('Electron analytical report characterization', () => {
   });
 
   it('builds the report email and caps feature/action summaries at eight entries', async () => {
-    const buildReportEmailText = loadFunction<(value: typeof report) => string>('buildReportEmailText');
-    const text = buildReportEmailText(report);
+    const sendMail = vi.fn().mockResolvedValue(undefined);
+    const store = createLocalStore(baseDependencies({
+      environment: {
+        TABLEMANAGER_SMTP_HOST: '127.0.0.1',
+        TABLEMANAGER_SMTP_USER: 'local-user',
+        TABLEMANAGER_SMTP_PASS: 'local-pass',
+        TABLEMANAGER_SMTP_FROM: 'reports@example.test'
+      },
+      mailer: { createTransport: () => ({ sendMail }) }
+    }));
+    const text = store.buildReportEmailText(report);
     expect(text).toContain('Orbit report for Orbit Room');
     expect(text).toContain('Occupied seat-hours: 10');
     expect(text).toContain('- Feature 7: 7');
@@ -362,14 +364,7 @@ describe('Electron analytical report characterization', () => {
     expect(text).toContain('- Action 7 (Tables): 7');
     expect(text).not.toContain('Action 8');
 
-    const sendMail = vi.fn().mockResolvedValue(undefined);
-    const sendReportEmail = loadFunction<(value: typeof report, email: string) => Promise<void>>('sendReportEmail', {
-      Date: FixedDate,
-      buildReportEmailText,
-      getSmtpTransport: () => ({ sendMail }),
-      process: { env: { TABLEMANAGER_SMTP_FROM: 'reports@example.test', TABLEMANAGER_SMTP_USER: 'fallback@example.test' } }
-    });
-    await sendReportEmail(report, 'recipient@example.test');
+    await store.sendReportEmail(report, 'recipient@example.test');
     expect(sendMail).toHaveBeenCalledWith({
       from: 'reports@example.test',
       to: 'recipient@example.test',
@@ -385,23 +380,19 @@ describe('Electron analytical report characterization', () => {
 
   it('stores successful delivery metadata and returns the updated backend report count', async () => {
     const run = vi.fn();
-    const getReportCount = vi.fn().mockReturnValue(9);
-    const storeAnalyticalReport = loadFunction<(value: typeof report) => Promise<unknown>>('storeAnalyticalReport', {
-      Date: FixedDate,
-      crypto: { randomUUID: () => 'report-001' },
-      embeddedBackendStatus: { running: true, host: '127.0.0.1', port: 4312, reportCount: 8 },
-      forwardReportIfConfigured: vi.fn().mockResolvedValue({
-        status: 'delivered',
-        deliveredAt: '2026-08-07T12:59:00.000Z',
-        channels: ['endpoint']
-      }),
-      getDatabase: () => ({ prepare: vi.fn().mockReturnValue({ run }) }),
-      getReportCount,
-      sanitizeAccountKey: () => 'club-one',
-      validateReportPayload: vi.fn()
-    });
+    const prepare = vi.fn((sql: string) => sql.includes('COUNT(*)')
+      ? { get: vi.fn().mockReturnValue({ count: 9 }) }
+      : { run });
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const updateBackendReportCount = vi.fn((reportCount: number) => ({ running: true, host: '127.0.0.1', port: 4312, reportCount }));
+    const store = createLocalStore(baseDependencies({
+      DatabaseSync: vi.fn(function DatabaseConstructor() { return { close: vi.fn(), exec: vi.fn(), prepare }; }),
+      environment: { TABLEMANAGER_REPORT_ENDPOINT: 'http://127.0.0.1:4311/report' },
+      fetchImpl,
+      updateBackendReportCount
+    }));
 
-    await expect(storeAnalyticalReport(report)).resolves.toEqual({
+    await expect(store.storeAnalyticalReport(report)).resolves.toEqual({
       ok: true,
       id: 'report-001',
       accountKey: 'club-one',
@@ -415,25 +406,25 @@ describe('Electron analytical report characterization', () => {
       '2026-08-07T13:00:00.000Z',
       JSON.stringify(report),
       'delivered',
-      '2026-08-07T12:59:00.000Z',
+      '2026-08-07T13:00:00.000Z',
       ''
     );
+    expect(updateBackendReportCount).toHaveBeenCalledWith(9);
   });
 
   it('queues delivery failures while still storing the report and exact error', async () => {
     const run = vi.fn();
-    const storeAnalyticalReport = loadFunction<(value: typeof report) => Promise<unknown>>('storeAnalyticalReport', {
-      Date: FixedDate,
-      crypto: { randomUUID: () => 'report-002' },
-      embeddedBackendStatus: { running: false, host: '127.0.0.1', port: 0, reportCount: 0 },
-      forwardReportIfConfigured: vi.fn().mockRejectedValue(new Error('Report endpoint returned 503')),
-      getDatabase: () => ({ prepare: vi.fn().mockReturnValue({ run }) }),
-      getReportCount: () => 1,
-      sanitizeAccountKey: () => 'club-one',
-      validateReportPayload: vi.fn()
-    });
+    const prepare = vi.fn((sql: string) => sql.includes('COUNT(*)')
+      ? { get: vi.fn().mockReturnValue({ count: 1 }) }
+      : { run });
+    const store = createLocalStore(baseDependencies({
+      DatabaseSync: vi.fn(function DatabaseConstructor() { return { close: vi.fn(), exec: vi.fn(), prepare }; }),
+      environment: { TABLEMANAGER_REPORT_ENDPOINT: 'http://127.0.0.1:4311/report' },
+      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 503 }),
+      randomUUID: () => 'report-002'
+    }));
 
-    await expect(storeAnalyticalReport(report)).resolves.toMatchObject({
+    await expect(store.storeAnalyticalReport(report)).resolves.toMatchObject({
       ok: true,
       id: 'report-002',
       deliveryStatus: 'queued',

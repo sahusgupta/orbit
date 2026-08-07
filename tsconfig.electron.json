@@ -14,6 +14,7 @@
   },
   "include": [
     "electron/main.cjs",
+    "electron/localStore.cjs",
     "electron/orbitApiClient.cjs",
     "electron/runtimeUtils.cjs",
     "electron/preload.cjs",
