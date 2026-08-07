@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, and completed `TYPE-007B` now establishes the truthful current baseline at 59 diagnostics in 4 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, and completed `TYPE-007C` now establishes the truthful current baseline at 53 diagnostics in 4 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -451,3 +451,27 @@ Final implementation verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 59 diagnostics, while Player TypeScript, 23/106 tests, and the 1,912-module renderer build passed.
 
 `TYPE-007B` is complete. The `TYPE-007` umbrella remains pending on six incomplete children, including `TYPE-007F` in `review_required`, and must not be marked complete. `TYPE-008` still depends on incomplete `TYPE-007H`, `TYPE-010` still depends on the umbrella, no task became newly ready, and no additional remediation task was started.
+
+## TYPE-007C Cross-record Timestamp Corrections — 2026-08-07
+
+The interest timestamp mapper now consumes canonical `Interest` values, and both player-session correction mappers consume canonical `PlayerSession` values instead of structural fragments that required optional `manualEdits` and omitted canonical business fields. Datetime conversion, requested-field assignment, exact player-name/game matching, seated/closed propagation, optional manual edits, correction logging, persistence, ordering, missing-target behavior, and prior-state immutability remain unchanged.
+
+A focused jsdom characterization passed against unchanged production before the correction and was committed separately as `187be9a`. It uses local fixture state with Firebase disabled and network access stubbed. It covers all five interest timestamp keys; empty/populated inputs; matched and unmatched sessions; seated/closed mirroring; existing and absent manual edits; complete identity/profile/game/table/seating/time field preservation; stable ordering/references; exact audit markers; missing targets; non-mutation; and JSON persistence.
+
+The first post-change root typecheck produced exactly 53 diagnostics in the same 4 files:
+
+- all six `TYPE-007C` diagnostics disappeared: `TS2322` formerly at `src/main.tsx:3274:7`, `3277:7`, and `3289:7`, plus `TS2345` formerly at `3274:38`, `3277:48`, and `3289:48`;
+- `TS2322` decreased from 17 to 14, `TS2345` decreased from 27 to 24, and `src/main.tsx` decreased from 50 to 44;
+- every other diagnostic-code and affected-path count stayed unchanged; and
+- no new diagnostic appeared.
+
+Final implementation verification:
+
+- PASS before and after implementation: `npm test -- src/lib/stateCorrections.test.ts` — 1 file and 6 tests.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 53 diagnostics in 4 files; all six assigned diagnostics absent; no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 24 files and 112 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,912 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 53 diagnostics, while Player TypeScript, 24/112 tests, and the 1,912-module renderer build passed.
+
+`TYPE-007C` is complete. The `TYPE-007` umbrella remains pending on five incomplete children, including `TYPE-007F` in `review_required`, and must not be marked complete. `TYPE-008` still depends on incomplete `TYPE-007H`, `TYPE-010` still depends on the umbrella, no task became newly ready, and no additional remediation task was started.

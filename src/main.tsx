@@ -3271,10 +3271,10 @@ function App() {
     const interest = state.interests.find((item: { id: string; }) => item.id === id);
     persist(withCorrectionLog({
       ...state,
-      interests: state.interests.map((item: { id: string; manualEdits: Record<string, string> | undefined; }) =>
+      interests: state.interests.map((item: Interest) =>
         item.id === id ? { ...item, [key]: nextValue, manualEdits: markManualEdit(item.manualEdits, key) } : item
       ),
-      playerSessions: state.playerSessions.map((session: { playerName: any; gameId: any; manualEdits: Record<string, string> | undefined; }) => {
+      playerSessions: state.playerSessions.map((session: PlayerSession) => {
         if (!interest || session.playerName !== interest.playerName || session.gameId !== interest.gameId) return session;
         if (key === 'seatedAt' && nextValue) return { ...session, seatedAt: nextValue, manualEdits: markManualEdit(session.manualEdits, 'seatedAt') };
         if (key === 'closedAt') return { ...session, leftAt: nextValue, manualEdits: markManualEdit(session.manualEdits, 'leftAt') };
@@ -3286,7 +3286,7 @@ function App() {
   const updatePlayerSession = (sessionId: string, patch: Partial<PlayerSession>, editKey: string) => {
     persist(withCorrectionLog({
       ...state,
-      playerSessions: state.playerSessions.map((session: { id: string; manualEdits: Record<string, string> | undefined; }) =>
+      playerSessions: state.playerSessions.map((session: PlayerSession) =>
         session.id === sessionId ? { ...session, ...patch, manualEdits: markManualEdit(session.manualEdits, editKey) } : session
       )
     }, sessionId, editKey, 'Player session corrected'));

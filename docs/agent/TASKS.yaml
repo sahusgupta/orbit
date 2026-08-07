@@ -1,7 +1,7 @@
 queue: root-typescript-remediation
 temporary: true
 source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
-baseline_diagnostics: 59
+baseline_diagnostics: 53
 baseline_files: 4
 status: partial_failure
 ordering:
@@ -92,8 +92,8 @@ tasks:
     classification: REAL_TYPE_ERROR
     diagnostics: 0
     diagnostics_before: 51
-    diagnostics_delegated: 39
-    diagnostics_resolved: 12
+    diagnostics_delegated: 33
+    diagnostics_resolved: 18
     status: pending
     role: umbrella
     children: [TYPE-007A, TYPE-007B, TYPE-007C, TYPE-007D, TYPE-007E, TYPE-007F, TYPE-007G, TYPE-007H, TYPE-007I, TYPE-007J]
@@ -147,14 +147,16 @@ tasks:
     title: Preserve full records through timestamp corrections
     classification: REAL_TYPE_ERROR
     safety: SAFE_AFTER_TESTS
-    diagnostics: 6
-    status: ready
-    safe_autonomous: false
+    diagnostics: 0
+    diagnostics_before: 6
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
     human_review: false
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: [TYPE-005, TYPE-006]
-    owned_diagnostics:
+    resolved_diagnostics:
       - "src/main.tsx:3274:7 TS2322"
       - "src/main.tsx:3274:38 TS2345"
       - "src/main.tsx:3277:7 TS2322"
@@ -162,6 +164,7 @@ tasks:
       - "src/main.tsx:3289:7 TS2322"
       - "src/main.tsx:3289:48 TS2345"
     spec: docs/agent/tasks/TYPE-007C.md
+    resolution: canonical_interest_and_player_session_correction_callbacks_with_characterization
   - id: TYPE-007D
     title: Preserve player records across table moves and departures
     classification: REAL_TYPE_ERROR
