@@ -8,7 +8,7 @@ Date: 2026-08-07
 | --- | --- | --- | --- |
 | Management renderer | `src/main.tsx` plus `src/components/` | React/Vite UI, management state/domain orchestration, typed route composition, browser persistence, Firebase client coordination | `tsconfig.renderer.json`, root Vitest, Vite build |
 | Renderer tests | `src/**/*.test.ts(x)` | jsdom/Node-assisted characterization and pure unit tests | `tsconfig.test.json`, root Vitest |
-| Electron | `electron/main.cjs`, `electron/embeddedBackend.cjs`, `electron/localStore.cjs`, `electron/orbitApiClient.cjs`, `electron/runtimeUtils.cjs`, `electron/preload.cjs` | desktop windowing, IPC, local SQLite, hosted/local API fallback, telemetry, reports, updates | dedicated non-DOM `tsconfig.electron.json`, tests, renderer build |
+| Electron | `electron/main.cjs`, `electron/embeddedBackend.cjs`, `electron/localStore.cjs`, `electron/orbitApiClient.cjs`, `electron/runtimeUtils.cjs`, `electron/updateController.cjs`, `electron/preload.cjs` | desktop windowing, IPC, local SQLite, hosted/local API fallback, telemetry, reports, updates | dedicated non-DOM `tsconfig.electron.json`, tests, renderer build |
 | API | `apps/api/src/server.js` | Express routes, SQLite, Firebase Admin publication, licensing/payment integrations | root Vitest only; semantic check pending TYPE-018 |
 | Player | `player-app/App.tsx` → `player-app/src/PlayerApp.tsx` | Expo mobile client and Player-owned domain/data code | Player TypeScript plus root Vitest |
 
@@ -18,7 +18,7 @@ Date: 2026-08-07
 | --- | ---: | --- |
 | `src/main.tsx` | 5,599 | Domain contracts, pure projections, and nine route views have focused owners; top-level state, effects, persistence, and mutation orchestration remain concentrated here. |
 | `src/styles.css` and `src/styles/*.css` | 35-line entrypoint; 8,840 owned lines | The unchanged ordered cascade now has 35 feature/layer owners. Only the documented dark-theme compatibility pass exceeds 500 lines (649) because equal-specificity historical ordering is cohesive behavior. |
-| `electron/main.cjs` | 959 | Combines duplicated player sync, updates, windows, and IPC. The isolated localhost server now lives in `electron/embeddedBackend.cjs`; local SQLite/reports live in `electron/localStore.cjs`; authenticated transport/telemetry/fallback orchestration live in `electron/orbitApiClient.cjs`; pure runtime helpers live in `electron/runtimeUtils.cjs`. |
+| `electron/main.cjs` | 853 | Combines duplicated player sync, windows, and IPC. Auto-update and state-flush orchestration now live in `electron/updateController.cjs`; the isolated localhost server lives in `electron/embeddedBackend.cjs`; local SQLite/reports live in `electron/localStore.cjs`; authenticated transport/telemetry/fallback orchestration live in `electron/orbitApiClient.cjs`; pure runtime helpers live in `electron/runtimeUtils.cjs`. |
 | `src/lib/playerSync.ts` | 847 | Canonical renderer publication/merge logic; protected by focused tests and protocol-v2 invariants. |
 | `apps/api/src/server.js` | 668 | Route composition and service orchestration are still combined. |
 | `apps/api/src/database.js` | 556 | Connection/schema, mapping, state, telemetry, and reports share one module. |

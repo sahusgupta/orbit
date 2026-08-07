@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
 
 const electronMainSource = readFileSync(new URL('../../electron/main.cjs', import.meta.url), 'utf8');
+const electronUpdateControllerSource = readFileSync(new URL('../../electron/updateController.cjs', import.meta.url), 'utf8');
 const require = createRequire(import.meta.url);
 
 function extractFunctionSource(name: string) {
@@ -97,10 +98,8 @@ describe('Electron main compiler findings', () => {
   });
 
   it('registers before-quit telemetry on the native Electron updater that emits the event', () => {
-    const startAutoUpdates = extractFunctionSource('startAutoUpdates');
-
-    expect(startAutoUpdates).toContain("nativeAutoUpdater.on('before-quit-for-update'");
-    expect(startAutoUpdates).not.toContain("autoUpdater.on('before-quit-for-update'");
+    expect(electronUpdateControllerSource).toContain("nativeAutoUpdater.on('before-quit-for-update'");
+    expect(electronUpdateControllerSource).not.toContain("autoUpdater.on('before-quit-for-update'");
   });
 });
 

@@ -18,6 +18,7 @@
     "electron/localStore.cjs",
     "electron/orbitApiClient.cjs",
     "electron/runtimeUtils.cjs",
+    "electron/updateController.cjs",
     "electron/preload.cjs",
     "electron/firebaseSync.cjs"
   ]

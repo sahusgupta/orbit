@@ -14,19 +14,17 @@ const {
 const { createEmbeddedBackend } = require('./embeddedBackend.cjs');
 const { createLocalStore } = require('./localStore.cjs');
 const { createOrbitApiClient } = require('./orbitApiClient.cjs');
+const { createUpdateController } = require('./updateController.cjs');
 const {
   getAccountKeyFromAccess,
   getAccountKeyFromState,
   getRecordProperty,
   isRecord,
   normalizeTextMessageBatch,
-  orbitApiErrorDetails,
-  sanitizeAccountKey,
-  validateStatePayload
+  sanitizeAccountKey
 } = require('./runtimeUtils.cjs');
 
 const isDev = process.env.ELECTRON_DEV === 'true';
-const updateCheckIntervalMs = 30 * 60 * 1000;
 
 if (process.env.TABLEMANAGER_USER_DATA_DIR) {
   app.setPath('userData', process.env.TABLEMANAGER_USER_DATA_DIR);
@@ -37,12 +35,7 @@ app.commandLine.appendSwitch('disk-cache-size', '0');
 
 const windows = new Map();
 const validRoutes = new Set(['floor', 'table', 'builder', 'profiles', 'signals', 'summary', 'customization', 'kpis', 'tournaments', 'tournament-tv', 'pilot', 'outreach']);
-let updateCheckTimer;
-let updateInstallPending = false;
-let updateInstallStarted = false;
-const pendingUpdateStateFlushes = new Map();
 let appStartedAt = new Date().toISOString();
-let lastUpdateProgressBucket = -1;
 
 function writeOrbitApiLog(level, event, details = {}) {
   const entry = {
@@ -620,103 +613,21 @@ const embeddedBackend = createEmbeddedBackend({
   syncStateWithFirebaseRequests
 });
 
-function broadcastUpdateStatus(status) {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) {
-      window.webContents.send('update-status', status);
-    }
-  }
-}
-
-async function preserveRendererStateBeforeUpdate() {
-  const availableWindows = BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed());
-  const authoritativeWindow = windows.get('floor') || BrowserWindow.getFocusedWindow() || availableWindows[0];
-  if (!authoritativeWindow || authoritativeWindow.isDestroyed()) return;
-
-  await new Promise((resolve) => {
-    const requestId = crypto.randomUUID();
-    const timeout = setTimeout(() => {
-      pendingUpdateStateFlushes.delete(requestId);
-      writeOrbitApiLog('warn', 'update-state-flush-timed-out', { requestId });
-      resolve(false);
-    }, 15 * 1000);
-    pendingUpdateStateFlushes.set(requestId, (ok) => {
-      clearTimeout(timeout);
-      pendingUpdateStateFlushes.delete(requestId);
-      resolve(ok);
-    });
-    authoritativeWindow.webContents.send('prepare-for-update', requestId);
-  });
-}
-
-async function installDownloadedUpdate() {
-  if (!updateInstallPending || updateInstallStarted) return;
-  updateInstallStarted = true;
-  sendClientUpdateEvent('update-preserving-state', 'downloaded');
-  broadcastUpdateStatus({ state: 'preserving-state' });
-  await preserveRendererStateBeforeUpdate();
-  updateInstallPending = false;
-  sendClientUpdateEvent('update-installing-automatically', 'installing');
-  broadcastUpdateStatus({ state: 'installing' });
-  setTimeout(() => autoUpdater.quitAndInstall(false, true), 3000);
-}
-
-function startAutoUpdates() {
-  if (isDev || !app.isPackaged) return;
-
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.autoRunAppAfterInstall = true;
-  autoUpdater.allowPrerelease = false;
-
-  autoUpdater.on('checking-for-update', () => {
-    sendClientUpdateEvent('checking-for-update', 'checking');
-    broadcastUpdateStatus({ state: 'checking' });
-  });
-  autoUpdater.on('update-available', (info) => {
-    sendClientUpdateEvent('update-available', 'available', { version: info.version });
-    broadcastUpdateStatus({ state: 'available', version: info.version });
-  });
-  autoUpdater.on('update-not-available', (info) => {
-    sendClientUpdateEvent('update-not-available', 'current', { version: info.version });
-    broadcastUpdateStatus({ state: 'current', version: info.version });
-  });
-  autoUpdater.on('download-progress', (progress) => {
-    const progressBucket = Math.floor(Math.round(progress.percent ?? 0) / 25);
-    if (progressBucket !== lastUpdateProgressBucket) {
-      lastUpdateProgressBucket = progressBucket;
-      sendClientEvent('update-download-progress', 'update', { percent: Math.round(progress.percent ?? 0) });
-    }
-    broadcastUpdateStatus({ state: 'downloading', percent: Math.round(progress.percent ?? 0) });
-  });
-  autoUpdater.on('update-downloaded', (info) => {
-    lastUpdateProgressBucket = -1;
-    sendClientUpdateEvent('update-downloaded', 'downloaded', { version: info.version });
-    broadcastUpdateStatus({ state: 'downloaded', version: info.version });
-    updateInstallPending = true;
-    void installDownloadedUpdate();
-  });
-  nativeAutoUpdater.on('before-quit-for-update', () => {
-    sendClientEvent('update-installing', 'update', getClientUpdateState());
-  });
-  autoUpdater.on('error', (error) => {
-    lastUpdateProgressBucket = -1;
-    const message = error instanceof Error ? error.message : 'Update check failed.';
-    sendClientUpdateEvent('update-error', 'error', { message });
-    broadcastUpdateStatus({ state: 'error', message });
-  });
-
-  const checkForUpdates = () => {
-    autoUpdater.checkForUpdatesAndNotify().catch((error) => {
-      const message = error instanceof Error ? error.message : 'Update check failed.';
-      sendClientUpdateEvent('update-error', 'error', { message });
-      broadcastUpdateStatus({ state: 'error', message });
-    });
-  };
-
-  checkForUpdates();
-  updateCheckTimer = setInterval(checkForUpdates, updateCheckIntervalMs);
-}
+const updateController = createUpdateController({
+  app,
+  autoUpdater,
+  getAllWindows: () => BrowserWindow.getAllWindows(),
+  getClientUpdateState,
+  getFloorWindow: () => windows.get('floor'),
+  getFocusedWindow: () => BrowserWindow.getFocusedWindow(),
+  isDev,
+  nativeAutoUpdater,
+  saveStateToApi,
+  sendClientEvent,
+  sendClientUpdateEvent,
+  writeLocalDatabase,
+  writeOrbitApiLog
+});
 
 ipcMain.handle('open-route-window', (_event, route, context = {}) => {
   const normalizedRoute = route === 'outreach' ? 'signals' : validRoutes.has(route) ? route : 'floor';
@@ -729,21 +640,7 @@ ipcMain.handle('load-state-for-account', async (_event, access) => loadStateApiF
 
 ipcMain.handle('save-state', async (_event, state) => saveStateApiFirst(state));
 
-ipcMain.handle('preserve-state-for-update', async (_event, requestId, state) => {
-  let ok = false;
-  try {
-    validateStatePayload(state);
-    writeLocalDatabase(state);
-    ok = true;
-    void saveStateToApi(state).catch((error) => {
-      writeOrbitApiLog('warn', 'update-cloud-state-flush-failed', orbitApiErrorDetails(error));
-    });
-  } catch (error) {
-    writeOrbitApiLog('error', 'update-local-state-flush-failed', orbitApiErrorDetails(error));
-  }
-  pendingUpdateStateFlushes.get(requestId)?.(ok);
-  return { ok };
-});
+ipcMain.handle('preserve-state-for-update', async (_event, requestId, state) => updateController.handleRendererStateFlush(requestId, state));
 
 ipcMain.handle('get-backend-status', async () => {
   const remoteStatus = await getRemoteBackendStatus();
@@ -894,7 +791,7 @@ app.whenReady().then(() => {
     embeddedBackend.start();
   }
   startClientTelemetry();
-  startAutoUpdates();
+  updateController.start();
 
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
@@ -941,10 +838,7 @@ app.on('before-quit', () => {
     openWindowCount: BrowserWindow.getAllWindows().length
   });
   stopClientTelemetry();
-  if (updateCheckTimer) {
-    clearInterval(updateCheckTimer);
-    updateCheckTimer = undefined;
-  }
+  updateController.stop();
   embeddedBackend.stop();
   closeDatabase();
 });
