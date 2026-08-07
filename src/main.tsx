@@ -4248,17 +4248,17 @@ function App() {
 
   const movePlayerToTable = (playerSession: PlayerSession, targetTableId: string) => {
     if (playerSession.tableId === targetTableId) return;
-    const sourceTable = state.sessions.find((session: { id: string; }) => session.id === playerSession.tableId);
-    const targetTable = state.sessions.find((session: { id: string; }) => session.id === targetTableId);
+    const sourceTable = state.sessions.find((session: GameSession) => session.id === playerSession.tableId);
+    const targetTable = state.sessions.find((session: GameSession) => session.id === targetTableId);
     if (!targetTable) return;
     const targetSeatNumber = getAvailableSeatNumber(targetTable, playerSession.seatNumber) ?? getAvailableSeatNumber(targetTable);
     if (!targetSeatNumber) {
       window.alert('No open seats on the target table.');
       return;
     }
-    const movedState = {
+    const movedState: AppState = {
       ...state,
-      playerSessions: state.playerSessions.map((session: { id: string; manualEdits: Record<string, string> | undefined; }) =>
+      playerSessions: state.playerSessions.map((session: PlayerSession) =>
         session.id === playerSession.id
           ? { ...session, tableId: targetTableId, seatNumber: targetSeatNumber, manualEdits: markManualEdit(markManualEdit(session.manualEdits, 'tableId'), 'seatNumber') }
           : session
@@ -4296,15 +4296,15 @@ function App() {
 
   const markPlayerLeft = (interest: Interest) => {
     const openSession = state.playerSessions.find(
-      (session: { playerName: string; gameId: string; leftAt: any; }) => session.playerName === interest.playerName && session.gameId === interest.gameId && !session.leftAt
+      (session: PlayerSession) => session.playerName === interest.playerName && session.gameId === interest.gameId && !session.leftAt
     );
 
-    const nextState = {
+    const nextState: AppState = {
       ...state,
-      interests: state.interests.map((item: { id: string; }) =>
+      interests: state.interests.map((item: Interest) =>
         item.id === interest.id ? { ...item, status: 'Removed', closedAt: nowIso(), timestamp: nowIso() } : item
       ),
-      playerSessions: state.playerSessions.map((session: { id: any; }) =>
+      playerSessions: state.playerSessions.map((session: PlayerSession) =>
         session.id === openSession?.id ? { ...session, leftAt: nowIso() } : session
       )
     };
