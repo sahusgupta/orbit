@@ -154,6 +154,17 @@ describe('player sync snapshots', () => {
       knownPlayersInHouse: 2,
       waitlistCount: 2
     });
+    expect(Object.keys(snapshot).sort()).toEqual([
+      'club',
+      'games',
+      'generatedAt',
+      'memberships',
+      'notifications',
+      'social',
+      'waitlists'
+    ]);
+    expect(snapshot).not.toHaveProperty('syncProtocolVersion');
+    expect(snapshot).not.toHaveProperty('syncRevision');
   });
 
   it('derives stable club ids and loyalty tiers', () => {
