@@ -35,6 +35,7 @@ import {
 import branding from '../branding.config.json';
 import PokerTable, { type Player as PokerTablePlayer } from './components/PokerTable';
 import AppShell, { type PrimaryDestination, type ShellCommand } from './components/AppShell';
+import BuilderView from './components/BuilderView';
 import PanelTitle from './components/PanelTitle';
 import SignalsView, { type GroupMeCandidate } from './components/SignalsView';
 import TournamentTvView from './components/TournamentTvView';
@@ -60,7 +61,12 @@ import {
 import { loadClubStateFromFirebase, saveClubStateToFirebase, signInOrCreateFirebaseEmailAccount, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
 import { rendererFirebaseSyncEnabled } from './lib/firebaseConfig';
 import { buildNightCloseTables } from './lib/nightClose';
-import { getBalancePlans, getTodayPlayerActivity, parseGroupMeMessages } from './lib/resultBuilders';
+import {
+  getBalancePlans,
+  getTodayPlayerActivity,
+  parseGroupMeMessages,
+  type BalancePlanResult
+} from './lib/resultBuilders';
 import { mergeSyncedList } from './lib/syncedList';
 import {
   defaultTournamentLevels,
@@ -130,8 +136,7 @@ import {
   getProfileForInterest,
   hasParticipantInterest,
   inactiveInterestStatuses,
-  lacksParticipantInterest,
-  type ParticipantCandidate
+  lacksParticipantInterest
 } from './domain/participants';
 import type {
   AppRoute,
@@ -278,15 +283,13 @@ type TextMessageBatchResult = {
   error?: string;
 };
 
-type BalancePlan = {
-  game: GameConfig;
-  demand: ReturnType<typeof getDemand>;
-  fromTable: GameSession;
-  moveCandidates: ParticipantCandidate[];
-  tableASeatsAfterMove: number;
-  tableBProjectedSeats: number;
-  nextStep: string;
-};
+type BalancePlan = BalancePlanResult<
+  GameConfig,
+  ReturnType<typeof getDemand>,
+  GameSession,
+  Interest,
+  PlayerProfile
+>;
 
 type SeatPickerState = {
   sessionId: string;
@@ -5414,174 +5417,30 @@ function App() {
   }
 
   if (route === 'builder') {
-    const getGameFormat = (name: string) =>
-      /\broe\b|round of each/i.test(name) ? 'ROE'
-      : /\bdc\b|dealer.?s choice/i.test(name) ? 'Dealer’s Choice'
-      : /\bplo\b|omaha/i.test(name) ? 'PLO'
-      : /\bnlh\b|hold.?em/i.test(name) ? 'NLH'
-      : /mixed|mix/i.test(name) ? 'Mixed'
-      : 'Other';
-    const getGameStakes = (name: string) => name.match(/\d+\s*\/\s*\d+/)?.[0]?.replace(/\s/g, '') ?? 'Unspecified';
-    const getGameStatus = (game: GameConfig) => {
-      if (state.sessions.some((session) => session.gameId === game.id && session.status === 'Running')) return 'Running';
-      const viability = getViabilityState(state, game).state;
-      return viability === 'Ready to Start' || viability === 'Likely to Start' ? 'Ready' : 'Needs players';
-    };
-    const gameFormats = ['All formats', ...Array.from(new Set(state.games.map((game) => getGameFormat(game.name))))];
-    const gameStakes = ['All stakes', ...Array.from(new Set(state.games.map((game) => getGameStakes(game.name))))];
-    const filteredGameOptions = state.games.filter((game) => (gameFormatFilter === 'All formats' || getGameFormat(game.name) === gameFormatFilter) && (gameStakesFilter === 'All stakes' || getGameStakes(game.name) === gameStakesFilter) && (gameStatusFilter === 'All statuses' || getGameStatus(game) === gameStatusFilter));
     return withShell('games', (
-      <main className="app-shell compact-shell">
-        <header className="topbar">
-          <div>
-            <h1>Games</h1>
-            <p className="page-subtitle">Tonight's demand and forming tables</p>
-          </div>
-          <div className="topbar-actions">
-            <button className="ghost-button" onClick={exportPilotReport}>
-              <Download size={18} />
-              Export Pilot
-            </button>
-            <button className="ghost-button" onClick={closeRoute}>
-              <X size={18} />
-              Close
-            </button>
-          </div>
-        </header>
-
-        <nav className="route-tabs" aria-label="Games sections">
-          <span className="active" aria-current="page">Tonight</span>
-          <button onClick={() => openRoute('signals')}>Outreach</button>
-          <button onClick={() => openRoute('customization')}>Configuration</button>
-        </nav>
-
-        <section className="game-filter-bar">
-          <label><span>Stakes</span><select value={gameStakesFilter} onChange={(event) => setGameStakesFilter(event.target.value)}>{gameStakes.map((stakes) => <option key={stakes}>{stakes}</option>)}</select></label>
-          <label><span>Format</span><select value={gameFormatFilter} onChange={(event) => setGameFormatFilter(event.target.value)}>{gameFormats.map((format) => <option key={format}>{format}</option>)}</select></label>
-          <label><span>Status</span><select value={gameStatusFilter} onChange={(event) => setGameStatusFilter(event.target.value)}>{['All statuses', 'Running', 'Ready', 'Needs players'].map((status) => <option key={status}>{status}</option>)}</select></label>
-        </section>
-
-        <section className="panel game-requests-panel">
-          <div className="section-heading">
-            <div>
-              <h2>Player Game Requests</h2>
-              <p className="muted-copy">Member interest by exact stakes and format. Build a forming table when demand is ready.</p>
-            </div>
-          </div>
-          <div className="forming-list">
-            {state.games
-              .map((game) => ({ game, demand: getDemand(game, state.interests) }))
-              .filter(({ demand }) => demand.interested + demand.confirmed + demand.waiting > 0)
-              .sort((left, right) => right.demand.totalDemand - left.demand.totalDemand)
-              .map(({ game, demand }) => {
-                const activeSession = state.sessions.find((session) => session.gameId === game.id && ['Running', 'Forming', 'Paused'].includes(session.status));
-                const viability = getViabilityState(state, game);
-                return (
-                  <article className="forming-card" key={`request-${game.id}`}>
-                    <div>
-                      <strong>{game.name}</strong>
-                      <span className={`status-pill ${viability.state === 'Ready to Start' || viability.state === 'Likely to Start' ? 'likely' : ''}`}>
-                        {activeSession ? activeSession.status : viability.state}
-                      </span>
-                    </div>
-                    <p>{demand.interested} interested / {demand.confirmed} coming / {demand.inRoom} in room</p>
-                    <small>{viability.nextStep}</small>
-                    {!activeSession ? (
-                      <button className="secondary-button" onClick={() => addSession(game.id)}>
-                        Build {game.name}
-                      </button>
-                    ) : (
-                      <small>{activeSession.label} is already {activeSession.status.toLowerCase()}.</small>
-                    )}
-                  </article>
-                );
-              })}
-            {!state.games.some((game) => {
-              const demand = getDemand(game, state.interests);
-              return demand.interested + demand.confirmed + demand.waiting > 0;
-            }) ? <p className="muted-copy">No member game requests yet.</p> : null}
-          </div>
-        </section>
-
-        <section className="panel">
-          <div className="builder-controls">
-            <label>
-              Game
-              <select
-                value={coordinationConfig.gameId}
-                onChange={(event: { target: { value: any; }; }) => setCoordinationConfig({ ...coordinationConfig, gameId: event.target.value })}
-              >
-                {filteredGameOptions.map((game: { id: any; name: any; }) => (
-                  <option key={game.id} value={game.id}>
-                    {game.name}
-                  </option>
-                ))}
-                {!filteredGameOptions.length ? <option value="">No matching games</option> : null}
-              </select>
-            </label>
-            <label>
-              Seats
-              <input
-                type="number"
-                min="2"
-                max={state.games.find((game: { id: any; }) => game.id === coordinationConfig.gameId)?.maxSeats ?? 10}
-                value={coordinationConfig.seats}
-                onChange={(event: { target: { value: any; }; }) => setCoordinationConfig({ ...coordinationConfig, seats: Number(event.target.value) })}
-              />
-            </label>
-            <button className="primary-button" onClick={addPlannedSession}>
-              <Plus size={18} />
-              Start Forming Table
-            </button>
-          </div>
-          <div className="builder-grid single-window-grid">
-            {participantPool.map((candidate: ParticipantCandidate, index: number) => (
-              <article className="candidate-card" key={candidate.id}>
-                <div className="candidate-rank">{index + 1}</div>
-                <div>
-                  <h3>{candidate.playerName}</h3>
-                  <p>{candidate.reasons.slice(0, 3).join(' - ')}</p>
-                  <small>
-                    {candidate.profile?.preferredStakes || 'No saved stakes'} -{' '}
-                    {candidate.profile
-                      ? `$${candidate.profile.typicalBuyInMin}-${candidate.profile.typicalBuyInMax} buy-in`
-                      : 'No profile'}
-                  </small>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel">
-          <PanelTitle icon={<Target />} title="Two-Table Balance Option" />
-          <div className="balance-list">
-            {balancePlans.filter((plan: { game: { id: any; }; }) => plan.game.id === coordinationConfig.gameId).length ? (
-              balancePlans
-                .filter((plan: { game: { id: any; }; }) => plan.game.id === coordinationConfig.gameId)
-                .map((plan: { game: any; fromTable: any; demand: any; tableASeatsAfterMove: any; tableBProjectedSeats: any; nextStep: any; moveCandidates: any; }) => (
-                  <article className="balance-card" key={`${plan.game.id}-${plan.fromTable.id}`}>
-                    <div>
-                      <h3>{plan.game.name}</h3>
-                      <p>{plan.demand.totalDemand} total demand - Table A {plan.tableASeatsAfterMove}/{plan.fromTable.maxSeats} after move - Table B projected {plan.tableBProjectedSeats}/{plan.game.maxSeats}</p>
-                      <small>{plan.nextStep}</small>
-                    </div>
-                    <div className="balance-movers">
-                      {plan.moveCandidates.map((candidate: { id: any; playerName: any; reasons: any[]; }) => (
-                        <span key={candidate.id}>{candidate.playerName} - {candidate.reasons.slice(0, 2).join(' - ')}</span>
-                      ))}
-                    </div>
-                    <button className="primary-button" onClick={() => createBalancedTable(plan)}>
-                      Create Table B
-                    </button>
-                  </article>
-                ))
-            ) : (
-              <p className="muted-copy">This appears when a game has more than 12 total players across in-room, waiting, coming, and interested demand.</p>
-            )}
-          </div>
-        </section>
-      </main>
+      <BuilderView
+        games={state.games}
+        sessions={state.sessions}
+        coordinationConfig={coordinationConfig}
+        gameFormatFilter={gameFormatFilter}
+        gameStakesFilter={gameStakesFilter}
+        gameStatusFilter={gameStatusFilter}
+        participantPool={participantPool}
+        balancePlans={balancePlans}
+        getGameDemand={(game) => getDemand(game, state.interests)}
+        getGameViability={(game) => getViabilityState(state, game)}
+        onAddPlannedSession={addPlannedSession}
+        onBuildGame={addSession}
+        onClose={closeRoute}
+        onCoordinationConfigChange={setCoordinationConfig}
+        onCreateBalancedTable={createBalancedTable}
+        onExportPilotReport={exportPilotReport}
+        onGameFormatFilterChange={setGameFormatFilter}
+        onGameStakesFilterChange={setGameStakesFilter}
+        onGameStatusFilterChange={setGameStatusFilter}
+        onOpenOutreach={() => openRoute('signals')}
+        onOpenConfiguration={() => openRoute('customization')}
+      />
     ));
   }
 
