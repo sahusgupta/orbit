@@ -85,7 +85,7 @@ tasks:
     risk: high_security
     depends_on: [TYPE-016]
     spec: docs/agent/tasks/REF-008.md
-    current_subtask: REF-008B
+    current_subtask: REF-008C
     prohibited: production_connected_stress_harness
   - id: REF-009
     title: Establish and migrate to a shared sync core

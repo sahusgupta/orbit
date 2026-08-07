@@ -4,7 +4,6 @@ const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const nodemailer = require('nodemailer');
-const os = require('os');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 const branding = require('../branding.config.json');
@@ -15,6 +14,7 @@ const {
   readStateFromFirebase,
   writeStateToFirebase
 } = require('./firebaseSync.cjs');
+const { createOrbitApiClient } = require('./orbitApiClient.cjs');
 const {
   getAccountKeyFromAccess,
   getAccountKeyFromState,
@@ -45,10 +45,6 @@ let updateCheckTimer;
 let updateInstallPending = false;
 let updateInstallStarted = false;
 const pendingUpdateStateFlushes = new Map();
-let clientHeartbeatTimer;
-let cachedDeviceId;
-let lastUpdateStatus = '';
-let lastUpdateEvent = '';
 let appStartedAt = new Date().toISOString();
 let lastUpdateProgressBucket = -1;
 
@@ -71,16 +67,6 @@ function writeOrbitApiLog(level, event, details = {}) {
     fs.appendFileSync(logPath, `${JSON.stringify(entry)}\n`, 'utf8');
   } catch {
     // Console logging remains available if the packaged log file cannot be written.
-  }
-}
-
-async function readApiResponse(response) {
-  const text = await response.text().catch(() => '');
-  if (!text) return { payload: null, responsePreview: '' };
-  try {
-    return { payload: JSON.parse(text), responsePreview: '' };
-  } catch {
-    return { payload: null, responsePreview: text.replace(/\s+/g, ' ').slice(0, 300) };
   }
 }
 
@@ -173,331 +159,6 @@ function getLegacyDataPath() {
 
 function getDataPath() {
   return path.join(app.getPath('userData'), 'tablemanager.sqlite3');
-}
-
-function getDeviceIdPath() {
-  return path.join(app.getPath('userData'), 'orbit-device.json');
-}
-
-function getOrCreateDeviceId() {
-  if (cachedDeviceId) return cachedDeviceId;
-  const filePath = getDeviceIdPath();
-  try {
-    if (fs.existsSync(filePath)) {
-      const record = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-      if (record?.deviceId) {
-        cachedDeviceId = String(record.deviceId);
-        return cachedDeviceId;
-      }
-    }
-  } catch {
-    // Device telemetry must never block desktop startup.
-  }
-
-  cachedDeviceId = crypto.randomUUID();
-  try {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify({ deviceId: cachedDeviceId, createdAt: new Date().toISOString() }, null, 2));
-  } catch {
-    // If persistence fails, the current process can still report with the generated id.
-  }
-  return cachedDeviceId;
-}
-
-function getTelemetryVenueInfo() {
-  try {
-    const record = readLocalDatabase();
-    const state = record?.state;
-    return {
-      venueId: state ? getAccountKeyFromState(state) : 'unassigned',
-      venueName: state?.settings?.clubAccount?.clubName || ''
-    };
-  } catch {
-    return { venueId: 'unassigned', venueName: '' };
-  }
-}
-
-function getClientAuthKeyFromAccess(access) {
-  if (!isRecord(access)) return '';
-  return String(access.authorizationCode || '').trim();
-}
-
-function getClientAuthKeyFromState(state) {
-  return getClientAuthKeyFromAccess(state?.settings?.pilotAccess);
-}
-
-function getLocalClientAuthKey() {
-  try {
-    const record = readLocalDatabase();
-    return getClientAuthKeyFromState(record?.state);
-  } catch {
-    return '';
-  }
-}
-
-function getLocalAccountKey() {
-  try {
-    const record = readLocalDatabase();
-    return record?.state ? getAccountKeyFromState(record.state) : '';
-  } catch {
-    return '';
-  }
-}
-
-function getApiConfig() {
-  // Vercel's generated hostname is valid without www. The www variant does not
-  // currently present a matching TLS certificate and must not be used by clients.
-  const apiUrl = (process.env.ORBIT_API_URL || 'https://orbitapp-one.vercel.app').replace(/\/+$/, '');
-  const apiKey = process.env.ORBIT_CLIENT_API_KEY || getLocalClientAuthKey();
-  return { apiUrl, apiKey };
-}
-
-async function postClientTelemetry(pathname, payload) {
-  const { apiUrl, apiKey } = getApiConfig();
-  if (!apiKey || typeof fetch !== 'function') {
-    return;
-  }
-  const requestId = crypto.randomUUID();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2500);
-  try {
-    const response = await fetch(`${apiUrl}${pathname}`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-orbit-api-key': apiKey,
-        'x-orbit-request-id': requestId
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-    if (!response.ok) await readApiResponse(response);
-  } catch {
-    // Telemetry transport is intentionally silent; operational logs show domain changes only.
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function requestOrbitApi(pathname, options = {}) {
-  const { apiUrl, apiKey } = getApiConfig();
-  const authKey = options.authKey || apiKey;
-  if (!authKey || typeof fetch !== 'function') {
-    return null;
-  }
-  const requestId = crypto.randomUUID();
-  const method = options.method || 'GET';
-  const started = Date.now();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 3500);
-  try {
-    const response = await fetch(`${apiUrl}${pathname}`, {
-      method,
-      headers: {
-        'content-type': 'application/json',
-        'x-orbit-api-key': authKey,
-        'x-orbit-auth-key': authKey,
-        'x-orbit-request-id': requestId,
-        ...(options.headers || {})
-      },
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      signal: controller.signal
-    });
-    const { payload, responsePreview } = await readApiResponse(response);
-    if (!response.ok || payload?.ok === false) {
-      if (method !== 'GET') {
-        writeOrbitApiLog('warn', 'sync-update-failed', {
-          requestId, method, pathname, status: response.status, durationMs: Date.now() - started,
-          error: payload?.error || '', responsePreview
-        });
-      }
-      return null;
-    }
-    return payload;
-  } catch (error) {
-    if (method !== 'GET') {
-      writeOrbitApiLog('error', 'sync-update-failed', {
-        requestId, method, pathname, durationMs: Date.now() - started,
-        timedOut: controller.signal.aborted, ...orbitApiErrorDetails(error)
-      });
-    }
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function getRemoteBackendStatus() {
-  const { apiUrl, apiKey } = getApiConfig();
-  if (typeof fetch !== 'function') return null;
-  const requestId = crypto.randomUUID();
-  const started = Date.now();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2500);
-  try {
-    const response = await fetch(`${apiUrl}/health`, {
-      headers: { 'x-orbit-request-id': requestId, ...(apiKey ? { 'x-orbit-api-key': apiKey } : {}) },
-      signal: controller.signal
-    });
-    const { payload } = await readApiResponse(response);
-    if (!response.ok || payload?.ok === false) throw new Error(payload?.error || `Orbit API returned ${response.status}`);
-    const parsed = new URL(apiUrl);
-    return {
-      running: true,
-      host: parsed.hostname,
-      port: Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80)),
-      reportCount: 0,
-      mode: 'api',
-      service: payload.service,
-      environment: payload.environment,
-      startedAt: payload.startedAt,
-      latencyMs: Date.now() - started
-    };
-  } catch (error) {
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function validatePilotAccessApi(access) {
-  const { apiUrl } = getApiConfig();
-  const authKey = getClientAuthKeyFromAccess(access);
-  const accountKey = getAccountKeyFromAccess(access);
-  if (!authKey || typeof fetch !== 'function') return { ok: false, managed: false, active: false, error: 'Pilot authorization is unavailable.' };
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
-  try {
-    const response = await fetch(`${apiUrl}/license/status?accountKey=${encodeURIComponent(accountKey)}`, {
-      headers: {
-        'x-orbit-api-key': authKey,
-        'x-orbit-auth-key': authKey,
-        'x-orbit-request-id': crypto.randomUUID()
-      },
-      signal: controller.signal
-    });
-    const { payload } = await readApiResponse(response);
-    return {
-      ok: response.ok && payload?.ok !== false,
-      managed: Boolean(payload?.managed || payload?.license),
-      active: Boolean(payload?.active),
-      license: payload?.license || null,
-      error: payload?.error || (response.ok ? '' : `Orbit API returned ${response.status}`)
-    };
-  } catch (error) {
-    return { ok: false, managed: false, active: false, error: error instanceof Error ? error.message : 'Unable to validate pilot access.' };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function loadStateFromApi(accountKey, access) {
-  const resolvedAccountKey = sanitizeAccountKey(accountKey || getLocalAccountKey());
-  const pathname = resolvedAccountKey ? `/state/${encodeURIComponent(resolvedAccountKey)}` : '/state/latest';
-  const payload = await requestOrbitApi(pathname, { authKey: getClientAuthKeyFromAccess(access) || undefined });
-  if (!payload?.state) return null;
-  return {
-    schemaVersion: payload.schemaVersion || 1,
-    savedAt: payload.savedAt || new Date().toISOString(),
-    state: payload.state,
-    accountKey: payload.accountKey,
-    source: 'api'
-  };
-}
-
-async function saveStateToApi(state) {
-  const payload = await requestOrbitApi('/state', {
-    method: 'POST',
-    body: { state },
-    authKey: getClientAuthKeyFromState(state) || undefined,
-    timeoutMs: 5000
-  });
-  if (!payload?.ok) return null;
-  return {
-    ok: true,
-    path: 'orbit-api',
-    engine: 'api',
-    accountKey: payload.accountKey,
-    savedAt: payload.savedAt
-  };
-}
-
-async function submitAnalyticalReportToApi(report) {
-  const payload = await requestOrbitApi('/analytical-reports', {
-    method: 'POST',
-    body: report,
-    timeoutMs: 5000
-  });
-  if (!payload?.ok) return null;
-  return {
-    ...payload,
-    backend: (await getRemoteBackendStatus()) || { running: true, host: 'api', port: 0, reportCount: 0, mode: 'api' }
-  };
-}
-
-function buildClientTelemetryPayload(overrides = {}) {
-  const venue = getTelemetryVenueInfo();
-  return {
-    ...venue,
-    deviceId: getOrCreateDeviceId(),
-    deviceName: os.hostname(),
-    appVersion: app.getVersion(),
-    platform: process.platform,
-    environment: process.env.NODE_ENV || (isDev ? 'development' : 'production'),
-    updateStatus: lastUpdateStatus,
-    updateEvent: lastUpdateEvent,
-    lastSeenAt: new Date().toISOString(),
-    ...overrides
-  };
-}
-
-function sendClientHeartbeat(overrides = {}) {
-  postClientTelemetry('/clients/heartbeat', buildClientTelemetryPayload(overrides));
-}
-
-function sendClientEvent(event, category = 'usage', details = {}, overrides = {}) {
-  postClientTelemetry('/clients/event', buildClientTelemetryPayload({
-    event,
-    category,
-    details,
-    occurredAt: new Date().toISOString(),
-    ...overrides
-  }));
-}
-
-function sendClientError(error, source = 'main', details = {}) {
-  const message = error instanceof Error ? error.message : String(error || 'Unknown error');
-  const stack = details.rendererStack || (error instanceof Error ? error.stack || '' : '');
-  postClientTelemetry('/clients/error', buildClientTelemetryPayload({
-    message,
-    stack,
-    source,
-    route: details.route || '',
-    details,
-    occurredAt: new Date().toISOString(),
-    lastError: message
-  }));
-}
-
-function sendClientUpdateEvent(updateEvent, updateStatus, details = {}) {
-  lastUpdateEvent = updateEvent;
-  lastUpdateStatus = updateStatus;
-  postClientTelemetry('/clients/update-event', buildClientTelemetryPayload({
-    updateEvent,
-    updateStatus,
-    details,
-    lastError: details.error || details.message || ''
-  }));
-}
-
-function startClientTelemetry() {
-  sendClientHeartbeat();
-  sendClientEvent('app-opened', 'lifecycle', {
-    packaged: app.isPackaged,
-    startedAt: appStartedAt,
-    locale: app.getLocale()
-  });
-  clientHeartbeatTimer = setInterval(() => sendClientHeartbeat(), 5 * 60 * 1000);
 }
 
 function getDatabase() {
@@ -1307,48 +968,33 @@ async function saveStateEverywhere(state) {
   };
 }
 
-async function loadStateApiFirst(accountKey, access) {
-  const apiRecord = await loadStateFromApi(accountKey, access);
-  if (apiRecord) return apiRecord;
-
-  const fallbackRecord = await loadStateWithFirebaseFallback(accountKey);
-  if (fallbackRecord?.state) {
-    // A new API database may not have this licensed venue yet. Seed it from the
-    // local/Firebase source of truth so player requests have a matching target.
-    await saveStateToApi(fallbackRecord.state).catch(() => null);
-  }
-  return fallbackRecord;
-}
-
-async function saveStateApiFirst(state) {
-  const apiResult = await saveStateToApi(state);
-  if (apiResult) {
-    try {
-      writeLocalDatabase(state);
-    } catch {
-      // Local cache writes are best-effort once the standalone API has accepted the state.
-    }
-    if (isFirebaseConfigured()) {
-      const accountKey = getAccountKeyFromState(state);
-      const publicSnapshot = buildPlayerClubSnapshot(state);
-      try {
-        writeStateToFirebase(accountKey, state, publicSnapshot).catch(() => undefined);
-      } catch {
-        // Firebase sync must never block an accepted API save.
-      }
-      return {
-        ...apiResult,
-        firebase: { ok: true, engine: 'firebase', accountKey, pending: true }
-      };
-    }
-    return apiResult;
-  }
-  return saveStateEverywhere(state);
-}
-
-async function submitAnalyticalReportApiFirst(report) {
-  return (await submitAnalyticalReportToApi(report)) || storeAnalyticalReport(report);
-}
+const {
+  getClientUpdateState,
+  getRemoteBackendStatus,
+  loadStateApiFirst,
+  saveStateApiFirst,
+  saveStateToApi,
+  sendClientError,
+  sendClientEvent,
+  sendClientUpdateEvent,
+  startClientTelemetry,
+  stopClientTelemetry,
+  submitAnalyticalReportApiFirst,
+  validatePilotAccessApi
+} = createOrbitApiClient({
+  app,
+  buildPlayerClubSnapshot,
+  getAppStartedAt: () => appStartedAt,
+  isDev,
+  isFirebaseConfigured,
+  loadStateWithFirebaseFallback,
+  readLocalDatabase,
+  saveStateEverywhere,
+  storeAnalyticalReport,
+  writeLocalDatabase,
+  writeOrbitApiLog,
+  writeStateToFirebase
+});
 
 function startEmbeddedBackend() {
   if (embeddedBackend) return;
@@ -1541,7 +1187,7 @@ function startAutoUpdates() {
     void installDownloadedUpdate();
   });
   nativeAutoUpdater.on('before-quit-for-update', () => {
-    sendClientEvent('update-installing', 'update', { updateStatus: lastUpdateStatus, updateEvent: lastUpdateEvent });
+    sendClientEvent('update-installing', 'update', getClientUpdateState());
   });
   autoUpdater.on('error', (error) => {
     lastUpdateProgressBucket = -1;
@@ -1781,10 +1427,7 @@ app.on('before-quit', () => {
     uptimeSeconds: Math.round(process.uptime()),
     openWindowCount: BrowserWindow.getAllWindows().length
   });
-  if (clientHeartbeatTimer) {
-    clearInterval(clientHeartbeatTimer);
-    clientHeartbeatTimer = undefined;
-  }
+  stopClientTelemetry();
   if (updateCheckTimer) {
     clearInterval(updateCheckTimer);
     updateCheckTimer = undefined;

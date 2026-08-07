@@ -12,5 +12,11 @@
     "target": "ES2022",
     "types": ["node"]
   },
-  "include": ["electron/main.cjs", "electron/preload.cjs", "electron/firebaseSync.cjs"]
+  "include": [
+    "electron/main.cjs",
+    "electron/orbitApiClient.cjs",
+    "electron/runtimeUtils.cjs",
+    "electron/preload.cjs",
+    "electron/firebaseSync.cjs"
+  ]
 }
