@@ -1,5 +1,9 @@
 # TYPE-003: Preserve domain types through Firebase synchronization
 
+Status: `review_required`
+
+Safety: `HUMAN_DECISION_REQUIRED`
+
 ## Objective
 
 Resolve 4 `REAL_TYPE_ERROR` diagnostics while preserving complete `ManagementClubState` and tournament shapes through Firebase transforms.
@@ -51,3 +55,23 @@ High: this boundary can publish or merge player-facing state.
 ## Stop conditions
 
 Stop if current behavior cannot be characterized without production data or if a persisted/public schema change is required.
+
+## Decision blocker found on 2026-08-07
+
+Read-only repository tracing reached the stop condition before any TYPE-003 production or test change:
+
+1. `apps/api/src/paymentService.js` publishes paid five-hour access as revenue type `time-package`, while management `RevenueTransaction.type` excludes that value. `applyRevenueTransactions` currently copies the remote record into persisted management state anyway, and reporting implicitly classifies it as other revenue. A truthful transform therefore requires either adding the already-produced value to the persisted management union (recommended), explicitly mapping it to an existing type, or intentionally excluding it from management revenue.
+2. Paid membership application currently selects the first profile whose ID matches, whose notes contain the email, or whose normalized name matches. Two same-name profiles can therefore receive the wrong paid entitlement. The API payment record supplies `playerId`; choose authoritative ID-only entitlement application (recommended), an explicit unique fallback policy, or intentional name equivalence.
+3. Player registration status includes `finished`, but `applyTournamentRegistrations` maps every status except `checked-in` and `eliminated` to management `Registered`. Choose a complete status mapping (`finished` to `Finished` is recommended), or explicitly retain the collapse. The same validation decision must define whether malformed records lacking stable IDs/tournament IDs are skipped or defaulted.
+
+These choices affect persisted revenue, paid membership identity, and tournament state. No production payload or live service is needed to state the conflict, but choosing among the outcomes is outside behavior-preserving TypeScript remediation.
+
+## Smallest decision needed
+
+Approve or revise this recommended bundle:
+
+- recognize `time-package` as an existing persisted management revenue type and keep its reporting category as other revenue;
+- apply paid membership entitlement only by authoritative `playerId`, while retaining unmatched valid revenue records and creating the existing profile only when that stable ID is present;
+- map `finished` to management `Finished`, retain current checked-in/eliminated/registered mappings, treat rebuy/add-on events as registration updates, and skip malformed remote records without stable record/tournament IDs.
+
+After that decision, add isolated pure-transform fixtures for registration, revenue, malformed input, idempotency, publication shape, and protocol-v2 revision behavior before changing the production pipeline. All 4 diagnostics remain assigned to this task.

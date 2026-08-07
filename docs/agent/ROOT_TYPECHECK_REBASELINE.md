@@ -90,7 +90,7 @@ Production root source accounts for all 25 diagnostics and root tests account fo
 | --- | --- | ---: | --- | --- | --- | --- | --- |
 | `TYPE-001` | `CONFIGURATION_BOUNDARY` | 0 | Resolved: ES2022 library declarations now match the supported renderer | No | No | Completed | Completed |
 | `TYPE-002` | `STALE_OR_DEAD_CODE` | 0 | Resolved: required pre-publication `social` plus explicit protocol-v2/legacy compatibility ownership | No | No | Completed | No |
-| `TYPE-003` | `REAL_TYPE_ERROR` | 4 | Firebase transforms erase `ManagementClubState` and tournament types | Yes | Indirectly | No | Yes |
+| `TYPE-003` | `REAL_TYPE_ERROR` | 4 | Decision-blocked: transforms erase state types across conflicting revenue, payment-identity, and tournament-status semantics | Yes | Indirectly | No | Yes |
 | `TYPE-004` | `REAL_TYPE_ERROR` | 0 | Resolved: the post-guard non-Denied status is captured across both profile branches | No | No | Completed | No |
 | `TYPE-005` | `REAL_TYPE_ERROR` | 0 | Resolved: explicit synchronized-entry tuples preserve the helper's generic value type | No | No | Completed | No |
 | `TYPE-006` | `REAL_TYPE_ERROR` | 0 | Resolved: exact mapper result types and non-null narrowing preserve all three pipelines | No | No direct block | Completed | No |
@@ -264,7 +264,7 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 
 1. Completed: `TYPE-001` aligned the renderer runtime/library contract.
 2. Completed: `TYPE-002` canonicalized the shared Player snapshot contract without changing publication behavior.
-3. `TYPE-004` is complete; `TYPE-003` remains dependency-ready for the Firebase transformation boundary.
+3. `TYPE-004` is complete; `TYPE-003` is decision-blocked on revenue type, payment identity, and tournament status semantics.
 4. Completed: `TYPE-005` restored synchronized-list tuple inference and `TYPE-006` repaired exact map/filter result narrowing.
 5. In progress by bounded child: `TYPE-007A`, `TYPE-007B`, `TYPE-007C`, `TYPE-007D`, `TYPE-007E`, `TYPE-007F`, `TYPE-007G`, `TYPE-007I`, and `TYPE-007J` are complete; the umbrella retains the 10 decision-blocked `TYPE-007H` diagnostics and is not complete.
 6. `TYPE-008`, `TYPE-009`, and `TYPE-010`: repair import, persistence, and GroupMe boundaries independently when their dependencies are complete.
@@ -601,3 +601,11 @@ The first post-change root typecheck produced exactly 25 diagnostics in 2 produc
 Player TypeScript, all 28 files/146 tests, and the 1,912-module renderer build passed. `npm run verify` ran every gate and exited 1 only for the expected 25-diagnostic root baseline; existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
 
 `TYPE-004` is complete. `TYPE-003` remains next and dependency-ready; no live service, deployment, or push occurred.
+
+## TYPE-003 decision-blocker update — 2026-08-07
+
+Read-only tracing reached the task's stop condition before a TYPE-003 test or production change. The API emits paid five-hour access as `time-package`, while management's persisted revenue union excludes that value even though the broad current transform stores it and reports treat it as other revenue. Paid membership import can select the first same-name or email-note profile rather than the API-supplied stable player ID. Player's `finished` tournament status is also collapsed to management `Registered` during import.
+
+These are persisted revenue, payment entitlement, and tournament-state decisions, not safe annotation choices. The task spec records the recommended bundle and alternatives: recognize or map/exclude `time-package`; choose authoritative player ID, unique fallback, or intentional name equivalence; and choose a complete tournament status/malformed-record policy.
+
+TYPE-003 is `review_required` with all 4 diagnostics retained. Root TypeScript remains at 25 diagnostics in 2 production files; the immediately preceding aggregate run failed only on that expected baseline while Player TypeScript, 28 files/146 tests, and the 1,912-module renderer build passed. No live service, production data, deployment, or push was involved.

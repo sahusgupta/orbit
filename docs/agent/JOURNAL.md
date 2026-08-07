@@ -264,3 +264,12 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Root TypeScript decreased from 26 to exactly 25 diagnostics in 2 production files: `TS2322` decreased from 8 to 7 and `playerSync.ts` from 1 to 0. The owned diagnostic disappeared and no new diagnostic appeared.
 - Player TypeScript passed; all 28 files/146 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 25-diagnostic root baseline. Existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
 - Marked `TYPE-004` complete; TYPE-003 remains next. No live service, deployment, or push occurred.
+
+## 2026-08-07 - TYPE-003 synchronization contract blocker
+
+- Performed read-only tracing of `syncPlayerUpdatesToClubState`, tournament registration import/publication, revenue import, the API payment publisher, management revenue reporting, and Player registration types. No Firebase session, production payload, stored data, or network service was accessed.
+- Found a persisted-union conflict: the API emits `time-package`, the management union excludes it, the broad current transform stores it anyway, and reports classify it as other revenue.
+- Found a payment identity ambiguity: paid memberships select the first profile by ID, email text in notes, or normalized name, so same-name profiles can receive the wrong entitlement even though API records supply `playerId`.
+- Found a tournament status conflict: Player supports `finished`, but current management import collapses it and all non-checked-in/non-eliminated statuses to `Registered`.
+- Marked TYPE-003 `review_required` with all 4 diagnostics retained. Recommended recognizing the existing `time-package` value, authoritative player-ID entitlement, complete finished-status mapping, defined rebuy/add-on updates, and stable-ID validation; alternatives are recorded in the task spec.
+- The truthful baseline remains 25 diagnostics in 2 production files. The immediately preceding full gate run failed only on root TypeScript while Player TypeScript, 28 files/146 tests, and the 1,912-module renderer build passed.

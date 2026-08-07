@@ -43,14 +43,16 @@ tasks:
   - id: TYPE-003
     title: Preserve domain types through Firebase synchronization
     classification: REAL_TYPE_ERROR
+    safety: HUMAN_DECISION_REQUIRED
     diagnostics: 4
-    status: pending
+    status: review_required
     safe_autonomous: false
     human_review: true
     blocks_refactoring: true
     blocks_player_web: indirect
     depends_on: [TYPE-002]
     spec: docs/agent/tasks/TYPE-003.md
+    blocker: revenue_type_identity_and_tournament_status_semantics
   - id: TYPE-004
     title: Prove membership status narrowing across synchronization
     classification: REAL_TYPE_ERROR

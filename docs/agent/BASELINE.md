@@ -598,3 +598,11 @@ Final verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 25 diagnostics, while Player TypeScript, 28/146 tests, and the 1,912-module renderer build passed.
 
 `TYPE-004` is complete. `TYPE-003` remains the next dependency-ready synchronization task; no live service, deployment, or push occurred.
+
+## TYPE-003 Synchronization Contract Investigation — 2026-08-07
+
+Read-only tracing reached the task's schema/behavior stop condition before any TYPE-003 test or production change. The API publishes five-hour purchases as revenue type `time-package`, but management's persisted `RevenueTransaction` union excludes it even though the current broad transform stores it and reporting treats it as other revenue. Paid membership transactions also select the first profile by ID, email embedded in notes, or normalized name, which can apply payment entitlement to the wrong same-name profile. Finally, Player publishes a `finished` tournament-registration status that management currently re-imports as `Registered`.
+
+The exact recommended decision bundle is recorded in `docs/agent/tasks/TYPE-003.md`: recognize the already-emitted `time-package` persisted value, use authoritative `playerId` for paid entitlement, map `finished` to `Finished`, define rebuy/add-on handling, and skip malformed remote records without stable IDs. Alternatives are explicit mapping/exclusion, a unique fallback identity policy, or intentionally retaining the tournament status collapse.
+
+Because these choices affect persisted revenue, paid membership identity, and tournament state, TYPE-003 is now `review_required` with all 4 diagnostics retained. The truthful baseline remains 25 diagnostics in 2 production files; the immediately preceding full verification failed only on that root baseline while Player TypeScript, 28 files/146 tests, and the 1,912-module build passed. No live service, stored production data, deployment, or push was involved.
