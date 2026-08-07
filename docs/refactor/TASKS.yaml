@@ -1,6 +1,6 @@
 queue: orbit-large-refactor
 status: active
-current: REF-002
+current: REF-003
 tasks:
   - id: REF-001
     title: Extract canonical management domain types
@@ -19,17 +19,18 @@ tasks:
       - renderer and test compiler ownership remains exact
   - id: REF-002
     title: Extract state defaults and persisted-state normalization
-    status: ready
+    status: complete
     boundary: renderer_persistence
     risk: high
     depends_on: [REF-001]
     spec: docs/agent/tasks/REF-002.md
+    resolution: characterized_state_defaults_and_normalization_module
     characterization:
       - src/lib/accountRestore.test.ts
       - src/lib/stateCorrections.test.ts
   - id: REF-003
     title: Extract report windows and financial analytics
-    status: planned
+    status: ready
     boundary: renderer_reporting
     risk: medium
     depends_on: [REF-001]

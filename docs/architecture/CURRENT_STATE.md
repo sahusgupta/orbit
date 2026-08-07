@@ -27,9 +27,11 @@ The previous compactness audit's approximate 6,300/4,700/1,300-line figures for 
 
 REF-001 subsequently moved 45 type-only contracts into `src/domain/types.ts`. `src/main.tsx` is now 9,751 lines; its generated JavaScript asset names and sizes remained identical, so the concentration changed without a runtime change.
 
+REF-002 then moved characterized defaults and persisted-state normalization into `src/domain/state.ts`. `src/main.tsx` is now 9,364 lines; browser storage/publication orchestration deliberately remains in the entrypoint for a separately bounded task.
+
 ## Renderer dependency shape
 
-`src/main.tsx` imports focused helpers from `src/lib/`, but it remains the sole owner of the canonical management `AppState` and most related types. Existing characterization suites import `main.tsx` through a mocked renderer mount to exercise persistence, licensing, identity, waitlist, seating, table, and reporting behavior. This makes a type-only contract extraction the smallest first step: it creates shared type ownership without moving runtime behavior.
+`src/domain/types.ts` now owns the canonical management `AppState` and related persisted contracts, and `src/domain/state.ts` owns characterized defaults and normalization. `src/main.tsx` remains their orchestration consumer and still imports focused behavior from `src/lib/`. Existing characterization suites import `main.tsx` through a mocked renderer mount to exercise persistence, licensing, identity, waitlist, seating, table, and reporting behavior.
 
 The next runtime extractions should follow dependency direction:
 

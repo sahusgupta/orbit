@@ -383,3 +383,10 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Moved 45 management/persisted contracts from `src/main.tsx` into `src/domain/types.ts` and replaced them with type-only imports.
 - The 15 renderer-mount suites passed 76 tests; both root compiler projects, Player TypeScript, all 35 files/188 tests, the 1,913-module build, and aggregate verification passed.
 - Generated renderer asset names and sizes were identical before/after. `src/main.tsx` decreased from 10,171 to 9,751 lines.
+
+## 2026-08-07 - REF-002 persisted-state normalization
+
+- Added and separately committed a dense unchanged-behavior restore fixture for legacy status/game/collection inputs, defaults, seat repair, ordering, and loaded-record immutability; the focused pre-change suite passed 1 file/9 tests.
+- Moved state defaults, ID/date helpers, proven legacy mappings, seed state, normalization, and persisted-JSON parsing into `src/domain/state.ts`.
+- Kept browser storage selection, Desktop/Firebase publication, and restore orchestration in `src/main.tsx`; no external service was used.
+- Both root compiler projects, 15 renderer-mount files/77 tests, Player TypeScript, all 35 files/189 tests, the 1,914-module build, and aggregate verification passed.
