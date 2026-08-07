@@ -15,11 +15,11 @@ TypeScript stabilization is complete: renderer/root-test TypeScript, Player Type
 | TYPE-021 | Required now; complete in `2c62779`. | Root tests followed two Player implementation modules under desktop options. The unchanged nine tests now belong to the Player project and the root graph contains zero Player paths. |
 | TYPE-015 | Required now; complete in `ef9156d`. | The first refactor extracts renderer types/helpers from `src/main.tsx`; production and test diagnostics need separate ownership. Renderer and root-test checks now run independently and non-short-circuiting. |
 | TYPE-022 | Required now; complete in `f9ae262`. | Electron's renderer is sandboxed. The renderer compiler now exposes only `vite/client` ambient types and contains zero `@types/node` files. |
-| TYPE-016 | Trigger before Electron refactoring. | Electron main/preload/Firebase JavaScript is outside current semantic coverage and the existing probe exposes three unowned diagnostics. It is not needed for renderer-only extraction. |
+| TYPE-016 | Required at the REF-008 trigger; complete. | Dedicated non-DOM Electron check-JS now covers main, preload, and Firebase sync with zero diagnostics; the three findings were characterized before correction. |
 | TYPE-017 | Trigger before tooling refactoring. | Vite/root-script checking is independent of renderer domain extraction; administrative scripts must remain static-only. |
 | TYPE-018 | Trigger before API or shared-core refactoring. | API check-JS exposes seven unowned diagnostics in Firebase/licensing/payment boundaries and is not needed for renderer-only extraction. |
 | TYPE-019 | Defer until download-site work. | Download-site browser/tooling coverage does not guard the management renderer refactor. |
-| TYPE-020 | Defer until TYPE-016 and a secret-free localhost-only harness exist. | The current stress harness reads a local private key and can launch Electron against hosted defaults; it must not be executed during ordinary verification. |
+| TYPE-020 | Defer until a secret-free localhost-only harness exists. | TYPE-016 is complete, but the current stress harness still reads a local private key and can launch Electron against hosted defaults; it must not be executed during ordinary verification. |
 
 No project references are justified yet. The repository still has no genuine shared package, and introducing references before a shared ownership boundary exists would add orchestration without closing a current blind spot.
 

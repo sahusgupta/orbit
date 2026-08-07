@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
+const { app, autoUpdater: nativeAutoUpdater, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -69,7 +69,7 @@ function orbitApiErrorDetails(error) {
   return {
     errorName: error instanceof Error ? error.name : 'Error',
     errorMessage: error instanceof Error ? error.message : String(error || 'Request failed'),
-    errorCode: error?.code || cause?.code || '',
+    errorCode: getRecordProperty(error, 'code') || getRecordProperty(cause, 'code') || '',
     cause: cause instanceof Error ? cause.message : cause ? String(cause) : ''
   };
 }
@@ -84,8 +84,21 @@ async function readApiResponse(response) {
   }
 }
 
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
 function isRecord(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} key
+ * @returns {unknown}
+ */
+function getRecordProperty(value, key) {
+  return isRecord(value) ? value[key] : undefined;
 }
 
 function validateStatePayload(state) {
@@ -158,7 +171,8 @@ async function sendTwilioTextMessage(config, message) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(result?.message || `Twilio returned ${response.status}.`);
+    const responseMessage = getRecordProperty(result, 'message');
+    throw new Error(responseMessage ? String(responseMessage) : `Twilio returned ${response.status}.`);
   }
   return result;
 }
@@ -1587,7 +1601,7 @@ function startAutoUpdates() {
     updateInstallPending = true;
     void installDownloadedUpdate();
   });
-  autoUpdater.on('before-quit-for-update', () => {
+  nativeAutoUpdater.on('before-quit-for-update', () => {
     sendClientEvent('update-installing', 'update', { updateStatus: lastUpdateStatus, updateEvent: lastUpdateEvent });
   });
   autoUpdater.on('error', (error) => {

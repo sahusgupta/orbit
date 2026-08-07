@@ -157,11 +157,11 @@ The post-green reassessment is complete. Details and the boundary verification m
 | TYPE-021 | Required now; complete. | Player implementation paths removed from root compiler ownership in `2c62779`; all nine tests remain. |
 | TYPE-015 | Required now; complete. | Renderer and root-test projects separated with non-short-circuiting orchestration in `ef9156d`. |
 | TYPE-022 | Required now; complete. | Renderer ambient types restricted to `vite/client` in `f9ae262`; zero Node ambient files remain. |
-| TYPE-016 | Trigger before Electron refactoring. | Three probe diagnostics still need ownership before main/preload/security work. |
+| TYPE-016 | Completed at the Electron-refactor trigger. | Main, preload, and Firebase sync now pass a dedicated non-DOM check-JS project; all three probe findings were characterized and resolved. |
 | TYPE-017 | Trigger before tooling refactoring. | Static-only Node/Vite script coverage is independent of the renderer phase. |
 | TYPE-018 | Trigger before API/shared-core work or Player web/API expansion. | Seven probe diagnostics touch privileged Firebase/licensing/payment boundaries. |
 | TYPE-019 | Defer until download-site work. | It does not guard the management renderer refactor. |
-| TYPE-020 | Defer pending TYPE-016 and a secret-free localhost-only harness. | Never execute the current production-connected stress path for verification. |
+| TYPE-020 | Defer pending a secret-free localhost-only harness. | TYPE-016 is complete; never execute the current production-connected stress path for verification. |
 
 ## Refactor and Player-web readiness
 

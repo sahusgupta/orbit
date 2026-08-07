@@ -487,13 +487,14 @@ tasks:
     classification: VERIFICATION_GAP
     diagnostics: 0
     observed_probe_diagnostics: 3
-    status: active
+    status: complete
     safe_autonomous: false
     human_review: true
     blocks_refactoring: false
     blocks_player_web: false
     depends_on: [TYPE-001]
     spec: docs/agent/tasks/TYPE-016.md
+    resolution: dedicated_electron_checkjs_gate_with_validated_external_errors_and_native_update_event
   - id: TYPE-017
     title: Add Node and Vite tooling compiler checking
     classification: VERIFICATION_GAP

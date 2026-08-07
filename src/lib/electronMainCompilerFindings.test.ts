@@ -36,9 +36,16 @@ type SendTwilioTextMessage = (
   message: { to: string; body: string }
 ) => Promise<unknown>;
 
+function loadGetRecordProperty() {
+  const isRecord = loadFunction<(value: unknown) => boolean>('isRecord');
+  return loadFunction<(value: unknown, key: string) => unknown>('getRecordProperty', { isRecord });
+}
+
 describe('Electron main compiler findings', () => {
   it('preserves Error and cause details including an authoritative nested error code', () => {
-    const orbitApiErrorDetails = loadFunction<OrbitApiErrorDetails>('orbitApiErrorDetails');
+    const orbitApiErrorDetails = loadFunction<OrbitApiErrorDetails>('orbitApiErrorDetails', {
+      getRecordProperty: loadGetRecordProperty()
+    });
     const cause = Object.assign(new Error('socket closed'), { code: 'ECONNRESET' });
     const error = new Error('request failed', { cause });
 
@@ -65,7 +72,8 @@ describe('Electron main compiler findings', () => {
       Buffer,
       URLSearchParams,
       encodeURIComponent,
-      fetch
+      fetch,
+      getRecordProperty: loadGetRecordProperty()
     });
     const config = { accountSid: 'local-account', from: '+15550100', username: 'local-user', password: 'local-pass' };
     const message = { to: '+15550101', body: 'Local test' };
@@ -74,9 +82,10 @@ describe('Electron main compiler findings', () => {
     await expect(sendTwilioTextMessage(config, message)).rejects.toThrow('Twilio returned 400.');
   });
 
-  it('characterizes the current before-quit listener as registered on electron-updater', () => {
+  it('registers before-quit telemetry on the native Electron updater that emits the event', () => {
     const startAutoUpdates = extractFunctionSource('startAutoUpdates');
 
-    expect(startAutoUpdates).toContain("autoUpdater.on('before-quit-for-update'");
+    expect(startAutoUpdates).toContain("nativeAutoUpdater.on('before-quit-for-update'");
+    expect(startAutoUpdates).not.toContain("autoUpdater.on('before-quit-for-update'");
   });
 });

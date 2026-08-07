@@ -28,6 +28,7 @@
     "typecheck": "node scripts/typecheck.cjs",
     "typecheck:renderer": "tsc --project tsconfig.renderer.json --noEmit",
     "typecheck:test": "tsc --project tsconfig.test.json --noEmit",
+    "typecheck:electron": "tsc --project tsconfig.electron.json --noEmit",
     "test": "vitest run",
     "verify": "node scripts/verify.cjs",
     "stress:e2e": "node tests/e2e/stress-electron.mjs",

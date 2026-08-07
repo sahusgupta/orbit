@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, the gated remediation sequence through `TYPE-013` reduced it to 14, `TYPE-007H` reduced it to 4, and the approved `TYPE-003` synchronization repair established zero diagnostics. TYPE-021/015/022 now give Player, production renderer, and root tests deliberate compiler ownership; the renderer sees only Vite/browser ambient types, both root projects pass through the non-short-circuiting `npm run typecheck` entrypoint, and the aggregate verifier passes. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, the gated remediation sequence through `TYPE-013` reduced it to 14, `TYPE-007H` reduced it to 4, and the approved `TYPE-003` synchronization repair established zero diagnostics. TYPE-021/015/022 give Player, production renderer, and root tests deliberate compiler ownership; TYPE-016 now adds non-DOM check-JS for Electron main, preload, and Firebase sync. All three root projects pass through the non-short-circuiting `npm run typecheck` entrypoint, and the aggregate verifier passes. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -99,7 +99,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 - No ESLint configuration or effective lint script.
 - No Prettier/formatter configuration or validation script.
-- No passing root TypeScript gate.
+- No semantic compiler gate yet for the API, root tooling, download site, or e2e harnesses; their planned trigger tasks remain scoped separately.
 - No API-specific test script, although root Vitest currently discovers API tests.
 - No API build step (the API runs source JavaScript directly).
 - No safe local native Player build command.

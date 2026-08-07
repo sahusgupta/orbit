@@ -1,5 +1,14 @@
 # Agent Journal
 
+## 2026-08-07 - TYPE-016 Electron check-JS boundary
+
+- Triggered TYPE-016 only when REF-008 became the next refactor task and reproduced the three documented Electron diagnostics with no DOM library.
+- Committed characterization first for Error/cause detail projection, Twilio error-message/status fallback, and the existing updater listener registration.
+- Added standalone `tsconfig.electron.json` for `electron/main.cjs`, `electron/preload.cjs`, and `electron/firebaseSync.cjs`, plus `npm run typecheck:electron`; the aggregate root typecheck now runs all three root projects independently.
+- Validated unknown error/JSON properties without assertions and corrected `before-quit-for-update` telemetry to Electron's native updater emitter, which the installed `electron-updater` runtime emits during installation.
+- Preserved the preload/IPC/sandbox boundary and `electron-updater` check/download/install ownership. Electron and the production-connected stress harness were not launched.
+- Electron check-JS, both existing root compiler projects, Player TypeScript, 41 files/211 tests, the 1,930-module renderer build, and `npm run verify` all passed; only the known SQLite, ExcelJS `eval`, and chunk-size warnings remained.
+
 ## 2026-08-05 — TYPE-001 compiler/runtime boundary investigation
 
 - Confirmed a clean worktree on `chore/prepare-codex-workflow`; no work occurred on `main`.
