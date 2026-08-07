@@ -2,7 +2,6 @@ const { app, autoUpdater: nativeAutoUpdater, BrowserWindow, Menu, ipcMain, shell
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 const fs = require('fs');
-const http = require('http');
 const path = require('path');
 const branding = require('../branding.config.json');
 const {
@@ -12,6 +11,7 @@ const {
   readStateFromFirebase,
   writeStateToFirebase
 } = require('./firebaseSync.cjs');
+const { createEmbeddedBackend } = require('./embeddedBackend.cjs');
 const { createLocalStore } = require('./localStore.cjs');
 const { createOrbitApiClient } = require('./orbitApiClient.cjs');
 const {
@@ -37,8 +37,6 @@ app.commandLine.appendSwitch('disk-cache-size', '0');
 
 const windows = new Map();
 const validRoutes = new Set(['floor', 'table', 'builder', 'profiles', 'signals', 'summary', 'customization', 'kpis', 'tournaments', 'tournament-tv', 'pilot', 'outreach']);
-let embeddedBackend;
-let embeddedBackendStatus = { running: false, host: '127.0.0.1', port: 0, reportCount: 0 };
 let updateCheckTimer;
 let updateInstallPending = false;
 let updateInstallStarted = false;
@@ -159,10 +157,7 @@ const {
   writeLocalDatabase
 } = createLocalStore({
   app,
-  updateBackendReportCount: (reportCount) => {
-    embeddedBackendStatus = { ...embeddedBackendStatus, reportCount };
-    return embeddedBackendStatus;
-  }
+  updateBackendReportCount: (reportCount) => embeddedBackend.updateReportCount(reportCount)
 });
 
 const activeWaitlistStatuses = new Set(['Interested', 'Confirmed Coming', 'Arrived']);
@@ -524,33 +519,6 @@ function applyWaitlistRequestToState(state, request) {
   };
 }
 
-function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, {
-    'content-type': 'application/json',
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
-    'access-control-allow-headers': 'content-type',
-    'cache-control': 'no-store'
-  });
-  response.end(JSON.stringify(payload));
-}
-
-function readRequestBody(request) {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    request.setEncoding('utf8');
-    request.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > 2_000_000) {
-        reject(new Error('Request body is too large.'));
-        request.destroy();
-      }
-    });
-    request.on('end', () => resolve(body));
-    request.on('error', reject);
-  });
-}
-
 async function syncStateWithFirebaseRequests(state) {
   if (!isFirebaseConfigured()) return state;
   const accountKey = getAccountKeyFromState(state);
@@ -640,119 +608,17 @@ const {
   writeStateToFirebase
 });
 
-function startEmbeddedBackend() {
-  if (embeddedBackend) return;
-
-  embeddedBackend = http.createServer(async (request, response) => {
-    try {
-      const remoteAddress = request.socket.remoteAddress;
-      const isLoopback = remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
-      const allowLanPlayerSync = process.env.TABLEMANAGER_PLAYER_SYNC_ALLOW_LAN === 'true';
-      if (!isLoopback && !allowLanPlayerSync) {
-        sendJson(response, 403, { ok: false, error: 'Embedded backend only accepts loopback requests.' });
-        return;
-      }
-
-      if (request.method === 'OPTIONS') {
-        sendJson(response, 204, {});
-        return;
-      }
-
-      const requestUrl = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`);
-
-      if (request.method === 'GET' && requestUrl.pathname === '/health') {
-        sendJson(response, 200, { ok: true, ...embeddedBackendStatus, reportCount: getReportCount() });
-        return;
-      }
-
-      if (request.method === 'GET' && requestUrl.pathname === '/player/snapshot') {
-        const accountKey = sanitizeAccountKey(requestUrl.searchParams.get('accountKey') || '');
-        const record = await loadStateWithFirebaseFallback(accountKey);
-        if (!record?.state) {
-          sendJson(response, 404, { ok: false, error: 'No Orbit club database is available yet.' });
-          return;
-        }
-        const syncedState = await syncStateWithFirebaseRequests(record.state);
-        if (syncedState !== record.state) {
-          await saveStateEverywhere(syncedState);
-        }
-        const player = {
-          id: requestUrl.searchParams.get('playerId') || '',
-          name: requestUrl.searchParams.get('playerName') || ''
-        };
-        sendJson(response, 200, {
-          ok: true,
-          accountKey: getAccountKeyFromState(syncedState),
-          savedAt: record.savedAt,
-          snapshot: buildPlayerClubSnapshot(syncedState, player)
-        });
-        return;
-      }
-
-      if (request.method === 'POST' && requestUrl.pathname === '/player/membership-requests') {
-        const requestPayload = JSON.parse(await readRequestBody(request));
-        const record = await loadStateWithFirebaseFallback(requestPayload.clubId);
-        if (!record?.state) {
-          sendJson(response, 404, { ok: false, error: 'No matching club database was found for this membership request.' });
-          return;
-        }
-        const nextState = applyMembershipRequestToState(record.state, requestPayload);
-        await saveStateEverywhere(nextState);
-        sendJson(response, 201, {
-          ok: true,
-          accountKey: getAccountKeyFromState(nextState),
-          snapshot: buildPlayerClubSnapshot(nextState, requestPayload.player)
-        });
-        return;
-      }
-
-      if (request.method === 'POST' && requestUrl.pathname === '/player/waitlist-requests') {
-        const requestPayload = JSON.parse(await readRequestBody(request));
-        const record = await loadStateWithFirebaseFallback(requestPayload.clubId);
-        if (!record?.state) {
-          sendJson(response, 404, { ok: false, error: 'No matching club database was found for this waitlist request.' });
-          return;
-        }
-        const nextState = applyWaitlistRequestToState(record.state, requestPayload);
-        await saveStateEverywhere(nextState);
-        sendJson(response, 201, {
-          ok: true,
-          accountKey: getAccountKeyFromState(nextState),
-          snapshot: buildPlayerClubSnapshot(nextState, requestPayload.player)
-        });
-        return;
-      }
-
-      if (request.method === 'POST' && requestUrl.pathname === '/analytical-reports') {
-        const body = await readRequestBody(request);
-        const result = await storeAnalyticalReport(JSON.parse(body));
-        sendJson(response, 201, result);
-        return;
-      }
-
-      sendJson(response, 404, { ok: false, error: 'Not found.' });
-    } catch (error) {
-      sendJson(response, 400, { ok: false, error: error instanceof Error ? error.message : 'Request failed.' });
-    }
-  });
-
-  const configuredPort = Number(process.env.TABLEMANAGER_SYNC_PORT || process.env.TABLEMANAGER_BACKEND_PORT || 4629);
-  const configuredHost = process.env.TABLEMANAGER_SYNC_HOST || '127.0.0.1';
-
-  embeddedBackend.listen(configuredPort, configuredHost, () => {
-    const address = embeddedBackend.address();
-    embeddedBackendStatus = {
-      running: true,
-      host: configuredHost,
-      port: typeof address === 'object' && address ? address.port : 0,
-      reportCount: getReportCount()
-    };
-  });
-
-  embeddedBackend.on('close', () => {
-    embeddedBackendStatus = { ...embeddedBackendStatus, running: false, port: 0 };
-  });
-}
+const embeddedBackend = createEmbeddedBackend({
+  applyMembershipRequestToState,
+  applyWaitlistRequestToState,
+  buildPlayerClubSnapshot,
+  getAccountKeyFromState,
+  getReportCount,
+  loadStateWithFirebaseFallback,
+  saveStateEverywhere,
+  storeAnalyticalReport,
+  syncStateWithFirebaseRequests
+});
 
 function broadcastUpdateStatus(status) {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -879,9 +745,12 @@ ipcMain.handle('preserve-state-for-update', async (_event, requestId, state) => 
   return { ok };
 });
 
-ipcMain.handle('get-backend-status', async () =>
-  (await getRemoteBackendStatus()) || { ...embeddedBackendStatus, reportCount: getReportCount(), mode: embeddedBackendStatus.running ? 'legacy-embedded' : 'local-fallback' }
-);
+ipcMain.handle('get-backend-status', async () => {
+  const remoteStatus = await getRemoteBackendStatus();
+  if (remoteStatus) return remoteStatus;
+  const localStatus = embeddedBackend.getStatus();
+  return { ...localStatus, reportCount: getReportCount(), mode: localStatus.running ? 'legacy-embedded' : 'local-fallback' };
+});
 
 ipcMain.handle('validate-pilot-access', async (_event, access) => validatePilotAccessApi(access));
 
@@ -1022,7 +891,7 @@ function createWindow(route = 'floor', context = {}) {
 app.whenReady().then(() => {
   appStartedAt = new Date().toISOString();
   if (process.env.ORBIT_ENABLE_EMBEDDED_BACKEND === 'true') {
-    startEmbeddedBackend();
+    embeddedBackend.start();
   }
   startClientTelemetry();
   startAutoUpdates();
@@ -1076,10 +945,7 @@ app.on('before-quit', () => {
     clearInterval(updateCheckTimer);
     updateCheckTimer = undefined;
   }
-  if (embeddedBackend) {
-    embeddedBackend.close();
-    embeddedBackend = undefined;
-  }
+  embeddedBackend.stop();
   closeDatabase();
 });
 

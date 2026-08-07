@@ -13,6 +13,7 @@
     "types": ["node"]
   },
   "include": [
+    "electron/embeddedBackend.cjs",
     "electron/main.cjs",
     "electron/localStore.cjs",
     "electron/orbitApiClient.cjs",
