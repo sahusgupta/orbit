@@ -35,6 +35,8 @@ import {
 import branding from '../branding.config.json';
 import PokerTable, { type Player as PokerTablePlayer } from './components/PokerTable';
 import AppShell, { type PrimaryDestination, type ShellCommand } from './components/AppShell';
+import PanelTitle from './components/PanelTitle';
+import SignalsView, { type GroupMeCandidate } from './components/SignalsView';
 import TournamentTvView from './components/TournamentTvView';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import {
@@ -284,16 +286,6 @@ type BalancePlan = {
   tableASeatsAfterMove: number;
   tableBProjectedSeats: number;
   nextStep: string;
-};
-
-type GroupMeCandidate = {
-  id: string;
-  playerName: string;
-  gameId: string;
-  status: InterestStatus;
-  timestamp: string;
-  confidence: number;
-  sourceText: string;
 };
 
 type SeatPickerState = {
@@ -6185,127 +6177,27 @@ function App() {
     ));
   }
 
+
   if (route === 'signals') {
     return withShell('games', (
-      <main className="app-shell compact-shell">
-        <header className="topbar">
-          <div>
-            <h1>Games</h1>
-            <p className="page-subtitle">Outreach and player coordination</p>
-          </div>
-          <button className="ghost-button" onClick={closeRoute}>
-            <X size={18} />
-            Close
-          </button>
-        </header>
-
-        <nav className="route-tabs" aria-label="Games sections">
-          <button onClick={() => openRoute('builder')}>Tonight</button>
-          <span className="active" aria-current="page">Outreach</span>
-          <button onClick={() => openRoute('customization')}>Configuration</button>
-        </nav>
-
-        <section className="panel">
-          <PanelTitle icon={<Target />} title="Likely Participants" />
-          <div className="outreach-list">
-            {likelyParticipants.map((item: { id: any; profile: { name: any; }; game: { name: any; }; reason: any[]; message: string; confidence: number; }) => (
-              <article className="outreach-card" key={item.id}>
-                <div>
-                  <h3>{item.profile.name}</h3>
-                  <p>{item.game.name} - {item.reason.join(' - ')}</p>
-                  <small>{item.message}</small>
-                </div>
-                <div className="outreach-actions">
-                  <strong>{item.confidence >= 95 ? 'High' : item.confidence >= 70 ? 'Medium' : 'Low'}</strong>
-                  <button className="secondary-button" onClick={() => copyMessage(item.message)}>
-                    Copy Text
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel">
-          <PanelTitle icon={<MessageCircle />} title="Message Scan" />
-          <div className="integration-copy">
-            <p>
-              Paste room chat here to detect likely interest. Staff must review every match before it is added.
-            </p>
-            <textarea value={groupMeText} onChange={(event: { target: { value: any; }; }) => setGroupMeText(event.target.value)} placeholder="Paste player interest messages for staff review" />
-            <button className="secondary-button" onClick={scanGroupMeText}>Scan Pasted Messages</button>
-            <div className="script-grid">
-              {groupMeCandidates.map((candidate: GroupMeCandidate) => (
-                <article className="script-card" key={candidate.id}>
-                  <div className="candidate-edit-grid">
-                    <input
-                      value={candidate.playerName}
-                      onChange={(event: { target: { value: any; }; }) =>
-                        setGroupMeCandidates((candidates) =>
-                          candidates.map((item) => (item.id === candidate.id ? { ...item, playerName: event.target.value } : item))
-                        )
-                      }
-                    />
-                    <select
-                      value={candidate.gameId}
-                      onChange={(event: { target: { value: any; }; }) =>
-                        setGroupMeCandidates((candidates) =>
-                          candidates.map((item) => (item.id === candidate.id ? { ...item, gameId: event.target.value } : item))
-                        )
-                      }
-                    >
-                      {state.games.map((game: { id: any; name: any; }) => (
-                        <option key={game.id} value={game.id}>{game.name}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={candidate.status}
-                      onChange={(event: { target: { value: string; }; }) =>
-                        setGroupMeCandidates((candidates) =>
-                          candidates.map((item) => (item.id === candidate.id ? { ...item, status: event.target.value as InterestStatus } : item))
-                        )
-                      }
-                    >
-                      {statuses.map((status) => (
-                        <option key={status}>{status}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <p>{candidate.sourceText}</p>
-                  <small>{candidate.confidence}% confidence - staff review required</small>
-                  <div className="inline-actions">
-                    <button className="secondary-button" onClick={() => acceptGroupMeCandidate(candidate)}>Add</button>
-                    <button className="ghost-button" onClick={() => rejectGroupMeCandidate(candidate.id)}>Reject</button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="panel">
-          <PanelTitle icon={<MessageCircle />} title="Templates" />
-          <div className="script-template-list">
-            {state.scriptTemplates.map((template: any, index: number) => (
-              <label key={index}>
-                Template {index + 1}
-                <input value={template} onChange={(event: { target: { value: string; }; }) => updateScriptTemplate(index, event.target.value)} />
-              </label>
-            ))}
-          </div>
-          <div className="script-grid">
-            {staffScripts.map((script: { label: any; text: string; }) => (
-              <article className="script-card" key={script.label}>
-                <strong>{script.label}</strong>
-                <p>{script.text}</p>
-                <button className="secondary-button" onClick={() => copyMessage(script.text)}>
-                  Copy
-                </button>
-              </article>
-            ))}
-          </div>
-        </section>
-      </main>
+      <SignalsView
+        games={state.games}
+        groupMeCandidates={groupMeCandidates}
+        groupMeText={groupMeText}
+        likelyParticipants={likelyParticipants}
+        scriptTemplates={state.scriptTemplates}
+        staffScripts={staffScripts}
+        statuses={statuses}
+        onAcceptCandidate={acceptGroupMeCandidate}
+        onClose={closeRoute}
+        onCopyMessage={copyMessage}
+        onGroupMeTextChange={setGroupMeText}
+        onOpenRoute={openRoute}
+        onRejectCandidate={rejectGroupMeCandidate}
+        onScanMessages={scanGroupMeText}
+        onSetCandidates={setGroupMeCandidates}
+        onUpdateScriptTemplate={updateScriptTemplate}
+      />
     ));
   }
 
@@ -8289,31 +8181,6 @@ function TableBuyInLedger({ state, session }: { state: AppState; session: GameSe
   );
 }
 
-function PanelTitle({
-  icon,
-  title,
-  collapsed,
-  onToggle
-}: {
-  icon: React.ReactNode;
-  title: string;
-  collapsed?: boolean;
-  onToggle?: () => void;
-}) {
-  return (
-    <div className="panel-title">
-      <div className="panel-title-main">
-        {icon}
-        <h2>{title}</h2>
-      </div>
-      {onToggle ? (
-        <button className="icon-button panel-toggle-button" onClick={onToggle} title={collapsed ? `Open ${title}` : `Close ${title}`}>
-          {collapsed ? <ChevronDown size={17} /> : <ChevronUp size={17} />}
-        </button>
-      ) : null}
-    </div>
-  );
-}
 
 function TagPicker({ selected, onChange }: { selected: TableTag[]; onChange: (tags: TableTag[]) => void }) {
   return (

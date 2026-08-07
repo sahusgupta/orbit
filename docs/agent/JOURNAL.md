@@ -411,3 +411,9 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Moved characterized table/demand/session rules into `src/domain/operations.ts`, analytics/payload rules into `src/domain/analytics.ts`, and participant/interest rules into `src/domain/participants.ts`.
 - Rewired the direct operational suite from a mocked renderer import to Node-level module imports; the direct and existing table/waitlist/participant mutation suites passed 7 files/43 tests.
 - Both root compiler projects, Player TypeScript, all 37 files/198 tests, the 1,920-module build, and aggregate verification passed. `src/main.tsx` decreased from 8,918 to 8,342 lines; no external service, deployment, or push was involved.
+
+## 2026-08-07 - REF-006A Outreach route component
+
+- Added and separately committed a third GroupMe/Outreach case pinning headings, tab and panel order, the current-route marker, templates, generated scripts, textarea, and primary controls before moving JSX.
+- Moved the unchanged route markup into typed `src/components/SignalsView.tsx` and the identical shared title helper into `src/components/PanelTitle.tsx`; `App` retains shell, state, effects, persistence, and commands.
+- Both root compiler projects, Player TypeScript, all 37 files/199 tests, the 1,922-module build, and aggregate verification passed. `src/main.tsx` decreased from 8,342 to 8,209 lines; no external service, deployment, or push was involved.

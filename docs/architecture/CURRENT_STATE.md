@@ -35,6 +35,8 @@ REF-004 moved characterized license/account identity and staff-secret behavior i
 
 REF-005 moved characterized demand/table/session rules, operational/usage analytics, analytical payload projection, participant selection, and outreach/opportunity rules into `src/domain/operations.ts`, `src/domain/analytics.ts`, and `src/domain/participants.ts`. `src/main.tsx` is now 8,342 lines; the focused operational suite runs directly in Node while the existing renderer suites retain mutation-side coverage.
 
+REF-006A moved the characterized Outreach route into typed `src/components/SignalsView.tsx` and the shared title primitive into `src/components/PanelTitle.tsx`. `src/main.tsx` is now 8,209 lines and retains shell, navigation, state, persistence, and mutation ownership.
+
 ## Renderer dependency shape
 
 `src/domain/types.ts` now owns the canonical management `AppState` and related persisted contracts; focused state, reporting, licensing/staff-auth, operations, analytics, and participant modules own renderer domain projections. `src/main.tsx` remains their orchestration consumer and still imports focused behavior from `src/lib/`. Renderer-mount characterization remains for persistence and state mutations; pure projections now have direct focused boundaries.
