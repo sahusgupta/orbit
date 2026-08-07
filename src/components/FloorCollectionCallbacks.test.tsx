@@ -335,6 +335,45 @@ describe('floor collection projections', () => {
     document.body.innerHTML = '';
   });
 
+  it('renders the floor header, summary, panel order, table card, and quick-add entry point', () => {
+    expect(document.querySelector('h1')?.textContent).toBe('Floor');
+    expect(document.querySelector('.page-subtitle')?.textContent).toBe('Live room operations');
+    expect(document.querySelector('.waitlist-icon-trigger')?.getAttribute('aria-label')).toBe(
+      'Open waitlist, 10 waiting'
+    );
+    expect(document.querySelector('.topbar-actions .primary-button')?.textContent?.trim()).toBe('Add player');
+
+    expect(Array.from(document.querySelectorAll('.floor-summary-bar > span'), (item) => item.textContent?.trim())).toEqual([
+      '0 running',
+      '0 seated',
+      '10 waiting',
+      '0 actions needed'
+    ]);
+    expect(Array.from(document.querySelectorAll('.panel-title h2'), (heading) => heading.textContent)).toEqual([
+      'Current Tables',
+      'Time Overview',
+      'Table Overview',
+      'Recent Activity',
+      'Forming Games',
+      'Waitlist',
+      'Quick Add'
+    ]);
+    expect(document.querySelector('.active-game-card h3')?.textContent).toBe('Threshold Holdem');
+    expect(document.querySelector('.active-game-card > div > span')?.textContent).toBe(
+      'Main Table - Forming - Drop'
+    );
+    const tableControls = Array.from(document.querySelectorAll<HTMLButtonElement>('.active-game-card .seat-control > button'));
+    expect(
+      tableControls.slice(0, 4).map((button) =>
+        button.textContent?.trim()
+      )
+    ).toEqual(['+', 'Start Table', 'Open', 'Ledger']);
+    expect(tableControls.slice(4).map((button) => button.getAttribute('title'))).toEqual([
+      'Hide table',
+      'Table actions'
+    ]);
+  });
+
   it('renders complete game demand and waitlist values in canonical order without mutating state', () => {
     const menu = document.querySelector<HTMLSelectElement>('.forming-game-menu select');
     expect(menu).not.toBeNull();
