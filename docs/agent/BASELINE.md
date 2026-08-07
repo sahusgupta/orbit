@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, and completed `TYPE-007A` now establishes the truthful current baseline at 69 diagnostics in 4 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, and completed `TYPE-007I` now establishes the truthful current baseline at 67 diagnostics in 4 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -379,3 +379,27 @@ Final implementation verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 69 diagnostics, while Player TypeScript, 20/97 tests, and the 1,912-module renderer build passed.
 
 `TYPE-007A` is complete. The `TYPE-007` umbrella remains pending on its other nine children. `TYPE-008` still depends on incomplete `TYPE-007H`, so no downstream task became newly ready.
+
+## TYPE-007I Table-Event Report Projection — 2026-08-07
+
+Before production source changed, a focused jsdom characterization exercised the renderer's existing Summary `Event Reasons` list and CSV export using local fixtures with Firebase disabled, network access stubbed, and no hosted service or production data access. It covers present, missing, and empty reasons; truthy and empty notes; excluded event types; more than six matching events; exact labels, fallbacks, and CSV escaping; source and last-six ordering; required canonical event fields; and source event value/reference preservation. The focused test passed 1 file and 2 tests before the production change and was committed separately as `a030b1a`.
+
+The two report mappers now consume canonical `TableEvent` values instead of structural fragments that required `reason`. The optional `reason`, required `note`, filter expressions, `Unspecified` fallback, note suffix, event order, CSV schema/escaping, summary labels, and source event objects remain unchanged.
+
+The first post-change root typecheck produced exactly 67 diagnostics in the same 4 files:
+
+- both `TYPE-007I` `TS2345` diagnostics disappeared: formerly `src/main.tsx:5594:14` and `src/main.tsx:8468:151`;
+- `TS2345` decreased from 35 to 33 and `src/main.tsx` decreased from 60 to 58;
+- every other diagnostic-code and affected-path count stayed unchanged; and
+- the focused characterization file has no diagnostic.
+
+Final implementation verification:
+
+- PASS before and after implementation: `npx --no-install vitest run src/lib/tableEventReporting.test.ts` — 1 file and 2 tests.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 67 diagnostics in 4 files, neither assigned diagnostic present, and no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 21 files and 99 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,912 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 67 diagnostics, while Player TypeScript, 21/99 tests, and the 1,912-module renderer build passed.
+
+`TYPE-007I` is complete. The `TYPE-007` umbrella remains pending on its other eight incomplete children and must not be marked complete. `TYPE-008` still depends on incomplete `TYPE-007H`, `TYPE-010` still depends on the umbrella, and no task became newly ready.
