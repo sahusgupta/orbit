@@ -329,3 +329,11 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Added a narrow `PersistedSettings.defaultRakeMode?: unknown` input and narrowed it once, preserving current-key precedence, valid legacy restoration, corrupt/absent `Drop` fallback, and current output shape.
 - TYPE-009 had already removed the compiler symptom, so root TypeScript correctly remained at 14 diagnostics. Player TypeScript passed; all 33 files/173 tests passed; the 1,912-module build passed; aggregate verification failed only on the expected root baseline.
 - Marked TYPE-013 complete. No production service, deployment, or push was involved.
+
+## 2026-08-07 - TypeScript stabilization terminal audit
+
+- Confirmed the autonomous queue is exhausted at condition B: all 14 remaining root diagnostics are owned by decision-blocked TYPE-003 (4) and TYPE-007H (10); no independent current-diagnostic or zero-diagnostic audit remains pending.
+- Kept TYPE-007 incomplete because TYPE-007H is incomplete. Did not enter Phase 4 or create its post-stabilization plan because root TypeScript is not zero.
+- Created `docs/agent/TYPESCRIPT_STABILIZATION_FINAL.md` with the baseline history, completed tasks, discovered behavior risks, test growth, verification evidence, exact decisions, provisional compiler-coverage recommendations, full 48-commit sequence, and refactor/Player-web readiness conclusions.
+- Final verified state before the report: root TypeScript failed with exactly 14 decision-blocked diagnostics; Player TypeScript passed; 33 files/173 tests passed; the 1,912-module renderer build passed; aggregate verification failed only on root TypeScript.
+- Nothing was pushed or deployed, and no production service or secret was accessed.

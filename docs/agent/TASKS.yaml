@@ -4,6 +4,9 @@ source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
 baseline_diagnostics: 14
 baseline_files: 2
 status: partial_failure
+terminal_condition: all_remaining_diagnostics_require_human_decisions
+blocked_diagnostics: 14
+blocked_tasks: [TYPE-003, TYPE-007H]
 ordering:
   - project_boundary_configuration
   - shared_contract_public_interface
