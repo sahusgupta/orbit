@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, and completed `TYPE-005` now establishes the truthful current baseline at 79 diagnostics in the same 6 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, and completed `TYPE-006` now establishes the truthful current baseline at 73 diagnostics in the same 6 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -310,3 +310,26 @@ Final implementation verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` — exit 1 after all four gates; root TypeScript alone failed with 79 diagnostics, while Player TypeScript, 18/87 tests, and the 1,911-module renderer build passed.
 
 `TYPE-005` is complete. `TYPE-007` remains pending because `TYPE-006` is not complete, so no downstream task became newly ready.
+
+## TYPE-006 Map/Filter Result Narrowing — 2026-08-06
+
+The three pure result builders now type their mapper outputs at construction as the exact result object or `null`, then remove only `null` with an exact reusable guard. `getBalancePlans`, `parseGroupMeMessages`, and the today-player activity builder moved from `src/main.tsx` to `src/lib/resultBuilders.ts` solely so focused tests can exercise their existing successful, rejected, empty, ordered, fallback, and optional-field behavior.
+
+The first post-change root typecheck produced exactly 73 diagnostics in the same 6 affected files:
+
+- all 6 `TYPE-006` diagnostics disappeared: the `TS2322`/`TS2677` pairs formerly at `src/main.tsx:1861`/`1927`, `2354`/`2378`, and `2745`/`2764`;
+- `TS2322` decreased from 21 to 18 and `TS2677` decreased from 3 to 0;
+- `src/main.tsx` decreased from 68 to 62 diagnostics;
+- every other diagnostic-code and affected-path count stayed unchanged; and
+- neither the helper nor its focused test has a diagnostic.
+
+Final implementation verification:
+
+- PASS: focused Vitest run — 1 file and 9 tests passed.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 73 diagnostics in 6 files, no assigned `TYPE-006` diagnostic, and no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 19 files and 96 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,912 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` — exit 1 after all four gates; root TypeScript alone failed with 73 diagnostics, while Player TypeScript, 19/96 tests, and the 1,912-module renderer build passed.
+
+`TYPE-006` is complete. With `TYPE-005` and `TYPE-006` both complete, `TYPE-007` is newly ready; it was not started.

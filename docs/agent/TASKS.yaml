@@ -1,7 +1,7 @@
 queue: root-typescript-remediation
 temporary: true
 source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
-baseline_diagnostics: 79
+baseline_diagnostics: 73
 baseline_files: 6
 status: partial_failure
 ordering:
@@ -76,19 +76,22 @@ tasks:
   - id: TYPE-006
     title: Repair map/filter result narrowing
     classification: REAL_TYPE_ERROR
-    diagnostics: 6
-    status: ready
+    diagnostics: 0
+    diagnostics_before: 6
+    diagnostics_after: 0
+    status: complete
     safe_autonomous: true
     human_review: false
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: [TYPE-001]
     spec: docs/agent/tasks/TYPE-006.md
+    resolution: exact_mapper_results_with_non_null_narrowing
   - id: TYPE-007
     title: Repair renderer callback domain contracts in bounded batches
     classification: REAL_TYPE_ERROR
     diagnostics: 51
-    status: pending
+    status: ready
     safe_autonomous: false
     human_review: true
     blocks_refactoring: true

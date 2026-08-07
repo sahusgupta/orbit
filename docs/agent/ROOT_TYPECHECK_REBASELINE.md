@@ -8,7 +8,7 @@ Dependency-restoration starting commit: `02cdd71`
 
 ## Verification state: partial failure
 
-The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, `TYPE-001` has aligned the renderer library contract, `TYPE-005` has restored synchronized-list tuple inference, and the remaining 79 diagnostics are application, test, stale-contract, or platform errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
+The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, `TYPE-001` has aligned the renderer library contract, `TYPE-005` has restored synchronized-list tuple inference, `TYPE-006` has repaired exact map/filter result narrowing, and the remaining 73 diagnostics are application, test, stale-contract, or platform errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
 
 No production source was changed during this rebaseline. No compiler setting was weakened, no file was excluded, and no diagnostic suppression or unsafe cast was added.
 
@@ -36,13 +36,14 @@ Post-install dependency-tree inspection found one physical root React 19.2.6 ins
 | After dependency installation | 94 diagnostics in 6 files |
 | After `TYPE-001` library correction | 88 diagnostics in 6 files |
 | After `TYPE-005` tuple-inference correction | 79 diagnostics in 6 files |
+| After `TYPE-006` map/filter correction | 73 diagnostics in 6 files |
 | Dependency-restoration displayed-diagnostic reduction | 3,536 |
-| Current net displayed-diagnostic reduction | 3,551 |
+| Current net displayed-diagnostic reduction | 3,557 |
 | Missing React/ReactDOM cascade diagnostics removed | 3,598 |
 | Previously visible non-cascade diagnostics retained | 32 |
 | Previously masked diagnostics exposed | 62 |
 
-The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The dependency-restoration arithmetic is `3,630 - 3,598 + 62 = 94`; the 6 diagnostics removed by `TYPE-001` and the 9 removed by `TYPE-005` establish the current total of 79.
+The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The dependency-restoration arithmetic is `3,630 - 3,598 + 62 = 94`; the 6 diagnostics removed by `TYPE-001`, 9 removed by `TYPE-005`, and 6 removed by `TYPE-006` establish the current total of 73.
 
 No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency issue is resolved; the root gate remains red because the declarations revealed real contracts that the previous untyped React layer could not check.
 
@@ -52,33 +53,32 @@ No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency
 
 | Code | Count |
 | --- | ---: |
-| `TS2322` | 21 |
+| `TS2322` | 18 |
 | `TS2339` | 5 |
 | `TS2345` | 36 |
 | `TS2352` | 1 |
 | `TS2353` | 1 |
 | `TS2367` | 1 |
-| `TS2677` | 3 |
 | `TS2739` | 2 |
 | `TS2740` | 1 |
 | `TS2769` | 5 |
 | `TS7006` | 2 |
 | `TS7017` | 1 |
-| **Total** | **79** |
+| **Total** | **73** |
 
 ### By affected path
 
 | Path | Count | Application/package |
 | --- | ---: | --- |
-| `src/main.tsx` | 68 | Root management renderer |
+| `src/main.tsx` | 62 | Root management renderer |
 | `src/lib/firebaseClubSync.ts` | 5 | Root renderer/Firebase sync boundary |
 | `src/lib/playerSync.ts` | 2 | Root renderer/player-sync domain copy |
 | `src/lib/playerSync.test.ts` | 2 | Root package tests |
 | `src/lib/appCore.test.ts` | 1 | Root package tests |
 | `src/components/PokerTable.test.tsx` | 1 | Root renderer test |
-| **Total** | **79** | |
+| **Total** | **73** | |
 
-Production root source accounts for 75 diagnostics and root tests account for 4. Electron, API, Player, download-site, e2e, generated output, and dependency source account for zero diagnostics because they are not part of this root TypeScript project's `include: ["src"]` boundary.
+Production root source accounts for 69 diagnostics and root tests account for 4. Electron, API, Player, download-site, e2e, generated output, and dependency source account for zero diagnostics because they are not part of this root TypeScript project's `include: ["src"]` boundary.
 
 ## Root-cause summary
 
@@ -89,7 +89,7 @@ Production root source accounts for 75 diagnostics and root tests account for 4.
 | `TYPE-003` | `REAL_TYPE_ERROR` | 4 | Firebase transforms erase `ManagementClubState` and tournament types | Yes | Indirectly | No | Yes |
 | `TYPE-004` | `REAL_TYPE_ERROR` | 1 | Membership `Denied` narrowing is lost across a callback | Yes | Yes | No | Yes |
 | `TYPE-005` | `REAL_TYPE_ERROR` | 0 | Resolved: explicit synchronized-entry tuples preserve the helper's generic value type | No | No | Completed | No |
-| `TYPE-006` | `REAL_TYPE_ERROR` | 6 | Three map/filter pipelines use invalid result type predicates | Yes | No direct block | Yes, with focused tests | No |
+| `TYPE-006` | `REAL_TYPE_ERROR` | 0 | Resolved: exact mapper result types and non-null narrowing preserve all three pipelines | No | No direct block | Completed | No |
 | `TYPE-007` | `REAL_TYPE_ERROR` | 51 | Hand-written structural callback types discard optional/required domain fields | Yes | No direct block | No as one repair | Yes for behavior grouping |
 | `TYPE-008` | `REAL_TYPE_ERROR` | 2 | Profile import paths do not validate/narrow unknown input to `PlayerProfile` | Yes | No direct block | No | Yes |
 | `TYPE-009` | `REAL_TYPE_ERROR` | 2 | Desktop account result nullability and shallow `Partial<AppState>` mismatch | Yes | No direct block | No | Yes |
@@ -98,7 +98,7 @@ Production root source accounts for 75 diagnostics and root tests account for 4.
 | `TYPE-012` | `TEST_TYPE_ERROR` | 2 | Missing act global and heterogeneous fixture inference | Yes as a gate | No | Yes | No |
 | `TYPE-013` | `STALE_OR_DEAD_CODE` | 1 | Legacy settings migration is represented by an incompatible whole-object cast | Yes | No | No | Yes |
 | `TYPE-014` | `STALE_OR_DEAD_CODE` | 1 | `addInterest` compares a form status union to unreachable `Seated` | Yes | No direct block | No | Yes |
-| **Total** | | **79** | | | | | |
+| **Total** | | **73** | | | | | |
 
 No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISMATCH`, or `UNKNOWN_REQUIRES_INVESTIGATION`. Those dependency/configuration discovery issues are resolved or have been converted into evidence-backed tasks.
 
@@ -161,13 +161,13 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 ### TYPE-006 — Invalid map/filter narrowing
 
 - Classification: `REAL_TYPE_ERROR`.
-- Representative diagnostics: paired `TS2322`/`TS2677` failures in `getBalancePlans`, `parseGroupMeMessages`, and `todayPlayerActivity`.
+- Resolved diagnostics: paired `TS2322`/`TS2677` failures in `getBalancePlans`, `parseGroupMeMessages`, and `todayPlayerActivity`.
 - Affected symbols: those three result-building pipelines.
-- Root cause: each map returns a concrete object or `null`, but the declared filter predicate target is wider or differently optional than the inferred object.
-- Confidence: high; pre-existing for two pipelines and previously masked for one. Runtime output is likely filtered correctly, but declared optional fields do not match construction.
-- Recommended correction: type the mapper result at construction or use an exact non-null narrowing helper.
-- Risk/tests: low/medium; focused result/empty-input tests, root typecheck/tests/build.
-- Autonomous correction: yes as a dedicated pure-transformation task.
+- Root cause: each map returned a concrete object or `null`, but the declared filter predicate target was wider or differently optional than the inferred object.
+- Correction: moved the pure builders to `src/lib/resultBuilders.ts`, typed each mapper as its exact result object or `null`, and removed only `null` with one exact reusable guard.
+- Characterization: 9 focused tests preserve empty/rejected behavior, plan and row ordering, balance candidate ranking/projections, GroupMe alias/status/name fallbacks, today timestamp/session rules, and optional output fields.
+- Result: all 6 assigned diagnostics are gone with no new diagnostic; filtering criteria, constructed values, optional fields, and collection ordering are unchanged.
+- Status: complete after focused and full verification.
 
 ### TYPE-007 — Renderer callback contract erosion
 
@@ -262,8 +262,8 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 1. Completed: `TYPE-001` aligned the renderer runtime/library contract.
 2. `TYPE-002`: canonicalize the shared Player snapshot contract.
 3. `TYPE-003` and `TYPE-004`: characterize sync and membership boundaries.
-4. Completed: `TYPE-005` restored synchronized-list tuple inference; `TYPE-006` remains ready for its separate map/filter repair.
-5. `TYPE-007`: remains pending on `TYPE-006`, then split renderer state transitions into characterized behavior batches.
+4. Completed: `TYPE-005` restored synchronized-list tuple inference and `TYPE-006` repaired exact map/filter result narrowing.
+5. Ready: `TYPE-007` now has both dependencies complete; split renderer state transitions into characterized behavior batches when that separate task is authorized.
 6. `TYPE-008`, `TYPE-009`, and `TYPE-010`: repair import, persistence, and GroupMe boundaries independently when their dependencies are complete.
 7. `TYPE-011`: repair Web Crypto only with security fixtures.
 8. Ready: `TYPE-012` may repair test-only types in its own task.
@@ -335,3 +335,27 @@ Final implementation verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 79 diagnostics, while Player TypeScript, 18/87 tests, and the 1,911-module build passed.
 
 `TYPE-005` is complete. `TYPE-007` remains pending because `TYPE-006` is not complete, so no downstream task became newly ready.
+
+## TYPE-006 completion update — 2026-08-06
+
+The renderer's three pure result builders now type their map callbacks as the exact constructed result or `null` and narrow with one exact non-null guard. They moved to `src/lib/resultBuilders.ts` so focused tests can import them without loading the application entrypoint. Existing balance-domain callbacks, GroupMe ID/timestamp providers, dashboard date/membership helpers, filtering decisions, output fields, and collection ordering remain unchanged.
+
+The first post-change root typecheck produced exactly 73 diagnostics in the same 6 affected files:
+
+- the assigned `TS2322`/`TS2677` pairs formerly at `src/main.tsx:1861`/`1927`, `2354`/`2378`, and `2745`/`2764` disappeared;
+- `TS2322` decreased from 21 to 18, `TS2677` decreased from 3 to 0, and every other diagnostic-code count stayed unchanged;
+- `src/main.tsx` decreased from 68 to 62 diagnostics, while every other affected-path count stayed unchanged; and
+- neither `src/lib/resultBuilders.ts` nor its focused test introduced a diagnostic.
+
+Focused characterization covers empty and rejected inputs, accepted result ordering, balance candidate ranking and projections, GroupMe matching/status/name fallbacks, today timestamp and session behavior, and optional result fields. No declared result/runtime shape conflict was found.
+
+Final implementation verification:
+
+- PASS: focused Vitest run — 1 file and 9 tests passed.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 73 diagnostics in 6 files; all 6 assigned diagnostics absent; no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 19 files and 96 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,912 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 73 diagnostics, while Player TypeScript, 19/96 tests, and the 1,912-module build passed.
+
+`TYPE-006` is complete. With `TYPE-005` and `TYPE-006` both complete, `TYPE-007` is newly ready; it was not started.

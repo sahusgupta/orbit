@@ -41,3 +41,16 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Player typecheck passed; the renderer build passed with 1,911 modules transformed; the existing SQLite, ExcelJS `eval`, and chunk-size warnings remained.
 - Aggregate `npm run verify` ran all four gates and exited 1 only for the expected 79-diagnostic root failure; Player TypeScript, 18/87 tests, and the renderer build passed.
 - Marked only `TYPE-005` complete. `TYPE-007` remains pending on incomplete `TYPE-006`, so no downstream task became newly ready.
+
+## 2026-08-06 — TYPE-006 map/filter result narrowing
+
+- Started from a clean `fix/type-005-synchronized-list-tuples` branch at completed `TYPE-005` commit `beeeb14`; confirmed the branch also contains completed preparation and `TYPE-001` work.
+- Confirmed `TYPE-006` was `ready`, its only dependency `TYPE-001` was complete, and the untouched root baseline was exactly 79 diagnostics in 6 files.
+- Confirmed the assigned diagnostics were the `TS2322`/`TS2677` pairs at `src/main.tsx:1861`/`1927`, `2354`/`2378`, and `2745`/`2764`.
+- Extracted only `getBalancePlans`, `parseGroupMeMessages`, and the today-player activity result builder to `src/lib/resultBuilders.ts`, typing each mapper as its exact object-or-`null` result and narrowing with one exact non-null guard.
+- Preserved the existing balance callbacks, GroupMe ID/timestamp providers, dashboard date and membership helpers, filtering criteria, output fields, and ordering.
+- Added 9 focused tests covering empty, rejected, accepted, ordered, fallback, deduplicated, and optional-field results across all three pipelines.
+- Root diagnostics changed from 79 to exactly 73 in the same 6 affected files. `TS2322` changed from 21 to 18 and `TS2677` from 3 to 0; all other diagnostic-code and affected-path counts were unchanged, and the 6 owned diagnostics were absent.
+- Player typecheck passed; all 19 files/96 tests passed; the renderer build passed with 1,912 modules transformed; the existing SQLite, ExcelJS `eval`, and large-chunk warnings remained.
+- Aggregate `npm run verify` ran all four gates and exited 1 only for the expected 73-diagnostic root failure; Player TypeScript, 19/96 tests, and the renderer build passed.
+- Marked `TYPE-006` complete. With both dependencies complete, `TYPE-007` is newly ready; it was not started.

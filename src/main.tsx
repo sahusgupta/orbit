@@ -54,6 +54,7 @@ import { validateMembershipQrCheckIn } from './lib/membershipQr';
 import { loadClubStateFromFirebase, saveClubStateToFirebase, signInOrCreateFirebaseEmailAccount, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
 import { rendererFirebaseSyncEnabled } from './lib/firebaseConfig';
 import { buildNightCloseTables, type NightCloseTable } from './lib/nightClose';
+import { getBalancePlans, getTodayPlayerActivity, parseGroupMeMessages } from './lib/resultBuilders';
 import { normalizePlayerSessionSeats } from './lib/seatNormalization';
 import { mergeSyncedList } from './lib/syncedList';
 import './styles.css';
@@ -1857,76 +1858,6 @@ function getOverflowOpportunities(state: AppState) {
     .filter((item) => item.fullTables.length && item.demand.flexibleDemand > 0);
 }
 
-function getBalancePlans(state: AppState): BalancePlan[] {
-  return state.games
-    .map((game) => {
-      const demand = getDemand(game, state.interests);
-      const runningTables = getRunningSessions(state, game.id).filter((session) => session.seatsFilled >= Math.min(7, session.maxSeats));
-      const fromTable = runningTables[0];
-      if (!fromTable || demand.totalDemand <= 12) return null;
-
-      const flexibleDemand = demand.confirmed + demand.waiting + demand.interested;
-      const inRoomCandidates = state.interests
-        .filter((interest) => interest.gameId === game.id && interest.status === 'Arrived')
-        .map((interest) => {
-          const profile = getProfileForInterest(interest, state.profiles);
-          const connectedNames = profile?.usualCompanions.filter((name) =>
-            state.interests.some(
-              (other) =>
-                other.playerName === name &&
-                other.gameId === game.id &&
-                ['Arrived', 'Confirmed Coming', 'Interested'].includes(other.status)
-            )
-          ) ?? [];
-          const buyInAverage =
-            profile && profile.typicalBuyInMax > 0
-              ? Math.round((profile.typicalBuyInMin + profile.typicalBuyInMax) / 2)
-              : 0;
-          const confidence =
-            (profile?.preferredGameIds.includes(game.id) || profile?.preferredStakes.includes(game.name) ? 35 : 10) +
-            (profile?.willingnessToMove ? 35 : -15) +
-            connectedNames.length * 20 +
-            Math.min(20, Math.round(buyInAverage / 100));
-
-          return {
-            id: interest.id,
-            playerName: interest.playerName,
-            interest,
-            profile,
-            confidence,
-            reasons: [
-              profile?.willingnessToMove ? 'willing to move' : 'ask before moving',
-              connectedNames.length ? `connected to ${connectedNames.join(', ')}` : '',
-              buyInAverage ? `$${buyInAverage} typical buy-in` : '',
-              profile?.preferredStakes || game.name
-            ].filter(Boolean),
-            source: 'interest' as const
-          };
-        })
-        .sort((a, b) => b.confidence - a.confidence);
-
-      const minimumTableASeats = Math.min(6, fromTable.maxSeats);
-      const projectedTableBTarget = Math.min(game.maxSeats, Math.floor(demand.totalDemand / 2));
-      const moveNeeded = Math.max(2, projectedTableBTarget - flexibleDemand);
-      const maxMovable = Math.max(0, fromTable.seatsFilled - minimumTableASeats);
-      const moveCount = Math.min(inRoomCandidates.length, maxMovable, moveNeeded);
-      const moveCandidates = inRoomCandidates.slice(0, moveCount);
-
-      if (!moveCandidates.length) return null;
-
-      return {
-        game,
-        demand,
-        fromTable,
-        moveCandidates,
-        tableASeatsAfterMove: fromTable.seatsFilled - moveCandidates.length,
-        tableBProjectedSeats: flexibleDemand + moveCandidates.length,
-        nextStep: `${game.name}: move ${moveCandidates.map((candidate) => candidate.playerName).join(', ')} to seed Table B`
-      };
-    })
-    .filter((plan): plan is BalancePlan => Boolean(plan));
-}
-
 function getAnalytics(state: AppState) {
   const activeSessions = state.sessions.filter((session) => session.status === 'Running' || session.status === 'Forming');
   const completedSessions = state.sessions.filter((session) => session.endedAt);
@@ -2343,41 +2274,6 @@ function getOperationalOpportunities(state: AppState, analytics: ReturnType<type
   return opportunities;
 }
 
-function parseGroupMeMessages(text: string, games: GameConfig[]): GroupMeCandidate[] {
-  const statusFromLine = (line: string): InterestStatus =>
-    /on my way|coming|eta|be there/i.test(line)
-      ? 'Confirmed Coming'
-      : /here|arrived|in room|at the room/i.test(line)
-        ? 'Arrived'
-        : 'Interested';
-
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const matchedGame =
-        games.find((game) => line.toLowerCase().includes(game.name.toLowerCase())) ??
-        games.find((game) => game.name.includes('1/2') && /\b1\s*\/\s*2\b|1-2/i.test(line)) ??
-        games.find((game) => game.name.includes('2/5') && /\b2\s*\/\s*5\b|2-5/i.test(line)) ??
-        games.find((game) => game.name.toLowerCase().includes('plo') && /plo/i.test(line));
-      if (!matchedGame) return null;
-      const nameMatch = line.match(/^([A-Za-z][A-Za-z .'-]{1,32})[:\-]/) ?? line.match(/\bfrom\s+([A-Za-z][A-Za-z .'-]{1,32})\b/i);
-      const playerName = (nameMatch?.[1] ?? line.split(/\s+/)[0] ?? 'Unknown').trim();
-      const confidence = /interested|play|seat|list|coming|eta|arrived|here|in/i.test(line) ? 82 : 62;
-      return {
-        id: uid(),
-        playerName,
-        gameId: matchedGame.id,
-        status: statusFromLine(line),
-        timestamp: nowIso(),
-        confidence,
-        sourceText: line
-      };
-    })
-    .filter((candidate): candidate is GroupMeCandidate => Boolean(candidate));
-}
-
 function App() {
   const [state, setState] = useState<AppState>(() => loadState());
   const getRouteFromHash = (): AppRoute =>
@@ -2561,7 +2457,10 @@ function App() {
   const staffScripts = useMemo(() => getStaffScripts(state), [state]);
   const inClubInterests = useMemo(() => getInClubInterests(state), [state]);
   const overflowOpportunities = useMemo(() => getOverflowOpportunities(state), [state]);
-  const balancePlans = useMemo(() => getBalancePlans(state), [state]);
+  const balancePlans = useMemo(
+    () => getBalancePlans(state, { getDemand, getRunningSessions, getProfileForInterest }),
+    [state]
+  );
   const activeAccountKey = getAccountKeyFromState(state);
   const selectedTournament = useMemo(
     () => state.tournaments.find((tournament) => tournament.id === selectedTournamentId) ?? state.tournaments[0] ?? null,
@@ -2721,84 +2620,10 @@ function App() {
     () => filteredProfiles.filter((profile) => profile.membershipStatus !== 'Requested' && profile.membershipStatus !== 'Approved'),
     [filteredProfiles]
   );
-  const todayPlayerActivity = useMemo<TodayPlayerRow[]>(() => {
-    const currentDate = toLocalDateValue(new Date());
-    const isToday = (value?: string) => {
-      if (!value) return false;
-      const date = new Date(value);
-      return !Number.isNaN(date.getTime()) && toLocalDateValue(date) === currentDate;
-    };
-    const getInterestTimestamp = (interest: Interest) => {
-      if (interest.status === 'Seated') return interest.seatedAt ?? interest.arrivedAt ?? interest.timestamp;
-      if (interest.status === 'Arrived') return interest.arrivedAt ?? interest.confirmedAt ?? interest.timestamp;
-      if (interest.status === 'Confirmed Coming') return interest.confirmedAt ?? interest.timestamp;
-      if (closedInterestStatuses.includes(interest.status)) return interest.closedAt ?? interest.timestamp;
-      return interest.interestedAt || interest.timestamp;
-    };
-    const findProfile = (profileId: string | undefined, playerName: string) =>
-      state.profiles.find((profile) => profile.id === profileId || profile.name.toLowerCase() === playerName.toLowerCase());
-    const findLatestSession = (profileId: string | undefined, playerName: string) =>
-      state.playerSessions
-        .filter((session) => session.profileId === profileId || session.playerName.toLowerCase() === playerName.toLowerCase())
-        .sort((left, right) => new Date(right.seatedAt).getTime() - new Date(left.seatedAt).getTime())[0];
-
-    const rows: TodayPlayerRow[] = state.interests
-      .map((interest) => {
-        const timestamp = getInterestTimestamp(interest);
-        if (!isToday(timestamp)) return null;
-        const profile = findProfile(interest.profileId, interest.playerName);
-        const playerSession = findLatestSession(interest.profileId, interest.playerName);
-        const table = playerSession ? state.sessions.find((session) => session.id === playerSession.tableId) : undefined;
-        return {
-          id: `interest-${interest.id}`,
-          playerName: interest.playerName,
-          profileId: interest.profileId,
-          status: interest.status,
-          gameName: state.games.find((game) => game.id === interest.gameId)?.name ?? 'Unknown game',
-          tableLabel: interest.status === 'Seated' ? table?.label : undefined,
-          seatNumber: interest.status === 'Seated' ? playerSession?.seatNumber : undefined,
-          timestamp,
-          activeMember: Boolean(profile && profile.membershipStatus !== 'Requested' && isFutureDate(profile.membershipExpiresAt || profile.membershipExpirationDate))
-        } satisfies TodayPlayerRow;
-      })
-      .filter((row): row is TodayPlayerRow => row !== null);
-
-    state.playerSessions
-      .filter((session) => !session.leftAt && isToday(session.seatedAt))
-      .forEach((session) => {
-        const alreadyListed = rows.some((row) =>
-          (session.profileId && row.profileId === session.profileId) || row.playerName.toLowerCase() === session.playerName.toLowerCase()
-        );
-        if (alreadyListed) return;
-        const profile = findProfile(session.profileId, session.playerName);
-        const table = state.sessions.find((candidate) => candidate.id === session.tableId);
-        rows.push({
-          id: `session-${session.id}`,
-          playerName: session.playerName,
-          profileId: session.profileId,
-          status: 'Seated',
-          gameName: state.games.find((game) => game.id === session.gameId)?.name ?? 'Unknown game',
-          tableLabel: table?.label,
-          seatNumber: session.seatNumber,
-          timestamp: session.seatedAt,
-          activeMember: Boolean(profile && profile.membershipStatus !== 'Requested' && isFutureDate(profile.membershipExpiresAt || profile.membershipExpirationDate))
-        });
-      });
-
-    const statusOrder: Record<InterestStatus, number> = {
-      Seated: 0,
-      Arrived: 1,
-      'Confirmed Coming': 2,
-      Interested: 3,
-      Declined: 4,
-      'No-Show': 5,
-      'Left Before Seated': 6,
-      Removed: 7
-    };
-    return rows.sort((left, right) =>
-      statusOrder[left.status] - statusOrder[right.status] || new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime()
-    );
-  }, [state.games, state.interests, state.playerSessions, state.profiles, state.sessions]);
+  const todayPlayerActivity = useMemo<TodayPlayerRow[]>(
+    () => getTodayPlayerActivity(state, { currentDate: new Date(), toLocalDateValue, isFutureDate }),
+    [state.games, state.interests, state.playerSessions, state.profiles, state.sessions]
+  );
   const duplicateProfiles = useMemo(() => {
     const groups = new Map<string, PlayerProfile[]>();
     state.profiles.forEach((profile: { name: any; id?: string; preferredGameIds?: string[]; preferredStakes?: string; typicalBuyInMin?: number; typicalBuyInMax?: number; willingnessToMove?: boolean; typicalAvailability?: string; usualCompanions?: string[]; preferredTags?: TableTag[]; notes?: string; }) => {
@@ -5779,7 +5604,7 @@ function App() {
   };
 
   const scanGroupMeText = () => {
-    setGroupMeCandidates(parseGroupMeMessages(groupMeText, state.games));
+    setGroupMeCandidates(parseGroupMeMessages(groupMeText, state.games, { createId: uid, getTimestamp: nowIso }));
     persist(state, false, { feature: 'Signals', action: 'Scanned pasted messages' });
   };
 
