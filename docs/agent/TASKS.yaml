@@ -1,7 +1,7 @@
 queue: root-typescript-remediation
 temporary: true
 source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
-baseline_diagnostics: 21
+baseline_diagnostics: 20
 baseline_files: 2
 status: partial_failure
 ordering:
@@ -437,14 +437,17 @@ tasks:
   - id: TYPE-014
     title: Decide whether direct seating belongs in add-interest
     classification: STALE_OR_DEAD_CODE
-    diagnostics: 1
-    status: pending
-    safe_autonomous: false
-    human_review: true
+    diagnostics: 0
+    diagnostics_before: 1
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: []
     spec: docs/agent/tasks/TYPE-014.md
+    resolution: retain_direct_seating_and_remove_unreachable_interest_timestamp_branch
   - id: TYPE-015
     title: Separate renderer and root unit-test compiler projects
     classification: CONFIGURATION_BOUNDARY

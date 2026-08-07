@@ -3216,7 +3216,7 @@ function App() {
           interestedAt: timestamp,
           confirmedAt: form.status === 'Confirmed Coming' ? timestamp : undefined,
           arrivedAt: form.status === 'Arrived' ? timestamp : undefined,
-          seatedAt: form.status === 'Seated' ? timestamp : undefined,
+          seatedAt: undefined,
           closedAt: ['Declined', 'No-Show', 'Left Before Seated', 'Removed'].includes(form.status) ? timestamp : undefined
         };
     const nextState = promptDemandAction({

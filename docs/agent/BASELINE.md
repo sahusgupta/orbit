@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, `TYPE-007C` reduced it to 53, completed `TYPE-007D` reduced it to 47, `TYPE-007G` reduced it to 39, `TYPE-007E` reduced it to 35, `TYPE-007F` reduced it to 30, `TYPE-002` reduced it to 26, `TYPE-004` reduced it to 25, `TYPE-009` reduced it to 22, and `TYPE-011` now establishes the truthful current baseline at 21 diagnostics in 2 affected production files; the gate remains red. TYPE-009 removed its two owned diagnostics plus TYPE-013's cast symptom, while TYPE-011 removed the Web Crypto platform diagnostic. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, `TYPE-007C` reduced it to 53, completed `TYPE-007D` reduced it to 47, `TYPE-007G` reduced it to 39, `TYPE-007E` reduced it to 35, `TYPE-007F` reduced it to 30, `TYPE-002` reduced it to 26, `TYPE-004` reduced it to 25, `TYPE-009` reduced it to 22, `TYPE-011` reduced it to 21, and `TYPE-014` now establishes the truthful current baseline at 20 diagnostics in 2 affected production files; the gate remains red. TYPE-009 removed its two owned diagnostics plus TYPE-013's cast symptom, TYPE-011 removed the Web Crypto platform diagnostic, and TYPE-014 removed the unreachable direct-seating comparison. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -647,3 +647,24 @@ Final verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 21 diagnostics, while Player TypeScript, 30/156 tests, and the 1,912-module renderer build passed.
 
 `TYPE-011` is complete. No live service, repository private key, deployment, or push was involved.
+
+## TYPE-014 Quick Add Direct-Seating Contract — 2026-08-07
+
+Before production changed, `src/lib/quickAddInterest.test.tsx` was committed separately as `dea6d3e`. Eight local cases drive the unchanged Quick Add submit handler through Interested, Confirmed Coming, Arrived, Declined, No-Show, Left Before Seated, Removed, and Seated.
+
+The fixtures prove the UI intentionally offers direct seating. `Seated` takes the earlier `seatPlayerInState` path, creates a profile/player session, advances the forming table, persists the result, and returns without constructing a seated interest. Every ordinary-interest construction path therefore reaches the later `seatedAt` property only with a non-Seated status and produces `undefined`.
+
+Production preserves that reachable property/value explicitly as `seatedAt: undefined` and removes only the impossible comparison. No form status, table/session transition, interest value, timestamp, persistence path, collection order, or direct-seat behavior changed.
+
+The first post-change root typecheck produced exactly 20 diagnostics in 2 production files. TYPE-014's sole `TS2367` disappeared and no new diagnostic appeared.
+
+Final verification:
+
+- PASS before and after implementation: `npx --no-install vitest run src/lib/quickAddInterest.test.tsx` — 1 file and 8 tests.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 20 diagnostics in 2 files; the assigned diagnostic is absent; no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 31 files and 164 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,912 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 20 diagnostics, while Player TypeScript, 31/164 tests, and the 1,912-module renderer build passed.
+
+`TYPE-014` is complete. No production service, deployment, or push was involved.

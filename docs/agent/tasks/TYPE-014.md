@@ -49,3 +49,10 @@ None.
 ## Stop conditions
 
 Stop if product owners must decide whether direct seating belongs in this form or if retaining it requires a broader state transition change.
+
+## Resolution record — 2026-08-07
+
+- The Quick Add selector intentionally includes `Seated`, and `addInterest` handles it first through `seatPlayerInState`, returning before ordinary interest construction.
+- Eight unchanged-production cases cover Interested, Confirmed Coming, Arrived, all four closed statuses, and direct seating into a forming table.
+- Direct seating creates/uses the profile, appends a player session, advances the table, and does not construct a seated interest; every reachable ordinary-interest branch owns `seatedAt: undefined`.
+- Production retains that property/value and replaces only the unreachable comparison with `undefined`. No status, seating, session, persistence, timestamp, or output behavior changed.

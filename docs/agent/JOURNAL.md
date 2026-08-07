@@ -292,3 +292,12 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Root TypeScript decreased from 22 to exactly 21 diagnostics in the same 2 production files; TYPE-011's `TS2345` disappeared and no new diagnostic appeared.
 - Player TypeScript passed; all 30 files/156 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 21-diagnostic root baseline.
 - Marked TYPE-011 complete. No live service, repository private key, deployment, or push was involved.
+
+## 2026-08-07 - TYPE-014 Quick Add direct-seating contract
+
+- Added and separately committed `src/lib/quickAddInterest.test.tsx` as `dea6d3e`; eight unchanged-production cases cover all seven non-Seated form statuses plus direct seating into a forming table.
+- Confirmed the Quick Add selector intentionally offers `Seated`; that status takes the earlier full table workflow, creates a profile/player session, advances the table, and returns without constructing a seated interest.
+- Confirmed every reachable ordinary-interest branch persists `seatedAt` as `undefined`; replaced only its impossible later `form.status === 'Seated'` comparison with that exact value.
+- Root TypeScript decreased from 21 to exactly 20 diagnostics in the same 2 production files; TYPE-014's `TS2367` disappeared and no new diagnostic appeared.
+- Player TypeScript passed; all 31 files/164 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 20-diagnostic root baseline.
+- Marked TYPE-014 complete. No production service, deployment, or push was involved.
