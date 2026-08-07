@@ -1,6 +1,6 @@
 # TYPE-007D2: Resolve ambiguous profile-less departure identity
 
-Status: `ready`
+Status: `complete`
 
 Safety: `SAFE_AFTER_TESTS`
 
@@ -94,3 +94,10 @@ The human identity decision is resolved. Implementation is safe only after the G
 ## Stop conditions
 
 Stop if the correction requires changing persisted shapes, session/interest matching, cash-out or billing semantics, sync protocol behavior, automatic merging, production access, or an identity-system redesign.
+
+## Implementation result
+
+- Gate 1 commit `c59b92f` added four focused tests against unchanged production code. All four passed and the duplicate-name case proved both matching profiles received the two played-hour mutations.
+- Gate 2 computes the case-insensitive fallback matches only when the session has no profile ID. It selects an update ID only for exactly one match; an explicit ID remains authoritative, and zero or multiple matches select no profile.
+- The duplicate regression now proves both matching profile objects and their ordering remain unchanged while the session, interest, seat count, cash-out ledger, notification collection, correction log, usage event, and local persistence still complete.
+- The focused four-test file passes after the correction. Root typecheck moved from 53 diagnostics in 4 files to 52 in the same 4 files; the owned `TS2345` is absent and no new diagnostic appeared.

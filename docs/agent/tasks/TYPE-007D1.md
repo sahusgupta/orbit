@@ -1,6 +1,6 @@
 # TYPE-007D1: Repair behavior-preserving player transition types
 
-Status: `pending`
+Status: `ready`
 
 Safety: `SAFE_AFTER_TESTS`
 

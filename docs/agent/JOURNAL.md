@@ -167,3 +167,14 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Traced `playerSession.profileId` from `seatPlayerInState`, optional/legacy absence conditions, fallback player-name origin, current lowercase-only departure comparison, the two mutated played-hour fields, downstream persisted/statistical effects, other name fallbacks, duplicate detection/manual merge behavior, and available identity helpers and diagnostics.
 - Split the original task into a zero-diagnostic `TYPE-007D` umbrella, five-diagnostic behavior-preserving `TYPE-007D1`, and one-diagnostic behavioral correction `TYPE-007D2`. `TYPE-007D1` depends on `TYPE-007D2`; both retain completed `TYPE-005`/`TYPE-006` prerequisites, and the graph remains acyclic.
 - No production source or test changed during the split. `TYPE-007D2` is ready for the required characterization gate; `TYPE-007D1` remains pending until the approved behavior is established and protected.
+
+## 2026-08-07 - TYPE-007D2 ambiguous departure identity correction
+
+- Added only `src/lib/playerTableTransitions.test.ts` for Gate 1, using local jsdom state, disabled renderer Firebase sync, stubbed network access, and an inspector capture of the existing App-local `markPlayerSessionLeft` closure.
+- Against unchanged production code, the focused command passed 1 file/4 tests. It proved authoritative-ID departure updated only the ID profile despite a competing name match; one case-insensitive name match updated one profile; zero matches updated none; and two duplicate-name matches unsafely updated both profiles.
+- The same tests also characterized session and interest closure, manual-edit timestamps, seat-count synchronization, cash-out value and ordering, notification preservation, unchanged audit state, usage-event persistence, stable collection ordering, unrelated record references, and prior-state non-mutation.
+- The characterization introduced no diagnostic: root typecheck remained exactly 53 diagnostics in 4 files with all six split `TYPE-007D` diagnostics present. Committed the test-only checkpoint as `c59b92f`.
+- Changed `markPlayerSessionLeft` to collect fallback profile matches only without an authoritative ID and select a profile update ID only for exactly one match. No first/oldest/newest selection, merge, fan-out, schema, telemetry, or unrelated departure behavior was added.
+- Updated the duplicate regression to require zero profile mutations. The post-change focused command passed all 4 tests, including completed session departure in every identity case.
+- Root typecheck then retained exactly 52 diagnostics in the same 4 files. The `TYPE-007D2` `TS2345` formerly at `src/main.tsx:4358:81` disappeared, the five `TYPE-007D1` diagnostics remained, and no new diagnostic appeared.
+- Marked `TYPE-007D2` complete and `TYPE-007D1` ready. The `TYPE-007D` umbrella remains pending on its five-diagnostic child; no other batch was started.

@@ -1,7 +1,7 @@
 queue: root-typescript-remediation
 temporary: true
 source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
-baseline_diagnostics: 53
+baseline_diagnostics: 52
 baseline_files: 4
 status: partial_failure
 ordering:
@@ -92,8 +92,8 @@ tasks:
     classification: REAL_TYPE_ERROR
     diagnostics: 0
     diagnostics_before: 51
-    diagnostics_delegated: 33
-    diagnostics_resolved: 18
+    diagnostics_delegated: 32
+    diagnostics_resolved: 19
     status: pending
     role: umbrella
     children: [TYPE-007A, TYPE-007B, TYPE-007C, TYPE-007D, TYPE-007E, TYPE-007F, TYPE-007G, TYPE-007H, TYPE-007I, TYPE-007J]
@@ -170,7 +170,9 @@ tasks:
     classification: REAL_TYPE_ERROR
     safety: SAFE_AFTER_TESTS
     diagnostics: 0
-    diagnostics_delegated: 6
+    diagnostics_before: 6
+    diagnostics_delegated: 5
+    diagnostics_resolved: 1
     status: pending
     role: umbrella
     children: [TYPE-007D1, TYPE-007D2]
@@ -185,7 +187,7 @@ tasks:
     classification: REAL_TYPE_ERROR
     safety: SAFE_AFTER_TESTS
     diagnostics: 5
-    status: pending
+    status: ready
     safe_autonomous: false
     human_review: false
     blocks_refactoring: true
@@ -202,17 +204,20 @@ tasks:
     title: Resolve ambiguous profile-less departure identity
     classification: REAL_TYPE_ERROR
     safety: SAFE_AFTER_TESTS
-    diagnostics: 1
-    status: ready
-    safe_autonomous: false
+    diagnostics: 0
+    diagnostics_before: 1
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
     human_review: false
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: [TYPE-005, TYPE-006]
-    owned_diagnostics:
+    resolved_diagnostics:
       - "src/main.tsx:4358:81 TS2345"
     spec: docs/agent/tasks/TYPE-007D2.md
     resolution_decision: unique_normalized_name_or_no_profile_mutation
+    resolution: unique_name_departure_profile_update_with_ambiguous_no_op
   - id: TYPE-007E
     title: Preserve forming and balanced table construction
     classification: REAL_TYPE_ERROR

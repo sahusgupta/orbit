@@ -4317,7 +4317,11 @@ function App() {
   const markPlayerSessionLeft = (playerSession: PlayerSession, cashOutAmount: number, cashOutNote = '') => {
     const leftAt = nowIso();
     const sessionHours = hoursBetween(playerSession.seatedAt, leftAt);
-    const nextState = {
+    const fallbackProfileMatches = playerSession.profileId
+      ? []
+      : state.profiles.filter((profile) => profile.name.toLowerCase() === playerSession.playerName.toLowerCase());
+    const departureProfileId = playerSession.profileId || (fallbackProfileMatches.length === 1 ? fallbackProfileMatches[0].id : undefined);
+    const nextState: AppState = {
       ...state,
       interests: state.interests.map((interest) => {
         const samePlayer = playerSession.profileId
@@ -4345,8 +4349,7 @@ function App() {
         ...state.playerLedger
       ],
       profiles: state.profiles.map((profile) =>
-        profile.id === playerSession.profileId ||
-        (!playerSession.profileId && profile.name.toLowerCase() === playerSession.playerName.toLowerCase())
+        profile.id === departureProfileId
           ? {
               ...profile,
               totalTimePlayedHours: (profile.totalTimePlayedHours ?? 0) + sessionHours,

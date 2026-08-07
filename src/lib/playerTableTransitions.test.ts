@@ -566,7 +566,7 @@ describe('player-session departure profile resolution', () => {
     expectDepartureCompleted(previousState, previousSnapshot, targetInterest, targetSession);
   });
 
-  it('currently fans the departure update out to two case-insensitive duplicate-name profiles', async () => {
+  it('updates no profile when profileId is absent and two case-insensitive duplicate names match', async () => {
     const firstDuplicate = buildProfile('profile-duplicate-a', playerName, 10);
     const secondDuplicate = buildProfile('profile-duplicate-b', 'CASE PLAYER', 20);
     const unrelated = buildProfile('profile-unrelated', unrelatedSession.playerName, 30);
@@ -579,17 +579,8 @@ describe('player-session departure profile resolution', () => {
     await invokeDeparture(inspectorSession, targetSession);
     const nextState = getLatestState();
 
-    expect(getRecord(nextState.profiles, firstDuplicate.id)).toEqual({
-      ...firstDuplicate,
-      totalTimePlayedHours: 12,
-      lastSessionTimePlayedHours: 2
-    });
-    expect(getRecord(nextState.profiles, secondDuplicate.id)).toEqual({
-      ...secondDuplicate,
-      totalTimePlayedHours: 22,
-      lastSessionTimePlayedHours: 2
-    });
-    expect(nextState.profiles[2]).toBe(previousState.profiles[2]);
+    expect(nextState.profiles.map((profile) => profile.id)).toEqual(previousState.profiles.map((profile) => profile.id));
+    nextState.profiles.forEach((profile, index) => expect(profile).toBe(previousState.profiles[index]));
     expectDepartureCompleted(previousState, previousSnapshot, targetInterest, targetSession);
   });
 });
