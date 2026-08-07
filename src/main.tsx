@@ -9065,6 +9065,20 @@ function TagPicker({ selected, onChange }: { selected: TableTag[]; onChange: (ta
   );
 }
 
+export {
+  getAccountKeyFromAccess,
+  getAccountKeyFromState,
+  getAuthStorageKey,
+  getStorageKeyForState,
+  hashStaffPin,
+  hasPersistedSignIn,
+  isFutureDate,
+  isPilotAccessActive,
+  persistSignIn,
+  validatePilotKey,
+  verifyStaffSecret
+};
+
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />

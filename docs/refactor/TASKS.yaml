@@ -40,13 +40,13 @@ tasks:
       - src/domain/reporting.test.ts
   - id: REF-004
     title: Extract licensing and staff-auth helpers
-    status: ready
+    status: ready_after_characterization
     boundary: renderer_identity
     risk: high
     depends_on: [REF-001]
     characterization:
       - src/lib/pilotSignature.test.ts
-      - add_direct_staff_hash_fixtures_before_move
+      - direct_staff_hash_license_key_and_persisted_sign_in_fixtures
   - id: REF-005
     title: Extract remaining demand, table-health, and participant rules
     status: planned

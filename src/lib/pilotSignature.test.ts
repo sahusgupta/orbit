@@ -1,19 +1,38 @@
 /**
  * @vitest-environment jsdom
  */
-import { webcrypto } from 'node:crypto';
+import { pbkdf2Sync, webcrypto } from 'node:crypto';
 import { Session } from 'node:inspector/promises';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import type { RootOptions } from 'react-dom/client';
 import { act } from 'react';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canonicalPayload } from './appCore';
+import { seedState } from '../domain/state';
+import type { AppState, PilotAccess } from '../domain/types';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
 }
 
 type VerificationResult = { error?: string; ok?: boolean };
+
+type LicensingAuthModule = Pick<
+  typeof import('../main'),
+  | 'getAccountKeyFromAccess'
+  | 'getAccountKeyFromState'
+  | 'getAuthStorageKey'
+  | 'getStorageKeyForState'
+  | 'hashStaffPin'
+  | 'hasPersistedSignIn'
+  | 'isFutureDate'
+  | 'isPilotAccessActive'
+  | 'persistSignIn'
+  | 'validatePilotKey'
+  | 'verifyStaffSecret'
+>;
+
+let licensingAuth: LicensingAuthModule;
 
 type ScriptLocation = {
   columnNumber?: number;
@@ -283,7 +302,7 @@ describe('pilot signature verification boundary', () => {
     inspectorSession.connect();
     await inspectorSession.post('Debugger.enable');
     await act(async () => {
-      await import('../main');
+      licensingAuth = await import('../main');
     });
     await captureSignatureHelpers(inspectorSession);
   });
@@ -377,6 +396,87 @@ describe('pilot signature verification boundary', () => {
     await expect(invokeVerification(inspectorSession, payload, validRawSignature)).resolves.toEqual({
       ok: false,
       error: 'Unable to verify license signature.'
+    });
+  });
+
+  it('derives versioned staff secrets deterministically and verifies modern and legacy records', async () => {
+    const secret = '2468';
+    const salt = 'fixture-salt';
+    const expectedModern = `pbkdf2-sha256$210000$${pbkdf2Sync(secret, salt, 210_000, 32, 'sha256').toString('hex')}`;
+    const legacyDigest = await webcrypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}:${secret}`));
+    const legacyHash = Buffer.from(legacyDigest).toString('hex');
+
+    await expect(licensingAuth.hashStaffPin(secret, salt)).resolves.toBe(expectedModern);
+    await expect(licensingAuth.verifyStaffSecret(secret, salt, expectedModern)).resolves.toBe(true);
+    await expect(licensingAuth.verifyStaffSecret(secret, salt, legacyHash)).resolves.toBe(true);
+    await expect(licensingAuth.verifyStaffSecret('wrong', salt, expectedModern)).resolves.toBe(false);
+    await expect(licensingAuth.verifyStaffSecret('wrong', salt, legacyHash)).resolves.toBe(false);
+  });
+
+  it('preserves license date, account-key, and persisted sign-in semantics', () => {
+    const access: PilotAccess = {
+      authorized: true,
+      authorizationCode: 'AUTHORIZATION-CODE',
+      expiresAt: '2099-12-31',
+      activatedAt: '2026-08-07T22:00:00.000Z',
+      issuedTo: 'Fixture Club',
+      licenseId: ' License / Alpha '
+    };
+    const state: AppState = {
+      ...structuredClone(seedState),
+      settings: { ...structuredClone(seedState.settings), pilotAccess: access }
+    };
+
+    expect(licensingAuth.isFutureDate('2026-08-07')).toBe(true);
+    expect(licensingAuth.isFutureDate('2026-08-06')).toBe(false);
+    expect(licensingAuth.isFutureDate('not-a-date')).toBe(false);
+    expect(licensingAuth.isPilotAccessActive(access)).toBe(true);
+    expect(licensingAuth.isPilotAccessActive({ ...access, authorized: false })).toBe(false);
+    expect(licensingAuth.getAccountKeyFromAccess(access)).toBe('license-alpha');
+    expect(licensingAuth.getAccountKeyFromState(state)).toBe('license-alpha');
+    expect(licensingAuth.getStorageKeyForState(state)).toBe('table-manager-state-v1:license-alpha');
+    expect(licensingAuth.getAuthStorageKey(state)).toBe('table-manager-state-v1:auth:license-alpha');
+
+    licensingAuth.persistSignIn(state, true);
+    expect(licensingAuth.hasPersistedSignIn(state)).toBe(true);
+    expect(JSON.parse(localStorage.getItem(licensingAuth.getAuthStorageKey(state)) ?? '{}')).toEqual({
+      expiresAt: access.expiresAt,
+      savedAt: '2026-08-07T22:00:00.000Z'
+    });
+    expect(licensingAuth.hasPersistedSignIn({
+      ...state,
+      settings: { ...state.settings, pilotAccess: { ...access, expiresAt: '2099-12-30' } }
+    })).toBe(false);
+    licensingAuth.persistSignIn(state, false);
+    expect(licensingAuth.hasPersistedSignIn(state)).toBe(false);
+  });
+
+  it('validates signed pilot-key aliases and preserves validation error precedence', async () => {
+    const signature = toBase64(validRawSignature);
+
+    await expect(licensingAuth.validatePilotKey({ payload, signature }, 'fixture.orbit-key')).resolves.toEqual({
+      access: {
+        authorized: true,
+        authorizationCode: payload.authorizationCode,
+        expiresAt: payload.expiresAt,
+        activatedAt: '2026-08-07T22:00:00.000Z',
+        keyFileName: 'fixture.orbit-key',
+        issuedTo: payload.issuedTo,
+        issuedAt: payload.issuedAt,
+        licenseId: payload.licenseId
+      }
+    });
+    await expect(licensingAuth.validatePilotKey({ payload })).resolves.toEqual({
+      error: 'Key file is not signed. Generate a production pilot key with the license tool.'
+    });
+    await expect(licensingAuth.validatePilotKey({ payload: { ...payload, authorizationCode: 'short' }, signature })).resolves.toEqual({
+      error: 'Key file is missing a valid authorization code.'
+    });
+    await expect(licensingAuth.validatePilotKey({ payload: { ...payload, expiresAt: 'invalid' }, signature })).resolves.toEqual({
+      error: 'Key file is missing a valid expiration date.'
+    });
+    await expect(licensingAuth.validatePilotKey({ payload: { ...payload, expiresAt: '2026-08-06' }, signature })).resolves.toEqual({
+      error: 'This pilot key expired on 2026-08-06.'
     });
   });
 });
