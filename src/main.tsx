@@ -9693,7 +9693,7 @@ function App() {
             ) : null}
             {state.games
               .filter((game) => game.id === (state.games.some((item) => item.id === formingGameId) ? formingGameId : state.games[0]?.id))
-              .map((game: { id: any; name: any; maxSeats?: number; minInRoomForLikely?: number; minFlexibleForLikely?: number; minTotalForViable?: number; }) => {
+              .map((game: GameConfig) => {
               const demand = getDemand(game, state.interests);
               const viability = getViabilityState(state, game);
               const formingSession = state.sessions.find((session: { gameId: any; status: string; }) => session.gameId === game.id && session.status === 'Forming');
@@ -9799,7 +9799,7 @@ function App() {
               state.interests
                 .filter((interest) => activeInterestStatuses.includes(interest.status))
                 .slice(0, 8)
-                .map((interest: { gameId: any; id: any; playerName: any; status: any; interestedAt: any; manualEdits: any; arrivedAt: any; }) => {
+                .map((interest: Interest) => {
                 const game = state.games.find((item: { id: any; }) => item.id === interest.gameId);
                 return (
                   <article className="waitlist-card" key={interest.id}>

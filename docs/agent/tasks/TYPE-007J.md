@@ -1,6 +1,6 @@
 # TYPE-007J: Preserve canonical domain items in floor render callbacks
 
-Status: `ready`
+Status: `complete`
 
 Safety: `SAFE_AFTER_TESTS`
 
@@ -71,3 +71,12 @@ Not required if render output and action wiring remain unchanged.
 ## Stop conditions
 
 Stop if the render path needs a domain-rule change, a new game default, or runtime validation of malformed persisted records.
+
+## Completion record
+
+- Added `src/components/FloorCollectionCallbacks.test.tsx` and passed it against unchanged production before implementation. Its local jsdom fixture disables Firebase, stubs network access, and covers complete canonical game thresholds/caps, demand and viability text, forming and non-forming actions, active/inactive filtering, source order, the eight-item cap, missing `manualEdits`/`arrivedAt`, edited markers, unknown-game fallback, empty state, and state value/reference non-mutation.
+- Committed the test-only gate as `961ccc8` with message `test: characterize floor render projections`.
+- Replaced only the forming-game mapper's structural annotation with `GameConfig` and the waitlist mapper's structural annotation with `Interest`. No expression, filter, order, fallback, label, action, or persisted value changed.
+- The three owned `TS2345` diagnostics are absent. Root TypeScript moved from 67 to 64 diagnostics, `TS2345` from 33 to 30, and `src/main.tsx` from 58 to 55; every other code/path count stayed unchanged.
+- Focused Vitest, Player TypeScript, all 22 files/100 tests, and the 1,912-module renderer build pass. Aggregate verification exits 1 only for the expected 64-diagnostic root baseline.
+- Only `TYPE-007J` is complete. The `TYPE-007` umbrella remains pending on seven unfinished children, including `TYPE-007F` in `review_required`; no task became newly ready.
