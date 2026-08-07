@@ -1,8 +1,10 @@
 import { Buffer } from 'node:buffer';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
 
 const electronMainSource = readFileSync(new URL('../../electron/main.cjs', import.meta.url), 'utf8');
+const require = createRequire(import.meta.url);
 
 function extractFunctionSource(name: string) {
   const asyncStart = electronMainSource.indexOf(`async function ${name}(`);
@@ -42,16 +44,22 @@ type SanitizeAccountKey = (value: unknown) => string;
 type GetAccountKeyFromAccess = (access: unknown) => string;
 type GetAccountKeyFromState = (state: unknown) => string;
 
-function loadGetRecordProperty() {
-  const isRecord = loadFunction<(value: unknown) => boolean>('isRecord');
-  return loadFunction<(value: unknown, key: string) => unknown>('getRecordProperty', { isRecord });
-}
+type ElectronRuntimeUtils = {
+  getAccountKeyFromAccess: GetAccountKeyFromAccess;
+  getAccountKeyFromState: GetAccountKeyFromState;
+  getRecordProperty: (value: unknown, key: string) => unknown;
+  isRecord: (value: unknown) => boolean;
+  normalizeTextMessageBatch: NormalizeTextMessageBatch;
+  orbitApiErrorDetails: OrbitApiErrorDetails;
+  sanitizeAccountKey: SanitizeAccountKey;
+  validateStatePayload: ValidateStatePayload;
+};
+
+const runtimeUtils: ElectronRuntimeUtils = require('../../electron/runtimeUtils.cjs');
 
 describe('Electron main compiler findings', () => {
   it('preserves Error and cause details including an authoritative nested error code', () => {
-    const orbitApiErrorDetails = loadFunction<OrbitApiErrorDetails>('orbitApiErrorDetails', {
-      getRecordProperty: loadGetRecordProperty()
-    });
+    const { orbitApiErrorDetails } = runtimeUtils;
     const cause = Object.assign(new Error('socket closed'), { code: 'ECONNRESET' });
     const error = new Error('request failed', { cause });
 
@@ -79,7 +87,7 @@ describe('Electron main compiler findings', () => {
       URLSearchParams,
       encodeURIComponent,
       fetch,
-      getRecordProperty: loadGetRecordProperty()
+      getRecordProperty: runtimeUtils.getRecordProperty
     });
     const config = { accountSid: 'local-account', from: '+15550100', username: 'local-user', password: 'local-pass' };
     const message = { to: '+15550101', body: 'Local test' };
@@ -98,9 +106,7 @@ describe('Electron main compiler findings', () => {
 
 describe('Electron runtime boundary utilities', () => {
   it('validates the minimum persisted-state structure with exact failures', () => {
-    const validateStatePayload = loadFunction<ValidateStatePayload>('validateStatePayload', {
-      isRecord: loadFunction<(value: unknown) => boolean>('isRecord')
-    });
+    const { validateStatePayload } = runtimeUtils;
     const validState = { games: [], sessions: [], playerSessions: [], settings: {} };
 
     expect(() => validateStatePayload(validState)).not.toThrow();
@@ -112,7 +118,7 @@ describe('Electron runtime boundary utilities', () => {
   });
 
   it('normalizes, filters, orders, caps, and does not mutate outreach messages', () => {
-    const normalizeTextMessageBatch = loadFunction<NormalizeTextMessageBatch>('normalizeTextMessageBatch');
+    const { normalizeTextMessageBatch } = runtimeUtils;
     const messages = [
       { to: ' +15550101 ', body: ' First ', profileId: 7, playerName: 'Alex', gameId: 'nlh', reason: 'seat-opened' },
       { to: '', body: 'Missing destination' },
@@ -133,10 +139,7 @@ describe('Electron runtime boundary utilities', () => {
   });
 
   it('preserves account-key precedence, normalization, fallback, and length limits', () => {
-    const isRecord = loadFunction<(value: unknown) => boolean>('isRecord');
-    const sanitizeAccountKey = loadFunction<SanitizeAccountKey>('sanitizeAccountKey');
-    const getAccountKeyFromAccess = loadFunction<GetAccountKeyFromAccess>('getAccountKeyFromAccess', { isRecord, sanitizeAccountKey });
-    const getAccountKeyFromState = loadFunction<GetAccountKeyFromState>('getAccountKeyFromState', { getAccountKeyFromAccess, sanitizeAccountKey });
+    const { getAccountKeyFromAccess, getAccountKeyFromState, sanitizeAccountKey } = runtimeUtils;
 
     expect(sanitizeAccountKey('  Club @ 123 !!! ')).toBe('club-123');
     expect(sanitizeAccountKey('A'.repeat(120))).toBe('a'.repeat(96));
