@@ -8,7 +8,7 @@ Dependency-restoration starting commit: `02cdd71`
 
 ## Verification state: partial failure
 
-The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, `TYPE-001` has aligned the renderer library contract, `TYPE-005` has restored synchronized-list tuple inference, `TYPE-006` has repaired exact map/filter result narrowing, `TYPE-012` has corrected the two test-only contracts, and the remaining 71 diagnostics are application, test, stale-contract, or platform errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
+The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, `TYPE-001` has aligned the renderer library contract, `TYPE-005` has restored synchronized-list tuple inference, `TYPE-006` has repaired exact map/filter result narrowing, `TYPE-012` has corrected the two test-only contracts, `TYPE-007A` has preserved complete canonical profiles during duplicate grouping, and the remaining 69 diagnostics are application, test, stale-contract, or platform errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
 
 No production source was changed during this rebaseline. No compiler setting was weakened, no file was excluded, and no diagnostic suppression or unsafe cast was added.
 
@@ -38,13 +38,14 @@ Post-install dependency-tree inspection found one physical root React 19.2.6 ins
 | After `TYPE-005` tuple-inference correction | 79 diagnostics in 6 files |
 | After `TYPE-006` map/filter correction | 73 diagnostics in 6 files |
 | After `TYPE-012` test-contract correction | 71 diagnostics in 4 files |
+| After `TYPE-007A` profile-grouping correction | 69 diagnostics in 4 files |
 | Dependency-restoration displayed-diagnostic reduction | 3,536 |
-| Current net displayed-diagnostic reduction | 3,559 |
+| Current net displayed-diagnostic reduction | 3,561 |
 | Missing React/ReactDOM cascade diagnostics removed | 3,598 |
 | Previously visible non-cascade diagnostics retained | 32 |
 | Previously masked diagnostics exposed | 62 |
 
-The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The dependency-restoration arithmetic is `3,630 - 3,598 + 62 = 94`; the 6 diagnostics removed by `TYPE-001`, 9 removed by `TYPE-005`, 6 removed by `TYPE-006`, and 2 removed by `TYPE-012` establish the current total of 71.
+The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The dependency-restoration arithmetic is `3,630 - 3,598 + 62 = 94`; the 6 diagnostics removed by `TYPE-001`, 9 removed by `TYPE-005`, 6 removed by `TYPE-006`, 2 removed by `TYPE-012`, and 2 removed by `TYPE-007A` establish the current total of 69.
 
 No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency issue is resolved; the root gate remains red because the declarations revealed real contracts that the previous untyped React layer could not check.
 
@@ -54,29 +55,28 @@ No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency
 
 | Code | Count |
 | --- | ---: |
-| `TS2322` | 18 |
+| `TS2322` | 17 |
 | `TS2339` | 5 |
 | `TS2345` | 35 |
 | `TS2352` | 1 |
 | `TS2353` | 1 |
 | `TS2367` | 1 |
 | `TS2739` | 2 |
-| `TS2740` | 1 |
 | `TS2769` | 5 |
 | `TS7006` | 2 |
-| **Total** | **71** |
+| **Total** | **69** |
 
 ### By affected path
 
 | Path | Count | Application/package |
 | --- | ---: | --- |
-| `src/main.tsx` | 62 | Root management renderer |
+| `src/main.tsx` | 60 | Root management renderer |
 | `src/lib/firebaseClubSync.ts` | 5 | Root renderer/Firebase sync boundary |
 | `src/lib/playerSync.ts` | 2 | Root renderer/player-sync domain copy |
 | `src/lib/playerSync.test.ts` | 2 | Root package tests |
-| **Total** | **71** | |
+| **Total** | **69** | |
 
-Production root source accounts for 69 diagnostics and root tests account for 2. Electron, API, Player, download-site, e2e, generated output, and dependency source account for zero diagnostics because they are not part of this root TypeScript project's `include: ["src"]` boundary.
+Production root source accounts for 67 diagnostics and root tests account for 2. Electron, API, Player, download-site, e2e, generated output, and dependency source account for zero diagnostics because they are not part of this root TypeScript project's `include: ["src"]` boundary.
 
 ## Root-cause summary
 
@@ -88,7 +88,7 @@ Production root source accounts for 69 diagnostics and root tests account for 2.
 | `TYPE-004` | `REAL_TYPE_ERROR` | 1 | Membership `Denied` narrowing is lost across a callback | Yes | Yes | No | Yes |
 | `TYPE-005` | `REAL_TYPE_ERROR` | 0 | Resolved: explicit synchronized-entry tuples preserve the helper's generic value type | No | No | Completed | No |
 | `TYPE-006` | `REAL_TYPE_ERROR` | 0 | Resolved: exact mapper result types and non-null narrowing preserve all three pipelines | No | No direct block | Completed | No |
-| `TYPE-007` | `REAL_TYPE_ERROR` | 51 | Hand-written structural callback types discard optional/required domain fields | Yes | No direct block | No as one repair | Yes for behavior grouping |
+| `TYPE-007` | `REAL_TYPE_ERROR` | 49 | Remaining hand-written structural callback types discard optional/required domain fields; duplicate-profile grouping is resolved | Yes | No direct block | No as one repair | Yes for remaining behavior batches |
 | `TYPE-008` | `REAL_TYPE_ERROR` | 2 | Profile import paths do not validate/narrow unknown input to `PlayerProfile` | Yes | No direct block | No | Yes |
 | `TYPE-009` | `REAL_TYPE_ERROR` | 2 | Desktop account result nullability and shallow `Partial<AppState>` mismatch | Yes | No direct block | No | Yes |
 | `TYPE-010` | `REAL_TYPE_ERROR` | 4 | GroupMe setter callbacks and candidate shape lose required fields | Yes | No direct block | No | Yes |
@@ -96,7 +96,7 @@ Production root source accounts for 69 diagnostics and root tests account for 2.
 | `TYPE-012` | `TEST_TYPE_ERROR` | 0 | Resolved: exact act global and production-facing fixture typing | No | No | Completed | No |
 | `TYPE-013` | `STALE_OR_DEAD_CODE` | 1 | Legacy settings migration is represented by an incompatible whole-object cast | Yes | No | No | Yes |
 | `TYPE-014` | `STALE_OR_DEAD_CODE` | 1 | `addInterest` compares a form status union to unreachable `Seated` | Yes | No direct block | No | Yes |
-| **Total** | | **71** | | | | | |
+| **Total** | | **69** | | | | | |
 
 No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISMATCH`, or `UNKNOWN_REQUIRES_INVESTIGATION`. Those dependency/configuration discovery issues are resolved or have been converted into evidence-backed tasks.
 
@@ -170,13 +170,14 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 ### TYPE-007 — Renderer callback contract erosion
 
 - Classification: `REAL_TYPE_ERROR`.
-- Representative diagnostics: 51 `TS2322`, `TS2339`, `TS2345`, `TS2740`, and `TS2769` errors across profile grouping, waitlist updates, session/table transitions, profile merging, reports, and rendering callbacks.
-- Affected symbols include `duplicateProfiles`, `updateInterest`, `updateInterestTimestamp`, `updatePlayerSession`, `movePlayerToTable`, `markPlayerLeft`, `markPlayerSessionLeft`, `addSession`, `addPlannedSession`, `createBalancedTable`, `updateSession`, `recordTableEvent`, `deleteProfile`, `mergeDuplicateProfiles`, `addProfileToClub`, `removeProfileFromClub`, `exportCsv`, and several render lists.
+- Remaining diagnostics: 49 `TS2322`, `TS2339`, `TS2345`, and `TS2769` errors across waitlist updates, session/table transitions, profile merging, reports, and rendering callbacks. `TYPE-007A` removed the profile-grouping `TS2322`/`TS2740` pair.
+- Remaining affected symbols include `updateInterest`, `updateInterestTimestamp`, `updatePlayerSession`, `movePlayerToTable`, `markPlayerLeft`, `markPlayerSessionLeft`, `addSession`, `addPlannedSession`, `createBalancedTable`, `updateSession`, `recordTableEvent`, `deleteProfile`, `mergeDuplicateProfiles`, `addProfileToClub`, `removeProfileFromClub`, `exportCsv`, and several render lists.
 - Root cause: hand-written structural callback parameter annotations make optional domain fields required or discard fields later preserved with object spread. React typings restore contextual function checking and expose the mismatch; several state literals also widen status strings.
 - Confidence: high; pre-existing but mostly previously masked. Runtime may be correct where spread preserves fields, but state transitions can currently construct incomplete or widened objects.
 - Recommended correction: repair one behavior boundary at a time using canonical domain types and characterization tests; do not bulk-delete annotations without checking behavior.
 - Risk/tests: high because waitlist, table, persistence, and reporting flows are involved.
 - Autonomous correction: no as one broad repair; execute bounded subgroups under the task's stop conditions.
+- Completed subgroup: `TYPE-007A` characterized the actual renderer computation before changing production, then restored the callback to canonical `PlayerProfile`. Name normalization, group/source ordering, singleton exclusion, complete profile fields, object references, rendering, and merge consumption remain unchanged.
 
 ### TYPE-008 — Profile import normalization
 
@@ -260,7 +261,7 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 2. `TYPE-002`: canonicalize the shared Player snapshot contract.
 3. `TYPE-003` and `TYPE-004`: characterize sync and membership boundaries.
 4. Completed: `TYPE-005` restored synchronized-list tuple inference and `TYPE-006` repaired exact map/filter result narrowing.
-5. Ready: `TYPE-007` now has both dependencies complete; split renderer state transitions into characterized behavior batches when that separate task is authorized.
+5. In progress by bounded child: `TYPE-007A` is complete; the umbrella retains 49 diagnostics across its other nine characterized or review-required batches and is not complete.
 6. `TYPE-008`, `TYPE-009`, and `TYPE-010`: repair import, persistence, and GroupMe boundaries independently when their dependencies are complete.
 7. `TYPE-011`: repair Web Crypto only with security fixtures.
 8. Completed: `TYPE-012` corrected the two root test-only contracts.
@@ -379,3 +380,28 @@ Final implementation verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 71 diagnostics, while Player TypeScript, 19/96 tests, and the 1,912-module build passed.
 
 `TYPE-012` is complete. `TYPE-015` remains planned because `TYPE-021` is incomplete, so no downstream task became newly ready; no additional remediation task was started.
+
+## TYPE-007A completion update — 2026-08-06
+
+The duplicate-profile computation now consumes canonical `PlayerProfile` values instead of locally redefining a partial profile fragment. A focused jsdom test was added and passed before production changed; it loads only local fixture state, disables Firebase behavior, stubs network access, and observes the existing renderer computation and output. The test-only checkpoint is `e4fbb7a`.
+
+Characterization confirms whitespace/case normalization through `trim().toLowerCase()`, singleton exclusion, a duplicate group with more than two profiles, more than two duplicate groups, source order within groups, first-seen group order, complete required/optional fields, and rendered order. The implementation still creates new group arrays containing the same state profile object references and passes those complete groups to the existing merge consumer.
+
+The first post-change root typecheck produced exactly 69 diagnostics in the same 4 files:
+
+- the assigned `TS2322` formerly at `src/main.tsx:2631:24` disappeared;
+- the assigned `TS2740` formerly at `src/main.tsx:2631:52` disappeared;
+- `TS2322` decreased from 18 to 17, `TS2740` decreased from 1 to 0, and `src/main.tsx` decreased from 62 to 60;
+- every other diagnostic-code and affected-path count stayed unchanged; and
+- no new diagnostic appeared.
+
+Final implementation verification:
+
+- PASS before and after implementation: `npx --no-install vitest run src/lib/profileGrouping.test.ts` — 1 file and 1 test.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 69 diagnostics in 4 files; both assigned diagnostics absent; no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 20 files and 97 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,912 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 69 diagnostics, while Player TypeScript, 20/97 tests, and the 1,912-module build passed.
+
+`TYPE-007A` is complete. `TYPE-007` remains pending on its other nine children and must not be marked complete. `TYPE-008` still depends on incomplete `TYPE-007H`; no downstream task became newly ready and no additional remediation task was started.

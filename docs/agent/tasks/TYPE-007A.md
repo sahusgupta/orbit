@@ -1,6 +1,6 @@
 # TYPE-007A: Preserve complete profiles while grouping duplicates
 
-Status: `ready`
+Status: `complete`
 
 Safety: `SAFE_AFTER_TESTS`
 
@@ -60,7 +60,7 @@ Completed `TYPE-005` and `TYPE-006`.
 
 ## Autonomous implementation
 
-Safe only after the characterization tests pass against current behavior.
+Completed only after the focused characterization passed against the unchanged implementation.
 
 ## Human review
 
@@ -69,3 +69,29 @@ Not required unless characterization reveals a competing duplicate-identity rule
 ## Stop conditions
 
 Stop if profile identity is not name-based in all callers or if testing requires changing merge behavior.
+
+## Implementation
+
+- Added a focused jsdom characterization that loads the unchanged renderer with local state, disabled Firebase behavior, and stubbed network access.
+- Replaced only the duplicate-group callback's partial structural annotation with the canonical `PlayerProfile` type.
+- Kept the `Map<string, PlayerProfile[]>`, normalization expression, array construction, filtering rule, render path, and merge call unchanged.
+
+## Characterized behavior
+
+The input is `state.profiles`, whose canonical type is `PlayerProfile[]`. The grouping key remains `profile.name.trim().toLowerCase()`. Each append creates a new group array while retaining the same complete profile object from state. JavaScript `Map` insertion order preserves the first-seen group order, array append preserves source order inside each group, and the final filter excludes singleton groups. The profile screen renders groups in that order and passes each group to `mergeDuplicateProfiles`.
+
+The focused fixture covers a unique profile, a three-profile whitespace/case-normalized group, three duplicate groups, source/group ordering, rendered ordering, and deep preservation of every required and optional profile field.
+
+## Completion verification
+
+- Pre-change focused gate: `npx --no-install vitest run src/lib/profileGrouping.test.ts` passed 1 file and 1 test against unchanged production source.
+- Test-only checkpoint: `e4fbb7a` (`test: characterize duplicate profile grouping`).
+- Post-change focused gate: the same command passed 1 file and 1 test.
+- Root TypeScript: expected failure with exactly 69 diagnostics in 4 files, down from 71. `TS2322` decreased from 18 to 17, `TS2740` decreased from 1 to 0, and `src/main.tsx` decreased from 62 to 60 diagnostics; every other code and path count remained unchanged.
+- Both owned diagnostics disappeared: `src/main.tsx:2631:24` (`TS2322`) and `src/main.tsx:2631:52` (`TS2740`).
+- Player TypeScript passed with no diagnostics.
+- Unit tests passed: 20 files and 97 tests, zero failed or skipped. The existing experimental SQLite warning remained.
+- Renderer build passed with 1,912 modules transformed. The existing ExcelJS `eval` and large-chunk warnings remained.
+- `npm run verify` exited 1 after all four gates; root TypeScript alone retained the expected 69-diagnostic baseline, while Player TypeScript, 20/97 tests, and the 1,912-module build passed.
+
+No runtime logic, profile schema, persisted shape, Firebase/API behavior, merge behavior, compiler setting, dependency, cast, assertion, `any`, or diagnostic suppression changed. `TYPE-007` remains pending on its other nine children. `TYPE-008` remains pending on `TYPE-007H`, so no downstream task became newly ready.

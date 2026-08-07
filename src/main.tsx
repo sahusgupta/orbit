@@ -2626,7 +2626,7 @@ function App() {
   );
   const duplicateProfiles = useMemo(() => {
     const groups = new Map<string, PlayerProfile[]>();
-    state.profiles.forEach((profile: { name: any; id?: string; preferredGameIds?: string[]; preferredStakes?: string; typicalBuyInMin?: number; typicalBuyInMax?: number; willingnessToMove?: boolean; typicalAvailability?: string; usualCompanions?: string[]; preferredTags?: TableTag[]; notes?: string; }) => {
+    state.profiles.forEach((profile: PlayerProfile) => {
       const key = profile.name.trim().toLowerCase();
       groups.set(key, [...(groups.get(key) ?? []), profile]);
     });

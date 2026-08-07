@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, and completed `TYPE-012` now establishes the truthful current baseline at 71 diagnostics in 4 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, and completed `TYPE-007A` now establishes the truthful current baseline at 69 diagnostics in 4 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -355,3 +355,27 @@ Final implementation verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 71 diagnostics, while Player TypeScript, 19/96 tests, and the 1,912-module build passed.
 
 `TYPE-012` is complete. `TYPE-015` remains planned because its other dependency, `TYPE-021`, is incomplete; no downstream task became newly ready.
+
+## TYPE-007A Duplicate-Profile Grouping — 2026-08-06
+
+Before production source changed, a focused jsdom characterization exercised the renderer's existing duplicate-profile computation with all remote integration paths mocked or disabled. It proves that grouping reads canonical `PlayerProfile[]`, normalizes names with `trim().toLowerCase()`, preserves source order inside groups and first-seen group order, excludes singleton groups, and carries every required and optional profile field through to the rendered merge affordance. New arrays contain the same complete state profile objects; no projection or copy drops fields.
+
+After the pre-change test passed and was committed separately as `e4fbb7a`, the partial structural callback annotation was replaced with canonical `PlayerProfile`. No grouping expression, merge behavior, runtime condition, persisted shape, Firebase/API path, or UI behavior changed.
+
+The first post-change root typecheck produced exactly 69 diagnostics in the same 4 files:
+
+- both `TYPE-007A` diagnostics disappeared: `TS2322` formerly at `src/main.tsx:2631:24` and `TS2740` formerly at `src/main.tsx:2631:52`;
+- `TS2322` decreased from 18 to 17, `TS2740` decreased from 1 to 0, and `src/main.tsx` decreased from 62 to 60 diagnostics;
+- every other diagnostic-code and affected-path count stayed unchanged; and
+- the focused characterization file has no diagnostic.
+
+Final implementation verification:
+
+- PASS before and after implementation: `npx --no-install vitest run src/lib/profileGrouping.test.ts` — 1 file and 1 test.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 69 diagnostics in 4 files, neither assigned diagnostic present, and no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 20 files and 97 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,912 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 69 diagnostics, while Player TypeScript, 20/97 tests, and the 1,912-module renderer build passed.
+
+`TYPE-007A` is complete. The `TYPE-007` umbrella remains pending on its other nine children. `TYPE-008` still depends on incomplete `TYPE-007H`, so no downstream task became newly ready.

@@ -81,3 +81,17 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Mechanical validation found 51 inventory entries, 51 unique child-spec entries, zero ownership difference from the live compiler set, 10/10 child specs with all required sections, a parsed YAML queue totaling 71 current diagnostics, and zero dependency cycles.
 - Final `npm run typecheck` retained exactly 71 diagnostics in the same 4 files and identical code counts; documentation changed no compiler output.
 - Final `npm run verify` exited 1 only for that expected root TypeScript baseline. Player TypeScript passed, all 19 files/96 tests passed, and the renderer build passed with 1,912 modules transformed; the existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
+
+## 2026-08-06 — TYPE-007A duplicate-profile grouping
+
+- Started from a clean `fix/type-005-synchronized-list-tuples` worktree at decomposition commit `83bd6d6`; confirmed the branch was not `main` and contained completed `TYPE-001`, `TYPE-005`, `TYPE-006`, and `TYPE-012` work.
+- Re-recorded the untouched baseline with `npm run typecheck`: exactly 71 diagnostics in 4 files, including only the assigned `TS2322` and `TS2740` diagnostics at `src/main.tsx:2631:24` and `2631:52`.
+- Traced the input as canonical `PlayerProfile[]`, the key as `name.trim().toLowerCase()`, source order within groups, first-seen `Map` group order, complete profile object references, singleton exclusion, and downstream profile-directory rendering plus merge consumption.
+- Added only `src/lib/profileGrouping.test.ts` for Gate 1. `npx --no-install vitest run src/lib/profileGrouping.test.ts` passed 1 file and 1 test against unchanged production source, covering whitespace/case normalization, a unique profile, a three-profile duplicate set, three distinct duplicate groups, ordering, and deep preservation of every required and optional profile field.
+- A test-development `npm run typecheck` exposed one new `TS2339` in the mock harness for an unnecessary `actual.default` access (72 total). Removed that test-only access, reran the focused test successfully, and confirmed the root baseline returned to exactly 71 with no diagnostic in the characterization file before committing.
+- Committed the test-only checkpoint as `e4fbb7a` with message `test: characterize duplicate profile grouping`; no production file was part of that commit.
+- Changed one production annotation in `duplicateProfiles` from the partial structural fragment to canonical `PlayerProfile`. The grouping key, arrays, filter, object references, rendering, and merge behavior remain unchanged.
+- The post-change focused command passed 1 file and 1 test. `npm run typecheck` then retained exactly 69 diagnostics in 4 files: `TS2322` changed from 18 to 17, `TS2740` from 1 to 0, and `src/main.tsx` from 62 to 60; every other code/path count stayed unchanged and both owned diagnostics were absent.
+- `npm run player:typecheck` passed; `npm test` passed 20 files/97 tests; `npm run build` passed with 1,912 modules transformed. The existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
+- `npm run verify` ran all four gates and exited 1 only for the expected 69-diagnostic root baseline; Player TypeScript, 20/97 tests, and the 1,912-module build passed.
+- Marked only `TYPE-007A` complete. The `TYPE-007` umbrella remains pending on nine children, and `TYPE-008` remains pending on `TYPE-007H`; no downstream task became newly ready and no other remediation batch was started.
