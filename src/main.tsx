@@ -654,6 +654,17 @@ type ParticipantCandidate = {
   source: 'interest';
 };
 
+type ParticipantCandidateWithInterest = ParticipantCandidate & { interest: Interest };
+type ParticipantCandidateWithoutInterest = ParticipantCandidate & { interest?: undefined };
+
+const hasParticipantInterest = (
+  candidate: ParticipantCandidate
+): candidate is ParticipantCandidateWithInterest => candidate.interest !== undefined;
+
+const lacksParticipantInterest = (
+  candidate: ParticipantCandidate
+): candidate is ParticipantCandidateWithoutInterest => candidate.interest === undefined;
+
 type BalancePlan = {
   game: GameConfig;
   demand: ReturnType<typeof getDemand>;
@@ -4415,8 +4426,8 @@ function App() {
     const collectionProfile = getCollectionProfile(state, game.id);
     const currentCount = state.sessions.filter((session: { gameId: any; status: string; }) => session.gameId === game.id && session.status !== 'Closed').length;
     const newInterests = participantPool
-      .filter((candidate: { interest: any; }) => !candidate.interest)
-      .map((candidate: { profile: { id: any; }; playerName: any; }) => ({
+      .filter(lacksParticipantInterest)
+      .map((candidate): Interest => ({
         id: uid(),
         profileId: candidate.profile?.id,
         playerName: candidate.playerName,
@@ -4441,8 +4452,8 @@ function App() {
           timeFeeBased: collectionProfile.collectionMode === 'Time',
           collectionMode: collectionProfile.collectionMode,
           plannedPlayerIds: [
-            ...participantPool.filter((candidate: { interest: any; }) => candidate.interest).map((candidate: { interest: any; }) => candidate.interest!.id),
-            ...newInterests.map((interest: { id: any; }) => interest.id)
+            ...participantPool.filter(hasParticipantInterest).map((candidate) => candidate.interest.id),
+            ...newInterests.map((interest) => interest.id)
           ],
           tags: [],
           startedAt: nowIso()
@@ -7298,7 +7309,7 @@ function App() {
             </button>
           </div>
           <div className="builder-grid single-window-grid">
-            {participantPool.map((candidate: { id: any; playerName: any; reasons: any[]; profile: { preferredStakes: any; typicalBuyInMin: any; typicalBuyInMax: any; }; source: string; }, index: number) => (
+            {participantPool.map((candidate: ParticipantCandidate, index: number) => (
               <article className="candidate-card" key={candidate.id}>
                 <div className="candidate-rank">{index + 1}</div>
                 <div>

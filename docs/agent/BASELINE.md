@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, `TYPE-007C` reduced it to 53, completed `TYPE-007D` reduced it to 47, `TYPE-007G` reduced it to 39, and completed `TYPE-007E` now establishes the truthful current baseline at 35 diagnostics in 4 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, `TYPE-007C` reduced it to 53, completed `TYPE-007D` reduced it to 47, `TYPE-007G` reduced it to 39, `TYPE-007E` reduced it to 35, and completed `TYPE-007F` now establishes the truthful current baseline at 30 diagnostics in 4 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -529,3 +529,27 @@ Final implementation verification:
 Read-only inspection found that current name fallback is ambiguous across persisted profile relationships. `removeProfileFromClub` can delete multiple differently linked `Arrived` interests for same-name profiles, while `addProfileToClub`/`ensureInterestEntry` can select and retarget the first same-name record by collection order. Profile-directory and membership-QR presence checks project the same ambiguity into visible behavior.
 
 The task was stopped without production or test changes and marked `review_required` with all 10 diagnostics retained. The precise decision is recorded in `docs/agent/tasks/TYPE-007H.md`: choose authoritative ID plus a unique unlinked-name fallback (recommended), explicit operator disambiguation, or intentional same-name equivalence/fan-out. The truthful root baseline remains 35 diagnostics in 4 files; aggregate verification failed only on that root baseline while Player TypeScript, 27 files/134 tests, and the 1,912-module renderer build passed.
+
+## TYPE-007F Planned-Participant Optional Contract — 2026-08-07
+
+After the human-approved Option C decision, a focused local jsdom characterization captured the existing planned-participant pool, rendering, and planned-table persistence with Firebase disabled and network access stubbed. It passed 1 file/3 tests against unchanged production and was committed separately as `8e3bcc4`. Coverage proves that active interests alone produce candidates, optional profiles retain both render paths, profile-only records stay excluded, ranked interest order becomes planned-player ID order, no new interests are created, profile-only input produces an empty planned table, session/event/usage payloads remain complete, and prior state remains unchanged.
+
+The implementation adds explicit presence/absence guards for optional candidate interests, gives the dormant new-interest mapper a canonical `Interest` result boundary, and renders with canonical `ParticipantCandidate`. It does not activate profile-only candidates, delete the dormant branch, make optional fields required, or change any construction, ordering, display fallback, or persisted value.
+
+The first post-change root typecheck produced exactly 30 diagnostics in the same 4 files:
+
+- all five `TYPE-007F` diagnostics disappeared: the two `TS2769` and two `TS2345` errors at current pre-fix lines 4417-4444, plus the participant-card `TS2345` at 7301;
+- `TS2345` decreased from 13 to 10, `TS2769` decreased from 4 to 2, and `src/main.tsx` decreased from 26 to 21;
+- every other diagnostic-code and affected-path count stayed unchanged; and
+- the focused characterization file has no diagnostic.
+
+Final implementation verification:
+
+- PASS before and after implementation: `npx --no-install vitest run src/lib/plannedParticipants.test.ts` — 1 file and 3 tests.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 30 diagnostics in 4 files; all five assigned diagnostics absent; no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 28 files and 137 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,912 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 30 diagnostics, while Player TypeScript, 28/137 tests, and the 1,912-module renderer build passed.
+
+`TYPE-007F` is complete. The `TYPE-007` umbrella remains pending only on decision-blocked `TYPE-007H`; `TYPE-008` remains blocked by `TYPE-007H` and `TYPE-010` remains blocked by the umbrella. Independent remediation can continue, and nothing was pushed.

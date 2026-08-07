@@ -1,7 +1,7 @@
 queue: root-typescript-remediation
 temporary: true
 source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
-baseline_diagnostics: 35
+baseline_diagnostics: 30
 baseline_files: 4
 status: partial_failure
 ordering:
@@ -92,8 +92,8 @@ tasks:
     classification: REAL_TYPE_ERROR
     diagnostics: 0
     diagnostics_before: 51
-    diagnostics_delegated: 15
-    diagnostics_resolved: 36
+    diagnostics_delegated: 10
+    diagnostics_resolved: 41
     status: pending
     role: umbrella
     children: [TYPE-007A, TYPE-007B, TYPE-007C, TYPE-007D, TYPE-007E, TYPE-007F, TYPE-007G, TYPE-007H, TYPE-007I, TYPE-007J]
@@ -245,14 +245,16 @@ tasks:
     title: Decide the planned-participant domain contract
     classification: REAL_TYPE_ERROR
     safety: SAFE_AFTER_TESTS
-    diagnostics: 5
-    status: ready
-    safe_autonomous: false
+    diagnostics: 0
+    diagnostics_before: 5
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
     human_review: false
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: [TYPE-005, TYPE-006]
-    owned_diagnostics:
+    resolved_diagnostics:
       - "src/main.tsx:4415:15 TS2769"
       - "src/main.tsx:4416:12 TS2345"
       - "src/main.tsx:4441:39 TS2769"
@@ -260,6 +262,7 @@ tasks:
       - "src/main.tsx:7298:34 TS2345"
     spec: docs/agent/tasks/TYPE-007F.md
     decision: preserve_optional_contract_with_interest_only_runtime
+    resolution: explicit_optional_candidate_guards_with_interest_only_characterization
   - id: TYPE-007G
     title: Preserve table lifecycle and event transitions
     classification: REAL_TYPE_ERROR

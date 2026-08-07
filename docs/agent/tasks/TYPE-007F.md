@@ -1,6 +1,6 @@
 # TYPE-007F: Decide the planned-participant domain contract
 
-Status: `ready`
+Status: `complete`
 
 Safety: `SAFE_AFTER_TESTS`
 
@@ -83,6 +83,14 @@ For all options, cover candidate order, optional profile rendering, planned ID o
 ## Acceptance criteria
 
 All 5 owned diagnostics disappear under the approved model, the decision is recorded in this spec/journal, and only approved runtime/data consequences occur.
+
+## Completion record
+
+Completed on 2026-08-07 under approved Option C. A focused local jsdom characterization passed against unchanged production and was committed separately as `8e3bcc4`. Its three cases prove that current candidates remain active-interest-backed, profiles remain optional in rendering, profile-only records do not enter the candidate pool, planned-player IDs preserve ranked interest order, no new interests are created, empty profile-only input remains an empty planned table, persisted session/event/usage shapes remain complete, and input state remains unchanged.
+
+Production now uses explicit presence and absence type guards for optional `interest`, a canonical `Interest` result boundary for the dormant branch, and the canonical `ParticipantCandidate` render callback. Candidate construction, ranking, rendering fallbacks, persisted values/order, and the dormant profile-only behavior are unchanged. All five owned diagnostics disappeared; root TypeScript decreased from 35 to 30 diagnostics with no new diagnostic.
+
+Verification passed the focused 1-file/3-test suite, Player TypeScript, all 28 files/137 unit tests, and the 1,912-module renderer build. Aggregate verification ran all gates and failed only on the expected 30-diagnostic root baseline.
 
 ## Verification commands
 

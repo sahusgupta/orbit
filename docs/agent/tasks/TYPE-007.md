@@ -21,9 +21,9 @@ This umbrella owns no diagnostic directly. Its former 51 diagnostics are delegat
 | `TYPE-007C` | Timestamp/manual-correction propagation | 6 | `SAFE_AFTER_TESTS` |
 | `TYPE-007D` | Player move/leave transitions | 6 | `SAFE_AFTER_TESTS` |
 | `TYPE-007E` | Forming and balanced table creation | 4 | `SAFE_AFTER_TESTS` |
-| `TYPE-007F` | Planned-participant contract | 5 | `HUMAN_DECISION_REQUIRED` |
+| `TYPE-007F` | Planned-participant contract | 5 | Completed under approved Option C |
 | `TYPE-007G` | Table lifecycle updates and events | 8 | `SAFE_AFTER_TESTS` |
-| `TYPE-007H` | Profile relationship mutations | 10 | `SAFE_AFTER_TESTS` |
+| `TYPE-007H` | Profile relationship mutations | 10 | `HUMAN_DECISION_REQUIRED` |
 | `TYPE-007I` | Table-event report projections | 2 | `SAFE_AFTER_TESTS` |
 | `TYPE-007J` | Read-only floor collection rendering | 3 | `SAFE_AFTER_TESTS` |
 | **Total** | | **51** | |
@@ -66,7 +66,7 @@ High in aggregate. The children touch persisted operational state and are delibe
 
 ## Dependencies
 
-The children depend on completed `TYPE-005` and `TYPE-006`. This umbrella depends on all ten children and therefore cannot complete while `TYPE-007F` awaits a human decision.
+The children depend on completed `TYPE-005` and `TYPE-006`. This umbrella depends on all ten children and therefore cannot complete while `TYPE-007H` awaits an identity-policy decision.
 
 ## Autonomous implementation
 
@@ -74,7 +74,7 @@ Not safe as an umbrella. Autonomous work is permitted only at the child classifi
 
 ## Human review
 
-Required for the umbrella completion and specifically before `TYPE-007F` implementation.
+Required for umbrella completion and specifically before `TYPE-007H` implementation. Review for `TYPE-007F` Option C was completed on 2026-08-07.
 
 ## Stop conditions
 

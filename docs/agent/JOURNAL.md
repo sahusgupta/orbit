@@ -234,3 +234,13 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Planned-table creation must not begin creating persisted interests for profile-only candidates during this remediation.
 - Activation or removal of the dormant profile-only branch remains a separate future product decision.
 - Marked `TYPE-007F` ready only under its characterization gate; no production source, test, persisted shape, or compiler output changed in this decision record.
+
+## 2026-08-07 - TYPE-007F planned-participant optional contract
+
+- Added a local jsdom characterization with Firebase disabled and network access stubbed. It passed 1 file/3 tests against unchanged production and was committed separately as `8e3bcc4`.
+- Proved current construction remains active-interest-backed; optional profile rendering retains saved/fallback paths; inactive, other-game, and profile-only records remain excluded; and profile-only-only input creates an empty planned table without creating interests.
+- Proved ranked candidate order, planned-player ID order, complete session/event/usage/persistence payloads, existing interest values/references/order, and prior-state immutability.
+- Added explicit interest presence/absence guards, a canonical `Interest` result boundary for the dormant branch, and a canonical `ParticipantCandidate` render callback. Optional fields, candidate production, branching, expressions, ordering, display fallbacks, and persisted behavior remain unchanged.
+- Root TypeScript decreased from 35 to exactly 30 diagnostics in the same 4 files: `TS2345` decreased from 13 to 10, `TS2769` from 4 to 2, and `src/main.tsx` from 26 to 21. All five owned diagnostics disappeared and no new diagnostic appeared.
+- Player TypeScript passed; all 28 files/137 tests passed; the renderer build passed with 1,912 modules transformed; and `npm run verify` exited 1 only for the expected 30-diagnostic root baseline. Existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
+- Marked `TYPE-007F` complete. The parent umbrella remains pending only on decision-blocked `TYPE-007H`; no blocked dependent was started and nothing was pushed.
