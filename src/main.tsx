@@ -4519,7 +4519,7 @@ function App() {
           : undefined;
     persist({
       ...state,
-      sessions: state.sessions.map((session: { id: string; endedAt: any; manualEdits: any; }) => {
+      sessions: state.sessions.map((session: GameSession) => {
         if (session.id !== id) return session;
         const closed = patch.status === 'Closed' && !session.endedAt;
         return {
@@ -4551,7 +4551,7 @@ function App() {
     const nextValue = fromDateTimeInput(value);
     persist(withCorrectionLog({
       ...state,
-      sessions: state.sessions.map((session: { id: string; manualEdits: Record<string, string> | undefined; }) =>
+      sessions: state.sessions.map((session: GameSession) =>
         session.id === id ? { ...session, [key]: nextValue, manualEdits: markManualEdit(session.manualEdits, key) } : session
       )
     }, id, key, 'Table timestamp corrected'));
@@ -4561,7 +4561,7 @@ function App() {
     const timestamp = nowIso();
     persist({
       ...state,
-      sessions: state.sessions.map((item: { id: string; status: any; endedAt: any; }) =>
+      sessions: state.sessions.map((item: GameSession) =>
         item.id === session.id
           ? {
               ...item,
@@ -4575,7 +4575,7 @@ function App() {
       ),
       playerSessions:
         type === 'Broke' || type === 'Closed'
-          ? state.playerSessions.map((playerSession: { tableId: string; leftAt: any; }) =>
+          ? state.playerSessions.map((playerSession: PlayerSession) =>
               playerSession.tableId === session.id && !playerSession.leftAt
                 ? { ...playerSession, leftAt: timestamp }
                 : playerSession

@@ -1,6 +1,6 @@
 # TYPE-007G: Preserve table lifecycle and event transitions
 
-Status: `ready`
+Status: `complete`
 
 Safety: `SAFE_AFTER_TESTS`
 
@@ -12,16 +12,18 @@ Resolve 8 diagnostics in table/session updates, timestamp corrections, and recor
 
 Three session mappers and one player-session mapper declare record fragments and require optional `endedAt`, `manualEdits`, or `leftAt`. Collection return types then contain incomplete records instead of `GameSession[]`/`PlayerSession[]`.
 
-## Exact owned diagnostics
+## Resolved diagnostics
 
-- `src/main.tsx:4519:7` — `TS2322`
-- `src/main.tsx:4519:36` — `TS2345`
-- `src/main.tsx:4551:7` — `TS2322`
-- `src/main.tsx:4551:36` — `TS2345`
-- `src/main.tsx:4561:7` — `TS2322`
-- `src/main.tsx:4561:36` — `TS2345`
-- `src/main.tsx:4573:7` — `TS2322`
-- `src/main.tsx:4575:38` — `TS2345`
+- `src/main.tsx:4522:7` — `TS2322`
+- `src/main.tsx:4522:36` — `TS2345`
+- `src/main.tsx:4554:7` — `TS2322`
+- `src/main.tsx:4554:36` — `TS2345`
+- `src/main.tsx:4564:7` — `TS2322`
+- `src/main.tsx:4564:36` — `TS2345`
+- `src/main.tsx:4576:7` — `TS2322`
+- `src/main.tsx:4578:38` — `TS2345`
+
+These are the same eight originally assigned diagnostics after the completed `TYPE-007D` edits shifted their line numbers by three.
 
 ## Files and symbols
 
@@ -75,3 +77,20 @@ Not required for a behavior-preserving correction; required if current event map
 ## Stop conditions
 
 Stop if event types have competing status meanings, if closing a table must perform financial reconciliation, or if existing records lack fields required by `GameSession`/`PlayerSession`.
+
+## Resolution
+
+The focused `src/lib/tableLifecycle.test.ts` suite passed against unchanged production before implementation. Its 10 cases characterize complete session patching, absent/present `endedAt`, absent/present `manualEdits`, timestamp correction and clearing, Started/Failed-to-Start/Merged/Closed/Broke events, player/dealer closure boundaries, collection order, prior-state immutability, correction and usage logs, and local persistence.
+
+The three session mapper annotations now consume canonical `GameSession` values, and the closing player-session mapper consumes canonical `PlayerSession` values. No expression, patch, status transition, timestamp rule, event field, player/dealer propagation rule, audit/usage entry, persistence argument, or ordering changed.
+
+## Verification result
+
+- PASS before and after implementation: `npx --no-install vitest run src/lib/tableLifecycle.test.ts` — 1 file and 10 tests.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 39 diagnostics in 4 files, down from 47; all eight assigned diagnostics are absent and no new diagnostic appeared.
+- PASS: `npm run player:typecheck`.
+- PASS: `npm test` — 26 files and 130 tests.
+- PASS: `npm run build` — 1,912 modules transformed.
+- EXPECTED PARTIAL FAILURE: `npm run verify` — root TypeScript alone failed at the 39-diagnostic baseline; Player TypeScript, all tests, and the renderer build passed.
+
+`TYPE-007G` is complete. The `TYPE-007` umbrella remains pending on `TYPE-007E`, `TYPE-007F`, and `TYPE-007H`; no downstream task became newly ready.
