@@ -1,8 +1,8 @@
 # TYPE-007H: Preserve profile relationships during profile mutations
 
-Status: `ready`
+Status: `review_required`
 
-Safety: `SAFE_AFTER_TESTS`
+Safety: `HUMAN_DECISION_REQUIRED`
 
 ## Objective
 
@@ -78,3 +78,26 @@ Not required if the current ID/name precedence and first-profile merge policy ar
 ## Stop conditions
 
 Stop if duplicate identities collide, multiple active interests match by name, membership checks would be bypassed, or a stored-shape change is required.
+
+## Blocking identity evidence — 2026-08-07
+
+Repository inspection reached the task's explicit stop condition before production or test modification:
+
+- `removeProfileFromClub` filters every `Arrived` interest whose `profileId` matches **or** whose normalized name matches. Two logically distinct profiles with the same name can therefore cause multiple differently linked interests to be deleted from persisted state.
+- `addProfileToClub` and `ensureInterestEntry` each use source-order `find` over the same ID-or-name fallback. When multiple active interests share a name, the first record can be selected and retargeted to the checked-in profile ID.
+- Profile-directory, floor-search, and membership-QR “already in club” checks use the same fallback, so one interest can mark or block multiple distinct same-name profiles.
+- `deleteProfile` and `mergeDuplicateProfiles` are ID-directed and did not create this blocker; their owned typing changes remain unimplemented so this identity-sensitive task stays atomic.
+
+No stored data, production source, test expectation, Firebase path, or runtime behavior was changed during this investigation.
+
+## Exact human decision required
+
+Choose one identity rule for profile/interest club-presence operations:
+
+1. **Authoritative ID plus unique unlinked-name fallback (recommended):** a matching `profileId` wins; name fallback is allowed only when exactly one matching interest has no `profileId`; zero or multiple matches perform no mutation and do not infer club presence.
+2. **Explicit operator disambiguation:** ambiguous same-name matches perform no mutation until staff chooses a specific interest/profile link in the UI.
+3. **Name equivalence:** all same-name interests are intentionally treated as one identity, preserving current fan-out removal and shared club-presence behavior even when profile IDs differ.
+
+The recommended rule matches the already approved `TYPE-007D2` departure policy and preserves explicit profile IDs, but applying it here changes persisted link/removal and visible club-status semantics and therefore requires a new human decision under the controller rules.
+
+Verification after documentation retained exactly 35 root diagnostics in 4 files. `npm run verify` executed every gate and failed only on that expected root baseline; Player TypeScript, 27 files/134 tests, and the 1,912-module renderer build passed.

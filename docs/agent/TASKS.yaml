@@ -286,11 +286,11 @@ tasks:
   - id: TYPE-007H
     title: Preserve profile relationships during profile mutations
     classification: REAL_TYPE_ERROR
-    safety: SAFE_AFTER_TESTS
+    safety: HUMAN_DECISION_REQUIRED
     diagnostics: 10
-    status: ready
+    status: review_required
     safe_autonomous: false
-    human_review: false
+    human_review: true
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: [TYPE-005, TYPE-006]
@@ -306,6 +306,7 @@ tasks:
       - "src/main.tsx:5115:9 TS2769"
       - "src/main.tsx:7520:19 TS2345"
     spec: docs/agent/tasks/TYPE-007H.md
+    blocker: ambiguous_profile_name_fallback
   - id: TYPE-007I
     title: Preserve table-event report projections
     classification: REAL_TYPE_ERROR

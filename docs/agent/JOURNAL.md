@@ -214,3 +214,14 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - The post-change focused command again passed 2 files/13 tests. Root TypeScript decreased from 39 to exactly 35 diagnostics: `TS2322` changed from 10 to 8, `TS2345` from 15 to 13, and `src/main.tsx` from 30 to 26; all four owned diagnostics disappeared and no new diagnostic appeared.
 - Player TypeScript passed; all 27 files/134 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 35-diagnostic root baseline.
 - Marked `TYPE-007E` complete. The parent umbrella remains pending on `TYPE-007F` and `TYPE-007H`; no downstream task became newly ready and nothing was pushed.
+
+## 2026-08-07 - TYPE-007H profile relationship identity investigation
+
+- Started from a clean non-`main` worktree after `TYPE-007E`; the current root baseline remained 35 diagnostics, including all 10 assigned `TYPE-007H` errors.
+- Traced profile deletion, explicit duplicate merging, interest/session retargeting, club check-in, interest creation/update, club removal, membership-QR duplicate checks, profile-directory status, and floor-search status.
+- Found an explicit stop condition: `removeProfileFromClub` can delete multiple `Arrived` interests linked to different profile IDs solely because their names match the selected profile.
+- Found the related ambiguous-selection behavior: `addProfileToClub` and `ensureInterestEntry` each select the first ID-or-name match in source order and can retarget a same-name record linked to a distinct profile. Club-presence and QR checks also project one same-name interest onto multiple profiles.
+- Confirmed ID-directed deletion and explicit duplicate merge are not themselves ambiguous, but left their typing unchanged so this persistence/identity task remains atomic.
+- Made no production or test change and did not invoke live services or inspect stored customer data. Marked `TYPE-007H` `review_required` with 10 diagnostics retained.
+- Documented three choices: authoritative ID with a unique unlinked-name fallback (recommended and aligned with `TYPE-007D2`), explicit staff disambiguation, or intentional name equivalence/fan-out. A human must choose because the outcome changes persisted link/removal and visible club-status semantics.
+- Post-documentation root TypeScript retained exactly 35 diagnostics. Aggregate verification ran all gates and failed only on that expected root baseline; Player TypeScript, 27 files/134 tests, and the 1,912-module renderer build passed.

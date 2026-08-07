@@ -523,3 +523,9 @@ Final implementation verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 35 diagnostics, while Player TypeScript, 27/134 tests, and the 1,912-module renderer build passed.
 
 `TYPE-007E` is complete. The `TYPE-007` umbrella remains pending on `TYPE-007F` and `TYPE-007H`; `TYPE-008` still depends on incomplete `TYPE-007H`, `TYPE-010` still depends on the umbrella, no downstream task became newly ready, and nothing was pushed.
+
+## TYPE-007H Identity Investigation — 2026-08-07
+
+Read-only inspection found that current name fallback is ambiguous across persisted profile relationships. `removeProfileFromClub` can delete multiple differently linked `Arrived` interests for same-name profiles, while `addProfileToClub`/`ensureInterestEntry` can select and retarget the first same-name record by collection order. Profile-directory and membership-QR presence checks project the same ambiguity into visible behavior.
+
+The task was stopped without production or test changes and marked `review_required` with all 10 diagnostics retained. The precise decision is recorded in `docs/agent/tasks/TYPE-007H.md`: choose authoritative ID plus a unique unlinked-name fallback (recommended), explicit operator disambiguation, or intentional same-name equivalence/fan-out. The truthful root baseline remains 35 diagnostics in 4 files; aggregate verification failed only on that root baseline while Player TypeScript, 27 files/134 tests, and the 1,912-module renderer build passed.

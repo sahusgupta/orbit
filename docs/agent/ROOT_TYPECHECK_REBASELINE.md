@@ -559,3 +559,9 @@ Final implementation verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 35 diagnostics, while Player TypeScript, 27/134 tests, and the 1,912-module renderer build passed.
 
 `TYPE-007E` is complete. The `TYPE-007` umbrella remains pending on `TYPE-007F` and `TYPE-007H`; `TYPE-008` still depends on incomplete `TYPE-007H`, `TYPE-010` still depends on the umbrella, no downstream task became newly ready, and nothing was pushed.
+
+## TYPE-007H identity investigation update — 2026-08-07
+
+Read-only tracing reached the task's stop condition before any production or test change. `removeProfileFromClub` can delete multiple `Arrived` interests linked to distinct profile IDs solely because their player names match. `addProfileToClub` and `ensureInterestEntry` use source-order ID-or-name `find` operations and can select/retarget a same-name interest belonging to a different profile. Profile-directory and membership-QR club-presence checks expose the same ambiguity in visible behavior.
+
+`TYPE-007H` is therefore `review_required` with all 10 diagnostics retained. The task specification records the exact decision among authoritative ID plus a unique unlinked-name fallback (recommended), explicit staff disambiguation, or intentional same-name equivalence/fan-out. Root TypeScript remains at 35 diagnostics in 4 files; aggregate verification failed only on that baseline while Player TypeScript, 27 files/134 tests, and the 1,912-module renderer build passed. No downstream readiness changed because `TYPE-008` still depends on this task and the `TYPE-007` umbrella remains incomplete.
