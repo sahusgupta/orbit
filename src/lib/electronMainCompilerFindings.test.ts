@@ -36,6 +36,12 @@ type SendTwilioTextMessage = (
   message: { to: string; body: string }
 ) => Promise<unknown>;
 
+type ValidateStatePayload = (state: unknown) => void;
+type NormalizeTextMessageBatch = (payload: unknown) => Array<Record<string, string>>;
+type SanitizeAccountKey = (value: unknown) => string;
+type GetAccountKeyFromAccess = (access: unknown) => string;
+type GetAccountKeyFromState = (state: unknown) => string;
+
 function loadGetRecordProperty() {
   const isRecord = loadFunction<(value: unknown) => boolean>('isRecord');
   return loadFunction<(value: unknown, key: string) => unknown>('getRecordProperty', { isRecord });
@@ -87,5 +93,58 @@ describe('Electron main compiler findings', () => {
 
     expect(startAutoUpdates).toContain("nativeAutoUpdater.on('before-quit-for-update'");
     expect(startAutoUpdates).not.toContain("autoUpdater.on('before-quit-for-update'");
+  });
+});
+
+describe('Electron runtime boundary utilities', () => {
+  it('validates the minimum persisted-state structure with exact failures', () => {
+    const validateStatePayload = loadFunction<ValidateStatePayload>('validateStatePayload', {
+      isRecord: loadFunction<(value: unknown) => boolean>('isRecord')
+    });
+    const validState = { games: [], sessions: [], playerSessions: [], settings: {} };
+
+    expect(() => validateStatePayload(validState)).not.toThrow();
+    expect(() => validateStatePayload(null)).toThrow('State payload must be an object.');
+    expect(() => validateStatePayload({ ...validState, games: null })).toThrow('State payload is missing games.');
+    expect(() => validateStatePayload({ ...validState, sessions: null })).toThrow('State payload is missing sessions.');
+    expect(() => validateStatePayload({ ...validState, playerSessions: null })).toThrow('State payload is missing player sessions.');
+    expect(() => validateStatePayload({ ...validState, settings: null })).toThrow('State payload is missing settings.');
+  });
+
+  it('normalizes, filters, orders, caps, and does not mutate outreach messages', () => {
+    const normalizeTextMessageBatch = loadFunction<NormalizeTextMessageBatch>('normalizeTextMessageBatch');
+    const messages = [
+      { to: ' +15550101 ', body: ' First ', profileId: 7, playerName: 'Alex', gameId: 'nlh', reason: 'seat-opened' },
+      { to: '', body: 'Missing destination' },
+      { to: '+15550102', body: ' Second ' },
+      ...Array.from({ length: 205 }, (_, index) => ({ to: `+15552${String(index).padStart(3, '0')}`, body: `Message ${index}` }))
+    ];
+    const payload = { messages };
+    const before = structuredClone(payload);
+
+    const normalized = normalizeTextMessageBatch(payload);
+
+    expect(normalized).toHaveLength(200);
+    expect(normalized.slice(0, 2)).toEqual([
+      { to: '+15550101', body: 'First', profileId: '7', playerName: 'Alex', gameId: 'nlh', reason: 'seat-opened' },
+      { to: '+15550102', body: 'Second', profileId: '', playerName: '', gameId: '', reason: '' }
+    ]);
+    expect(payload).toEqual(before);
+  });
+
+  it('preserves account-key precedence, normalization, fallback, and length limits', () => {
+    const isRecord = loadFunction<(value: unknown) => boolean>('isRecord');
+    const sanitizeAccountKey = loadFunction<SanitizeAccountKey>('sanitizeAccountKey');
+    const getAccountKeyFromAccess = loadFunction<GetAccountKeyFromAccess>('getAccountKeyFromAccess', { isRecord, sanitizeAccountKey });
+    const getAccountKeyFromState = loadFunction<GetAccountKeyFromState>('getAccountKeyFromState', { getAccountKeyFromAccess, sanitizeAccountKey });
+
+    expect(sanitizeAccountKey('  Club @ 123 !!! ')).toBe('club-123');
+    expect(sanitizeAccountKey('A'.repeat(120))).toBe('a'.repeat(96));
+    expect(getAccountKeyFromAccess({ licenseId: ' License Primary ', authorizationCode: 'ignored' })).toBe('license-primary');
+    expect(getAccountKeyFromAccess({ authorizationCode: ' Auth Fallback ' })).toBe('auth-fallback');
+    expect(getAccountKeyFromAccess(null)).toBe('');
+    expect(getAccountKeyFromState({ settings: { pilotAccess: { licenseId: 'Pilot' }, clubAccount: { email: 'ignored@example.test' } } })).toBe('pilot');
+    expect(getAccountKeyFromState({ settings: { clubAccount: { email: ' Room@Example.test ' } } })).toBe('room-example.test');
+    expect(getAccountKeyFromState({ settings: {} })).toBe('unlicensed-local');
   });
 });

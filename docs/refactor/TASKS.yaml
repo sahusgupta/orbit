@@ -80,10 +80,12 @@ tasks:
     verification: browser_rendered_comparison_required
   - id: REF-008
     title: Extract Electron process modules
-    status: gated
+    status: active
     boundary: electron
     risk: high_security
     depends_on: [TYPE-016]
+    spec: docs/agent/tasks/REF-008.md
+    current_subtask: REF-008A
     prohibited: production_connected_stress_harness
   - id: REF-009
     title: Establish and migrate to a shared sync core
