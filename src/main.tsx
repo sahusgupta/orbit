@@ -8911,6 +8911,30 @@ function TagPicker({ selected, onChange }: { selected: TableTag[]; onChange: (ta
   );
 }
 
+export {
+  buildAnalyticalReportPayload,
+  getAnalytics,
+  getAverageStackForTable,
+  getClosestGameLabel,
+  getDemand,
+  getLikelyParticipants,
+  getOpenSessions,
+  getOperationalOpportunities,
+  getOverflowOpportunities,
+  getParticipantPool,
+  getPlayerLoggedHours,
+  getRunningSessions,
+  getSessionBuyIns,
+  getSessionSeatHours,
+  getStaffScripts,
+  getTableHealth,
+  getUsageAnalytics,
+  getViabilityState,
+  hasParticipantInterest,
+  lacksParticipantInterest,
+  renderScriptTemplate
+};
+
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
