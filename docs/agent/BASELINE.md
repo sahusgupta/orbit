@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, `TYPE-007C` reduced it to 53, completed `TYPE-007D` reduced it to 47, `TYPE-007G` reduced it to 39, `TYPE-007E` reduced it to 35, and completed `TYPE-007F` now establishes the truthful current baseline at 30 diagnostics in 4 affected files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, `TYPE-007C` reduced it to 53, completed `TYPE-007D` reduced it to 47, `TYPE-007G` reduced it to 39, `TYPE-007E` reduced it to 35, `TYPE-007F` reduced it to 30, and completed `TYPE-002` now establishes the truthful current baseline at 26 diagnostics in 3 affected production files; the gate remains red. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -553,3 +553,29 @@ Final implementation verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 30 diagnostics, while Player TypeScript, 28/137 tests, and the 1,912-module renderer build passed.
 
 `TYPE-007F` is complete. The `TYPE-007` umbrella remains pending only on decision-blocked `TYPE-007H`; `TYPE-008` remains blocked by `TYPE-007H` and `TYPE-010` remains blocked by the umbrella. Independent remediation can continue, and nothing was pushed.
+
+## TYPE-002 Player Snapshot Contract — 2026-08-07
+
+Repository evidence resolved the apparent root/Player contract drift without requiring a protocol or data migration. The management builder creates an unversioned player-safe payload and already emits the required club-wide `social` summary. Firebase publication adds protocol-v2 revision metadata, entity counts, and the parent-club commit marker. Player hydration accepts optional revision fields for legacy pre-v2 compatibility.
+
+Before the declaration changed, the focused command passed 3 files/21 tests across root snapshot construction, Player published-game normalization, and protocol-v2 commit/revision selection. The root fixture now also asserts the exact seven builder keys and the absence of publisher-owned revision fields; that test-only checkpoint is `20af844`.
+
+The root `PlayerClubSnapshot` declaration now includes required `social`; comments at the producer and Player consumer record the publication boundary. No runtime expression, emitted value, Firestore path, document shape, commit-marker behavior, revision rule, or legacy fallback changed.
+
+The first post-change root typecheck produced exactly 26 diagnostics in 3 production files:
+
+- all four `TYPE-002` diagnostics disappeared: `TS2353` at the builder return and three `TS2339` uses in Firebase publication/root tests;
+- `TS2339` decreased from 3 to 0, `TS2353` from 1 to 0, `firebaseClubSync.ts` from 5 to 4, `playerSync.test.ts` from 2 to 0, and `playerSync.ts` from 2 to 1;
+- every other diagnostic-code and affected-path count stayed unchanged; and
+- the characterization assertion introduced no new diagnostic.
+
+Final verification:
+
+- PASS before and after implementation: `npx --no-install vitest run src/lib/playerSync.test.ts src/lib/orbitMobileSyncProtocol.test.ts player-app/src/data/orbitSyncApi.test.ts` — 3 files and 21 tests.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 26 diagnostics in 3 files; all four assigned diagnostics absent; no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 28 files and 137 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,912 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 26 diagnostics, while Player TypeScript, 28/137 tests, and the 1,912-module renderer build passed.
+
+`TYPE-002` is complete, making `TYPE-003` and `TYPE-004` dependency-ready. No production service or stored data was accessed, no deployment occurred, and nothing was pushed.

@@ -1,8 +1,8 @@
 queue: root-typescript-remediation
 temporary: true
 source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
-baseline_diagnostics: 30
-baseline_files: 4
+baseline_diagnostics: 26
+baseline_files: 3
 status: partial_failure
 ordering:
   - project_boundary_configuration
@@ -29,14 +29,17 @@ tasks:
   - id: TYPE-002
     title: Canonicalize the Player snapshot contract
     classification: STALE_OR_DEAD_CODE
-    diagnostics: 4
-    status: pending
-    safe_autonomous: false
-    human_review: true
+    diagnostics: 0
+    diagnostics_before: 4
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
     blocks_refactoring: true
     blocks_player_web: true
     depends_on: []
     spec: docs/agent/tasks/TYPE-002.md
+    resolution: required_prepublication_social_with_v2_compatibility_mapping
   - id: TYPE-003
     title: Preserve domain types through Firebase synchronization
     classification: REAL_TYPE_ERROR

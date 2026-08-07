@@ -119,12 +119,15 @@ export type PlayerProfileDocument = PlayerAccount & {
   updatedAt?: string;
 };
 
+// Pre-publication player-safe payload. Firebase publication adds protocol-v2
+// revision metadata and the parent club commit marker around this shape.
 export type PlayerClubSnapshot = {
   club: PlayerSyncClub;
   games: PlayerSyncGame[];
   memberships: PlayerMembership[];
   waitlists: PlayerWaitlistEntry[];
   notifications: PlayerInAppNotification[];
+  social: PlayerSocialSummary;
   generatedAt: string;
 };
 

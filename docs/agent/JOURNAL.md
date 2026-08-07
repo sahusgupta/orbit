@@ -244,3 +244,13 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Root TypeScript decreased from 35 to exactly 30 diagnostics in the same 4 files: `TS2345` decreased from 13 to 10, `TS2769` from 4 to 2, and `src/main.tsx` from 26 to 21. All five owned diagnostics disappeared and no new diagnostic appeared.
 - Player TypeScript passed; all 28 files/137 tests passed; the renderer build passed with 1,912 modules transformed; and `npm run verify` exited 1 only for the expected 30-diagnostic root baseline. Existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
 - Marked `TYPE-007F` complete. The parent umbrella remains pending only on decision-blocked `TYPE-007H`; no blocked dependent was started and nothing was pushed.
+
+## 2026-08-07 - TYPE-002 player snapshot contract
+
+- Reconciled the root builder, Firebase publisher, Player hydration type, Player README, and protocol-v2 selection tests without reading production payloads or contacting Firebase.
+- Established the explicit compatibility mapping: root `buildPlayerClubSnapshot` returns an unversioned player-safe payload with required `social`; Firebase adds revision metadata/entity counts and commits through the parent club record; Player keeps revision fields optional for legacy pre-v2 records.
+- Extended the unchanged-production root fixture to assert the exact builder keys and absence of publisher-owned protocol metadata, then committed that test-only checkpoint as `20af844`.
+- The focused pre-change and post-change commands passed 3 files/21 tests. The implementation added only the already-emitted `social` field to the root declaration plus boundary comments; runtime and serialized behavior are unchanged.
+- Root TypeScript decreased from 30 to exactly 26 diagnostics in 3 production files: `TS2339` decreased from 3 to 0 and `TS2353` from 1 to 0. All four owned diagnostics disappeared and no new diagnostic appeared.
+- Player TypeScript passed; all 28 files/137 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 26-diagnostic root baseline. Existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
+- Marked `TYPE-002` complete. Its `TYPE-003` and `TYPE-004` dependents are now ready; no production service, deployment, or push was performed.
