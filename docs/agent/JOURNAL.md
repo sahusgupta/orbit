@@ -143,7 +143,7 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - `npm run verify` ran all four gates and exited 1 only for the expected 59-diagnostic root baseline; Player TypeScript, 23/106 tests, and the 1,912-module build passed.
 - Marked only `TYPE-007B` complete. The `TYPE-007` umbrella remains pending on six incomplete children, including `TYPE-007F` in `review_required`; `TYPE-008` still waits on `TYPE-007H`, `TYPE-010` still waits on the umbrella, no task became newly ready, and no other remediation batch was started.
 
-## 2026-08-07 — TYPE-007C cross-record timestamp corrections
+## 2026-08-07 - TYPE-007C cross-record timestamp corrections
 
 - Started from a clean `fix/type-005-synchronized-list-tuples` worktree at completed `TYPE-007B` commit `ec7f8bd`; confirmed the branch was not `main` and includes the separate completed `TYPE-007B` test and implementation commits.
 - Confirmed `TYPE-007C` was `ready`, its `TYPE-005`/`TYPE-006` dependencies were complete, and its queue ownership was exactly the six diagnostics at `src/main.tsx:3274:7`, `3274:38`, `3277:7`, `3277:48`, `3289:7`, and `3289:48`.
@@ -158,3 +158,12 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - `npm run player:typecheck` passed; `npm test` passed 24 files/112 tests; `npm run build` passed with 1,912 modules transformed. The existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
 - `npm run verify` ran all four gates and exited 1 only for the expected 53-diagnostic root baseline; Player TypeScript, 24/112 tests, and the 1,912-module build passed.
 - Marked only `TYPE-007C` complete. The `TYPE-007` umbrella remains pending on five incomplete children, including `TYPE-007F` in `review_required`; `TYPE-008` still waits on `TYPE-007H`, `TYPE-010` still waits on the umbrella, no task became newly ready, and no other remediation batch was started.
+
+## 2026-08-07 - TYPE-007D human decision and task split
+
+- Started from a clean `fix/type-005-synchronized-list-tuples` worktree and confirmed the branch was not `main`.
+- Re-ran the untouched root typecheck: it retained exactly 53 diagnostics in 4 files, including all six diagnostics previously assigned to `TYPE-007D`.
+- Recorded the human decision that a profile-less departure may update profile statistics only for exactly one valid case-insensitive name match; zero or multiple matches update no profile, while the player-session departure still completes. An explicit `profileId` remains authoritative with no name fallback.
+- Traced `playerSession.profileId` from `seatPlayerInState`, optional/legacy absence conditions, fallback player-name origin, current lowercase-only departure comparison, the two mutated played-hour fields, downstream persisted/statistical effects, other name fallbacks, duplicate detection/manual merge behavior, and available identity helpers and diagnostics.
+- Split the original task into a zero-diagnostic `TYPE-007D` umbrella, five-diagnostic behavior-preserving `TYPE-007D1`, and one-diagnostic behavioral correction `TYPE-007D2`. `TYPE-007D1` depends on `TYPE-007D2`; both retain completed `TYPE-005`/`TYPE-006` prerequisites, and the graph remains acyclic.
+- No production source or test changed during the split. `TYPE-007D2` is ready for the required characterization gate; `TYPE-007D1` remains pending until the approved behavior is established and protected.

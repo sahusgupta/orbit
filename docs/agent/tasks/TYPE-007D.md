@@ -1,76 +1,44 @@
-# TYPE-007D: Preserve player records across table moves and departures
+# TYPE-007D: Coordinate player transition typing and departure identity safety
 
-Status: `ready`
+Status: `pending`
 
 Safety: `SAFE_AFTER_TESTS`
 
+Role: umbrella
+
 ## Objective
 
-Resolve 6 diagnostics across `movePlayerToTable`, `markPlayerLeft`, and `markPlayerSessionLeft` without changing seat, waitlist, notification, ledger, or profile-hour behavior.
+Coordinate the two intentionally separate corrections that were previously grouped as one six-diagnostic task. `TYPE-007D2` first establishes the approved ambiguous-identity departure behavior; `TYPE-007D1` then performs the remaining behavior-preserving canonical callback/domain typing repair.
 
-## Root cause
+## Diagnostic delegation
 
-Move/leave callbacks require optional fields (`manualEdits` or `leftAt`) and declare only record fragments. Two derived state literals consequently lose `AppState` compatibility, and a removal status literal widens to `string` before notification helpers consume it.
+This umbrella owns no diagnostics directly.
 
-## Exact owned diagnostics
+- `TYPE-007D1` owns five diagnostics in `movePlayerToTable` and `markPlayerLeft`.
+- `TYPE-007D2` owns the one diagnostic at the `markPlayerSessionLeft` state boundary.
 
-- `src/main.tsx:4261:48` — `TS2345`
-- `src/main.tsx:4280:55` — `TS2345`
-- `src/main.tsx:4299:7` — `TS2769`
-- `src/main.tsx:4312:66` — `TS2345`
-- `src/main.tsx:4314:13` — `TS2345`
-- `src/main.tsx:4358:81` — `TS2345`
+Together the children own the original six diagnostics exactly once.
 
-## Files and symbols
+## Required order
 
-- `src/main.tsx`: `movePlayerToTable`, `markPlayerLeft`, `markPlayerSessionLeft`, `syncSessionSeatCount`, `withGameFrequencyInAppNotifications`
-- Existing partial evidence: `src/lib/seatNormalization.test.ts`, `src/lib/nightClose.test.ts`, `tests/e2e/management-core-smoke.mjs`
-- Focused characterization: `src/lib/playerTableTransitions.test.ts`
+1. Characterize current `markPlayerSessionLeft` behavior, including the existing duplicate-name fan-out.
+2. Implement and regress the approved ambiguous-identity correction in `TYPE-007D2`.
+3. Characterize any remaining move/leave paths needed by `TYPE-007D1`.
+4. Repair the remaining canonical callback/domain annotations without further behavior change.
 
-## Runtime behavior that must be preserved
+## Children
 
-Reject same-table/no-seat moves; choose the requested seat when available then the first open seat; mark table/seat manual edits; recalculate both table counts; append the same move event; close the matching interest/session on departure; preserve cash-out ledger order and values; add played hours to the matched profile; and emit the same seat-opened notifications.
-
-## In scope
-
-Characterize and type the three complete state transitions.
-
-## Out of scope
-
-Seat-allocation redesign, cash-out rules, identity migration, notification targeting changes, or table schema changes.
-
-## Prohibited changes
-
-Do not change matching precedence, seat selection, status strings, timestamps, ledger ordering, profile-hour arithmetic, or notification recipients.
-
-## Characterization tests required before implementation
-
-Cover successful/no-op/full-target moves, optional `manualEdits`, table counts and event text; open-session lookup with/without `leftAt`; name/game matching; profile-ID and name fallback on session departure; cash-out zero/nonzero; hours; and notification inputs.
-
-## Acceptance criteria
-
-All 6 owned diagnostics disappear, each transition returns a complete `AppState`, and characterized persisted values and ordering remain unchanged.
-
-## Verification commands
-
-`npx --no-install vitest run src/lib/playerTableTransitions.test.ts`, `npm run typecheck`, `npm test`, `npm run build`.
-
-## Risks
-
-High. These transitions affect live seating, financial ledger entries, profile totals, and player notifications.
+- `TYPE-007D2` - Resolve ambiguous profile-less departure identity.
+- `TYPE-007D1` - Repair behavior-preserving player transition types after `TYPE-007D2`.
 
 ## Dependencies
 
-Completed `TYPE-005` and `TYPE-006`.
+Completed `TYPE-005` and `TYPE-006`, then both child tasks. The child edge is one-way: `TYPE-007D1` depends on `TYPE-007D2`.
 
-## Autonomous implementation
+## Acceptance criteria
 
-Safe only after pure local fixtures cover all state mutations and failure paths.
-
-## Human review
-
-Not required for a behavior-preserving correction; required if identity or financial behavior must change.
+Both children are complete; all six delegated diagnostics are absent; departure identity behavior matches the approved four cases; unrelated move, leave, seating, notification, persistence, ledger, and audit behavior remains characterized; and the dependency graph remains acyclic.
 
 ## Stop conditions
 
-Stop if existing code can close the wrong historical session, update multiple profiles, or requires a new identity/financial decision.
+Stop if implementation requires a broader identity-system redesign, a schema or sync-protocol change, production access, or a decision about financial behavior not covered by the approved departure rule.
