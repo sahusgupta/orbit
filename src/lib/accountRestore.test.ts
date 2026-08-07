@@ -407,6 +407,207 @@ describe('persisted account restore boundary', () => {
     expect(Reflect.has(settings, 'defaultRakeMode')).toBe(false);
   });
 
+  it('normalizes legacy domain records, fills canonical defaults, preserves order, and does not mutate the loaded record', async () => {
+    const seatedAt = '2026-08-07T18:00:00.000Z';
+    const legacyState = {
+      games: [{
+        id: 'nlh-1-2',
+        name: 'No Limit Holdem 1/2',
+        maxSeats: 7,
+        minInRoomForLikely: 4,
+        minFlexibleForLikely: 2,
+        minTotalForViable: 6
+      }],
+      interests: [{
+        id: 'interest-legacy',
+        playerName: 'Legacy Player',
+        gameId: 'holdem',
+        status: 'Coming',
+        timestamp: '2026-08-07T17:30:00.000Z',
+        notes: ''
+      }],
+      sessions: [{
+        id: 'table-legacy',
+        gameId: 'holdem',
+        label: 'Legacy Table',
+        status: 'Running',
+        seatsFilled: 2,
+        maxSeats: 7,
+        tags: [],
+        startedAt: '2026-08-07T17:45:00.000Z',
+        rakeMode: 'Time'
+      }],
+      playerSessions: [
+        {
+          id: 'session-first',
+          playerName: 'First Player',
+          gameId: 'holdem',
+          tableId: 'table-legacy',
+          seatNumber: 2,
+          seatedAt,
+          timeRakeEnabled: true
+        },
+        {
+          id: 'session-second',
+          playerName: 'Second Player',
+          gameId: 'holdem',
+          tableId: 'table-legacy',
+          seatNumber: 2,
+          seatedAt: '2026-08-07T18:05:00.000Z'
+        }
+      ],
+      tournaments: [{
+        id: 'tournament-legacy',
+        name: 'Legacy Tournament',
+        createdAt: '2026-08-01T12:00:00.000Z'
+      }],
+      tableEvents: [{
+        id: 'event-legacy',
+        type: 'Created',
+        gameId: 'nlh-1-2',
+        timestamp: '2026-08-07T17:45:00.000Z',
+        playerCount: 0,
+        note: 'legacy event'
+      }],
+      inAppNotifications: [{
+        id: 'notification-legacy',
+        clubId: 'club-legacy',
+        gameId: 'nlh-1-2',
+        title: 'Legacy notice',
+        body: 'Legacy body',
+        reason: 'game-forming',
+        createdAt: '2026-08-07T17:40:00.000Z'
+      }],
+      settings: {
+        defaultTableCap: 7,
+        rakeProfiles: [{
+          gameId: 'holdem',
+          hourlyFee: 12,
+          estimatedDropPerSeatHour: 0,
+          rakeMode: 'Time'
+        }],
+        membershipPlans: [{
+          id: 'legacy-plan',
+          name: 'Legacy Plan',
+          priceLabel: '$5',
+          durationDays: 0,
+          active: false
+        }],
+        clubAccount: {
+          clubName: 'Legacy Club',
+          accountName: 'Legacy Account',
+          contactName: 'Legacy Operator',
+          email: 'OWNER@EXAMPLE.TEST',
+          phone: '',
+          address: ''
+        },
+        accountLogin: {
+          username: 'legacy-owner',
+          passwordSalt: 'legacy-salt',
+          passwordHash: 'legacy-hash',
+          createdAt: '2026-08-01T12:00:00.000Z'
+        }
+      }
+    };
+    const loadedRecord = {
+      schemaVersion: 1,
+      savedAt: '2026-08-07T21:00:00.000Z',
+      state: legacyState
+    } satisfies PersistedRecord;
+    const loadedSnapshot = structuredClone(loadedRecord);
+    harness.loadForAccountResult = loadedRecord;
+
+    const result = await invokeRestore(inspectorSession);
+    const restored = readPersistedState();
+
+    expect(result.result.value).toBe(true);
+    expect(loadedRecord).toEqual(loadedSnapshot);
+    expect(restored.games).toEqual([{ ...legacyState.games[0], maxSeats: 8 }]);
+    expect(restored.profiles).toEqual([
+      expect.objectContaining({
+        id: expect.any(String),
+        name: 'Legacy Player',
+        membershipStartDate: '2026-08-07',
+        membershipExpirationDate: '2027-08-07',
+        preferredGameId: 'nlh-1-2',
+        preferredGameIds: ['nlh-1-2'],
+        gamePlayCounts: {},
+        mostPlayedGameId: 'nlh-1-2'
+      })
+    ]);
+    expect(restored.interests).toEqual([{
+      ...legacyState.interests[0],
+      gameId: 'nlh-1-2',
+      status: 'Confirmed Coming',
+      interestedAt: legacyState.interests[0].timestamp,
+      confirmedAt: legacyState.interests[0].timestamp,
+      manualEdits: {}
+    }]);
+    expect(restored.sessions).toEqual([expect.objectContaining({
+      id: 'table-legacy',
+      gameId: 'nlh-1-2',
+      maxSeats: 8,
+      collectionMode: 'Time',
+      timeFeeBased: true,
+      manualEdits: {}
+    })]);
+    expect((restored.playerSessions as Array<Record<string, unknown>>).map((session) => session.id)).toEqual([
+      'session-first',
+      'session-second'
+    ]);
+    expect((restored.playerSessions as Array<Record<string, unknown>>).map((session) => session.seatNumber)).toEqual([2, 1]);
+    expect(restored.playerSessions).toEqual([
+      expect.objectContaining({
+        gameId: 'nlh-1-2',
+        timePurchasedMinutes: 0,
+        timeRemainingMinutes: 0,
+        lastTimeTickAt: seatedAt,
+        timeFeeEnabled: true,
+        manualEdits: {}
+      }),
+      expect.objectContaining({
+        gameId: 'nlh-1-2',
+        timePurchasedMinutes: 0,
+        timeRemainingMinutes: 0,
+        timeFeeEnabled: false,
+        manualEdits: {}
+      })
+    ]);
+    expect(restored.tournaments).toEqual([
+      expect.objectContaining({
+        id: 'tournament-legacy',
+        status: 'Draft',
+        currentLevelIndex: 0,
+        buyIn: 0,
+        startingStack: 10_000,
+        levels: [],
+        players: [],
+        payouts: []
+      }),
+      expect.objectContaining({ id: 'orbit-launch-championship-2026' })
+    ]);
+    expect(restored.tableEvents).toEqual([{ ...legacyState.tableEvents[0], reason: '' }]);
+    expect(restored.inAppNotifications).toEqual([{
+      ...legacyState.inAppNotifications[0],
+      targetPlayerIds: [],
+      targetPlayerNames: []
+    }]);
+    const settings = restored.settings as Record<string, unknown>;
+    expect(settings.defaultTableCap).toBe(8);
+    expect(settings.collectionProfiles).toEqual([{
+      ...legacyState.settings.rakeProfiles[0],
+      collectionMode: 'Time'
+    }]);
+    expect(settings.membershipPlans).toEqual([{
+      ...legacyState.settings.membershipPlans[0],
+      durationDays: 1
+    }]);
+    expect(settings.accountLogin).toEqual({
+      ...legacyState.settings.accountLogin,
+      username: 'owner@example.test'
+    });
+  });
+
   it('never persists malformed local JSON', async () => {
     localStorage.setItem(accountStorageKey, '{not-json');
 

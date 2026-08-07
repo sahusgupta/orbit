@@ -23,6 +23,7 @@ tasks:
     boundary: renderer_persistence
     risk: high
     depends_on: [REF-001]
+    spec: docs/agent/tasks/REF-002.md
     characterization:
       - src/lib/accountRestore.test.ts
       - src/lib/stateCorrections.test.ts
