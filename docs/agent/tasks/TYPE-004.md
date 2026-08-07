@@ -1,5 +1,7 @@
 # TYPE-004: Prove membership status narrowing across synchronization
 
+Status: `complete`
+
 ## Objective
 
 Resolve the membership `TS2322` without widening the management status union or changing transition behavior.
@@ -50,3 +52,11 @@ Medium/high because membership eligibility is a product and persisted-state inva
 ## Stop conditions
 
 Stop if Denied records should mutate existing management profiles or if current transition intent is ambiguous.
+
+## Completion record
+
+Completed on 2026-08-07. Nine focused cases were added and committed separately as `1ff9bb6` before production changed: Requested, Approved, Active, and Expired each cover existing-profile update and new-profile creation, while Denied proves exact state-reference no-op behavior. Dates, expiration timestamps, plans, payment methods, status values, and source-state immutability are characterized.
+
+After the existing missing/Denied early return, production captures `membership.status` as `Exclude<PlayerClubMembershipRecord['status'], 'Denied'>` and uses that narrowed value through both later branches and the profile-map callback. `Denied` was not admitted to management profiles, and no transition or persisted value changed.
+
+The owned `TS2322` disappeared and root TypeScript decreased from 26 to 25 diagnostics in 2 production files. Player TypeScript, all 28 files/146 tests, and the 1,912-module renderer build passed; aggregate verification failed only on the expected 25-diagnostic root baseline.

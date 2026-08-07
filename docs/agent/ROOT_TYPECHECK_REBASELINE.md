@@ -8,7 +8,7 @@ Dependency-restoration starting commit: `02cdd71`
 
 ## Verification state: partial failure
 
-The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, `TYPE-001` has aligned the renderer library contract, `TYPE-005` has restored synchronized-list tuple inference, `TYPE-006` has repaired exact map/filter result narrowing, `TYPE-012` has corrected the two test-only contracts, `TYPE-007A` has preserved complete canonical profiles during duplicate grouping, `TYPE-007I` has restored canonical table-event report callbacks, `TYPE-007J` has restored canonical floor render callbacks, `TYPE-007B` has restored canonical waitlist patch callbacks, `TYPE-007C` has restored canonical cross-record correction callbacks, `TYPE-007D` has restored canonical player transitions with unambiguous departure identity, `TYPE-007G` has restored canonical table lifecycle callbacks, `TYPE-007E` has restored canonical forming/balanced table construction, `TYPE-007F` has preserved the approved optional planned-participant contract, `TYPE-002` has aligned the already-emitted player snapshot social contract, and the remaining 26 diagnostics are application, stale-contract, or platform errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
+The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, `TYPE-001` has aligned the renderer library contract, `TYPE-005` has restored synchronized-list tuple inference, `TYPE-006` has repaired exact map/filter result narrowing, `TYPE-012` has corrected the two test-only contracts, `TYPE-007A` has preserved complete canonical profiles during duplicate grouping, `TYPE-007I` has restored canonical table-event report callbacks, `TYPE-007J` has restored canonical floor render callbacks, `TYPE-007B` has restored canonical waitlist patch callbacks, `TYPE-007C` has restored canonical cross-record correction callbacks, `TYPE-007D` has restored canonical player transitions with unambiguous departure identity, `TYPE-007G` has restored canonical table lifecycle callbacks, `TYPE-007E` has restored canonical forming/balanced table construction, `TYPE-007F` has preserved the approved optional planned-participant contract, `TYPE-002` has aligned the already-emitted player snapshot social contract, `TYPE-004` has retained the non-Denied membership proof across callbacks, and the remaining 25 diagnostics are application, stale-contract, or platform errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
 
 No production source was changed during this rebaseline. No compiler setting was weakened, no file was excluded, and no diagnostic suppression or unsafe cast was added.
 
@@ -48,13 +48,14 @@ Post-install dependency-tree inspection found one physical root React 19.2.6 ins
 | After `TYPE-007E` table-construction repair | 35 diagnostics in 4 files |
 | After `TYPE-007F` planned-participant repair | 30 diagnostics in 4 files |
 | After `TYPE-002` player-snapshot repair | 26 diagnostics in 3 files |
+| After `TYPE-004` membership-narrowing repair | 25 diagnostics in 2 files |
 | Dependency-restoration displayed-diagnostic reduction | 3,536 |
-| Current net displayed-diagnostic reduction | 3,604 |
+| Current net displayed-diagnostic reduction | 3,605 |
 | Missing React/ReactDOM cascade diagnostics removed | 3,598 |
 | Previously visible non-cascade diagnostics retained | 32 |
 | Previously masked diagnostics exposed | 62 |
 
-The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The dependency-restoration arithmetic is `3,630 - 3,598 + 62 = 94`; the 6 diagnostics removed by `TYPE-001`, 9 removed by `TYPE-005`, 6 removed by `TYPE-006`, 2 removed by `TYPE-012`, 2 removed by `TYPE-007A`, 2 removed by `TYPE-007I`, 3 removed by `TYPE-007J`, 5 removed by `TYPE-007B`, 6 removed by `TYPE-007C`, 6 removed by `TYPE-007D`, 8 removed by `TYPE-007G`, 4 removed by `TYPE-007E`, 5 removed by `TYPE-007F`, and 4 removed by `TYPE-002` establish the current total of 26.
+The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The dependency-restoration arithmetic is `3,630 - 3,598 + 62 = 94`; the 6 diagnostics removed by `TYPE-001`, 9 removed by `TYPE-005`, 6 removed by `TYPE-006`, 2 removed by `TYPE-012`, 2 removed by `TYPE-007A`, 2 removed by `TYPE-007I`, 3 removed by `TYPE-007J`, 5 removed by `TYPE-007B`, 6 removed by `TYPE-007C`, 6 removed by `TYPE-007D`, 8 removed by `TYPE-007G`, 4 removed by `TYPE-007E`, 5 removed by `TYPE-007F`, 4 removed by `TYPE-002`, and 1 removed by `TYPE-004` establish the current total of 25.
 
 No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency issue is resolved; the root gate remains red because the declarations revealed real contracts that the previous untyped React layer could not check.
 
@@ -64,14 +65,14 @@ No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency
 
 | Code | Count |
 | --- | ---: |
-| `TS2322` | 8 |
+| `TS2322` | 7 |
 | `TS2345` | 10 |
 | `TS2352` | 1 |
 | `TS2367` | 1 |
 | `TS2739` | 2 |
 | `TS2769` | 2 |
 | `TS7006` | 2 |
-| **Total** | **26** |
+| **Total** | **25** |
 
 ### By affected path
 
@@ -79,10 +80,9 @@ No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency
 | --- | ---: | --- |
 | `src/main.tsx` | 21 | Root management renderer |
 | `src/lib/firebaseClubSync.ts` | 4 | Root renderer/Firebase sync boundary |
-| `src/lib/playerSync.ts` | 1 | Root renderer/player-sync domain copy |
-| **Total** | **26** | |
+| **Total** | **25** | |
 
-Production root source accounts for all 26 diagnostics and root tests account for zero. Electron, API, Player, download-site, e2e, generated output, and dependency source account for zero diagnostics because they are not part of this root TypeScript project's `include: ["src"]` boundary.
+Production root source accounts for all 25 diagnostics and root tests account for zero. Electron, API, Player, download-site, e2e, generated output, and dependency source account for zero diagnostics because they are not part of this root TypeScript project's `include: ["src"]` boundary.
 
 ## Root-cause summary
 
@@ -91,7 +91,7 @@ Production root source accounts for all 26 diagnostics and root tests account fo
 | `TYPE-001` | `CONFIGURATION_BOUNDARY` | 0 | Resolved: ES2022 library declarations now match the supported renderer | No | No | Completed | Completed |
 | `TYPE-002` | `STALE_OR_DEAD_CODE` | 0 | Resolved: required pre-publication `social` plus explicit protocol-v2/legacy compatibility ownership | No | No | Completed | No |
 | `TYPE-003` | `REAL_TYPE_ERROR` | 4 | Firebase transforms erase `ManagementClubState` and tournament types | Yes | Indirectly | No | Yes |
-| `TYPE-004` | `REAL_TYPE_ERROR` | 1 | Membership `Denied` narrowing is lost across a callback | Yes | Yes | No | Yes |
+| `TYPE-004` | `REAL_TYPE_ERROR` | 0 | Resolved: the post-guard non-Denied status is captured across both profile branches | No | No | Completed | No |
 | `TYPE-005` | `REAL_TYPE_ERROR` | 0 | Resolved: explicit synchronized-entry tuples preserve the helper's generic value type | No | No | Completed | No |
 | `TYPE-006` | `REAL_TYPE_ERROR` | 0 | Resolved: exact mapper result types and non-null narrowing preserve all three pipelines | No | No direct block | Completed | No |
 | `TYPE-007` | `REAL_TYPE_ERROR` | 10 | Remaining profile-relationship callbacks conflate optional identity with required identity; planned participants are resolved under approved Option C | Yes | No direct block | No as one repair | Yes for `TYPE-007H` identity policy |
@@ -102,7 +102,7 @@ Production root source accounts for all 26 diagnostics and root tests account fo
 | `TYPE-012` | `TEST_TYPE_ERROR` | 0 | Resolved: exact act global and production-facing fixture typing | No | No | Completed | No |
 | `TYPE-013` | `STALE_OR_DEAD_CODE` | 1 | Legacy settings migration is represented by an incompatible whole-object cast | Yes | No | No | Yes |
 | `TYPE-014` | `STALE_OR_DEAD_CODE` | 1 | `addInterest` compares a form status union to unreachable `Seated` | Yes | No direct block | No | Yes |
-| **Total** | | **26** | | | | | |
+| **Total** | | **25** | | | | | |
 
 No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISMATCH`, or `UNKNOWN_REQUIRES_INVESTIGATION`. Those dependency/configuration discovery issues are resolved or have been converted into evidence-backed tasks.
 
@@ -142,13 +142,13 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 ### TYPE-004 — Membership status narrowing
 
 - Classification: `REAL_TYPE_ERROR`.
-- Representative diagnostic: `Denied` remains possible when assigning `ManagementProfile.membershipStatus` in `applyPlayerProfileDocumentToClubState`.
+- Resolved diagnostic: `Denied` remained possible when assigning `ManagementProfile.membershipStatus` in `applyPlayerProfileDocumentToClubState`.
 - Affected symbol: `applyPlayerProfileDocumentToClubState`.
 - Root cause: an early return narrows the source record, but the proof is not retained in the later profile-map callback.
-- Confidence: high; pre-existing: yes. Runtime intent appears safe, but membership state is sensitive.
-- Recommended correction: capture a precisely narrowed allowed status and characterize every incoming status.
-- Risk/tests: medium/high; membership transition and persisted-shape tests plus both typechecks.
-- Autonomous correction: no in isolation from membership review.
+- Correction: capture `Exclude<PlayerClubMembershipRecord['status'], 'Denied'>` after the existing return and use it through both profile branches.
+- Characterization: existing/new profiles for all four allowed statuses, exact Denied no-op, dates, expiration timestamps, plans, payment methods, and source immutability.
+- Result: the assigned diagnostic is gone with no widened management union or runtime transition change.
+- Status: complete after focused and full verification.
 
 ### TYPE-005 — Synchronized-list tuple inference
 
@@ -264,7 +264,7 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 
 1. Completed: `TYPE-001` aligned the renderer runtime/library contract.
 2. Completed: `TYPE-002` canonicalized the shared Player snapshot contract without changing publication behavior.
-3. `TYPE-003` and `TYPE-004`: now dependency-ready; characterize sync and membership boundaries.
+3. `TYPE-004` is complete; `TYPE-003` remains dependency-ready for the Firebase transformation boundary.
 4. Completed: `TYPE-005` restored synchronized-list tuple inference and `TYPE-006` repaired exact map/filter result narrowing.
 5. In progress by bounded child: `TYPE-007A`, `TYPE-007B`, `TYPE-007C`, `TYPE-007D`, `TYPE-007E`, `TYPE-007F`, `TYPE-007G`, `TYPE-007I`, and `TYPE-007J` are complete; the umbrella retains the 10 decision-blocked `TYPE-007H` diagnostics and is not complete.
 6. `TYPE-008`, `TYPE-009`, and `TYPE-010`: repair import, persistence, and GroupMe boundaries independently when their dependencies are complete.
@@ -589,3 +589,15 @@ The first post-change root typecheck produced exactly 26 diagnostics in 3 produc
 Player TypeScript, all 28 files/137 tests, and the 1,912-module renderer build passed. `npm run verify` ran every gate and exited 1 only for the expected 26-diagnostic root baseline; existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
 
 `TYPE-002` is complete, so `TYPE-003` and `TYPE-004` are dependency-ready. No live service, deployment, or push occurred.
+
+## TYPE-004 completion update — 2026-08-07
+
+Nine focused cases were added and committed separately as `1ff9bb6` before production changed. Requested, Approved, Active, and Expired each cover existing-profile update and new-profile creation; Denied proves exact input-state reference preservation and no profile mutation. Dates, active-only expiration timestamps, plans, payment methods, status values, and input immutability are covered.
+
+After the existing missing/Denied return, the implementation captures the status as `Exclude<PlayerClubMembershipRecord['status'], 'Denied'>` and uses it through the later map callback and creation branch. `Denied` remains excluded from the management profile union, and no condition, transition, or persisted value changed.
+
+The first post-change root typecheck produced exactly 25 diagnostics in 2 production files: the owned `TS2322` disappeared, `TS2322` decreased from 8 to 7, and `playerSync.ts` decreased from 1 to 0. Every other code/path count stayed unchanged and no new diagnostic appeared.
+
+Player TypeScript, all 28 files/146 tests, and the 1,912-module renderer build passed. `npm run verify` ran every gate and exited 1 only for the expected 25-diagnostic root baseline; existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
+
+`TYPE-004` is complete. `TYPE-003` remains next and dependency-ready; no live service, deployment, or push occurred.

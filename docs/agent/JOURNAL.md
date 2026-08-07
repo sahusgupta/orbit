@@ -254,3 +254,13 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Root TypeScript decreased from 30 to exactly 26 diagnostics in 3 production files: `TS2339` decreased from 3 to 0 and `TS2353` from 1 to 0. All four owned diagnostics disappeared and no new diagnostic appeared.
 - Player TypeScript passed; all 28 files/137 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 26-diagnostic root baseline. Existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
 - Marked `TYPE-002` complete. Its `TYPE-003` and `TYPE-004` dependents are now ready; no production service, deployment, or push was performed.
+
+## 2026-08-07 - TYPE-004 membership status narrowing
+
+- Sequenced this one-diagnostic task before TYPE-003 because its explicit membership-domain proof supports complete-state typing through the Firebase synchronization pipeline.
+- Added and separately committed nine focused cases as `1ff9bb6`: existing and new profiles for Requested, Approved, Active, and Expired, plus exact-reference no-op behavior for Denied.
+- Characterized dates, active-only expiration timestamps, plans, payment methods, status values, source immutability, and the existing difference between Active and non-Active expiration-date replacement.
+- Captured the status after the existing missing/Denied return as `Exclude<PlayerClubMembershipRecord['status'], 'Denied'>` and used that proof through the callback and creation branch. No status union, transition, value, or branch changed.
+- Root TypeScript decreased from 26 to exactly 25 diagnostics in 2 production files: `TS2322` decreased from 8 to 7 and `playerSync.ts` from 1 to 0. The owned diagnostic disappeared and no new diagnostic appeared.
+- Player TypeScript passed; all 28 files/146 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 25-diagnostic root baseline. Existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
+- Marked `TYPE-004` complete; TYPE-003 remains next. No live service, deployment, or push occurred.
