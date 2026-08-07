@@ -22,6 +22,7 @@ type CapturedState = Record<string, unknown> & {
   playerSessions: IdentifiedRecord[];
   profiles: IdentifiedRecord[];
   sessions: IdentifiedRecord[];
+  tableEvents: IdentifiedRecord[];
   usageEvents: IdentifiedRecord[];
 };
 
@@ -46,6 +47,7 @@ const isCapturedState = (value: unknown): value is CapturedState => {
     'playerSessions',
     'profiles',
     'sessions',
+    'tableEvents',
     'usageEvents'
   ].every((key) => {
     const records: unknown = Reflect.get(value, key);
@@ -260,7 +262,10 @@ const armDepartureFunctionCapture = async (session: Session) => {
           if (!callFrame) throw new Error('Expected a paused App call frame');
           await session.post('Debugger.evaluateOnCallFrame', {
             callFrameId: callFrame.callFrameId,
-            expression: 'globalThis.__orbitType007dMarkPlayerSessionLeft = markPlayerSessionLeft; true'
+            expression:
+              'globalThis.__orbitType007dMovePlayerToTable = movePlayerToTable; ' +
+              'globalThis.__orbitType007dMarkPlayerLeft = markPlayerLeft; ' +
+              'globalThis.__orbitType007dMarkPlayerSessionLeft = markPlayerSessionLeft; true'
           });
           await session.post('Debugger.removeBreakpoint', { breakpointId: breakpoint.breakpointId });
           resolve();
@@ -274,19 +279,36 @@ const armDepartureFunctionCapture = async (session: Session) => {
 };
 
 const invokeDeparture = async (session: Session, playerSession: IdentifiedRecord) => {
+  await invokeCapturedFunction(session, '__orbitType007dMarkPlayerSessionLeft', [playerSession, 75, '  Test cash out  ']);
+};
+
+const invokeCapturedFunction = async (session: Session, globalName: string, args: unknown[]) => {
   const evaluated = await session.post('Runtime.evaluate', {
-    expression: 'globalThis.__orbitType007dMarkPlayerSessionLeft'
+    expression: `globalThis.${globalName}`
   });
   const functionObjectId = evaluated.result.objectId;
-  if (!functionObjectId) throw new Error('Expected the captured markPlayerSessionLeft function');
+  if (!functionObjectId) throw new Error(`Expected the captured ${globalName} function`);
   await act(async () => {
     await session.post('Runtime.callFunctionOn', {
       objectId: functionObjectId,
       functionDeclaration: 'function () { return this.apply(undefined, arguments); }',
-      arguments: [{ value: playerSession }, { value: 75 }, { value: '  Test cash out  ' }],
+      arguments: args.map((value) => ({ value })),
       returnByValue: true
     });
   });
+};
+
+const replaceCapturedState = async (session: Session, patch: Record<string, unknown>) => {
+  const stateSetter = harness.stateSetter;
+  if (typeof stateSetter !== 'function') throw new Error('Expected to capture the application state setter');
+  const capture = await armDepartureFunctionCapture(session);
+  await act(async () => {
+    stateSetter((current: unknown) => {
+      if (!isCapturedState(current)) throw new Error('Expected the current application state');
+      return { ...current, ...patch };
+    });
+  });
+  await capture.completed;
 };
 
 const getRecord = (records: IdentifiedRecord[], id: string) => {
@@ -304,8 +326,6 @@ const getPersistedState = () => {
 };
 
 const resetState = async (session: Session, profiles: IdentifiedRecord[], profileId?: string) => {
-  const stateSetter = harness.stateSetter;
-  if (typeof stateSetter !== 'function') throw new Error('Expected to capture the application state setter');
   const targetSession: IdentifiedRecord = {
     id: 'session-target',
     playerName,
@@ -332,24 +352,17 @@ const resetState = async (session: Session, profiles: IdentifiedRecord[], profil
     notes: 'Target interest',
     manualEdits: { seatedAt: '2026-08-07T20:01:00.000Z' }
   };
-  const capture = await armDepartureFunctionCapture(session);
-  await act(async () => {
-    stateSetter((current: unknown) => {
-      if (!isCapturedState(current)) throw new Error('Expected the current application state');
-      return {
-        ...current,
-        correctionLog: [structuredClone(existingCorrection)],
-        inAppNotifications: [structuredClone(existingNotification)],
-        interests: [targetInterest],
-        playerLedger: [structuredClone(existingLedger)],
-        playerSessions: [targetSession, structuredClone(unrelatedSession)],
-        profiles,
-        sessions: [structuredClone(table)],
-        usageEvents: []
-      };
-    });
+  await replaceCapturedState(session, {
+    correctionLog: [structuredClone(existingCorrection)],
+    inAppNotifications: [structuredClone(existingNotification)],
+    interests: [targetInterest],
+    playerLedger: [structuredClone(existingLedger)],
+    playerSessions: [targetSession, structuredClone(unrelatedSession)],
+    profiles,
+    sessions: [structuredClone(table)],
+    tableEvents: [],
+    usageEvents: []
   });
-  await capture.completed;
   return { targetInterest, targetSession };
 };
 
@@ -413,7 +426,7 @@ const expectDepartureCompleted = (
   expect(persisted.correctionLog).toEqual(nextState.correctionLog);
 };
 
-describe('player-session departure profile resolution', () => {
+describe('player table transitions', () => {
   const inspectorSession = new Session();
 
   beforeAll(async () => {
@@ -489,6 +502,7 @@ describe('player-session departure profile resolution', () => {
       })
     );
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined);
     inspectorSession.connect();
     await inspectorSession.post('Debugger.enable');
     await act(async () => {
@@ -499,6 +513,8 @@ describe('player-session departure profile resolution', () => {
   afterAll(() => {
     inspectorSession.disconnect();
     Reflect.deleteProperty(globalThis, '__orbitType007dApp');
+    Reflect.deleteProperty(globalThis, '__orbitType007dMovePlayerToTable');
+    Reflect.deleteProperty(globalThis, '__orbitType007dMarkPlayerLeft');
     Reflect.deleteProperty(globalThis, '__orbitType007dMarkPlayerSessionLeft');
     act(() => harness.root?.unmount());
     vi.useRealTimers();
@@ -582,5 +598,303 @@ describe('player-session departure profile resolution', () => {
     expect(nextState.profiles.map((profile) => profile.id)).toEqual(previousState.profiles.map((profile) => profile.id));
     nextState.profiles.forEach((profile, index) => expect(profile).toBe(previousState.profiles[index]));
     expectDepartureCompleted(previousState, previousSnapshot, targetInterest, targetSession);
+  });
+
+  it('moves a complete player session to the first open target seat and preserves transition ordering', async () => {
+    const sourceTable = { ...table, id: 'table-source', label: 'Source Table', seatsFilled: 2 };
+    const targetTable = { ...table, id: 'table-target', label: 'Target Table', seatsFilled: 1, maxSeats: 3 };
+    const movingSession: IdentifiedRecord = {
+      id: 'session-moving',
+      playerName: 'Moving Player',
+      profileId: 'profile-moving',
+      gameId: game.id,
+      tableId: sourceTable.id,
+      seatNumber: 2,
+      seatedAt: '2026-08-07T20:00:00.000Z',
+      timePurchasedMinutes: 90,
+      timeRemainingMinutes: 60,
+      lastTimeTickAt: '2026-08-07T21:45:00.000Z',
+      timeFeeEnabled: true
+    };
+    const sourcePeer = { ...unrelatedSession, id: 'session-source-peer', tableId: sourceTable.id, seatNumber: 4 };
+    const targetOccupant = { ...unrelatedSession, id: 'session-target-occupant', tableId: targetTable.id, seatNumber: 2 };
+    const existingEvent: IdentifiedRecord = {
+      id: 'event-existing',
+      type: 'Started',
+      gameId: game.id,
+      tableId: sourceTable.id,
+      timestamp: '2026-08-07T20:00:00.000Z',
+      playerCount: 2,
+      note: 'Existing event'
+    };
+    await replaceCapturedState(inspectorSession, {
+      correctionLog: [structuredClone(existingCorrection)],
+      inAppNotifications: [structuredClone(existingNotification)],
+      interests: [],
+      playerLedger: [structuredClone(existingLedger)],
+      playerSessions: [movingSession, sourcePeer, targetOccupant],
+      profiles: [buildProfile('profile-moving', 'Moving Player'), buildProfile('profile-unrelated', unrelatedSession.playerName)],
+      sessions: [sourceTable, targetTable],
+      tableEvents: [existingEvent],
+      usageEvents: []
+    });
+    const previousState = getLatestState();
+    const previousSnapshot = structuredClone(previousState);
+
+    await invokeCapturedFunction(inspectorSession, '__orbitType007dMovePlayerToTable', [movingSession, targetTable.id]);
+
+    const nextState = getLatestState();
+    expect(previousState).toEqual(previousSnapshot);
+    expect(getRecord(nextState.playerSessions, movingSession.id)).toEqual({
+      ...movingSession,
+      tableId: targetTable.id,
+      seatNumber: 1,
+      manualEdits: { tableId: now, seatNumber: now }
+    });
+    expect(nextState.playerSessions[1]).toBe(previousState.playerSessions[1]);
+    expect(nextState.playerSessions[2]).toBe(previousState.playerSessions[2]);
+    expect(nextState.sessions.map((session) => session.id)).toEqual([sourceTable.id, targetTable.id]);
+    expect(getRecord(nextState.sessions, sourceTable.id)).toEqual({ ...sourceTable, seatsFilled: 1 });
+    expect(getRecord(nextState.sessions, targetTable.id)).toEqual({ ...targetTable, seatsFilled: 2 });
+    expect(nextState.tableEvents).toEqual([
+      existingEvent,
+      {
+        id: expect.any(String),
+        type: 'Merged',
+        gameId: game.id,
+        tableId: targetTable.id,
+        timestamp: now,
+        playerCount: 2,
+        reason: 'player moved',
+        note: 'Moving Player moved from Source Table to Target Table'
+      }
+    ]);
+    expect(nextState.usageEvents).toEqual([
+      expect.objectContaining({
+        id: expect.any(String),
+        feature: 'Tables',
+        action: 'Moved player',
+        timestamp: now,
+        metadata: { fromTableId: sourceTable.id, toTableId: targetTable.id }
+      })
+    ]);
+    expect(nextState.profiles).toEqual(previousState.profiles);
+    expect(nextState.playerLedger).toEqual([existingLedger]);
+    expect(nextState.inAppNotifications).toEqual([existingNotification]);
+    const persisted = getPersistedState();
+    expect(persisted.playerSessions).toEqual(nextState.playerSessions);
+    expect(persisted.sessions).toEqual(nextState.sessions);
+    expect(persisted.tableEvents).toEqual(nextState.tableEvents);
+  });
+
+  it('keeps same-table, missing-target, and full-target moves as no-ops', async () => {
+    const sourceTable = { ...table, id: 'table-source', label: 'Source Table', seatsFilled: 1 };
+    const fullTarget = { ...table, id: 'table-full', label: 'Full Target', seatsFilled: 1, maxSeats: 1 };
+    const movingSession: IdentifiedRecord = {
+      ...unrelatedSession,
+      id: 'session-moving',
+      playerName: 'Moving Player',
+      profileId: 'profile-moving',
+      tableId: sourceTable.id,
+      seatNumber: 2,
+      manualEdits: { seatedAt: '2026-08-07T20:05:00.000Z' }
+    };
+    const targetOccupant = { ...unrelatedSession, id: 'session-target-occupant', tableId: fullTarget.id, seatNumber: 1 };
+    await replaceCapturedState(inspectorSession, {
+      correctionLog: [],
+      inAppNotifications: [],
+      interests: [],
+      playerLedger: [],
+      playerSessions: [movingSession, targetOccupant],
+      profiles: [buildProfile('profile-moving', 'Moving Player')],
+      sessions: [sourceTable, fullTarget],
+      tableEvents: [],
+      usageEvents: []
+    });
+    const alertMock = vi.mocked(window.alert);
+    alertMock.mockClear();
+    const originalState = getLatestState();
+
+    await invokeCapturedFunction(inspectorSession, '__orbitType007dMovePlayerToTable', [movingSession, sourceTable.id]);
+    expect(getLatestState()).toBe(originalState);
+    expect(alertMock).not.toHaveBeenCalled();
+
+    await invokeCapturedFunction(inspectorSession, '__orbitType007dMovePlayerToTable', [movingSession, 'missing-table']);
+    expect(getLatestState()).toBe(originalState);
+    expect(alertMock).not.toHaveBeenCalled();
+
+    await invokeCapturedFunction(inspectorSession, '__orbitType007dMovePlayerToTable', [movingSession, fullTarget.id]);
+    expect(getLatestState()).toBe(originalState);
+    expect(alertMock).toHaveBeenCalledOnce();
+    expect(alertMock).toHaveBeenCalledWith('No open seats on the target table.');
+  });
+
+  it('marks the first open exact-name and exact-game session left and emits seat-opened notifications', async () => {
+    const otherGame = { ...game, id: 'game-other', name: 'Other Game' };
+    const otherTable = { ...table, id: 'table-other', gameId: otherGame.id, label: 'Other Table', seatsFilled: 1 };
+    const targetInterest: IdentifiedRecord = {
+      id: 'interest-mark-left',
+      profileId: 'profile-target',
+      playerName,
+      gameId: game.id,
+      status: 'Seated',
+      timestamp: '2026-08-07T20:00:00.000Z',
+      interestedAt: '2026-08-07T19:00:00.000Z',
+      seatedAt: '2026-08-07T20:00:00.000Z',
+      notes: 'Leave through interest action'
+    };
+    const otherInterest: IdentifiedRecord = {
+      ...targetInterest,
+      id: 'interest-other',
+      playerName: 'Other Interest',
+      status: 'Arrived'
+    };
+    const historicalSession: IdentifiedRecord = {
+      ...unrelatedSession,
+      id: 'session-historical',
+      playerName,
+      profileId: 'profile-target',
+      leftAt: '2026-08-07T19:00:00.000Z'
+    };
+    const openTargetSession: IdentifiedRecord = {
+      ...unrelatedSession,
+      id: 'session-open-target',
+      playerName,
+      profileId: 'profile-target',
+      seatNumber: 3,
+      manualEdits: { seatNumber: '2026-08-07T20:05:00.000Z' }
+    };
+    const sameNameOtherGame: IdentifiedRecord = {
+      ...unrelatedSession,
+      id: 'session-other-game',
+      playerName,
+      profileId: 'profile-other-game',
+      gameId: otherGame.id,
+      tableId: otherTable.id,
+      seatNumber: 1
+    };
+    const sameGameOtherName = { ...unrelatedSession, id: 'session-other-name', tableId: table.id, seatNumber: 5 };
+    const recipientName = 'Notification Recipient';
+    const recipient = {
+      ...buildProfile('profile-recipient', recipientName),
+      gamePlayCounts: { [game.id]: 3, [otherGame.id]: 1 }
+    };
+    await replaceCapturedState(inspectorSession, {
+      correctionLog: [structuredClone(existingCorrection)],
+      games: [game, otherGame],
+      inAppNotifications: [structuredClone(existingNotification)],
+      interests: [targetInterest, otherInterest],
+      playerLedger: [structuredClone(existingLedger)],
+      playerSessions: [historicalSession, openTargetSession, sameNameOtherGame, sameGameOtherName],
+      profiles: [buildProfile('profile-target', playerName), recipient],
+      sessions: [structuredClone(table), otherTable],
+      tableEvents: [],
+      usageEvents: []
+    });
+    const previousState = getLatestState();
+    const previousSnapshot = structuredClone(previousState);
+
+    await invokeCapturedFunction(inspectorSession, '__orbitType007dMarkPlayerLeft', [targetInterest]);
+
+    const nextState = getLatestState();
+    expect(previousState).toEqual(previousSnapshot);
+    expect(getRecord(nextState.interests, targetInterest.id)).toEqual({
+      ...targetInterest,
+      status: 'Removed',
+      closedAt: now,
+      timestamp: now
+    });
+    expect(nextState.interests[1]).toBe(previousState.interests[1]);
+    expect(nextState.playerSessions[0]).toBe(previousState.playerSessions[0]);
+    expect(getRecord(nextState.playerSessions, openTargetSession.id)).toEqual({ ...openTargetSession, leftAt: now });
+    expect(nextState.playerSessions[2]).toBe(previousState.playerSessions[2]);
+    expect(nextState.playerSessions[3]).toBe(previousState.playerSessions[3]);
+    expect(getRecord(nextState.sessions, table.id)).toEqual({ ...table, seatsFilled: 1 });
+    expect(nextState.sessions[1]).toBe(previousState.sessions[1]);
+    expect(nextState.inAppNotifications).toEqual([
+      {
+        id: expect.any(String),
+        clubId: accountKey,
+        gameId: game.id,
+        title: game.name,
+        body: 'A seat has opened for Departure Holdem at Local Test Club! Text back to get on the waitlist',
+        reason: 'seat-opened',
+        createdAt: now,
+        expiresAt: '2026-08-08T02:00:00.000Z',
+        targetPlayerIds: [recipient.id],
+        targetPlayerNames: [recipientName]
+      },
+      existingNotification
+    ]);
+    expect(nextState.profiles).toEqual(previousState.profiles);
+    expect(nextState.playerLedger).toEqual([existingLedger]);
+    expect(nextState.correctionLog).toEqual([existingCorrection]);
+    expect(nextState.usageEvents).toEqual([]);
+    const persisted = getPersistedState();
+    expect(persisted.interests).toEqual(nextState.interests);
+    expect(persisted.playerSessions).toEqual(nextState.playerSessions);
+    expect(persisted.sessions).toEqual(nextState.sessions);
+    expect(persisted.inAppNotifications).toEqual(nextState.inAppNotifications);
+  });
+
+  it('still removes the selected interest when no exact open player session exists', async () => {
+    const targetInterest: IdentifiedRecord = {
+      id: 'interest-without-session',
+      playerName,
+      gameId: game.id,
+      status: 'Arrived',
+      timestamp: '2026-08-07T20:00:00.000Z',
+      interestedAt: '2026-08-07T19:00:00.000Z',
+      notes: 'No open session'
+    };
+    const historicalSession: IdentifiedRecord = {
+      ...unrelatedSession,
+      id: 'session-historical',
+      playerName,
+      gameId: game.id,
+      leftAt: '2026-08-07T21:00:00.000Z'
+    };
+    const caseDifferentSession: IdentifiedRecord = {
+      ...unrelatedSession,
+      id: 'session-case-different',
+      playerName: 'case player',
+      gameId: game.id
+    };
+    await replaceCapturedState(inspectorSession, {
+      correctionLog: [structuredClone(existingCorrection)],
+      games: [game],
+      inAppNotifications: [structuredClone(existingNotification)],
+      interests: [targetInterest],
+      playerLedger: [structuredClone(existingLedger)],
+      playerSessions: [historicalSession, caseDifferentSession],
+      profiles: [buildProfile('profile-target', playerName)],
+      sessions: [structuredClone(table)],
+      tableEvents: [],
+      usageEvents: []
+    });
+    const previousState = getLatestState();
+    const previousSnapshot = structuredClone(previousState);
+
+    await invokeCapturedFunction(inspectorSession, '__orbitType007dMarkPlayerLeft', [targetInterest]);
+
+    const nextState = getLatestState();
+    expect(previousState).toEqual(previousSnapshot);
+    expect(getRecord(nextState.interests, targetInterest.id)).toEqual({
+      ...targetInterest,
+      status: 'Removed',
+      closedAt: now,
+      timestamp: now
+    });
+    nextState.playerSessions.forEach((session, index) => expect(session).toBe(previousState.playerSessions[index]));
+    nextState.sessions.forEach((session, index) => expect(session).toBe(previousState.sessions[index]));
+    nextState.profiles.forEach((profile, index) => expect(profile).toBe(previousState.profiles[index]));
+    expect(nextState.playerLedger).toEqual([existingLedger]);
+    expect(nextState.inAppNotifications).toEqual([existingNotification]);
+    expect(nextState.correctionLog).toEqual([existingCorrection]);
+    expect(nextState.usageEvents).toEqual([]);
+    const persisted = getPersistedState();
+    expect(persisted.interests).toEqual(nextState.interests);
+    expect(persisted.playerSessions).toEqual(nextState.playerSessions);
+    expect(persisted.sessions).toEqual(nextState.sessions);
   });
 });
