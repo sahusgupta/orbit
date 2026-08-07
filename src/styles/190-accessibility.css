@@ -1,0 +1,163 @@
+
+/* Final theme guardrails for the printable reconciliation surface. */
+.reports-page .topbar h1,
+.night-close-header h2,
+.night-close-section-title h3,
+.night-close-totals strong,
+.night-close-table-row > div:first-child strong,
+.night-close-table-row > strong,
+.night-close-signatures strong,
+.night-close-audit strong { color: var(--ink); }
+.night-close-totals .pending { border-color: color-mix(in srgb, var(--amber) 45%, var(--line)); }
+.night-close-totals .pending strong { color: var(--amber); }
+.night-close-totals .balanced strong, .night-close-table-row > strong.balanced { color: var(--teal); }
+.night-close-totals .unbalanced strong, .night-close-table-row > strong.unbalanced { color: var(--rose); }
+/* Accessibility contrast guardrails for interactive controls and access setup. */
+:root {
+  --interactive-on-primary: #07111f;
+  --interactive-focus: #1d4ed8;
+}
+
+body.low-light {
+  --interactive-on-primary: #07111f;
+  --interactive-focus: #93c5fd;
+}
+
+.access-card :is(h1, h2, h3, strong, label),
+.access-step-title {
+  color: var(--ink);
+}
+
+.primary-button,
+.ui-button-default,
+.player-tool-icon.primary {
+  color: var(--interactive-on-primary);
+}
+
+.primary-button:hover,
+.primary-button:active,
+.primary-button:focus-visible,
+.ui-button-default:hover,
+.ui-button-default:active,
+.ui-button-default:focus-visible,
+.player-tool-icon.primary:hover,
+.player-tool-icon.primary:active,
+.player-tool-icon.primary:focus-visible {
+  color: var(--interactive-on-primary);
+}
+
+.secondary-button,
+.ghost-button,
+.icon-button,
+.mini-button,
+.ui-button-secondary,
+.ui-button-ghost {
+  color: var(--ink);
+}
+
+body:not(.low-light) .secondary-button {
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--line));
+  color: var(--ink);
+}
+
+body:not(.low-light) :is(.ghost-button, .icon-button, .mini-button, .ui-button-secondary, .ui-button-ghost) {
+  background: var(--panel-solid);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+body:not(.low-light) .secondary-button:hover {
+  background: color-mix(in srgb, var(--primary-soft) 82%, var(--primary));
+  border-color: color-mix(in srgb, var(--primary) 50%, var(--line));
+  color: var(--ink);
+}
+
+body:not(.low-light) :is(.ghost-button, .icon-button, .mini-button, .ui-button-secondary, .ui-button-ghost):hover {
+  background: color-mix(in srgb, var(--panel-solid) 88%, var(--primary-soft));
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--line));
+  color: var(--ink);
+}
+
+.secondary-button.active,
+.ghost-button.active,
+button[aria-pressed="true"],
+button[aria-selected="true"] {
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 58%, var(--line));
+  color: var(--primary-dark);
+}
+
+.orbit-sidebar-nav button.active,
+.settings-nav button.active,
+.metric-category-menu button.active,
+.orbit-bottom-nav button.active,
+[cmdk-item][data-selected="true"],
+.ui-menu-item[data-highlighted],
+.ui-badge {
+  color: var(--primary-dark);
+}
+
+:is(button, [role="button"], .secondary-button, .license-file-button):focus-visible {
+  outline: 3px solid var(--interactive-focus);
+  outline-offset: 2px;
+}
+
+button svg,
+[role="button"] svg,
+.license-file-button svg {
+  color: currentColor;
+}
+
+button:disabled,
+button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
+body:not(.low-light) :is(.primary-button, .ui-button-default):disabled {
+  background: #cbd5e1;
+  border-color: #94a3b8;
+  color: #334155;
+  opacity: 1;
+}
+
+body.low-light :is(.primary-button, .ui-button-default):disabled {
+  background: #263246;
+  border-color: #475569;
+  color: #cbd5e1;
+  opacity: 1;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8;
+  opacity: 1;
+}
+
+body:not(.low-light) :is(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  select,
+  textarea
+) {
+  background: var(--panel-solid);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+body:not(.low-light) :is(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  select,
+  textarea
+):focus {
+  background: var(--panel-solid);
+  border-color: color-mix(in srgb, var(--primary) 64%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+  caret-color: var(--ink);
+  color: var(--ink);
+}
+
+body:not(.low-light) select:focus option {
+  background: var(--panel-solid);
+  color: var(--ink);
+}

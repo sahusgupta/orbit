@@ -6,7 +6,7 @@ Date: 2026-08-07
 
 | Surface | Entrypoint | Current ownership | Verification |
 | --- | --- | --- | --- |
-| Management renderer | `src/main.tsx` | React/Vite UI, most management state/domain orchestration, browser persistence, Firebase client coordination | `tsconfig.renderer.json`, root Vitest, Vite build |
+| Management renderer | `src/main.tsx` plus `src/components/` | React/Vite UI, management state/domain orchestration, typed route composition, browser persistence, Firebase client coordination | `tsconfig.renderer.json`, root Vitest, Vite build |
 | Renderer tests | `src/**/*.test.ts(x)` | jsdom/Node-assisted characterization and pure unit tests | `tsconfig.test.json`, root Vitest |
 | Electron | `electron/main.cjs`, `electron/preload.cjs` | desktop windowing, IPC, local SQLite, hosted/local API fallback, telemetry, reports, updates | tests/build only; semantic check pending TYPE-016 |
 | API | `apps/api/src/server.js` | Express routes, SQLite, Firebase Admin publication, licensing/payment integrations | root Vitest only; semantic check pending TYPE-018 |
@@ -16,8 +16,8 @@ Date: 2026-08-07
 
 | File | Lines | Evidence-backed concern |
 | --- | ---: | --- |
-| `src/main.tsx` | 10,171 | 597 lines of top-level types/contracts, roughly 1,600 lines of state/report/domain helpers, and a 7,720-line `App` component containing nine route branches. |
-| `src/styles.css` | 8,840 | Global cascade contains multiple historical theme/detail passes and feature-specific sections; ordering is behavior and requires rendered comparison before splitting. |
+| `src/main.tsx` | 5,599 | Domain contracts, pure projections, and nine route views have focused owners; top-level state, effects, persistence, and mutation orchestration remain concentrated here. |
+| `src/styles.css` and `src/styles/*.css` | 35-line entrypoint; 8,840 owned lines | The unchanged ordered cascade now has 35 feature/layer owners. Only the documented dark-theme compatibility pass exceeds 500 lines (649) because equal-specificity historical ordering is cohesive behavior. |
 | `electron/main.cjs` | 1,856 | Combines transport/auth, local SQLite, reports, duplicated player sync, embedded backend, updates, windows, and IPC. |
 | `src/lib/playerSync.ts` | 847 | Canonical renderer publication/merge logic; protected by focused tests and protocol-v2 invariants. |
 | `apps/api/src/server.js` | 668 | Route composition and service orchestration are still combined. |
@@ -35,13 +35,15 @@ REF-004 moved characterized license/account identity and staff-secret behavior i
 
 REF-005 moved characterized demand/table/session rules, operational/usage analytics, analytical payload projection, participant selection, and outreach/opportunity rules into `src/domain/operations.ts`, `src/domain/analytics.ts`, and `src/domain/participants.ts`. `src/main.tsx` is now 8,342 lines; the focused operational suite runs directly in Node while the existing renderer suites retain mutation-side coverage.
 
-REF-006A moved the characterized Outreach route into typed `src/components/SignalsView.tsx` and the shared title primitive into `src/components/PanelTitle.tsx`. `src/main.tsx` is now 8,209 lines and retains shell, navigation, state, persistence, and mutation ownership.
+REF-006 moved all nine remaining renderer route branches into typed feature components, including the Floor and selected-table routes. `src/main.tsx` is now 5,599 lines and retains shell, navigation, top-level state/effects, persistence, and mutation ownership while the route components own their characterized markup and callback wiring.
+
+REF-007 replaced the 8,840-line stylesheet entrypoint with 35 ordered imports under `src/styles/`. The recursively flattened source is byte-identical to the prior cascade, the generated CSS asset is unchanged, and eight isolated route/theme/viewport comparisons preserve rendered output. `src/styles/README.md` records the feature/layer owners and the compatibility-order constraint.
 
 ## Renderer dependency shape
 
-`src/domain/types.ts` now owns the canonical management `AppState` and related persisted contracts; focused state, reporting, licensing/staff-auth, operations, analytics, and participant modules own renderer domain projections. `src/main.tsx` remains their orchestration consumer and still imports focused behavior from `src/lib/`. Renderer-mount characterization remains for persistence and state mutations; pure projections now have direct focused boundaries.
+`src/domain/types.ts` owns the canonical management `AppState` and related persisted contracts; focused state, reporting, licensing/staff-auth, operations, analytics, and participant modules own renderer domain projections. Typed components own route markup while `src/main.tsx` remains their state/effect/mutation orchestrator and still imports focused behavior from `src/lib/`. Renderer-mount characterization remains for persistence and state mutations; pure projections have direct focused boundaries. Renderer styles retain one explicit import entrypoint with ordered feature and compatibility owners.
 
-The next runtime extractions should follow dependency direction:
+The renderer phases now follow this dependency direction:
 
 ```text
 domain types

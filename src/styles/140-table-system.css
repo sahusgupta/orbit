@@ -1,0 +1,292 @@
+
+/* Figma table-management system: circular seats, navy felt, restrained glow. */
+.poker-table-display {
+  background: #0b1020;
+  border-color: rgba(77, 124, 254, .14);
+  border-radius: 14px;
+  padding: 0;
+}
+
+.poker-table-shell,
+.table-view-table .poker-table-shell {
+  background:
+    radial-gradient(ellipse 66% 52% at 50% 52%, rgba(77,124,254,.065), transparent 72%),
+    #0b1020;
+  min-height: clamp(520px, 55vw, 720px);
+  overflow: visible;
+  padding: clamp(62px, 7vw, 94px);
+}
+
+.poker-table-stage {
+  aspect-ratio: 700 / 430;
+  max-width: 900px;
+}
+
+.poker-table-rail {
+  background: radial-gradient(ellipse at 50% 28%, #273d6d 0%, #17264b 48%, #0a1023 100%);
+  border: 1px solid rgba(123,167,255,.28);
+  box-shadow: 0 24px 68px rgba(0,0,0,.72), inset 0 1px 0 rgba(255,255,255,.06);
+  padding: 24px;
+}
+
+.poker-table-ring {
+  background: transparent;
+  border: 1px solid rgba(77,124,254,.2);
+  inset: 15px;
+}
+
+.poker-table-inner-rail {
+  border: 0;
+  inset: 21px;
+}
+
+.poker-table-surface,
+body.low-light .poker-table-surface {
+  background: radial-gradient(ellipse at 50% 36%, #213e71 0%, #162d59 58%, #0e1e42 100%);
+  border: 1px solid rgba(255,255,255,.05);
+  box-shadow: inset 0 0 54px rgba(4,9,26,.46);
+}
+
+.poker-table-border {
+  border: 28px solid rgba(255,255,255,.018);
+  inset: 12%;
+}
+
+.poker-table-center {
+  border: 0;
+  display: grid;
+  gap: 1px;
+  height: 94px;
+  justify-items: center;
+  opacity: .72;
+  width: 120px;
+}
+
+.poker-table-center img { height: 66px; object-fit: contain; width: 66px; }
+.poker-table-center span { color: rgba(219,234,254,.76); font-size: .58rem; font-weight: 850; letter-spacing: .26em; padding-left: .26em; }
+
+.poker-position-marker {
+  background: rgba(11,16,32,.78);
+  border: 1.5px solid rgba(51,65,85,.48);
+  color: #40516d;
+  height: 52px;
+  min-height: 52px;
+  width: 52px;
+  z-index: 6;
+}
+
+.poker-position-marker.open {
+  background: rgba(11,16,32,.84);
+  border-color: rgba(77,124,254,.38);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
+  color: #536786;
+}
+
+.poker-position-marker.open:hover,
+.poker-position-marker.selected {
+  background: rgba(77,124,254,.14);
+  border-color: rgba(77,124,254,.78);
+  box-shadow: 0 0 22px rgba(77,124,254,.34), inset 0 1px 0 rgba(255,255,255,.08);
+  color: #7ba7ff;
+  transform: translate(-50%,-50%) scale(1.08);
+}
+
+.poker-position-marker.occupied { opacity: 0; }
+.poker-dealer-position {
+  background: #d97706;
+  border: 1px solid #92400e;
+  border-radius: 999px;
+  bottom: 2.5%;
+  color: #1a0800;
+  font-size: .5rem;
+  font-weight: 900;
+  height: 28px;
+  letter-spacing: .05em;
+  padding: 6px 10px;
+  text-transform: uppercase;
+  width: auto;
+}
+
+.poker-seat-card { z-index: 10; }
+.poker-seat-card.open { z-index: 40; }
+.poker-seat-card.dragging { opacity: .48; z-index: 50; }
+.poker-seat-remove-button { display: none; }
+.poker-seat-card-inner,
+body.low-light .poker-seat-card-inner {
+  align-items: center;
+  background: linear-gradient(145deg, rgba(77,124,254,.22), rgba(77,124,254,.08));
+  border: 1.5px solid rgba(77,124,254,.64);
+  border-radius: 50%;
+  box-shadow: 0 0 18px rgba(77,124,254,.22), inset 0 1px 0 rgba(255,255,255,.08);
+  color: #7ba7ff;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  height: 96px;
+  justify-content: center;
+  overflow: hidden;
+  padding: 12px 8px 9px;
+  position: relative;
+  text-align: center;
+  width: 96px;
+}
+
+.poker-seat-card-inner[draggable="true"] { cursor: grab; }
+.poker-seat-card-inner[draggable="true"]:active { cursor: grabbing; }
+.poker-table-shell.is-dragging-player .poker-position-marker.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.poker-position-marker.drop-target {
+  animation: poker-seat-drop-pulse 1.2s ease-in-out infinite;
+  background: rgba(77,124,254,.18);
+  border-color: rgba(123,167,255,.8);
+  color: #a9c5ff;
+}
+.poker-position-marker.drag-over {
+  animation: none;
+  background: #4d7cfe;
+  border-color: #b8ccff;
+  box-shadow: 0 0 0 7px rgba(77,124,254,.18), 0 0 28px rgba(77,124,254,.72);
+  color: #07111f;
+  transform: translate(-50%,-50%) scale(1.22);
+}
+
+@keyframes poker-seat-drop-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(77,124,254,.08), 0 0 14px rgba(77,124,254,.22); }
+  50% { box-shadow: 0 0 0 5px rgba(77,124,254,.12), 0 0 24px rgba(77,124,254,.42); }
+}
+
+.poker-seat-card.dense .poker-seat-card-inner { height: 88px; width: 88px; }
+.poker-seat-card-inner:hover,
+.poker-seat-card-inner.open { border-color: #7ba7ff; box-shadow: 0 0 24px rgba(77,124,254,.42), inset 0 1px 0 rgba(255,255,255,.1); transform: scale(1.08); }
+.poker-seat-number {
+  color: rgba(147,197,253,.7);
+  font-size: .55rem;
+  font-weight: 900;
+  left: 50%;
+  line-height: 1;
+  position: absolute;
+  top: 8px;
+  transform: translateX(-50%);
+}
+.poker-seat-player-name {
+  color: #dbeafe;
+  display: -webkit-box;
+  font-size: .69rem;
+  font-weight: 850;
+  line-height: 1.08;
+  max-width: 78px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-align: center;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.poker-seat-buyin { color: #7ba7ff; font-size: .7rem; font-weight: 900; line-height: 1; }
+.poker-seat-time { color: #94a3b8; font-size: .57rem; font-style: normal; font-variant-numeric: tabular-nums; font-weight: 800; line-height: 1; }
+.poker-seat-time.red { color: #fb7185; }
+.poker-seat-time.yellow { color: #fbbf24; }
+.poker-seat-time.green { color: #5eead4; }
+.poker-seat-card.dense .poker-seat-player-name { font-size: .62rem; max-width: 70px; }
+.poker-seat-card.dense .poker-seat-buyin { font-size: .64rem; }
+.poker-seat-card.dense .poker-seat-time { font-size: .53rem; }
+
+.poker-seat-menu,
+body.low-light .poker-seat-menu {
+  background: rgba(9,13,30,.985);
+  border-color: rgba(77,124,254,.28);
+  box-shadow: 0 28px 80px rgba(0,0,0,.78), 0 0 0 1px rgba(77,124,254,.05);
+  color: #e2e8f0;
+}
+.poker-seat-menu-header,
+body.low-light .poker-seat-menu-header { border-color: rgba(77,124,254,.13); }
+.poker-seat-menu-header strong,
+.poker-seat-menu-summary strong { color: #e2e8f0; }
+.poker-seat-cashout { background: transparent; border: 1px solid rgba(244,63,94,.24); border-radius: 8px; color: #fb7185; min-height: 34px; width: 100%; }
+.poker-seat-cashout:hover { background: rgba(244,63,94,.09); border-color: rgba(244,63,94,.44); }
+
+@media (max-width: 900px) {
+  .poker-table-shell, .table-view-table .poker-table-shell { min-height: 520px; padding: 70px 42px; }
+  .poker-seat-card-inner,
+  .poker-seat-card.dense .poker-seat-card-inner { height: 82px; width: 82px; }
+  .poker-seat-player-name,
+  .poker-seat-card.dense .poker-seat-player-name { font-size: .59rem; max-width: 66px; }
+}
+
+.table-live-feed-overlay {
+  background: rgba(7,11,26,.92);
+  border: 1px solid rgba(77,124,254,.22);
+  border-radius: 10px;
+  box-shadow: 0 12px 44px rgba(0,0,0,.6);
+  color: #94a3b8;
+  display: grid;
+  gap: 8px;
+  left: 16px;
+  padding: 11px 14px;
+  position: fixed;
+  text-align: left;
+  top: 72px;
+  width: min(292px, calc(100vw - 32px));
+  z-index: 42;
+}
+.table-live-feed-title { align-items: center; color: #4d7cfe; display: flex; font-size: .58rem; font-weight: 850; gap: 7px; letter-spacing: .16em; text-transform: uppercase; }
+.table-live-feed-title > i { background: #4d7cfe; border-radius: 50%; box-shadow: 0 0 9px #4d7cfe; height: 6px; width: 6px; }
+.table-live-feed-title em { color: #475569; font-size: .52rem; font-style: normal; letter-spacing: .04em; margin-left: auto; text-transform: none; }
+.table-live-feed-items { display: grid; gap: 7px; }
+.table-live-feed-items > span { align-items: center; display: grid; gap: 8px; grid-template-columns: 5px minmax(0,1fr) auto; }
+.table-live-feed-items > span > i,
+.table-event-log-list article > i { background: #64748b; border-radius: 50%; height: 5px; width: 5px; }
+.table-live-feed-items i.buy-in, .table-event-log-list i.buy-in { background: #4d7cfe; box-shadow: 0 0 6px rgba(77,124,254,.55); }
+.table-live-feed-items i.cash-out, .table-event-log-list i.cash-out { background: #f43f5e; }
+.table-live-feed-items i.drop, .table-event-log-list i.drop { background: #f59e0b; }
+.table-live-feed-items > span > span { display: grid; font-size: .62rem; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table-live-feed-items strong { color: #7ba7ff; font-size: .5rem; letter-spacing: .06em; text-transform: uppercase; }
+.table-live-feed-items time { color: #334155; font-size: .52rem; font-variant-numeric: tabular-nums; }
+.table-live-feed-items small { color: #475569; font-size: .64rem; font-style: italic; }
+
+.table-buyin-float {
+  background: rgba(7,11,26,.92);
+  border: 1px solid rgba(77,124,254,.24);
+  border-radius: 10px;
+  box-shadow: 0 12px 44px rgba(0,0,0,.58);
+  color: #94a3b8;
+  display: grid;
+  overflow: hidden;
+  padding: 0;
+  position: fixed;
+  right: 16px;
+  text-align: left;
+  top: 61px;
+  width: 340px;
+  z-index: 42;
+}
+.table-buyin-float-title { align-items: center; border-bottom: 1px solid rgba(77,124,254,.12); color: #4d7cfe; display: flex; font-size: .7rem; font-weight: 850; gap: 8px; letter-spacing: .16em; padding: 14px 17px; text-transform: uppercase; }
+.table-buyin-float-rows { display: grid; padding: 5px 0; }
+.table-buyin-float-rows > span { align-items: center; display: grid; gap: 9px; grid-template-columns: 28px minmax(0,1fr) auto auto; min-height: 36px; padding: 5px 17px; }
+.table-buyin-float-rows i { background: rgba(77,124,254,.13); border-radius: 4px; color: #6f97ff; font-size: .58rem; font-style: normal; font-weight: 850; padding: 3px 5px; }
+.table-buyin-float-rows span { color: #8090a8; font-size: .74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table-buyin-float-rows > span > span { display: grid; gap: 1px; }
+.table-buyin-float-rows > span > span small { color: #475569; font-size: .56rem; font-variant-numeric: tabular-nums; }
+.table-buyin-float-rows em { background: rgba(124,58,237,.12); border-radius: 3px; color: #a78bfa; font-size: .52rem; font-style: normal; padding: 2px 5px; }
+.table-buyin-float-rows strong { color: #cbd5e1; font-size: .8rem; font-variant-numeric: tabular-nums; }
+.table-buyin-float-rows > small { color: #475569; font-size: .62rem; padding: 10px 14px; }
+.table-buyin-float-total { align-items: center; background: rgba(77,124,254,.04); border-top: 1px solid rgba(77,124,254,.12); display: flex; justify-content: space-between; padding: 13px 17px; }
+.table-buyin-float-total span { color: #475569; font-size: .52rem; font-weight: 850; letter-spacing: .13em; text-transform: uppercase; }
+.table-buyin-float-total strong { color: #4d7cfe; font-size: 1.2rem; }
+
+.table-event-log-backdrop { align-items: center; background: rgba(0,0,0,.76); display: flex; inset: 0; justify-content: center; padding: 24px; position: fixed; z-index: 125; }
+.table-event-log-modal { background: rgba(9,13,30,.99); border: 1px solid rgba(77,124,254,.24); border-radius: 14px; box-shadow: 0 32px 90px rgba(0,0,0,.86); color: #e2e8f0; max-height: min(720px, calc(100vh - 48px)); overflow: hidden; width: min(560px, 100%); }
+.table-event-log-head { align-items: center; border-bottom: 1px solid rgba(77,124,254,.12); display: flex; justify-content: space-between; padding: 15px 18px; }
+.table-event-log-head span { color: #4d7cfe; font-size: .58rem; font-weight: 850; letter-spacing: .16em; text-transform: uppercase; }
+.table-event-log-head h2 { color: #e2e8f0; font-size: 1rem; margin: 3px 0 0; }
+.table-event-log-list { max-height: calc(100vh - 150px); overflow-y: auto; }
+.table-event-log-list article { align-items: center; border-bottom: 1px solid rgba(255,255,255,.04); display: grid; gap: 12px; grid-template-columns: 5px minmax(0,1fr) auto; padding: 11px 18px; }
+.table-event-log-list article > div { display: grid; gap: 2px; }
+.table-event-log-list strong { color: #7ba7ff; font-size: .58rem; letter-spacing: .08em; text-transform: uppercase; }
+.table-event-log-list span { color: #94a3b8; font-size: .75rem; }
+.table-event-log-list time { color: #475569; font-size: .62rem; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1180px) {
+  .table-live-feed-overlay, .table-buyin-float { display: none; }
+}

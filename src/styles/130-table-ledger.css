@@ -1,0 +1,36 @@
+
+/* The immersive table view is dark, but its ledger opens on a white modal. */
+.table-view-shell .cash-ledger-modal {
+  color: #0f172a;
+}
+
+.table-view-shell .cash-ledger-head h2,
+.table-view-shell .cash-ledger-summary article:not(.cash-ledger-balance) strong,
+.table-view-shell .cash-ledger-entry-copy strong,
+.table-view-shell .cash-ledger-empty strong {
+  color: #0f172a;
+}
+
+.table-view-shell .cash-ledger-head span,
+.table-view-shell .cash-ledger-summary article:not(.cash-ledger-balance) span,
+.table-view-shell .cash-ledger-entry time,
+.table-view-shell .cash-ledger-entry-copy span,
+.table-view-shell .cash-ledger-empty {
+  color: #64748b;
+}
+
+.table-view-shell .cash-ledger-summary article:not(.cash-ledger-balance) {
+  background: #f8fafc;
+  border-color: #dbe3ef;
+}
+
+.table-view-shell .cash-ledger-summary .cash-ledger-balance strong {
+  color: #fff;
+}
+
+@media (max-width: 760px) {
+  .cash-ledger-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cash-ledger-reconcile { align-items: flex-start; flex-direction: column; }
+  .cash-ledger-entry { grid-template-columns: 10px minmax(0,1fr) auto; }
+  .cash-ledger-entry time { display: none; }
+}

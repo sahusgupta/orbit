@@ -1,0 +1,296 @@
+
+.poker-seat-menu {
+  background: var(--panel-solid);
+  border: 1px solid rgba(51, 70, 168, 0.28);
+  border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(42, 55, 91, 0.2);
+  display: grid;
+  gap: 8px;
+  left: 50%;
+  min-width: min(440px, calc(100vw - 48px));
+  max-width: min(520px, calc(100vw - 48px));
+  padding: 12px;
+  position: absolute;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 20;
+}
+
+.poker-seat-menu.above {
+  bottom: calc(100% + 8px);
+  top: auto;
+}
+
+.poker-seat-menu.align-left {
+  left: 0;
+  transform: none;
+}
+
+.poker-seat-menu.align-right {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.poker-seat-card.dense .poker-seat-menu {
+  min-width: min(420px, calc(100vw - 48px));
+}
+
+.poker-seat-menu-header {
+  align-items: start;
+  border-bottom: 1px solid rgba(223, 231, 242, 0.86);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding-bottom: 10px;
+}
+
+.poker-seat-menu-header strong,
+.poker-seat-menu-header span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.poker-seat-menu-header-actions {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: end;
+  min-width: 0;
+}
+
+.poker-seat-menu-header-actions > strong {
+  color: var(--ink);
+  font-size: 1rem;
+  white-space: nowrap;
+}
+
+.poker-seat-menu-header-actions .icon-button {
+  height: 28px;
+  min-height: 28px;
+  width: 28px;
+}
+
+.poker-seat-menu-header span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  margin-top: 2px;
+}
+
+.poker-seat-menu-summary,
+.poker-seat-menu-row {
+  align-items: center;
+  display: grid;
+  gap: 7px;
+}
+
+.poker-seat-menu-summary {
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.poker-seat-menu-summary strong {
+  display: block;
+  color: var(--ink);
+  margin-top: 3px;
+}
+
+.poker-seat-menu-row {
+  grid-template-columns: auto auto minmax(64px, 1fr) minmax(82px, auto);
+}
+
+.poker-seat-menu-row.buyin {
+  grid-template-columns: minmax(96px, 0.7fr) minmax(0, 1fr) minmax(78px, auto);
+}
+
+.poker-seat-menu-row.move-player-row,
+.poker-seat-menu-row.seat-number-row {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.move-player-row label,
+.seat-number-row label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.move-player-row select,
+.seat-number-row select {
+  min-width: 0;
+}
+
+.poker-seat-menu-row input {
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.poker-seat-log {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.poker-seat-log span {
+  background: var(--primary-soft);
+  border-radius: 999px;
+  color: var(--primary-dark);
+  font-size: 0.74rem;
+  font-weight: 850;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 5px 8px;
+}
+
+.table-collapsed-note {
+  align-items: center;
+  background: rgba(251, 253, 255, 0.76);
+  border: 1px solid rgba(223, 231, 242, 0.82);
+  border-radius: 16px;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 62px;
+  padding: 12px;
+}
+
+.table-collapsed-note span {
+  font-weight: 850;
+}
+
+.table-overview-content,
+.overview-player-list {
+  display: grid;
+  gap: 10px;
+}
+
+.overview-player-row {
+  align-items: center;
+  background: rgba(248, 250, 252, 0.74);
+  border: 1px solid rgba(203, 213, 225, 0.8);
+  border-radius: 14px;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 9px;
+}
+
+.overview-player-row span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.overview-player-row strong {
+  overflow-wrap: anywhere;
+}
+
+.overview-player-row .time-left-pill {
+  justify-self: end;
+}
+
+.overview-player-row.all-time-row {
+  grid-template-columns: 78px minmax(0, 1fr) minmax(70px, auto) auto;
+}
+
+.overview-player-row small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.table-player-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.player-action-card {
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(223, 231, 242, 0.82);
+  border-radius: 14px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.player-action-summary {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto auto auto auto;
+  gap: 8px;
+}
+
+.player-action-summary strong,
+.player-action-summary span {
+  display: block;
+}
+
+.player-action-summary span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+body.low-light .poker-table-display,
+body.low-light .poker-seat-card-inner,
+body.low-light .poker-seat-remove-button,
+body.low-light .poker-seat-menu,
+body.low-light .player-action-card,
+body.low-light .table-collapsed-note {
+  background: rgba(16, 23, 39, 0.58);
+  border-color: rgba(94, 111, 146, 0.46);
+}
+
+body.low-light .poker-seat-card-inner,
+body.low-light .poker-seat-menu {
+  color: var(--ink);
+}
+
+body.low-light .poker-table-surface {
+  background: var(--panel-solid);
+}
+
+body.low-light .poker-seat-header,
+body.low-light .poker-seat-menu-header {
+  border-color: rgba(94, 111, 146, 0.5);
+}
+
+body.low-light .poker-seat-stat,
+body.low-light .poker-seat-log span {
+  background: rgba(36, 49, 80, 0.86);
+  border-color: rgba(142, 162, 255, 0.24);
+  color: var(--ink);
+}
+
+body.low-light .poker-seat-stat.time-left.green {
+  background: var(--teal-soft);
+  color: var(--teal);
+}
+
+body.low-light .poker-seat-stat.time-left.yellow {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+body.low-light .poker-seat-stat.time-left.red {
+  background: var(--rose-soft);
+  color: var(--rose);
+}
+
+body.low-light .poker-position-marker.open {
+  background: rgba(36, 49, 80, 0.9);
+  border-color: rgba(142, 162, 255, 0.34);
+  color: var(--ink);
+}
+
+body.low-light .poker-position-marker.open:hover,
+body.low-light .poker-position-marker.selected {
+  background: rgba(142, 162, 255, 0.24);
+  border-color: rgba(142, 162, 255, 0.58);
+}

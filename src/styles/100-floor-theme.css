@@ -1,0 +1,179 @@
+
+/* Right-side floor panels: remove legacy light cards and integrate into dark surface. */
+.dashboard-side-column > .panel,
+.quick-add-panel,
+.table-overview-panel,
+.live-feed-panel,
+.shown-interest-panel,
+.recommended-panel {
+  background: var(--panel-solid);
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.dashboard-side-column .panel-title,
+.quick-add-panel .panel-title,
+.table-overview-panel .panel-title,
+.live-feed-panel .panel-title,
+.shown-interest-panel .panel-title,
+.recommended-panel .panel-title {
+  border-bottom-color: var(--line);
+  color: var(--ink);
+}
+
+.dashboard-side-column .panel-title *,
+.dashboard-side-column .panel-title svg,
+.quick-add-panel .panel-title *,
+.quick-add-panel .panel-title svg,
+.table-overview-panel .panel-title *,
+.table-overview-panel .panel-title svg,
+.live-feed-panel .panel-title *,
+.live-feed-panel .panel-title svg,
+.shown-interest-panel .panel-title *,
+.shown-interest-panel .panel-title svg,
+.recommended-panel .panel-title *,
+.recommended-panel .panel-title svg {
+  color: var(--ink);
+  stroke: currentColor;
+}
+
+.dashboard-side-column .muted-copy,
+.quick-add-panel .muted-copy,
+.table-overview-panel .muted-copy,
+.live-feed-panel .muted-copy,
+.shown-interest-panel .muted-copy,
+.recommended-panel .muted-copy {
+  color: var(--muted);
+}
+
+.dashboard-side-column .active-game-card,
+.dashboard-side-column .action-needed-card,
+.dashboard-side-column .forming-card,
+.dashboard-side-column .waitlist-card,
+.dashboard-side-column .seat-help-row,
+.dashboard-side-column .quick-seat-row,
+.dashboard-side-column .collection-config-box,
+.dashboard-side-column .timestamp-grid,
+.dashboard-side-column .player-picker-list,
+.dashboard-side-column .player-pick-row,
+.dashboard-side-column .table-overview-content,
+.dashboard-side-column .seated-table,
+.quick-add-panel .quick-seat-row,
+.quick-add-panel .seat-help-row,
+.quick-add-panel .player-pick-row,
+.table-overview-panel .table-overview-content,
+.table-overview-panel .seated-table,
+.shown-interest-panel .forming-card,
+.recommended-panel .waitlist-card {
+  background: var(--panel-solid);
+  border-color: var(--line);
+  box-shadow: none;
+  color: var(--ink);
+}
+
+.dashboard-side-column .active-game-card:hover,
+.dashboard-side-column .action-needed-card:hover,
+.dashboard-side-column .forming-card:hover,
+.dashboard-side-column .waitlist-card:hover,
+.shown-interest-panel .forming-card:hover,
+.recommended-panel .waitlist-card:hover {
+  background: #111a24;
+  border-color: rgba(77, 124, 254, 0.22);
+  box-shadow: none;
+  transform: none;
+}
+
+.dashboard-side-column strong,
+.dashboard-side-column h2,
+.dashboard-side-column h3,
+.dashboard-side-column label,
+.quick-add-panel strong,
+.quick-add-panel h2,
+.quick-add-panel h3,
+.quick-add-panel label,
+.table-overview-panel strong,
+.table-overview-panel h2,
+.table-overview-panel h3,
+.table-overview-panel label,
+.live-feed-panel strong,
+.live-feed-panel h2,
+.live-feed-panel h3,
+.shown-interest-panel strong,
+.shown-interest-panel h2,
+.shown-interest-panel h3,
+.recommended-panel strong,
+.recommended-panel h2,
+.recommended-panel h3 {
+  color: var(--ink);
+}
+
+.dashboard-side-column span,
+.dashboard-side-column small,
+.dashboard-side-column p,
+.quick-add-panel span,
+.quick-add-panel small,
+.quick-add-panel p,
+.table-overview-panel span,
+.table-overview-panel small,
+.table-overview-panel p,
+.live-feed-panel span,
+.live-feed-panel small,
+.live-feed-panel p,
+.shown-interest-panel span,
+.shown-interest-panel small,
+.shown-interest-panel p,
+.recommended-panel span,
+.recommended-panel small,
+.recommended-panel p {
+  color: var(--muted);
+}
+
+.live-feed-panel .live-feed-list,
+.recommended-panel .waitlist-list,
+.shown-interest-panel .forming-list {
+  background: transparent;
+}
+
+.live-feed-panel .live-feed-item,
+.recommended-panel .waitlist-card {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.065);
+  box-shadow: none;
+}
+
+.live-feed-panel .live-feed-head strong,
+.recommended-panel .waitlist-card strong {
+  color: #f4f7fb;
+}
+
+.live-feed-panel .live-feed-head span,
+.recommended-panel .waitlist-card small,
+.recommended-panel .waitlist-card span {
+  color: #9aa6b6;
+}
+
+.live-feed-panel .live-feed-item p {
+  color: #b8c2cf;
+}
+
+.live-feed-panel .live-feed-dot {
+  box-shadow: none;
+}
+
+.dashboard-side-column input,
+.dashboard-side-column select,
+.dashboard-side-column textarea,
+.quick-add-panel input,
+.quick-add-panel select,
+.quick-add-panel textarea {
+  background: #0b1118;
+  border-color: #293442;
+  color: #f4f7fb;
+}
+
+.dashboard-side-column input::placeholder,
+.dashboard-side-column textarea::placeholder,
+.quick-add-panel input::placeholder,
+.quick-add-panel textarea::placeholder {
+  color: #6f7c8e;
+}

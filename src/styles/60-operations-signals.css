@@ -1,0 +1,262 @@
+
+.opportunity-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.opportunity-card,
+.outreach-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 14px;
+  background: #fbfdff;
+}
+
+.opportunity-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.demand-table {
+  display: grid;
+  gap: 6px;
+}
+
+.demand-header,
+.demand-line {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) repeat(4, 54px);
+  align-items: center;
+  gap: 6px;
+}
+
+.demand-header {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.demand-line {
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  padding: 10px;
+  background: #fbfdff;
+}
+
+.simple-demand .demand-line {
+  grid-template-columns: minmax(82px, 1fr) repeat(3, minmax(58px, auto));
+}
+
+.simple-demand .demand-line small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
+.demand-line span {
+  font-weight: 850;
+  text-align: center;
+  color: var(--primary-dark);
+}
+
+.health-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #edf2f8;
+  color: #42526a;
+  font-size: clamp(0.68rem, 1vw, 0.8rem);
+  font-weight: 850;
+  line-height: 1.15;
+  text-align: center;
+  animation: soft-flicker 3.4s ease-in-out infinite;
+}
+
+.health-pill.healthy {
+  background: var(--teal-soft);
+  color: var(--teal);
+}
+
+.health-pill.fragile,
+.health-pill.needs-attention {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.health-pill.building {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+
+.overflow-card,
+.start-card,
+.interest-chip,
+.balance-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fbfdff;
+}
+
+.overflow-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.start-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.start-card {
+  display: grid;
+  gap: 6px;
+}
+
+.start-card small,
+.interest-chip span {
+  color: var(--muted);
+}
+
+.interest-pool {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.interest-chip {
+  display: grid;
+  gap: 3px;
+}
+
+.balance-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(180px, 0.9fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.balance-card p,
+.balance-card small {
+  color: var(--muted);
+}
+
+.balance-movers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.balance-movers span {
+  border: 1px solid #c9d1fb;
+  border-radius: 999px;
+  background: #f7f8ff;
+  color: var(--primary-dark);
+  padding: 5px 8px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.tag-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 160px;
+}
+
+.tag {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: #475467;
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.tag.active {
+  border-color: #bac5ff;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+
+.lifecycle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  justify-content: flex-end;
+}
+
+.lifecycle-actions .secondary-button,
+.lifecycle-actions .ghost-button {
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 0.76rem;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summary-notes {
+  margin-top: 12px;
+}
+
+.profile-tag-row {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.opportunity-card p,
+.opportunity-card small,
+.outreach-card p,
+.outreach-card small,
+.integration-copy p {
+  color: var(--muted);
+}
+
+.opportunity-card small,
+.outreach-card small {
+  display: block;
+}
+
+.outreach-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.outreach-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.outreach-actions strong {
+  color: var(--primary);
+}
+
+.integration-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.inline-form {
+  margin-bottom: 12px;
+}
+
+.inline-form input:first-child {
+  flex: 1;
+}

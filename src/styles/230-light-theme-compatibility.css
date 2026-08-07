@@ -1,0 +1,105 @@
+
+/*
+ * Light-mode contrast guardrails.
+ *
+ * The operating-room redesign intentionally uses pale text on dark surfaces.
+ * Keep those colors in low-light mode and give the equivalent light surfaces
+ * an explicit ink color so later dark-theme rules cannot leak into them.
+ */
+.panel-title h2,
+.panel-title strong {
+  color: var(--ink);
+}
+
+body:not(.low-light) .waitlist-popup-content,
+body:not(.low-light) .waitlist-popup-row,
+body:not(.low-light) .waitlist-card,
+body:not(.low-light) .recommended-panel .waitlist-card {
+  background: #ffffff;
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+body:not(.low-light) .waitlist-card:hover,
+body:not(.low-light) .recommended-panel .waitlist-card:hover,
+body:not(.low-light) .waitlist-popup-row:hover {
+  background: color-mix(in srgb, var(--panel-solid) 88%, var(--primary-soft));
+  border-color: color-mix(in srgb, var(--line) 68%, var(--primary));
+}
+
+body:not(.low-light) .waitlist-popup-header [data-radix-dialog-title],
+body:not(.low-light) .waitlist-popup-row strong,
+body:not(.low-light) .waitlist-popup-row em,
+body:not(.low-light) .waitlist-popup-empty strong,
+body:not(.low-light) .waitlist-card strong,
+body:not(.low-light) .recommended-panel .waitlist-card strong {
+  color: #0f172a !important;
+}
+
+body:not(.low-light) .waitlist-popup-header [data-radix-dialog-description],
+body:not(.low-light) .waitlist-popup-row span,
+body:not(.low-light) .waitlist-popup-empty,
+body:not(.low-light) .waitlist-card span,
+body:not(.low-light) .waitlist-card small,
+body:not(.low-light) .recommended-panel .waitlist-card span,
+body:not(.low-light) .recommended-panel .waitlist-card small {
+  color: #64748b !important;
+}
+
+body:not(.low-light) .waitlist-action-menu.ui-menu-content,
+body:not(.low-light) .waitlist-action-menu .ui-menu-item,
+body:not(.low-light) .waitlist-popup-actions .secondary-button,
+body:not(.low-light) .waitlist-popup-actions .icon-button {
+  background-color: #ffffff;
+  border-color: var(--line);
+  color: #0f172a;
+}
+
+body:not(.low-light) .waitlist-action-menu .ui-menu-item[data-highlighted] {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+
+body:not(.low-light) .settings-panel,
+body:not(.low-light) .settings-panel .preference-row {
+  color: var(--ink);
+}
+
+body:not(.low-light) .settings-panel .panel-title h2,
+body:not(.low-light) .settings-panel .panel-title strong,
+body:not(.low-light) .settings-panel .preference-row strong,
+body:not(.low-light) .settings-panel label {
+  color: #0f172a;
+}
+
+body:not(.low-light) .settings-panel .preference-row > div > span,
+body:not(.low-light) .settings-panel .muted-copy {
+  color: #64748b;
+}
+
+body:not(.low-light) .tournament-new-card,
+body:not(.low-light) .tournament-library-card,
+body:not(.low-light) .tournament-panel,
+body:not(.low-light) .tournament-list-item,
+body:not(.low-light) .tournament-player-list article,
+body:not(.low-light) .tournament-payout-list label,
+body:not(.low-light) .tournament-level-strip article {
+  color: var(--ink);
+}
+
+body:not(.low-light) .tournament-new-card strong,
+body:not(.low-light) .tournament-library-main,
+body:not(.low-light) .tournament-library-main strong,
+body:not(.low-light) .tournament-panel .panel-title h2,
+body:not(.low-light) .tournament-panel .panel-title strong,
+body:not(.low-light) .tournament-list-item strong,
+body:not(.low-light) .tournament-player-list strong,
+body:not(.low-light) .tournament-payout-list strong,
+body:not(.low-light) .tournament-level-strip strong {
+  color: #0f172a !important;
+}
+
+body:not(.low-light) .tournament-new-card small,
+body:not(.low-light) .tournament-library-main small {
+  color: #64748b !important;
+}

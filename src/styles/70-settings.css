@@ -1,0 +1,138 @@
+
+.settings-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) repeat(3, auto);
+  align-items: end;
+  gap: 10px;
+}
+
+.preference-list {
+  display: grid;
+  gap: 10px;
+}
+
+.customization-layout {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-panel {
+  align-self: start;
+  display: block;
+  margin: 0;
+  min-width: 0;
+  width: 100%;
+}
+
+.settings-panel.account-management-panel {
+  grid-column: 1 / -1;
+}
+
+.preference-row {
+  align-items: center;
+  background: rgba(251, 253, 255, 0.78);
+  border: 1px solid rgba(223, 231, 242, 0.82);
+  border-radius: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.preference-row > * {
+  min-width: 0;
+}
+
+.preference-row > input[type="number"] {
+  justify-self: end;
+  max-width: 140px;
+  width: min(100%, 140px);
+}
+
+body.low-light .preference-row {
+  background: rgba(16, 23, 39, 0.48);
+  border-color: rgba(94, 111, 146, 0.46);
+}
+
+.preference-row strong,
+.preference-row span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.preference-row span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.32;
+}
+
+.segmented-control {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.collection-profile-row {
+  grid-template-columns: 1fr;
+}
+
+.collection-profile-control {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(82px, 0.5fr)) repeat(2, minmax(86px, 1fr));
+  width: 100%;
+}
+
+.collection-profile-control input {
+  min-width: 0;
+  width: 100%;
+}
+
+.table-mode-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.switch-control {
+  align-items: center;
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 850;
+  gap: 8px;
+  white-space: normal;
+}
+
+.switch-control input {
+  accent-color: var(--primary);
+  min-height: auto;
+  width: 18px;
+}
+
+.history-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.history-card {
+  padding: 14px;
+}
+
+.history-card span,
+.history-card small {
+  display: block;
+}
+
+.history-card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1.9rem;
+}

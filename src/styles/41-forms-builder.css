@@ -1,0 +1,298 @@
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+}
+
+th,
+td {
+  border-bottom: 1px solid #edf2f8;
+  padding: 10px 8px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+th {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+td span,
+.demand-row p,
+.script-list p,
+.history-card p,
+.history-card small {
+  color: var(--muted);
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid rgba(207, 218, 234, 0.86);
+  border-radius: 14px;
+  background: rgba(251, 253, 255, 0.86);
+  color: var(--ink);
+  min-height: 40px;
+  padding: 9px 12px;
+  outline: none;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+body.low-light input,
+body.low-light select,
+body.low-light textarea {
+  background: rgba(16, 23, 39, 0.72);
+  border-color: rgba(94, 111, 146, 0.62);
+  color: var(--ink);
+}
+
+body.low-light input::placeholder,
+body.low-light textarea::placeholder {
+  color: var(--muted);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #9ba8ee;
+  box-shadow: 0 0 0 4px rgba(51, 70, 168, 0.11);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 76px;
+}
+
+.check-row {
+  min-height: 38px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.check-row input {
+  width: 16px;
+  min-height: 16px;
+  accent-color: var(--primary);
+}
+
+.inline-form input[type='number'],
+.settings-row input {
+  width: 74px;
+}
+
+.seat-control strong {
+  min-width: 58px;
+  text-align: center;
+}
+
+.stack-form,
+.quick-form,
+.demand-list,
+.settings-list,
+.script-list {
+  display: grid;
+  gap: 11px;
+}
+
+.check-in-search {
+  display: grid;
+  gap: 10px;
+}
+
+.check-in-help {
+  color: var(--muted);
+  font-size: .72rem;
+  line-height: 1.35;
+  margin: -3px 2px 0;
+}
+
+.check-in-results {
+  display: grid;
+  gap: 8px;
+  max-height: 330px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.check-in-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(203, 213, 225, 0.76);
+  border-radius: 14px;
+  background: #fbfdff;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  padding: 10px 12px;
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.check-in-result:hover {
+  border-color: rgba(74, 92, 214, 0.32);
+  box-shadow: 0 10px 22px rgba(42, 55, 91, 0.08);
+  transform: translateY(-1px);
+}
+
+.check-in-result span,
+.check-in-result small {
+  display: block;
+}
+
+.check-in-result small {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+
+.check-in-result em {
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  font-size: 0.74rem;
+  font-style: normal;
+  font-weight: 900;
+  padding: 5px 9px;
+}
+
+.stack-form label,
+.settings-row label,
+.builder-controls label {
+  display: grid;
+  gap: 5px;
+  color: #59645f;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.demand-row,
+.settings-row,
+.candidate-card,
+.script-list article {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fbfdff;
+}
+
+.demand-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.demand-row .secondary-button {
+  grid-column: 1 / -1;
+}
+
+.status-pill {
+  justify-self: end;
+  line-height: 1.15;
+  border-radius: 999px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  padding: 6px 10px;
+  font-size: clamp(0.7rem, 1vw, 0.8rem);
+  font-weight: 850;
+  text-align: center;
+  animation: soft-flicker 2.8s ease-in-out infinite;
+}
+
+.status-pill.likely {
+  background: var(--teal-soft);
+  color: var(--teal);
+  animation: viable-pulse 2.2s ease-in-out infinite;
+}
+
+.status-pill.viable {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+
+.planned-list,
+.builder-grid,
+.profile-grid,
+.opportunity-grid,
+.outreach-list,
+.club-list,
+.overflow-list,
+.start-list,
+.interest-pool,
+.balance-list {
+  display: grid;
+  gap: 8px;
+}
+
+.planned-list {
+  grid-template-columns: repeat(2, minmax(0, max-content));
+}
+
+.planned-list span {
+  border: 1px solid #c9d1fb;
+  border-radius: 999px;
+  background: #f7f8ff;
+  color: var(--primary-dark);
+  padding: 4px 8px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.builder-controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 100px auto;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.builder-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.single-window-grid {
+  grid-template-columns: 1fr;
+}
+
+.candidate-card {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+}
+
+.candidate-rank {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 900;
+}
+
+.candidate-card p,
+.candidate-card small {
+  color: var(--muted);
+  display: block;
+}
+
+.candidate-card strong {
+  color: var(--amber);
+}

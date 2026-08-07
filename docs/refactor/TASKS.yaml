@@ -1,6 +1,6 @@
 queue: orbit-large-refactor
 status: active
-current: REF-007
+current: REF-008
 tasks:
   - id: REF-001
     title: Extract canonical management domain types
@@ -71,11 +71,12 @@ tasks:
     execution: one_route_and_one_characterization_boundary_per_subtask
   - id: REF-007
     title: Split the ordered global stylesheet by feature
-    status: active
+    status: complete
     boundary: renderer_css
     risk: high_visual
     depends_on: [REF-006]
     spec: docs/agent/tasks/REF-007.md
+    resolution: byte_preserved_ordered_feature_stylesheets_with_rendered_comparison
     verification: browser_rendered_comparison_required
   - id: REF-008
     title: Extract Electron process modules

@@ -1,0 +1,254 @@
+
+.summary-panel {
+  grid-column: span 2;
+}
+
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.kpi-strip div {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fbfdff;
+  padding: 10px;
+}
+
+.kpi-strip span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.kpi-strip strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink);
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.owner-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.owner-metric {
+  display: grid;
+  gap: 8px;
+}
+
+.owner-metric span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.owner-metric strong {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.summary-report {
+  display: grid;
+  gap: 10px;
+}
+
+.summary-report p {
+  color: var(--muted);
+}
+
+.summary-breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.summary-breakdown div,
+.script-card,
+.duplicate-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fbfdff;
+  padding: 10px;
+}
+
+.summary-breakdown span,
+.script-card p,
+.duplicate-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.script-card small {
+  color: var(--muted);
+}
+
+.script-grid,
+.duplicate-list,
+.script-template-list,
+.feedback-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.script-template-list,
+.feedback-grid {
+  margin-bottom: 12px;
+}
+
+.script-template-list label,
+.feedback-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.candidate-edit-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 0.7fr) minmax(140px, 0.8fr);
+  gap: 8px;
+}
+
+.script-card {
+  display: grid;
+  gap: 8px;
+}
+
+.script-card .secondary-button {
+  justify-self: start;
+}
+
+.profile-search-row,
+.duplicate-card,
+.recent-player-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-search-row {
+  margin-bottom: 10px;
+}
+
+.profile-search-row input {
+  flex: 1;
+}
+
+.profile-search-row span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.duplicate-list {
+  margin-bottom: 10px;
+}
+
+.duplicate-card {
+  justify-content: space-between;
+}
+
+.recent-player-row {
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.recent-player-row .ghost-button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+}
+
+.table-player-list {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 6px;
+}
+
+.move-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.7fr);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 7px;
+}
+
+.move-row span {
+  color: var(--ink);
+  font-weight: 850;
+}
+
+.move-row select {
+  min-height: 30px;
+  padding: 5px 7px;
+  font-size: 0.78rem;
+}
+
+.checklist-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.panel {
+  padding: 22px;
+  min-width: 0;
+}
+
+.panel.wide {
+  grid-column: span 2;
+}
+
+.panel-title {
+  margin-bottom: 18px;
+  color: var(--ink);
+  min-width: 0;
+  justify-content: space-between;
+}
+
+body.low-light .panel-title,
+body.low-light .panel-title h2,
+body.low-light .panel-title svg,
+body.low-light .preference-row strong,
+body.low-light .settings-panel strong,
+body.low-light .poker-seat-name h3,
+body.low-light .poker-seat-menu-header strong,
+body.low-light .poker-seat-menu-summary strong {
+  color: var(--ink);
+}
+
+.panel-title:last-child {
+  margin-bottom: 0;
+}
+
+.panel-title-main {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.panel-title h2 {
+  font-size: clamp(0.94rem, 1.3vw, 1.02rem);
+  font-weight: 850;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.panel-toggle-button {
+  min-height: 34px;
+  width: 34px;
+}
