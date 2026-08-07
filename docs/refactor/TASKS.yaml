@@ -34,6 +34,7 @@ tasks:
     boundary: renderer_reporting
     risk: medium
     depends_on: [REF-001]
+    spec: docs/agent/tasks/REF-003.md
     characterization:
       - add_direct_report_and_financial_fixtures_before_move
   - id: REF-004

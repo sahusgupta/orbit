@@ -9357,6 +9357,18 @@ function TagPicker({ selected, onChange }: { selected: TableTag[]; onChange: (ta
   );
 }
 
+export {
+  getDealerReport,
+  getReportFinancials,
+  getReportHourlyBreakdown,
+  getReportState,
+  getReportWindow,
+  getTableFinancialOverview,
+  getTablePlayerFinancialOverview,
+  shiftReportAnchor,
+  timestampInReportWindow
+};
+
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
