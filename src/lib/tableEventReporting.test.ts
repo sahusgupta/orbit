@@ -296,6 +296,59 @@ describe('table event report projection', () => {
     document.body.innerHTML = '';
   });
 
+  it('renders the Summary navigation, period controls, profit metrics, and export actions', () => {
+    expect(document.querySelector('h1')?.textContent).toBe('Reports');
+    expect(document.querySelector('.page-subtitle')?.textContent).toContain('performance and closeout');
+    expect(Array.from(document.querySelectorAll('.topbar-actions button'), (button) => button.textContent?.trim())).toEqual([
+      'CSV',
+      'Screenshot / Print',
+      'Close',
+      'Low Light'
+    ]);
+
+    const reportModes = document.querySelector('.report-mode-switch');
+    expect(reportModes?.getAttribute('aria-label')).toBe('Report view');
+    expect(Array.from(reportModes?.querySelectorAll('button') ?? [], (button) => button.textContent)).toEqual([
+      'KPIs & statistics',
+      "Tonight's report",
+      'Night close'
+    ]);
+    expect(reportModes?.querySelector('button.active')?.textContent).toBe('KPIs & statistics');
+
+    const periodTabs = document.querySelector('.report-period-tabs');
+    expect(periodTabs?.getAttribute('aria-label')).toBe('Group reports by');
+    expect(Array.from(periodTabs?.querySelectorAll('button') ?? [], (button) => button.textContent)).toEqual([
+      'Tonight',
+      'Week',
+      'Month',
+      'Year',
+      'All time'
+    ]);
+    expect(periodTabs?.querySelector('button.active')?.textContent).toBe('Tonight');
+
+    expect(Array.from(document.querySelectorAll('.report-profit-breakdown article span'), (label) => label.textContent)).toEqual([
+      'Recorded drop',
+      'Time fees',
+      'Memberships',
+      'Tournaments'
+    ]);
+    expect(Array.from(document.querySelectorAll('.report-numerical-grid article > span'), (label) => label.textContent)).toEqual([
+      'Collection / table-hour',
+      'Drop / occupied seat-hour',
+      'Hands logged',
+      'Hands / table-hour',
+      'Table-hours',
+      'Best earning hour'
+    ]);
+    expect(Array.from(document.querySelectorAll('.metric-category-menu button'), (button) => button.textContent)).toEqual([
+      'Operations',
+      'Waitlist',
+      'Tables',
+      'Collections'
+    ]);
+    expect(document.querySelector('.metric-category-menu button.active')?.textContent).toBe('Operations');
+  });
+
   it('renders only the last six matching events in their existing order with stable fallback text', () => {
     const labels = Array.from(findEventReasonContainer().querySelectorAll('span')).map((element) => element.textContent);
 
