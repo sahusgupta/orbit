@@ -62,10 +62,12 @@ tasks:
       - src/domain/operations.test.ts
   - id: REF-006
     title: Split renderer route sections into typed feature components
-    status: ready
+    status: active
     boundary: renderer_ui
     risk: high
     depends_on: [REF-002, REF-003, REF-004, REF-005]
+    spec: docs/agent/tasks/REF-006.md
+    current_subtask: REF-006A
     execution: one_route_and_one_characterization_boundary_per_subtask
   - id: REF-007
     title: Split the ordered global stylesheet by feature

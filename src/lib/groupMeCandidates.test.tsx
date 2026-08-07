@@ -264,6 +264,37 @@ describe('GroupMe candidate review boundary', () => {
     expect(Object.hasOwn(getLatestCandidates()[0], 'timestamp')).toBe(true);
   });
 
+  it('preserves the outreach route structure, navigation, templates, and generated scripts', () => {
+    expect(document.querySelector('h1')?.textContent).toBe('Games');
+    expect(document.querySelector('.page-subtitle')?.textContent).toBe('Outreach and player coordination');
+    expect(Array.from(document.querySelectorAll('.route-tabs > *')).map((item) => item.textContent?.trim())).toEqual([
+      'Tonight',
+      'Outreach',
+      'Configuration'
+    ]);
+    expect(document.querySelector('.route-tabs [aria-current="page"]')?.textContent).toBe('Outreach');
+    expect(Array.from(document.querySelectorAll('.panel-title h2')).map((item) => item.textContent)).toEqual([
+      'Likely Participants',
+      'Message Scan',
+      'Templates'
+    ]);
+    expect(document.querySelector('textarea')?.getAttribute('placeholder')).toBe('Paste player interest messages for staff review');
+    expect(Array.from(document.querySelectorAll<HTMLInputElement>('.script-template-list input')).map((input) => input.value)).toEqual([
+      'Current {game} has {inRoom} in the room, {coming} coming, and {waiting} waiting or interested.',
+      'Current {game} is full, but overflow is building with {waiting} waiting or interested.',
+      "We're building {game}, but need {needs} more player(s) before it is realistic.",
+      '{game} is close to forming if arrivals hold. We can add you to the interest list.'
+    ]);
+    expect(Array.from(document.querySelectorAll('.script-grid .script-card strong')).map((item) => item.textContent)).toEqual([
+      '1/2 NLH: current demand',
+      '1/2 NLH: needs more',
+      'PLO: current demand',
+      'PLO: needs more'
+    ]);
+    expect(findButton('Close')).toBeTruthy();
+    expect(findButton('Scan Pasted Messages')).toBeTruthy();
+  });
+
   it('preserves complete candidates through each edit, accept, and reject action', async () => {
     await scanText('Alice: coming for 1 / 2\nBob- here for PLO');
     const originalCandidates = structuredClone(getLatestCandidates());
