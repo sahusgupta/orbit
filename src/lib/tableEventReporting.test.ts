@@ -397,4 +397,30 @@ describe('table event report projection', () => {
       typeof event.note === 'string'
     )).toBe(true);
   });
+
+  it('renders the KPI route heading, actions, and metric order', async () => {
+    await act(async () => {
+      window.location.hash = '#kpis';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+
+    expect(document.querySelector('.eyebrow')?.textContent).toBe('Operating metrics');
+    expect(document.querySelector('h1')?.textContent).toBe('KPIs');
+    expect(Array.from(document.querySelectorAll('.topbar-actions button'), (button) => button.textContent?.trim())).toEqual([
+      'CSV',
+      'Close'
+    ]);
+    expect(Array.from(document.querySelectorAll('.owner-summary-grid .owner-metric > span'), (label) => label.textContent)).toEqual([
+      'Seat-Hours',
+      'Active Tables',
+      'Average Wait',
+      'Conversion',
+      'Failed Starts',
+      'Table Breaks',
+      'Time Fees Est.',
+      'Recorded Drop',
+      'Drop Est.',
+      'Expired Time'
+    ]);
+  });
 });
