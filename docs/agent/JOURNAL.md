@@ -397,3 +397,10 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Moved the characterized projections and collection-profile lookup into `src/domain/reporting.ts`; `src/main.tsx` now imports the pure boundary and no longer exposes test-only reporting exports.
 - Rewired the characterization suite from a mocked renderer mount to direct pure-module imports. Focused reporting/table-event coverage passed 2 files/5 tests.
 - Both root compiler projects, Player TypeScript, all 36 files/192 tests, the 1,915-module build, and aggregate verification passed. `src/main.tsx` decreased from 9,364 to 9,072 lines; no external service, deployment, or push was involved.
+
+## 2026-08-07 - REF-004 licensing and staff authentication
+
+- Added and separately committed unchanged-behavior coverage for exact PBKDF2 output, current/legacy secret verification, access dates, account/storage keys, persisted sign-in records, signed-key normalization, and validation error precedence; the pre-change suite passed 1 file/8 tests with zero root diagnostics.
+- Moved staff secret behavior into `src/domain/staffAuth.ts` and license/account identity behavior into `src/domain/licensing.ts`; `src/main.tsx` retains UI, Firebase authentication, and account orchestration.
+- Replaced the signature suite's Node-inspector/React-mount harness with direct focused-module tests, reducing the focused runtime while preserving all eight cryptographic and identity cases.
+- Both root compiler projects, Player TypeScript, all 36 files/195 tests, the 1,917-module build, and aggregate verification passed. `src/main.tsx` decreased from 9,072 to 8,918 lines; no external service, deployment, or push was involved.

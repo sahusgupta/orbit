@@ -1,6 +1,6 @@
 queue: orbit-large-refactor
 status: active
-current: REF-004
+current: REF-005
 tasks:
   - id: REF-001
     title: Extract canonical management domain types
@@ -40,16 +40,18 @@ tasks:
       - src/domain/reporting.test.ts
   - id: REF-004
     title: Extract licensing and staff-auth helpers
-    status: ready_after_characterization
+    status: complete
     boundary: renderer_identity
     risk: high
     depends_on: [REF-001]
+    spec: docs/agent/tasks/REF-004.md
+    resolution: characterized_licensing_and_staff_auth_modules
     characterization:
       - src/lib/pilotSignature.test.ts
       - direct_staff_hash_license_key_and_persisted_sign_in_fixtures
   - id: REF-005
     title: Extract remaining demand, table-health, and participant rules
-    status: planned
+    status: ready
     boundary: renderer_domain
     risk: high
     depends_on: [REF-001, REF-002]

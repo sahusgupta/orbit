@@ -2,101 +2,29 @@
  * @vitest-environment jsdom
  */
 import { pbkdf2Sync, webcrypto } from 'node:crypto';
-import { Session } from 'node:inspector/promises';
-import type { Dispatch, ReactNode, SetStateAction } from 'react';
-import type { RootOptions } from 'react-dom/client';
-import { act } from 'react';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canonicalPayload } from './appCore';
+import {
+  derToRawP256Signature,
+  getAccountKeyFromAccess,
+  getAccountKeyFromState,
+  getAuthStorageKey,
+  getStorageKeyForState,
+  hasPersistedSignIn,
+  isFutureDate,
+  isPilotAccessActive,
+  persistSignIn,
+  validatePilotKey,
+  verifyPilotSignature
+} from '../domain/licensing';
+import { hashStaffPin, verifyStaffSecret } from '../domain/staffAuth';
 import { seedState } from '../domain/state';
 import type { AppState, PilotAccess } from '../domain/types';
 
-declare global {
-  var IS_REACT_ACT_ENVIRONMENT: boolean;
-}
-
-type VerificationResult = { error?: string; ok?: boolean };
-
-type LicensingAuthModule = Pick<
-  typeof import('../main'),
-  | 'getAccountKeyFromAccess'
-  | 'getAccountKeyFromState'
-  | 'getAuthStorageKey'
-  | 'getStorageKeyForState'
-  | 'hashStaffPin'
-  | 'hasPersistedSignIn'
-  | 'isFutureDate'
-  | 'isPilotAccessActive'
-  | 'persistSignIn'
-  | 'validatePilotKey'
-  | 'verifyStaffSecret'
->;
-
-let licensingAuth: LicensingAuthModule;
-
-type ScriptLocation = {
-  columnNumber?: number;
-  lineNumber: number;
-  scriptId: string;
-};
-
 const harness = vi.hoisted(() => ({
-  appComponent: undefined as unknown,
   branding: undefined as unknown,
-  publicKeyPem: '',
-  root: undefined as { unmount: () => void } | undefined,
-  stateSetter: undefined as unknown
+  publicKeyPem: ''
 }));
-
-const isAppState = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' &&
-  value !== null &&
-  Array.isArray(Reflect.get(value, 'games')) &&
-  Array.isArray(Reflect.get(value, 'profiles')) &&
-  Array.isArray(Reflect.get(value, 'sessions')) &&
-  typeof Reflect.get(value, 'settings') === 'object' &&
-  Reflect.get(value, 'settings') !== null;
-
-vi.mock('react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react')>();
-  return {
-    ...actual,
-    useState<S>(initialState: S | (() => S)): [S, Dispatch<SetStateAction<S>>] {
-      const result = actual.useState(initialState);
-      if (isAppState(result[0])) harness.stateSetter = result[1];
-      return result;
-    }
-  };
-});
-
-vi.mock('react-dom/client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react-dom/client')>();
-  return {
-    ...actual,
-    createRoot(container: Element | DocumentFragment, options?: RootOptions) {
-      const root = actual.createRoot(container, options);
-      const render = root.render.bind(root);
-      root.render = (children: ReactNode) => {
-        const pending: unknown[] = [children];
-        while (pending.length) {
-          const child = pending.pop();
-          if (typeof child !== 'object' || child === null) continue;
-          if ('type' in child && typeof child.type === 'function') {
-            harness.appComponent = child.type;
-            break;
-          }
-          if ('props' in child && typeof child.props === 'object' && child.props !== null && 'children' in child.props) {
-            const nested = child.props.children;
-            pending.push(...(Array.isArray(nested) ? nested : [nested]));
-          }
-        }
-        render(children);
-      };
-      harness.root = root;
-      return root;
-    }
-  };
-});
 
 vi.mock('../../branding.config.json', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../branding.config.json')>();
@@ -110,18 +38,6 @@ vi.mock('../../branding.config.json', async (importOriginal) => {
   harness.branding = branding;
   return { default: branding };
 });
-
-vi.mock('./firebaseConfig', () => ({ rendererFirebaseSyncEnabled: false }));
-vi.mock('./firebaseClubSync', () => ({
-  loadClubStateFromFirebase: vi.fn(async () => null),
-  saveClubStateToFirebase: vi.fn(async () => undefined),
-  signInOrCreateFirebaseEmailAccount: vi.fn(async () => undefined),
-  signOutOfFirebase: vi.fn(async () => undefined),
-  subscribeToPlayerRequestUpdates: vi.fn(() => () => undefined),
-  syncPlayerUpdatesToClubState: vi.fn(async <T,>(state: T) => state)
-}));
-
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const payload = {
   authorizationCode: 'TYPE-011-AUTH',
@@ -168,102 +84,7 @@ const getBrandingLicense = () => {
   return license;
 };
 
-const captureSignatureHelpers = async (session: Session) => {
-  if (typeof harness.appComponent !== 'function') throw new Error('Expected to capture the App component');
-  const stateSetter = harness.stateSetter;
-  if (typeof stateSetter !== 'function') throw new Error('Expected to capture the application state setter');
-  Reflect.set(globalThis, '__orbitType011App', harness.appComponent);
-  const evaluated = await session.post('Runtime.evaluate', { expression: 'globalThis.__orbitType011App' });
-  const appObjectId = evaluated.result.objectId;
-  if (!appObjectId) throw new Error('Expected the App component to be inspectable');
-  const properties = await session.post('Runtime.getProperties', { objectId: appObjectId, ownProperties: false });
-  const location = properties.internalProperties?.find(
-    (property) => property.name === '[[FunctionLocation]]'
-  )?.value?.value;
-  if (
-    typeof location !== 'object' ||
-    location === null ||
-    !('scriptId' in location) ||
-    typeof location.scriptId !== 'string' ||
-    !('lineNumber' in location) ||
-    typeof location.lineNumber !== 'number'
-  ) {
-    throw new Error('Expected the App component script location');
-  }
-  const sourceResult = await session.post('Runtime.evaluate', {
-    expression: 'globalThis.__orbitType011App.toString()',
-    returnByValue: true
-  });
-  const source = sourceResult.result.value;
-  if (typeof source !== 'string') throw new Error('Expected the App component source');
-  const relativeLineNumber = source.split(/\r?\n/).findIndex((line) => line.includes('const updateSession'));
-  if (relativeLineNumber < 0) throw new Error('Expected the signature-helper capture boundary');
-  const breakpointLocation: ScriptLocation = {
-    scriptId: location.scriptId,
-    lineNumber: location.lineNumber + relativeLineNumber,
-    columnNumber: 0
-  };
-  const breakpoint = await session.post('Debugger.setBreakpoint', { location: breakpointLocation });
-  const completed = new Promise<void>((resolve, reject) => {
-    session.once('Debugger.paused', (message) => {
-      void (async () => {
-        try {
-          const callFrame = message.params.callFrames[0];
-          if (!callFrame) throw new Error('Expected a paused App call frame');
-          await session.post('Debugger.evaluateOnCallFrame', {
-            callFrameId: callFrame.callFrameId,
-            expression:
-              'globalThis.__orbitType011Verify = verifyPilotSignature; ' +
-              'globalThis.__orbitType011DerToRaw = derToRawP256Signature; true'
-          });
-          await session.post('Debugger.removeBreakpoint', { breakpointId: breakpoint.breakpointId });
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      })();
-    });
-  });
-  await act(async () => {
-    stateSetter((current: unknown) => {
-      if (!isAppState(current)) throw new Error('Expected the current application state');
-      return { ...current };
-    });
-  });
-  await completed;
-};
-
-const invokeVerification = async (session: Session, candidatePayload: Record<string, unknown>, signature: Uint8Array) => {
-  Reflect.set(globalThis, '__orbitType011Payload', candidatePayload);
-  Reflect.set(globalThis, '__orbitType011Signature', toBase64(signature));
-  const invocation = await session.post('Runtime.evaluate', {
-    expression: 'globalThis.__orbitType011Verify(globalThis.__orbitType011Payload, globalThis.__orbitType011Signature)',
-    awaitPromise: true,
-    returnByValue: true
-  });
-  if (invocation.exceptionDetails) throw new Error(JSON.stringify(invocation.exceptionDetails));
-  const result: unknown = invocation.result.value;
-  if (typeof result !== 'object' || result === null) throw new Error('Expected a verification result');
-  return result as VerificationResult;
-};
-
-const invokeDerToRaw = async (session: Session, signature: Uint8Array) => {
-  Reflect.set(globalThis, '__orbitType011SignatureBytes', signature);
-  const invocation = await session.post('Runtime.evaluate', {
-    expression:
-      'Array.from(new Uint8Array(globalThis.__orbitType011DerToRaw(globalThis.__orbitType011SignatureBytes)))',
-    returnByValue: true
-  });
-  if (invocation.exceptionDetails) throw new Error(JSON.stringify(invocation.exceptionDetails));
-  const result: unknown = invocation.result.value;
-  if (!Array.isArray(result) || !result.every((value) => typeof value === 'number')) {
-    throw new Error('Expected raw signature bytes');
-  }
-  return Uint8Array.from(result);
-};
-
-describe('pilot signature verification boundary', () => {
-  const inspectorSession = new Session();
+describe('pilot licensing and staff authentication boundary', () => {
   let validRawSignature: Uint8Array;
 
   beforeAll(async () => {
@@ -283,28 +104,6 @@ describe('pilot signature verification boundary', () => {
         new TextEncoder().encode(canonicalPayload(payload))
       )
     );
-    document.body.innerHTML = '<div id="root"></div>';
-    Reflect.set(window, 'tableManagerDesktop', {
-      getBackendStatus: vi.fn(async () => ({ mode: 'local' })),
-      loadState: vi.fn(async () => null),
-      loadStateForAccount: vi.fn(async () => null),
-      onPrepareForUpdate: vi.fn(() => () => undefined),
-      openWindow: vi.fn(async () => undefined),
-      preserveStateForUpdate: vi.fn(async () => ({ ok: true })),
-      recordClientError: vi.fn(async () => ({ ok: true })),
-      recordClientEvent: vi.fn(async () => ({ ok: true })),
-      saveState: vi.fn(async () => ({ ok: true, path: 'fixture' })),
-      sendTextMessages: vi.fn(async () => ({ ok: true })),
-      submitAnalyticalReport: vi.fn(async () => ({ ok: true })),
-      validatePilotAccess: vi.fn(async () => ({ ok: true, managed: false, active: true }))
-    });
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
-    inspectorSession.connect();
-    await inspectorSession.post('Debugger.enable');
-    await act(async () => {
-      licensingAuth = await import('../main');
-    });
-    await captureSignatureHelpers(inspectorSession);
   });
 
   beforeEach(() => {
@@ -312,32 +111,18 @@ describe('pilot signature verification boundary', () => {
   });
 
   afterAll(() => {
-    inspectorSession.disconnect();
-    for (const key of [
-      '__orbitType011App',
-      '__orbitType011Verify',
-      '__orbitType011DerToRaw',
-      '__orbitType011Payload',
-      '__orbitType011Signature',
-      '__orbitType011SignatureBytes'
-    ]) {
-      Reflect.deleteProperty(globalThis, key);
-    }
-    Reflect.deleteProperty(window, 'tableManagerDesktop');
-    act(() => harness.root?.unmount());
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     localStorage.clear();
-    document.body.innerHTML = '';
   });
 
   it('accepts the valid raw signature and converts equivalent DER bytes exactly', async () => {
     const derSignature = rawToDer(validRawSignature);
 
-    await expect(invokeVerification(inspectorSession, payload, validRawSignature)).resolves.toEqual({ ok: true });
-    await expect(invokeVerification(inspectorSession, payload, derSignature)).resolves.toEqual({ ok: true });
-    await expect(invokeDerToRaw(inspectorSession, derSignature)).resolves.toEqual(validRawSignature);
+    await expect(verifyPilotSignature(payload, toBase64(validRawSignature))).resolves.toEqual({ ok: true });
+    await expect(verifyPilotSignature(payload, toBase64(derSignature))).resolves.toEqual({ ok: true });
+    expect(new Uint8Array(derToRawP256Signature(derSignature))).toEqual(validRawSignature);
   });
 
   it('rejects a signature produced by a different P-256 key', async () => {
@@ -354,7 +139,7 @@ describe('pilot signature verification boundary', () => {
       )
     );
 
-    await expect(invokeVerification(inspectorSession, payload, wrongSignature)).resolves.toEqual({
+    await expect(verifyPilotSignature(payload, toBase64(wrongSignature))).resolves.toEqual({
       ok: false,
       error: 'License signature is invalid.'
     });
@@ -362,15 +147,15 @@ describe('pilot signature verification boundary', () => {
 
   it('rejects a modified payload with an otherwise valid signature', async () => {
     await expect(
-      invokeVerification(inspectorSession, { ...payload, issuedTo: 'Modified Fixture Club' }, validRawSignature)
+      verifyPilotSignature({ ...payload, issuedTo: 'Modified Fixture Club' }, toBase64(validRawSignature))
     ).resolves.toEqual({ ok: false, error: 'License signature is invalid.' });
   });
 
   it('rejects malformed DER and wrong-length raw signatures', async () => {
     await expect(
-      invokeVerification(inspectorSession, payload, Uint8Array.from([0x30, 0x06, 0x02, 0x01, 0x01]))
+      verifyPilotSignature(payload, toBase64(Uint8Array.from([0x30, 0x06, 0x02, 0x01, 0x01])))
     ).resolves.toEqual({ ok: false, error: 'Unable to verify license signature.' });
-    await expect(invokeVerification(inspectorSession, payload, new Uint8Array(63))).resolves.toEqual({
+    await expect(verifyPilotSignature(payload, toBase64(new Uint8Array(63)))).resolves.toEqual({
       ok: false,
       error: 'Unable to verify license signature.'
     });
@@ -393,7 +178,7 @@ describe('pilot signature verification boundary', () => {
       toPem(await webcrypto.subtle.exportKey('spki', unsupportedKeyPair.publicKey))
     );
 
-    await expect(invokeVerification(inspectorSession, payload, validRawSignature)).resolves.toEqual({
+    await expect(verifyPilotSignature(payload, toBase64(validRawSignature))).resolves.toEqual({
       ok: false,
       error: 'Unable to verify license signature.'
     });
@@ -406,11 +191,11 @@ describe('pilot signature verification boundary', () => {
     const legacyDigest = await webcrypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}:${secret}`));
     const legacyHash = Buffer.from(legacyDigest).toString('hex');
 
-    await expect(licensingAuth.hashStaffPin(secret, salt)).resolves.toBe(expectedModern);
-    await expect(licensingAuth.verifyStaffSecret(secret, salt, expectedModern)).resolves.toBe(true);
-    await expect(licensingAuth.verifyStaffSecret(secret, salt, legacyHash)).resolves.toBe(true);
-    await expect(licensingAuth.verifyStaffSecret('wrong', salt, expectedModern)).resolves.toBe(false);
-    await expect(licensingAuth.verifyStaffSecret('wrong', salt, legacyHash)).resolves.toBe(false);
+    await expect(hashStaffPin(secret, salt)).resolves.toBe(expectedModern);
+    await expect(verifyStaffSecret(secret, salt, expectedModern)).resolves.toBe(true);
+    await expect(verifyStaffSecret(secret, salt, legacyHash)).resolves.toBe(true);
+    await expect(verifyStaffSecret('wrong', salt, expectedModern)).resolves.toBe(false);
+    await expect(verifyStaffSecret('wrong', salt, legacyHash)).resolves.toBe(false);
   });
 
   it('preserves license date, account-key, and persisted sign-in semantics', () => {
@@ -427,34 +212,34 @@ describe('pilot signature verification boundary', () => {
       settings: { ...structuredClone(seedState.settings), pilotAccess: access }
     };
 
-    expect(licensingAuth.isFutureDate('2026-08-07')).toBe(true);
-    expect(licensingAuth.isFutureDate('2026-08-06')).toBe(false);
-    expect(licensingAuth.isFutureDate('not-a-date')).toBe(false);
-    expect(licensingAuth.isPilotAccessActive(access)).toBe(true);
-    expect(licensingAuth.isPilotAccessActive({ ...access, authorized: false })).toBe(false);
-    expect(licensingAuth.getAccountKeyFromAccess(access)).toBe('license-alpha');
-    expect(licensingAuth.getAccountKeyFromState(state)).toBe('license-alpha');
-    expect(licensingAuth.getStorageKeyForState(state)).toBe('table-manager-state-v1:license-alpha');
-    expect(licensingAuth.getAuthStorageKey(state)).toBe('table-manager-state-v1:auth:license-alpha');
+    expect(isFutureDate('2026-08-07')).toBe(true);
+    expect(isFutureDate('2026-08-06')).toBe(false);
+    expect(isFutureDate('not-a-date')).toBe(false);
+    expect(isPilotAccessActive(access)).toBe(true);
+    expect(isPilotAccessActive({ ...access, authorized: false })).toBe(false);
+    expect(getAccountKeyFromAccess(access)).toBe('license-alpha');
+    expect(getAccountKeyFromState(state)).toBe('license-alpha');
+    expect(getStorageKeyForState(state)).toBe('table-manager-state-v1:license-alpha');
+    expect(getAuthStorageKey(state)).toBe('table-manager-state-v1:auth:license-alpha');
 
-    licensingAuth.persistSignIn(state, true);
-    expect(licensingAuth.hasPersistedSignIn(state)).toBe(true);
-    expect(JSON.parse(localStorage.getItem(licensingAuth.getAuthStorageKey(state)) ?? '{}')).toEqual({
+    persistSignIn(state, true);
+    expect(hasPersistedSignIn(state)).toBe(true);
+    expect(JSON.parse(localStorage.getItem(getAuthStorageKey(state)) ?? '{}')).toEqual({
       expiresAt: access.expiresAt,
       savedAt: '2026-08-07T22:00:00.000Z'
     });
-    expect(licensingAuth.hasPersistedSignIn({
+    expect(hasPersistedSignIn({
       ...state,
       settings: { ...state.settings, pilotAccess: { ...access, expiresAt: '2099-12-30' } }
     })).toBe(false);
-    licensingAuth.persistSignIn(state, false);
-    expect(licensingAuth.hasPersistedSignIn(state)).toBe(false);
+    persistSignIn(state, false);
+    expect(hasPersistedSignIn(state)).toBe(false);
   });
 
   it('validates signed pilot-key aliases and preserves validation error precedence', async () => {
     const signature = toBase64(validRawSignature);
 
-    await expect(licensingAuth.validatePilotKey({ payload, signature }, 'fixture.orbit-key')).resolves.toEqual({
+    await expect(validatePilotKey({ payload, signature }, 'fixture.orbit-key')).resolves.toEqual({
       access: {
         authorized: true,
         authorizationCode: payload.authorizationCode,
@@ -466,16 +251,16 @@ describe('pilot signature verification boundary', () => {
         licenseId: payload.licenseId
       }
     });
-    await expect(licensingAuth.validatePilotKey({ payload })).resolves.toEqual({
+    await expect(validatePilotKey({ payload })).resolves.toEqual({
       error: 'Key file is not signed. Generate a production pilot key with the license tool.'
     });
-    await expect(licensingAuth.validatePilotKey({ payload: { ...payload, authorizationCode: 'short' }, signature })).resolves.toEqual({
+    await expect(validatePilotKey({ payload: { ...payload, authorizationCode: 'short' }, signature })).resolves.toEqual({
       error: 'Key file is missing a valid authorization code.'
     });
-    await expect(licensingAuth.validatePilotKey({ payload: { ...payload, expiresAt: 'invalid' }, signature })).resolves.toEqual({
+    await expect(validatePilotKey({ payload: { ...payload, expiresAt: 'invalid' }, signature })).resolves.toEqual({
       error: 'Key file is missing a valid expiration date.'
     });
-    await expect(licensingAuth.validatePilotKey({ payload: { ...payload, expiresAt: '2026-08-06' }, signature })).resolves.toEqual({
+    await expect(validatePilotKey({ payload: { ...payload, expiresAt: '2026-08-06' }, signature })).resolves.toEqual({
       error: 'This pilot key expired on 2026-08-06.'
     });
   });

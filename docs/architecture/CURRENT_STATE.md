@@ -31,9 +31,11 @@ REF-002 then moved characterized defaults and persisted-state normalization into
 
 REF-003 moved characterized report windows, report-state projection, collection lookup, and financial/dealer summaries into `src/domain/reporting.ts`. `src/main.tsx` is now 9,072 lines, and the reporting suite exercises the pure module without mounting React or mocking Firebase.
 
+REF-004 moved characterized license/account identity and staff-secret behavior into `src/domain/licensing.ts` and `src/domain/staffAuth.ts`. `src/main.tsx` is now 8,918 lines; signature, license-file, storage-partition, persisted-sign-in, and current/legacy secret behavior is tested directly without mounting React or using the Node inspector.
+
 ## Renderer dependency shape
 
-`src/domain/types.ts` now owns the canonical management `AppState` and related persisted contracts, `src/domain/state.ts` owns characterized defaults and normalization, and `src/domain/reporting.ts` owns pure reporting projections. `src/main.tsx` remains their orchestration consumer and still imports focused behavior from `src/lib/`. Renderer-mount characterization remains for persistence, licensing, identity, waitlist, seating, and table behavior; reporting now has a direct pure-module boundary.
+`src/domain/types.ts` now owns the canonical management `AppState` and related persisted contracts, `src/domain/state.ts` owns characterized defaults and normalization, `src/domain/reporting.ts` owns pure reporting projections, and focused licensing/staff-auth modules own renderer identity primitives. `src/main.tsx` remains their orchestration consumer and still imports focused behavior from `src/lib/`. Renderer-mount characterization remains for persistence, waitlist, seating, and table behavior; reporting and identity primitives now have direct focused boundaries.
 
 The next runtime extractions should follow dependency direction:
 

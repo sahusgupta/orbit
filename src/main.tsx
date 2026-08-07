@@ -38,7 +38,6 @@ import AppShell, { type PrimaryDestination, type ShellCommand } from './componen
 import TournamentTvView from './components/TournamentTvView';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import {
-  canonicalPayload,
   countActivePlayersForTable,
   createBackupEnvelope,
   filterRecentActivityAfterClose,
@@ -86,6 +85,20 @@ import {
   getTablePlayerFinancialOverview,
   shiftReportAnchor
 } from './domain/reporting';
+import {
+  getAccountKeyFromAccess,
+  getAccountKeyFromState,
+  getAuthStorageKey,
+  getStorageKeyForState,
+  hasPersistedSignIn,
+  isFutureDate,
+  isPilotAccessActive,
+  managementStorageKey as storageKey,
+  persistSignIn,
+  safeAccountKeyPart,
+  validatePilotKey
+} from './domain/licensing';
+import { hashStaffPin, verifyStaffSecret } from './domain/staffAuth';
 import type {
   AppRoute,
   AppState,
@@ -352,7 +365,6 @@ const gameQualityTags: TableTag[] = [
 ];
 const failedStartReasons = ['not enough arrivals', 'players declined', 'wait too long', 'table fit concern', 'staff decision', 'other'];
 const tableBreakReasons = ['too few players', 'players moved', 'players left', 'game merged', 'room closing', 'other'];
-const storageKey = 'table-manager-state-v1';
 const memberId = () => `mem_${crypto.getRandomValues(new Uint32Array(2))[0].toString(16)}${crypto.getRandomValues(new Uint32Array(2))[1].toString(16)}`;
 const randomToken = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('');
 const toLocalDateValue = (date: Date) => {
@@ -401,31 +413,6 @@ const getLevelsUntilBreak = (tournament?: Tournament | null) => {
   }
   return null;
 };
-const arrayBufferToHex = (buffer: ArrayBuffer) =>
-  Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, '0')).join('');
-const legacyHashStaffPin = async (pin: string, salt: string) =>
-  arrayBufferToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}:${pin}`)));
-const hashStaffPin = async (pin: string, salt: string) => {
-  const iterations = 210_000;
-  const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveBits']);
-  const derived = await crypto.subtle.deriveBits(
-    {
-      name: 'PBKDF2',
-      salt: new TextEncoder().encode(salt),
-      iterations,
-      hash: 'SHA-256'
-    },
-    keyMaterial,
-    256
-  );
-  return `pbkdf2-sha256$${iterations}$${arrayBufferToHex(derived)}`;
-};
-const verifyStaffSecret = async (secret: string, salt: string, storedHash: string) => {
-  if (storedHash.startsWith('pbkdf2-sha256$')) {
-    return (await hashStaffPin(secret, salt)) === storedHash;
-  }
-  return (await legacyHashStaffPin(secret, salt)) === storedHash;
-};
 const formatMinutesLeft = (minutes: number) => {
   if (minutes <= 0) return '0m';
   const hours = Math.floor(minutes / 60);
@@ -453,27 +440,6 @@ const formatTimeLeft = (seconds: number) => {
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}` : clock;
 };
 const getTimeStatus = getTimerStatusFromMinutes;
-const isFutureDate = (value?: string) => {
-  if (!value) return false;
-  const expiration = new Date(value.includes('T') ? value : `${value}T23:59:59`).getTime();
-  return Number.isFinite(expiration) && expiration >= Date.now();
-};
-const isPilotAccessActive = (access?: PilotAccess) => Boolean(access?.authorized && isFutureDate(access.expiresAt));
-const safeAccountKeyPart = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 96);
-const getAccountKeyFromAccess = (access?: PilotAccess) =>
-  safeAccountKeyPart(access?.licenseId || access?.authorizationCode || access?.issuedTo || '');
-const getAccountKeyFromState = (state?: Partial<AppState>) =>
-  getAccountKeyFromAccess(state?.settings?.pilotAccess) ||
-  safeAccountKeyPart(state?.settings?.clubAccount?.email || state?.settings?.clubAccount?.clubName || 'unlicensed-local') ||
-  'unlicensed-local';
-const getStorageKeyForState = (state?: Partial<AppState>) => `${storageKey}:${getAccountKeyFromState(state)}`;
-const getAuthStorageKey = (state?: Partial<AppState>) => `${storageKey}:auth:${getAccountKeyFromState(state)}`;
 const localOrbitBridgeBaseUrl = (import.meta.env.VITE_ORBIT_LOCAL_API_URL || 'http://127.0.0.1:4629').replace(/\/$/, '');
 const publishStateToLocalOrbitBridge = (state: AppState) =>
   fetch(`${localOrbitBridgeBaseUrl}/state`, {
@@ -481,85 +447,6 @@ const publishStateToLocalOrbitBridge = (state: AppState) =>
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ state })
   }).catch(() => undefined);
-const hasPersistedSignIn = (state: AppState) => {
-  if (!isPilotAccessActive(state.settings.pilotAccess)) return false;
-  try {
-    const stored = localStorage.getItem(getAuthStorageKey(state));
-    if (!stored) return false;
-    const record = JSON.parse(stored) as { expiresAt?: string };
-    return Boolean(record.expiresAt && state.settings.pilotAccess && record.expiresAt === state.settings.pilotAccess.expiresAt && isFutureDate(record.expiresAt));
-  } catch {
-    return false;
-  }
-};
-const persistSignIn = (state: AppState, staySignedIn: boolean) => {
-  const key = getAuthStorageKey(state);
-  if (staySignedIn && state.settings.pilotAccess?.expiresAt) {
-    localStorage.setItem(key, JSON.stringify({ expiresAt: state.settings.pilotAccess.expiresAt, savedAt: nowIso() }));
-    return;
-  }
-  localStorage.removeItem(key);
-};
-const base64ToArrayBuffer = (base64: string) => {
-  const binary = window.atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes.buffer;
-};
-const leftPadSignatureInteger = (bytes: Uint8Array) => {
-  const normalized = bytes[0] === 0 ? bytes.slice(1) : bytes;
-  if (normalized.length > 32) throw new Error('Invalid signature integer length.');
-  const padded = new Uint8Array(32);
-  padded.set(normalized, 32 - normalized.length);
-  return padded;
-};
-const derToRawP256Signature = (signature: Uint8Array) => {
-  if (signature.length === 64) return Uint8Array.from(signature).buffer;
-  if (signature[0] !== 0x30) throw new Error('Invalid signature format.');
-  let offset = 2;
-  if (signature[offset] !== 0x02) throw new Error('Invalid signature format.');
-  const rLength = signature[offset + 1];
-  const r = signature.slice(offset + 2, offset + 2 + rLength);
-  offset += 2 + rLength;
-  if (signature[offset] !== 0x02) throw new Error('Invalid signature format.');
-  const sLength = signature[offset + 1];
-  const s = signature.slice(offset + 2, offset + 2 + sLength);
-  const raw = new Uint8Array(64);
-  raw.set(leftPadSignatureInteger(r), 0);
-  raw.set(leftPadSignatureInteger(s), 32);
-  return raw.buffer;
-};
-const pemToArrayBuffer = (pem: string) =>
-  base64ToArrayBuffer(
-    pem
-      .replace(/-----BEGIN PUBLIC KEY-----/g, '')
-      .replace(/-----END PUBLIC KEY-----/g, '')
-      .replace(/\s/g, '')
-  );
-const verifyPilotSignature = async (payload: Record<string, unknown>, signature: string) => {
-  const publicKeyPem = branding.license?.publicKeyPem?.trim();
-  if (!publicKeyPem) return { ok: false, error: 'License verification is not configured for this build.' };
-  try {
-    const key = await crypto.subtle.importKey(
-      'spki',
-      pemToArrayBuffer(publicKeyPem),
-      { name: 'ECDSA', namedCurve: 'P-256' },
-      false,
-      ['verify']
-    );
-    const verified = await crypto.subtle.verify(
-      { name: 'ECDSA', hash: 'SHA-256' },
-      key,
-      derToRawP256Signature(new Uint8Array(base64ToArrayBuffer(signature))),
-      new TextEncoder().encode(canonicalPayload(payload))
-    );
-    return verified ? { ok: true } : { ok: false, error: 'License signature is invalid.' };
-  } catch {
-    return { ok: false, error: 'Unable to verify license signature.' };
-  }
-};
 const emptyClubAccount: ClubAccount = {
   clubName: '',
   accountName: '',
@@ -567,47 +454,6 @@ const emptyClubAccount: ClubAccount = {
   email: '',
   phone: '',
   address: ''
-};
-const validatePilotKey = async (licenseFile: unknown, fileName?: string): Promise<{ access?: PilotAccess; error?: string }> => {
-  const file = licenseFile as Record<string, unknown>;
-  const record = (file.payload ?? file) as Record<string, unknown>;
-  const signature = String(file.signature ?? '').trim();
-  const authorizationCode = String(record.authorizationCode ?? record.code ?? '').trim();
-  const expiresAt = String(record.expiresAt ?? record.expirationDate ?? record.validUntil ?? '').slice(0, 10);
-
-  if (!signature) {
-    return { error: 'Key file is not signed. Generate a production pilot key with the license tool.' };
-  }
-
-  if (!authorizationCode || authorizationCode.length < 12) {
-    return { error: 'Key file is missing a valid authorization code.' };
-  }
-
-  if (!expiresAt || Number.isNaN(new Date(expiresAt).getTime())) {
-    return { error: 'Key file is missing a valid expiration date.' };
-  }
-
-  if (!isFutureDate(expiresAt)) {
-    return { error: `This pilot key expired on ${expiresAt}.` };
-  }
-
-  const signatureResult = await verifyPilotSignature(record, signature);
-  if (!signatureResult.ok) {
-    return { error: signatureResult.error ?? 'License signature is invalid.' };
-  }
-
-  return {
-    access: {
-      authorized: true,
-      authorizationCode,
-      expiresAt,
-      activatedAt: nowIso(),
-      keyFileName: fileName,
-      issuedTo: String(record.issuedTo ?? ''),
-      issuedAt: String(record.issuedAt ?? ''),
-      licenseId: String(record.licenseId ?? '')
-    }
-  };
 };
 const toDateTimeInput = (iso?: string) => (iso ? new Date(new Date(iso).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '');
 const fromDateTimeInput = (value: string) => (value ? new Date(value).toISOString() : undefined);
@@ -9064,20 +8910,6 @@ function TagPicker({ selected, onChange }: { selected: TableTag[]; onChange: (ta
     </div>
   );
 }
-
-export {
-  getAccountKeyFromAccess,
-  getAccountKeyFromState,
-  getAuthStorageKey,
-  getStorageKeyForState,
-  hashStaffPin,
-  hasPersistedSignIn,
-  isFutureDate,
-  isPilotAccessActive,
-  persistSignIn,
-  validatePilotKey,
-  verifyStaffSecret
-};
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
