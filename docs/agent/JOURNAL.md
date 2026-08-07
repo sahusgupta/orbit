@@ -357,3 +357,9 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Updated existing tournament players by registration ID, mapped `finished` to `Finished`, and treated rebuy/add-on statuses as count updates that preserve established management status and unrelated fields.
 - Root TypeScript decreased from 4 to zero diagnostics. Focused 2-file/30-test coverage, Player TypeScript, all 35 files/188 tests, the 1,913-module build, and aggregate verification all passed.
 - Marked TYPE-003 and root TypeScript stabilization complete. No deployment or push occurred.
+
+## 2026-08-07 - TYPE-021 Player compiler ownership
+
+- Reconfirmed the two cross-package suites passed 2 files/9 tests while root TypeScript followed two Player implementation modules.
+- Moved the unchanged protocol and status suites into `player-app/src/domain/`; root Vitest continues to discover them and Player TypeScript now owns their imports.
+- The moved suites, root TypeScript, and Player TypeScript passed. Root `tsc --listFilesOnly` now contains zero `player-app/src` paths without exclusions or aliases.

@@ -6,7 +6,7 @@ import {
   isMembershipCurrentlyActive,
   isPlayerMembership,
   isPlayerWaitlistEntry
-} from '../../player-app/src/domain/playerSync';
+} from './playerSync';
 
 const player = { id: 'player-1', name: 'Alex', email: 'alex@example.com', preferredGameIds: [] };
 

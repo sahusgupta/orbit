@@ -1,6 +1,6 @@
 # TYPE-021: Remove unintended Player modules from the root compiler scope
 
-Status: `planned`
+Status: `complete`
 
 ## Objective
 
@@ -45,3 +45,9 @@ Depends on `TYPE-002` so the canonical Player snapshot/public contract is decide
 ## Autonomous implementation
 
 Not safe for autonomous implementation because it changes cross-package test ownership around a public synchronization contract.
+
+## Completed implementation — 2026-08-07
+
+The post-green refactor-safety review classified this boundary correction as required before renderer compiler separation. The two Player-domain suites moved unchanged into `player-app/src/domain/`, where `player-app/tsconfig.json` owns their implementation imports. Root Vitest still discovers and runs all nine cases.
+
+The exact pre-move suites passed 2 files/9 tests. After the move, those suites, root TypeScript, and Player TypeScript passed; root `tsc --listFilesOnly` changed from two Player implementation files to zero without exclusions, aliases, generated output, or project references.

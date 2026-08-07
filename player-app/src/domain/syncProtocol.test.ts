@@ -4,7 +4,7 @@ import {
   hasUncommittedFutureRevision,
   selectCommittedGames,
   selectRevisionCompatibleRecords
-} from '../../player-app/src/domain/syncProtocol';
+} from './syncProtocol';
 
 describe('Orbit desktop-to-mobile sync protocol', () => {
   it('keeps legacy publishers compatible', () => {
