@@ -337,3 +337,13 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Created `docs/agent/TYPESCRIPT_STABILIZATION_FINAL.md` with the baseline history, completed tasks, discovered behavior risks, test growth, verification evidence, exact decisions, provisional compiler-coverage recommendations, full 48-commit sequence, and refactor/Player-web readiness conclusions.
 - Final verified state before the report: root TypeScript failed with exactly 14 decision-blocked diagnostics; Player TypeScript passed; 33 files/173 tests passed; the 1,912-module renderer build passed; aggregate verification failed only on root TypeScript.
 - Nothing was pushed or deployed, and no production service or secret was accessed.
+
+## 2026-08-07 - TYPE-007H authoritative profile relationships
+
+- Recorded the human-approved authoritative-ID plus unique-unlinked-name-fallback policy and resumed from a clean non-`main` branch.
+- Added eight real-renderer characterization cases covering ID resolution, broken IDs, unique/zero/duplicate name matches, incompatible links, deletion cleanup, explicit three-profile merge retargeting, complete fields, order, immutability, and persistence; they passed unchanged production and were committed separately as `f76d0c5`.
+- Added a collection-aware pure resolver. Present IDs never fall back, normalized name fallback requires a unique unlinked reference and unique profile candidate, and exact ID matches take precedence. The tests explicitly record the intentional behavior changes from legacy name fan-out.
+- Kept deletion and merge ID-directed, restored canonical callback inference, and applied the resolver to profile-page, QR, quick check-in, and table-seat relationship checks without changing stored shapes or external contracts.
+- Root TypeScript decreased from 14 to exactly 4 diagnostics in one production file; all 10 TYPE-007H diagnostics disappeared and no new diagnostic appeared.
+- Focused 3-file/19-test coverage passed; Player TypeScript passed; all 34 files/181 tests passed; the 1,913-module build passed; aggregate verification failed only on the expected four-diagnostic TYPE-003 root baseline.
+- Marked TYPE-007H and the TYPE-007 umbrella complete. No production service, deployment, or push was involved.

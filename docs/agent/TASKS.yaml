@@ -1,12 +1,14 @@
 queue: root-typescript-remediation
 temporary: true
 source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
-baseline_diagnostics: 14
-baseline_files: 2
+baseline_diagnostics: 4
+baseline_files: 1
 status: partial_failure
-terminal_condition: all_remaining_diagnostics_require_human_decisions
-blocked_diagnostics: 14
-blocked_tasks: [TYPE-003, TYPE-007H]
+terminal_condition: approved_TYPE-003_implementation_remaining
+blocked_diagnostics: 0
+blocked_tasks: []
+pending_diagnostics: 4
+pending_tasks: [TYPE-003]
 ordering:
   - project_boundary_configuration
   - shared_contract_public_interface
@@ -46,16 +48,16 @@ tasks:
   - id: TYPE-003
     title: Preserve domain types through Firebase synchronization
     classification: REAL_TYPE_ERROR
-    safety: HUMAN_DECISION_REQUIRED
+    safety: APPROVED_AFTER_CHARACTERIZATION
     diagnostics: 4
-    status: review_required
-    safe_autonomous: false
-    human_review: true
+    status: ready
+    safe_autonomous: true
+    human_review: false
     blocks_refactoring: true
     blocks_player_web: indirect
     depends_on: [TYPE-002]
     spec: docs/agent/tasks/TYPE-003.md
-    blocker: revenue_type_identity_and_tournament_status_semantics
+    decision: conservative_domain_preservation_bundle
   - id: TYPE-004
     title: Prove membership status narrowing across synchronization
     classification: REAL_TYPE_ERROR
@@ -103,18 +105,19 @@ tasks:
     classification: REAL_TYPE_ERROR
     diagnostics: 0
     diagnostics_before: 51
-    diagnostics_delegated: 10
-    diagnostics_resolved: 41
-    status: pending
+    diagnostics_delegated: 0
+    diagnostics_resolved: 51
+    status: complete
     role: umbrella
     children: [TYPE-007A, TYPE-007B, TYPE-007C, TYPE-007D, TYPE-007E, TYPE-007F, TYPE-007G, TYPE-007H, TYPE-007I, TYPE-007J]
-    safe_autonomous: false
-    human_review: true
+    safe_autonomous: true
+    human_review: false
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: [TYPE-007A, TYPE-007B, TYPE-007C, TYPE-007D, TYPE-007E, TYPE-007F, TYPE-007G, TYPE-007H, TYPE-007I, TYPE-007J]
     spec: docs/agent/tasks/TYPE-007.md
     decomposition: docs/agent/TYPE-007_DECOMPOSITION.md
+    resolution: all_ten_characterized_children_complete
   - id: TYPE-007A
     title: Preserve complete profiles while grouping duplicates
     classification: REAL_TYPE_ERROR
@@ -301,11 +304,13 @@ tasks:
   - id: TYPE-007H
     title: Preserve profile relationships during profile mutations
     classification: REAL_TYPE_ERROR
-    safety: HUMAN_DECISION_REQUIRED
-    diagnostics: 10
-    status: review_required
-    safe_autonomous: false
-    human_review: true
+    safety: RESOLVED_AFTER_HUMAN_DECISION
+    diagnostics: 0
+    diagnostics_before: 10
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: [TYPE-005, TYPE-006]
@@ -321,7 +326,8 @@ tasks:
       - "src/main.tsx:5115:9 TS2769"
       - "src/main.tsx:7520:19 TS2345"
     spec: docs/agent/tasks/TYPE-007H.md
-    blocker: ambiguous_profile_name_fallback
+    decision: authoritative_id_with_unique_unlinked_normalized_name_fallback
+    resolution: collection_aware_profile_reference_matching_with_id_directed_merge_and_deletion
   - id: TYPE-007I
     title: Preserve table-event report projections
     classification: REAL_TYPE_ERROR

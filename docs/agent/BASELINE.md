@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, `TYPE-007C` reduced it to 53, completed `TYPE-007D` reduced it to 47, `TYPE-007G` reduced it to 39, `TYPE-007E` reduced it to 35, `TYPE-007F` reduced it to 30, `TYPE-002` reduced it to 26, `TYPE-004` reduced it to 25, `TYPE-009` reduced it to 22, `TYPE-011` reduced it to 21, `TYPE-014` reduced it to 20, `TYPE-010` reduced it to 16, and `TYPE-008` established the truthful current baseline at 14 diagnostics in 2 affected production files; the gate remains red. TYPE-009 removed its two owned diagnostics plus TYPE-013's cast symptom, TYPE-011 removed the Web Crypto platform diagnostic, TYPE-014 removed the unreachable direct-seating comparison, TYPE-010 restored complete GroupMe candidate state inference, TYPE-008 established a guarded pasted-profile input boundary, and TYPE-013 subsequently closed the zero-diagnostic legacy-retention audit without changing the count. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, and the gated remediation sequence through `TYPE-013` reduced it to 14. The approved `TYPE-007H` identity repair now establishes the truthful current baseline at 4 diagnostics in 1 affected production file; the gate remains red only for `TYPE-003`. The profile repair removed all 10 renderer diagnostics without weakening optional identity, changing persisted shapes, or permitting ambiguous name inference. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -725,3 +725,20 @@ Final verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 14 diagnostics, while Player TypeScript, 33/173 tests, and the 1,912-module renderer build passed.
 
 `TYPE-013` is complete. No production service, deployment, or push was involved.
+
+## TYPE-007H Authoritative Profile Relationships — 2026-08-07
+
+The approved identity policy is implemented through a collection-aware pure helper: present profile IDs are authoritative, broken IDs remain unresolved, and normalized name fallback requires exactly one unlinked reference and one eligible same-name profile. Ambiguous or incompatibly linked records are preserved rather than selected, retargeted, or removed. Explicit duplicate merges and deletion cleanup continue to use authoritative IDs.
+
+Eight real-renderer characterization cases passed against unchanged production and were committed separately as `f76d0c5`. The post-policy expectations make the intentional changes explicit for broken IDs, duplicate unlinked references, incompatible links, and trimmed names while retaining complete merge/deletion, ordering, immutability, and persistence coverage.
+
+Final verification:
+
+- PASS: `npx --no-install vitest run src/lib/profileRelationships.test.tsx src/lib/membershipQr.test.ts src/lib/playerTableTransitions.test.ts` — 3 files and 19 tests.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 4 diagnostics in `src/lib/firebaseClubSync.ts`; all 10 assigned `TYPE-007H` diagnostics disappeared and no new diagnostic appeared.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 34 files and 181 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,913 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed on the four remaining `TYPE-003` diagnostics.
+
+`TYPE-007H` and its `TYPE-007` umbrella are complete. No live service, deployment, or push was involved.

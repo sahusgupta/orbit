@@ -1,8 +1,8 @@
 # TYPE-007H: Preserve profile relationships during profile mutations
 
-Status: `review_required`
+Status: `complete`
 
-Safety: `HUMAN_DECISION_REQUIRED`
+Safety: `RESOLVED_AFTER_HUMAN_DECISION`
 
 ## Objective
 
@@ -78,6 +78,16 @@ Not required if the current ID/name precedence and first-profile merge policy ar
 ## Stop conditions
 
 Stop if duplicate identities collide, multiple active interests match by name, membership checks would be bypassed, or a stored-shape change is required.
+
+## Approved resolution — 2026-08-07
+
+The human-approved policy makes a present `profileId` authoritative and permits a normalized name fallback only for one unique unlinked reference and one unique same-name profile. Broken IDs, duplicate unlinked references, duplicate same-name profiles, and references linked to another profile do not fall back. Explicit merges and profile deletion cleanup remain ID-directed.
+
+Eight renderer-level characterization cases passed against unchanged production and were committed separately as `f76d0c5`. They cover deletion cleanup, a three-profile explicit merge, authoritative IDs, broken IDs, unique unlinked fallback, zero matches, duplicate unlinked matches, incompatible links, complete-field preservation, ordering, input immutability, and persistence. The implementation updates the three intentionally unsafe legacy expectations in the same test file.
+
+`src/lib/profileRelationships.ts` now owns the collection-aware policy. Profile-page, membership-QR, quick check-in, and table-seat profile/reference lookups use it, while delete and merge callbacks consume complete canonical records. No persisted shape, API contract, Firebase path, or merge field rule changed.
+
+Final verification removed all 10 assigned diagnostics. Focused profile/QR/player-transition tests passed (3 files/19 tests); Player TypeScript passed; all 34 files/181 tests passed; and the 1,913-module renderer build passed. Aggregate verification ran all gates and failed only on the four remaining `TYPE-003` root diagnostics.
 
 ## Blocking identity evidence — 2026-08-07
 

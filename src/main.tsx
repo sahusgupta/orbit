@@ -51,6 +51,12 @@ import {
 } from './lib/appCore';
 import { createMembershipWindow, parseMembershipPrice } from './lib/membership';
 import { validateMembershipQrCheckIn } from './lib/membershipQr';
+import {
+  findUniqueProfileReference,
+  getProfileReferenceMatches,
+  hasProfileReference,
+  resolveProfileForReference
+} from './lib/profileRelationships';
 import { loadClubStateFromFirebase, saveClubStateToFirebase, signInOrCreateFirebaseEmailAccount, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
 import { rendererFirebaseSyncEnabled } from './lib/firebaseConfig';
 import { buildNightCloseTables, type NightCloseTable } from './lib/nightClose';
@@ -2141,10 +2147,7 @@ function getClosestGameLabel(state: AppState) {
 }
 
 function getProfileForInterest(interest: Interest, profiles: PlayerProfile[]) {
-  return (
-    profiles.find((profile) => profile.id === interest.profileId) ??
-    profiles.find((profile) => profile.name.toLowerCase() === interest.playerName.toLowerCase())
-  );
+  return resolveProfileForReference(interest, profiles);
 }
 
 function getInClubInterests(state: AppState) {
@@ -3250,10 +3253,11 @@ function App() {
   };
 
   const checkInProfileFromSearch = (profile: PlayerProfile) => {
-    const existingInterest = state.interests.find(
-      (interest) =>
-        !inactiveInterestStatuses.includes(interest.status) &&
-        (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase())
+    const existingInterest = findUniqueProfileReference(
+      state.interests,
+      state.profiles,
+      profile,
+      (interest) => !inactiveInterestStatuses.includes(interest.status)
     );
     setForm({
       playerName: profile.name,
@@ -3726,12 +3730,13 @@ function App() {
     note: string,
     timestamp: string
   ) => {
-    const existing = sourceState.interests.find(
-      (interest) =>
-        (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()) &&
-        interest.gameId === gameId &&
-        !inactiveInterestStatuses.includes(interest.status)
+    const existingRelationship = findUniqueProfileReference(
+      sourceState.interests,
+      sourceState.profiles,
+      profile,
+      (interest) => !inactiveInterestStatuses.includes(interest.status)
     );
+    const existing = existingRelationship?.gameId === gameId ? existingRelationship : undefined;
     if (existing) {
       return sourceState.interests.map((interest) =>
         interest.id === existing.id
@@ -4037,10 +4042,11 @@ function App() {
         return queryParts.every((part) => haystack.includes(part));
       })
       .map((profile) => {
-        const activeInterest = state.interests.find(
-          (interest) =>
-            (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()) &&
-            activeInterestStatuses.includes(interest.status)
+        const activeInterest = findUniqueProfileReference(
+          state.interests,
+          state.profiles,
+          profile,
+          (interest) => activeInterestStatuses.includes(interest.status)
         );
         const preferredGame = state.games.find((game) => game.id === (profile.preferredGameIds?.[0] || profile.preferredGameId));
         const isCheckedIn = Boolean(activeInterest?.status === 'Arrived' || activeInterest?.status === 'Seated');
@@ -4095,10 +4101,11 @@ function App() {
       return;
     }
     const timestamp = nowIso();
-    const alreadyInClub = state.interests.some(
-      (interest) =>
-        (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()) &&
-        activeInterestStatuses.includes(interest.status)
+    const alreadyInClub = hasProfileReference(
+      state.interests,
+      state.profiles,
+      profile,
+      (interest) => activeInterestStatuses.includes(interest.status)
     );
     const checkedInState: AppState = alreadyInClub
       ? state
@@ -4106,15 +4113,16 @@ function App() {
           ...state,
           interests: ensureInterestEntry(state, profile, session.gameId, 'Arrived', 'Checked in from table seat picker', timestamp)
         };
-    const interest = checkedInState.interests.find(
-      (item) =>
-        item.gameId === session.gameId &&
-        activeInterestStatuses.includes(item.status) &&
-        (item.profileId === profile.id || item.playerName.toLowerCase() === profile.name.toLowerCase())
-    ) ?? checkedInState.interests.find(
-      (item) =>
-        activeInterestStatuses.includes(item.status) &&
-        (item.profileId === profile.id || item.playerName.toLowerCase() === profile.name.toLowerCase())
+    const interest = findUniqueProfileReference(
+      checkedInState.interests,
+      checkedInState.profiles,
+      profile,
+      (item) => item.gameId === session.gameId && activeInterestStatuses.includes(item.status)
+    ) ?? findUniqueProfileReference(
+      checkedInState.interests,
+      checkedInState.profiles,
+      profile,
+      (item) => activeInterestStatuses.includes(item.status)
     );
     const result = seatPlayerInState(checkedInState, session.id, {
       playerName: profile.name,
@@ -4895,8 +4903,8 @@ function App() {
     if (!window.confirm('Remove this profile? Existing sessions and interest entries will keep the player name.')) return;
     persist({
       ...state,
-      profiles: state.profiles.filter((profile: { id: string; }) => profile.id !== id),
-      interests: state.interests.map((interest: { profileId: string; }) =>
+      profiles: state.profiles.filter((profile) => profile.id !== id),
+      interests: state.interests.map((interest) =>
         interest.profileId === id ? { ...interest, profileId: undefined } : interest
       )
     });
@@ -5047,21 +5055,22 @@ function App() {
 
     persist({
       ...state,
-      profiles: state.profiles.map((profile: { id: string; }) => (profile.id === primary.id ? merged : profile)).filter((profile: { id: string; }) => !duplicateIds.has(profile.id)),
-      interests: state.interests.map((interest: { profileId: string; }) =>
+      profiles: state.profiles.map((profile) => (profile.id === primary.id ? merged : profile)).filter((profile) => !duplicateIds.has(profile.id)),
+      interests: state.interests.map((interest) =>
         interest.profileId && duplicateIds.has(interest.profileId) ? { ...interest, profileId: primary.id } : interest
       ),
-      playerSessions: state.playerSessions.map((session: { profileId: string; }) =>
+      playerSessions: state.playerSessions.map((session) =>
         session.profileId && duplicateIds.has(session.profileId) ? { ...session, profileId: primary.id } : session
       )
     });
   };
 
   const addProfileToClub = (profile: PlayerProfile, sourceState = state) => {
-    const existingInterest = sourceState.interests.find(
-      (interest: { profileId: string; playerName: string; status: InterestStatus; }) =>
-        (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()) &&
-        !inactiveInterestStatuses.includes(interest.status)
+    const existingInterest = findUniqueProfileReference(
+      sourceState.interests,
+      sourceState.profiles,
+      profile,
+      (interest) => !inactiveInterestStatuses.includes(interest.status)
     );
     const preferredGameId = profile.preferredGameIds[0] ?? sourceState.games[0]?.id ?? 'nlh-1-2';
     const timestamp = nowIso();
@@ -5106,9 +5115,7 @@ function App() {
     }
     const profile = validation.profile as PlayerProfile;
 
-    const alreadyInClub = getInClubInterests(sourceState).some(
-      (interest) => interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()
-    );
+    const alreadyInClub = hasProfileReference(getInClubInterests(sourceState), sourceState.profiles, profile);
     if (alreadyInClub) {
       setQrScanMessage(`${profile.name} is already checked in.`);
       return;
@@ -5152,15 +5159,17 @@ function App() {
   }, [playerPopup, qrScanAttempt]);
 
   const removeProfileFromClub = (profile: PlayerProfile) => {
+    const matchingInterestIds = new Set(
+      getProfileReferenceMatches(
+        state.interests,
+        state.profiles,
+        profile,
+        (interest) => interest.status === 'Arrived'
+      ).map((interest) => interest.id)
+    );
     persist({
       ...state,
-      interests: state.interests.filter(
-        (interest: { status: string; profileId: string; playerName: string; }) =>
-          !(
-            interest.status === 'Arrived' &&
-            (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase())
-          )
-      )
+      interests: state.interests.filter((interest) => !matchingInterestIds.has(interest.id))
     });
   };
 
@@ -7583,11 +7592,12 @@ function App() {
                 const companionNames = profile.commonlyPlaysWithProfileIds
                   .map((id) => state.profiles.find((candidate) => candidate.id === id)?.name)
                   .filter(Boolean);
-                const inClub = inClubInterests.some(
-                  (interest: { profileId: any; playerName: string; }) => interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()
-                );
-                const seated = state.playerSessions.some(
-                  (session) => !session.leftAt && (session.profileId === profile.id || session.playerName.toLowerCase() === profile.name.toLowerCase())
+                const inClub = hasProfileReference(inClubInterests, state.profiles, profile);
+                const seated = hasProfileReference(
+                  state.playerSessions,
+                  state.profiles,
+                  profile,
+                  (session) => !session.leftAt
                 );
                 return (
                   <article className="profile-card" key={profile.id}>
@@ -10003,9 +10013,7 @@ function App() {
               {checkInMatches.length ? (
                 checkInMatches.map((profile) => {
                   const preferredGame = state.games.find((game) => game.id === profile.preferredGameId)?.name ?? profile.preferredStakes;
-                  const inClub = inClubInterests.some(
-                    (interest) => interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()
-                  );
+                  const inClub = hasProfileReference(inClubInterests, state.profiles, profile);
                   return (
                     <button className="check-in-result" type="button" key={profile.id} onClick={() => checkInProfileFromSearch(profile)}>
                       <span>

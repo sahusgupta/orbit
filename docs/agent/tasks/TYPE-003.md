@@ -1,8 +1,8 @@
 # TYPE-003: Preserve domain types through Firebase synchronization
 
-Status: `review_required`
+Status: `ready`
 
-Safety: `HUMAN_DECISION_REQUIRED`
+Safety: `APPROVED_AFTER_CHARACTERIZATION`
 
 ## Objective
 
@@ -75,3 +75,9 @@ Approve or revise this recommended bundle:
 - map `finished` to management `Finished`, retain current checked-in/eliminated/registered mappings, treat rebuy/add-on events as registration updates, and skip malformed remote records without stable record/tournament IDs.
 
 After that decision, add isolated pure-transform fixtures for registration, revenue, malformed input, idempotency, publication shape, and protocol-v2 revision behavior before changing the production pipeline. All 4 diagnostics remain assigned to this task.
+
+## Approved policy — 2026-08-07
+
+The human-approved conservative domain-preservation bundle requires canonical `time-package` preservation; authoritative persisted payment IDs; validated or explicitly normalized tournament statuses; and boundary validation that skips or isolates malformed records without fabricated IDs, payment types, statuses, or other semantic defaults. Known legacy mappings may be added only when repository evidence proves a one-to-one meaning and tests protect it. Independent valid records should continue synchronizing when existing behavior permits partial synchronization.
+
+Implementation remains gated on characterization against unchanged production behavior for canonical and malformed revenue/registration inputs, identity, ordering, idempotency, field preservation, and input immutability.

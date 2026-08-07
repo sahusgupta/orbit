@@ -1,6 +1,6 @@
 # TYPE-007: Renderer callback domain-contract umbrella
 
-Status: `pending` (`decomposed` umbrella)
+Status: `complete` (`decomposed` umbrella)
 
 ## Objective
 
@@ -23,12 +23,14 @@ This umbrella owns no diagnostic directly. Its former 51 diagnostics are delegat
 | `TYPE-007E` | Forming and balanced table creation | 4 | `SAFE_AFTER_TESTS` |
 | `TYPE-007F` | Planned-participant contract | 5 | Completed under approved Option C |
 | `TYPE-007G` | Table lifecycle updates and events | 8 | `SAFE_AFTER_TESTS` |
-| `TYPE-007H` | Profile relationship mutations | 10 | `HUMAN_DECISION_REQUIRED` |
+| `TYPE-007H` | Profile relationship mutations | 10 | Completed under approved authoritative-ID policy |
 | `TYPE-007I` | Table-event report projections | 2 | `SAFE_AFTER_TESTS` |
 | `TYPE-007J` | Read-only floor collection rendering | 3 | `SAFE_AFTER_TESTS` |
 | **Total** | | **51** | |
 
 The full diagnostic inventory and ownership proof are in `docs/agent/TYPE-007_DECOMPOSITION.md`.
+
+All ten children are complete. The final child, `TYPE-007H`, was characterized separately and resolved under the approved authoritative-ID plus unique-unlinked-name-fallback policy; the umbrella's 51 delegated diagnostics are now all resolved.
 
 ## Runtime behavior that must be preserved
 

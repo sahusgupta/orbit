@@ -467,28 +467,33 @@ describe('profile relationship mutations', () => {
     await resetState({ profiles: [target, nameMatch], interests: [authoritative] });
 
     expectProfileInClub(0, true);
-    expectProfileInClub(1, true);
+    expectProfileInClub(1, false);
     await click(getProfileAction(getProfileCard(0), 'Remove'));
 
     expect(getLatestState().interests).toEqual([]);
     expect(getPersistedState().interests).toEqual([]);
   });
 
-  it('currently falls back by name when an authoritative profile ID is unresolved', async () => {
+  it('preserves an unresolved authoritative profile ID without falling back by name', async () => {
     const target = buildProfile('profile-target', 'Broken Link Player');
     const broken = buildInterest('interest-broken', target.name as string, 'profile-missing');
     await resetState({ profiles: [target], interests: [broken] });
+    const previousState = getLatestState();
 
-    expectProfileInClub(0, true);
-    await click(getProfileAction(getProfileCard(0), 'Remove'));
+    expectProfileInClub(0, false);
+    await click(getProfileAction(getProfileCard(0), 'Check in'));
 
-    expect(getLatestState().interests).toEqual([]);
-    expect(getPersistedState().interests).toEqual([]);
+    expect(getLatestState().interests).toEqual([
+      expect.objectContaining({ profileId: target.id, playerName: target.name, status: 'Arrived' }),
+      broken
+    ]);
+    expect(getLatestState().interests[1]).toBe(previousState.interests[0]);
+    expect(getPersistedState().interests).toEqual(getLatestState().interests);
   });
 
   it('uses one case-insensitive unlinked name match as the fallback relationship', async () => {
     const target = buildProfile('profile-target', 'Unique Player');
-    const unlinked = buildInterest('interest-unlinked', 'UNIQUE PLAYER');
+    const unlinked = buildInterest('interest-unlinked', '  UNIQUE PLAYER  ');
     await resetState({ profiles: [target], interests: [unlinked] });
 
     expectProfileInClub(0, true);
@@ -539,30 +544,42 @@ describe('profile relationship mutations', () => {
     expect(getPersistedState().playerLedger).toEqual(nextState.playerLedger);
   });
 
-  it('currently treats duplicate unlinked same-name interests as one profile relationship', async () => {
+  it('does not infer a relationship from duplicate unlinked same-name interests', async () => {
     const target = buildProfile('profile-target', 'Ambiguous Player');
     const first = buildInterest('interest-first', target.name as string);
     const second = buildInterest('interest-second', target.name as string, undefined, { gameId: games[1].id });
     await resetState({ profiles: [target], interests: [first, second] });
+    const previousState = getLatestState();
 
-    expectProfileInClub(0, true);
-    await click(getProfileAction(getProfileCard(0), 'Remove'));
+    expectProfileInClub(0, false);
+    await click(getProfileAction(getProfileCard(0), 'Check in'));
 
-    expect(getLatestState().interests).toEqual([]);
-    expect(getPersistedState().interests).toEqual([]);
+    expect(getLatestState().interests).toEqual([
+      expect.objectContaining({ profileId: target.id, playerName: target.name, status: 'Arrived' }),
+      first,
+      second
+    ]);
+    expect(getLatestState().interests[1]).toBe(previousState.interests[0]);
+    expect(getLatestState().interests[2]).toBe(previousState.interests[1]);
+    expect(getPersistedState().interests).toEqual(getLatestState().interests);
   });
 
-  it('currently treats a same-name interest linked to another profile as the target relationship', async () => {
+  it('does not overwrite a same-name interest linked authoritatively to another profile', async () => {
     const target = buildProfile('profile-target', 'Same Name');
     const linkedProfile = buildProfile('profile-linked', 'Same Name');
     const incompatible = buildInterest('interest-incompatible', target.name as string, linkedProfile.id);
     await resetState({ profiles: [target, linkedProfile], interests: [incompatible] });
+    const previousState = getLatestState();
 
-    expectProfileInClub(0, true);
+    expectProfileInClub(0, false);
     expectProfileInClub(1, true);
-    await click(getProfileAction(getProfileCard(0), 'Remove'));
+    await click(getProfileAction(getProfileCard(0), 'Check in'));
 
-    expect(getLatestState().interests).toEqual([]);
-    expect(getPersistedState().interests).toEqual([]);
+    expect(getLatestState().interests).toEqual([
+      expect.objectContaining({ profileId: target.id, playerName: target.name, status: 'Arrived' }),
+      incompatible
+    ]);
+    expect(getLatestState().interests[1]).toBe(previousState.interests[0]);
+    expect(getPersistedState().interests).toEqual(getLatestState().interests);
   });
 });
