@@ -363,3 +363,10 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Reconfirmed the two cross-package suites passed 2 files/9 tests while root TypeScript followed two Player implementation modules.
 - Moved the unchanged protocol and status suites into `player-app/src/domain/`; root Vitest continues to discover them and Player TypeScript now owns their imports.
 - The moved suites, root TypeScript, and Player TypeScript passed. Root `tsc --listFilesOnly` now contains zero `player-app/src` paths without exclusions or aliases.
+
+## 2026-08-07 - TYPE-015 renderer/test compiler separation
+
+- Added dedicated renderer and root-test TypeScript projects over the unchanged strict compiler base; no project references or runtime changes were introduced.
+- Added a non-short-circuiting root typecheck runner so renderer and test failures retain separate ownership while `npm run typecheck` remains the stable entrypoint.
+- Verified 21 renderer workspace inputs with zero test roots and 25 root test roots with zero Player implementation paths.
+- Both compiler projects, Player TypeScript, all 35 files/188 tests, the 1,913-module build, and aggregate verification passed.

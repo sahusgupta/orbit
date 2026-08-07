@@ -1,6 +1,6 @@
 # TYPE-015: Separate renderer and root unit-test compiler projects
 
-Status: `planned`
+Status: `complete`
 
 ## Objective
 
@@ -46,3 +46,11 @@ Complete `TYPE-012` and `TYPE-021` first so test globals and cross-package impor
 ## Autonomous implementation
 
 Not safe for autonomous implementation. It changes verification orchestration and requires review of exact file ownership, although it must not change runtime behavior.
+
+## Completed implementation — 2026-08-07
+
+The post-green review classified compiler ownership as required before extracting renderer code from `src/main.tsx`. `tsconfig.renderer.json` now owns production renderer roots and excludes `*.test.ts(x)` roots; `tsconfig.test.json` owns the 25 root test files plus the production modules they import, with explicit Node, Vitest, Vite, DOM, and JSX capabilities. The shared root config retains strict compiler behavior and has no source roots of its own.
+
+`npm run typecheck` now uses `scripts/typecheck.cjs` to run both projects even when one fails, and reports their results independently. No project references, source exclusions that hide imports, runtime source changes, or diagnostic suppressions were added.
+
+The renderer graph contains 21 workspace inputs and zero test roots. The test graph contains no Player implementation paths after TYPE-021. Both projects, Player TypeScript, 35 files/188 tests, the 1,913-module renderer build, and `npm run verify` passed.

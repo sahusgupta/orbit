@@ -474,13 +474,14 @@ tasks:
     title: Separate renderer and root unit-test compiler projects
     classification: CONFIGURATION_BOUNDARY
     diagnostics: 0
-    status: planned
-    safe_autonomous: false
-    human_review: true
+    status: complete
+    safe_autonomous: true
+    human_review: false
     blocks_refactoring: false
     blocks_player_web: false
     depends_on: [TYPE-012, TYPE-021]
     spec: docs/agent/tasks/TYPE-015.md
+    resolution: separate_renderer_and_root_test_projects
   - id: TYPE-016
     title: Add Electron main and preload compiler checking
     classification: VERIFICATION_GAP
