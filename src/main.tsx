@@ -644,8 +644,12 @@ type AppState = {
   };
 };
 
+type PersistedSettings = Partial<AppState['settings']> & {
+  defaultRakeMode?: unknown;
+};
+
 type PersistedAppState = Omit<Partial<AppState>, 'settings'> & {
-  settings?: Partial<AppState['settings']>;
+  settings?: PersistedSettings;
 };
 
 type PersistedStateRecord = {
@@ -1437,6 +1441,7 @@ const seedState: AppState = {
 
 function normalizeState(parsed: PersistedAppState): AppState {
   const defaultTableCap = normalizeTableCap(parsed.settings?.defaultTableCap);
+  const legacyDefaultCollectionMode = parsed.settings?.defaultRakeMode;
   const games = (parsed.games ?? seedState.games).map((game) =>
     ({ ...game, maxSeats: normalizeTableCap(game.maxSeats ?? defaultTableCap) })
   );
@@ -1668,9 +1673,8 @@ function normalizeState(parsed: PersistedAppState): AppState {
       lowLight: parsed.settings?.lowLight ?? false,
       defaultCollectionMode:
         parsed.settings?.defaultCollectionMode ??
-        (((parsed.settings as Record<string, unknown> | undefined)?.[`default${'Ra'}keMode`] === 'Time' ||
-          (parsed.settings as Record<string, unknown> | undefined)?.[`default${'Ra'}keMode`] === 'Drop')
-          ? (parsed.settings as Record<string, 'Time' | 'Drop'>)[`default${'Ra'}keMode`]
+        (legacyDefaultCollectionMode === 'Time' || legacyDefaultCollectionMode === 'Drop'
+          ? legacyDefaultCollectionMode
           : 'Drop'),
       defaultTableCap,
       defaultHourlyFee: parsed.settings?.defaultHourlyFee ?? 0,

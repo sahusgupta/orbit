@@ -320,3 +320,12 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Root TypeScript decreased from 16 to exactly 14 diagnostics in the same 2 production files; both TYPE-008 diagnostics disappeared and no new diagnostic appeared.
 - The focused 1-file/4-test command passed; Player TypeScript passed; all 33 files/170 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 14-diagnostic root baseline.
 - Marked TYPE-008 complete. No production service, deployment, or push was involved.
+
+## 2026-08-07 - TYPE-013 legacy collection-setting contract
+
+- Found authoritative repository history in `4ee2853` and `412bbef`: installations persisted `settings.defaultRakeMode` as `Time` or `Drop`, and the application used it for new-table configuration.
+- Chose evidence-backed retention because no release/support-window evidence authorizes removing data compatibility; no new product decision was required.
+- Added and separately committed three focused legacy/current/corrupt cases as `a484c26`; the complete account-restore boundary now passes 8 cases.
+- Added a narrow `PersistedSettings.defaultRakeMode?: unknown` input and narrowed it once, preserving current-key precedence, valid legacy restoration, corrupt/absent `Drop` fallback, and current output shape.
+- TYPE-009 had already removed the compiler symptom, so root TypeScript correctly remained at 14 diagnostics. Player TypeScript passed; all 33 files/173 tests passed; the 1,912-module build passed; aggregate verification failed only on the expected root baseline.
+- Marked TYPE-013 complete. No production service, deployment, or push was involved.

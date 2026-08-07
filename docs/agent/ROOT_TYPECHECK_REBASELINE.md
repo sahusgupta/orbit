@@ -8,7 +8,7 @@ Dependency-restoration starting commit: `02cdd71`
 
 ## Verification state: partial failure
 
-The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, `TYPE-001` has aligned the renderer library contract, `TYPE-005` has restored synchronized-list tuple inference, `TYPE-006` has repaired exact map/filter result narrowing, `TYPE-012` has corrected the two test-only contracts, `TYPE-007A` has preserved complete canonical profiles during duplicate grouping, `TYPE-007I` has restored canonical table-event report callbacks, `TYPE-007J` has restored canonical floor render callbacks, `TYPE-007B` has restored canonical waitlist patch callbacks, `TYPE-007C` has restored canonical cross-record correction callbacks, `TYPE-007D` has restored canonical player transitions with unambiguous departure identity, `TYPE-007G` has restored canonical table lifecycle callbacks, `TYPE-007E` has restored canonical forming/balanced table construction, `TYPE-007F` has preserved the approved optional planned-participant contract, `TYPE-002` has aligned the already-emitted player snapshot social contract, `TYPE-004` has retained the non-Denied membership proof across callbacks, `TYPE-009` has established the nullable/versioned persisted-account input boundary, `TYPE-011` now supplies Web Crypto with an owned raw-signature buffer, `TYPE-014` has retained direct seating while removing its unreachable ordinary-interest timestamp branch, `TYPE-010` has restored the canonical GroupMe candidate state contract, and `TYPE-008` now validates pasted profile input from `unknown`. The remaining 14 diagnostics are application errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
+The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, `TYPE-001` has aligned the renderer library contract, `TYPE-005` has restored synchronized-list tuple inference, `TYPE-006` has repaired exact map/filter result narrowing, `TYPE-012` has corrected the two test-only contracts, `TYPE-007A` has preserved complete canonical profiles during duplicate grouping, `TYPE-007I` has restored canonical table-event report callbacks, `TYPE-007J` has restored canonical floor render callbacks, `TYPE-007B` has restored canonical waitlist patch callbacks, `TYPE-007C` has restored canonical cross-record correction callbacks, `TYPE-007D` has restored canonical player transitions with unambiguous departure identity, `TYPE-007G` has restored canonical table lifecycle callbacks, `TYPE-007E` has restored canonical forming/balanced table construction, `TYPE-007F` has preserved the approved optional planned-participant contract, `TYPE-002` has aligned the already-emitted player snapshot social contract, `TYPE-004` has retained the non-Denied membership proof across callbacks, `TYPE-009` has established the nullable/versioned persisted-account input boundary, `TYPE-011` now supplies Web Crypto with an owned raw-signature buffer, `TYPE-014` has retained direct seating while removing its unreachable ordinary-interest timestamp branch, `TYPE-010` has restored the canonical GroupMe candidate state contract, `TYPE-008` now validates pasted profile input from `unknown`, and `TYPE-013` has retained the historically proven legacy collection-setting input through a narrow contract. The remaining 14 diagnostics are application errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
 
 No production source was changed during this rebaseline. No compiler setting was weakened, no file was excluded, and no diagnostic suppression or unsafe cast was added.
 
@@ -54,6 +54,7 @@ Post-install dependency-tree inspection found one physical root React 19.2.6 ins
 | After `TYPE-014` direct-seating branch repair | 20 diagnostics in 2 files |
 | After `TYPE-010` GroupMe candidate repair | 16 diagnostics in 2 files |
 | After `TYPE-008` profile-import repair | 14 diagnostics in 2 files |
+| After `TYPE-013` legacy-setting audit | 14 diagnostics in 2 files |
 | Dependency-restoration displayed-diagnostic reduction | 3,536 |
 | Current net displayed-diagnostic reduction | 3,616 |
 | Missing React/ReactDOM cascade diagnostics removed | 3,598 |
@@ -103,7 +104,7 @@ Production root source accounts for all 14 diagnostics and root tests account fo
 | `TYPE-010` | `REAL_TYPE_ERROR` | 0 | Resolved: contextual setters preserve the complete required candidate contract | No | No direct block | Completed | No |
 | `TYPE-011` | `PLATFORM_TYPE_CONFLICT` | 0 | Resolved: raw signatures are copied into an owned `ArrayBuffer` before verification | No | No | Completed | No |
 | `TYPE-012` | `TEST_TYPE_ERROR` | 0 | Resolved: exact act global and production-facing fixture typing | No | No | Completed | No |
-| `TYPE-013` | `STALE_OR_DEAD_CODE` | 0 | Compiler symptom removed by TYPE-009; historical retention behavior remains unaudited | Yes | No | No | Yes |
+| `TYPE-013` | `STALE_OR_DEAD_CODE` | 0 | Resolved: retain the historically proven key through a narrow legacy input contract | No | No | Completed | No |
 | `TYPE-014` | `STALE_OR_DEAD_CODE` | 0 | Resolved: direct seating returns through the table workflow before ordinary interest construction | No | No direct block | Completed | No |
 | **Total** | | **14** | | | | | |
 
@@ -244,14 +245,12 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 ### TYPE-013 — Legacy settings migration cast
 
 - Classification: `STALE_OR_DEAD_CODE`.
-- Representative diagnostic: `normalizeState` converts the entire settings object to `Record<string, "Time" | "Drop">` to read a legacy property.
-- Affected symbol: `normalizeState`.
-- Root cause: the historical persisted shape has no explicit input type.
-- Confidence: high on the type cause, medium on retention intent; pre-existing. Runtime migration may still be required by deployed installations.
-- Current compiler state: the `TS2352` symptom disappeared when TYPE-009 introduced an explicit partial persisted-settings input; no legacy branch or output behavior changed.
-- Recommended follow-up: establish legacy fixtures and a narrow compatibility input, or remove the branch only after retention review.
-- Risk/tests: medium/high; old/current saved-state normalization fixtures.
-- Autonomous correction: no; human retention decision required.
+- Resolved diagnostic history: `normalizeState` converted the entire settings object to broad records to read a legacy property; TYPE-009 first removed the compiler symptom.
+- Historical evidence: commits `4ee2853` and `412bbef` persisted `defaultRakeMode: 'Time' | 'Drop'` and used it for newly created tables, so compatibility is retained absent an authorized support-window cutoff.
+- Correction: model only that legacy key as `unknown` in `PersistedSettings`, then narrow once while preserving current-key precedence and `Drop` fallback.
+- Risk/tests: medium/high; eight account-restore cases now include legacy present/absent, current precedence, corrupt fallback, and normalized-output shape.
+- Result: runtime and the 14-diagnostic root baseline are unchanged; the migration branch no longer needs whole-settings casts.
+- Status: complete after focused and full verification.
 
 ### TYPE-014 — Unreachable seated form branch
 
@@ -275,7 +274,7 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 6. `TYPE-008`, `TYPE-009`, and `TYPE-010` are complete; the procedural TYPE-008/010 dependencies were removed after non-overlap proof while preserving `TYPE-007H` identity behavior.
 7. Completed: `TYPE-011` now provides Web Crypto an owned signature buffer after security characterization.
 8. Completed: `TYPE-012` corrected the two root test-only contracts.
-9. `TYPE-014` is complete; `TYPE-013` remains a historical legacy-retention audit after its compiler symptom disappeared under TYPE-009.
+9. `TYPE-013` and `TYPE-014` are complete; the historical collection-setting input is retained narrowly and the direct-seating flow remains characterized.
 10. Future compiler-boundary work is split across `TYPE-015` through `TYPE-022` and must not be implemented as one task.
 
 The executable queue is `docs/agent/TASKS.yaml`; detailed specifications are under `docs/agent/tasks/TYPE-001.md` through `TYPE-022.md`. This is a temporary TypeScript-remediation and compiler-boundary queue, not the broader product refactor plan.

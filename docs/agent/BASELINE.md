@@ -89,7 +89,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 
 ## Known Pre-existing Failures and Warnings
 
-1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, `TYPE-007C` reduced it to 53, completed `TYPE-007D` reduced it to 47, `TYPE-007G` reduced it to 39, `TYPE-007E` reduced it to 35, `TYPE-007F` reduced it to 30, `TYPE-002` reduced it to 26, `TYPE-004` reduced it to 25, `TYPE-009` reduced it to 22, `TYPE-011` reduced it to 21, `TYPE-014` reduced it to 20, `TYPE-010` reduced it to 16, and `TYPE-008` now establishes the truthful current baseline at 14 diagnostics in 2 affected production files; the gate remains red. TYPE-009 removed its two owned diagnostics plus TYPE-013's cast symptom, TYPE-011 removed the Web Crypto platform diagnostic, TYPE-014 removed the unreachable direct-seating comparison, TYPE-010 restored complete GroupMe candidate state inference, and TYPE-008 established a guarded pasted-profile input boundary. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
+1. Root strict TypeScript initially failed with 3,632 diagnostics and then 3,630 after the Vite declaration correction. Root-owned React types reduced that to 94, `TYPE-001` reduced it to 88, `TYPE-005` reduced it to 79, `TYPE-006` reduced it to 73, `TYPE-012` reduced it to 71, `TYPE-007A` reduced it to 69, `TYPE-007I` reduced it to 67, `TYPE-007J` reduced it to 64, `TYPE-007B` reduced it to 59, `TYPE-007C` reduced it to 53, completed `TYPE-007D` reduced it to 47, `TYPE-007G` reduced it to 39, `TYPE-007E` reduced it to 35, `TYPE-007F` reduced it to 30, `TYPE-002` reduced it to 26, `TYPE-004` reduced it to 25, `TYPE-009` reduced it to 22, `TYPE-011` reduced it to 21, `TYPE-014` reduced it to 20, `TYPE-010` reduced it to 16, and `TYPE-008` established the truthful current baseline at 14 diagnostics in 2 affected production files; the gate remains red. TYPE-009 removed its two owned diagnostics plus TYPE-013's cast symptom, TYPE-011 removed the Web Crypto platform diagnostic, TYPE-014 removed the unreachable direct-seating comparison, TYPE-010 restored complete GroupMe candidate state inference, TYPE-008 established a guarded pasted-profile input boundary, and TYPE-013 subsequently closed the zero-diagnostic legacy-retention audit without changing the count. See `docs/agent/ROOT_TYPECHECK_REBASELINE.md` and `docs/agent/TASKS.yaml`.
 2. Root npm audit reports four high-severity transitive findings; Player audit reports three. Human dependency review is required before choosing compatible updates.
 3. The successful Vite build warns about dependency `eval` usage and two chunks exceeding 500 kB.
 4. Vitest passes but Node warns that its SQLite support is experimental.
@@ -706,3 +706,22 @@ Final verification:
 - EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 14 diagnostics, while Player TypeScript, 33/170 tests, and the 1,912-module renderer build passed.
 
 `TYPE-008` is complete. No production service, deployment, or push was involved.
+
+## TYPE-013 Legacy Collection-Setting Contract — 2026-08-07
+
+Repository history at `4ee2853` and `412bbef` proves that persisted installations used `settings.defaultRakeMode: 'Time' | 'Drop'` and that this value controlled newly created tables. No support-window evidence authorizes removing it, so the migration branch is retained.
+
+Before production changed, three additional account-restore cases were committed separately as `a484c26`. With existing fixtures, the eight focused cases now prove legacy `Time`, absent-key defaults, current-key precedence, corrupt legacy fallback, current normalized output, malformed JSON, and record/no-record behavior.
+
+Production adds a narrow `PersistedSettings` legacy input field typed as `unknown`, then narrows it once in `normalizeState`. Current `defaultCollectionMode` still wins, valid legacy values still restore, corrupt/absent values still become `Drop`, and the legacy key is not emitted in normalized current state. TYPE-009 had already removed the diagnostic, so this audit intentionally leaves the root count at 14.
+
+Final verification:
+
+- PASS: `npx --no-install vitest run src/lib/accountRestore.test.ts` — 1 file and 8 tests.
+- EXPECTED FAILURE: `npm run typecheck` — exactly 14 decision-blocked diagnostics in 2 files; no new diagnostic.
+- PASS: `npm run player:typecheck` — no diagnostics.
+- PASS: `npm test` — 33 files and 173 tests passed, zero failed/skipped; the existing experimental SQLite warning remained.
+- PASS: `npm run build` — 1,912 modules transformed; the existing ExcelJS `eval` and large-chunk warnings remained.
+- EXPECTED PARTIAL FAILURE: `npm run verify` exited 1 after all four gates; root TypeScript alone failed with 14 diagnostics, while Player TypeScript, 33/173 tests, and the 1,912-module renderer build passed.
+
+`TYPE-013` is complete. No production service, deployment, or push was involved.

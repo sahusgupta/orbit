@@ -434,14 +434,16 @@ tasks:
     diagnostics: 0
     diagnostics_before: 1
     diagnostics_after: 0
-    status: pending
-    safe_autonomous: false
-    human_review: true
+    status: complete
+    safe_autonomous: true
+    human_review: false
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: []
     spec: docs/agent/tasks/TYPE-013.md
     compiler_symptom_removed_by: TYPE-009
+    historical_evidence: defaultRakeMode_persisted_and_consumed_in_4ee2853_and_412bbef
+    resolution: retain_narrow_legacy_default_collection_mode_input
   - id: TYPE-014
     title: Decide whether direct seating belongs in add-interest
     classification: STALE_OR_DEAD_CODE
