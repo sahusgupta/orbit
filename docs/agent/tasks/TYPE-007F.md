@@ -1,12 +1,12 @@
 # TYPE-007F: Decide the planned-participant domain contract
 
-Status: `review_required`
+Status: `ready`
 
-Safety: `HUMAN_DECISION_REQUIRED`
+Safety: `SAFE_AFTER_TESTS`
 
 ## Objective
 
-Resolve 5 planned-participant diagnostics only after deciding whether a planned-table candidate must already own an `Interest` or may be a profile-only suggestion that becomes an interest when the table is created.
+Resolve 5 planned-participant diagnostics under the approved behavior-preserving optional contract without activating profile-only candidate production.
 
 ## Root cause
 
@@ -31,6 +31,8 @@ The canonical `ParticipantCandidate` makes both `interest` and `profile` optiona
 Until a decision explicitly authorizes otherwise: candidate ranking/order, displayed name/reasons/stakes/buy-in fallback, generated-interest contents/order, planned-player ID order, table/event construction, and persisted shapes.
 
 ## Exact human decision required
+
+Decision completed on 2026-08-07: **Option C is approved for this remediation.** Keep `interest` and `profile` optional, explicitly narrow both branches, preserve current interest-backed candidate construction, do not generate profile-only candidates, and do not create persisted interests for profile-only candidates. Activating or removing profile-only behavior remains a separate future product decision.
 
 Choose the authoritative `ParticipantCandidate` model for planned-table creation.
 
@@ -92,16 +94,16 @@ High. Choosing the wrong contract can place players on planned tables or create 
 
 ## Dependencies
 
-Completed `TYPE-005` and `TYPE-006`; explicit human decision above.
+Completed `TYPE-005` and `TYPE-006`; the explicit Option C human decision above is complete.
 
 ## Autonomous implementation
 
-Not safe before the decision. After approval, autonomy must be reassessed against the selected option and required tests.
+Safe after the required characterization passes against unchanged production and proves current construction remains interest-backed.
 
 ## Human review
 
-Required.
+Completed for Option C. New review is required only if implementation would activate, delete, or otherwise change the dormant profile-only branch.
 
 ## Stop conditions
 
-Stop until the option is approved; also stop if the approved model requires new notification, consent, or player-data behavior not covered by the decision.
+Stop if the approved model would require new notification, consent, player-data, persistence, or profile-only candidate behavior not covered by the decision.

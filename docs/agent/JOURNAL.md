@@ -225,3 +225,12 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Made no production or test change and did not invoke live services or inspect stored customer data. Marked `TYPE-007H` `review_required` with 10 diagnostics retained.
 - Documented three choices: authoritative ID with a unique unlinked-name fallback (recommended and aligned with `TYPE-007D2`), explicit staff disambiguation, or intentional name equivalence/fan-out. A human must choose because the outcome changes persisted link/removal and visible club-status semantics.
 - Post-documentation root TypeScript retained exactly 35 diagnostics. Aggregate verification ran all gates and failed only on that expected root baseline; Player TypeScript, 27 files/134 tests, and the 1,912-module renderer build passed.
+
+## 2026-08-07 - TYPE-007F approved participant-contract decision
+
+- Recorded the human-approved behavior-preserving Option C before implementation.
+- `ParticipantCandidate.interest` and `.profile` remain optional; production code must narrow each optional branch explicitly.
+- Current `getParticipantPool` construction remains interest-backed and must not begin emitting profile-only candidates.
+- Planned-table creation must not begin creating persisted interests for profile-only candidates during this remediation.
+- Activation or removal of the dormant profile-only branch remains a separate future product decision.
+- Marked `TYPE-007F` ready only under its characterization gate; no production source, test, persisted shape, or compiler output changed in this decision record.

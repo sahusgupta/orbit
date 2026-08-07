@@ -244,11 +244,11 @@ tasks:
   - id: TYPE-007F
     title: Decide the planned-participant domain contract
     classification: REAL_TYPE_ERROR
-    safety: HUMAN_DECISION_REQUIRED
+    safety: SAFE_AFTER_TESTS
     diagnostics: 5
-    status: review_required
+    status: ready
     safe_autonomous: false
-    human_review: true
+    human_review: false
     blocks_refactoring: true
     blocks_player_web: false
     depends_on: [TYPE-005, TYPE-006]
@@ -259,6 +259,7 @@ tasks:
       - "src/main.tsx:4441:98 TS2345"
       - "src/main.tsx:7298:34 TS2345"
     spec: docs/agent/tasks/TYPE-007F.md
+    decision: preserve_optional_contract_with_interest_only_runtime
   - id: TYPE-007G
     title: Preserve table lifecycle and event transitions
     classification: REAL_TYPE_ERROR
