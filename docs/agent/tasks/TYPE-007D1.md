@@ -1,6 +1,6 @@
 # TYPE-007D1: Repair behavior-preserving player transition types
 
-Status: `ready`
+Status: `complete`
 
 Safety: `SAFE_AFTER_TESTS`
 
@@ -60,3 +60,11 @@ Safe only after focused fixtures cover the affected state mutations and failure 
 ## Stop conditions
 
 Stop if a typing repair would alter matching precedence, timestamps, seat selection, status values, ledger order, notification recipients, or the approved `TYPE-007D2` identity rule.
+
+## Implementation result
+
+- Test-only commit `6d25c93` extended `src/lib/playerTableTransitions.test.ts` from four to eight cases against the post-`TYPE-007D2`, pre-typing implementation.
+- Characterization covers successful moves, optional `manualEdits`, first-open-seat fallback, seat counts, event and persistence order, same-table/missing/full-target no-ops, first open exact-name/exact-game early departure, no-open-session interest removal, notification inputs, and unrelated record preservation.
+- Implementation commit `291c2f4` changed only callback/state annotations in `movePlayerToTable` and `markPlayerLeft` to canonical `GameSession`, `PlayerSession`, `Interest`, and `AppState` types.
+- The focused 8 tests passed before and after. Root typecheck moved from 52 to 47 diagnostics in the same 4 files: `TS2345` decreased from 23 to 19, `TS2769` from 5 to 4, and `src/main.tsx` from 43 to 38; all five owned diagnostics are absent and no new diagnostic appeared.
+- Final `npm run player:typecheck`, `npm test`, and `npm run build` passed. `npm run verify` ran every gate and exited 1 only for the known 47-diagnostic root baseline.

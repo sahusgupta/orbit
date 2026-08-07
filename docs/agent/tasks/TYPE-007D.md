@@ -1,6 +1,6 @@
 # TYPE-007D: Coordinate player transition typing and departure identity safety
 
-Status: `pending`
+Status: `complete`
 
 Safety: `SAFE_AFTER_TESTS`
 
@@ -42,3 +42,11 @@ Both children are complete; all six delegated diagnostics are absent; departure 
 ## Stop conditions
 
 Stop if implementation requires a broader identity-system redesign, a schema or sync-protocol change, production access, or a decision about financial behavior not covered by the approved departure rule.
+
+## Completion result
+
+- The split, characterization, behavioral correction, remaining characterization, and canonical typing repair were committed independently.
+- `TYPE-007D2` implements the approved exact-ID/unique-name/zero-match/ambiguous-match behavior, with session departure preserved in all four cases.
+- `TYPE-007D1` replaces only handwritten transition callback fragments with canonical domain contracts; the characterized move and early-departure behavior is unchanged.
+- All six delegated diagnostics are absent. Root typecheck moved from 53 to 47 diagnostics in the same 4 files with no new diagnostic.
+- Final focused tests passed 1 file/8 tests; Player TypeScript passed; all 25 files/120 tests passed; and the renderer build passed with 1,912 modules transformed. Aggregate verification exited 1 only for the known 47-diagnostic root baseline.

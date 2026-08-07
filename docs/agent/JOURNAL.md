@@ -178,3 +178,14 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Updated the duplicate regression to require zero profile mutations. The post-change focused command passed all 4 tests, including completed session departure in every identity case.
 - Root typecheck then retained exactly 52 diagnostics in the same 4 files. The `TYPE-007D2` `TS2345` formerly at `src/main.tsx:4358:81` disappeared, the five `TYPE-007D1` diagnostics remained, and no new diagnostic appeared.
 - Marked `TYPE-007D2` complete and `TYPE-007D1` ready. The `TYPE-007D` umbrella remains pending on its five-diagnostic child; no other batch was started.
+
+## 2026-08-07 - TYPE-007D1 canonical player transition contracts
+
+- Started from committed `TYPE-007D2` behavior correction `cc79d19`; root typecheck retained exactly 52 diagnostics in 4 files, including the five diagnostics reassigned to `TYPE-007D1` and no `TYPE-007D2` diagnostic.
+- Extended the focused harness against unchanged `TYPE-007D1` production code. The 8-test suite characterized successful moves, absent and existing optional manual-edit state, first-open-seat fallback, both table counts, event/collection order, same-table/missing/full-target no-ops, exact name/game/open-session selection, interest-only removal without an open session, notification inputs, persistence, and unrelated record preservation.
+- The pre-change focused command passed 1 file/8 tests. Root typecheck remained exactly 52 diagnostics in 4 files with all five owned diagnostics and no test diagnostic. Committed the second test-only checkpoint as `6d25c93`.
+- Replaced only handwritten callback fragments and derived-state annotations in `movePlayerToTable` and `markPlayerLeft` with canonical `GameSession`, `PlayerSession`, `Interest`, and `AppState`. No expression, branch, ordering, matching rule, timestamp, seat choice, notification input, or persistence argument changed. Committed separately as `291c2f4`.
+- The post-change focused command passed all 8 tests. Root typecheck then retained exactly 47 diagnostics in the same 4 files: `TS2345` decreased from 23 to 19, `TS2769` from 5 to 4, and `src/main.tsx` from 43 to 38. All five `TYPE-007D1` diagnostics disappeared and no new diagnostic appeared.
+- Final individual verification: `npm run typecheck` produced the expected 47-diagnostic root failure; `npm run player:typecheck` passed; `npm test` passed 25 files/120 tests; and `npm run build` passed with 1,912 modules transformed. Existing SQLite experimental, ExcelJS `eval`, and large-chunk warnings remained.
+- Final `npm run verify` ran all four gates and exited 1 only for the expected root baseline; Player TypeScript, all 25 files/120 tests, and the 1,912-module renderer build passed.
+- Marked `TYPE-007D1`, `TYPE-007D2`, and their `TYPE-007D` umbrella complete. The parent `TYPE-007` umbrella remains pending on `TYPE-007E`, `TYPE-007F`, `TYPE-007G`, and `TYPE-007H`; no other batch was started and nothing was pushed.
