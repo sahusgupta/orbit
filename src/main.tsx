@@ -3241,7 +3241,7 @@ function App() {
               : {};
     const nextState = {
       ...state,
-      interests: state.interests.map((interest: { id: string; timestamp: any; manualEdits: any; }) =>
+      interests: state.interests.map((interest: Interest) =>
         interest.id === id
           ? {
               ...interest,
