@@ -51,3 +51,13 @@ Complete the `TYPE-007` umbrella first. No single child owns the GroupMe setter 
 ## Stop conditions
 
 Stop if the parser can intentionally produce candidates without timestamps or if acceptance semantics are unclear.
+
+## Resolution — 2026-08-07
+
+The original `TYPE-007` umbrella dependency was procedural: it protected nearby callbacks in the large renderer while the profile-relationship work was still being decomposed. Reinspection after `TYPE-007H` became decision-blocked showed no semantic or edit overlap. This task changes only the GroupMe candidate state/editor callbacks and deliberately preserves the existing same-name acceptance behavior owned by `TYPE-007H`, so the stale umbrella dependency was removed.
+
+Before production changed, `src/lib/groupMeCandidates.test.tsx` was committed separately as `3b9fc18`. Its eight cases characterize scanning, ignored unmatched text, the required timestamp invariant, name/game/status edits with complete-field and sibling preservation, acceptance persistence, and rejection removal.
+
+The repair removes broad local array/item annotations and lets the canonical `GroupMeCandidate[]` state contract type each setter callback. The render callback now uses the required `GroupMeCandidate` contract, including its required timestamp. No parser, staff-review, edit, accept, reject, waitlist timestamp, persistence, or identity behavior changed.
+
+Verification removed all four owned diagnostics with no replacement diagnostic: root TypeScript moved from 20 to 16 diagnostics in the same two production files. The focused 2-file/11-test run, Player TypeScript, all 32 files/166 tests, and the 1,912-module renderer build passed. Aggregate verification exited 1 only for the expected 16-diagnostic root baseline.

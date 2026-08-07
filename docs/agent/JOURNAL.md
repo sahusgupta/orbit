@@ -301,3 +301,12 @@ Decision record: `docs/agent/TYPE-001_BOUNDARY_DECISION.md`.
 - Root TypeScript decreased from 21 to exactly 20 diagnostics in the same 2 production files; TYPE-014's `TS2367` disappeared and no new diagnostic appeared.
 - Player TypeScript passed; all 31 files/164 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 20-diagnostic root baseline.
 - Marked TYPE-014 complete. No production service, deployment, or push was involved.
+
+## 2026-08-07 - TYPE-010 GroupMe candidate contract
+
+- Reassessed the `TYPE-007` umbrella dependency as procedural: the candidate setters do not overlap decision-blocked `TYPE-007H`, whose existing same-name acceptance identity behavior remains unchanged.
+- Added and separately committed `src/lib/groupMeCandidates.test.tsx` as `3b9fc18`; eight cases characterize scanning, ignored unmatched text, required timestamps, all three editors, acceptance, rejection, and complete-field/sibling preservation.
+- Removed only broad callback annotations so React state context supplies the canonical `GroupMeCandidate[]` and required candidate contract throughout accept, reject, edit, and render paths.
+- Root TypeScript decreased from 20 to exactly 16 diagnostics in the same 2 production files; all four TYPE-010 diagnostics disappeared and no new diagnostic appeared.
+- The focused 2-file/11-test command passed; Player TypeScript passed; all 32 files/166 tests passed; the renderer build passed with 1,912 modules transformed; and aggregate verification exited 1 only for the expected 16-diagnostic root baseline.
+- Marked TYPE-010 complete. No production service, deployment, or push was involved.

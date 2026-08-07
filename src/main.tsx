@@ -5667,11 +5667,11 @@ function App() {
         ...state.interests
       ]
     }, true, { feature: 'Signals', action: 'Accepted message candidate', metadata: { gameId: candidate.gameId, confidence: candidate.confidence } });
-    setGroupMeCandidates((candidates: any[]) => candidates.filter((item: { id: string; }) => item.id !== candidate.id));
+    setGroupMeCandidates((candidates) => candidates.filter((item) => item.id !== candidate.id));
   };
 
   const rejectGroupMeCandidate = (id: string) => {
-    setGroupMeCandidates((candidates: any[]) => candidates.filter((item: { id: string; }) => item.id !== id));
+    setGroupMeCandidates((candidates) => candidates.filter((item) => item.id !== id));
   };
 
   const copyMessage = (message: string) => {
@@ -8027,22 +8027,22 @@ function App() {
             <textarea value={groupMeText} onChange={(event: { target: { value: any; }; }) => setGroupMeText(event.target.value)} placeholder="Paste player interest messages for staff review" />
             <button className="secondary-button" onClick={scanGroupMeText}>Scan Pasted Messages</button>
             <div className="script-grid">
-              {groupMeCandidates.map((candidate: { id: any; playerName: any; gameId: any; status: any; sourceText: any; confidence: any; timestamp?: string; }) => (
+              {groupMeCandidates.map((candidate: GroupMeCandidate) => (
                 <article className="script-card" key={candidate.id}>
                   <div className="candidate-edit-grid">
                     <input
                       value={candidate.playerName}
                       onChange={(event: { target: { value: any; }; }) =>
-                        setGroupMeCandidates((candidates: any[]) =>
-                          candidates.map((item: { id: any; }) => (item.id === candidate.id ? { ...item, playerName: event.target.value } : item))
+                        setGroupMeCandidates((candidates) =>
+                          candidates.map((item) => (item.id === candidate.id ? { ...item, playerName: event.target.value } : item))
                         )
                       }
                     />
                     <select
                       value={candidate.gameId}
                       onChange={(event: { target: { value: any; }; }) =>
-                        setGroupMeCandidates((candidates: any[]) =>
-                          candidates.map((item: { id: any; }) => (item.id === candidate.id ? { ...item, gameId: event.target.value } : item))
+                        setGroupMeCandidates((candidates) =>
+                          candidates.map((item) => (item.id === candidate.id ? { ...item, gameId: event.target.value } : item))
                         )
                       }
                     >
@@ -8053,8 +8053,8 @@ function App() {
                     <select
                       value={candidate.status}
                       onChange={(event: { target: { value: string; }; }) =>
-                        setGroupMeCandidates((candidates: any[]) =>
-                          candidates.map((item: { id: any; }) => (item.id === candidate.id ? { ...item, status: event.target.value as InterestStatus } : item))
+                        setGroupMeCandidates((candidates) =>
+                          candidates.map((item) => (item.id === candidate.id ? { ...item, status: event.target.value as InterestStatus } : item))
                         )
                       }
                     >

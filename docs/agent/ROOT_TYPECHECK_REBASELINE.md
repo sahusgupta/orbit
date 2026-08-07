@@ -8,7 +8,7 @@ Dependency-restoration starting commit: `02cdd71`
 
 ## Verification state: partial failure
 
-The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, `TYPE-001` has aligned the renderer library contract, `TYPE-005` has restored synchronized-list tuple inference, `TYPE-006` has repaired exact map/filter result narrowing, `TYPE-012` has corrected the two test-only contracts, `TYPE-007A` has preserved complete canonical profiles during duplicate grouping, `TYPE-007I` has restored canonical table-event report callbacks, `TYPE-007J` has restored canonical floor render callbacks, `TYPE-007B` has restored canonical waitlist patch callbacks, `TYPE-007C` has restored canonical cross-record correction callbacks, `TYPE-007D` has restored canonical player transitions with unambiguous departure identity, `TYPE-007G` has restored canonical table lifecycle callbacks, `TYPE-007E` has restored canonical forming/balanced table construction, `TYPE-007F` has preserved the approved optional planned-participant contract, `TYPE-002` has aligned the already-emitted player snapshot social contract, `TYPE-004` has retained the non-Denied membership proof across callbacks, `TYPE-009` has established the nullable/versioned persisted-account input boundary, `TYPE-011` now supplies Web Crypto with an owned raw-signature buffer, and `TYPE-014` has retained direct seating while removing its unreachable ordinary-interest timestamp branch. The remaining 20 diagnostics are application errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
+The root TypeScript project still fails, but its result is now truthful: React and ReactDOM are typed by root-owned packages, the missing-declaration cascade is gone, `TYPE-001` has aligned the renderer library contract, `TYPE-005` has restored synchronized-list tuple inference, `TYPE-006` has repaired exact map/filter result narrowing, `TYPE-012` has corrected the two test-only contracts, `TYPE-007A` has preserved complete canonical profiles during duplicate grouping, `TYPE-007I` has restored canonical table-event report callbacks, `TYPE-007J` has restored canonical floor render callbacks, `TYPE-007B` has restored canonical waitlist patch callbacks, `TYPE-007C` has restored canonical cross-record correction callbacks, `TYPE-007D` has restored canonical player transitions with unambiguous departure identity, `TYPE-007G` has restored canonical table lifecycle callbacks, `TYPE-007E` has restored canonical forming/balanced table construction, `TYPE-007F` has preserved the approved optional planned-participant contract, `TYPE-002` has aligned the already-emitted player snapshot social contract, `TYPE-004` has retained the non-Denied membership proof across callbacks, `TYPE-009` has established the nullable/versioned persisted-account input boundary, `TYPE-011` now supplies Web Crypto with an owned raw-signature buffer, `TYPE-014` has retained direct seating while removing its unreachable ordinary-interest timestamp branch, and `TYPE-010` has restored the canonical GroupMe candidate state contract. The remaining 16 diagnostics are application errors. Player TypeScript, unit tests, and the renderer build remain separate gates.
 
 No production source was changed during this rebaseline. No compiler setting was weakened, no file was excluded, and no diagnostic suppression or unsafe cast was added.
 
@@ -52,13 +52,14 @@ Post-install dependency-tree inspection found one physical root React 19.2.6 ins
 | After `TYPE-009` persisted-account repair | 22 diagnostics in 2 files |
 | After `TYPE-011` owned-signature-buffer repair | 21 diagnostics in 2 files |
 | After `TYPE-014` direct-seating branch repair | 20 diagnostics in 2 files |
+| After `TYPE-010` GroupMe candidate repair | 16 diagnostics in 2 files |
 | Dependency-restoration displayed-diagnostic reduction | 3,536 |
-| Current net displayed-diagnostic reduction | 3,610 |
+| Current net displayed-diagnostic reduction | 3,614 |
 | Missing React/ReactDOM cascade diagnostics removed | 3,598 |
 | Previously visible non-cascade diagnostics retained | 32 |
 | Previously masked diagnostics exposed | 62 |
 
-The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The dependency-restoration arithmetic is `3,630 - 3,598 + 62 = 94`; the 6 diagnostics removed by `TYPE-001`, 9 removed by `TYPE-005`, 6 removed by `TYPE-006`, 2 removed by `TYPE-012`, 2 removed by `TYPE-007A`, 2 removed by `TYPE-007I`, 3 removed by `TYPE-007J`, 5 removed by `TYPE-007B`, 6 removed by `TYPE-007C`, 6 removed by `TYPE-007D`, 8 removed by `TYPE-007G`, 4 removed by `TYPE-007E`, 5 removed by `TYPE-007F`, 4 removed by `TYPE-002`, 1 removed by `TYPE-004`, 3 removed by `TYPE-009`, 1 removed by `TYPE-011`, and 1 removed by `TYPE-014` establish the current total of 20. TYPE-009 owned two of its three-diagnostic reduction; its explicit partial-settings input also removed TYPE-013's cast symptom.
+The gross cascade reduction is 3,598, not 3,536: installing the declarations removed all 3,598 diagnostics assigned to the missing-type dependency group while simultaneously exposing 62 semantic diagnostics. The dependency-restoration arithmetic is `3,630 - 3,598 + 62 = 94`; the 6 diagnostics removed by `TYPE-001`, 9 removed by `TYPE-005`, 6 removed by `TYPE-006`, 2 removed by `TYPE-012`, 2 removed by `TYPE-007A`, 2 removed by `TYPE-007I`, 3 removed by `TYPE-007J`, 5 removed by `TYPE-007B`, 6 removed by `TYPE-007C`, 6 removed by `TYPE-007D`, 8 removed by `TYPE-007G`, 4 removed by `TYPE-007E`, 5 removed by `TYPE-007F`, 4 removed by `TYPE-002`, 1 removed by `TYPE-004`, 3 removed by `TYPE-009`, 1 removed by `TYPE-011`, 1 removed by `TYPE-014`, and 4 removed by `TYPE-010` establish the current total of 16. TYPE-009 owned two of its three-diagnostic reduction; its explicit partial-settings input also removed TYPE-013's cast symptom.
 
 No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency issue is resolved; the root gate remains red because the declarations revealed real contracts that the previous untyped React layer could not check.
 
@@ -69,21 +70,21 @@ No `TS7016`, `TS7026`, `TS7031`, or `TS18046` diagnostic remains. The dependency
 | Code | Count |
 | --- | ---: |
 | `TS2322` | 5 |
-| `TS2345` | 9 |
+| `TS2345` | 5 |
 | `TS2739` | 2 |
 | `TS2769` | 2 |
 | `TS7006` | 2 |
-| **Total** | **20** |
+| **Total** | **16** |
 
 ### By affected path
 
 | Path | Count | Application/package |
 | --- | ---: | --- |
-| `src/main.tsx` | 16 | Root management renderer |
+| `src/main.tsx` | 12 | Root management renderer |
 | `src/lib/firebaseClubSync.ts` | 4 | Root renderer/Firebase sync boundary |
-| **Total** | **20** | |
+| **Total** | **16** | |
 
-Production root source accounts for all 20 diagnostics and root tests account for zero. Electron, API, Player, download-site, e2e, generated output, and dependency source account for zero diagnostics because they are not part of this root TypeScript project's `include: ["src"]` boundary.
+Production root source accounts for all 16 diagnostics and root tests account for zero. Electron, API, Player, download-site, e2e, generated output, and dependency source account for zero diagnostics because they are not part of this root TypeScript project's `include: ["src"]` boundary.
 
 ## Root-cause summary
 
@@ -98,12 +99,12 @@ Production root source accounts for all 20 diagnostics and root tests account fo
 | `TYPE-007` | `REAL_TYPE_ERROR` | 10 | Remaining profile-relationship callbacks conflate optional identity with required identity; planned participants are resolved under approved Option C | Yes | No direct block | No as one repair | Yes for `TYPE-007H` identity policy |
 | `TYPE-008` | `REAL_TYPE_ERROR` | 2 | Profile import paths do not validate/narrow unknown input to `PlayerProfile` | Yes | No direct block | No | Yes |
 | `TYPE-009` | `REAL_TYPE_ERROR` | 0 | Resolved: explicit nullable/versioned desktop records and partial-settings normalization input | No | No direct block | Completed | No |
-| `TYPE-010` | `REAL_TYPE_ERROR` | 4 | GroupMe setter callbacks and candidate shape lose required fields | Yes | No direct block | No | Yes |
+| `TYPE-010` | `REAL_TYPE_ERROR` | 0 | Resolved: contextual setters preserve the complete required candidate contract | No | No direct block | Completed | No |
 | `TYPE-011` | `PLATFORM_TYPE_CONFLICT` | 0 | Resolved: raw signatures are copied into an owned `ArrayBuffer` before verification | No | No | Completed | No |
 | `TYPE-012` | `TEST_TYPE_ERROR` | 0 | Resolved: exact act global and production-facing fixture typing | No | No | Completed | No |
 | `TYPE-013` | `STALE_OR_DEAD_CODE` | 0 | Compiler symptom removed by TYPE-009; historical retention behavior remains unaudited | Yes | No | No | Yes |
 | `TYPE-014` | `STALE_OR_DEAD_CODE` | 0 | Resolved: direct seating returns through the table workflow before ordinary interest construction | No | No direct block | Completed | No |
-| **Total** | | **20** | | | | | |
+| **Total** | | **16** | | | | | |
 
 No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISMATCH`, or `UNKNOWN_REQUIRES_INVESTIGATION`. Those dependency/configuration discovery issues are resolved or have been converted into evidence-backed tasks.
 
@@ -211,13 +212,12 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 ### TYPE-010 — GroupMe candidate state
 
 - Classification: `REAL_TYPE_ERROR`.
-- Representative diagnostics: setter callbacks annotated as broad arrays return partial candidates, and the render callback treats required `timestamp` as optional.
-- Affected GroupMe edit and accept controls around `setGroupMeCandidates` and `acceptGroupMeCandidate`.
-- Root cause: local structural annotations override the `GroupMeCandidate[]` state contract.
-- Confidence: high; previously masked. Runtime spread likely preserves fields, but the optional timestamp assumption conflicts with the accepted object contract.
-- Recommended correction: use contextual setter/item types and decide whether parsed candidates always own a timestamp.
-- Risk/tests: medium; scan, edit, accept, reject, and timestamp fixtures.
-- Autonomous correction: no until the timestamp invariant is confirmed.
+- Resolved diagnostics: broad setter/item annotations erased required candidate fields, and the render callback treated required `timestamp` as optional.
+- Correction: use the canonical `GroupMeCandidate[]` state context throughout the edit, accept, reject, and render callbacks.
+- Dependency reassessment: the former `TYPE-007` umbrella dependency protected adjacent edits but did not govern this state contract; the repair leaves `TYPE-007H` same-name identity behavior unchanged.
+- Risk/tests: medium; eight focused cases cover scan output, ignored input, timestamps, every editor, accept, reject, and sibling/field preservation.
+- Result: all four diagnostics are gone and the root baseline moved from 20 to 16 without a replacement diagnostic.
+- Status: complete after focused and full verification.
 
 ### TYPE-011 — Web Crypto buffer source
 
@@ -272,7 +272,7 @@ No remaining group is classified `MISSING_GENERATED_TYPE`, `DEPENDENCY_TYPE_MISM
 3. `TYPE-004` is complete; `TYPE-003` is decision-blocked on revenue type, payment identity, and tournament status semantics.
 4. Completed: `TYPE-005` restored synchronized-list tuple inference and `TYPE-006` repaired exact map/filter result narrowing.
 5. In progress by bounded child: `TYPE-007A`, `TYPE-007B`, `TYPE-007C`, `TYPE-007D`, `TYPE-007E`, `TYPE-007F`, `TYPE-007G`, `TYPE-007I`, and `TYPE-007J` are complete; the umbrella retains the 10 decision-blocked `TYPE-007H` diagnostics and is not complete.
-6. `TYPE-009` is complete; repair `TYPE-008` and `TYPE-010` when their identity dependencies are complete.
+6. `TYPE-009` and `TYPE-010` are complete; `TYPE-010`'s procedural umbrella dependency was removed after non-overlap proof, while `TYPE-008` still requires its own dependency reassessment.
 7. Completed: `TYPE-011` now provides Web Crypto an owned signature buffer after security characterization.
 8. Completed: `TYPE-012` corrected the two root test-only contracts.
 9. `TYPE-014` is complete; `TYPE-013` remains a historical legacy-retention audit after its compiler symptom disappeared under TYPE-009.
