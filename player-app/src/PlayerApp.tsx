@@ -103,6 +103,15 @@ type GameOpportunity = {
   isPreferred: boolean;
 };
 
+type Coordinate = { latitude: number; longitude: number };
+
+type TournamentOpportunity = {
+  tournament: PlayerTournament;
+  club: PlayerClubSnapshot | undefined;
+  registration: PlayerTournamentRegistration | undefined;
+  distanceMiles: number;
+};
+
 type PrivateGameDraft = {
   name: string;
   location: string;
@@ -289,52 +298,29 @@ export default function PlayerApp() {
   const playerHomeCoordinate = useMemo(() => resolveAddressCoordinate(player.homeLocation), [player.homeLocation]);
   const searchRadius = distanceFilter;
   const hasPlayerPremium = premiumStatus === 'active';
-  const visiblePrivateGames = useMemo(() => {
-    const query = gameQuery.trim().toLowerCase();
-    const stakesQuery = stakesFilter.trim().toLowerCase();
-    const typeAllowsPrivate = gameTypeFilter === 'none' || gameTypeFilter === 'all' || gameTypeFilter === 'private' || gameTypeFilter === 'home-game';
-    if (!typeAllowsPrivate) return [];
-    return privateGames.filter((game) => {
-      const haystack = `${game.name} ${game.location} ${game.note}`.toLowerCase();
-      return (!query || haystack.includes(query)) && (!stakesQuery || game.name.toLowerCase().includes(stakesQuery));
-    });
-  }, [gameQuery, gameTypeFilter, privateGames, stakesFilter]);
+  const visiblePrivateGames = useMemo(
+    () => filterPrivateGames(privateGames, gameQuery, stakesFilter, gameTypeFilter),
+    [gameQuery, gameTypeFilter, privateGames, stakesFilter]
+  );
   const hostedPrivateGames = useMemo(() => privateGames.filter((game) => game.hostPlayerId === player.id), [privateGames, player.id]);
-  const mappedClubs = useMemo(() => {
-    const query = mapQuery.trim().toLowerCase();
-    return findGameClubs
-      .filter((club) => {
-        const haystack = `${club.club.name} ${club.club.address ?? ''} ${club.games.map((game) => game.name).join(' ')}`.toLowerCase();
-        if (query && !haystack.includes(query)) return false;
-        if (mapDistanceFilter !== 'none' && getClubDistance(club, playerHomeCoordinate) > mapDistanceFilter) return false;
-        if (mapVenueFilter === 'casino' && !isCasinoClub(club)) return false;
-        if (mapVenueFilter === 'card-house' && getVenueKind(club) !== 'Card house') return false;
-        if (mapVenueFilter === 'club' && getVenueKind(club) !== 'Poker club') return false;
-        return true;
-      })
-      .sort((left, right) => getClubDistance(left, playerHomeCoordinate) - getClubDistance(right, playerHomeCoordinate));
-  }, [findGameClubs, mapDistanceFilter, mapQuery, mapVenueFilter, playerHomeCoordinate]);
-  const visibleTournaments = useMemo(() => {
-    const query = tournamentQuery.trim().toLowerCase();
-    return tournaments
-      .map((tournament) => {
-        const club = clubs.find((item) => item.club.id === tournament.clubId);
-        const registration = tournamentRegistrations.find((item) => item.tournamentId === tournament.id && item.playerId === player.id);
-        const distanceMiles = club ? getClubDistance(club, playerHomeCoordinate) : Number.POSITIVE_INFINITY;
-        return { tournament, club, registration, distanceMiles };
-      })
-      .filter(({ tournament, club, registration, distanceMiles }) => {
-        const haystack = `${tournament.name} ${club?.club.name ?? ''} ${club?.club.address ?? ''} ${tournament.prizePoolLabel} ${tournament.rules.join(' ')}`.toLowerCase();
-        if (query && !haystack.includes(query)) return false;
-        if (tournamentClubFilter !== 'all' && tournament.clubId !== tournamentClubFilter) return false;
-        if (tournamentDistanceFilter !== 'none' && club && distanceMiles > tournamentDistanceFilter) return false;
-        if (tournamentFilter === 'open' && tournament.registrationStatus !== 'open') return false;
-        if (tournamentFilter === 'free' && tournament.buyIn !== 0) return false;
-        if (tournamentFilter === 'registered' && !registration) return false;
-        return true;
-      })
-      .sort((left, right) => Date.parse(left.tournament.startsAt) - Date.parse(right.tournament.startsAt));
-  }, [clubs, player.id, playerHomeCoordinate, tournamentClubFilter, tournamentDistanceFilter, tournamentFilter, tournamentQuery, tournamentRegistrations, tournaments]);
+  const mappedClubs = useMemo(
+    () => filterMapClubs(findGameClubs, mapQuery, mapDistanceFilter, mapVenueFilter, playerHomeCoordinate),
+    [findGameClubs, mapDistanceFilter, mapQuery, mapVenueFilter, playerHomeCoordinate]
+  );
+  const visibleTournaments = useMemo(
+    () => filterTournaments({
+      clubs,
+      originCoordinate: playerHomeCoordinate,
+      playerId: player.id,
+      query: tournamentQuery,
+      registrations: tournamentRegistrations,
+      tournamentClubFilter,
+      tournamentDistanceFilter,
+      tournamentFilter,
+      tournaments
+    }),
+    [clubs, player.id, playerHomeCoordinate, tournamentClubFilter, tournamentDistanceFilter, tournamentFilter, tournamentQuery, tournamentRegistrations, tournaments]
+  );
 
   useEffect(() => onFirebasePlayerChanged(setFirebaseIdentity), []);
 
@@ -575,73 +561,38 @@ export default function PlayerApp() {
     return subscribeToPlayerTournaments(player.id, handleTournaments);
   }, [accountLoaded, firebaseIdentity?.uid, hasAccount, player.id]);
 
-  const opportunities = useMemo(() => {
-    const query = gameQuery.trim().toLowerCase();
-    const stakesQuery = stakesFilter.trim().toLowerCase();
-    const hasLocationFilter = Boolean(player.homeLocation?.trim());
-    return findGameClubs
-      .flatMap<GameOpportunity>((club) => {
-        const distanceMiles = getClubDistance(club, playerHomeCoordinate);
-        const isJoined = joinedClubIds.has(club.club.id);
-        const clubSearchText = getClubSearchText(club);
-        const casinoClub = isCasinoClub(club);
-        if (gameTypeFilter === 'favorites' && !favoriteClubIds.includes(club.club.id)) return [];
-        if (casinoClub) {
-          if (selectedCasinoFilter === 'none') return [];
-          if (selectedCasinoFilter !== 'all' && club.club.id !== selectedCasinoFilter) return [];
-        } else {
-          if (selectedFilterClubId === 'none') return [];
-          if (selectedFilterClubId !== 'all' && club.club.id !== selectedFilterClubId) return [];
-        }
-        return club.games
-          .filter(isActivePlayerGame)
-          .filter((game) => !activePlayerGameKeys.has(`${club.club.id}:${game.id}`))
-          .filter((game) => !query || `${game.name} ${clubSearchText}`.toLowerCase().includes(query))
-          .filter((game) => !stakesQuery || game.name.toLowerCase().includes(stakesQuery))
-          .filter((game) => matchesGameTypeFilter(club, game, gameTypeFilter))
-          .map((game) => {
-            const isPreferred = player.preferredGameIds.includes(game.id);
-            return {
-              club,
-              game,
-              distanceMiles,
-              isJoined,
-              isPreferred
-            };
-          });
-      })
-      .filter((item) => !hasLocationFilter || distanceFilter === 'none' || isCasinoClub(item.club) || item.distanceMiles <= distanceFilter || Boolean(query && getClubSearchText(item.club).includes(query)))
-      .sort((left, right) => {
-        const activityDifference = getActiveGameActivityTime(right.game) - getActiveGameActivityTime(left.game);
-        if (activityDifference) return activityDifference;
-        const leftFavorite = favoriteClubIds.includes(left.club.club.id);
-        const rightFavorite = favoriteClubIds.includes(right.club.club.id);
-        if (leftFavorite !== rightFavorite) return leftFavorite ? -1 : 1;
-        if (fitScoreFilterEnabled) {
-          if (left.isPreferred !== right.isPreferred) return left.isPreferred ? -1 : 1;
-          if (left.isJoined !== right.isJoined) return left.isJoined ? -1 : 1;
-          if (left.game.availableSeats !== right.game.availableSeats) return right.game.availableSeats - left.game.availableSeats;
-          if (left.game.waitlistCount !== right.game.waitlistCount) return left.game.waitlistCount - right.game.waitlistCount;
-        }
-        return left.distanceMiles - right.distanceMiles;
-      });
-  }, [activePlayerGameKeys, distanceFilter, favoriteClubIds, findGameClubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, joinedClubIds, player.homeLocation, player.preferredGameIds, playerHomeCoordinate, selectedCasinoFilter, selectedFilterClubId, stakesFilter]);
+  const opportunities = useMemo(
+    () => buildGameOpportunities({
+      activePlayerGameKeys,
+      distanceFilter,
+      favoriteClubIds,
+      findGameClubs,
+      fitScoreFilterEnabled,
+      gameQuery,
+      gameTypeFilter,
+      joinedClubIds,
+      player,
+      playerHomeCoordinate,
+      selectedCasinoFilter,
+      selectedFilterClubId,
+      stakesFilter
+    }),
+    [activePlayerGameKeys, distanceFilter, favoriteClubIds, findGameClubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, joinedClubIds, player.homeLocation, player.preferredGameIds, playerHomeCoordinate, selectedCasinoFilter, selectedFilterClubId, stakesFilter]
+  );
 
   const displayedOpportunities = opportunities;
   const discoveryDeck = useMemo(
-    () => displayedOpportunities.filter((item) => !discoveryDecisions[getOpportunityKey(item)]),
+    () => getDiscoveryDeck(displayedOpportunities, discoveryDecisions),
     [discoveryDecisions, displayedOpportunities]
   );
   const savedOpportunities = useMemo(
-    () => displayedOpportunities.filter((item) => discoveryDecisions[getOpportunityKey(item)] === 'saved'),
+    () => getSavedOpportunities(displayedOpportunities, discoveryDecisions),
     [discoveryDecisions, displayedOpportunities]
   );
-  const activeDiscoveryOpportunity = useMemo(() => {
-    if (!selectedDiscoveryOpportunity) return null;
-    return displayedOpportunities.find(
-      (item) => getOpportunityKey(item) === getOpportunityKey(selectedDiscoveryOpportunity)
-    ) ?? selectedDiscoveryOpportunity;
-  }, [displayedOpportunities, selectedDiscoveryOpportunity]);
+  const activeDiscoveryOpportunity = useMemo(
+    () => getActiveDiscoveryOpportunity(displayedOpportunities, selectedDiscoveryOpportunity),
+    [displayedOpportunities, selectedDiscoveryOpportunity]
+  );
 
   const finishAccount = (identity?: FirebasePlayerIdentity | null) => {
     const normalizedName = draftPlayer.name.trim() || identity?.name.trim() || '';
@@ -4752,6 +4703,195 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
   );
 }
 
+function filterPrivateGames(
+  privateGames: PlayerPrivateGameListing[],
+  gameQuery: string,
+  stakesFilter: string,
+  gameTypeFilter: GameTypeFilter
+) {
+  const query = gameQuery.trim().toLowerCase();
+  const stakesQuery = stakesFilter.trim().toLowerCase();
+  const typeAllowsPrivate = gameTypeFilter === 'none'
+    || gameTypeFilter === 'all'
+    || gameTypeFilter === 'private'
+    || gameTypeFilter === 'home-game';
+  if (!typeAllowsPrivate) return [];
+  return privateGames.filter((game) => {
+    const haystack = `${game.name} ${game.location} ${game.note}`.toLowerCase();
+    return (!query || haystack.includes(query))
+      && (!stakesQuery || game.name.toLowerCase().includes(stakesQuery));
+  });
+}
+
+function filterMapClubs(
+  clubs: PlayerClubSnapshot[],
+  mapQuery: string,
+  mapDistanceFilter: DistanceFilter,
+  mapVenueFilter: MapVenueFilter,
+  originCoordinate: Coordinate
+) {
+  const query = mapQuery.trim().toLowerCase();
+  return clubs
+    .filter((club) => {
+      const haystack = `${club.club.name} ${club.club.address ?? ''} ${club.games.map((game) => game.name).join(' ')}`.toLowerCase();
+      if (query && !haystack.includes(query)) return false;
+      if (mapDistanceFilter !== 'none' && getClubDistance(club, originCoordinate) > mapDistanceFilter) return false;
+      if (mapVenueFilter === 'casino' && !isCasinoClub(club)) return false;
+      if (mapVenueFilter === 'card-house' && getVenueKind(club) !== 'Card house') return false;
+      if (mapVenueFilter === 'club' && getVenueKind(club) !== 'Poker club') return false;
+      return true;
+    })
+    .sort((left, right) => getClubDistance(left, originCoordinate) - getClubDistance(right, originCoordinate));
+}
+
+type FilterTournamentsOptions = {
+  clubs: PlayerClubSnapshot[];
+  originCoordinate: Coordinate;
+  playerId: string;
+  query: string;
+  registrations: PlayerTournamentRegistration[];
+  tournamentClubFilter: string;
+  tournamentDistanceFilter: DistanceFilter;
+  tournamentFilter: TournamentFilter;
+  tournaments: PlayerTournament[];
+};
+
+function filterTournaments({
+  clubs,
+  originCoordinate,
+  playerId,
+  query: rawQuery,
+  registrations,
+  tournamentClubFilter,
+  tournamentDistanceFilter,
+  tournamentFilter,
+  tournaments
+}: FilterTournamentsOptions): TournamentOpportunity[] {
+  const query = rawQuery.trim().toLowerCase();
+  return tournaments
+    .map((tournament) => {
+      const club = clubs.find((item) => item.club.id === tournament.clubId);
+      const registration = registrations.find((item) => item.tournamentId === tournament.id && item.playerId === playerId);
+      const distanceMiles = club ? getClubDistance(club, originCoordinate) : Number.POSITIVE_INFINITY;
+      return { tournament, club, registration, distanceMiles };
+    })
+    .filter(({ tournament, club, registration, distanceMiles }) => {
+      const haystack = `${tournament.name} ${club?.club.name ?? ''} ${club?.club.address ?? ''} ${tournament.prizePoolLabel} ${tournament.rules.join(' ')}`.toLowerCase();
+      if (query && !haystack.includes(query)) return false;
+      if (tournamentClubFilter !== 'all' && tournament.clubId !== tournamentClubFilter) return false;
+      if (tournamentDistanceFilter !== 'none' && club && distanceMiles > tournamentDistanceFilter) return false;
+      if (tournamentFilter === 'open' && tournament.registrationStatus !== 'open') return false;
+      if (tournamentFilter === 'free' && tournament.buyIn !== 0) return false;
+      if (tournamentFilter === 'registered' && !registration) return false;
+      return true;
+    })
+    .sort((left, right) => Date.parse(left.tournament.startsAt) - Date.parse(right.tournament.startsAt));
+}
+
+type BuildGameOpportunitiesOptions = {
+  activePlayerGameKeys: Set<string>;
+  distanceFilter: DistanceFilter;
+  favoriteClubIds: string[];
+  findGameClubs: PlayerClubSnapshot[];
+  fitScoreFilterEnabled: boolean;
+  gameQuery: string;
+  gameTypeFilter: GameTypeFilter;
+  joinedClubIds: Set<string>;
+  player: PlayerAccount;
+  playerHomeCoordinate: Coordinate;
+  selectedCasinoFilter: CasinoFilter;
+  selectedFilterClubId: string;
+  stakesFilter: string;
+};
+
+function buildGameOpportunities({
+  activePlayerGameKeys,
+  distanceFilter,
+  favoriteClubIds,
+  findGameClubs,
+  fitScoreFilterEnabled,
+  gameQuery,
+  gameTypeFilter,
+  joinedClubIds,
+  player,
+  playerHomeCoordinate,
+  selectedCasinoFilter,
+  selectedFilterClubId,
+  stakesFilter
+}: BuildGameOpportunitiesOptions) {
+  const query = gameQuery.trim().toLowerCase();
+  const stakesQuery = stakesFilter.trim().toLowerCase();
+  const hasLocationFilter = Boolean(player.homeLocation?.trim());
+  return findGameClubs
+    .flatMap<GameOpportunity>((club) => {
+      const distanceMiles = getClubDistance(club, playerHomeCoordinate);
+      const isJoined = joinedClubIds.has(club.club.id);
+      const clubSearchText = getClubSearchText(club);
+      const casinoClub = isCasinoClub(club);
+      if (gameTypeFilter === 'favorites' && !favoriteClubIds.includes(club.club.id)) return [];
+      if (casinoClub) {
+        if (selectedCasinoFilter === 'none') return [];
+        if (selectedCasinoFilter !== 'all' && club.club.id !== selectedCasinoFilter) return [];
+      } else {
+        if (selectedFilterClubId === 'none') return [];
+        if (selectedFilterClubId !== 'all' && club.club.id !== selectedFilterClubId) return [];
+      }
+      return club.games
+        .filter(isActivePlayerGame)
+        .filter((game) => !activePlayerGameKeys.has(`${club.club.id}:${game.id}`))
+        .filter((game) => !query || `${game.name} ${clubSearchText}`.toLowerCase().includes(query))
+        .filter((game) => !stakesQuery || game.name.toLowerCase().includes(stakesQuery))
+        .filter((game) => matchesGameTypeFilter(club, game, gameTypeFilter))
+        .map((game) => {
+          const isPreferred = player.preferredGameIds.includes(game.id);
+          return {
+            club,
+            game,
+            distanceMiles,
+            isJoined,
+            isPreferred
+          };
+        });
+    })
+    .filter((item) => !hasLocationFilter
+      || distanceFilter === 'none'
+      || isCasinoClub(item.club)
+      || item.distanceMiles <= distanceFilter
+      || Boolean(query && getClubSearchText(item.club).includes(query)))
+    .sort((left, right) => {
+      const activityDifference = getActiveGameActivityTime(right.game) - getActiveGameActivityTime(left.game);
+      if (activityDifference) return activityDifference;
+      const leftFavorite = favoriteClubIds.includes(left.club.club.id);
+      const rightFavorite = favoriteClubIds.includes(right.club.club.id);
+      if (leftFavorite !== rightFavorite) return leftFavorite ? -1 : 1;
+      if (fitScoreFilterEnabled) {
+        if (left.isPreferred !== right.isPreferred) return left.isPreferred ? -1 : 1;
+        if (left.isJoined !== right.isJoined) return left.isJoined ? -1 : 1;
+        if (left.game.availableSeats !== right.game.availableSeats) return right.game.availableSeats - left.game.availableSeats;
+        if (left.game.waitlistCount !== right.game.waitlistCount) return left.game.waitlistCount - right.game.waitlistCount;
+      }
+      return left.distanceMiles - right.distanceMiles;
+    });
+}
+
+function getDiscoveryDeck(opportunities: GameOpportunity[], decisions: Record<string, DiscoveryDecision>) {
+  return opportunities.filter((item) => !decisions[getOpportunityKey(item)]);
+}
+
+function getSavedOpportunities(opportunities: GameOpportunity[], decisions: Record<string, DiscoveryDecision>) {
+  return opportunities.filter((item) => decisions[getOpportunityKey(item)] === 'saved');
+}
+
+function getActiveDiscoveryOpportunity(
+  opportunities: GameOpportunity[],
+  selectedOpportunity: GameOpportunity | null
+) {
+  if (!selectedOpportunity) return null;
+  return opportunities.find(
+    (item) => getOpportunityKey(item) === getOpportunityKey(selectedOpportunity)
+  ) ?? selectedOpportunity;
+}
+
 function resolveAddressCoordinate(address?: string) {
   const normalized = (address ?? '').trim().toLowerCase();
   if (!normalized) return homeCoordinate;
@@ -5029,6 +5169,39 @@ function togglePlayerGame(gameId: string, setPlayer: React.Dispatch<React.SetSta
       : [...current.preferredGameIds, gameId]
   }));
 }
+
+export const playerDiscoveryCharacterization = {
+  buildFindGameClubs,
+  buildGameOpportunities,
+  filterMapClubs,
+  filterPrivateGames,
+  filterTournaments,
+  getActiveDiscoveryOpportunity,
+  getActiveGameActivityTime,
+  getClubCity,
+  getClubCoordinate,
+  getClubDistance,
+  getClubSearchText,
+  getCompatibilitySummary,
+  getDiscoveryDeck,
+  getDistanceMiles,
+  getGameStatusLabel,
+  getOpportunityKey,
+  getOpportunityLabel,
+  getOpportunityTableLabel,
+  getRecommendationReason,
+  getSavedOpportunities,
+  getVenueKind,
+  groupOpportunitiesByClub,
+  isActivePlayerGame,
+  isCasinoClub,
+  isValidEmail,
+  isValidPhoneNumber,
+  matchesGameTypeFilter,
+  resolveAddressCoordinate,
+  toggleDraftGame,
+  togglePlayerGame
+};
 
 const colors = {
   ink: '#f4f7ff',
