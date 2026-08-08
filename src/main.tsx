@@ -169,6 +169,10 @@ import {
   signNightClose as signNightCloseInState
 } from './application/management/closeoutCommands';
 import {
+  useStaffRequestNotifications,
+  type StaffRequestNotice
+} from './application/management/sync/staffRequestNotifications';
+import {
   canUseRendererFirebaseAuth,
   loadManagementState,
   localOrbitBridgeBaseUrl,
@@ -310,15 +314,6 @@ type TodayPlayerRow = {
   seatNumber?: number;
   timestamp: string;
   activeMember: boolean;
-};
-
-type StaffRequestNotice = {
-  id: string;
-  kind: 'membership' | 'seat';
-  title: string;
-  body: string;
-  createdAt: string;
-  read: boolean;
 };
 
 type UsageDescriptor = {
@@ -579,14 +574,14 @@ function App() {
   const [summaryNotes, setSummaryNotes] = useState('');
   const [profileSearch, setProfileSearch] = useState('');
   const [profileFormMessage, setProfileFormMessage] = useState('');
-  const [staffRequestNotice, setStaffRequestNotice] = useState<StaffRequestNotice | null>(null);
-  const [staffNotifications, setStaffNotifications] = useState<StaffRequestNotice[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(`${storageKey}:staff-notifications`) || '[]');
-    } catch {
-      return [];
-    }
-  });
+  const {
+    announceIncomingPlayerRequest,
+    markStaffNotificationRead,
+    replaceStaffNotifications,
+    setStaffRequestNotice,
+    staffNotifications,
+    staffRequestNotice
+  } = useStaffRequestNotifications();
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [profileEditDraft, setProfileEditDraft] = useState<PlayerProfile | null>(null);
@@ -714,48 +709,6 @@ function App() {
     () => state.tournaments.find((tournament) => tournament.id === selectedTournamentId) ?? state.tournaments[0] ?? null,
     [selectedTournamentId, state.tournaments]
   );
-
-  const announceIncomingPlayerRequest = (previousState: AppState, nextState: AppState) => {
-    const showNotification = (notice: Omit<StaffRequestNotice, 'createdAt' | 'read'>) => {
-      const notification: StaffRequestNotice = { ...notice, createdAt: nowIso(), read: false };
-      setStaffRequestNotice(notification);
-      setStaffNotifications((current) => {
-        const next = [notification, ...current.filter((item) => item.id !== notification.id)].slice(0, 100);
-        localStorage.setItem(`${storageKey}:staff-notifications`, JSON.stringify(next));
-        return next;
-      });
-    };
-    const membershipRequest = nextState.profiles
-      .filter((profile) => profile.membershipStatus === 'Requested')
-      .filter((profile) => !previousState.profiles.some((candidate) =>
-        candidate.id === profile.id &&
-        candidate.membershipStatus === 'Requested' &&
-        candidate.membershipRequestedAt === profile.membershipRequestedAt
-      ))
-      .sort((left, right) => Date.parse(right.membershipRequestedAt || '') - Date.parse(left.membershipRequestedAt || ''))[0];
-    if (membershipRequest) {
-      showNotification({
-        id: `membership-${membershipRequest.id}-${membershipRequest.membershipRequestedAt || Date.now()}`,
-        kind: 'membership',
-        title: 'New membership request',
-        body: `${membershipRequest.name} applied from the player app.`
-      });
-      return;
-    }
-
-    const seatRequest = nextState.interests
-      .filter((interest) => !previousState.interests.some((candidate) => candidate.id === interest.id))
-      .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))[0];
-    if (seatRequest) {
-      const gameName = nextState.games.find((game) => game.id === seatRequest.gameId)?.name ?? 'a game';
-      showNotification({
-        id: `seat-${seatRequest.id}`,
-        kind: 'seat',
-        title: 'New seat request',
-        body: `${seatRequest.playerName} requested a seat in ${gameName}.`
-      });
-    }
-  };
 
   useEffect(() => {
     stateRef.current = state;
@@ -3192,12 +3145,7 @@ function App() {
     { id: 'open-reports', label: 'Open night report', group: 'Actions', action: () => openRoute('summary') }
   ];
   const openStaffNotification = (notification: StaffRequestNotice) => {
-    setStaffNotifications((current) => {
-      const next = current.map((item) => item.id === notification.id ? { ...item, read: true } : item);
-      localStorage.setItem(`${storageKey}:staff-notifications`, JSON.stringify(next));
-      return next;
-    });
-    setStaffRequestNotice((current) => current?.id === notification.id ? null : current);
+    markStaffNotificationRead(notification);
     setNotificationCenterOpen(false);
     if (notification.kind === 'membership') {
       setPlayerSection('requests');
@@ -3259,8 +3207,7 @@ function App() {
                     type="button"
                     onClick={() => {
                       const next = staffNotifications.map((notification) => ({ ...notification, read: true }));
-                      setStaffNotifications(next);
-                      localStorage.setItem(`${storageKey}:staff-notifications`, JSON.stringify(next));
+                      replaceStaffNotifications(next);
                     }}
                   >
                     Mark all read
