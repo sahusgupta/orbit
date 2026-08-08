@@ -74,8 +74,6 @@ import {
 } from './lib/resultBuilders';
 import { mergeSyncedList } from './lib/syncedList';
 import {
-  defaultTournamentLevels,
-  defaultTournamentPayouts,
   nextYearDate,
   normalizeState,
   normalizeTableCap,
@@ -150,6 +148,29 @@ import {
   approveMembershipRequest as approveMembershipRequestInState
 } from './application/management/membershipCommands';
 import {
+  addTournamentEntry as addTournamentEntryInState,
+  advanceTournamentLevel as advanceTournamentLevelInState,
+  checkInTournamentPlayer as checkInTournamentPlayerInState,
+  createTournament as createTournamentInState,
+  drawTournamentTables as drawTournamentTablesInState,
+  eliminateTournamentPlayer as eliminateTournamentPlayerInState,
+  pauseTournament as pauseTournamentInState,
+  registerTournamentPlayer as registerTournamentPlayerInState,
+  rerunTournament,
+  resumeTournament as resumeTournamentInState,
+  startTournament as startTournamentInState,
+  updateTournamentPayout as updateTournamentPayoutInState,
+  updateTournamentSettings
+} from './application/management/tournamentCommands';
+import {
+  getNightCloseLockError,
+  getNightCloseReopenError,
+  lockNightClose,
+  reopenNightClose as reopenNightCloseInState,
+  saveNightClose as saveNightCloseInState,
+  signNightClose as signNightCloseInState
+} from './application/management/closeoutCommands';
+import {
   getCollectionProfile,
   getDealerReport,
   getReportFinancials,
@@ -213,9 +234,6 @@ import type {
   GameStatus,
   Interest,
   InterestStatus,
-  NightCloseAudit,
-  NightCloseRecord,
-  NightCloseStatus,
   PersistedAppState,
   PersistedStateRecord,
   PilotAccess,
@@ -229,7 +247,6 @@ import type {
   TableEventType,
   TableTag,
   Tournament,
-  TournamentPlayer,
   UsageEvent
 } from './domain/types';
 import './styles.css';
@@ -2413,117 +2430,76 @@ function App() {
   }), { buyIns: 0, cashOuts: 0, removed: 0, expected: 0, actual: 0, discrepancy: 0 });
   const nightCloseHasMissingActual = nightCloseTables.some((table) => table.actualCash === undefined);
 
-  const makeNightCloseAudit = (action: NightCloseAudit['action'], note?: string): NightCloseAudit => {
-    const staff = state.settings.staffAccounts.find((account) => account.id === state.settings.activeStaffId);
-    return { id: uid(), action, timestamp: nowIso(), staffId: staff?.id, staffName: staff?.name ?? 'Unassigned staff', staffRole: staff?.role, note };
-  };
-
-  const saveNightClose = (nextStatus: NightCloseStatus = currentNightClose?.status ?? 'Draft') => {
-    if (currentNightClose?.status === 'Locked') return currentNightClose;
-    const timestamp = nowIso();
-    const auditEntry = makeNightCloseAudit(currentNightClose ? 'Saved' : 'Created');
-    const record: NightCloseRecord = {
-      id: currentNightClose?.id ?? uid(),
-      date: todayDate(),
-      status: nextStatus,
-      createdAt: currentNightClose?.createdAt ?? timestamp,
-      updatedAt: timestamp,
-      notes: nightCloseNotes || currentNightClose?.notes || '',
-      tables: nightCloseTables,
-      warnings: nightCloseWarnings,
-      staffSignOff: currentNightClose?.staffSignOff,
-      managerSignOff: currentNightClose?.managerSignOff,
-      audit: [...(currentNightClose?.audit ?? []), auditEntry]
-    };
-    persist({
-      ...state,
-      nightCloses: [...state.nightCloses.filter((close) => close.id !== record.id), record]
-    }, true, { feature: 'Night close', action: 'Saved reconciliation draft', route: 'summary' });
-    return record;
+  const saveNightClose = () => {
+    const result = saveNightCloseInState(
+      state,
+      { current: currentNightClose, tables: nightCloseTables, warnings: nightCloseWarnings, notes: nightCloseNotes },
+      currentNightClose?.status ?? 'Draft',
+      { createId: uid, nowIso, todayDate }
+    );
+    if (!result.ok) return currentNightClose;
+    persist(result.state, true, { feature: 'Night close', action: 'Saved reconciliation draft', route: 'summary' });
+    return result.record;
   };
 
   const signNightClose = () => {
-    const staff = state.settings.staffAccounts.find((account) => account.id === state.settings.activeStaffId);
-    if (!staff) {
-      window.alert('Select the staff member operating this station before signing.');
+    const result = signNightCloseInState(
+      state,
+      { current: currentNightClose, tables: nightCloseTables, warnings: nightCloseWarnings, notes: nightCloseNotes },
+      nightCloseTotals,
+      { createId: uid, nowIso, todayDate }
+    );
+    if (!result.ok) {
+      if (result.message) window.alert(result.message);
       return;
     }
-    if (!nightCloseTables.length) {
-      window.alert('There are no tables in the current shift to reconcile.');
-      return;
-    }
-    if (nightCloseTables.some((table) => table.actualCash === undefined)) {
-      window.alert('Enter an actual cash count for every table before staff sign-off.');
-      return;
-    }
-    const timestamp = nowIso();
-    const signOff = makeNightCloseAudit('Staff Signed', `Discrepancy ${nightCloseTotals.discrepancy.toFixed(2)}`);
-    const record: NightCloseRecord = {
-      id: currentNightClose?.id ?? uid(), date: todayDate(), status: 'Staff Signed',
-      createdAt: currentNightClose?.createdAt ?? timestamp, updatedAt: timestamp,
-      notes: nightCloseNotes || currentNightClose?.notes || '', tables: nightCloseTables, warnings: nightCloseWarnings,
-      staffSignOff: signOff, managerSignOff: undefined,
-      audit: [...(currentNightClose?.audit ?? []), signOff]
-    };
-    persist({ ...state, nightCloses: [...state.nightCloses.filter((close) => close.id !== record.id), record] }, true,
+    persist(result.state, true,
       { feature: 'Night close', action: 'Staff signed reconciliation', route: 'summary', metadata: { discrepancy: Number(nightCloseTotals.discrepancy.toFixed(2)) } });
   };
 
   const approveAndLockNightClose = () => {
-    const manager = state.settings.staffAccounts.find((account) => account.id === state.settings.activeStaffId);
-    if (!manager || !['Owner', 'Manager'].includes(manager.role)) {
-      window.alert('A Manager or Owner must be selected to approve and lock the night.');
-      return;
-    }
-    if (currentNightClose?.status !== 'Staff Signed') {
-      window.alert('Staff sign-off is required before manager approval.');
+    const validationError = getNightCloseLockError(state, currentNightClose);
+    if (validationError) {
+      window.alert(validationError);
       return;
     }
     if (!window.confirm(
       `Lock tonight's reconciliation with a ${nightCloseTotals.discrepancy < 0 ? '-' : '+'}$${Math.abs(nightCloseTotals.discrepancy).toFixed(2)} discrepancy?\n\nThis will close every current table, remove all seated players, and reset Recent Activity.`
     )) return;
-    const timestamp = nowIso();
-    const approval = makeNightCloseAudit('Manager Approved', `Locked with discrepancy ${nightCloseTotals.discrepancy.toFixed(2)}`);
-    const lockedTables = nightCloseTables.map((table) => ({ ...table, warnings: table.warnings.filter((warning) => warning !== 'Table is still open') }));
-    const lockedWarnings = Array.from(new Set(lockedTables.flatMap((table) => table.warnings.map((warning) => `${table.tableLabel}: ${warning}`))));
-    const locked: NightCloseRecord = {
-      ...currentNightClose,
-      status: 'Locked', updatedAt: timestamp, lockedAt: timestamp,
-      notes: nightCloseNotes || currentNightClose.notes, tables: lockedTables, warnings: lockedWarnings,
-      managerSignOff: approval, audit: [...currentNightClose.audit, approval]
-    };
-    const hasHistoryForDate = state.history.some((night) => night.date === locked.date);
-    persist({
-      ...state,
-      nightCloses: [...state.nightCloses.filter((close) => close.id !== locked.id), locked],
-      history: hasHistoryForDate ? state.history : [...state.history, { ...analytics.currentNight, id: uid(), notes: locked.notes }],
-      interests: [],
-      sessions: state.sessions.map((session) => ({ ...session, status: 'Closed' as GameStatus, endedAt: session.endedAt ?? timestamp })),
-      playerSessions: state.playerSessions.map((session) => ({ ...session, leftAt: session.leftAt ?? timestamp })),
-      tableEvents: [
-        ...state.tableEvents,
-        ...state.sessions.filter((session) => session.status !== 'Closed').map((session) => ({
-          id: uid(), type: 'Closed' as TableEventType, gameId: session.gameId, tableId: session.id,
-          timestamp, playerCount: session.seatsFilled, note: 'Night reconciliation locked'
-        }))
-      ]
-    }, true, { feature: 'Night close', action: 'Manager approved and locked night', route: 'summary', metadata: { discrepancy: Number(nightCloseTotals.discrepancy.toFixed(2)) } });
+    if (!currentNightClose) return;
+    const result = lockNightClose(
+      state,
+      { current: currentNightClose, tables: nightCloseTables, warnings: nightCloseWarnings, notes: nightCloseNotes },
+      nightCloseTotals,
+      analytics.currentNight,
+      { createId: uid, nowIso, todayDate }
+    );
+    if (!result.ok) {
+      if (result.message) window.alert(result.message);
+      return;
+    }
+    persist(result.state, true, {
+      feature: 'Night close',
+      action: 'Manager approved and locked night',
+      route: 'summary',
+      metadata: { discrepancy: Number(nightCloseTotals.discrepancy.toFixed(2)) }
+    });
   };
 
   const reopenNightClose = () => {
-    const manager = state.settings.staffAccounts.find((account) => account.id === state.settings.activeStaffId);
-    if (!currentNightClose || !manager || !['Owner', 'Manager'].includes(manager.role)) {
-      window.alert('A Manager or Owner must be selected to reopen a close.');
+    const validationError = getNightCloseReopenError(state, currentNightClose);
+    if (validationError) {
+      window.alert(validationError);
       return;
     }
     const reason = window.prompt('Reason for reopening this locked reconciliation:')?.trim();
-    if (!reason) return;
-    const auditEntry = makeNightCloseAudit('Reopened', reason);
-    const reopened: NightCloseRecord = {
-      ...currentNightClose, status: 'Draft', updatedAt: auditEntry.timestamp, lockedAt: undefined,
-      managerSignOff: undefined, audit: [...currentNightClose.audit, auditEntry]
-    };
-    persist({ ...state, nightCloses: [...state.nightCloses.filter((close) => close.id !== reopened.id), reopened] }, true,
+    if (!reason || !currentNightClose) return;
+    const result = reopenNightCloseInState(state, currentNightClose, reason, { createId: uid, nowIso, todayDate });
+    if (!result.ok) {
+      if (result.message) window.alert(result.message);
+      return;
+    }
+    persist(result.state, true,
       { feature: 'Night close', action: 'Reopened locked reconciliation', route: 'summary' });
   };
 
@@ -2676,34 +2652,16 @@ function App() {
     window.location.hash = '/floor';
   };
 
-  const updateTournament = (tournamentId: string, updater: (tournament: Tournament) => Tournament, usageAction: string) => {
-    persist({
-      ...state,
-      tournaments: state.tournaments.map((tournament) => (tournament.id === tournamentId ? updater(tournament) : tournament))
-    }, true, { feature: 'Tournament manager', action: usageAction, route: 'tournaments' });
+  const persistTournamentState = (nextState: AppState, usageAction: string) => {
+    persist(nextState, true, { feature: 'Tournament manager', action: usageAction, route: 'tournaments' });
   };
 
   const createTournament = (event: React.FormEvent) => {
     event.preventDefault();
-    const name = tournamentDraft.name.trim();
-    if (!name) return;
-    const levelMinutes = Math.max(5, Number(tournamentDraft.levelMinutes) || 20);
-    const tournament: Tournament = {
-      id: uid(),
-      name,
-      status: 'Draft',
-      createdAt: nowIso(),
-      currentLevelIndex: 0,
-      buyIn: Math.max(0, Number(tournamentDraft.buyIn) || 0),
-      startingStack: Math.max(1000, Number(tournamentDraft.startingStack) || 20000),
-      rebuyPrizePercent: Math.min(100, Math.max(0, Number(tournamentDraft.rebuyPrizePercent) || 0)),
-      tableSize: Math.min(10, Math.max(2, Number(tournamentDraft.tableSize) || 9)),
-      levels: defaultTournamentLevels().map((level) => ({ ...level, durationMinutes: levelMinutes })),
-      players: [],
-      payouts: defaultTournamentPayouts()
-    };
-    persist({ ...state, tournaments: [tournament, ...state.tournaments] }, true, { feature: 'Tournament manager', action: 'Created tournament', route: 'tournaments' });
-    setSelectedTournamentId(tournament.id);
+    const result = createTournamentInState(state, tournamentDraft, { createId: uid, nowIso });
+    if (!result) return;
+    persistTournamentState(result.state, 'Created tournament');
+    setSelectedTournamentId(result.tournament.id);
     setTournamentView('manage');
     setTournamentSection('clock');
   };
@@ -2724,139 +2682,86 @@ function App() {
   const saveTournamentSettings = (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedTournament) return;
-    const levelMinutes = Math.max(5, Number(tournamentDraft.levelMinutes) || 20);
-    updateTournament(selectedTournament.id, (tournament) => ({
-      ...tournament,
-      name: tournamentDraft.name.trim() || tournament.name,
-      buyIn: Math.max(0, Number(tournamentDraft.buyIn) || 0),
-      startingStack: Math.max(1000, Number(tournamentDraft.startingStack) || 20000),
-      rebuyPrizePercent: Math.min(100, Math.max(0, Number(tournamentDraft.rebuyPrizePercent) || 0)),
-      tableSize: Math.min(10, Math.max(2, Number(tournamentDraft.tableSize) || 9)),
-      levels: tournament.levels.map((level) => ({ ...level, durationMinutes: levelMinutes }))
-    }), 'Updated tournament settings');
+    persistTournamentState(
+      updateTournamentSettings(state, selectedTournament.id, tournamentDraft),
+      'Updated tournament settings'
+    );
     setTournamentView('library');
   };
 
   const runTournamentAgain = (source: Tournament) => {
-    const tournament: Tournament = {
-      ...source,
-      id: uid(),
-      name: source.name,
-      createdAt: nowIso(),
-      status: 'Draft',
-      startedAt: undefined,
-      pausedAt: undefined,
-      completedAt: undefined,
-      currentLevelIndex: 0,
-      levelStartedAt: undefined,
-      pausedRemainingSeconds: undefined,
-      players: []
-    };
-    persist({ ...state, tournaments: [tournament, ...state.tournaments] }, true, { feature: 'Tournament manager', action: 'Created recurring tournament', route: 'tournaments' });
-    setSelectedTournamentId(tournament.id);
+    const result = rerunTournament(state, source, { createId: uid, nowIso });
+    persistTournamentState(result.state, 'Created recurring tournament');
+    setSelectedTournamentId(result.tournament.id);
     setTournamentView('manage');
     setTournamentSection('players');
   };
 
   const drawTournamentTables = (tournament: Tournament) => {
-    const shuffled = tournament.players.filter((player) => player.status !== 'Eliminated').map((player) => ({ player, sort: Math.random() })).sort((left, right) => left.sort - right.sort).map(({ player }) => player);
-    const tableCount = Math.max(1, Math.ceil(shuffled.length / tournament.tableSize));
-    const assignments = new Map(shuffled.map((player, index) => [player.id, { tableNumber: (index % tableCount) + 1, seatNumber: Math.floor(index / tableCount) + 1 }]));
-    updateTournament(tournament.id, (current) => ({ ...current, players: current.players.map((player) => assignments.has(player.id) ? { ...player, ...assignments.get(player.id) } : player) }), 'Drew tournament tables');
+    persistTournamentState(drawTournamentTablesInState(state, tournament, Math.random), 'Drew tournament tables');
   };
 
   const registerTournamentPlayer = (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedTournament) return;
-    const profile = state.profiles.find((item) => item.id === tournamentPlayerDraft.profileId);
-    const name = (profile?.name || tournamentPlayerDraft.name).trim();
-    if (!name) return;
-    const player: TournamentPlayer = {
-      id: uid(),
-      profileId: profile?.id,
-      name,
-      phone: profile?.phone || tournamentPlayerDraft.phone.trim(),
-      email: tournamentPlayerDraft.email.trim(),
-      buyIn: selectedTournament.buyIn,
-      rebuys: 0,
-      addOns: 0,
-      startingStack: selectedTournament.startingStack,
-      status: selectedTournament.status === 'Draft' ? 'Registered' : 'Active',
-      registeredAt: nowIso()
-    };
-    updateTournament(selectedTournament.id, (tournament) => ({ ...tournament, players: [...tournament.players, player] }), 'Registered player');
+    const result = registerTournamentPlayerInState(
+      state,
+      selectedTournament,
+      tournamentPlayerDraft,
+      { createId: uid, nowIso }
+    );
+    if (!result) return;
+    persistTournamentState(result.state, 'Registered player');
     setTournamentPlayerDraft({ name: '', profileId: '', phone: '', email: '' });
   };
 
   const startTournament = (tournament: Tournament) => {
-    updateTournament(tournament.id, (current) => ({
-      ...current,
-      status: 'Running',
-      startedAt: current.startedAt ?? nowIso(),
-      levelStartedAt: nowIso(),
-      pausedRemainingSeconds: undefined,
-      players: current.players.map((player) => ({ ...player, status: player.status === 'Registered' || player.status === 'Checked In' ? 'Active' : player.status }))
-    }), 'Started tournament');
+    persistTournamentState(startTournamentInState(state, tournament.id, { nowIso }), 'Started tournament');
     window.setTimeout(() => openTournamentTv(tournament.id), 100);
   };
 
   const pauseTournament = (tournament: Tournament) => {
-    updateTournament(tournament.id, (current) => ({
-      ...current,
-      status: 'Paused',
-      pausedAt: nowIso(),
-      pausedRemainingSeconds: getTournamentLevelRemainingSeconds(current, clockNow)
-    }), 'Paused tournament');
+    persistTournamentState(
+      pauseTournamentInState(state, tournament.id, clockNow, { nowIso }),
+      'Paused tournament'
+    );
   };
 
   const resumeTournament = (tournament: Tournament) => {
     const level = getTournamentLevel(tournament);
     const remaining = tournament.pausedRemainingSeconds ?? (level?.durationMinutes ?? 20) * 60;
-    updateTournament(tournament.id, (current) => ({
-      ...current,
-      status: 'Running',
-      levelStartedAt: new Date(Date.now() - (((level?.durationMinutes ?? 20) * 60 - remaining) * 1000)).toISOString()
-    }), 'Resumed tournament');
+    persistTournamentState(
+      resumeTournamentInState(state, tournament.id, level?.durationMinutes ?? 20, remaining, Date.now()),
+      'Resumed tournament'
+    );
   };
 
   const advanceTournamentLevel = (tournament: Tournament, direction: 1 | -1) => {
-    updateTournament(tournament.id, (current) => ({
-      ...current,
-      currentLevelIndex: Math.min(Math.max(current.currentLevelIndex + direction, 0), Math.max(current.levels.length - 1, 0)),
-      levelStartedAt: current.status === 'Running' ? nowIso() : current.levelStartedAt,
-      pausedRemainingSeconds: undefined
-    }), direction > 0 ? 'Advanced level' : 'Rewound level');
+    persistTournamentState(
+      advanceTournamentLevelInState(state, tournament.id, direction, { nowIso }),
+      direction > 0 ? 'Advanced level' : 'Rewound level'
+    );
   };
 
   const eliminateTournamentPlayer = (tournament: Tournament, playerId: string) => {
-    const remainingAfter = getTournamentActivePlayers(tournament) - 1;
-    updateTournament(tournament.id, (current) => ({
-      ...current,
-      players: current.players.map((player) =>
-        player.id === playerId
-          ? { ...player, status: 'Eliminated', eliminatedAt: nowIso(), finishPlace: Math.max(1, remainingAfter + 1) }
-          : player
-      ),
-      status: remainingAfter <= 1 && current.status !== 'Draft' ? 'Finished' : current.status,
-      completedAt: remainingAfter <= 1 && current.status !== 'Draft' ? nowIso() : current.completedAt
-    }), 'Eliminated player');
+    persistTournamentState(
+      eliminateTournamentPlayerInState(state, tournament, playerId, { nowIso }),
+      'Eliminated player'
+    );
   };
 
   const addTournamentEntry = (tournament: Tournament, playerId: string, field: 'rebuys' | 'addOns') => {
-    updateTournament(tournament.id, (current) => ({
-      ...current,
-      players: current.players.map((player) => (player.id === playerId ? { ...player, [field]: player[field] + 1 } : player))
-    }), field === 'rebuys' ? 'Added rebuy' : 'Added add-on');
+    persistTournamentState(
+      addTournamentEntryInState(state, tournament.id, playerId, field),
+      field === 'rebuys' ? 'Added rebuy' : 'Added add-on'
+    );
   };
 
   const updateTournamentPayout = (tournament: Tournament, place: number, percent: number) => {
-    updateTournament(tournament.id, (current) => ({
-      ...current,
-      payouts: [
-        ...current.payouts.filter((payout) => payout.place !== place),
-        { place, percent: Math.max(0, percent) }
-      ].sort((left, right) => left.place - right.place)
-    }), 'Updated payout');
+    persistTournamentState(
+      updateTournamentPayoutInState(state, tournament.id, place, percent),
+      'Updated payout'
+    );
   };
 
   const updateSettings = (patch: Partial<AppState['settings']>) => {
@@ -3309,10 +3214,10 @@ function App() {
   };
 
   const checkInTournamentPlayer = (tournament: Tournament, playerId: string) => {
-    updateTournament(tournament.id, (current) => ({
-      ...current,
-      players: current.players.map((player) => player.id === playerId ? { ...player, status: 'Checked In' } : player)
-    }), 'Checked in player');
+    persistTournamentState(
+      checkInTournamentPlayerInState(state, tournament.id, playerId),
+      'Checked in player'
+    );
   };
 
   const navigatePrimary = (destination: PrimaryDestination) => {

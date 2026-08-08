@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-08 - REF-017 tournament and closeout command boundaries
+
+- Re-ran 3 files / 10 existing tournament/closeout/reporting cases, then committed three complete unchanged-production lifecycle cases as `c517ab9`; the expanded boundary passed 5 files / 13 tests.
+- Moved tournament structure, registration, clock/level, entry, payout, and finish transitions into `tournamentCommands.ts`; moved closeout save/sign/lock/reopen, audits, history, and room cleanup into `closeoutCommands.ts`.
+- Kept forms, TV navigation timing, dialogs, closeout calculations, usage, and persistence in `App`. Added 8 direct command cases; the affected seven suites retained all 21 cases.
+- Full verification passed all compiler projects, Player TypeScript, 67 files / 380 tests, and the 1,942-module build. `src/main.tsx` is 4,351 lines and `App` is 3,692 lines; known warnings are unchanged and no production-connected runtime or provider was invoked.
+
 ## 2026-08-08 - REF-016 profile and membership command boundaries
 
 - Re-ran 3 files / 12 existing profile/membership cases, then committed paid walk-in, approval, and activation characterization as `8406cba`; the unchanged-production boundary passed 15 tests.

@@ -281,7 +281,7 @@ tasks:
 
   - id: REF-017
     title: Extract tournament and night-close commands
-    status: pending
+    status: complete
     objective: Move tournament lifecycle/registration/payout and night-close audit/sign/lock transitions into explicit application modules.
     evidence_root_cause: Reporting projections are pure, but tournament and closeout mutations remain in App and have uneven direct coverage.
     files_areas:
