@@ -1,5 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { SetStateAction } from 'react';
+import { describe, expect, it } from 'vitest';
 import type {
   PlayerAccount,
   PlayerClubSnapshot,
@@ -8,61 +7,7 @@ import type {
   PlayerTournament,
   PlayerTournamentRegistration
 } from './playerSync';
-
-const { AnimatedValue, NativeComponent } = vi.hoisted(() => ({
-  AnimatedValue: class {
-    setValue() {}
-    interpolate() { return 0; }
-  },
-  NativeComponent: () => null
-}));
-
-vi.mock('react-native', () => ({
-  Alert: { alert: vi.fn() },
-  Animated: {
-    Value: AnimatedValue,
-    event: () => vi.fn(),
-    parallel: () => ({ start: vi.fn() }),
-    spring: () => ({ start: vi.fn() }),
-    timing: () => ({ start: vi.fn() }),
-    View: NativeComponent
-  },
-  AppState: { addEventListener: () => ({ remove: vi.fn() }), currentState: 'active' },
-  BackHandler: { addEventListener: () => ({ remove: vi.fn() }) },
-  Easing: { inOut: (value: unknown) => value, quad: 'quad' },
-  Linking: { openURL: vi.fn() },
-  Modal: NativeComponent,
-  PanResponder: { create: () => ({ panHandlers: {} }) },
-  Platform: { OS: 'web' },
-  Pressable: NativeComponent,
-  ScrollView: NativeComponent,
-  StyleSheet: { create: <T,>(definitions: T) => definitions },
-  Text: NativeComponent,
-  TextInput: NativeComponent,
-  View: NativeComponent
-}));
-vi.mock('expo-status-bar', () => ({ StatusBar: NativeComponent }));
-vi.mock('@expo/vector-icons', () => ({ Ionicons: Object.assign(NativeComponent, { glyphMap: {} }) }));
-vi.mock('react-native-safe-area-context', () => ({ SafeAreaProvider: NativeComponent, SafeAreaView: NativeComponent }));
-vi.mock('../components/MapView', () => ({
-  default: NativeComponent,
-  Circle: NativeComponent,
-  Marker: NativeComponent,
-  PROVIDER_GOOGLE: 'google'
-}));
-vi.mock('expo-linear-gradient', () => ({ LinearGradient: NativeComponent }));
-vi.mock('expo-web-browser', () => ({ maybeCompleteAuthSession: vi.fn() }));
-vi.mock('@react-native-async-storage/async-storage', () => ({
-  default: { getItem: vi.fn(), multiGet: vi.fn(), removeItem: vi.fn(), setItem: vi.fn() }
-}));
-vi.mock('react-native-qrcode-svg', () => ({ default: NativeComponent }));
-vi.mock('../data/applePurchases', () => ({}));
-vi.mock('../data/orbitSyncApi', () => ({
-  getCurrentFirebasePlayer: () => null,
-  isSyncConfigured: () => false
-}));
-
-import { playerDiscoveryCharacterization as discovery } from '../PlayerApp';
+import * as discovery from './discovery';
 
 const table = (overrides: Partial<PlayerSyncGame['openTables'][number]> = {}): PlayerSyncGame['openTables'][number] => ({
   id: 'table-1',
@@ -318,13 +263,9 @@ describe('Player discovery characterization', () => {
     expect(discovery.isValidPhoneNumber('', false)).toBe(false);
 
     const original = { ...player, preferredGameIds: ['game-1'] };
-    let draft = original;
-    const setDraft = (update: SetStateAction<PlayerAccount>) => {
-      draft = typeof update === 'function' ? update(draft) : update;
-    };
-    discovery.toggleDraftGame('game-2', setDraft);
+    let draft = discovery.togglePreferredGame(original, 'game-2');
     expect(draft.preferredGameIds).toEqual(['game-1', 'game-2']);
-    discovery.toggleDraftGame('game-1', setDraft);
+    draft = discovery.togglePreferredGame(draft, 'game-1');
     expect(draft.preferredGameIds).toEqual(['game-2']);
     expect(original.preferredGameIds).toEqual(['game-1']);
   });
