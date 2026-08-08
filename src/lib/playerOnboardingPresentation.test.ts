@@ -159,7 +159,7 @@ function findStyleProperty(sources: ParsedSource[], name: string): string {
 }
 
 function digest(values: string[]): string {
-  return createHash('sha256').update(values.join('\n\n')).digest('hex');
+  return createHash('sha256').update(values.map((value) => value.replace(/\r\n/g, '\n')).join('\n\n')).digest('hex');
 }
 
 function findOnboardingShellSource(sources: ParsedSource[]): string {
@@ -190,7 +190,7 @@ describe('Player onboarding presentation contract', () => {
       '<OnboardingFlow'
     ];
 
-    expect(componentDigest).toBe('6f2e47ccd52eb70a80f63aae597774988c73cf054fcdd04e471d5f4100a8051e');
+    expect(componentDigest).toBe('f8bc41c1447794ccf0793f394ac72dafddbd27831abfa1631b2c10df9f569adf');
     orderedShellTokens.forEach((token) => expect(shell).toContain(token));
     for (let index = 1; index < orderedShellTokens.length; index += 1) {
       expect(shell.indexOf(orderedShellTokens[index])).toBeGreaterThan(shell.indexOf(orderedShellTokens[index - 1]));
@@ -201,6 +201,6 @@ describe('Player onboarding presentation contract', () => {
     const sources = parseSources();
     const styleDigest = digest(styleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('1902c39e9ec552860eb7791713b238c1b8231c8b263f4f2bd14978b0ec92c707');
+    expect(styleDigest).toBe('75e4608919eddaaa9bca644c541a2443e83adb9161ead4506cd820ed8a5c1865');
   });
 });
