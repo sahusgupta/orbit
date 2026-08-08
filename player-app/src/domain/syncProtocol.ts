@@ -15,8 +15,9 @@ export type OrbitRevisionedRecord = {
 };
 
 /**
- * Protocol v2 publishers write child records first and promote the parent club
- * document last. Until the parent revision and expected child count agree, the
+ * Protocol v2 publishers expose child records and the parent club commit in one
+ * atomic Firestore batch when available; sequential REST publishers write the
+ * parent last. Until the parent revision and expected child count agree, the
  * mobile app keeps rendering its previous complete revision.
  */
 export function selectCommittedGames<T>(
