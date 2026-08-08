@@ -2,52 +2,14 @@ import * as Dialog from '@radix-ui/react-dialog';
 import type { Dispatch, FormEvent, RefObject, SetStateAction } from 'react';
 import { BadgeCheck, Bell, Clock, Edit3, Plus, Save, ScanLine, Trash2, Upload, Users, X } from 'lucide-react';
 import { hasProfileReference } from '../lib/profileRelationships';
+import type { AppState, Interest, InterestStatus, PlayerProfile } from '../domain/types';
 import type {
-  AppState,
-  Interest,
-  InterestStatus,
-  PlayerProfile,
-  TableTag
-} from '../domain/types';
+  NewProfileDraft,
+  PlayerPopup,
+  PlayerSection,
+  TodayPlayerRow
+} from '../features/profiles/profileWorkspace';
 import PanelTitle from './PanelTitle';
-
-export type NewProfileDraft = {
-  name: string;
-  birthday: string;
-  membershipStartDate: string;
-  membershipExpirationDate: string;
-  membershipPlan: 'day' | 'monthly';
-  membershipAmount: number;
-  totalTimePlayedHours: number;
-  lastSessionTimePlayedHours: number;
-  commonlyPlaysWithProfileIds: string[];
-  preferredGameIds: string[];
-  preferredGameId: string;
-  phone: string;
-  preferredStakes: string;
-  typicalBuyInMin: number;
-  typicalBuyInMax: number;
-  usualCompanions: string;
-  typicalAvailability: string;
-  willingnessToMove: boolean;
-  preferredTags: TableTag[];
-  notes: string;
-};
-
-type TodayPlayerRow = {
-  id: string;
-  playerName: string;
-  profileId?: string;
-  status: InterestStatus;
-  gameName: string;
-  tableLabel?: string;
-  seatNumber?: number;
-  timestamp: string;
-  activeMember: boolean;
-};
-
-type PlayerPopup = 'add' | 'ledger' | 'scan' | null;
-type PlayerSection = 'memberships' | 'requests' | 'today';
 
 type ProfilesViewProps = {
   state: AppState;

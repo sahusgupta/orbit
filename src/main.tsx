@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as Dialog from '@radix-ui/react-dialog';
-import type { IScannerControls } from '@zxing/browser';
 import {
   BadgeCheck,
   Bell,
@@ -65,12 +64,7 @@ import {
 } from './lib/profileRelationships';
 import { sendFirebasePasswordResetEmail, signInOrCreateFirebaseEmailAccount, signInToFirebaseWithEmail, signOutOfFirebase } from './lib/firebaseClubSync';
 import { buildNightCloseTables } from './lib/nightClose';
-import {
-  getBalancePlans,
-  getTodayPlayerActivity,
-  parseGroupMeMessages,
-  type BalancePlanResult
-} from './lib/resultBuilders';
+import { getBalancePlans, parseGroupMeMessages, type BalancePlanResult } from './lib/resultBuilders';
 import {
   nextYearDate,
   normalizeState,
@@ -178,6 +172,14 @@ import {
   useTournamentWorkspaceState
 } from './features/tournaments/tournamentWorkspace';
 import {
+  createMembershipQrDialogActions,
+  createNewProfileDraft,
+  useMembershipQrScanner,
+  usePlayerDialogState,
+  useProfileFormState,
+  useProfileWorkspaceSelectors
+} from './features/profiles/profileWorkspace';
+import {
   canUseRendererFirebaseAuth,
   loadExistingManagementStateForAccount,
   loadManagementState,
@@ -198,7 +200,6 @@ import {
   getAccountKeyFromState,
   getAuthStorageKey,
   hasPersistedSignIn,
-  isFutureDate,
   isPilotAccessActive,
   managementStorageKey as storageKey,
   persistSignIn,
@@ -302,18 +303,6 @@ declare global {
     };
   }
 }
-
-type TodayPlayerRow = {
-  id: string;
-  playerName: string;
-  profileId?: string;
-  status: InterestStatus;
-  gameName: string;
-  tableLabel?: string;
-  seatNumber?: number;
-  timestamp: string;
-  activeMember: boolean;
-};
 
 type UsageDescriptor = {
   feature: string;
@@ -519,33 +508,23 @@ function App() {
     seatNumber: '',
     initialBuyIn: ''
   });
-  const [checkInSearch, setCheckInSearch] = useState('');
-  const [newProfile, setNewProfile] = useState({
-    name: '',
-    birthday: '',
-    membershipStartDate: todayDate(),
-    membershipExpirationDate: nextYearDate(),
-    membershipPlan: 'monthly' as 'day' | 'monthly',
-    membershipAmount: 0,
-    totalTimePlayedHours: 0,
-    lastSessionTimePlayedHours: 0,
-    commonlyPlaysWithProfileIds: [] as string[],
-    preferredGameIds: ['nlh-1-2'],
-    preferredGameId: 'nlh-1-2',
-    phone: '',
-    preferredStakes: '',
-    typicalBuyInMin: 200,
-    typicalBuyInMax: 500,
-    usualCompanions: '',
-    typicalAvailability: '',
-    willingnessToMove: true,
-    preferredTags: [] as TableTag[],
-    notes: ''
-  });
-  const [importText, setImportText] = useState('');
+  const {
+    checkInSearch,
+    editingProfileId,
+    importText,
+    newProfile,
+    profileEditDraft,
+    profileFormMessage,
+    profileSearch,
+    setCheckInSearch,
+    setEditingProfileId,
+    setImportText,
+    setNewProfile,
+    setProfileEditDraft,
+    setProfileFormMessage,
+    setProfileSearch
+  } = useProfileFormState();
   const [summaryNotes, setSummaryNotes] = useState('');
-  const [profileSearch, setProfileSearch] = useState('');
-  const [profileFormMessage, setProfileFormMessage] = useState('');
   const {
     announceIncomingPlayerRequest,
     markStaffNotificationRead,
@@ -555,8 +534,6 @@ function App() {
     staffRequestNotice
   } = useStaffRequestNotifications();
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
-  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
-  const [profileEditDraft, setProfileEditDraft] = useState<PlayerProfile | null>(null);
   const [groupMeText, setGroupMeText] = useState('');
   const [groupMeCandidates, setGroupMeCandidates] = useState<GroupMeCandidate[]>([]);
   const [staffFeedback, setStaffFeedback] = useState('');
@@ -626,13 +603,20 @@ function App() {
   const [overviewTableId, setOverviewTableId] = useState('all-time-overview');
   const [financialOverviewTableId, setFinancialOverviewTableId] = useState('all-table-financials');
   const [waitlistPopupOpen, setWaitlistPopupOpen] = useState(false);
-  const [playerPopup, setPlayerPopup] = useState<'add' | 'ledger' | 'scan' | null>(null);
-  const [qrScanMessage, setQrScanMessage] = useState('Point the camera at an active Orbit membership QR code.');
-  const [qrManualValue, setQrManualValue] = useState('');
-  const [qrScanAttempt, setQrScanAttempt] = useState(0);
-  const qrVideoRef = useRef<HTMLVideoElement | null>(null);
-  const qrScannerControlsRef = useRef<IScannerControls | null>(null);
-  const [playerSection, setPlayerSection] = useState<'memberships' | 'requests' | 'today'>('memberships');
+  const {
+    playerPopup,
+    playerSection,
+    qrManualValue,
+    qrScanAttempt,
+    qrScanMessage,
+    qrScannerControlsRef,
+    qrVideoRef,
+    setPlayerPopup,
+    setPlayerSection,
+    setQrManualValue,
+    setQrScanAttempt,
+    setQrScanMessage
+  } = usePlayerDialogState();
   const [settingsSection, setSettingsSection] = useState<'club' | 'staff' | 'tables' | 'data' | 'display' | 'legal'>('club');
   const [reportMode, setReportMode] = useState<'kpis' | 'night' | 'close'>('kpis');
   const [nightCloseActuals, setNightCloseActuals] = useState<Record<string, string>>({});
@@ -717,85 +701,15 @@ function App() {
     }
   }, [state.games, form.gameId, newProfile.preferredGameId, coordinationConfig.gameId]);
 
-  const recentProfiles = useMemo(() => {
-    const recentNames = [...state.interests]
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .map((interest) => interest.playerName.toLowerCase());
-    return state.profiles
-      .map((profile: { name: string; }) => ({
-        profile,
-        recentIndex: recentNames.indexOf(profile.name.toLowerCase()),
-        count: state.interests.filter((interest: { playerName: string; }) => interest.playerName.toLowerCase() === profile.name.toLowerCase()).length
-      }))
-      .sort((a: { recentIndex: number; count: number; }, b: { recentIndex: number; count: number; }) => (a.recentIndex === -1 ? 999 : a.recentIndex) - (b.recentIndex === -1 ? 999 : b.recentIndex) || b.count - a.count)
-      .slice(0, 4)
-      .map((item: { profile: any; }) => item.profile);
-  }, [state]);
-  const checkInMatches = useMemo(() => {
-    const queryParts = checkInSearch
-      .trim()
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(Boolean);
-    if (!queryParts.length) return recentProfiles;
-    return state.profiles
-      .filter((profile) => {
-        const name = profile.name.toLowerCase();
-        const nameParts = name.split(/\s+/);
-        return queryParts.every((part) => name.includes(part) || nameParts.some((namePart) => namePart.startsWith(part)));
-      })
-      .sort((left, right) => left.name.localeCompare(right.name))
-      .slice(0, 8);
-  }, [checkInSearch, recentProfiles, state.profiles]);
-  const filteredProfiles = useMemo(() => {
-    const query = profileSearch.trim().toLowerCase();
-    if (!query) return state.profiles;
-    return state.profiles.filter((profile) =>
-      [
-        profile.name,
-        profile.id,
-        profile.preferredStakes,
-        profile.typicalAvailability,
-        profile.usualCompanions.join(' '),
-        profile.commonlyPlaysWithProfileIds
-          .map((id) => state.profiles.find((candidate) => candidate.id === id)?.name)
-          .filter(Boolean)
-          .join(' '),
-        profile.notes
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(query)
-    );
-  }, [state.profiles, profileSearch]);
-  const activeMemberProfiles = useMemo(
-    () => filteredProfiles.filter((profile) => profile.membershipStatus === 'Active' && isFutureDate(profile.membershipExpiresAt || profile.membershipExpirationDate)),
-    [filteredProfiles]
-  );
-  const pendingMembershipProfiles = useMemo(
-    () => filteredProfiles.filter((profile) => profile.membershipStatus === 'Requested'),
-    [filteredProfiles]
-  );
-  const approvedMembershipProfiles = useMemo(
-    () => filteredProfiles.filter((profile) => profile.membershipStatus === 'Approved'),
-    [filteredProfiles]
-  );
-  const membershipDirectoryProfiles = useMemo(
-    () => filteredProfiles.filter((profile) => profile.membershipStatus !== 'Requested' && profile.membershipStatus !== 'Approved'),
-    [filteredProfiles]
-  );
-  const todayPlayerActivity = useMemo<TodayPlayerRow[]>(
-    () => getTodayPlayerActivity(state, { currentDate: new Date(), toLocalDateValue, isFutureDate }),
-    [state.games, state.interests, state.playerSessions, state.profiles, state.sessions]
-  );
-  const duplicateProfiles = useMemo(() => {
-    const groups = new Map<string, PlayerProfile[]>();
-    state.profiles.forEach((profile: PlayerProfile) => {
-      const key = profile.name.trim().toLowerCase();
-      groups.set(key, [...(groups.get(key) ?? []), profile]);
-    });
-    return [...groups.values()].filter((group) => group.length > 1);
-  }, [state.profiles]);
+  const {
+    activeMemberProfiles,
+    approvedMembershipProfiles,
+    checkInMatches,
+    duplicateProfiles,
+    membershipDirectoryProfiles,
+    pendingMembershipProfiles,
+    todayPlayerActivity
+  } = useProfileWorkspaceSelectors({ checkInSearch, profileSearch, state, toLocalDateValue });
 
   useEffect(() => {
     const seenPlayers = new Set<string>();
@@ -1806,28 +1720,7 @@ function App() {
       metadata: { preferredGameId: newProfile.preferredGameId }
     });
     setProfileFormMessage(result.message);
-    setNewProfile({
-      name: '',
-      birthday: '',
-      membershipStartDate: todayDate(),
-      membershipExpirationDate: nextYearDate(),
-      membershipPlan: 'monthly',
-      membershipAmount: 0,
-      totalTimePlayedHours: 0,
-      lastSessionTimePlayedHours: 0,
-      commonlyPlaysWithProfileIds: [],
-      preferredGameIds: ['nlh-1-2'],
-      preferredGameId: 'nlh-1-2',
-      phone: '',
-      preferredStakes: '',
-      typicalBuyInMin: 200,
-      typicalBuyInMax: 500,
-      usualCompanions: '',
-      typicalAvailability: '',
-      willingnessToMove: true,
-      preferredTags: [],
-      notes: ''
-    });
+    setNewProfile(createNewProfileDraft());
   };
 
   const deleteProfile = (id: string) => {
@@ -1970,37 +1863,28 @@ function App() {
     setQrScanMessage(`${profile.name} checked in successfully.`);
   };
 
-  useEffect(() => {
-    if (playerPopup !== 'scan' || !qrVideoRef.current) return undefined;
-    let disposed = false;
-    setQrScanMessage('Starting camera…');
-    import('@zxing/browser').then(({ BrowserQRCodeReader }) => {
-      if (disposed || !qrVideoRef.current) return;
-      const reader = new BrowserQRCodeReader();
-      return reader.decodeFromVideoDevice(undefined, qrVideoRef.current, (result, _error, controls) => {
-        if (!result || disposed) return;
-        controls.stop();
-        qrScannerControlsRef.current = null;
-        handleMembershipQrCheckIn(result.getText());
-      });
-    }).then((controls) => {
-      if (!controls) return;
-      if (disposed) {
-        controls.stop();
-        return;
-      }
-      qrScannerControlsRef.current = controls;
-      setQrScanMessage('Point the camera at an active Orbit membership QR code.');
-    }).catch(() => {
-      if (!disposed) setQrScanMessage('Camera unavailable. Use a USB scanner or paste the QR value below.');
-    });
+  useMembershipQrScanner({
+    onCode: handleMembershipQrCheckIn,
+    playerPopup,
+    qrScanAttempt,
+    qrScannerControlsRef,
+    qrVideoRef,
+    setQrScanMessage
+  });
 
-    return () => {
-      disposed = true;
-      qrScannerControlsRef.current?.stop();
-      qrScannerControlsRef.current = null;
-    };
-  }, [playerPopup, qrScanAttempt]);
+  const {
+    openQrScanner,
+    restartQrScanner,
+    submitQrManual
+  } = createMembershipQrDialogActions({
+    onCode: handleMembershipQrCheckIn,
+    qrManualValue,
+    qrScannerControlsRef,
+    setPlayerPopup,
+    setQrManualValue,
+    setQrScanAttempt,
+    setQrScanMessage
+  });
 
   const removeProfileFromClub = (profile: PlayerProfile) => {
     persist(removeProfileFromClubInState(state, profile));
@@ -3278,24 +3162,9 @@ function App() {
         deleteInterest={deleteInterest}
         deleteProfile={deleteProfile}
         mergeDuplicateProfiles={mergeDuplicateProfiles}
-        onOpenQrScanner={() => {
-          setQrManualValue('');
-          setQrScanMessage('Point the camera at an active Orbit membership QR code.');
-          setQrScanAttempt((attempt) => attempt + 1);
-          setPlayerPopup('scan');
-        }}
-        onRestartQrScanner={() => {
-          qrScannerControlsRef.current?.stop();
-          qrScannerControlsRef.current = null;
-          setQrScanMessage('Restarting camera…');
-          setQrScanAttempt((attempt) => attempt + 1);
-        }}
-        onSubmitQrManual={(event) => {
-          event.preventDefault();
-          qrScannerControlsRef.current?.stop();
-          qrScannerControlsRef.current = null;
-          handleMembershipQrCheckIn(qrManualValue);
-        }}
+        onOpenQrScanner={openQrScanner}
+        onRestartQrScanner={restartQrScanner}
+        onSubmitQrManual={submitQrManual}
         removeProfileFromClub={removeProfileFromClub}
         saveProfileEdit={saveProfileEdit}
         setImportText={setImportText}
