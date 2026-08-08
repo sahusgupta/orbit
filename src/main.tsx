@@ -190,6 +190,7 @@ import {
   useReportingWorkspaceState
 } from './features/reporting/reportingWorkspace';
 import { useFloorWorkspaceState } from './features/floor/floorWorkspace';
+import TableBuyInLedger from './features/floor/TableBuyInLedger';
 import {
   useGamesWorkspaceState,
   type GroupMeCandidate
@@ -3400,7 +3401,7 @@ function App() {
     <div className="modal-backdrop cash-ledger-backdrop" role="dialog" aria-modal="true" aria-label={`${ledgerSession.label} buy-in ledger`}>
       <section className="cash-ledger-modal">
         <div className="cash-ledger-head"><div><span>{state.games.find((game) => game.id === ledgerSession.gameId)?.name ?? 'Table'}</span><h2>{ledgerSession.label} ledger</h2></div><button className="icon-button" onClick={() => setTableLedgerSessionId(null)}><X size={18} /></button></div>
-        <TableBuyInLedger state={state} session={ledgerSession} />
+        <TableBuyInLedger state={state} session={ledgerSession} formatClock={formatClock} />
       </section>
     </div>
   ) : null;
@@ -3583,106 +3584,6 @@ function App() {
       checkInProfileFromSearch={checkInProfileFromSearch}
     />
   ));
-}
-
-function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <article className="metric-card">
-      <div className="metric-icon">{icon}</div>
-      <div>
-        <span>{label}</span>
-        <strong>{value}</strong>
-      </div>
-    </article>
-  );
-}
-
-function TableBuyInLedger({ state, session }: { state: AppState; session: GameSession }) {
-  // Keep the raw event rows intact: each reload/add-on is its own ledger entry,
-  // even when several entries belong to the same player.
-  const buyIns = state.buyIns
-    .filter((entry) => entry.tableId === session.id)
-    .map((entry, recordedOrder) => ({ ...entry, recordedOrder }));
-  const cashOuts = state.playerLedger.filter((entry) => entry.tableId === session.id && entry.type === 'Cash-Out');
-  const drops = state.dropLogs.filter((entry) => entry.tableId === session.id);
-  const collectionProfile = getCollectionProfile(state, session.gameId);
-  const timeFees = (session.collectionMode === 'Time' || session.timeFeeBased)
-    ? state.playerSessions
-        .filter((playerSession) => playerSession.tableId === session.id && (playerSession.timePurchasedMinutes ?? 0) > 0)
-        .map((playerSession) => ({
-          id: `time-${playerSession.id}`,
-          playerName: playerSession.playerName,
-          amount: ((playerSession.timePurchasedMinutes ?? 0) / 60) * collectionProfile.hourlyFee,
-          timestamp: playerSession.lastTimeTickAt || playerSession.seatedAt,
-          note: `${playerSession.timePurchasedMinutes ?? 0} minutes purchased`
-        }))
-    : [];
-  const totalBuyIns = buyIns.reduce((sum, entry) => sum + entry.amount, 0);
-  const totalCashOuts = cashOuts.reduce((sum, entry) => sum + (entry.amount ?? 0), 0);
-  const totalDrop = drops.reduce((sum, entry) => sum + entry.amount, 0);
-  const totalTimeFees = timeFees.reduce((sum, entry) => sum + entry.amount, 0);
-  const totalHouseRevenue = totalDrop + totalTimeFees;
-  const cashInPlay = totalBuyIns - totalCashOuts - totalDrop;
-  const entries = [
-    ...buyIns.map((entry) => ({ ...entry, kind: 'Buy-in', direction: 'in' as const })),
-    ...cashOuts.map((entry) => ({ ...entry, amount: entry.amount ?? 0, kind: 'Cash-out', direction: 'out' as const })),
-    ...drops.map((entry) => ({ ...entry, playerName: 'House collection', kind: 'Drop', direction: 'fee' as const })),
-    ...timeFees.map((entry) => ({ ...entry, kind: 'Time fee', direction: 'in' as const }))
-  ].sort((left, right) => {
-    const timestampOrder = right.timestamp.localeCompare(left.timestamp);
-    if (timestampOrder !== 0) return timestampOrder;
-    return ('recordedOrder' in left ? left.recordedOrder : Number.MAX_SAFE_INTEGER)
-      - ('recordedOrder' in right ? right.recordedOrder : Number.MAX_SAFE_INTEGER);
-  });
-
-  return (
-    <section className="cash-ledger">
-      <div className="cash-ledger-summary">
-        <article><span>Total buy-ins</span><strong>${totalBuyIns.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
-        <article><span>Cash-outs</span><strong>${totalCashOuts.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
-        <article><span>House revenue</span><strong>${totalHouseRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
-        <article className="cash-ledger-balance"><span>Cash in play</span><strong>${cashInPlay.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
-      </div>
-      <div className="cash-ledger-reconcile">
-        <span>Reconciliation</span>
-        <code>${totalBuyIns.toLocaleString()} − ${totalCashOuts.toLocaleString()} − ${totalDrop.toLocaleString(undefined, { maximumFractionDigits: 2 })} drop = ${cashInPlay.toLocaleString(undefined, { maximumFractionDigits: 2 })} in play; +${totalTimeFees.toLocaleString(undefined, { maximumFractionDigits: 2 })} time paid separately</code>
-      </div>
-      <div className="cash-ledger-log">
-        {entries.length ? entries.map((entry) => (
-          <article className={`cash-ledger-entry ${entry.direction}`} key={`${entry.kind}-${entry.id}`}>
-            <div className="cash-ledger-marker" />
-            <time dateTime={entry.timestamp}>{formatClock(entry.timestamp)}</time>
-            <div className="cash-ledger-entry-copy">
-              <strong>{entry.kind}</strong>
-              <span>{entry.playerName}{entry.note ? ` · ${entry.note}` : ''}</span>
-            </div>
-            <em>{entry.direction === 'in' ? '+' : '−'}${entry.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</em>
-          </article>
-        )) : <div className="cash-ledger-empty"><strong>No transactions yet</strong><span>Buy-ins, cash-outs, drop, and time fees will appear here.</span></div>}
-      </div>
-    </section>
-  );
-}
-
-
-function TagPicker({ selected, onChange }: { selected: TableTag[]; onChange: (tags: TableTag[]) => void }) {
-  return (
-    <div className="tag-picker">
-      {gameQualityTags.map((tag) => {
-        const active = selected.includes(tag);
-        return (
-          <button
-            className={active ? 'tag active' : 'tag'}
-            key={tag}
-            type="button"
-            onClick={() => onChange(active ? selected.filter((item) => item !== tag) : [...selected, tag])}
-          >
-            {tag}
-          </button>
-        );
-      })}
-    </div>
-  );
 }
 
 createRoot(document.getElementById('root')!).render(
