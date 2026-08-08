@@ -63,7 +63,7 @@ import {
   findUniqueProfileReference,
   hasProfileReference
 } from './lib/profileRelationships';
-import { loadClubStateFromFirebase, saveClubStateToFirebase, sendFirebasePasswordResetEmail, signInOrCreateFirebaseEmailAccount, signInToFirebaseWithEmail, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
+import { sendFirebasePasswordResetEmail, signInOrCreateFirebaseEmailAccount, signInToFirebaseWithEmail, signOutOfFirebase } from './lib/firebaseClubSync';
 import { buildNightCloseTables } from './lib/nightClose';
 import {
   getBalancePlans,
@@ -71,7 +71,6 @@ import {
   parseGroupMeMessages,
   type BalancePlanResult
 } from './lib/resultBuilders';
-import { mergeSyncedList } from './lib/syncedList';
 import {
   nextYearDate,
   normalizeState,
@@ -172,15 +171,18 @@ import {
   useStaffRequestNotifications,
   type StaffRequestNotice
 } from './application/management/sync/staffRequestNotifications';
+import { useManagementStartupSync } from './application/management/sync/useManagementStartupSync';
+import {
+  useManagementStorageSync,
+  useManagementUpdatePreservation
+} from './application/management/sync/useManagementPersistenceEvents';
+import { useManagementPlayerUpdateSync } from './application/management/sync/useManagementPlayerUpdateSync';
 import {
   canUseRendererFirebaseAuth,
   loadManagementState,
-  localOrbitBridgeBaseUrl,
-  publishStateToLocalOrbitBridge,
   saveManagementState
 } from './app/persistence/managementPersistence';
 import {
-  isManagementStateStorageEvent,
   loadBrowserManagementStateForAccount,
   saveBrowserManagementState
 } from './app/persistence/browserStateRepository';
@@ -592,7 +594,6 @@ function App() {
   const [pendingPilotAccess, setPendingPilotAccess] = useState<PilotAccess | null>(null);
   const [pilotKeyError, setPilotKeyError] = useState('');
   const [hasAuthenticated, setHasAuthenticated] = useState(() => hasPersistedSignIn(state));
-  const hasPublishedStartupSnapshot = useRef(false);
   const [loginDraft, setLoginDraft] = useState({ username: '', password: '', staySignedIn: false });
   const [passwordRecoveryStage, setPasswordRecoveryStage] = useState<'idle' | 'sending' | 'sent' | 'verifying'>('idle');
   const [passwordRecoveryNotice, setPasswordRecoveryNotice] = useState('');
@@ -870,46 +871,14 @@ function App() {
     );
   }, [inClubInterests, state]);
 
-  useEffect(() => {
-    window.tableManagerDesktop?.loadState().then((record) => {
-      if (record?.state) {
-        const next = normalizeState(record.state);
-        setUndoStack([]);
-        setState(next);
-        setHasAuthenticated(hasPersistedSignIn(next));
-        saveBrowserManagementState(next);
-        if (canUseRendererFirebaseAuth()) {
-          loadClubStateFromFirebase<AppState>(getAccountKeyFromState(next))
-            .then((cloudRecord) => {
-              if (!cloudRecord?.state) {
-                saveClubStateToFirebase(next).catch(() => undefined);
-                return;
-              }
-              if (cloudRecord.savedAt && record.savedAt && cloudRecord.savedAt <= record.savedAt) return;
-              const cloudState = normalizeState(cloudRecord.state);
-              setUndoStack([]);
-              setState(cloudState);
-              setHasAuthenticated(hasPersistedSignIn(cloudState));
-              saveBrowserManagementState(cloudState);
-              setSaveStatus({ state: 'saved', message: 'Synced from Firebase' });
-            })
-            .catch(() => undefined);
-        }
-      }
-    }).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    if (!hasAuthenticated || !canUseRendererFirebaseAuth()) {
-      hasPublishedStartupSnapshot.current = false;
-      return;
-    }
-    if (hasPublishedStartupSnapshot.current) return;
-    hasPublishedStartupSnapshot.current = true;
-    saveClubStateToFirebase(state).catch(() => {
-      hasPublishedStartupSnapshot.current = false;
-    });
-  }, [hasAuthenticated, state]);
+  useManagementStartupSync({
+    hasAuthenticated,
+    setHasAuthenticated,
+    setSaveStatus,
+    setState,
+    setUndoStack,
+    state
+  });
 
   useEffect(() => {
     document.body.classList.toggle('low-light', state.settings.lowLight);
@@ -922,13 +891,7 @@ function App() {
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    const desktop = window.tableManagerDesktop;
-    if (!desktop?.onPrepareForUpdate) return undefined;
-    return desktop.onPrepareForUpdate((requestId) => {
-      void desktop.preserveStateForUpdate(requestId, state);
-    });
-  }, [state]);
+  useManagementUpdatePreservation(state);
 
   useEffect(() => {
     window.tableManagerDesktop?.getBackendStatus()
@@ -993,16 +956,7 @@ function App() {
     }
   }, [state.settings.pilotAccess]);
 
-  useEffect(() => {
-    const syncState = (event: StorageEvent) => {
-      if (isManagementStateStorageEvent(event)) {
-        setState(loadManagementState());
-      }
-    };
-
-    window.addEventListener('storage', syncState);
-    return () => window.removeEventListener('storage', syncState);
-  }, []);
+  useManagementStorageSync(setState);
 
   useEffect(() => {
     const syncRoute = () => {
@@ -1013,152 +967,16 @@ function App() {
     return () => window.removeEventListener('hashchange', syncRoute);
   }, []);
 
-  useEffect(() => {
-    if (!hasAuthenticated || !activeAccountKey || window.tableManagerDesktop) return;
-    let cancelled = false;
-    let bridgeInitialized = false;
-
-    const syncLocalPlayerUpdates = async () => {
-      try {
-        const response = await fetch(`${localOrbitBridgeBaseUrl}/state/${encodeURIComponent(activeAccountKey)}`);
-        if (response.status === 404) {
-          if (!bridgeInitialized) {
-            const published = await publishStateToLocalOrbitBridge(stateRef.current);
-            bridgeInitialized = Boolean(published?.ok);
-          }
-          return;
-        }
-        if (!response.ok) return;
-        bridgeInitialized = true;
-        const record = await response.json() as { state?: AppState };
-        if (cancelled || !record.state) return;
-        const latestState = stateRef.current;
-        announceIncomingPlayerRequest(latestState, record.state);
-        const sameProfiles = JSON.stringify(record.state.profiles) === JSON.stringify(latestState.profiles);
-        const sameInterests = JSON.stringify(record.state.interests) === JSON.stringify(latestState.interests);
-        if (sameProfiles && sameInterests) return;
-        const mergedState: AppState = {
-          ...latestState,
-          profiles: mergeSyncedList(latestState.profiles, record.state.profiles ?? []),
-          interests: mergeSyncedList(latestState.interests, record.state.interests ?? [])
-        };
-        stateRef.current = mergedState;
-        setState(mergedState);
-        saveBrowserManagementState(mergedState);
-        setSaveStatus({ state: 'saved', message: 'Player app updates synced' });
-      } catch {
-        // The local bridge is optional when Core is running without the linked dev command.
-      }
-    };
-
-    void syncLocalPlayerUpdates();
-    const timer = window.setInterval(() => void syncLocalPlayerUpdates(), 1500);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [activeAccountKey, hasAuthenticated]);
-
-  useEffect(() => {
-    if (!hasAuthenticated || !activeAccountKey || !window.tableManagerDesktop || !state.settings.pilotAccess) return;
-    let cancelled = false;
-    let syncInFlight = false;
-
-    const syncDesktopApiUpdates = async () => {
-      if (syncInFlight) return;
-      syncInFlight = true;
-      try {
-        const record = await window.tableManagerDesktop?.loadStateForAccount(state.settings.pilotAccess!);
-        if (cancelled || !record?.state) return;
-        const remoteState = normalizeState(record.state);
-        const latestState = stateRef.current;
-        const sameProfiles = JSON.stringify(remoteState.profiles) === JSON.stringify(latestState.profiles);
-        const sameInterests = JSON.stringify(remoteState.interests) === JSON.stringify(latestState.interests);
-        if (sameProfiles && sameInterests) return;
-
-        announceIncomingPlayerRequest(latestState, remoteState);
-        const mergedState: AppState = {
-          ...latestState,
-          profiles: mergeSyncedList(latestState.profiles, remoteState.profiles),
-          interests: mergeSyncedList(latestState.interests, remoteState.interests)
-        };
-        stateRef.current = mergedState;
-        setState(mergedState);
-        setSaveStatus({ state: 'saved', message: 'Player app updates synced' });
-      } catch {
-        // The existing Firebase listener remains available if the API is offline.
-      } finally {
-        syncInFlight = false;
-      }
-    };
-
-    void syncDesktopApiUpdates();
-    const timer = window.setInterval(() => void syncDesktopApiUpdates(), 3_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [activeAccountKey, hasAuthenticated, state.settings.pilotAccess?.licenseId]);
-
-  useEffect(() => {
-    if (!activeAccountKey) return;
-    let cancelled = false;
-    let syncInFlight = false;
-    let syncQueued = false;
-
-    const syncPlayerUpdates = async () => {
-      if (syncInFlight) {
-        syncQueued = true;
-        return;
-      }
-      syncInFlight = true;
-      try {
-        const nextState = await syncPlayerUpdatesToClubState<AppState>(stateRef.current);
-        if (cancelled) return;
-        const latestState = stateRef.current;
-        announceIncomingPlayerRequest(latestState, nextState);
-        const sameProfiles = JSON.stringify(nextState.profiles) === JSON.stringify(latestState.profiles);
-        const sameInterests = JSON.stringify(nextState.interests) === JSON.stringify(latestState.interests);
-        const sameTournaments = JSON.stringify(nextState.tournaments) === JSON.stringify(latestState.tournaments);
-        const sameRevenue = JSON.stringify(nextState.revenueTransactions) === JSON.stringify(latestState.revenueTransactions);
-        if (sameProfiles && sameInterests && sameTournaments && sameRevenue) return;
-
-        const mergedState: AppState = {
-          ...latestState,
-          profiles: mergeSyncedList(latestState.profiles, nextState.profiles),
-          interests: mergeSyncedList(latestState.interests, nextState.interests),
-          tournaments: mergeSyncedList(latestState.tournaments, nextState.tournaments),
-          revenueTransactions: mergeSyncedList(latestState.revenueTransactions, nextState.revenueTransactions)
-        };
-        stateRef.current = mergedState;
-        setUndoStack((current) => [latestState, ...current].slice(0, 20));
-        setState(mergedState);
-        setSaveStatus({ state: 'saving', message: 'Syncing player updates...' });
-        try {
-          await saveManagementState(mergedState);
-          if (!cancelled) setSaveStatus({ state: 'saved', message: 'Player updates synced' });
-        } catch {
-          if (!cancelled) setSaveStatus({ state: 'error', message: 'Player update sync failed' });
-        }
-      } catch {
-        // Firestore listeners and the periodic reconciliation pass will retry.
-      } finally {
-        syncInFlight = false;
-        if (syncQueued && !cancelled) {
-          syncQueued = false;
-          void syncPlayerUpdates();
-        }
-      }
-    };
-
-    const unsubscribe = subscribeToPlayerRequestUpdates(activeAccountKey, () => void syncPlayerUpdates());
-    const reconciliationTimer = window.setInterval(() => void syncPlayerUpdates(), 30_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(reconciliationTimer);
-      unsubscribe();
-    };
-  }, [activeAccountKey]);
+  useManagementPlayerUpdateSync({
+    activeAccountKey,
+    announceIncomingPlayerRequest,
+    hasAuthenticated,
+    setSaveStatus,
+    setState,
+    setUndoStack,
+    state,
+    stateRef
+  });
 
   useEffect(() => {
     const reportError = (payload: {
