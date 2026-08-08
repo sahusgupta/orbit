@@ -107,7 +107,7 @@ tasks:
 
   - id: REF-013
     title: Extract management waitlist commands
-    status: pending
+    status: complete
     objective: Give interest creation, patching, timestamp correction, deletion, and demand-prompt outcomes a pure application owner.
     evidence_root_cause: Waitlist rules are embedded in App callbacks and can only be exercised through renderer state-capture harnesses despite dense existing characterization.
     files_areas:

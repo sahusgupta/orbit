@@ -95,6 +95,15 @@ import {
   type ProfileImportContext
 } from './domain/profileImport';
 import {
+  correctWaitlistInterestTimestamp,
+  ensureWaitlistInterest,
+  getWaitlistDemandPrompt,
+  patchWaitlistInterest,
+  removeWaitlistInterest,
+  upsertWaitlistInterest,
+  type WaitlistDemandPrompt
+} from './application/management/waitlistCommands';
+import {
   getCollectionProfile,
   getDealerReport,
   getReportFinancials,
@@ -1314,14 +1323,6 @@ function App() {
     const existingProfile = state.profiles.find(
       (profile: { name: string; }) => profile.name.trim().toLowerCase() === playerName.toLowerCase()
     );
-    const existingActiveInterest = state.interests.find(
-      (interest) =>
-        !inactiveInterestStatuses.includes(interest.status) &&
-        (
-          (existingProfile && interest.profileId === existingProfile.id) ||
-          interest.playerName.trim().toLowerCase() === playerName.toLowerCase()
-        )
-    );
     if (form.status === 'Seated') {
       const openSessions = getOpenSeatSessions(form.gameId);
       const selectedOpenSession = form.tableId ? openSessions.find((session) => session.id === form.tableId) : undefined;
@@ -1375,49 +1376,16 @@ function App() {
       window.alert('No open seats are available for that game.');
       return;
     }
-    const timestamp = nowIso();
-    const statusTimestamps =
-      form.status === 'Confirmed Coming'
-        ? { confirmedAt: timestamp, closedAt: undefined }
-        : form.status === 'Arrived'
-          ? { arrivedAt: timestamp, closedAt: undefined }
-          : ['Declined', 'No-Show', 'Left Before Seated', 'Removed'].includes(form.status)
-            ? { closedAt: timestamp }
-            : { closedAt: undefined };
-    const nextInterest: Interest = existingActiveInterest
-      ? {
-          ...existingActiveInterest,
-          profileId: existingProfile?.id ?? existingActiveInterest.profileId,
-          playerName,
-          gameId: form.gameId,
-          status: form.status,
-          notes: form.notes.trim(),
-          timestamp,
-          ...statusTimestamps
-        }
-      : {
-          id: uid(),
-          profileId: existingProfile?.id,
-          playerName,
-          gameId: form.gameId,
-          status: form.status,
-          notes: form.notes.trim(),
-          timestamp,
-          interestedAt: timestamp,
-          confirmedAt: form.status === 'Confirmed Coming' ? timestamp : undefined,
-          arrivedAt: form.status === 'Arrived' ? timestamp : undefined,
-          seatedAt: undefined,
-          closedAt: ['Declined', 'No-Show', 'Left Before Seated', 'Removed'].includes(form.status) ? timestamp : undefined
-        };
-    const nextState = promptDemandAction({
-      ...state,
-      interests: existingActiveInterest
-        ? state.interests.map((interest) => interest.id === existingActiveInterest.id ? nextInterest : interest)
-        : [nextInterest, ...state.interests]
-    }, form.gameId);
+    const result = upsertWaitlistInterest(state, {
+      playerName,
+      gameId: form.gameId,
+      status: form.status,
+      notes: form.notes
+    }, { createId: uid, nowIso });
+    const nextState = applyWaitlistDemandPrompt(result.state, result.demandPrompt);
     persist(nextState, true, {
       feature: 'Waitlist',
-      action: existingActiveInterest ? 'Updated active member status' : 'Added interest',
+      action: result.updatedExisting ? 'Updated active member status' : 'Added interest',
       metadata: { status: form.status, gameId: form.gameId }
     });
     setForm({ ...form, playerName: '', notes: '', tableId: '', seatNumber: '', initialBuyIn: '' });
@@ -1456,38 +1424,9 @@ function App() {
   };
 
   const updateInterest = (id: string, patch: Partial<Interest>) => {
-    const timestampPatch =
-      patch.status === 'Confirmed Coming'
-        ? { confirmedAt: nowIso() }
-        : patch.status === 'Arrived'
-          ? { arrivedAt: nowIso() }
-          : patch.status === 'Seated'
-            ? { seatedAt: nowIso() }
-            : patch.status && ['Declined', 'No-Show', 'Left Before Seated', 'Removed'].includes(patch.status)
-              ? { closedAt: nowIso() }
-              : {};
-    const nextState = {
-      ...state,
-      interests: state.interests.map((interest: Interest) =>
-        interest.id === id
-          ? {
-              ...interest,
-              ...patch,
-              ...timestampPatch,
-              timestamp: patch.status ? nowIso() : interest.timestamp,
-              manualEdits: Object.keys(patch).reduce(
-                (edits, key) => markManualEdit(edits, key),
-                interest.manualEdits
-              )
-            }
-          : interest
-      )
-    };
-    const changedInterest = nextState.interests.find((interest) => interest.id === id);
+    const result = patchWaitlistInterest(state, id, patch, { nowIso });
     persist(
-      changedInterest && activeInterestStatuses.includes(changedInterest.status)
-        ? promptDemandAction(nextState, changedInterest.gameId)
-        : nextState,
+      applyWaitlistDemandPrompt(result.state, result.demandPrompt),
       true,
       { feature: 'Waitlist', action: patch.status ? 'Updated status' : 'Edited interest', metadata: { status: patch.status ?? '', interestId: id } }
     );
@@ -1495,19 +1434,7 @@ function App() {
 
   const updateInterestTimestamp = (id: string, key: 'interestedAt' | 'confirmedAt' | 'arrivedAt' | 'seatedAt' | 'closedAt', value: string) => {
     const nextValue = fromDateTimeInput(value);
-    const interest = state.interests.find((item: { id: string; }) => item.id === id);
-    persist(withCorrectionLog({
-      ...state,
-      interests: state.interests.map((item: Interest) =>
-        item.id === id ? { ...item, [key]: nextValue, manualEdits: markManualEdit(item.manualEdits, key) } : item
-      ),
-      playerSessions: state.playerSessions.map((session: PlayerSession) => {
-        if (!interest || session.playerName !== interest.playerName || session.gameId !== interest.gameId) return session;
-        if (key === 'seatedAt' && nextValue) return { ...session, seatedAt: nextValue, manualEdits: markManualEdit(session.manualEdits, 'seatedAt') };
-        if (key === 'closedAt') return { ...session, leftAt: nextValue, manualEdits: markManualEdit(session.manualEdits, 'leftAt') };
-        return session;
-      })
-    }, interest?.playerName ?? id, key, 'Timestamp corrected'));
+    persist(correctWaitlistInterestTimestamp(state, id, key, nextValue, { createId: uid, nowIso }));
   };
 
   const updatePlayerSession = (sessionId: string, patch: Partial<PlayerSession>, editKey: string) => {
@@ -1710,7 +1637,7 @@ function App() {
 
   const deleteInterest = (id: string) => {
     if (!window.confirm('Remove this interest entry?')) return;
-    persist({ ...state, interests: state.interests.filter((interest: { id: string; }) => interest.id !== id) }, true, {
+    persist(removeWaitlistInterest(state, id), true, {
       feature: 'Waitlist',
       action: 'Removed interest'
     });
@@ -1905,52 +1832,6 @@ function App() {
     })
   });
 
-  const ensureInterestEntry = (
-    sourceState: AppState,
-    profile: PlayerProfile,
-    gameId: string,
-    status: InterestStatus,
-    note: string,
-    timestamp: string
-  ) => {
-    const existingRelationship = findUniqueProfileReference(
-      sourceState.interests,
-      sourceState.profiles,
-      profile,
-      (interest) => !inactiveInterestStatuses.includes(interest.status)
-    );
-    const existing = existingRelationship?.gameId === gameId ? existingRelationship : undefined;
-    if (existing) {
-      return sourceState.interests.map((interest) =>
-        interest.id === existing.id
-          ? {
-              ...interest,
-              status: interest.status === 'Seated' ? interest.status : status,
-              profileId: profile.id,
-              timestamp,
-              interestedAt: interest.interestedAt ?? timestamp,
-              arrivedAt: status === 'Arrived' ? interest.arrivedAt ?? timestamp : interest.arrivedAt,
-              notes: interest.notes || note
-            }
-          : interest
-      );
-    }
-    return [
-      {
-        id: uid(),
-        profileId: profile.id,
-        playerName: profile.name,
-        gameId,
-        status,
-        timestamp,
-        interestedAt: timestamp,
-        arrivedAt: status === 'Arrived' ? timestamp : undefined,
-        notes: note
-      },
-      ...sourceState.interests
-    ];
-  };
-
   const seatPlayerInState = (sourceState: AppState, tableId: string, payload: SeatPlayerPayload): SeatPlayerResult => {
     const session = sourceState.sessions.find((item) => item.id === tableId && item.status !== 'Closed' && item.status !== 'Failed to Start');
     if (!session) return { ok: false, error: 'This table is no longer open.' };
@@ -2092,9 +1973,6 @@ function App() {
     return result.ok ? result.state : sourceState;
   };
 
-  const getActiveInterestCount = (sourceState: AppState, gameId: string) =>
-    sourceState.interests.filter((interest) => interest.gameId === gameId && activeInterestStatuses.includes(interest.status)).length;
-
   const addSessionToState = (sourceState: AppState, gameId: string, note = 'Table forming') => {
     const game = sourceState.games.find((item) => item.id === gameId);
     if (!game) return sourceState;
@@ -2178,24 +2056,19 @@ function App() {
     };
   };
 
-  const promptDemandAction = (sourceState: AppState, gameId: string) => {
-    const game = sourceState.games.find((item) => item.id === gameId);
-    if (!game) return sourceState;
-    const activeCount = getActiveInterestCount(sourceState, gameId);
-    if (activeCount <= 5) return sourceState;
-    const hasOpenTargetTable = sourceState.sessions.some(
-      (session) => session.gameId === gameId && session.status !== 'Closed' && session.status !== 'Failed to Start'
-    );
-    if (hasOpenTargetTable) return sourceState;
-    const choice = window.prompt(
-      `${activeCount} players now want ${game.name}. Type "start" to create a new ${game.name} table, "switch" to convert a running table to ${game.name}, or leave blank to skip.`,
-      'start'
-    );
+  const applyWaitlistDemandPrompt = (sourceState: AppState, prompt: WaitlistDemandPrompt | null) => {
+    if (!prompt) return sourceState;
+    const choice = window.prompt(prompt.message, prompt.defaultChoice);
     if (!choice) return sourceState;
-    if (choice.trim().toLowerCase().startsWith('switch')) return switchOpenTableToGame(sourceState, gameId);
-    if (choice.trim().toLowerCase().startsWith('start')) return addSessionToState(sourceState, gameId, `Prompted by ${activeCount} interested players`);
+    if (choice.trim().toLowerCase().startsWith('switch')) return switchOpenTableToGame(sourceState, prompt.gameId);
+    if (choice.trim().toLowerCase().startsWith('start')) {
+      return addSessionToState(sourceState, prompt.gameId, `Prompted by ${prompt.activeCount} interested players`);
+    }
     return sourceState;
   };
+
+  const promptDemandAction = (sourceState: AppState, gameId: string) =>
+    applyWaitlistDemandPrompt(sourceState, getWaitlistDemandPrompt(sourceState, gameId));
 
   const getSeatPickerCandidates = (session: GameSession, query = '') => {
     const seatedProfileIds = new Set(
@@ -2294,7 +2167,15 @@ function App() {
       ? state
       : {
           ...state,
-          interests: ensureInterestEntry(state, profile, session.gameId, 'Arrived', 'Checked in from table seat picker', timestamp)
+          interests: ensureWaitlistInterest(
+            state,
+            profile,
+            session.gameId,
+            'Arrived',
+            'Checked in from table seat picker',
+            timestamp,
+            uid
+          )
         };
     const interest = findUniqueProfileReference(
       checkedInState.interests,
@@ -3259,7 +3140,15 @@ function App() {
     const timestamp = nowIso();
     let nextState = {
       ...sourceState,
-      interests: ensureInterestEntry(sourceState, profile, existingInterest?.gameId || preferredGameId, 'Arrived', 'Checked in at club entry', timestamp),
+      interests: ensureWaitlistInterest(
+        sourceState,
+        profile,
+        existingInterest?.gameId || preferredGameId,
+        'Arrived',
+        'Checked in at club entry',
+        timestamp,
+        uid
+      ),
       playerLedger: [
         {
           id: uid(),

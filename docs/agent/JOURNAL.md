@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-08 - REF-013 management waitlist command boundary
+
+- Re-ran the unchanged waitlist, correction, and quick-add characterization before production edits; all 3 files / 20 tests passed.
+- Moved non-seated interest upserts, patches, timestamp/session corrections, removal, check-in ensuring, and demand-prompt decisions into `src/application/management/waitlistCommands.ts` with explicit ID/time dependencies and canonical participant status sets.
+- Kept direct seating, browser dialogs, table orchestration, usage reporting, and persistence in `App`. Added 12 direct command cases; focused verification passed 4 files / 32 tests.
+- Full verification passed all compiler projects, Player TypeScript, 57 files / 324 tests, and the 1,934-module renderer build. `src/main.tsx` is 5,353 lines and `App` is 4,738 lines; known warnings are unchanged and no production-connected runtime was invoked.
+
 ## 2026-08-08 - REF-012 management profile-import domain boundary
 
 - Committed two unchanged-production characterization cases for CSV/XLSX mapping, duplicate handling, and companion linking in `f42e297`; all seven renderer import cases passed before extraction.
