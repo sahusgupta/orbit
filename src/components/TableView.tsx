@@ -2,6 +2,7 @@ import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { Clock, WalletCards, X } from 'lucide-react';
 import PokerTable, { type Player as PokerTablePlayer } from './PokerTable';
 import type { BuyInLog, GameConfig, GameSession, PlayerSession } from '../domain/types';
+import type { SeatPickerState } from '../features/floor/floorWorkspace';
 
 type TableActivity = { id: string; timestamp: string; type: string; text: string };
 type TableBuyInRow = { entry: BuyInLog; seatNumber: number | undefined };
@@ -21,7 +22,7 @@ type TableViewProps = {
   tableTimePlayers: TableTimePlayer[];
   pokerTablePlayers: PokerTablePlayer[];
   tableEventLogSessionId: string | null;
-  seatPicker: { sessionId: string; seatNumber: number } | null;
+  seatPicker: SeatPickerState | null;
   closeRoute: () => void;
   formatClock: (iso?: string) => string;
   formatTimeLeft: (seconds: number) => string;

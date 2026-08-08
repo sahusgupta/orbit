@@ -27,18 +27,13 @@ import type {
   PlayerSession,
   TableEventType
 } from '../domain/types';
-
-type OpenPanels = Record<string, boolean>;
-type EventDraft = { failReason: string; failNote: string; breakReason: string; breakNote: string };
-type QuickAddForm = {
-  playerName: string;
-  gameId: string;
-  status: InterestStatus;
-  notes: string;
-  tableId: string;
-  seatNumber: string;
-  initialBuyIn: string;
-};
+import type {
+  EventDraft,
+  MoneyDraft,
+  OpenPanels,
+  QuickAddForm,
+  SeatPickerState
+} from '../features/floor/floorWorkspace';
 type LiveFeedItem = { id: string; timestamp: string; label: string; actor: string; detail: string; kind: string };
 
 type FloorViewProps = {
@@ -49,7 +44,7 @@ type FloorViewProps = {
   collapsedTables: Record<string, boolean>;
   startPlayerDrafts: Record<string, string[]>;
   eventDrafts: Record<string, EventDraft>;
-  dropDrafts: Record<string, { amount: string; note: string }>;
+  dropDrafts: Record<string, MoneyDraft>;
   dealerDrafts: Record<string, string>;
   handCountDrafts: Record<string, string>;
   formingGameId: string;
@@ -59,7 +54,7 @@ type FloorViewProps = {
   seatPickerModal: ReactNode;
   cashOutModal: ReactNode;
   tableLedgerModal: ReactNode;
-  seatPicker: { sessionId: string; seatNumber: number } | null;
+  seatPicker: SeatPickerState | null;
   liveFeedItems: LiveFeedItem[];
   quickAddOpenSeatSessions: GameSession[];
   form: QuickAddForm;
@@ -74,7 +69,7 @@ type FloorViewProps = {
   setCollapsedTables: Dispatch<SetStateAction<Record<string, boolean>>>;
   setStartPlayerDrafts: Dispatch<SetStateAction<Record<string, string[]>>>;
   setEventDrafts: Dispatch<SetStateAction<Record<string, EventDraft>>>;
-  setDropDrafts: Dispatch<SetStateAction<Record<string, { amount: string; note: string }>>>;
+  setDropDrafts: Dispatch<SetStateAction<Record<string, MoneyDraft>>>;
   setDealerDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   setHandCountDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   setFormingGameId: Dispatch<SetStateAction<string>>;

@@ -189,6 +189,7 @@ import {
   useReportingWorkspaceSelectors,
   useReportingWorkspaceState
 } from './features/reporting/reportingWorkspace';
+import { useFloorWorkspaceState } from './features/floor/floorWorkspace';
 import {
   canUseRendererFirebaseAuth,
   loadExistingManagementStateForAccount,
@@ -346,15 +347,6 @@ type BalancePlan = BalancePlanResult<
   PlayerProfile
 >;
 
-type SeatPickerState = {
-  sessionId: string;
-  seatNumber: number;
-  search: string;
-  timeMinutes: string;
-  initialBuyIn: string;
-  error?: string;
-};
-
 const statuses: InterestStatus[] = [
   'Interested',
   'Confirmed Coming',
@@ -467,15 +459,44 @@ function App() {
               ? 'builder'
               : 'floor';
   const [route, setRoute] = useState<AppRoute>(() => getRouteFromHash());
-  const [form, setForm] = useState({
-    playerName: '',
-    gameId: 'nlh-1-2',
-    status: 'Confirmed Coming' as InterestStatus,
-    notes: '',
-    tableId: '',
-    seatNumber: '',
-    initialBuyIn: ''
-  });
+  const floorWorkspace = useFloorWorkspaceState(state);
+  const {
+    buyInDrafts,
+    cashOutDraft,
+    collapsedTables,
+    dealerDrafts,
+    dropDrafts,
+    eventDrafts,
+    financialOverviewTableId,
+    form,
+    formingGameId,
+    handCountDrafts,
+    openPanels,
+    overviewTableId,
+    seatPicker,
+    startPlayerDrafts,
+    tableEventLogSessionId,
+    tableLedgerSessionId,
+    waitlistPopupOpen,
+    setBuyInDrafts,
+    setCashOutDraft,
+    setCollapsedTables,
+    setCustomTimeDrafts,
+    setDealerDrafts,
+    setDropDrafts,
+    setEventDrafts,
+    setFinancialOverviewTableId,
+    setForm,
+    setFormingGameId,
+    setHandCountDrafts,
+    setOpenPanels,
+    setOverviewTableId,
+    setSeatPicker,
+    setStartPlayerDrafts,
+    setTableEventLogSessionId,
+    setTableLedgerSessionId,
+    setWaitlistPopupOpen
+  } = floorWorkspace;
   const {
     checkInSearch,
     editingProfileId,
@@ -552,17 +573,6 @@ function App() {
   const [reportMessage, setReportMessage] = useState('');
   const [backupMessage, setBackupMessage] = useState('');
   const [undoStack, setUndoStack] = useState<AppState[]>([]);
-  const [eventDrafts, setEventDrafts] = useState<Record<string, { failReason: string; failNote: string; breakReason: string; breakNote: string }>>({});
-  const [seatPicker, setSeatPicker] = useState<SeatPickerState | null>(null);
-  const [startPlayerDrafts, setStartPlayerDrafts] = useState<Record<string, string[]>>({});
-  const [formingGameId, setFormingGameId] = useState(() => state.games[0]?.id ?? '');
-  const [tableLedgerSessionId, setTableLedgerSessionId] = useState<string | null>(null);
-  const [tableEventLogSessionId, setTableEventLogSessionId] = useState<string | null>(null);
-  const [cashOutDraft, setCashOutDraft] = useState<{ playerSessionId: string; amount: string; note: string } | null>(null);
-  const [buyInDrafts, setBuyInDrafts] = useState<Record<string, { amount: string; note: string }>>({});
-  const [dropDrafts, setDropDrafts] = useState<Record<string, { amount: string; note: string }>>({});
-  const [dealerDrafts, setDealerDrafts] = useState<Record<string, string>>({});
-  const [handCountDrafts, setHandCountDrafts] = useState<Record<string, string>>({});
   const tournamentWorkspace = useTournamentWorkspaceState();
   const {
     selectedTournamentId,
@@ -578,22 +588,7 @@ function App() {
     tournamentSection,
     tournamentView
   } = tournamentWorkspace;
-  const [customTimeDrafts, setCustomTimeDrafts] = useState<Record<string, string>>({});
-  const [collapsedTables, setCollapsedTables] = useState<Record<string, boolean>>({});
-  const [openPanels, setOpenPanels] = useState<Record<string, boolean>>({
-    currentTables: true,
-    waitlist: true,
-    tableOverview: true,
-    tableFinancials: true,
-    recentActivity: true,
-    formingGames: true,
-    kpis: false,
-    quickAdd: false
-  });
   const stateRef = useRef(state);
-  const [overviewTableId, setOverviewTableId] = useState('all-time-overview');
-  const [financialOverviewTableId, setFinancialOverviewTableId] = useState('all-table-financials');
-  const [waitlistPopupOpen, setWaitlistPopupOpen] = useState(false);
   const {
     playerPopup,
     playerSection,
@@ -646,17 +641,6 @@ function App() {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
-
-  useEffect(() => {
-    if (!openPanels.quickAdd) return;
-    const closeQuickAddOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setOpenPanels((panels) => ({ ...panels, quickAdd: false }));
-      }
-    };
-    window.addEventListener('keydown', closeQuickAddOnEscape);
-    return () => window.removeEventListener('keydown', closeQuickAddOnEscape);
-  }, [openPanels.quickAdd]);
 
   useTournamentSelectionRepair(state.tournaments, selectedTournamentId, setSelectedTournamentId);
 
