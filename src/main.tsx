@@ -64,7 +64,6 @@ import {
   hasProfileReference
 } from './lib/profileRelationships';
 import { loadClubStateFromFirebase, saveClubStateToFirebase, sendFirebasePasswordResetEmail, signInOrCreateFirebaseEmailAccount, signInToFirebaseWithEmail, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
-import { rendererFirebaseSyncEnabled } from './lib/firebaseConfig';
 import { buildNightCloseTables } from './lib/nightClose';
 import {
   getBalancePlans,
@@ -78,7 +77,6 @@ import {
   normalizeState,
   normalizeTableCap,
   nowIso,
-  parsePersistedAppState,
   seedState,
   todayDate,
   uid
@@ -171,6 +169,18 @@ import {
   signNightClose as signNightCloseInState
 } from './application/management/closeoutCommands';
 import {
+  canUseRendererFirebaseAuth,
+  loadManagementState,
+  localOrbitBridgeBaseUrl,
+  publishStateToLocalOrbitBridge,
+  saveManagementState
+} from './app/persistence/managementPersistence';
+import {
+  isManagementStateStorageEvent,
+  loadBrowserManagementStateForAccount,
+  saveBrowserManagementState
+} from './app/persistence/browserStateRepository';
+import {
   getCollectionProfile,
   getDealerReport,
   getReportFinancials,
@@ -182,10 +192,8 @@ import {
   shiftReportAnchor
 } from './domain/reporting';
 import {
-  getAccountKeyFromAccess,
   getAccountKeyFromState,
   getAuthStorageKey,
-  getStorageKeyForState,
   hasPersistedSignIn,
   isFutureDate,
   isPilotAccessActive,
@@ -474,13 +482,6 @@ const formatTimeLeft = (seconds: number) => {
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}` : clock;
 };
 const getTimeStatus = getTimerStatusFromMinutes;
-const localOrbitBridgeBaseUrl = (import.meta.env.VITE_ORBIT_LOCAL_API_URL || 'http://127.0.0.1:4629').replace(/\/$/, '');
-const publishStateToLocalOrbitBridge = (state: AppState) =>
-  fetch(`${localOrbitBridgeBaseUrl}/state`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ state })
-  }).catch(() => undefined);
 const emptyClubAccount: ClubAccount = {
   clubName: '',
   accountName: '',
@@ -519,40 +520,8 @@ const applyBrandTheme = (theme: BrandTheme) => {
   });
   document.body.style.setProperty('--brand-font-family', branding.theme.fontFamily);
 };
-function loadState(): AppState {
-  try {
-    const lastKey = localStorage.getItem(`${storageKey}:last-account`);
-    const stored = localStorage.getItem(lastKey || storageKey) ?? localStorage.getItem(storageKey);
-    if (!stored) return seedState;
-    const parsed = parsePersistedAppState(stored);
-    return parsed ? normalizeState(parsed) : seedState;
-  } catch {
-    return seedState;
-  }
-}
-
-function canUseRendererFirebaseAuth() {
-  return rendererFirebaseSyncEnabled;
-}
-
-function saveState(state: AppState) {
-  const accountStorageKey = getStorageKeyForState(state);
-  localStorage.setItem(accountStorageKey, JSON.stringify(state));
-  localStorage.setItem(`${storageKey}:last-account`, accountStorageKey);
-  const localSave = window.tableManagerDesktop?.saveState(state) ?? Promise.resolve({ ok: true, path: 'browser-local-storage' });
-  if (!window.tableManagerDesktop) {
-    void publishStateToLocalOrbitBridge(state);
-  }
-  if (canUseRendererFirebaseAuth()) {
-    saveClubStateToFirebase(state).catch(() => undefined);
-  }
-  return localSave.then((result) => {
-    return { ...result, cloud: 'firebase-pending' };
-  });
-}
-
 function App() {
-  const [state, setState] = useState<AppState>(() => loadState());
+  const [state, setState] = useState<AppState>(() => loadManagementState());
   const getRouteFromHash = (): AppRoute =>
     window.location.hash.includes('tournament-tv')
       ? 'tournament-tv'
@@ -955,9 +924,7 @@ function App() {
         setUndoStack([]);
         setState(next);
         setHasAuthenticated(hasPersistedSignIn(next));
-        const accountStorageKey = getStorageKeyForState(next);
-        localStorage.setItem(accountStorageKey, JSON.stringify(next));
-        localStorage.setItem(`${storageKey}:last-account`, accountStorageKey);
+        saveBrowserManagementState(next);
         if (canUseRendererFirebaseAuth()) {
           loadClubStateFromFirebase<AppState>(getAccountKeyFromState(next))
             .then((cloudRecord) => {
@@ -970,9 +937,7 @@ function App() {
               setUndoStack([]);
               setState(cloudState);
               setHasAuthenticated(hasPersistedSignIn(cloudState));
-              const cloudStorageKey = getStorageKeyForState(cloudState);
-              localStorage.setItem(cloudStorageKey, JSON.stringify(cloudState));
-              localStorage.setItem(`${storageKey}:last-account`, cloudStorageKey);
+              saveBrowserManagementState(cloudState);
               setSaveStatus({ state: 'saved', message: 'Synced from Firebase' });
             })
             .catch(() => undefined);
@@ -1051,8 +1016,7 @@ function App() {
             }
           }
         };
-        localStorage.setItem(getStorageKeyForState(next), JSON.stringify(next));
-        localStorage.setItem(`${storageKey}:last-account`, getStorageKeyForState(next));
+        saveBrowserManagementState(next);
         window.tableManagerDesktop?.saveState(next).catch(() => undefined);
         return next;
       });
@@ -1078,8 +1042,8 @@ function App() {
 
   useEffect(() => {
     const syncState = (event: StorageEvent) => {
-      if (event.key === localStorage.getItem(`${storageKey}:last-account`) || event.key === storageKey) {
-        setState(loadState());
+      if (isManagementStateStorageEvent(event)) {
+        setState(loadManagementState());
       }
     };
 
@@ -1127,8 +1091,7 @@ function App() {
         };
         stateRef.current = mergedState;
         setState(mergedState);
-        localStorage.setItem(getStorageKeyForState(mergedState), JSON.stringify(mergedState));
-        localStorage.setItem(`${storageKey}:last-account`, getStorageKeyForState(mergedState));
+        saveBrowserManagementState(mergedState);
         setSaveStatus({ state: 'saved', message: 'Player app updates synced' });
       } catch {
         // The local bridge is optional when Core is running without the linked dev command.
@@ -1219,7 +1182,7 @@ function App() {
         setState(mergedState);
         setSaveStatus({ state: 'saving', message: 'Syncing player updates...' });
         try {
-          await saveState(mergedState);
+          await saveManagementState(mergedState);
           if (!cancelled) setSaveStatus({ state: 'saved', message: 'Player updates synced' });
         } catch {
           if (!cancelled) setSaveStatus({ state: 'error', message: 'Player update sync failed' });
@@ -1325,7 +1288,7 @@ function App() {
     }
     setState(next);
     setSaveStatus({ state: 'saving', message: 'Saving...' });
-    saveState(next)
+    saveManagementState(next)
       .then(() => setSaveStatus({ state: 'saved', message: `Saved ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` }))
       .catch((error) => {
         setSaveStatus({
@@ -1355,7 +1318,7 @@ function App() {
     setUndoStack(rest);
     setState(previous);
     setSaveStatus({ state: 'saving', message: 'Saving undo...' });
-    saveState(previous)
+    saveManagementState(previous)
       .then(() => setSaveStatus({ state: 'saved', message: 'Undo saved' }))
       .catch(() => setSaveStatus({ state: 'error', message: 'Undo save failed' }));
   };
@@ -2992,12 +2955,7 @@ function App() {
     }
     const localRecord = desktopRecord?.state
       ? desktopRecord
-      : (() => {
-          const stored = localStorage.getItem(`${storageKey}:${getAccountKeyFromAccess(access)}`);
-          if (!stored) return null;
-          const restoredState = parsePersistedAppState(stored);
-          return restoredState ? { state: restoredState } : null;
-        })();
+      : loadBrowserManagementStateForAccount(access);
     if (!localRecord?.state) return false;
 
     const next = normalizeState({
