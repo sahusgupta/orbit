@@ -102,4 +102,4 @@ tasks:
     risk: high_data
     depends_on: [TYPE-018, REF-009]
     spec: docs/agent/tasks/REF-010.md
-    current_subtask: REF-010A
+    current_subtask: REF-010C
