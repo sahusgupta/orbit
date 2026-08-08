@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-08 - REF-016 profile and membership command boundaries
+
+- Re-ran 3 files / 12 existing profile/membership cases, then committed paid walk-in, approval, and activation characterization as `8406cba`; the unchanged-production boundary passed 15 tests.
+- Moved profile construction/edit/delete/merge and canonical club relationships into `profileCommands.ts`; moved membership approval/activation, notification pruning, and revenue projection into `membershipCommands.ts`.
+- Kept forms, confirmation, QR validation, demand prompts, feedback, usage, and persistence in `App`. Added 11 direct command cases while the renderer/domain boundary retained all 15 cases.
+- Full verification passed all compiler projects, Player TypeScript, 63 files / 369 tests, and the 1,940-module build. `src/main.tsx` is 4,446 lines and `App` is 3,804 lines; known warnings are unchanged and no production-connected runtime or payment provider was invoked.
+
 ## 2026-08-08 - REF-015 table-planning and lifecycle command boundaries
 
 - Re-ran 3 files / 19 existing planning/lifecycle cases, then committed missing unchanged-production table-start and demand-switch cases as `aca78c3`; the expanded boundary passed 4 files / 27 tests.

@@ -238,7 +238,7 @@ tasks:
 
   - id: REF-016
     title: Extract profile and membership commands
-    status: pending
+    status: complete
     objective: Move profile edits/merges/club relationships and membership activation/approval into pure identity-safe application owners.
     evidence_root_cause: Canonical identity helpers exist, but App still constructs and mutates profiles, memberships, revenue, and relationship references inline.
     files_areas:

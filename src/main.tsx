@@ -58,11 +58,9 @@ import {
   resolveGameId
 } from './lib/appCore';
 import { AccountRecoveryValidationError, recoverAccountLogin } from './lib/accountRecovery';
-import { createMembershipWindow, parseMembershipPrice } from './lib/membership';
 import { validateMembershipQrCheckIn } from './lib/membershipQr';
 import {
   findUniqueProfileReference,
-  getProfileReferenceMatches,
   hasProfileReference
 } from './lib/profileRelationships';
 import { loadClubStateFromFirebase, saveClubStateToFirebase, sendFirebasePasswordResetEmail, signInOrCreateFirebaseEmailAccount, signInToFirebaseWithEmail, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
@@ -139,6 +137,19 @@ import {
   updateTableSession
 } from './application/management/tableLifecycleCommands';
 import {
+  buildPlayerProfile as buildPlayerProfileInState,
+  checkProfileIntoClub,
+  createActiveMemberProfile,
+  deleteProfile as deleteProfileFromState,
+  mergeDuplicateProfiles as mergeDuplicateProfilesInState,
+  removeProfileFromClub as removeProfileFromClubInState,
+  saveEditedProfile
+} from './application/management/profileCommands';
+import {
+  activateInPersonMembership as activateInPersonMembershipInState,
+  approveMembershipRequest as approveMembershipRequestInState
+} from './application/management/membershipCommands';
+import {
   getCollectionProfile,
   getDealerReport,
   getReportFinancials,
@@ -208,7 +219,6 @@ import type {
   PersistedAppState,
   PersistedStateRecord,
   PilotAccess,
-  PlayerInAppNotification,
   PlayerProfile,
   PlayerSession,
   ReportPeriod,
@@ -1588,33 +1598,13 @@ function App() {
     name: string,
     gameId: string,
     patch: Partial<PlayerProfile> = {}
-  ): PlayerProfile => {
-    const preferredGame = state.games.find((game) => game.id === gameId) ?? state.games[0];
-    const preferredGameId = preferredGame?.id ?? gameId ?? 'nlh-1-2';
-    return {
-      id: patch.id ?? memberId(),
-      name: name.trim(),
-      phone: patch.phone ?? '',
-      birthday: patch.birthday ?? '',
-      membershipStartDate: patch.membershipStartDate ?? todayDate(),
-      membershipExpirationDate: patch.membershipExpirationDate ?? nextYearDate(),
-      totalTimePlayedHours: patch.totalTimePlayedHours ?? 0,
-      lastSessionTimePlayedHours: patch.lastSessionTimePlayedHours ?? 0,
-      commonlyPlaysWithProfileIds: patch.commonlyPlaysWithProfileIds ?? [],
-      preferredGameId: patch.preferredGameId ?? preferredGameId,
-      preferredGameIds: patch.preferredGameIds?.length ? patch.preferredGameIds : [preferredGameId],
-      gamePlayCounts: patch.gamePlayCounts ?? {},
-      mostPlayedGameId: patch.mostPlayedGameId ?? preferredGameId,
-      preferredStakes: patch.preferredStakes ?? preferredGame?.name ?? '',
-      typicalBuyInMin: patch.typicalBuyInMin ?? 200,
-      typicalBuyInMax: patch.typicalBuyInMax ?? 500,
-      willingnessToMove: patch.willingnessToMove ?? true,
-      typicalAvailability: patch.typicalAvailability ?? '',
-      usualCompanions: patch.usualCompanions ?? [],
-      preferredTags: patch.preferredTags ?? [],
-      notes: patch.notes ?? ''
-    };
-  };
+  ): PlayerProfile => buildPlayerProfileInState(
+    state,
+    name,
+    gameId,
+    patch,
+    { createProfileId: memberId, todayDate, nextYearDate }
+  );
 
   const getInAppNotificationRecipients = (sourceState: AppState, gameId: string) => {
     const activeProfileIds = new Set(
@@ -2081,211 +2071,73 @@ function App() {
   const saveProfileEdit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!profileEditDraft) return;
-    const profileName = profileEditDraft.name.trim();
-    if (!profileName) {
-      setProfileFormMessage('Enter a player name before saving the profile.');
+    const result = saveEditedProfile(state, profileEditDraft);
+    if (!result.ok) {
+      setProfileFormMessage(result.message);
       return;
     }
-    const duplicate = state.profiles.find(
-      (profile) => profile.id !== profileEditDraft.id && profile.name.trim().toLowerCase() === profileName.toLowerCase()
-    );
-    if (duplicate) {
-      setProfileFormMessage(`${profileName} already has a profile.`);
-      return;
-    }
-    const preferredGameIds = profileEditDraft.preferredGameIds?.length
-      ? profileEditDraft.preferredGameIds
-      : [profileEditDraft.preferredGameId || state.games[0]?.id || 'nlh-1-2'];
-    const savedProfile: PlayerProfile = {
-      ...profileEditDraft,
-      name: profileName,
-      phone: profileEditDraft.phone.trim(),
-      membershipStartDate: profileEditDraft.membershipStartDate,
-      membershipExpirationDate: profileEditDraft.membershipExpirationDate,
-      preferredGameId: profileEditDraft.preferredGameId || preferredGameIds[0],
-      preferredGameIds,
-      preferredStakes: profileEditDraft.preferredStakes.trim(),
-      typicalAvailability: profileEditDraft.typicalAvailability.trim(),
-      notes: profileEditDraft.notes.trim()
-    };
-    persist({
-      ...state,
-      profiles: state.profiles.map((profile) => (profile.id === savedProfile.id ? savedProfile : profile)),
-      interests: state.interests.map((interest) =>
-        interest.profileId === savedProfile.id ? { ...interest, playerName: savedProfile.name } : interest
-      ),
-      playerSessions: state.playerSessions.map((session) =>
-        session.profileId === savedProfile.id ? { ...session, playerName: savedProfile.name } : session
-      ),
-      buyIns: state.buyIns.map((buyIn) =>
-        buyIn.profileId === savedProfile.id ? { ...buyIn, playerName: savedProfile.name } : buyIn
-      ),
-      playerLedger: state.playerLedger.map((entry) =>
-        entry.profileId === savedProfile.id ? { ...entry, playerName: savedProfile.name } : entry
-      )
-    }, true, { feature: 'Profiles', action: 'Updated profile', metadata: { profileId: savedProfile.id } });
-    setProfileFormMessage(`${savedProfile.name} profile updated.`);
+    persist(result.state, true, {
+      feature: 'Profiles',
+      action: 'Updated profile',
+      metadata: { profileId: result.profile.id }
+    });
+    setProfileFormMessage(result.message);
     cancelEditProfile();
   };
 
   const activateInPersonMembership = (profile: PlayerProfile) => {
-    if (profile.membershipStatus !== 'Approved') {
-      setProfileFormMessage(`Approve ${profile.name}'s application before activating the membership.`);
+    const result = activateInPersonMembershipInState(
+      state,
+      profile,
+      { accountKey: getAccountKeyFromState(state), clubDisplayName: getClubDisplayName(state) },
+      { createId: uid, nowDate: () => new Date() }
+    );
+    if (!result.ok) {
+      if (result.message) setProfileFormMessage(result.message);
       return;
     }
-    const membership = createMembershipWindow(profile.membershipPlan || 'monthly', new Date(), profile.membershipDurationDays);
-    const { startedAt, expiresAt } = membership;
-    const amount = parseMembershipPrice(profile.membershipPriceLabel);
-    const activatedAt = startedAt.toISOString();
-    const membershipNotification: PlayerInAppNotification = {
-      id: uid(),
-      clubId: getAccountKeyFromState(state),
-      gameId: '',
-      title: 'Membership active',
-      body: `Your membership at ${getClubDisplayName(state)} is active. You can now request seats from the player app.`,
-      reason: 'membership-activated',
-      createdAt: activatedAt,
-      expiresAt: new Date(startedAt.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      targetPlayerIds: [profile.id],
-      targetPlayerNames: [profile.name]
-    };
-    persist({
-      ...state,
-      profiles: state.profiles.map((candidate) => candidate.id === profile.id ? {
-        ...candidate,
-        membershipStartDate: membership.startDate,
-        membershipExpirationDate: membership.expirationDate,
-        membershipExpiresAt: expiresAt.toISOString(),
-        membershipPaymentMethod: 'in-person',
-        membershipStatus: 'Active'
-      } : candidate),
-      revenueTransactions: amount > 0 ? [
-        ...state.revenueTransactions,
-        {
-          id: uid(),
-          type: 'membership',
-          amountCents: Math.round(amount * 100),
-          occurredAt: startedAt.toISOString(),
-          paymentStatus: 'paid',
-          source: 'manual',
-          playerId: profile.id,
-          playerName: profile.name,
-          membershipPlan: profile.membershipPlan || 'monthly'
-        }
-      ] : state.revenueTransactions,
-      inAppNotifications: [
-        membershipNotification,
-        ...state.inAppNotifications.filter((notification) => !notification.expiresAt || notification.expiresAt > activatedAt).slice(0, 200)
-      ]
-    }, true, { feature: 'Profiles', action: 'Activated in-person membership', metadata: { profileId: profile.id, plan: profile.membershipPlan || 'monthly' } });
-    setProfileFormMessage(`${profile.name}'s ${profile.membershipPlan === 'day' ? 'day pass' : 'monthly membership'} is active.`);
+    persist(result.state, true, {
+      feature: 'Profiles',
+      action: 'Activated in-person membership',
+      metadata: { profileId: profile.id, plan: profile.membershipPlan || 'monthly' }
+    });
+    setProfileFormMessage(result.message);
   };
 
   const approveMembershipRequest = (profile: PlayerProfile) => {
-    if (profile.membershipStatus !== 'Requested') return;
-    const approvedAt = nowIso();
-    const membershipNotification: PlayerInAppNotification = {
-      id: uid(),
-      clubId: getAccountKeyFromState(state),
-      gameId: '',
-      title: 'Membership approved',
-      body: `${getClubDisplayName(state)} approved your application. Bring your ID and pay the club's fee at the front desk to activate it.`,
-      reason: 'membership-approved',
-      createdAt: approvedAt,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      targetPlayerIds: [profile.id],
-      targetPlayerNames: [profile.name]
-    };
-    persist({
-      ...state,
-      profiles: state.profiles.map((candidate) => candidate.id === profile.id ? {
-        ...candidate,
-        membershipStatus: 'Approved',
-        membershipStartDate: '',
-        membershipExpirationDate: '',
-        membershipExpiresAt: undefined
-      } : candidate),
-      inAppNotifications: [
-        membershipNotification,
-        ...state.inAppNotifications.filter((notification) => !notification.expiresAt || notification.expiresAt > approvedAt).slice(0, 200)
-      ]
-    }, true, { feature: 'Profiles', action: 'Approved membership application', metadata: { profileId: profile.id, plan: profile.membershipPlan || 'monthly' } });
-    setProfileFormMessage(`${profile.name} is approved. Verify ID and payment at the front desk to activate.`);
+    const result = approveMembershipRequestInState(
+      state,
+      profile,
+      { accountKey: getAccountKeyFromState(state), clubDisplayName: getClubDisplayName(state) },
+      { createId: uid, nowIso, nowMs: Date.now }
+    );
+    if (!result.ok) return;
+    persist(result.state, true, {
+      feature: 'Profiles',
+      action: 'Approved membership application',
+      metadata: { profileId: profile.id, plan: profile.membershipPlan || 'monthly' }
+    });
+    setProfileFormMessage(result.message);
   };
 
   const addProfile = (event: React.FormEvent) => {
     event.preventDefault();
-    const profileName = newProfile.name.trim();
-    if (!profileName) {
-      setProfileFormMessage('Enter a player name before adding the profile.');
+    const result = createActiveMemberProfile(
+      state,
+      newProfile,
+      { createProfileId: memberId, createId: uid, nowDate: () => new Date(), nowIso }
+    );
+    if (!result.ok) {
+      if (result.code === 'duplicate-name') setProfileSearch(result.profileName);
+      setProfileFormMessage(result.message);
       return;
     }
-    const duplicate = state.profiles.find((profile) => profile.name.trim().toLowerCase() === profileName.toLowerCase());
-    if (duplicate) {
-      setProfileSearch(profileName);
-      setProfileFormMessage(`${profileName} already has a profile.`);
-      return;
-    }
-    const preferredGame = state.games.find((game) => game.id === newProfile.preferredGameId);
-    const membership = createMembershipWindow(newProfile.membershipPlan);
-    const membershipStart = membership.startedAt;
-    const membershipExpires = membership.expiresAt;
-    const membershipAmount = parseMembershipPrice(newProfile.membershipAmount);
-    persist({
-      ...state,
-      profiles: [
-        ...state.profiles,
-        {
-          id: memberId(),
-          name: profileName,
-          phone: newProfile.phone.trim(),
-          birthday: newProfile.birthday,
-          membershipStartDate: membership.startDate,
-          membershipExpirationDate: membership.expirationDate,
-          membershipExpiresAt: membershipExpires.toISOString(),
-          membershipPlan: newProfile.membershipPlan,
-          membershipPaymentMethod: 'core',
-          membershipStatus: 'Active',
-          membershipRequestedAt: membershipStart.toISOString(),
-          membershipPriceLabel: membershipAmount ? `$${membershipAmount.toFixed(2)}` : undefined,
-          totalTimePlayedHours: newProfile.totalTimePlayedHours,
-          lastSessionTimePlayedHours: newProfile.lastSessionTimePlayedHours,
-          commonlyPlaysWithProfileIds: newProfile.commonlyPlaysWithProfileIds,
-          preferredGameId: newProfile.preferredGameId,
-          preferredGameIds: [newProfile.preferredGameId],
-          gamePlayCounts: {},
-          mostPlayedGameId: newProfile.preferredGameId,
-          preferredStakes:
-            newProfile.preferredStakes.trim() ||
-            preferredGame?.name ||
-            '',
-          typicalBuyInMin: newProfile.typicalBuyInMin,
-          typicalBuyInMax: newProfile.typicalBuyInMax,
-          willingnessToMove: newProfile.willingnessToMove,
-          typicalAvailability: newProfile.typicalAvailability.trim(),
-          preferredTags: newProfile.preferredTags,
-          usualCompanions: newProfile.usualCompanions
-            .split(',')
-            .map((name: string) => name.trim())
-            .filter(Boolean),
-          notes: newProfile.notes.trim()
-        }
-      ],
-      revenueTransactions: membershipAmount > 0 ? [
-        ...state.revenueTransactions,
-        {
-          id: uid(),
-          type: 'membership',
-          amountCents: Math.round(membershipAmount * 100),
-          occurredAt: membershipStart.toISOString(),
-          paymentStatus: 'paid',
-          source: 'manual',
-          playerName: profileName,
-          membershipPlan: newProfile.membershipPlan
-        }
-      ] : state.revenueTransactions
-    }, true, { feature: 'Profiles', action: 'Added profile', metadata: { preferredGameId: newProfile.preferredGameId } });
-    setProfileFormMessage(`${profileName} profile added.`);
+    persist(result.state, true, {
+      feature: 'Profiles',
+      action: 'Added profile',
+      metadata: { preferredGameId: newProfile.preferredGameId }
+    });
+    setProfileFormMessage(result.message);
     setNewProfile({
       name: '',
       birthday: '',
@@ -2312,13 +2164,7 @@ function App() {
 
   const deleteProfile = (id: string) => {
     if (!window.confirm('Remove this profile? Existing sessions and interest entries will keep the player name.')) return;
-    persist({
-      ...state,
-      profiles: state.profiles.filter((profile) => profile.id !== id),
-      interests: state.interests.map((interest) =>
-        interest.profileId === id ? { ...interest, profileId: undefined } : interest
-      )
-    });
+    persist(deleteProfileFromState(state, id));
   };
 
   const updateScriptTemplate = (index: number, value: string) => {
@@ -2415,106 +2261,17 @@ function App() {
   };
 
   const mergeDuplicateProfiles = (profilesToMerge: PlayerProfile[]) => {
-    const [primary, ...duplicates] = profilesToMerge;
-    if (!primary) return;
-    const duplicateIds = new Set(duplicates.map((profile) => profile.id));
-    const gamePlayCounts = profilesToMerge.reduce<Record<string, number>>((counts, profile) => {
-      Object.entries(profile.gamePlayCounts ?? {}).forEach(([gameId, count]) => {
-        counts[gameId] = (counts[gameId] ?? 0) + count;
-      });
-      return counts;
-    }, {});
-    const mostPlayedGameId =
-      Object.entries(gamePlayCounts)
-        .sort((left, right) => right[1] - left[1] || getGameName(left[0]).localeCompare(getGameName(right[0])))[0]?.[0] ??
-      primary.mostPlayedGameId ??
-      primary.preferredGameId;
-    const merged: PlayerProfile = {
-      ...primary,
-      birthday: primary.birthday || profilesToMerge.find((profile) => profile.birthday)?.birthday || '',
-      membershipStartDate:
-        profilesToMerge
-          .map((profile) => profile.membershipStartDate)
-          .filter(Boolean)
-          .sort()[0] ?? primary.membershipStartDate,
-      membershipExpirationDate:
-        profilesToMerge
-          .map((profile) => profile.membershipExpirationDate)
-          .filter(Boolean)
-          .sort()
-          .at(-1) ?? primary.membershipExpirationDate,
-      totalTimePlayedHours: profilesToMerge.reduce((sum, profile) => sum + (profile.totalTimePlayedHours ?? 0), 0),
-      lastSessionTimePlayedHours: Math.max(...profilesToMerge.map((profile) => profile.lastSessionTimePlayedHours ?? 0)),
-      commonlyPlaysWithProfileIds: Array.from(
-        new Set(profilesToMerge.flatMap((profile) => profile.commonlyPlaysWithProfileIds ?? []).filter((id) => id !== primary.id && !duplicateIds.has(id)))
-      ),
-      preferredGameId: primary.preferredGameId || profilesToMerge.find((profile) => profile.preferredGameId)?.preferredGameId || primary.preferredGameIds[0],
-      preferredGameIds: Array.from(new Set(profilesToMerge.flatMap((profile) => profile.preferredGameIds))),
-      gamePlayCounts,
-      mostPlayedGameId,
-      preferredStakes: Array.from(
-        new Set(profilesToMerge.flatMap((profile) => profile.preferredStakes.split(',').map((item) => item.trim()).filter(Boolean)))
-      ).join(', '),
-      typicalBuyInMin: Math.min(...profilesToMerge.map((profile) => profile.typicalBuyInMin || primary.typicalBuyInMin)),
-      typicalBuyInMax: Math.max(...profilesToMerge.map((profile) => profile.typicalBuyInMax || primary.typicalBuyInMax)),
-      willingnessToMove: profilesToMerge.some((profile) => profile.willingnessToMove),
-      typicalAvailability: Array.from(new Set(profilesToMerge.map((profile) => profile.typicalAvailability).filter(Boolean))).join(', '),
-      usualCompanions: Array.from(new Set(profilesToMerge.flatMap((profile) => profile.usualCompanions))),
-      preferredTags: Array.from(new Set(profilesToMerge.flatMap((profile) => profile.preferredTags))),
-      notes: Array.from(new Set(profilesToMerge.map((profile) => profile.notes).filter(Boolean))).join(' | ')
-    };
-
-    persist({
-      ...state,
-      profiles: state.profiles.map((profile) => (profile.id === primary.id ? merged : profile)).filter((profile) => !duplicateIds.has(profile.id)),
-      interests: state.interests.map((interest) =>
-        interest.profileId && duplicateIds.has(interest.profileId) ? { ...interest, profileId: primary.id } : interest
-      ),
-      playerSessions: state.playerSessions.map((session) =>
-        session.profileId && duplicateIds.has(session.profileId) ? { ...session, profileId: primary.id } : session
-      )
-    });
+    if (!profilesToMerge.length) return;
+    persist(mergeDuplicateProfilesInState(state, profilesToMerge));
   };
 
   const addProfileToClub = (profile: PlayerProfile, sourceState = state) => {
-    const existingInterest = findUniqueProfileReference(
-      sourceState.interests,
-      sourceState.profiles,
-      profile,
-      (interest) => !inactiveInterestStatuses.includes(interest.status)
-    );
-    const preferredGameId = profile.preferredGameIds[0] ?? sourceState.games[0]?.id ?? 'nlh-1-2';
-    const timestamp = nowIso();
-    let nextState = {
-      ...sourceState,
-      interests: ensureWaitlistInterest(
-        sourceState,
-        profile,
-        existingInterest?.gameId || preferredGameId,
-        'Arrived',
-        'Checked in at club entry',
-        timestamp,
-        uid
-      ),
-      playerLedger: [
-        {
-          id: uid(),
-          type: 'Check-In' as const,
-          profileId: profile.id,
-          playerName: profile.name,
-          gameId: existingInterest?.gameId || preferredGameId,
-          timestamp,
-          note: 'Checked in at club entry'
-        },
-        ...sourceState.playerLedger
-      ]
-    };
-
-    nextState = promptDemandAction(nextState, preferredGameId);
+    const result = checkProfileIntoClub(sourceState, profile, { createId: uid, nowIso });
+    const nextState = promptDemandAction(result.state, result.preferredGameId);
     persist(nextState, true, {
       feature: 'Profiles',
       action: 'Checked player into club',
-      metadata: { preferredGameId, seated: false }
+      metadata: { preferredGameId: result.preferredGameId, seated: false }
     });
   };
 
@@ -2578,18 +2335,7 @@ function App() {
   }, [playerPopup, qrScanAttempt]);
 
   const removeProfileFromClub = (profile: PlayerProfile) => {
-    const matchingInterestIds = new Set(
-      getProfileReferenceMatches(
-        state.interests,
-        state.profiles,
-        profile,
-        (interest) => interest.status === 'Arrived'
-      ).map((interest) => interest.id)
-    );
-    persist({
-      ...state,
-      interests: state.interests.filter((interest) => !matchingInterestIds.has(interest.id))
-    });
+    persist(removeProfileFromClubInState(state, profile));
   };
 
   const profileImportContext: ProfileImportContext = {
