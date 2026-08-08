@@ -21,7 +21,10 @@ const componentNames = [
   'RadiusStep',
   'GameStep',
   'StakesStep',
-  'StepHeader'
+  'StepHeader',
+  'MapPicker',
+  'Field',
+  'Chip'
 ] as const;
 
 const styleNames = [
@@ -61,7 +64,25 @@ const styleNames = [
   'sectionTitle',
   'stepHeader',
   'stepHeaderIcon',
-  'stepHeaderText'
+  'stepHeaderText',
+  'mapCard',
+  'mapCanvas',
+  'liveMap',
+  'mapFooter',
+  'cardTitle',
+  'muted',
+  'field',
+  'fieldLabel',
+  'fieldLabelLight',
+  'input',
+  'inputLight',
+  'inputError',
+  'fieldError',
+  'fieldErrorLight',
+  'chip',
+  'chipActive',
+  'chipText',
+  'chipTextActive'
 ] as const;
 
 type ParsedSource = {
@@ -162,7 +183,7 @@ describe('Player onboarding presentation contract', () => {
       '<OnboardingFlow'
     ];
 
-    expect(componentDigest).toBe('f33bff66fd83043cf8805852e61626b4a5812e64329b9e93c6d53aff7964af6c');
+    expect(componentDigest).toBe('6f2e47ccd52eb70a80f63aae597774988c73cf054fcdd04e471d5f4100a8051e');
     orderedShellTokens.forEach((token) => expect(shell).toContain(token));
     for (let index = 1; index < orderedShellTokens.length; index += 1) {
       expect(shell.indexOf(orderedShellTokens[index])).toBeGreaterThan(shell.indexOf(orderedShellTokens[index - 1]));
@@ -173,6 +194,6 @@ describe('Player onboarding presentation contract', () => {
     const sources = parseSources();
     const styleDigest = digest(styleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('2b33fedabd50302767bf99950b4d4b0542582eb825e39e8066bf0c9fce0906d6');
+    expect(styleDigest).toBe('1902c39e9ec552860eb7791713b238c1b8231c8b263f4f2bd14978b0ec92c707');
   });
 });
