@@ -180,6 +180,11 @@ import {
   useProfileWorkspaceSelectors
 } from './features/profiles/profileWorkspace';
 import {
+  useSettingsWorkspaceState,
+  useSettingsWorkspaceSync,
+  type BackendStatus
+} from './features/settings/settingsWorkspace';
+import {
   canUseRendererFirebaseAuth,
   loadExistingManagementStateForAccount,
   loadManagementState,
@@ -239,7 +244,6 @@ import {
 import type {
   AppRoute,
   AppState,
-  ClubAccount,
   CollectionProfile,
   GameConfig,
   GameSession,
@@ -253,7 +257,6 @@ import type {
   PlayerSession,
   ReportPeriod,
   StaffAccount,
-  StaffRole,
   TableCap,
   TableEvent,
   TableEventType,
@@ -312,19 +315,6 @@ type UsageDescriptor = {
 };
 
 type BrandTheme = typeof branding.theme.default;
-
-type SaveStatus =
-  | { state: 'idle'; message: string }
-  | { state: 'saving'; message: string }
-  | { state: 'saved'; message: string }
-  | { state: 'error'; message: string };
-
-type BackendStatus = {
-  running: boolean;
-  host: string;
-  port: number;
-  reportCount: number;
-};
 
 type ReportSubmissionResult = {
   ok: boolean;
@@ -438,14 +428,6 @@ const formatTimeLeft = (seconds: number) => {
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}` : clock;
 };
 const getTimeStatus = getTimerStatusFromMinutes;
-const emptyClubAccount: ClubAccount = {
-  clubName: '',
-  accountName: '',
-  contactName: '',
-  email: '',
-  phone: '',
-  address: ''
-};
 const toDateTimeInput = (iso?: string) => (iso ? new Date(new Date(iso).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '');
 const fromDateTimeInput = (value: string) => (value ? new Date(value).toISOString() : undefined);
 const markManualEdit = (edits: Record<string, string> | undefined, key: string) => ({ ...(edits ?? {}), [key]: nowIso() });
@@ -538,28 +520,35 @@ function App() {
   const [groupMeCandidates, setGroupMeCandidates] = useState<GroupMeCandidate[]>([]);
   const [staffFeedback, setStaffFeedback] = useState('');
   const [ownerFeedback, setOwnerFeedback] = useState('');
-  const [pendingPilotAccess, setPendingPilotAccess] = useState<PilotAccess | null>(null);
-  const [pilotKeyError, setPilotKeyError] = useState('');
-  const [hasAuthenticated, setHasAuthenticated] = useState(() => hasPersistedSignIn(state));
-  const [loginDraft, setLoginDraft] = useState({ username: '', password: '', staySignedIn: false });
-  const [passwordRecoveryStage, setPasswordRecoveryStage] = useState<'idle' | 'sending' | 'sent' | 'verifying'>('idle');
-  const [passwordRecoveryNotice, setPasswordRecoveryNotice] = useState('');
-  const [setupDraft, setSetupDraft] = useState({
-    username: '',
-    password: '',
-    confirmPassword: '',
-    initialGames: '',
-    defaultCollectionMode: 'Drop' as 'Time' | 'Drop',
-    defaultHourlyFee: 0,
-    defaultEstimatedDropPerSeatHour: 0,
-    staySignedIn: true
-  });
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>({ state: 'idle', message: 'Ready' });
-  const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
+  const settingsWorkspace = useSettingsWorkspaceState(state);
+  const {
+    backendStatus,
+    clubDraft,
+    hasAuthenticated,
+    loginDraft,
+    passwordRecoveryNotice,
+    passwordRecoveryStage,
+    pendingPilotAccess,
+    pilotKeyError,
+    saveStatus,
+    settingsSection,
+    setupDraft,
+    staffDraft,
+    setBackendStatus,
+    setClubDraft,
+    setHasAuthenticated,
+    setLoginDraft,
+    setPasswordRecoveryNotice,
+    setPasswordRecoveryStage,
+    setPendingPilotAccess,
+    setPilotKeyError,
+    setSaveStatus,
+    setSettingsSection,
+    setSetupDraft,
+    setStaffDraft
+  } = settingsWorkspace;
   const [reportMessage, setReportMessage] = useState('');
   const [backupMessage, setBackupMessage] = useState('');
-  const [clubDraft, setClubDraft] = useState<ClubAccount>(() => state.settings.clubAccount ?? emptyClubAccount);
-  const [staffDraft, setStaffDraft] = useState<{ name: string; role: StaffRole; pin: string }>({ name: '', role: 'Floor', pin: '' });
   const [undoStack, setUndoStack] = useState<AppState[]>([]);
   const [eventDrafts, setEventDrafts] = useState<Record<string, { failReason: string; failNote: string; breakReason: string; breakNote: string }>>({});
   const [seatPicker, setSeatPicker] = useState<SeatPickerState | null>(null);
@@ -617,7 +606,6 @@ function App() {
     setQrScanAttempt,
     setQrScanMessage
   } = usePlayerDialogState();
-  const [settingsSection, setSettingsSection] = useState<'club' | 'staff' | 'tables' | 'data' | 'display' | 'legal'>('club');
   const [reportMode, setReportMode] = useState<'kpis' | 'night' | 'close'>('kpis');
   const [nightCloseActuals, setNightCloseActuals] = useState<Record<string, string>>({});
   const [nightCloseNotes, setNightCloseNotes] = useState('');
@@ -777,15 +765,7 @@ function App() {
 
   useManagementPilotAccessRefresh({ setState, state });
 
-  useEffect(() => {
-    setClubDraft(state.settings.clubAccount ?? emptyClubAccount);
-  }, [state.settings.clubAccount]);
-
-  useEffect(() => {
-    if (!isPilotAccessActive(state.settings.pilotAccess)) {
-      setHasAuthenticated(false);
-    }
-  }, [state.settings.pilotAccess]);
+  useSettingsWorkspaceSync({ setClubDraft, setHasAuthenticated, state });
 
   useManagementStorageSync(setState);
 

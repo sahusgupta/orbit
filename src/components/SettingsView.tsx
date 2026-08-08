@@ -2,12 +2,13 @@ import { Download, FileText, KeyRound, Moon, Plus, Settings, Trash2, Upload, Use
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import PanelTitle from './PanelTitle';
 import { getCollectionProfile } from '../domain/reporting';
-import type { AppState, ClubAccount, CollectionProfile, StaffRole, TableCap } from '../domain/types';
-
-type SettingsSection = 'club' | 'staff' | 'tables' | 'data' | 'display' | 'legal';
-type StaffDraft = { name: string; role: StaffRole; pin: string };
-type BackendStatus = { running: boolean; host: string; port: number; reportCount: number };
-type SaveStatus = { state: 'idle' | 'saving' | 'saved' | 'error'; message: string };
+import type { AppState, ClubAccount, CollectionProfile, TableCap } from '../domain/types';
+import type {
+  BackendStatus,
+  SaveStatus,
+  SettingsSection,
+  StaffDraft
+} from '../features/settings/settingsWorkspace';
 const tableCaps = [6, 8, 10] as const satisfies readonly TableCap[];
 
 type SettingsViewProps = {
@@ -195,7 +196,7 @@ export default function SettingsView({
                 />
                 <select
                   value={staffDraft.role}
-                  onChange={(event) => setStaffDraft({ ...staffDraft, role: event.target.value as StaffRole })}
+                  onChange={(event) => setStaffDraft({ ...staffDraft, role: event.target.value as StaffDraft['role'] })}
                 >
                   <option value="Floor">Floor</option>
                   <option value="Manager">Manager</option>
