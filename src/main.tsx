@@ -145,21 +145,6 @@ import {
   approveMembershipRequest as approveMembershipRequestInState
 } from './application/management/membershipCommands';
 import {
-  addTournamentEntry as addTournamentEntryInState,
-  advanceTournamentLevel as advanceTournamentLevelInState,
-  checkInTournamentPlayer as checkInTournamentPlayerInState,
-  createTournament as createTournamentInState,
-  drawTournamentTables as drawTournamentTablesInState,
-  eliminateTournamentPlayer as eliminateTournamentPlayerInState,
-  pauseTournament as pauseTournamentInState,
-  registerTournamentPlayer as registerTournamentPlayerInState,
-  rerunTournament,
-  resumeTournament as resumeTournamentInState,
-  startTournament as startTournamentInState,
-  updateTournamentPayout as updateTournamentPayoutInState,
-  updateTournamentSettings
-} from './application/management/tournamentCommands';
-import {
   getNightCloseLockError,
   getNightCloseReopenError,
   lockNightClose,
@@ -178,6 +163,20 @@ import {
 } from './application/management/sync/useManagementPersistenceEvents';
 import { useManagementPlayerUpdateSync } from './application/management/sync/useManagementPlayerUpdateSync';
 import { useManagementPilotAccessRefresh } from './application/management/sync/useManagementPilotAccessRefresh';
+import {
+  createTournamentActions,
+  formatTournamentTime,
+  getNextTournamentLevel,
+  getTournamentActivePlayers,
+  getTournamentAverageStack,
+  getTournamentEntries,
+  getTournamentLevel,
+  getTournamentLevelRemainingSeconds,
+  getTournamentPrizePool,
+  useSelectedTournament,
+  useTournamentSelectionRepair,
+  useTournamentWorkspaceState
+} from './features/tournaments/tournamentWorkspace';
 import {
   canUseRendererFirebaseAuth,
   loadExistingManagementStateForAccount,
@@ -422,33 +421,6 @@ const toLocalDateValue = (date: Date) => {
 const formatClock = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '-');
 const minutesSince = (iso?: string) => (iso ? Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000)) : 0);
 const formatHours = (hours: number) => `${hours.toFixed(1)}h`;
-const formatTournamentTime = (seconds: number) => {
-  const safeSeconds = Math.max(0, Math.floor(seconds));
-  const minutes = Math.floor(safeSeconds / 60);
-  const remainingSeconds = safeSeconds % 60;
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-};
-const getTournamentLevel = (tournament?: Tournament | null) => tournament?.levels[tournament.currentLevelIndex] ?? null;
-const getNextTournamentLevel = (tournament?: Tournament | null) => tournament?.levels[(tournament.currentLevelIndex ?? 0) + 1] ?? null;
-const getTournamentLevelRemainingSeconds = (tournament: Tournament | null | undefined, nowMs = Date.now()) => {
-  const level = getTournamentLevel(tournament);
-  if (!tournament || !level) return 0;
-  if (tournament.status === 'Paused') return tournament.pausedRemainingSeconds ?? level.durationMinutes * 60;
-  if (tournament.status !== 'Running' || !tournament.levelStartedAt) return level.durationMinutes * 60;
-  return Math.max(0, level.durationMinutes * 60 - Math.floor((nowMs - new Date(tournament.levelStartedAt).getTime()) / 1000));
-};
-const getTournamentEntries = (tournament?: Tournament | null) =>
-  (tournament?.players ?? []).reduce((sum, player) => sum + 1 + player.rebuys + player.addOns, 0);
-const getTournamentActivePlayers = (tournament?: Tournament | null) =>
-  (tournament?.players ?? []).filter((player) => player.status !== 'Eliminated').length;
-const getTournamentPrizePool = (tournament?: Tournament | null) =>
-  (tournament?.players ?? []).reduce((sum, player) => sum + player.buyIn + player.rebuys * (tournament?.rebuyPrice ?? player.buyIn) * ((tournament?.rebuyPrizePercent ?? 100) / 100) + player.addOns * (tournament?.addOnPrice ?? player.buyIn) * ((tournament?.rebuyPrizePercent ?? 100) / 100), 0);
-const getTournamentAverageStack = (tournament?: Tournament | null) => {
-  const activePlayers = getTournamentActivePlayers(tournament);
-  if (!tournament || !activePlayers) return 0;
-  const totalChips = (tournament.players ?? []).reduce((sum, player) => sum + (1 + player.rebuys + player.addOns) * player.startingStack, 0);
-  return Math.round(totalChips / activePlayers);
-};
 const getLevelsUntilBreak = (tournament?: Tournament | null) => {
   if (!tournament) return null;
   for (let index = tournament.currentLevelIndex; index < tournament.levels.length; index += 1) {
@@ -623,19 +595,21 @@ function App() {
   const [dropDrafts, setDropDrafts] = useState<Record<string, { amount: string; note: string }>>({});
   const [dealerDrafts, setDealerDrafts] = useState<Record<string, string>>({});
   const [handCountDrafts, setHandCountDrafts] = useState<Record<string, string>>({});
-  const [selectedTournamentId, setSelectedTournamentId] = useState('');
-  const [tournamentView, setTournamentView] = useState<'library' | 'create' | 'edit' | 'manage'>('library');
-  const [tournamentSection, setTournamentSection] = useState<'clock' | 'players' | 'tables' | 'payouts'>('clock');
-  const [tournamentDraft, setTournamentDraft] = useState({
-    name: `Tournament ${todayDate()}`,
-    buyIn: '100',
-    startingStack: '20000',
-    levelMinutes: '20',
-    rebuyPrizePercent: '100',
-    tableSize: '9'
-  });
-  const [tournamentPlayerDraft, setTournamentPlayerDraft] = useState({ name: '', profileId: '', phone: '', email: '' });
-  const [tournamentPayoutDrafts, setTournamentPayoutDrafts] = useState<Record<number, string>>({});
+  const tournamentWorkspace = useTournamentWorkspaceState();
+  const {
+    selectedTournamentId,
+    setSelectedTournamentId,
+    setTournamentDraft,
+    setTournamentPayoutDrafts,
+    setTournamentPlayerDraft,
+    setTournamentSection,
+    setTournamentView,
+    tournamentDraft,
+    tournamentPayoutDrafts,
+    tournamentPlayerDraft,
+    tournamentSection,
+    tournamentView
+  } = tournamentWorkspace;
   const [customTimeDrafts, setCustomTimeDrafts] = useState<Record<string, string>>({});
   const [collapsedTables, setCollapsedTables] = useState<Record<string, boolean>>({});
   const [openPanels, setOpenPanels] = useState<Record<string, boolean>>({
@@ -704,10 +678,7 @@ function App() {
     [state]
   );
   const activeAccountKey = getAccountKeyFromState(state);
-  const selectedTournament = useMemo(
-    () => state.tournaments.find((tournament) => tournament.id === selectedTournamentId) ?? state.tournaments[0] ?? null,
-    [selectedTournamentId, state.tournaments]
-  );
+  const selectedTournament = useSelectedTournament(state.tournaments, selectedTournamentId);
 
   useEffect(() => {
     stateRef.current = state;
@@ -724,14 +695,7 @@ function App() {
     return () => window.removeEventListener('keydown', closeQuickAddOnEscape);
   }, [openPanels.quickAdd]);
 
-  useEffect(() => {
-    if (!selectedTournamentId && state.tournaments[0]) {
-      setSelectedTournamentId(state.tournaments[0].id);
-    }
-    if (selectedTournamentId && !state.tournaments.some((tournament) => tournament.id === selectedTournamentId)) {
-      setSelectedTournamentId(state.tournaments[0]?.id ?? '');
-    }
-  }, [selectedTournamentId, state.tournaments]);
+  useTournamentSelectionRepair(state.tournaments, selectedTournamentId, setSelectedTournamentId);
 
   useEffect(() => {
     const firstGameId = state.games[0]?.id;
@@ -2343,113 +2307,29 @@ function App() {
     persist(nextState, true, { feature: 'Tournament manager', action: usageAction, route: 'tournaments' });
   };
 
-  const createTournament = (event: React.FormEvent) => {
-    event.preventDefault();
-    const result = createTournamentInState(state, tournamentDraft, { createId: uid, nowIso });
-    if (!result) return;
-    persistTournamentState(result.state, 'Created tournament');
-    setSelectedTournamentId(result.tournament.id);
-    setTournamentView('manage');
-    setTournamentSection('clock');
-  };
-
-  const beginTournamentEdit = (tournament: Tournament) => {
-    setSelectedTournamentId(tournament.id);
-    setTournamentDraft({
-      name: tournament.name,
-      buyIn: String(tournament.buyIn),
-      startingStack: String(tournament.startingStack),
-      levelMinutes: String(tournament.levels[0]?.durationMinutes ?? 20),
-      rebuyPrizePercent: String(tournament.rebuyPrizePercent ?? 100),
-      tableSize: String(tournament.tableSize ?? 9)
-    });
-    setTournamentView('edit');
-  };
-
-  const saveTournamentSettings = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!selectedTournament) return;
-    persistTournamentState(
-      updateTournamentSettings(state, selectedTournament.id, tournamentDraft),
-      'Updated tournament settings'
-    );
-    setTournamentView('library');
-  };
-
-  const runTournamentAgain = (source: Tournament) => {
-    const result = rerunTournament(state, source, { createId: uid, nowIso });
-    persistTournamentState(result.state, 'Created recurring tournament');
-    setSelectedTournamentId(result.tournament.id);
-    setTournamentView('manage');
-    setTournamentSection('players');
-  };
-
-  const drawTournamentTables = (tournament: Tournament) => {
-    persistTournamentState(drawTournamentTablesInState(state, tournament, Math.random), 'Drew tournament tables');
-  };
-
-  const registerTournamentPlayer = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!selectedTournament) return;
-    const result = registerTournamentPlayerInState(
-      state,
-      selectedTournament,
-      tournamentPlayerDraft,
-      { createId: uid, nowIso }
-    );
-    if (!result) return;
-    persistTournamentState(result.state, 'Registered player');
-    setTournamentPlayerDraft({ name: '', profileId: '', phone: '', email: '' });
-  };
-
-  const startTournament = (tournament: Tournament) => {
-    persistTournamentState(startTournamentInState(state, tournament.id, { nowIso }), 'Started tournament');
-    window.setTimeout(() => openTournamentTv(tournament.id), 100);
-  };
-
-  const pauseTournament = (tournament: Tournament) => {
-    persistTournamentState(
-      pauseTournamentInState(state, tournament.id, clockNow, { nowIso }),
-      'Paused tournament'
-    );
-  };
-
-  const resumeTournament = (tournament: Tournament) => {
-    const level = getTournamentLevel(tournament);
-    const remaining = tournament.pausedRemainingSeconds ?? (level?.durationMinutes ?? 20) * 60;
-    persistTournamentState(
-      resumeTournamentInState(state, tournament.id, level?.durationMinutes ?? 20, remaining, Date.now()),
-      'Resumed tournament'
-    );
-  };
-
-  const advanceTournamentLevel = (tournament: Tournament, direction: 1 | -1) => {
-    persistTournamentState(
-      advanceTournamentLevelInState(state, tournament.id, direction, { nowIso }),
-      direction > 0 ? 'Advanced level' : 'Rewound level'
-    );
-  };
-
-  const eliminateTournamentPlayer = (tournament: Tournament, playerId: string) => {
-    persistTournamentState(
-      eliminateTournamentPlayerInState(state, tournament, playerId, { nowIso }),
-      'Eliminated player'
-    );
-  };
-
-  const addTournamentEntry = (tournament: Tournament, playerId: string, field: 'rebuys' | 'addOns') => {
-    persistTournamentState(
-      addTournamentEntryInState(state, tournament.id, playerId, field),
-      field === 'rebuys' ? 'Added rebuy' : 'Added add-on'
-    );
-  };
-
-  const updateTournamentPayout = (tournament: Tournament, place: number, percent: number) => {
-    persistTournamentState(
-      updateTournamentPayoutInState(state, tournament.id, place, percent),
-      'Updated payout'
-    );
-  };
+  const {
+    addTournamentEntry,
+    advanceTournamentLevel,
+    beginTournamentEdit,
+    checkInTournamentPlayer,
+    createTournament,
+    drawTournamentTables,
+    eliminateTournamentPlayer,
+    pauseTournament,
+    registerTournamentPlayer,
+    resumeTournament,
+    runTournamentAgain,
+    saveTournamentSettings,
+    startTournament,
+    updateTournamentPayout
+  } = createTournamentActions({
+    ...tournamentWorkspace,
+    clockNow,
+    onPersist: persistTournamentState,
+    openTournamentTv,
+    selectedTournament,
+    state
+  });
 
   const updateSettings = (patch: Partial<AppState['settings']>) => {
     persist({ ...state, settings: { ...state.settings, ...patch } }, true, {
@@ -2876,13 +2756,6 @@ function App() {
           : playerSession
       )
     });
-  };
-
-  const checkInTournamentPlayer = (tournament: Tournament, playerId: string) => {
-    persistTournamentState(
-      checkInTournamentPlayerInState(state, tournament.id, playerId),
-      'Checked in player'
-    );
   };
 
   const navigatePrimary = (destination: PrimaryDestination) => {

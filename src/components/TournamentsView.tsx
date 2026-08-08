@@ -3,25 +3,12 @@ import { ChevronLeft, Clock, Edit3, Eye, LayoutDashboard, MoreHorizontal, Plus, 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import PanelTitle from './PanelTitle';
 import type { AppState, Tournament, TournamentLevel } from '../domain/types';
-
-type TournamentView = 'library' | 'create' | 'edit' | 'manage';
-type TournamentSection = 'clock' | 'players' | 'tables' | 'payouts';
-
-type TournamentDraft = {
-  name: string;
-  buyIn: string;
-  startingStack: string;
-  levelMinutes: string;
-  rebuyPrizePercent: string;
-  tableSize: string;
-};
-
-type TournamentPlayerDraft = {
-  name: string;
-  profileId: string;
-  phone: string;
-  email: string;
-};
+import type {
+  TournamentDraft,
+  TournamentPlayerDraft,
+  TournamentSection,
+  TournamentView
+} from '../features/tournaments/tournamentWorkspace';
 
 type TournamentsViewProps = {
   state: AppState;
