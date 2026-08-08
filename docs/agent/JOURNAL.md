@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-08 - REF-018 management persistence and sync characterization
+
+- Re-ran the 2-file / 16-test account-restore and Firebase adapter boundary, then added unchanged-production browser and desktop/Firebase orchestration cases; the expanded boundary passed 4 files / 18 tests.
+- Pinned account partitions, startup timestamp precedence, save fan-out, local-bridge bootstrap/retry, desktop polling, four-collection Firebase reconciliation, notification priority, save failure recovery, update preservation, and all interval/listener cleanup.
+- Recorded the existing authenticated startup/poll ordering explicitly: polled profiles/interests can merge into the latest local `stateRef` before full startup propagation, retaining that local state's other collections.
+- Full verification passed all compiler projects, Player TypeScript, 69 files / 382 tests, and the unchanged 1,942-module build. No production source, runtime, socket, credential, database, provider, or deployment was used.
+
 ## 2026-08-08 - REF-017 tournament and closeout command boundaries
 
 - Re-ran 3 files / 10 existing tournament/closeout/reporting cases, then committed three complete unchanged-production lifecycle cases as `c517ab9`; the expanded boundary passed 5 files / 13 tests.

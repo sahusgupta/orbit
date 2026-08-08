@@ -320,7 +320,7 @@ tasks:
 
   - id: REF-018
     title: Characterize management persistence and synchronization orchestration
-    status: pending
+    status: complete
     objective: Pin browser/preload/local-bridge/Firebase selection, ordering, merging, retry, fallback, update-preservation, and notification behavior before moving effects.
     evidence_root_cause: Twenty-one App effects and top-level load/save functions mix platform selection with application state; current tests cover pieces but not the complete precedence and retry policy.
     files_areas:
