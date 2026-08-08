@@ -13,9 +13,7 @@ import { todayDate } from '../domain/state';
 import type { getAnalytics, getOperationalOpportunities, getUsageAnalytics } from '../domain/analytics';
 import type { NightCloseTable } from '../lib/nightClose';
 import type { AppState, NightCloseRecord, ReportPeriod, TableEvent } from '../domain/types';
-
-type ReportMode = 'kpis' | 'night' | 'close';
-type KpiCategory = 'operations' | 'waitlist' | 'tables' | 'collections';
+import type { KpiCategory, ReportMode } from '../features/reporting/reportingWorkspace';
 
 type SummaryViewProps = {
   state: AppState;

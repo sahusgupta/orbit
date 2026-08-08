@@ -63,7 +63,6 @@ import {
   hasProfileReference
 } from './lib/profileRelationships';
 import { sendFirebasePasswordResetEmail, signInOrCreateFirebaseEmailAccount, signInToFirebaseWithEmail, signOutOfFirebase } from './lib/firebaseClubSync';
-import { buildNightCloseTables } from './lib/nightClose';
 import { getBalancePlans, parseGroupMeMessages, type BalancePlanResult } from './lib/resultBuilders';
 import {
   nextYearDate,
@@ -185,21 +184,19 @@ import {
   type BackendStatus
 } from './features/settings/settingsWorkspace';
 import {
+  getNightCloseWorkspace,
+  toLocalDateValue,
+  useReportingWorkspaceSelectors,
+  useReportingWorkspaceState
+} from './features/reporting/reportingWorkspace';
+import {
   canUseRendererFirebaseAuth,
   loadExistingManagementStateForAccount,
   loadManagementState,
   saveManagementState
 } from './app/persistence/managementPersistence';
 import {
-  getCollectionProfile,
-  getDealerReport,
-  getReportFinancials,
-  getReportHourlyBreakdown,
-  getReportState,
-  getReportWindow,
-  getTableFinancialOverview,
-  getTablePlayerFinancialOverview,
-  shiftReportAnchor
+  getCollectionProfile
 } from './domain/reporting';
 import {
   getAccountKeyFromState,
@@ -214,9 +211,6 @@ import {
 import { hashStaffPin, verifyStaffSecret } from './domain/staffAuth';
 import {
   buildAnalyticalReportPayload,
-  getAnalytics,
-  getOperationalOpportunities,
-  getUsageAnalytics,
   type AnalyticalReportPayload
 } from './domain/analytics';
 import {
@@ -255,7 +249,6 @@ import type {
   PilotAccess,
   PlayerProfile,
   PlayerSession,
-  ReportPeriod,
   StaffAccount,
   TableCap,
   TableEvent,
@@ -390,13 +383,6 @@ const failedStartReasons = ['not enough arrivals', 'players declined', 'wait too
 const tableBreakReasons = ['too few players', 'players moved', 'players left', 'game merged', 'room closing', 'other'];
 const memberId = () => `mem_${crypto.getRandomValues(new Uint32Array(2))[0].toString(16)}${crypto.getRandomValues(new Uint32Array(2))[1].toString(16)}`;
 const randomToken = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('');
-const toLocalDateValue = (date: Date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
 const formatClock = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '-');
 const minutesSince = (iso?: string) => (iso ? Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000)) : 0);
 const formatHours = (hours: number) => `${hours.toFixed(1)}h`;
@@ -506,7 +492,23 @@ function App() {
     setProfileFormMessage,
     setProfileSearch
   } = useProfileFormState();
-  const [summaryNotes, setSummaryNotes] = useState('');
+  const reportingWorkspace = useReportingWorkspaceState();
+  const {
+    kpiCategory,
+    nightCloseActuals,
+    nightCloseNotes,
+    reportAnchorDate,
+    reportMode,
+    reportPeriod,
+    summaryNotes,
+    setKpiCategory,
+    setNightCloseActuals,
+    setNightCloseNotes,
+    setReportAnchorDate,
+    setReportMode,
+    setReportPeriod,
+    setSummaryNotes
+  } = reportingWorkspace;
   const {
     announceIncomingPlayerRequest,
     markStaffNotificationRead,
@@ -606,37 +608,26 @@ function App() {
     setQrScanAttempt,
     setQrScanMessage
   } = usePlayerDialogState();
-  const [reportMode, setReportMode] = useState<'kpis' | 'night' | 'close'>('kpis');
-  const [nightCloseActuals, setNightCloseActuals] = useState<Record<string, string>>({});
-  const [nightCloseNotes, setNightCloseNotes] = useState('');
-  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('day');
-  const [reportAnchorDate, setReportAnchorDate] = useState(() => toLocalDateValue(new Date()));
-  const [kpiCategory, setKpiCategory] = useState<'operations' | 'waitlist' | 'tables' | 'collections'>('operations');
   const [gameFormatFilter, setGameFormatFilter] = useState('All formats');
   const [gameStakesFilter, setGameStakesFilter] = useState('All stakes');
   const [gameStatusFilter, setGameStatusFilter] = useState('All statuses');
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [coordinationConfig, setCoordinationConfig] = useState({ gameId: 'nlh-1-2', seats: 10 });
-  const analytics = useMemo(() => getAnalytics(state), [state]);
-  const reportWindow = useMemo(() => getReportWindow(reportPeriod, reportAnchorDate), [reportPeriod, reportAnchorDate]);
-  const reportState = useMemo(() => getReportState(state, reportWindow), [state, reportWindow]);
-  const reportAnalytics = useMemo(() => getAnalytics(reportState), [reportState]);
-  const reportFinancials = useMemo(() => getReportFinancials(state, reportWindow), [state, reportWindow]);
-  const nightCloseReportDate = toLocalDateValue(new Date(clockNow));
-  const nightCloseReportWindow = useMemo(() => getReportWindow('day', nightCloseReportDate), [nightCloseReportDate]);
-  const nightCloseFinancials = useMemo(
-    () => getReportFinancials(state, nightCloseReportWindow),
-    [state, nightCloseReportWindow]
-  );
-  const nightCloseTotalProfit =
-    nightCloseFinancials.recordedDrop + nightCloseFinancials.timeFees + nightCloseFinancials.membershipRevenue;
-  const reportHourlyBreakdown = useMemo(() => getReportHourlyBreakdown(state, reportWindow, reportFinancials), [state, reportWindow, reportFinancials]);
-  const reportDealerBreakdown = useMemo(() => getDealerReport(state, reportWindow), [state, reportWindow]);
-  const reportOpportunities = useMemo(() => getOperationalOpportunities(reportState, reportAnalytics), [reportState, reportAnalytics]);
-  const currentReportWindow = getReportWindow(reportPeriod, toLocalDateValue(new Date()));
-  const reportIsCurrentPeriod = reportPeriod === 'all' || reportWindow.startMs >= currentReportWindow.startMs;
-  const usageAnalytics = useMemo(() => getUsageAnalytics(state), [state]);
-  const operationalOpportunities = useMemo(() => getOperationalOpportunities(state, analytics), [state, analytics]);
+  const {
+    analytics,
+    nightCloseFinancials,
+    nightCloseTotalProfit,
+    operationalOpportunities,
+    reportAnalytics,
+    reportDealerBreakdown,
+    reportFinancials,
+    reportHourlyBreakdown,
+    reportIsCurrentPeriod,
+    reportOpportunities,
+    reportState,
+    reportWindow,
+    usageAnalytics
+  } = useReportingWorkspaceSelectors({ clockNow, reportAnchorDate, reportPeriod, state });
   const participantPool = useMemo(
     () => getParticipantPool(state, coordinationConfig.gameId, coordinationConfig.seats),
     [state, coordinationConfig]
@@ -1927,23 +1918,14 @@ function App() {
     setImportText('');
   };
 
-  const currentNightClose = state.nightCloses
-    .filter((close) => close.date === todayDate())
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
-  const savedNightCloseActuals = Object.fromEntries((currentNightClose?.tables ?? []).map((table) => [table.tableId, table.actualCash === undefined ? '' : String(table.actualCash)]));
-  const effectiveNightCloseActuals = { ...savedNightCloseActuals, ...nightCloseActuals };
-  const calculatedNightCloseTables = buildNightCloseTables(state, effectiveNightCloseActuals);
-  const nightCloseTables = currentNightClose?.status === 'Locked' ? currentNightClose.tables : calculatedNightCloseTables;
-  const nightCloseWarnings = Array.from(new Set(nightCloseTables.flatMap((table) => table.warnings.map((warning) => `${table.tableLabel}: ${warning}`))));
-  const nightCloseTotals = nightCloseTables.reduce((totals, table) => ({
-    buyIns: totals.buyIns + table.buyIns,
-    cashOuts: totals.cashOuts + table.cashOuts,
-    removed: totals.removed + table.drop + table.timeFees,
-    expected: totals.expected + table.expectedCash,
-    actual: totals.actual + (table.actualCash ?? 0),
-    discrepancy: totals.discrepancy + (table.discrepancy ?? 0)
-  }), { buyIns: 0, cashOuts: 0, removed: 0, expected: 0, actual: 0, discrepancy: 0 });
-  const nightCloseHasMissingActual = nightCloseTables.some((table) => table.actualCash === undefined);
+  const {
+    currentNightClose,
+    effectiveNightCloseActuals,
+    nightCloseHasMissingActual,
+    nightCloseTables,
+    nightCloseTotals,
+    nightCloseWarnings
+  } = getNightCloseWorkspace(state, nightCloseActuals);
 
   const saveNightClose = () => {
     const result = saveNightCloseInState(
