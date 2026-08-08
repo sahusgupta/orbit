@@ -7,7 +7,9 @@ import {
   syncPlayerUpdatesToClubState
 } from '../../../lib/firebaseClubSync';
 import {
-  localOrbitBridgeBaseUrl,
+  hasManagementDesktopPersistence,
+  loadDesktopManagementStateForAccount,
+  loadManagementStateFromLocalBridge,
   publishStateToLocalOrbitBridge,
   saveManagementState
 } from '../../../app/persistence/managementPersistence';
@@ -41,23 +43,22 @@ export const useManagementPlayerUpdateSync = ({
   stateRef
 }: ManagementPlayerUpdateSyncOptions) => {
   useEffect(() => {
-    if (!hasAuthenticated || !activeAccountKey || window.tableManagerDesktop) return;
+    if (!hasAuthenticated || !activeAccountKey || hasManagementDesktopPersistence()) return;
     let cancelled = false;
     let bridgeInitialized = false;
 
     const syncLocalPlayerUpdates = async () => {
       try {
-        const response = await fetch(`${localOrbitBridgeBaseUrl}/state/${encodeURIComponent(activeAccountKey)}`);
-        if (response.status === 404) {
+        const record = await loadManagementStateFromLocalBridge(activeAccountKey);
+        if (record.status === 'missing') {
           if (!bridgeInitialized) {
             const published = await publishStateToLocalOrbitBridge(stateRef.current);
             bridgeInitialized = Boolean(published?.ok);
           }
           return;
         }
-        if (!response.ok) return;
+        if (record.status === 'unavailable') return;
         bridgeInitialized = true;
-        const record = await response.json() as { state?: AppState };
         if (cancelled || !record.state) return;
         const latestState = stateRef.current;
         announceIncomingPlayerRequest(latestState, record.state);
@@ -87,7 +88,7 @@ export const useManagementPlayerUpdateSync = ({
   }, [activeAccountKey, hasAuthenticated]);
 
   useEffect(() => {
-    if (!hasAuthenticated || !activeAccountKey || !window.tableManagerDesktop || !state.settings.pilotAccess) return;
+    if (!hasAuthenticated || !activeAccountKey || !hasManagementDesktopPersistence() || !state.settings.pilotAccess) return;
     let cancelled = false;
     let syncInFlight = false;
 
@@ -95,7 +96,7 @@ export const useManagementPlayerUpdateSync = ({
       if (syncInFlight) return;
       syncInFlight = true;
       try {
-        const record = await window.tableManagerDesktop?.loadStateForAccount(state.settings.pilotAccess!);
+        const record = await loadDesktopManagementStateForAccount(state.settings.pilotAccess!);
         if (cancelled || !record?.state) return;
         const remoteState = normalizeState(record.state);
         const latestState = stateRef.current;

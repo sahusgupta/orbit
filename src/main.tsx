@@ -177,15 +177,13 @@ import {
   useManagementUpdatePreservation
 } from './application/management/sync/useManagementPersistenceEvents';
 import { useManagementPlayerUpdateSync } from './application/management/sync/useManagementPlayerUpdateSync';
+import { useManagementPilotAccessRefresh } from './application/management/sync/useManagementPilotAccessRefresh';
 import {
   canUseRendererFirebaseAuth,
+  loadExistingManagementStateForAccount,
   loadManagementState,
   saveManagementState
 } from './app/persistence/managementPersistence';
-import {
-  loadBrowserManagementStateForAccount,
-  saveBrowserManagementState
-} from './app/persistence/browserStateRepository';
 import {
   getCollectionProfile,
   getDealerReport,
@@ -899,52 +897,7 @@ function App() {
       .catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    const access = state.settings.pilotAccess;
-    const validatePilotAccess = window.tableManagerDesktop?.validatePilotAccess;
-    if (!access?.authorizationCode || !validatePilotAccess) return undefined;
-    let cancelled = false;
-
-    const refresh = async () => {
-      let result = await validatePilotAccess(access).catch(() => null);
-      if (cancelled || !result) return;
-      if (!result.managed) {
-        // One-time migration: publishing the already activated signed key lets the
-        // API register it without asking the venue to load a replacement file.
-        await window.tableManagerDesktop?.saveState(state).catch(() => undefined);
-        result = await validatePilotAccess(access).catch(() => null);
-      }
-      if (cancelled || !result?.managed || !result.license?.expiresAt) return;
-      setState((current) => {
-        const currentAccess = current.settings.pilotAccess;
-        if (!currentAccess || currentAccess.authorizationCode !== access.authorizationCode) return current;
-        if (currentAccess.expiresAt === result.license!.expiresAt && currentAccess.serverManaged) return current;
-        const next = {
-          ...current,
-          settings: {
-            ...current.settings,
-            pilotAccess: {
-              ...currentAccess,
-              expiresAt: result.license!.expiresAt!,
-              issuedTo: result.license!.issuedTo || currentAccess.issuedTo,
-              licenseId: result.license!.licenseId || currentAccess.licenseId,
-              serverManaged: true
-            }
-          }
-        };
-        saveBrowserManagementState(next);
-        window.tableManagerDesktop?.saveState(next).catch(() => undefined);
-        return next;
-      });
-    };
-
-    void refresh();
-    const timer = window.setInterval(refresh, 5 * 60 * 1000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [state.settings.pilotAccess?.authorizationCode, state.settings.pilotAccess?.licenseId]);
+  useManagementPilotAccessRefresh({ setState, state });
 
   useEffect(() => {
     setClubDraft(state.settings.clubAccount ?? emptyClubAccount);
@@ -2717,25 +2670,8 @@ function App() {
   };
 
   const loadExistingAccountState = async (access: PilotAccess) => {
-    let desktopRecord: PersistedStateRecord | null | undefined;
-    try {
-      desktopRecord = await window.tableManagerDesktop?.loadStateForAccount(access);
-    } catch {
-      // Cloud or desktop lookup failures should not block activation of a valid local pilot key.
-      desktopRecord = undefined;
-    }
-    const localRecord = desktopRecord?.state
-      ? desktopRecord
-      : loadBrowserManagementStateForAccount(access);
-    if (!localRecord?.state) return false;
-
-    const next = normalizeState({
-      ...localRecord.state,
-      settings: {
-        ...localRecord.state.settings,
-        pilotAccess: access
-      }
-    });
+    const next = await loadExistingManagementStateForAccount(access);
+    if (!next) return false;
     setUndoStack([]);
     setHasAuthenticated(hasPersistedSignIn(next));
     persist(next, false, { feature: 'Account', action: 'Loaded existing pilot key', route: 'access' });

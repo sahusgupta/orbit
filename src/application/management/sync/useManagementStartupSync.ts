@@ -4,7 +4,10 @@ import { getAccountKeyFromState, hasPersistedSignIn } from '../../../domain/lice
 import type { AppState } from '../../../domain/types';
 import { loadClubStateFromFirebase, saveClubStateToFirebase } from '../../../lib/firebaseClubSync';
 import { saveBrowserManagementState } from '../../../app/persistence/browserStateRepository';
-import { canUseRendererFirebaseAuth } from '../../../app/persistence/managementPersistence';
+import {
+  canUseRendererFirebaseAuth,
+  loadDesktopManagementState
+} from '../../../app/persistence/managementPersistence';
 
 type ManagementSaveStatus =
   | { state: 'idle'; message: string }
@@ -32,7 +35,7 @@ export const useManagementStartupSync = ({
   const hasPublishedStartupSnapshot = useRef(false);
 
   useEffect(() => {
-    window.tableManagerDesktop?.loadState().then((record) => {
+    loadDesktopManagementState()?.then((record) => {
       if (record?.state) {
         const next = normalizeState(record.state);
         setUndoStack([]);
