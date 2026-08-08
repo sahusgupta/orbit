@@ -560,6 +560,7 @@ function App() {
   const settingsWorkspace = useSettingsWorkspaceState(state);
   const {
     backendStatus,
+    backupMessage,
     clubDraft,
     hasAuthenticated,
     loginDraft,
@@ -567,11 +568,13 @@ function App() {
     passwordRecoveryStage,
     pendingPilotAccess,
     pilotKeyError,
+    reportMessage,
     saveStatus,
     settingsSection,
     setupDraft,
     staffDraft,
     setBackendStatus,
+    setBackupMessage,
     setClubDraft,
     setHasAuthenticated,
     setLoginDraft,
@@ -579,13 +582,12 @@ function App() {
     setPasswordRecoveryStage,
     setPendingPilotAccess,
     setPilotKeyError,
+    setReportMessage,
     setSaveStatus,
     setSettingsSection,
     setSetupDraft,
     setStaffDraft
   } = settingsWorkspace;
-  const [reportMessage, setReportMessage] = useState('');
-  const [backupMessage, setBackupMessage] = useState('');
   const [undoStack, setUndoStack] = useState<AppState[]>([]);
   const tournamentWorkspace = useTournamentWorkspaceState();
   const {

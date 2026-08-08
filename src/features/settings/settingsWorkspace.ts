@@ -54,9 +54,12 @@ export const useSettingsWorkspaceState = (state: AppState) => {
   const [clubDraft, setClubDraft] = useState<ClubAccount>(() => state.settings.clubAccount ?? emptyClubAccount);
   const [staffDraft, setStaffDraft] = useState<StaffDraft>({ name: '', role: 'Floor', pin: '' });
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('club');
+  const [reportMessage, setReportMessage] = useState('');
+  const [backupMessage, setBackupMessage] = useState('');
 
   return {
     backendStatus,
+    backupMessage,
     clubDraft,
     hasAuthenticated,
     loginDraft,
@@ -64,11 +67,13 @@ export const useSettingsWorkspaceState = (state: AppState) => {
     passwordRecoveryStage,
     pendingPilotAccess,
     pilotKeyError,
+    reportMessage,
     saveStatus,
     settingsSection,
     setupDraft,
     staffDraft,
     setBackendStatus,
+    setBackupMessage,
     setClubDraft,
     setHasAuthenticated,
     setLoginDraft,
@@ -76,6 +81,7 @@ export const useSettingsWorkspaceState = (state: AppState) => {
     setPasswordRecoveryStage,
     setPendingPilotAccess,
     setPilotKeyError,
+    setReportMessage,
     setSaveStatus,
     setSettingsSection,
     setSetupDraft,
