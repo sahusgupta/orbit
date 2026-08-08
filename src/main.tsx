@@ -39,7 +39,7 @@ import KpisView from './components/KpisView';
 import PanelTitle from './components/PanelTitle';
 import ProfilesView from './components/ProfilesView';
 import SettingsView from './components/SettingsView';
-import SignalsView, { type GroupMeCandidate } from './components/SignalsView';
+import SignalsView from './components/SignalsView';
 import SummaryView from './components/SummaryView';
 import TableView from './components/TableView';
 import TournamentsView from './components/TournamentsView';
@@ -190,6 +190,10 @@ import {
   useReportingWorkspaceState
 } from './features/reporting/reportingWorkspace';
 import { useFloorWorkspaceState } from './features/floor/floorWorkspace';
+import {
+  useGamesWorkspaceState,
+  type GroupMeCandidate
+} from './features/games/gamesWorkspace';
 import {
   canUseRendererFirebaseAuth,
   loadExistingManagementStateForAccount,
@@ -539,10 +543,20 @@ function App() {
     staffRequestNotice
   } = useStaffRequestNotifications();
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
-  const [groupMeText, setGroupMeText] = useState('');
-  const [groupMeCandidates, setGroupMeCandidates] = useState<GroupMeCandidate[]>([]);
-  const [staffFeedback, setStaffFeedback] = useState('');
-  const [ownerFeedback, setOwnerFeedback] = useState('');
+  const {
+    coordinationConfig,
+    gameFormatFilter,
+    gameStakesFilter,
+    gameStatusFilter,
+    groupMeCandidates,
+    groupMeText,
+    setCoordinationConfig,
+    setGameFormatFilter,
+    setGameStakesFilter,
+    setGameStatusFilter,
+    setGroupMeCandidates,
+    setGroupMeText
+  } = useGamesWorkspaceState();
   const settingsWorkspace = useSettingsWorkspaceState(state);
   const {
     backendStatus,
@@ -603,11 +617,7 @@ function App() {
     setQrScanAttempt,
     setQrScanMessage
   } = usePlayerDialogState();
-  const [gameFormatFilter, setGameFormatFilter] = useState('All formats');
-  const [gameStakesFilter, setGameStakesFilter] = useState('All stakes');
-  const [gameStatusFilter, setGameStatusFilter] = useState('All statuses');
   const [clockNow, setClockNow] = useState(() => Date.now());
-  const [coordinationConfig, setCoordinationConfig] = useState({ gameId: 'nlh-1-2', seats: 10 });
   const {
     analytics,
     nightCloseFinancials,
@@ -1688,24 +1698,6 @@ function App() {
       ...state,
       scriptTemplates: state.scriptTemplates.map((template: any, templateIndex: number) => (templateIndex === index ? value : template))
     });
-  };
-
-  const addFeedback = (role: 'Staff' | 'Owner', text: string) => {
-    if (!text.trim()) return;
-    persist({
-      ...state,
-      feedback: [
-        {
-          id: uid(),
-          role,
-          text: text.trim(),
-          createdAt: nowIso()
-        },
-        ...state.feedback
-      ]
-    }, true, { feature: 'Feedback', action: `Added ${role.toLowerCase()} feedback` });
-    if (role === 'Staff') setStaffFeedback('');
-    if (role === 'Owner') setOwnerFeedback('');
   };
 
   const exportPilotReport = () => {

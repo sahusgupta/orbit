@@ -4,16 +4,7 @@ import PanelTitle from './PanelTitle';
 import type { GameConfig, InterestStatus } from '../domain/types';
 import type { getLikelyParticipants } from '../domain/participants';
 import type { getStaffScripts } from '../domain/operations';
-
-export type GroupMeCandidate = {
-  id: string;
-  playerName: string;
-  gameId: string;
-  status: InterestStatus;
-  timestamp: string;
-  confidence: number;
-  sourceText: string;
-};
+import type { GroupMeCandidate } from '../features/games/gamesWorkspace';
 
 type SignalsViewProps = {
   games: GameConfig[];

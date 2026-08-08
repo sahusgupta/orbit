@@ -4,6 +4,7 @@ import type { getDemand, getViabilityState } from '../domain/operations';
 import type { ParticipantCandidate } from '../domain/participants';
 import type { GameConfig, GameSession, Interest, PlayerProfile } from '../domain/types';
 import PanelTitle from './PanelTitle';
+import type { CoordinationConfig } from '../features/games/gamesWorkspace';
 
 type BuilderBalancePlan = BalancePlanResult<
   GameConfig,
@@ -12,11 +13,6 @@ type BuilderBalancePlan = BalancePlanResult<
   Interest,
   PlayerProfile
 >;
-
-type CoordinationConfig = {
-  gameId: string;
-  seats: number;
-};
 
 type BuilderViewProps = {
   games: GameConfig[];
