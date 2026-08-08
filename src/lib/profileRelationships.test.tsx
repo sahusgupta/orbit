@@ -13,10 +13,12 @@ type IdentifiedRecord = Record<string, unknown> & { id: string };
 
 type CapturedState = Record<string, unknown> & {
   games: IdentifiedRecord[];
+  inAppNotifications: IdentifiedRecord[];
   interests: IdentifiedRecord[];
   playerLedger: IdentifiedRecord[];
   playerSessions: IdentifiedRecord[];
   profiles: IdentifiedRecord[];
+  revenueTransactions: IdentifiedRecord[];
   settings: Record<string, unknown>;
   usageEvents: IdentifiedRecord[];
 };
@@ -34,7 +36,7 @@ const isCapturedState = (value: unknown): value is CapturedState => {
   if (typeof value !== 'object' || value === null) return false;
   const settings: unknown = Reflect.get(value, 'settings');
   return (
-    ['games', 'interests', 'playerLedger', 'playerSessions', 'profiles', 'usageEvents'].every((key) => {
+    ['games', 'inAppNotifications', 'interests', 'playerLedger', 'playerSessions', 'profiles', 'revenueTransactions', 'usageEvents'].every((key) => {
       const records: unknown = Reflect.get(value, key);
       return Array.isArray(records) && records.every(isIdentifiedRecord);
     }) &&
@@ -178,6 +180,43 @@ const click = async (element: Element) => {
   });
 };
 
+const invokeReactHandler = async (element: Element, name: 'onChange' | 'onSubmit', event: unknown) => {
+  const reactPropsKey = Reflect.ownKeys(element).find(
+    (key) => typeof key === 'string' && key.startsWith('__reactProps$')
+  );
+  if (!reactPropsKey) throw new Error(`Expected React props for ${element.tagName}`);
+  const props: unknown = Reflect.get(element, reactPropsKey);
+  if (typeof props !== 'object' || props === null) throw new Error('Expected rendered React props');
+  const handler: unknown = Reflect.get(props, name);
+  if (typeof handler !== 'function') throw new Error(`Expected ${name}`);
+  await act(async () => {
+    Reflect.apply(handler, undefined, [event]);
+    await Promise.resolve();
+  });
+};
+
+const changeInput = (input: Element, value: string) =>
+  invokeReactHandler(input, 'onChange', { target: { value } });
+
+const submitForm = (form: Element) =>
+  invokeReactHandler(form, 'onSubmit', { preventDefault: vi.fn() });
+
+const getButton = (label: string) => {
+  const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+    (candidate) => candidate.textContent?.trim() === label || candidate.getAttribute('aria-label') === label
+  );
+  if (!button) throw new Error(`Expected ${label} button`);
+  return button;
+};
+
+const getLabeledInput = (form: Element, label: string) => {
+  const field = Array.from(form.querySelectorAll('label')).find(
+    (candidate) => candidate.querySelector('span')?.textContent?.trim() === label
+  )?.querySelector('input, select');
+  if (!field) throw new Error(`Expected ${label} field`);
+  return field;
+};
+
 const getProfileCards = () => Array.from(document.querySelectorAll<HTMLElement>('article.profile-card'));
 
 const getProfileCard = (index = 0) => {
@@ -207,11 +246,15 @@ const getPersistedState = () => {
 const resetState = async ({
   profiles,
   interests = [],
-  playerSessions = []
+  playerSessions = [],
+  inAppNotifications = [],
+  revenueTransactions = []
 }: {
   profiles: IdentifiedRecord[];
   interests?: IdentifiedRecord[];
   playerSessions?: IdentifiedRecord[];
+  inAppNotifications?: IdentifiedRecord[];
+  revenueTransactions?: IdentifiedRecord[];
 }) => {
   const stateSetter = harness.stateSetter;
   if (typeof stateSetter !== 'function') throw new Error('Expected to capture the application state setter');
@@ -221,10 +264,12 @@ const resetState = async ({
       return {
         ...current,
         games,
+        inAppNotifications,
         interests,
         playerLedger: [],
         playerSessions,
         profiles,
+        revenueTransactions,
         usageEvents: []
       };
     });
@@ -581,5 +626,124 @@ describe('profile relationship mutations', () => {
     ]);
     expect(getLatestState().interests[1]).toBe(previousState.interests[0]);
     expect(getPersistedState().interests).toEqual(getLatestState().interests);
+  });
+
+  it('creates a paid walk-in member and one exact manual membership revenue record', async () => {
+    await resetState({ profiles: [] });
+    await click(getButton('Add player'));
+    const form = document.querySelector('.player-popup-form');
+    if (!form) throw new Error('Expected add-member form');
+
+    await changeInput(getLabeledInput(form, 'Player name'), '  Paid Walk-In  ');
+    await changeInput(getLabeledInput(form, 'Amount paid in person'), '42.75');
+    await submitForm(form);
+
+    const nextState = getLatestState();
+    expect(nextState.profiles).toHaveLength(1);
+    expect(nextState.profiles[0]).toMatchObject({
+      id: expect.any(String),
+      name: 'Paid Walk-In',
+      membershipPlan: 'monthly',
+      membershipPaymentMethod: 'core',
+      membershipStatus: 'Active',
+      membershipRequestedAt: now,
+      membershipPriceLabel: '$42.75'
+    });
+    expect(nextState.revenueTransactions).toEqual([
+      expect.objectContaining({
+        id: expect.any(String),
+        type: 'membership',
+        amountCents: 4275,
+        occurredAt: now,
+        paymentStatus: 'paid',
+        source: 'manual',
+        playerName: 'Paid Walk-In',
+        membershipPlan: 'monthly'
+      })
+    ]);
+    expect(nextState.revenueTransactions[0]).not.toHaveProperty('playerId');
+    expect(getPersistedState().profiles).toEqual(nextState.profiles);
+    expect(getPersistedState().revenueTransactions).toEqual(nextState.revenueTransactions);
+  });
+
+  it('approves a request without revenue and emits the established targeted notification', async () => {
+    const request = buildProfile('profile-requested', 'Requested Player', {
+      membershipStatus: 'Requested',
+      membershipPlan: 'day',
+      membershipRequestedAt: '2026-08-07T20:00:00.000Z',
+      membershipExpiresAt: '2026-08-08T20:00:00.000Z'
+    });
+    await resetState({ profiles: [request] });
+    await click(getButton('Requests 1'));
+    await click(getButton('Approve application'));
+
+    const nextState = getLatestState();
+    expect(nextState.profiles[0]).toMatchObject({
+      id: request.id,
+      membershipStatus: 'Approved',
+      membershipStartDate: '',
+      membershipExpirationDate: '',
+      membershipExpiresAt: undefined
+    });
+    expect(nextState.revenueTransactions).toEqual([]);
+    expect(nextState.inAppNotifications[0]).toMatchObject({
+      id: expect.any(String),
+      gameId: '',
+      title: 'Membership approved',
+      reason: 'membership-approved',
+      createdAt: now,
+      expiresAt: '2026-08-14T22:00:00.000Z',
+      targetPlayerIds: [request.id],
+      targetPlayerNames: [request.name]
+    });
+    expect(getPersistedState().profiles).toEqual(nextState.profiles);
+    expect(getPersistedState().inAppNotifications).toEqual(nextState.inAppNotifications);
+  });
+
+  it('activates an approved member and records price-label revenue with authoritative identity', async () => {
+    const approved = buildProfile('profile-approved', 'Approved Player', {
+      membershipStatus: 'Approved',
+      membershipPlan: 'monthly',
+      membershipDurationDays: 30,
+      membershipPriceLabel: '$49.00/mo'
+    });
+    await resetState({ profiles: [approved] });
+    if (!document.querySelector('.membership-requests-layout')) await click(getButton('Requests 1'));
+    await click(getButton('Verify ID, mark paid & activate'));
+
+    const nextState = getLatestState();
+    expect(nextState.profiles[0]).toMatchObject({
+      id: approved.id,
+      membershipStartDate: '2026-08-07',
+      membershipExpirationDate: '2026-09-06',
+      membershipExpiresAt: '2026-09-06T22:00:00.000Z',
+      membershipPaymentMethod: 'in-person',
+      membershipStatus: 'Active'
+    });
+    expect(nextState.revenueTransactions).toEqual([
+      expect.objectContaining({
+        id: expect.any(String),
+        type: 'membership',
+        amountCents: 4900,
+        occurredAt: now,
+        paymentStatus: 'paid',
+        source: 'manual',
+        playerId: approved.id,
+        playerName: approved.name,
+        membershipPlan: 'monthly'
+      })
+    ]);
+    expect(nextState.inAppNotifications[0]).toMatchObject({
+      id: expect.any(String),
+      title: 'Membership active',
+      reason: 'membership-activated',
+      createdAt: now,
+      expiresAt: '2026-08-14T22:00:00.000Z',
+      targetPlayerIds: [approved.id],
+      targetPlayerNames: [approved.name]
+    });
+    expect(getPersistedState().profiles).toEqual(nextState.profiles);
+    expect(getPersistedState().revenueTransactions).toEqual(nextState.revenueTransactions);
+    expect(getPersistedState().inAppNotifications).toEqual(nextState.inAppNotifications);
   });
 });
