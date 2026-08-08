@@ -1,5 +1,13 @@
 # Agent Journal
 
+## 2026-08-08 - REF-011 fresh architecture audit and continuation queue
+
+- Created `refactor/orbit-architecture` from clean merged commit `801aa8d`; no production source was changed.
+- Audited 86 production modules / 171 relative edges with zero cycles, recorded tracked source concentration, hook/function hotspots, boundary assertions, platform calls, tests, and the verified 1,932-module bundle baseline.
+- Added the active target dependency direction and REF-011 through REF-030 queue. The prior REF-001 through REF-010 phase remains historical rather than being re-solved.
+- The first aggregate baseline attempt had one five-second Stripe CommonJS test timeout; that test passed in 128 ms alone, the full suite passed, and two later complete `npm run verify` runs passed. No timeout change was justified.
+- Verification: all root compiler projects, Player TypeScript, 55 files / 306 tests, and the renderer build passed. Known SQLite experimental, ExcelJS `eval`, and chunk-size warnings were unchanged.
+
 ## 2026-08-07 - REF-010 API persistence and route composition
 
 - Committed unchanged-production characterization first for the complete database facade and an isolated localhost HTTP child. The child uses a unique temporary SQLite file, synthetic authorization, and explicitly blank Firebase/Stripe/RevenueCat credentials.

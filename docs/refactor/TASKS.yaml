@@ -1,104 +1,852 @@
-queue: orbit-large-refactor
-status: complete
+queue: orbit-architecture-continuation
+status: active
+created: 2026-08-08
+starting_commit: 801aa8d
+predecessor:
+  queue: orbit-large-refactor
+  completed_tasks: [REF-001, REF-002, REF-003, REF-004, REF-005, REF-006, REF-007, REF-008, REF-009, REF-010]
+rules:
+  - complete tasks in dependency order
+  - characterize risky behavior against the pre-refactor implementation
+  - keep public and persisted contracts unchanged unless a separately approved task says otherwise
+  - run focused checks and npm run verify before completing every production refactor task
+  - commit each coherent checkpoint atomically and never push or deploy
+  - continue independent work when one task is blocked
 tasks:
-  - id: REF-001
-    title: Extract canonical management domain types
+  - id: REF-011
+    title: Record the fresh architecture baseline and target
     status: complete
-    boundary: renderer_types
-    risk: low_runtime_high_contract
+    objective: Establish evidence-backed starting metrics, ownership maps, target dependency direction, and this executable continuation queue.
+    evidence_root_cause: The prior queue is complete but its terminal scope deliberately excluded Player decomposition and left management mutation and persistence orchestration in src/main.tsx.
+    files_areas:
+      - docs/refactor
+      - docs/architecture
+      - docs/agent/TASKS.yaml
+      - tracked production and test source for read-only measurement
+    in_scope:
+      - application and entrypoint inventory
+      - line/function/hook/dependency/type-safety/build metrics
+      - boundary, duplication, validation, test, and performance findings
+      - target architecture and task ordering
+    out_of_scope:
+      - production source changes
+      - dependency installation
+      - runtime or production-service startup
     depends_on: []
-    spec: docs/agent/tasks/REF-001.md
-    resolution: type_only_canonical_management_contract_module
-    characterization:
-      - existing_stabilization_renderer_suites
-      - root_and_player_typechecks
-    acceptance:
-      - canonical management types live under src/domain
-      - main runtime behavior and persisted shapes are unchanged
-      - renderer and test compiler ownership remains exact
-  - id: REF-002
-    title: Extract state defaults and persisted-state normalization
-    status: complete
-    boundary: renderer_persistence
-    risk: high
-    depends_on: [REF-001]
-    spec: docs/agent/tasks/REF-002.md
-    resolution: characterized_state_defaults_and_normalization_module
-    characterization:
-      - src/lib/accountRestore.test.ts
+    risk: low_documentation
+    behavior_unchanged:
+      - all runtime behavior
+      - all persisted and public contracts
+      - all verification configuration
+    characterization_tests_required:
+      - existing full baseline only
+    acceptance_criteria:
+      - fresh audit records reproducible metrics and deliberate caveats
+      - target architecture reflects actual package/runtime constraints
+      - every active task contains scope, dependencies, risk, invariants, tests, checks, docs, stops, and completion criteria
+    verification_commands:
+      - npm run verify
+      - git diff --check
+      - git status --short --branch
+    documentation_requirements:
+      - docs/refactor/ARCHITECTURE_AUDIT_2026-08-08.md
+      - docs/refactor/TARGET_ARCHITECTURE.md
+      - docs/refactor/PLAN.md
+      - docs/refactor/TASKS.yaml
+    stop_conditions:
+      - baseline verification cannot be restored without changing product behavior
+      - branch or worktree becomes unsafe
+    completion_criteria:
+      - documents agree with measured code and the task is committed separately
+
+  - id: REF-012
+    title: Extract management profile-import parsing and normalization
+    status: pending
+    objective: Move CSV/XLSX/pasted-JSON record interpretation and canonical profile construction out of App into a pure validated domain boundary.
+    evidence_root_cause: src/main.tsx owns roughly 240 lines of import parsing, unknown-data checks, canonical defaults, and file-format orchestration; the behavior already has a five-case renderer characterization suite.
+    files_areas:
+      - src/main.tsx
+      - src/domain/profileImport.ts
+      - src/domain/profileImport.test.ts
+      - src/lib/profileImport.test.tsx
+    in_scope:
+      - raw cell/JSON validation and normalization
+      - CSV row parsing
+      - canonical PlayerProfile construction with explicit dependencies for IDs and dates
+      - call-site rewiring
+    out_of_scope:
+      - changing accepted formats or fallback values
+      - UI redesign
+      - ExcelJS replacement
+      - persisted profile shape changes
+    depends_on: [REF-011]
+    risk: medium_external_input
+    behavior_unchanged:
+      - accepted/rejected records and ordering
+      - numeric and array sanitization
+      - profile defaults, generated identity, notices, and persistence
+    characterization_tests_required:
+      - src/lib/profileImport.test.tsx passes before production edits
+    acceptance_criteria:
+      - pure parser/normalizer has direct tests for current CSV and JSON behavior
+      - App owns file selection and user feedback but not record interpretation
+      - no explicit any remains in the extracted boundary
+    verification_commands:
+      - npx vitest run src/lib/profileImport.test.tsx src/domain/profileImport.test.ts
+      - npm run typecheck
+      - npm run build
+      - npm run verify
+    documentation_requirements:
+      - update audit/current-state ownership and this queue
+      - create docs/agent/tasks/REF-012.md
+    stop_conditions:
+      - malformed-record behavior is ambiguous beyond existing characterization
+      - extraction would change profile identity policy
+    completion_criteria:
+      - focused/full verification passes and the implementation is committed atomically
+
+  - id: REF-013
+    title: Extract management waitlist commands
+    status: pending
+    objective: Give interest creation, patching, timestamp correction, deletion, and demand-prompt outcomes a pure application owner.
+    evidence_root_cause: Waitlist rules are embedded in App callbacks and can only be exercised through renderer state-capture harnesses despite dense existing characterization.
+    files_areas:
+      - src/main.tsx
+      - src/application/management/waitlistCommands.ts
+      - src/lib/waitlistUpdates.test.ts
       - src/lib/stateCorrections.test.ts
-  - id: REF-003
-    title: Extract report windows and financial analytics
-    status: complete
-    boundary: renderer_reporting
-    risk: medium
-    depends_on: [REF-001]
-    spec: docs/agent/tasks/REF-003.md
-    resolution: characterized_pure_reporting_projection_module
-    characterization:
-      - src/domain/reporting.test.ts
-  - id: REF-004
-    title: Extract licensing and staff-auth helpers
-    status: complete
-    boundary: renderer_identity
-    risk: high
-    depends_on: [REF-001]
-    spec: docs/agent/tasks/REF-004.md
-    resolution: characterized_licensing_and_staff_auth_modules
-    characterization:
-      - src/lib/pilotSignature.test.ts
-      - direct_staff_hash_license_key_and_persisted_sign_in_fixtures
-  - id: REF-005
-    title: Extract remaining demand, table-health, and participant rules
-    status: complete
-    boundary: renderer_domain
-    risk: high
-    depends_on: [REF-001, REF-002]
-    spec: docs/agent/tasks/REF-005.md
-    resolution: characterized_operations_analytics_and_participant_modules
-    characterization:
-      - existing_table_waitlist_participant_suites
-      - src/domain/operations.test.ts
-  - id: REF-006
-    title: Split renderer route sections into typed feature components
-    status: complete
-    boundary: renderer_ui
-    risk: high
-    depends_on: [REF-002, REF-003, REF-004, REF-005]
-    spec: docs/agent/tasks/REF-006.md
-    resolution: nine_characterized_typed_route_extractions
-    execution: one_route_and_one_characterization_boundary_per_subtask
-  - id: REF-007
-    title: Split the ordered global stylesheet by feature
-    status: complete
-    boundary: renderer_css
-    risk: high_visual
-    depends_on: [REF-006]
-    spec: docs/agent/tasks/REF-007.md
-    resolution: byte_preserved_ordered_feature_stylesheets_with_rendered_comparison
-    verification: browser_rendered_comparison_required
-  - id: REF-008
-    title: Extract Electron process modules
-    status: complete
-    boundary: electron
-    risk: high_security
-    depends_on: [TYPE-016]
-    spec: docs/agent/tasks/REF-008.md
-    resolution: extracted_electron_process_modules_with_characterized_composition_boundary
-    prohibited: production_connected_stress_harness
-  - id: REF-009
-    title: Establish and migrate to a shared sync core
-    status: complete
-    boundary: cross_runtime_sync
-    risk: high_architecture
-    depends_on: [TYPE-016, TYPE-018]
-    spec: docs/agent/tasks/REF-009.md
-    resolution: api_owned_server_core_with_explicit_electron_compatibility_profile
-  - id: REF-010
-    title: Split API database and route responsibilities
-    status: complete
-    boundary: api
-    risk: high_data
-    depends_on: [TYPE-018, REF-009]
-    spec: docs/agent/tasks/REF-010.md
-    resolution: stable_database_facade_with_focused_repositories_and_non_listening_route_composition
+      - src/lib/quickAddInterest.test.tsx
+    in_scope:
+      - canonical Interest transitions
+      - explicit time/ID inputs
+      - correction-log and usage-event inputs where pure
+      - command result objects for UI prompts
+    out_of_scope:
+      - seating/session mutations
+      - persistence implementations
+      - waitlist product-policy changes
+    depends_on: [REF-012]
+    risk: high_waitlist_identity
+    behavior_unchanged:
+      - stable IDs and profile matching
+      - status/timestamp/manual-edit semantics
+      - ordering, demand thresholds, usage records, and direct-seat handoff
+    characterization_tests_required:
+      - existing waitlist, correction, and quick-add suites pass before extraction
+      - add missing direct fixtures before moving any uncovered branch
+    acceptance_criteria:
+      - commands are React/platform independent
+      - App callbacks orchestrate events, prompts, and persistence only
+      - existing matrices target the direct owner where practical
+    verification_commands:
+      - npx vitest run src/lib/waitlistUpdates.test.ts src/lib/stateCorrections.test.ts src/lib/quickAddInterest.test.tsx
+      - npm run typecheck
+      - npm run build
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-013.md
+      - update architecture ownership map
+    stop_conditions:
+      - an identity ambiguity is not resolved by the authoritative-ID policy
+      - a behavior fix rather than refactor is required
+    completion_criteria:
+      - characterization and implementation checkpoints are separate where behavior was uncovered; all gates pass
+
+  - id: REF-014
+    title: Extract management seating and player-session commands
+    status: pending
+    objective: Move pure seating, moving, departure, buy-in, time, dealer, and player-session transitions behind explicit application commands.
+    evidence_root_cause: App owns seat selection and more than 600 lines of interdependent player/table transitions; existing 8- and 11-case matrices already capture identity and lifecycle semantics.
+    files_areas:
+      - src/main.tsx
+      - src/application/management/seatingCommands.ts
+      - src/application/management/playerSessionCommands.ts
+      - src/lib/playerTableTransitions.test.ts
+      - src/lib/tableLifecycle.test.ts
+    in_scope:
+      - seat availability and canonical session transitions
+      - player moves/departures and profile updates
+      - time, buy-in, dealer, hand, ledger, and event state projection where cohesive
+    out_of_scope:
+      - UI modals and draft state
+      - storage/Firebase/API operations
+      - identity-policy or accounting-rule changes
+    depends_on: [REF-013]
+    risk: critical_identity_financial
+    behavior_unchanged:
+      - authoritative IDs and ambiguous-name no-mutation policy
+      - seat counts, event order, timer fields, ledger/revenue records, correction logs, and immutability
+    characterization_tests_required:
+      - existing player transition and lifecycle suites pass pre-change
+      - characterize any branch not represented in those matrices before moving it
+    acceptance_criteria:
+      - pure commands accept explicit clock/ID dependencies
+      - no React, browser, Firebase, or Electron dependency enters command modules
+      - App retains only drafts, dialogs, and command/persist orchestration
+    verification_commands:
+      - npx vitest run src/lib/playerTableTransitions.test.ts src/lib/tableLifecycle.test.ts src/lib/tableEventReporting.test.ts
+      - npm run typecheck
+      - npm run build
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-014.md
+      - update management command ownership docs
+    stop_conditions:
+      - financial or identity semantics require a product decision
+      - existing behavior cannot be safely characterized
+    completion_criteria:
+      - risky characterization and implementation are atomic, reviewed, green commits
+
+  - id: REF-015
+    title: Extract table planning and lifecycle commands
+    status: pending
+    objective: Give forming, balanced creation, game switching, table updates, lifecycle events, and close transitions focused pure owners.
+    evidence_root_cause: Table-planning projections are focused, but state-changing table use cases remain inside App and share orchestration with UI drafts.
+    files_areas:
+      - src/main.tsx
+      - src/application/management/tableCommands.ts
+      - src/lib/tablePlanning.test.ts
+      - src/lib/tableLifecycle.test.ts
+    in_scope:
+      - forming/planned/balanced session construction
+      - table updates, game switching, lifecycle and event transitions
+      - explicit outcomes for UI selection and errors
+    out_of_scope:
+      - Player app table presentation
+      - persistence and sync
+      - table-cap or collection-policy redesign
+    depends_on: [REF-014]
+    risk: critical_table_lifecycle
+    behavior_unchanged:
+      - planned IDs, participant ordering, seat caps, session/event order, idempotency, and failure reasons
+    characterization_tests_required:
+      - table planning and lifecycle matrices pass before extraction
+    acceptance_criteria:
+      - state transitions are direct-testable and immutable
+      - App owns prompts/drafts/persistence, not table algorithms
+    verification_commands:
+      - npx vitest run src/lib/tablePlanning.test.ts src/lib/plannedParticipants.test.ts src/lib/tableLifecycle.test.ts
+      - npm run typecheck
+      - npm run build
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-015.md
+    stop_conditions:
+      - extraction exposes a product decision about table lifecycle
+    completion_criteria:
+      - exact existing matrices and full verification pass in focused commits
+
+  - id: REF-016
+    title: Extract profile and membership commands
+    status: pending
+    objective: Move profile edits/merges/club relationships and membership activation/approval into pure identity-safe application owners.
+    evidence_root_cause: Canonical identity helpers exist, but App still constructs and mutates profiles, memberships, revenue, and relationship references inline.
+    files_areas:
+      - src/main.tsx
+      - src/application/management/profileCommands.ts
+      - src/application/management/membershipCommands.ts
+      - src/lib/profileRelationships.test.tsx
+      - src/lib/profileGrouping.test.ts
+      - src/lib/membership.test.ts
+    in_scope:
+      - profile CRUD/merge relationships
+      - club add/remove
+      - membership activation, approval, windows, and associated revenue records
+    out_of_scope:
+      - Firebase authentication
+      - payment-provider behavior
+      - identity-policy redesign
+    depends_on: [REF-013]
+    risk: critical_identity_payment
+    behavior_unchanged:
+      - authoritative ID and unique-unlinked-name fallback
+      - revenue categories/amounts, membership dates/statuses, reference rewrites, and no-fabrication rules
+    characterization_tests_required:
+      - profile relationship/grouping and membership suites pass before extraction
+      - add direct fixtures for uncovered revenue-producing branches
+    acceptance_criteria:
+      - pure commands produce canonical state and explicit validation outcomes
+      - UI and Firebase orchestration remain outside the commands
+    verification_commands:
+      - npx vitest run src/lib/profileRelationships.test.tsx src/lib/profileGrouping.test.ts src/lib/membership.test.ts
+      - npm run typecheck
+      - npm run build
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-016.md
+    stop_conditions:
+      - payment/identity behavior cannot be determined from current contracts
+    completion_criteria:
+      - characterization and implementation are separately committed where required; all gates pass
+
+  - id: REF-017
+    title: Extract tournament and night-close commands
+    status: pending
+    objective: Move tournament lifecycle/registration/payout and night-close audit/sign/lock transitions into explicit application modules.
+    evidence_root_cause: Reporting projections are pure, but tournament and closeout mutations remain in App and have uneven direct coverage.
+    files_areas:
+      - src/main.tsx
+      - src/application/management/tournamentCommands.ts
+      - src/application/management/closeoutCommands.ts
+      - src/lib/tournamentView.test.tsx
+      - src/lib/nightClose.test.ts
+      - src/lib/tableEventReporting.test.ts
+    in_scope:
+      - current lifecycle, registration, rebuy/add-on, elimination, level, payout, audit, sign, lock, and reopen transitions
+    out_of_scope:
+      - tournament product redesign
+      - report submission transport
+      - financial formula changes
+    depends_on: [REF-015, REF-016]
+    risk: high_financial_lifecycle
+    behavior_unchanged:
+      - tournament identity/status mapping, payout math, clock fields, closeout calculations, signatures, locks, and audit order
+    characterization_tests_required:
+      - add pre-refactor direct characterization for uncovered tournament and closeout transitions
+    acceptance_criteria:
+      - mutations are direct-testable without mounting App
+      - App owns forms/navigation/persistence only
+    verification_commands:
+      - npx vitest run src/lib/tournamentView.test.tsx src/lib/nightClose.test.ts src/lib/tableEventReporting.test.ts
+      - npm run typecheck
+      - npm run build
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-017.md
+    stop_conditions:
+      - a tournament or financial behavior requires a product decision
+    completion_criteria:
+      - pre-characterization and implementation commits are green and reviewed
+
+  - id: REF-018
+    title: Characterize management persistence and synchronization orchestration
+    status: pending
+    objective: Pin browser/preload/local-bridge/Firebase selection, ordering, merging, retry, fallback, update-preservation, and notification behavior before moving effects.
+    evidence_root_cause: Twenty-one App effects and top-level load/save functions mix platform selection with application state; current tests cover pieces but not the complete precedence and retry policy.
+    files_areas:
+      - src/main.tsx
+      - src/lib/accountRestore.test.ts
+      - src/lib/firebaseClubSync.test.ts
+      - new management persistence orchestration tests
+    in_scope:
+      - exact load precedence and account partitioning
+      - save fan-out and failure results
+      - local/API/Firebase merge selection and notification detection
+      - update preservation and interval/listener cleanup
+    out_of_scope:
+      - production implementation moves
+      - new synchronization policy
+    depends_on: [REF-013, REF-014, REF-015, REF-016, REF-017]
+    risk: critical_persistence_sync
+    behavior_unchanged:
+      - every runtime behavior; this task is tests and evidence only
+    characterization_tests_required:
+      - new tests execute against the unchanged App owners
+    acceptance_criteria:
+      - successful, missing, stale, malformed, offline, retry, and cleanup paths are pinned
+      - tests use disabled Firebase and isolated fake/local endpoints only
+    verification_commands:
+      - npx vitest run src/lib/accountRestore.test.ts src/lib/firebaseClubSync.test.ts
+      - npm run typecheck
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-018.md
+    stop_conditions:
+      - a test would require production services, secrets, or the unsafe stress harness
+    completion_criteria:
+      - characterization passes against unchanged production code and is committed separately
+
+  - id: REF-019
+    title: Extract management persistence and synchronization application layer
+    status: pending
+    objective: Move platform selection, state publication, reconciliation, and save-result policy out of App behind explicit adapters and hooks.
+    evidence_root_cause: App directly contains 25 localStorage references, 18 preload references, 10 renderer Firebase calls, and several polling/listener effects.
+    files_areas:
+      - src/main.tsx
+      - src/app/persistence
+      - src/application/management/sync
+      - src/lib/firebaseClubSync.ts
+      - REF-018 tests
+    in_scope:
+      - browser state repository
+      - preload/local-bridge adapters
+      - Firebase orchestration calls through existing adapter
+      - reconciliation hook and explicit result policy
+    out_of_scope:
+      - persisted shapes or precedence changes
+      - protocol-v2 changes
+      - new retry behavior
+    depends_on: [REF-018]
+    risk: critical_persistence_sync
+    behavior_unchanged:
+      - API-first desktop behavior and local fallback
+      - per-account partitioning, timestamps, merge ordering, update preservation, notifications, retries, and failure messages
+    characterization_tests_required:
+      - all REF-018 tests pass immediately before and after each move
+    acceptance_criteria:
+      - App no longer implements storage or synchronization algorithms
+      - adapters are testable without production services
+      - protocol and persisted contracts are unchanged
+    verification_commands:
+      - npx vitest run src/lib/accountRestore.test.ts src/lib/firebaseClubSync.test.ts
+      - npm run typecheck
+      - npm run build
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-019.md
+      - update architecture and onboarding persistence maps
+    stop_conditions:
+      - current precedence/failure semantics remain uncharacterized
+      - any production-connected runtime would be required
+    completion_criteria:
+      - each cohesive move is green and atomically committed; App is a consumer, not implementation owner
+
+  - id: REF-020
+    title: Consolidate the management composition root
+    status: pending
+    objective: Reduce App to route/application composition by grouping feature-local draft state and command wiring without hiding cross-feature ownership.
+    evidence_root_cause: After domain and persistence extraction, App will still contain 72 state hooks and broad feature prop assembly.
+    files_areas:
+      - src/main.tsx
+      - src/app
+      - src/features
+      - existing renderer route characterization
+    in_scope:
+      - feature hooks for UI-only drafts and actions
+      - route composition and typed feature contracts
+      - moving residual local presentation helpers/components
+    out_of_scope:
+      - a global state framework
+      - UI redesign or CSS reorder
+      - premature shared UI abstractions
+    depends_on: [REF-019]
+    risk: high_renderer_composition
+    behavior_unchanged:
+      - DOM structure, route hashes, callback timing, state ownership, focus/dialog behavior, and styling
+    characterization_tests_required:
+      - route-specific renderer suites pass before each feature move
+    acceptance_criteria:
+      - main entrypoint is composition/orchestration
+      - feature hooks own only cohesive UI/application wiring
+      - no persistence or domain algorithm returns to presentation
+    verification_commands:
+      - npm run typecheck
+      - npm test
+      - npm run build
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-020.md
+      - update current-state line and responsibility metrics
+    stop_conditions:
+      - a move would alter route/UI behavior without adequate characterization
+    completion_criteria:
+      - all route matrices and full verification pass; remaining main responsibilities are documented
+
+  - id: REF-021
+    title: Extract canonical Player discovery selectors and view models
+    status: pending
+    objective: Move platform-independent discovery, filtering, distance, grouping, labels, and form rules from PlayerApp into directly tested Player domain/application modules.
+    evidence_root_cause: PlayerApp colocates dozens of pure selectors and local domain types with React Native presentation, limiting testability and future web reuse.
+    files_areas:
+      - player-app/src/PlayerApp.tsx
+      - player-app/src/domain/discovery.ts
+      - player-app/src/domain/playerTypes.ts
+      - player-app/src/domain/discovery.test.ts
+    in_scope:
+      - screen/filter/opportunity contracts where platform independent
+      - discovery ordering/filtering/grouping/distance/recommendation rules
+      - email/phone and immutable toggle helpers
+    out_of_scope:
+      - React Native components and styles
+      - network, Firebase, maps, or navigation changes
+    depends_on: [REF-011]
+    risk: medium_player_domain
+    behavior_unchanged:
+      - filter matching, ordering, labels, compatibility reasons, distance math, and form validation
+    characterization_tests_required:
+      - add pre-move fixtures through the current exported/testable seam or a behavior-neutral temporary seam
+    acceptance_criteria:
+      - pure modules have no React Native/Expo imports
+      - PlayerApp imports the canonical types/selectors
+      - modules are reusable by a future Player web presentation
+    verification_commands:
+      - npx vitest run player-app/src/domain
+      - npm run player:typecheck
+      - npm test
+      - npm run build
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-021.md
+      - update Player-web readiness inventory
+    stop_conditions:
+      - existing selection behavior cannot be observed safely
+    completion_criteria:
+      - characterization and pure extraction commits are green
+
+  - id: REF-022
+    title: Split Player presentation by feature
+    status: pending
+    objective: Move cohesive Player screens/components and feature-owned styles out of PlayerApp while preserving native/web rendering contracts.
+    evidence_root_cause: PlayerApp is 7,430 lines and owns over 40 top-level presentation components plus roughly 2,300 lines of style definitions.
+    files_areas:
+      - player-app/src/PlayerApp.tsx
+      - player-app/src/features
+      - player-app/src/components
+      - player-app/src/styles
+    in_scope:
+      - one characterized feature at a time: onboarding, discovery, tournaments, clubs/membership, identity/settings
+      - typed props and feature style ownership
+    out_of_scope:
+      - visual redesign
+      - navigation/state redesign
+      - shared cross-platform UI framework
+    depends_on: [REF-021]
+    risk: high_native_visual
+    behavior_unchanged:
+      - component hierarchy, copy, accessibility props, callbacks, animation values, platform selection, and style values
+    characterization_tests_required:
+      - static/component characterization for each feature before relocation
+      - Player TypeScript before and after every feature move
+    acceptance_criteria:
+      - each feature has a clear presentation owner
+      - PlayerApp no longer contains all screens and styles
+      - no native package build or remote EAS workflow is invoked
+    verification_commands:
+      - npm run player:typecheck
+      - npm test
+      - npm run build
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-022.md
+      - update Player component/style ownership map
+    stop_conditions:
+      - visual behavior cannot be protected with available local checks
+      - a native build or production credential is required
+    completion_criteria:
+      - each feature extraction is a separate green commit and remaining large owners are justified
+
+  - id: REF-023
+    title: Extract Player application and storage orchestration
+    status: pending
+    objective: Move Player AsyncStorage migration, subscription lifecycle, and feature use cases into focused application hooks/adapters.
+    evidence_root_cause: PlayerApp owns 65 state hooks, 18 effects, AsyncStorage migration, subscriptions, foreground refresh, identity, membership, waitlist, and account workflows.
+    files_areas:
+      - player-app/src/PlayerApp.tsx
+      - player-app/src/app
+      - player-app/src/application
+      - player-app/src/data/storage
+    in_scope:
+      - persisted account migration and dismissed-alert storage
+      - subscription/refresh lifecycles
+      - feature application hooks and explicit action results
+    out_of_scope:
+      - transport implementation split covered by REF-025
+      - product behavior or navigation redesign
+    depends_on: [REF-022, REF-024]
+    risk: high_player_identity_sync
+    behavior_unchanged:
+      - legacy storage keys, auth restore, refresh timing, foreground behavior, user messages, and request construction
+    characterization_tests_required:
+      - add pre-refactor storage and subscription-lifecycle characterization
+    acceptance_criteria:
+      - PlayerApp composes feature hooks/screens
+      - AsyncStorage access is confined to a storage adapter
+      - application logic is React Native independent where practical
+    verification_commands:
+      - npm run player:typecheck
+      - npm test
+      - npm run build
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-023.md
+    stop_conditions:
+      - identity or sync semantics require a human decision
+    completion_criteria:
+      - characterization and implementation are separately committed and all local gates pass
+
+  - id: REF-024
+    title: Characterize Player external-data and subscription boundaries
+    status: pending
+    objective: Pin current HTTP, Firestore, protocol, legacy, ordering, refresh, and malformed-record behavior before splitting and validating the Player data adapter.
+    evidence_root_cause: orbitSyncApi.ts has 44 assertions, 9 any keywords, eight HTTP JSON boundaries, and 34 Firestore operations, with only one direct test.
+    files_areas:
+      - player-app/src/data/orbitSyncApi.ts
+      - player-app/src/data/orbitSyncApi.test.ts
+      - player-app/src/domain/syncProtocol.test.ts
+    in_scope:
+      - authenticated HTTP request/response behavior
+      - Firestore record normalization and legacy fallback
+      - subscription lifecycle, ordering, revisions, and deduplication
+      - malformed-record behavior and immutability
+    out_of_scope:
+      - production implementation changes
+      - schema or path changes
+    depends_on: [REF-011]
+    risk: critical_player_data
+    behavior_unchanged:
+      - this task changes tests/evidence only
+    characterization_tests_required:
+      - new fake-only tests run against unchanged adapter behavior
+    acceptance_criteria:
+      - each external input family has valid, legacy, malformed, missing, and failure coverage
+      - no real Firebase/API service is contacted
+    verification_commands:
+      - npx vitest run player-app/src/data/orbitSyncApi.test.ts player-app/src/domain/syncProtocol.test.ts
+      - npm run player:typecheck
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-024.md
+    stop_conditions:
+      - tests require secrets, production data, or remote services
+      - malformed-record policy is genuinely undecidable from current behavior
+    completion_criteria:
+      - pre-refactor characterization is committed separately and green
+
+  - id: REF-025
+    title: Split and validate Player data adapters
+    status: pending
+    objective: Separate authenticated HTTP, Firebase auth, Firestore repositories, subscriptions, decoders, and legacy state compatibility while validating untrusted records.
+    evidence_root_cause: One 1,328-line module combines every Player data responsibility and converts raw external values through assertions.
+    files_areas:
+      - player-app/src/data/orbitSyncApi.ts
+      - player-app/src/data/api
+      - player-app/src/data/firebase
+      - player-app/src/data/subscriptions
+      - player-app/src/domain/decoders
+      - REF-024 tests
+    in_scope:
+      - focused adapters behind stable exported facade during migration
+      - runtime decoders and known legacy normalization
+      - removal of boundary any/assertions where validation can own the type
+    out_of_scope:
+      - Firestore/API contract changes
+      - new fallback identity inference
+      - Firebase initialization or auth-policy redesign
+    depends_on: [REF-024]
+    risk: critical_player_data_identity
+    behavior_unchanged:
+      - paths, queries, request bodies, revision selection, legacy fallback, ordering, identity, and user-visible errors
+    characterization_tests_required:
+      - all REF-024 tests pass before/after every adapter migration
+    acceptance_criteria:
+      - raw data flows through decoder -> legacy normalization -> canonical Player object
+      - facade exports remain stable until all callers migrate
+      - focused modules have one external responsibility
+    verification_commands:
+      - npx vitest run player-app/src/data player-app/src/domain
+      - npm run player:typecheck
+      - npm test
+      - npm run build
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-025.md
+      - update Player data-flow and web-readiness docs
+    stop_conditions:
+      - existing malformed-data behavior cannot be preserved safely
+      - contract/schema changes would be required
+    completion_criteria:
+      - incremental migrations are green, no temporary facade TODO remains, and final ownership is documented
+
+  - id: REF-026
+    title: Validate renderer Firebase input boundaries
+    status: pending
+    objective: Replace raw Firestore assertions with explicit validation and known legacy normalization before applying requests/state to management contracts.
+    evidence_root_cause: firebaseClubSync.ts casts state, membership, and waitlist documents at the external boundary despite strong downstream identity/protocol tests.
+    files_areas:
+      - src/lib/firebaseClubSync.ts
+      - src/lib/firebaseClubSync.test.ts
+      - src/lib/playerSync.ts
+    in_scope:
+      - decoders for Firebase state/request records
+      - exact skip/reject/fallback behavior
+      - typed validation results
+    out_of_scope:
+      - Firestore paths, rules, publication, or protocol changes
+      - identity fallback expansion
+    depends_on: [REF-019]
+    risk: critical_sync_identity
+    behavior_unchanged:
+      - protocol-v2 publication, per-club isolation, malformed-record handling, request ordering/idempotency, and canonical state shapes
+    characterization_tests_required:
+      - add missing malformed document fixtures before implementation
+    acceptance_criteria:
+      - no assertion substitutes for validation at the identified boundaries
+      - existing sync matrices remain exact
+    verification_commands:
+      - npx vitest run src/lib/firebaseClubSync.test.ts src/lib/playerSync.test.ts src/lib/syncProtocolPublishers.test.ts
+      - npm run typecheck
+      - npm run build
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-026.md
+    stop_conditions:
+      - a malformed-record decision is not derivable from current behavior
+    completion_criteria:
+      - characterization and validation commits are separate and green
+
+  - id: REF-027
+    title: Consolidate API privileged client bootstrap
+    status: pending
+    objective: Give Firebase Admin credentials/app ownership and Stripe client construction focused API-internal owners without changing provider behavior.
+    evidence_root_cause: identityService.js, licenseService.js, and paymentService.js repeat Firebase service-account loading; identity and payment separately construct Stripe clients.
+    files_areas:
+      - apps/api/src/identityService.js
+      - apps/api/src/licenseService.js
+      - apps/api/src/paymentService.js
+      - apps/api/src/services
+      - API compiler and service tests
+    in_scope:
+      - exact credential-source parsing and lazy singleton construction
+      - dependency seams for existing tests
+      - caller migration
+    out_of_scope:
+      - provider versions, credentials, routes, webhooks, authorization, or payment/identity semantics
+    depends_on: [REF-011]
+    risk: critical_security_payment
+    behavior_unchanged:
+      - credential precedence, initialization, error messages/statuses, idempotency, webhook verification, and per-club isolation
+    characterization_tests_required:
+      - characterize credential precedence and lazy construction against unchanged modules
+    acceptance_criteria:
+      - one API owner exists per privileged client/bootstrap concept
+      - no secret value is read or printed during tests
+      - service APIs and routes remain unchanged
+    verification_commands:
+      - npm run typecheck:api
+      - npx vitest run apps/api/src
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-027.md
+      - update API architecture map
+    stop_conditions:
+      - testing would require real credentials or provider calls
+      - provider lifecycle semantics are ambiguous
+    completion_criteria:
+      - characterization and implementation commits are green and security-reviewed
+
+  - id: REF-028
+    title: Execute measurement-driven performance improvements
+    status: pending
+    objective: Re-measure bundle/runtime/data hot spots after modularization and improve only proven bottlenecks.
+    evidence_root_cause: The starting build has a 989.62 kB main renderer chunk and 1,066.53 kB lazy ExcelJS chunk; subscription/read patterns are candidates but lack runtime measurements.
+    files_areas:
+      - Vite renderer graph
+      - management route imports
+      - Player subscription adapters
+      - performance documentation
+    in_scope:
+      - reproducible before/after bundle measurements
+      - route/feature lazy loading when ownership supports it
+      - instrumented repeated-read or transformation improvements with tests
+    out_of_scope:
+      - speculative memoization
+      - warning suppression or chunk-limit increases
+      - clarity-reducing micro-optimization
+    depends_on: [REF-020, REF-023, REF-025, REF-026, REF-027]
+    risk: medium_performance_behavior
+    behavior_unchanged:
+      - route output, data freshness, subscription cleanup, error/fallback semantics, and on-demand import behavior
+    characterization_tests_required:
+      - workload-specific behavior tests and recorded baseline before every change
+    acceptance_criteria:
+      - each accepted change has a material measured improvement
+      - changes with no material improvement are reverted/not committed
+    verification_commands:
+      - npm run build
+      - focused workload measurement
+      - npm run verify
+    documentation_requirements:
+      - docs/agent/tasks/REF-028.md
+      - record exact before/after artifacts or workload numbers
+    stop_conditions:
+      - no material bottleneck is measured
+      - improvement requires a product freshness/UX decision
+    completion_criteria:
+      - measured improvements are green and committed; unproven candidates are documented without claims
+
+  - id: REF-029
+    title: Audit error handling, dependency direction, and dead code
+    status: pending
+    objective: Perform a post-migration consistency audit, make expected fallback policies explicit, remove only proven dead code, and close temporary compatibility seams.
+    evidence_root_cause: Starting code has silent optional catches, two zero-incoming UI candidates, and migrations may temporarily retain facades or adapters.
+    files_areas:
+      - all production source
+      - build/config entrypoints
+      - architecture and task records
+    in_scope:
+      - classify silent failure paths
+      - verify dependency direction and absence of cycles
+      - prove dynamic/configured entrypoints before deletion
+      - remove migration-only facades/TODOs that no longer have callers
+    out_of_scope:
+      - deleting retained design-system source without product/history proof
+      - changing user-visible error policy as cleanup
+    depends_on: [REF-028]
+    risk: medium_cross_runtime
+    behavior_unchanged:
+      - expected offline fallbacks, public exports, dynamic entrypoints, scripts, and failure messages
+    characterization_tests_required:
+      - focused tests for any removed fallback or compatibility path
+    acceptance_criteria:
+      - no dependency cycle or newly inverted platform dependency
+      - every silent failure is deliberate/explicit or separately fixed
+      - every deletion has import/history/build/config evidence
+      - no refactor-created TODO or half migration remains
+    verification_commands:
+      - npm run typecheck
+      - npm run player:typecheck
+      - npm test
+      - npm run build
+      - npm run verify
+      - git diff --check
+    documentation_requirements:
+      - docs/agent/tasks/REF-029.md
+      - dead-code and deliberate-error-policy evidence in final report
+    stop_conditions:
+      - deletion cannot be proven safe
+      - error behavior requires a product/security decision
+    completion_criteria:
+      - accepted removals/consistency changes are green and atomic; uncertain candidates remain documented
+
+  - id: REF-030
+    title: Complete final architecture audit and report
+    status: pending
+    objective: Verify the terminal architecture against the attached goal and publish the complete final refactor report.
+    evidence_root_cause: Goal completion requires code/document agreement, final measurements, complete commits, reusable Player-web inventory, and no incomplete queue work.
+    files_areas:
+      - docs/refactor/FINAL_REFACTOR_REPORT.md
+      - docs/architecture/CURRENT_STATE.md
+      - docs/codebase-onboarding.md
+      - docs/refactor
+      - complete repository diff/history
+    in_scope:
+      - final metrics and dependency audit
+      - full verification and warning comparison
+      - commit list, bugs, tests, performance, dead code, deliberate debt, and Player-web readiness
+    out_of_scope:
+      - new production refactors discovered after the final gate; those reopen the queue
+    depends_on: [REF-029]
+    risk: low_documentation_high_completeness
+    behavior_unchanged:
+      - documentation-only final checkpoint
+    characterization_tests_required:
+      - all committed coverage from the queue
+    acceptance_criteria:
+      - every queue task is complete or every remaining task is genuinely human-blocked
+      - no half migration, suppression, or refactor TODO remains
+      - architecture docs match imports, entrypoints, and owners
+      - final report contains every item required by the attached brief
+    verification_commands:
+      - npm run verify
+      - git diff --check
+      - git status --short --branch
+      - review complete refactor commit list and final diff
+    documentation_requirements:
+      - docs/refactor/FINAL_REFACTOR_REPORT.md
+      - final architecture/onboarding/queue updates
+    stop_conditions:
+      - any production task is incomplete
+      - verification is red
+      - a required human decision remains unresolved
+    completion_criteria:
+      - final gate passes, report is committed, worktree status is reported, and the active goal can be marked complete

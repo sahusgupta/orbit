@@ -1,6 +1,8 @@
 # Orbit Current-State Architecture
 
-Date: 2026-08-07
+Initial phase date: 2026-08-07
+
+Fresh audit date: 2026-08-08
 
 ## Runtime boundaries
 
@@ -87,3 +89,17 @@ Electron and API now have dedicated compiler coverage. API route/database decomp
 - Sync protocol v2 atomic-batch or REST parent-last commit semantics and per-club isolation remain intact.
 - Payment/profile/tournament identities remain authoritative and validated at external boundaries.
 - Electron/API production defaults are never exercised by ordinary refactor verification.
+
+## 2026-08-08 continuation audit
+
+The 2026-08-07 ownership map remains the record of REF-001 through REF-010. A fresh audit from merged commit `801aa8d` opened a continuation queue rather than treating that first phase as the terminal architecture.
+
+Current tracked line counts are `src/main.tsx` 5,685, `player-app/src/PlayerApp.tsx` 7,430, `player-app/src/data/orbitSyncApi.ts` 1,328, and `electron/main.cjs` 507. The management `App` still owns most state-changing use cases plus browser/preload/Firebase persistence orchestration. Player still combines application state/effects, navigation, domain selectors, presentation, and styles in one file, while its data adapter combines HTTP, Firebase Auth/Firestore, subscriptions, normalization, and legacy behavior.
+
+The fresh audit, reproducible metrics, target dependency direction, and active REF-011 through REF-030 queue are in:
+
+- `docs/refactor/ARCHITECTURE_AUDIT_2026-08-08.md`
+- `docs/refactor/TARGET_ARCHITECTURE.md`
+- `docs/refactor/TASKS.yaml`
+
+API route/repository ownership, Electron module ownership, the server sync core, sync protocol-v2 invariants, and ordered CSS ownership remain deliberate current boundaries. The continuation begins with pure management commands and Player domain characterization before moving persistence or external-data adapters.
