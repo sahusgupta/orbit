@@ -89,6 +89,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "apps/api/src/shared/orbitCore.cjs",
       "build/icon.ico",
       "build/icon.png",
       "branding.config.json",

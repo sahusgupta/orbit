@@ -94,7 +94,7 @@ tasks:
     risk: high_architecture
     depends_on: [TYPE-016, TYPE-018]
     spec: docs/agent/tasks/REF-009.md
-    current_subtask: REF-009A
+    current_subtask: REF-009C
     blocker: shared_package_ownership_decision_if_no_single_behavior_preserving_boundary_emerges
   - id: REF-010
     title: Split API database and route responsibilities

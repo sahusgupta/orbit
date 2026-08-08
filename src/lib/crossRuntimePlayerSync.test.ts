@@ -21,24 +21,27 @@ type RuntimeSyncCore = {
 
 const require = createRequire(import.meta.url);
 const apiCore = require('../../apps/api/src/orbitCore.js') as RuntimeSyncCore;
+const sharedCoreModule = require('../../apps/api/src/shared/orbitCore.cjs') as RuntimeSyncCore & {
+  createOrbitCore: (options: {
+    profile: 'electron';
+    validateState: false;
+    createId: () => string;
+  }) => RuntimeSyncCore;
+};
 const electronRuntimeUtils = require('../../electron/runtimeUtils.cjs') as {
   getAccountKeyFromState: (state: unknown) => string;
 };
 const electronMainSource = readFileSync(new URL('../../electron/main.cjs', import.meta.url), 'utf8');
+const rootPackage = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
+  build: { files: string[] };
+};
 
 function loadElectronSyncCore(randomUUID = vi.fn(() => 'electron-generated-id')): RuntimeSyncCore {
-  const start = electronMainSource.indexOf('const activeWaitlistStatuses');
-  const end = electronMainSource.indexOf('\nasync function syncStateWithFirebaseRequests', start);
-  if (start < 0 || end < 0) throw new Error('Could not isolate the Electron player-sync core.');
-  const source = electronMainSource.slice(start, end);
-  return Function(
-    'getAccountKeyFromState',
-    'crypto',
-    `${source}; return { applyMembershipRequestToState, applyWaitlistRequestToState, buildPlayerClubSnapshot, getAccountKeyFromState };`
-  )(
-    electronRuntimeUtils.getAccountKeyFromState,
-    { randomUUID }
-  ) as RuntimeSyncCore;
+  return sharedCoreModule.createOrbitCore({
+    profile: 'electron',
+    validateState: false,
+    createId: randomUUID
+  });
 }
 
 function buildState(overrides: Partial<ManagementClubState> = {}): ManagementClubState {
@@ -190,6 +193,16 @@ afterEach(() => {
 });
 
 describe('API and Electron player-sync boundary', () => {
+  it('wires the shared core through the exact Electron compatibility profile and package allowlist', () => {
+    expect(apiCore.buildPlayerClubSnapshot).toBe(sharedCoreModule.buildPlayerClubSnapshot);
+    expect(electronMainSource).toContain("require('../apps/api/src/shared/orbitCore.cjs')");
+    expect(electronMainSource).toContain("profile: 'electron'");
+    expect(electronMainSource).toContain('validateState: false');
+    expect(electronMainSource).toContain('createId: () => crypto.randomUUID()');
+    expect(electronMainSource).not.toMatch(/function (buildPlayerClubSnapshot|applyMembershipRequestToState|applyWaitlistRequestToState)\(/);
+    expect(rootPackage.build.files).toContain('apps/api/src/shared/orbitCore.cjs');
+  });
+
   it('produces identical complete snapshots for their shared canonical case', () => {
     const state = buildState();
     const before = structuredClone(state);
