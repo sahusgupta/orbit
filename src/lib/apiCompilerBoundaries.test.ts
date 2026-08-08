@@ -67,6 +67,12 @@ type RenewPilotLicense = (
   options?: { expiresAt?: string; extendDays?: number }
 ) => Promise<LicenseRecord>;
 
+const getFirebaseRecordProperty = loadFunction<(value: unknown, key: string) => unknown>(
+  firebasePublisherSource,
+  'apps/api/src/firebasePublisher.js',
+  'getRecordProperty'
+);
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -92,6 +98,7 @@ describe('API Firebase REST compiler boundaries', () => {
         base64Url: (value: string) => Buffer.from(value).toString('base64url'),
         crypto: { createSign: vi.fn(() => signer) },
         fetch,
+        getRecordProperty: getFirebaseRecordProperty,
         URLSearchParams
       }
     );
@@ -142,6 +149,7 @@ describe('API Firebase REST compiler boundaries', () => {
       {
         encodeURIComponent,
         fetch,
+        getRecordProperty: getFirebaseRecordProperty,
         restBase: (projectId: string) => `https://firestore.googleapis.test/v1/projects/${projectId}/documents`
       }
     );
@@ -169,6 +177,60 @@ describe('API Firebase REST compiler boundaries', () => {
       ]
     ]);
     expect(playerDocs).toEqual(before);
+  });
+
+  it('rejects malformed successful REST payloads before using credentials or document paths', async () => {
+    const signer = {
+      update: vi.fn(),
+      sign: vi.fn(() => 'local-signature==')
+    };
+    signer.update.mockReturnValue(signer);
+    const tokenFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({ token_type: 'Bearer' }),
+      text: vi.fn()
+    });
+    const getServiceAccountToken = loadFunction<GetServiceAccountToken>(
+      firebasePublisherSource,
+      'apps/api/src/firebasePublisher.js',
+      'getServiceAccountToken',
+      {
+        base64Url: (value: string) => Buffer.from(value).toString('base64url'),
+        crypto: { createSign: vi.fn(() => signer) },
+        fetch: tokenFetch,
+        getRecordProperty: getFirebaseRecordProperty,
+        URLSearchParams
+      }
+    );
+    await expect(getServiceAccountToken({
+      client_email: 'local-service@example.test',
+      private_key: 'local-private-key'
+    })).rejects.toThrow('Firebase token response did not include an access token.');
+
+    const listingFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({ documents: 'not-a-document-list' }),
+      text: vi.fn()
+    });
+    const deleteLegacyPlayerDocuments = loadFunction<DeleteLegacyPlayerDocuments>(
+      firebasePublisherSource,
+      'apps/api/src/firebasePublisher.js',
+      'deleteLegacyPlayerDocuments',
+      {
+        encodeURIComponent,
+        fetch: listingFetch,
+        getRecordProperty: getFirebaseRecordProperty,
+        restBase: (projectId: string) => `https://firestore.googleapis.test/v1/projects/${projectId}/documents`
+      }
+    );
+    await expect(deleteLegacyPlayerDocuments(
+      'local-project',
+      'local-token',
+      'club-a',
+      [{ id: 'player-a', sourceProfileId: 'profile-a' }]
+    )).rejects.toThrow('Firestore player listing returned an invalid document list for club-a.');
   });
 });
 

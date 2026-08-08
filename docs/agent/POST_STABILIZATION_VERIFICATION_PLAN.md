@@ -17,7 +17,7 @@ TypeScript stabilization is complete: renderer/root-test TypeScript, Player Type
 | TYPE-022 | Required now; complete in `f9ae262`. | Electron's renderer is sandboxed. The renderer compiler now exposes only `vite/client` ambient types and contains zero `@types/node` files. |
 | TYPE-016 | Required at the REF-008 trigger; complete. | Dedicated non-DOM Electron check-JS now covers main, preload, and Firebase sync with zero diagnostics; the three findings were characterized before correction. |
 | TYPE-017 | Trigger before tooling refactoring. | Vite/root-script checking is independent of renderer domain extraction; administrative scripts must remain static-only. |
-| TYPE-018 | Trigger before API or shared-core refactoring. | API check-JS exposes seven unowned diagnostics in Firebase/licensing/payment boundaries and is not needed for renderer-only extraction. |
+| TYPE-018 | Required at the REF-009 trigger; complete. | Package-owned non-DOM API check-JS now covers source and JavaScript tests with zero diagnostics; the seven Firebase/licensing/payment findings were characterized before correction. |
 | TYPE-019 | Defer until download-site work. | Download-site browser/tooling coverage does not guard the management renderer refactor. |
 | TYPE-020 | Defer until a secret-free localhost-only harness exists. | TYPE-016 is complete, but the current stress harness still reads a local private key and can launch Electron against hosted defaults; it must not be executed during ordinary verification. |
 
@@ -31,7 +31,7 @@ No project references are justified yet. The repository still has no genuine sha
 | CSS/layout | Renderer checks above plus rendered browser comparison at supported desktop widths; no production endpoint or Firebase sync |
 | Player source | `npm run player:typecheck`, focused Player tests, full tests, build, aggregate verify |
 | Electron main/preload | Complete TYPE-016 first, add boundary characterization, Electron static check, tests/build/verify; never run the current stress harness |
-| API/shared sync | Complete TYPE-018 first, add API boundary characterization, API static check, focused/full tests/verify; do not start or contact production services |
+| API/shared sync | TYPE-018 is complete; add boundary characterization, run the API static check, focused/full tests/verify; do not start or contact production services |
 | Tooling/download/e2e | Complete the corresponding TYPE-017/019/020 trigger task before changing that boundary |
 
 ## Immediate authorized scope

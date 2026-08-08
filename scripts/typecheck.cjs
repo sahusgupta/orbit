@@ -3,7 +3,8 @@ const { spawnSync } = require('child_process');
 const checks = [
   { name: 'Renderer TypeScript', project: 'tsconfig.renderer.json' },
   { name: 'Root test TypeScript', project: 'tsconfig.test.json' },
-  { name: 'Electron check-JS', project: 'tsconfig.electron.json' }
+  { name: 'Electron check-JS', project: 'tsconfig.electron.json' },
+  { name: 'API check-JS', project: 'apps/api/tsconfig.json' }
 ];
 
 const tscPath = require.resolve('typescript/bin/tsc');

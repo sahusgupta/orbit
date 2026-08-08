@@ -1,6 +1,6 @@
 queue: orbit-large-refactor
 status: active
-current: TYPE-018
+current: REF-009
 tasks:
   - id: REF-001
     title: Extract canonical management domain types
@@ -89,7 +89,7 @@ tasks:
     prohibited: production_connected_stress_harness
   - id: REF-009
     title: Establish and migrate to a shared sync core
-    status: gated
+    status: ready
     boundary: cross_runtime_sync
     risk: high_architecture
     depends_on: [TYPE-016, TYPE-018]

@@ -9,7 +9,7 @@ Date: 2026-08-07
 | Management renderer | `src/main.tsx` plus `src/components/` | React/Vite UI, management state/domain orchestration, typed route composition, browser persistence, Firebase client coordination | `tsconfig.renderer.json`, root Vitest, Vite build |
 | Renderer tests | `src/**/*.test.ts(x)` | jsdom/Node-assisted characterization and pure unit tests | `tsconfig.test.json`, root Vitest |
 | Electron | `electron/main.cjs`, `electron/embeddedBackend.cjs`, `electron/localStore.cjs`, `electron/orbitApiClient.cjs`, `electron/runtimeUtils.cjs`, `electron/updateController.cjs`, `electron/preload.cjs` | desktop windowing, IPC, local SQLite, hosted/local API fallback, telemetry, reports, updates | dedicated non-DOM `tsconfig.electron.json`, tests, renderer build |
-| API | `apps/api/src/server.js` | Express routes, SQLite, Firebase Admin publication, licensing/payment integrations | root Vitest only; semantic check pending TYPE-018 |
+| API | `apps/api/src/server.js` | Express routes, SQLite, Firebase Admin publication, licensing/payment integrations | dedicated non-DOM `apps/api/tsconfig.json` check-JS plus root Vitest |
 | Player | `player-app/App.tsx` → `player-app/src/PlayerApp.tsx` | Expo mobile client and Player-owned domain/data code | Player TypeScript plus root Vitest |
 
 ## Current concentration

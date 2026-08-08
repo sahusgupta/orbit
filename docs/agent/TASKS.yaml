@@ -512,13 +512,14 @@ tasks:
     classification: VERIFICATION_GAP
     diagnostics: 0
     observed_probe_diagnostics: 7
-    status: planned
+    status: complete
     safe_autonomous: false
     human_review: true
     blocks_refactoring: false
     blocks_player_web: indirect
     depends_on: []
     spec: docs/agent/tasks/TYPE-018.md
+    resolution: package_owned_node_check_js_with_validated_privileged_boundaries
   - id: TYPE-019
     title: Add download-site compiler coverage
     classification: VERIFICATION_GAP

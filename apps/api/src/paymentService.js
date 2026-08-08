@@ -1,5 +1,5 @@
 const admin = require('firebase-admin');
-const Stripe = require('stripe');
+const { Stripe } = require('stripe');
 const { handleStripeIdentityEvent } = require('./identityService');
 
 let adminApp;

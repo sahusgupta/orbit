@@ -5,7 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "dev": "node --watch src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
     "cors": "^2.8.5",

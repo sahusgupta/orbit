@@ -159,14 +159,14 @@ The post-green reassessment is complete. Details and the boundary verification m
 | TYPE-022 | Required now; complete. | Renderer ambient types restricted to `vite/client` in `f9ae262`; zero Node ambient files remain. |
 | TYPE-016 | Completed at the Electron-refactor trigger. | Main, preload, and Firebase sync now pass a dedicated non-DOM check-JS project; all three probe findings were characterized and resolved. |
 | TYPE-017 | Trigger before tooling refactoring. | Static-only Node/Vite script coverage is independent of the renderer phase. |
-| TYPE-018 | Trigger before API/shared-core work or Player web/API expansion. | Seven probe diagnostics touch privileged Firebase/licensing/payment boundaries. |
+| TYPE-018 | Complete when triggered by REF-009. | Package-owned API check-JS covers source/tests with zero diagnostics after characterized Firebase/licensing/payment corrections. |
 | TYPE-019 | Defer until download-site work. | It does not guard the management renderer refactor. |
 | TYPE-020 | Defer pending a secret-free localhost-only harness. | TYPE-016 is complete; never execute the current production-connected stress path for verification. |
 
 ## Refactor and Player-web readiness
 
 - Large refactor: ready for the renderer-foundation phase; required TYPE-021/015/022 coverage is complete. Electron/API phases remain trigger-gated.
-- Orbit Player web: shared publication/payment identity and Player compiler ownership are resolved; complete TYPE-018 before web/API expansion.
+- Orbit Player web: shared publication/payment identity, Player compiler ownership, and API compiler coverage are resolved; shared-core ownership still requires REF-009.
 
 ## Stabilization commit list
 

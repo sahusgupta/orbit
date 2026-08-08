@@ -1,5 +1,13 @@
 # Agent Journal
 
+## 2026-08-07 - TYPE-018 API check-JS boundary
+
+- Triggered TYPE-018 when REF-009 made API/shared-sync work the next refactor boundary and reproduced exactly seven diagnostics: two Firebase REST JSON properties, four licensing shapes, and one Stripe CommonJS constructor mismatch.
+- Committed five isolated characterization tests first for OAuth projection, stale-player cleanup, authentication timestamps, authoritative renewal expiration, and Stripe's identical CommonJS/named/default constructors.
+- Added package-owned Node-only check-JS for API source and JavaScript tests and integrated it into the non-short-circuiting root typecheck.
+- Removed all seven diagnostics without assertions or suppressions. Valid Firebase behavior and license/Stripe contracts remain characterized; malformed successful Firebase token/list payloads now fail explicitly before credentials or document paths are used.
+- Focused API verification passed 4 files/20 tests. All four root compiler projects, Player TypeScript, 47 files/270 tests, the 1,930-module renderer build, and `npm run verify` passed. No API server, production database, Firebase/Admin endpoint, Stripe endpoint, credential, or hosted service was started or contacted.
+
 ## 2026-08-07 - REF-008 Electron process module extraction
 
 - Completed six characterization-first boundaries: runtime utilities, API transport and telemetry, local SQLite/report storage, embedded localhost backend, update orchestration, and final window/IPC composition.
