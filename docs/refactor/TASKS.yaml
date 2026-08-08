@@ -154,7 +154,7 @@ tasks:
 
   - id: REF-014
     title: Extract management seating and player-session commands
-    status: pending
+    status: complete
     objective: Move pure seating, moving, departure, buy-in, time, dealer, and player-session transitions behind explicit application commands.
     evidence_root_cause: App owns seat selection and more than 600 lines of interdependent player/table transitions; existing 8- and 11-case matrices already capture identity and lifecycle semantics.
     files_areas:

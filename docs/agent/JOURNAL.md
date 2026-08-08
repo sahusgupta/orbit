@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-08 - REF-014 seating and player-session command boundaries
+
+- Re-ran 3 files / 23 existing transition/lifecycle cases, then committed four missing unchanged-production seating/accounting/operational cases as `81dc007`; the expanded boundary passed 27 tests.
+- Moved seat availability/counting, canonical seating, initial accounting, profile frequency, and moves into `seatingCommands.ts`; moved audited corrections, departures, time/buy-in accounting, collection propagation, and drop/dealer/hand writes into `playerSessionCommands.ts`.
+- Kept drafts, dialogs, usage, notification fan-out, and persistence in `App`. Added 13 direct command cases; the affected five renderer suites retained all 41 cases.
+- Full verification passed all compiler projects, Player TypeScript, 59 files / 341 tests, and the 1,936-module build. `src/main.tsx` is 4,991 lines and `App` is 4,370 lines; known warnings are unchanged and no production-connected runtime was invoked.
+
 ## 2026-08-08 - REF-013 management waitlist command boundary
 
 - Re-ran the unchanged waitlist, correction, and quick-add characterization before production edits; all 3 files / 20 tests passed.
