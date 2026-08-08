@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 const playerSourceRoot = fileURLToPath(new URL('../../player-app/src/', import.meta.url));
 const playerAppPath = join(playerSourceRoot, 'PlayerApp.tsx');
 const onboardingFeatureRoot = join(playerSourceRoot, 'features', 'onboarding');
+const sharedComponentsRoot = join(playerSourceRoot, 'components');
+const sharedStylesRoot = join(playerSourceRoot, 'styles');
 
 const componentNames = [
   'OnboardingFlow',
@@ -100,7 +102,12 @@ function listSourceFiles(root: string): string[] {
 }
 
 function parseSources(): ParsedSource[] {
-  return [playerAppPath, ...listSourceFiles(onboardingFeatureRoot)].map((path) => ({
+  return [
+    playerAppPath,
+    ...listSourceFiles(onboardingFeatureRoot),
+    ...listSourceFiles(sharedComponentsRoot),
+    ...listSourceFiles(sharedStylesRoot)
+  ].map((path) => ({
     path,
     source: readFileSync(path, 'utf8')
   }));
