@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-08 - REF-020 management composition root
+
+- Kept tournament, profile/membership, settings/account, reporting/closeout, floor/table, games/outreach, and table-ledger route matrices green immediately before and after their cohesive moves.
+- Moved feature-local drafts, selectors, dialog/scanner state, typed presentation contracts, and the table-ledger component into focused owners under `src/features/`; domain commands and persistence/synchronization owners remain unchanged.
+- Reduced `src/main.tsx` from 4,010 to 3,593 lines, `App` from 3,387 to 3,144 lines, and direct entrypoint `useState` declarations from 70 to five application-wide concerns.
+- Full verification passed all root compiler projects, Player TypeScript, 72 files / 393 tests, and the 1,956-module build; the main chunk is 1,005.90 kB. No production-connected runtime, provider, credential, database, deployment, or push was used.
+
 ## 2026-08-08 - REF-019 management persistence and synchronization application layer
 
 - Kept the REF-018 4-file / 18-test App-level contract green after every cohesive move, then added direct browser repository, platform adapter, and staff-notification policy coverage; the final affected boundary passed 7 files / 29 tests.

@@ -18,7 +18,7 @@ Fresh audit date: 2026-08-08
 
 | File | Lines | Evidence-backed concern |
 | --- | ---: | --- |
-| `src/main.tsx` | 4,010 | Management composition, UI drafts/feedback, route wiring, and feature callback assembly remain concentrated here; domain transitions and persistence/synchronization policy have focused owners. |
+| `src/main.tsx` | 3,593 | Management application state/effects, command invocation, dialogs, persistence calls, and typed route composition remain here; feature-local drafts/view models, domain transitions, and persistence/synchronization policy have focused owners. |
 | `src/styles.css` and `src/styles/*.css` | 35-line entrypoint; 8,840 owned lines | The unchanged ordered cascade now has 35 feature/layer owners. Only the documented dark-theme compatibility pass exceeds 500 lines (649) because equal-specificity historical ordering is cohesive behavior. |
 | `electron/main.cjs` | 505 | Wires the shared server-sync compatibility profile, windows, IPC, Firebase request polling, outreach transport/logging, and application lifecycle. Extracted modules own updates, embedded backend, local SQLite/reports, API transport/telemetry, and pure runtime helpers. |
 | `src/lib/playerSync.ts` | 847 | Canonical renderer publication/merge logic; protected by focused tests and protocol-v2 invariants. |
@@ -53,22 +53,22 @@ The tracked production files above 500 lines are deliberate current boundaries, 
 | Owner | Lines | Current cohesion or safety reason |
 | --- | ---: | --- |
 | `player-app/src/PlayerApp.tsx` | 7,430 | Expo state/effect/navigation shell plus colocated React Native presentation components. Player UI decomposition was not part of this authorized phase, and the repository has no safe local native build; this remains an explicit future concentration. |
-| `src/main.tsx` | 4,010 | Management React state, UI drafts/feedback, route composition, and feature callback assembly after domain commands and persistence/sync effects moved to focused owners. |
+| `src/main.tsx` | 3,593 | Management composition root with five application-wide state declarations, cross-feature effects, command invocation, persistence calls, dialogs, and typed route assembly. Feature-local drafts and presentation models have focused owners. |
 | `player-app/src/data/orbitSyncApi.ts` | 1,328 | Player's single Firebase/API authentication, transport, hydration, and protocol-compatibility adapter. |
-| `src/components/FloorView.tsx` | 1,123 | One management route and its characterized floor/table callback surface. |
+| `src/components/FloorView.tsx` | 1,118 | One management route and its characterized floor/table callback surface; transient workspace state and the ledger presentation have feature owners. |
 | `src/lib/playerSync.ts` | 847 | Renderer-specific management sync transformation boundary whose semantics intentionally differ from the server core. |
 | `src/lib/firebaseClubSync.ts` | 756 | Renderer Firebase publication/subscription and protocol-v2 boundary. |
-| `src/components/ProfilesView.tsx` | 727 | One management route and its characterized profile/import/relationship callback surface. |
+| `src/components/ProfilesView.tsx` | 689 | One management route and its characterized profile/import/relationship callback surface; draft and scanner contracts are feature-owned. |
 | `src/styles/91-dark-theme-compatibility.css` | 649 | Ordered equal-specificity compatibility pass; moving rules changes the preserved cascade. |
 | `apps/api/src/firebasePublisher.js` | 644 | API's sequential Firestore REST publisher, including child-first/parent-last protocol-v2 commit semantics. |
-| `src/components/SummaryView.tsx` | 574 | One management summary/closeout/report route boundary. |
+| `src/components/SummaryView.tsx` | 572 | One management summary/closeout/report route boundary with feature-owned state and projection contracts. |
 | `electron/main.cjs` | 505 | Reviewed Electron process composition, window/IPC lifecycle, and remaining privileged outreach/Firebase wiring. |
 
 Ten additional tracked files over 500 lines are focused characterization suites. Their size comes from complete lifecycle, transition, planning, synchronization, persistence, identity, and ordering matrices; splitting those fixtures would obscure the behavioral boundary they protect.
 
 ## Renderer dependency shape
 
-`src/domain/types.ts` owns canonical management `AppState` and persisted contracts. Focused domain modules own projections; `src/application/management/*Commands.ts` owns state transitions; `src/app/persistence/` owns browser/preload/localhost selection and save policy; synchronization hooks own startup, polling, reconciliation, update preservation, and pilot refresh. Typed components own route markup while `src/main.tsx` composes those owners. Renderer-mount characterization remains at cross-owner behavior boundaries, and pure adapters/commands have direct focused tests. Renderer styles retain one explicit import entrypoint with ordered feature and compatibility owners.
+`src/domain/types.ts` owns canonical management `AppState` and persisted contracts. Focused domain modules own projections; `src/application/management/*Commands.ts` owns state transitions; `src/app/persistence/` owns browser/preload/localhost selection and save policy; synchronization hooks own startup, polling, reconciliation, update preservation, and pilot refresh. Feature workspaces own cohesive UI drafts, route view models, and typed presentation contracts. Typed components own route markup while `src/main.tsx` composes those owners and retains only application-wide state/effects, command invocation, persistence calls, dialogs, and route selection. Renderer-mount characterization remains at cross-owner behavior boundaries, and pure adapters/commands have direct focused tests. Renderer styles retain one explicit import entrypoint with ordered feature and compatibility owners.
 
 The renderer phases now follow this dependency direction:
 
@@ -119,3 +119,5 @@ REF-017 moved tournament creation/settings/rerun, registration/draw, clock/level
 REF-018 characterized the unchanged browser, preload, localhost-bridge, and Firebase orchestration before any owner moved. The browser and desktop App-level suites pin account partitions, startup timestamp precedence, save fan-out/result policy, bridge bootstrap/retry, desktop polling, four-collection Firebase reconciliation, notification priority, update preservation, failure recovery, and cleanup.
 
 REF-019 moved per-account browser persistence into `src/app/persistence/browserStateRepository.ts` and platform selection/HTTP mapping/account restore into `managementPersistence.ts`. Focused hooks under `src/application/management/sync/` now own desktop/Firebase startup, local/desktop/Firebase reconciliation, cross-window reload, update preservation, pilot refresh, and staff-request notification policy. `src/main.tsx` is 4,010 lines and `App` is 3,387 lines; its remaining direct preload calls are UI navigation, backend status, reports, and telemetry rather than state persistence algorithms. The affected boundary passes 7 files / 29 tests, full verification passes 72 files / 393 tests, and the renderer build transforms 1,949 modules with a 998.42 kB main chunk.
+
+REF-020 moved tournament, profile/membership, settings/account, reporting/closeout, floor/table, and games-builder/outreach UI state into focused workspaces under `src/features/`. Those owners also expose canonical draft contracts and cohesive selectors/effects; the live table-ledger presentation moved out of the entrypoint, and unreachable local feedback/component code was removed. `src/main.tsx` is 3,593 lines and `App` is 3,144 lines; direct entrypoint `useState` declarations fell from 70 to five, all application-wide. Route matrices passed before and after every move, full verification passes 72 files / 393 tests, and the renderer build transforms 1,956 modules with a 1,005.90 kB main chunk.

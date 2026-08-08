@@ -403,7 +403,7 @@ tasks:
 
   - id: REF-020
     title: Consolidate the management composition root
-    status: pending
+    status: complete
     objective: Reduce App to route/application composition by grouping feature-local draft state and command wiring without hiding cross-feature ownership.
     evidence_root_cause: After domain and persistence extraction, App will still contain 72 state hooks and broad feature prop assembly.
     files_areas:

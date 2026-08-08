@@ -17,7 +17,8 @@ The product has three major surfaces:
 Read these files first:
 
 - `package.json`: available commands and packaging setup.
-- `src/main.tsx`: management composition root, UI drafts, route wiring, and command invocation.
+- `src/main.tsx`: management composition root, application-wide state/effects, route wiring, and command invocation.
+- `src/features/`: cohesive management route drafts, view models, typed presentation contracts, and feature-local effects.
 - `src/app/persistence/`: browser/preload/localhost/Firebase persistence adapters and result policy.
 - `src/application/management/`: pure management commands plus synchronization hooks.
 - `src/lib/appCore.ts`: small shared pure helpers.
@@ -74,7 +75,7 @@ npm run api:dev
 
 ### React App
 
-`src/main.tsx` is the management composition root. It owns top-level React state, UI-only drafts, route selection, feedback, and feature callback wiring. Domain transitions are delegated to `src/application/management/*Commands.ts`; persistence and player-update coordination are delegated to explicit adapters and hooks.
+`src/main.tsx` is the management composition root. It owns canonical application state, route selection, shell notification visibility, undo history, the shared clock, cross-feature effects, dialogs, and command/route assembly. Cohesive UI drafts and view models live under `src/features/`. Domain transitions are delegated to `src/application/management/*Commands.ts`; persistence and player-update coordination are delegated to explicit adapters and hooks.
 
 Important workflows inside it:
 
