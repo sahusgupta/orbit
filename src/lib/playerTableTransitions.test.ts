@@ -14,8 +14,12 @@ declare global {
 type IdentifiedRecord = Record<string, unknown> & { id: string };
 
 type CapturedState = Record<string, unknown> & {
+  buyIns: IdentifiedRecord[];
   correctionLog: IdentifiedRecord[];
+  dealerAssignments: IdentifiedRecord[];
+  dropLogs: IdentifiedRecord[];
   games: IdentifiedRecord[];
+  handCountLogs: IdentifiedRecord[];
   inAppNotifications: IdentifiedRecord[];
   interests: IdentifiedRecord[];
   playerLedger: IdentifiedRecord[];
@@ -23,6 +27,7 @@ type CapturedState = Record<string, unknown> & {
   profiles: IdentifiedRecord[];
   sessions: IdentifiedRecord[];
   tableEvents: IdentifiedRecord[];
+  timeFeeLogs: IdentifiedRecord[];
   usageEvents: IdentifiedRecord[];
 };
 
@@ -39,8 +44,12 @@ const isIdentifiedRecord = (value: unknown): value is IdentifiedRecord =>
 const isCapturedState = (value: unknown): value is CapturedState => {
   if (typeof value !== 'object' || value === null) return false;
   return [
+    'buyIns',
     'correctionLog',
+    'dealerAssignments',
+    'dropLogs',
     'games',
+    'handCountLogs',
     'inAppNotifications',
     'interests',
     'playerLedger',
@@ -48,6 +57,7 @@ const isCapturedState = (value: unknown): value is CapturedState => {
     'profiles',
     'sessions',
     'tableEvents',
+    'timeFeeLogs',
     'usageEvents'
   ].every((key) => {
     const records: unknown = Reflect.get(value, key);
@@ -263,6 +273,17 @@ const armDepartureFunctionCapture = async (session: Session) => {
           await session.post('Debugger.evaluateOnCallFrame', {
             callFrameId: callFrame.callFrameId,
             expression:
+              'globalThis.__orbitType007dSeatPlayerInState = seatPlayerInState; ' +
+              'globalThis.__orbitType007dSetTableCollectionMode = setTableCollectionMode; ' +
+              'globalThis.__orbitType007dAddPlayerTime = addPlayerTime; ' +
+              'globalThis.__orbitType007dAddBuyIn = addBuyIn; ' +
+              'globalThis.__orbitType007dAddTableDrop = addTableDrop; ' +
+              'globalThis.__orbitType007dAssignDealer = assignDealer; ' +
+              'globalThis.__orbitType007dEndDealerAssignment = endDealerAssignment; ' +
+              'globalThis.__orbitType007dRecordHands = recordHands; ' +
+              'globalThis.__orbitType007dSetDropDrafts = setDropDrafts; ' +
+              'globalThis.__orbitType007dSetDealerDrafts = setDealerDrafts; ' +
+              'globalThis.__orbitType007dSetHandCountDrafts = setHandCountDrafts; ' +
               'globalThis.__orbitType007dMovePlayerToTable = movePlayerToTable; ' +
               'globalThis.__orbitType007dMarkPlayerLeft = markPlayerLeft; ' +
               'globalThis.__orbitType007dMarkPlayerSessionLeft = markPlayerSessionLeft; true'
@@ -283,19 +304,33 @@ const invokeDeparture = async (session: Session, playerSession: IdentifiedRecord
 };
 
 const invokeCapturedFunction = async (session: Session, globalName: string, args: unknown[]) => {
-  const evaluated = await session.post('Runtime.evaluate', {
-    expression: `globalThis.${globalName}`
-  });
-  const functionObjectId = evaluated.result.objectId;
-  if (!functionObjectId) throw new Error(`Expected the captured ${globalName} function`);
+  const serializedArgs = JSON.stringify(args);
+  if (!serializedArgs) throw new Error(`Expected serializable arguments for ${globalName}`);
+  let result: unknown;
   await act(async () => {
-    await session.post('Runtime.callFunctionOn', {
-      objectId: functionObjectId,
-      functionDeclaration: 'function () { return this.apply(undefined, arguments); }',
-      arguments: args.map((value) => ({ value })),
+    const called = await session.post('Runtime.evaluate', {
+      expression: `globalThis.${globalName}(...${serializedArgs})`,
       returnByValue: true
     });
+    result = called.result.value;
   });
+  return result;
+};
+
+const invokeAndRecapture = async (session: Session, globalName: string, args: unknown[]) => {
+  const capture = await armDepartureFunctionCapture(session);
+  const result = await invokeCapturedFunction(session, globalName, args);
+  await capture.completed;
+  return result;
+};
+
+const getSuccessfulCommandState = (value: unknown) => {
+  if (typeof value !== 'object' || value === null || Reflect.get(value, 'ok') !== true) {
+    throw new Error('Expected a successful command result');
+  }
+  const nextState: unknown = Reflect.get(value, 'state');
+  if (!isCapturedState(nextState)) throw new Error('Expected a complete command state');
+  return nextState;
 };
 
 const replaceCapturedState = async (session: Session, patch: Record<string, unknown>) => {
@@ -353,7 +388,11 @@ const resetState = async (session: Session, profiles: IdentifiedRecord[], profil
     manualEdits: { seatedAt: '2026-08-07T20:01:00.000Z' }
   };
   await replaceCapturedState(session, {
+    buyIns: [],
     correctionLog: [structuredClone(existingCorrection)],
+    dealerAssignments: [],
+    dropLogs: [],
+    handCountLogs: [],
     inAppNotifications: [structuredClone(existingNotification)],
     interests: [targetInterest],
     playerLedger: [structuredClone(existingLedger)],
@@ -361,6 +400,7 @@ const resetState = async (session: Session, profiles: IdentifiedRecord[], profil
     profiles,
     sessions: [structuredClone(table)],
     tableEvents: [],
+    timeFeeLogs: [],
     usageEvents: []
   });
   return { targetInterest, targetSession };
@@ -513,6 +553,17 @@ describe('player table transitions', () => {
   afterAll(() => {
     inspectorSession.disconnect();
     Reflect.deleteProperty(globalThis, '__orbitType007dApp');
+    Reflect.deleteProperty(globalThis, '__orbitType007dSeatPlayerInState');
+    Reflect.deleteProperty(globalThis, '__orbitType007dSetTableCollectionMode');
+    Reflect.deleteProperty(globalThis, '__orbitType007dAddPlayerTime');
+    Reflect.deleteProperty(globalThis, '__orbitType007dAddBuyIn');
+    Reflect.deleteProperty(globalThis, '__orbitType007dAddTableDrop');
+    Reflect.deleteProperty(globalThis, '__orbitType007dAssignDealer');
+    Reflect.deleteProperty(globalThis, '__orbitType007dEndDealerAssignment');
+    Reflect.deleteProperty(globalThis, '__orbitType007dRecordHands');
+    Reflect.deleteProperty(globalThis, '__orbitType007dSetDropDrafts');
+    Reflect.deleteProperty(globalThis, '__orbitType007dSetDealerDrafts');
+    Reflect.deleteProperty(globalThis, '__orbitType007dSetHandCountDrafts');
     Reflect.deleteProperty(globalThis, '__orbitType007dMovePlayerToTable');
     Reflect.deleteProperty(globalThis, '__orbitType007dMarkPlayerLeft');
     Reflect.deleteProperty(globalThis, '__orbitType007dMarkPlayerSessionLeft');
@@ -896,5 +947,253 @@ describe('player table transitions', () => {
     expect(persisted.interests).toEqual(nextState.interests);
     expect(persisted.playerSessions).toEqual(nextState.playerSessions);
     expect(persisted.sessions).toEqual(nextState.sessions);
+  });
+
+  it('seats through the canonical state transition with initial time, buy-in, ledger, and profile updates', async () => {
+    const targetProfile = buildProfile('profile-seat-target', 'Seat Target');
+    const targetInterest: IdentifiedRecord = {
+      id: 'interest-seat-target',
+      profileId: targetProfile.id,
+      playerName: targetProfile.name,
+      gameId: game.id,
+      status: 'Arrived',
+      timestamp: '2026-08-07T21:30:00.000Z',
+      interestedAt: '2026-08-07T20:00:00.000Z',
+      arrivedAt: '2026-08-07T21:30:00.000Z',
+      notes: 'Ready to seat'
+    };
+    await resetState(inspectorSession, [targetProfile, buildProfile('profile-unrelated', unrelatedSession.playerName)]);
+    const captured = getLatestState();
+    const formingTable = { ...table, status: 'Forming', seatsFilled: 1 };
+    const source: CapturedState = {
+      ...structuredClone(captured),
+      interests: [targetInterest],
+      playerSessions: [structuredClone(unrelatedSession)],
+      profiles: [targetProfile, buildProfile('profile-unrelated', unrelatedSession.playerName)],
+      sessions: [formingTable]
+    };
+    const sourceSnapshot = structuredClone(source);
+
+    const rawResult = await invokeCapturedFunction(inspectorSession, '__orbitType007dSeatPlayerInState', [
+      source,
+      table.id,
+      {
+        playerName: targetProfile.name,
+        profileId: targetProfile.id,
+        interestId: targetInterest.id,
+        requestedSeatNumber: 2,
+        initialTimeMinutes: 60,
+        initialBuyIn: 200,
+        note: 'Characterized seating'
+      }
+    ]);
+    const nextState = getSuccessfulCommandState(rawResult);
+
+    expect(source).toEqual(sourceSnapshot);
+    expect(rawResult).toMatchObject({
+      ok: true,
+      seatNumber: 2,
+      playerName: targetProfile.name,
+      profileId: targetProfile.id,
+      tableId: table.id,
+      gameId: game.id
+    });
+    expect(getRecord(nextState.interests, targetInterest.id)).toEqual({
+      ...targetInterest,
+      status: 'Seated',
+      seatedAt: now,
+      timestamp: now
+    });
+    expect(nextState.playerSessions).toEqual([
+      unrelatedSession,
+      {
+        id: expect.any(String),
+        playerName: targetProfile.name,
+        profileId: targetProfile.id,
+        gameId: game.id,
+        tableId: table.id,
+        seatNumber: 2,
+        seatedAt: now,
+        timePurchasedMinutes: 60,
+        timeRemainingMinutes: 60,
+        lastTimeTickAt: now,
+        timeFeeEnabled: true
+      }
+    ]);
+    expect(nextState.buyIns).toEqual([{
+      id: expect.any(String),
+      profileId: targetProfile.id,
+      playerName: targetProfile.name,
+      tableId: table.id,
+      gameId: game.id,
+      amount: 200,
+      timestamp: now,
+      note: 'Initial buy-in'
+    }]);
+    expect(nextState.playerLedger).toEqual([
+      expect.objectContaining({ type: 'Buy-In', amount: 200, timestamp: now, note: 'Initial buy-in' }),
+      expect.objectContaining({ type: 'Check-In', timestamp: now, note: 'Characterized seating: seat 2' }),
+      existingLedger
+    ]);
+    expect(getRecord(nextState.sessions, table.id)).toEqual({ ...formingTable, status: 'Running', seatsFilled: 2 });
+    expect(getRecord(nextState.profiles, targetProfile.id)).toEqual({
+      ...targetProfile,
+      gamePlayCounts: { [game.id]: 1 },
+      mostPlayedGameId: game.id,
+      preferredGameIds: [game.id]
+    });
+  });
+
+  it('returns exact seating failures without mutating the supplied state', async () => {
+    const targetProfile = buildProfile('profile-seat-failures', 'Seat Failures');
+    await resetState(inspectorSession, [targetProfile, buildProfile('profile-unrelated', unrelatedSession.playerName)]);
+    const source: CapturedState = {
+      ...structuredClone(getLatestState()),
+      playerSessions: [structuredClone(unrelatedSession)],
+      profiles: [targetProfile, buildProfile('profile-unrelated', unrelatedSession.playerName)],
+      sessions: [structuredClone(table)]
+    };
+    const snapshot = structuredClone(source);
+
+    const missingTable = await invokeCapturedFunction(inspectorSession, '__orbitType007dSeatPlayerInState', [source, 'missing-table', { playerName: targetProfile.name }]);
+    const missingPlayer = await invokeCapturedFunction(inspectorSession, '__orbitType007dSeatPlayerInState', [source, table.id, {}]);
+    const duplicate = await invokeCapturedFunction(inspectorSession, '__orbitType007dSeatPlayerInState', [
+      source,
+      table.id,
+      { playerName: unrelatedSession.playerName, profileId: unrelatedSession.profileId }
+    ]);
+    const occupiedSeat = await invokeCapturedFunction(inspectorSession, '__orbitType007dSeatPlayerInState', [
+      source,
+      table.id,
+      { playerName: targetProfile.name, profileId: targetProfile.id, requestedSeatNumber: unrelatedSession.seatNumber }
+    ]);
+
+    expect(missingTable).toEqual({ ok: false, error: 'This table is no longer open.' });
+    expect(missingPlayer).toEqual({ ok: false, error: 'Choose a player or enter a player name.' });
+    expect(duplicate).toEqual({ ok: false, error: `${unrelatedSession.playerName} is already seated.` });
+    expect(occupiedSeat).toEqual({ ok: false, error: 'Table full. No open seats remain.' });
+    expect(source).toEqual(snapshot);
+  });
+
+  it('records player time and buy-ins and propagates collection mode to open sessions', async () => {
+    const { targetSession } = await resetState(
+      inspectorSession,
+      [buildProfile('profile-target', playerName), buildProfile('profile-unrelated', unrelatedSession.playerName)],
+      'profile-target'
+    );
+    const beforeTime = getLatestState();
+    const beforeTimeSnapshot = structuredClone(beforeTime);
+
+    await invokeAndRecapture(inspectorSession, '__orbitType007dAddPlayerTime', [targetSession, 30]);
+    const afterTime = getLatestState();
+    expect(beforeTime).toEqual(beforeTimeSnapshot);
+    expect(getRecord(afterTime.playerSessions, targetSession.id)).toMatchObject({
+      timePurchasedMinutes: 150,
+      timeRemainingMinutes: 60,
+      lastTimeTickAt: now,
+      timeFeeEnabled: true
+    });
+    expect(afterTime.timeFeeLogs).toEqual([{
+      id: expect.any(String),
+      playerSessionId: targetSession.id,
+      tableId: table.id,
+      gameId: game.id,
+      playerName,
+      minutes: 30,
+      amount: 6,
+      timestamp: now
+    }]);
+    expect(afterTime.tableEvents).toEqual([expect.objectContaining({
+      type: 'Merged',
+      reason: 'time added',
+      playerCount: table.seatsFilled,
+      note: `30 minutes added for ${playerName}`
+    })]);
+
+    const currentSession = getRecord(afterTime.playerSessions, targetSession.id);
+    await invokeAndRecapture(inspectorSession, '__orbitType007dAddBuyIn', [currentSession, 125, 'Reload override']);
+    const afterBuyIn = getLatestState();
+    expect(afterBuyIn.buyIns).toEqual([expect.objectContaining({
+      profileId: 'profile-target',
+      playerName,
+      amount: 125,
+      timestamp: now,
+      note: 'Reload override'
+    })]);
+    expect(afterBuyIn.playerLedger[0]).toEqual(expect.objectContaining({
+      type: 'Buy-In',
+      profileId: 'profile-target',
+      amount: 125,
+      timestamp: now,
+      note: 'Reload override'
+    }));
+    expect(afterBuyIn.playerLedger[1]).toEqual(existingLedger);
+
+    await invokeAndRecapture(inspectorSession, '__orbitType007dSetTableCollectionMode', [table.id, 'Drop']);
+    const afterCollectionChange = getLatestState();
+    expect(getRecord(afterCollectionChange.sessions, table.id)).toMatchObject({ collectionMode: 'Drop', timeFeeBased: false });
+    expect(getRecord(afterCollectionChange.playerSessions, targetSession.id)).toMatchObject({ timeFeeEnabled: false });
+    expect(getRecord(afterCollectionChange.playerSessions, unrelatedSession.id)).toMatchObject({ timeFeeEnabled: false });
+    expect(getPersistedState().playerSessions).toEqual(afterCollectionChange.playerSessions);
+  });
+
+  it('records drop, dealer, and hand logs with their established ordering and trimming', async () => {
+    vi.mocked(window.alert).mockClear();
+    await resetState(
+      inspectorSession,
+      [buildProfile('profile-target', playerName), buildProfile('profile-unrelated', unrelatedSession.playerName)],
+      'profile-target'
+    );
+    const openDealer = {
+      id: 'dealer-open',
+      tableId: table.id,
+      gameId: game.id,
+      dealerName: 'First Dealer',
+      startedAt: '2026-08-07T21:00:00.000Z'
+    };
+    await replaceCapturedState(inspectorSession, { dealerAssignments: [openDealer] });
+
+    await invokeAndRecapture(inspectorSession, '__orbitType007dSetDropDrafts', [{
+      [table.id]: { amount: '42.5', note: '  Counted drop  ' }
+    }]);
+    await invokeAndRecapture(inspectorSession, '__orbitType007dAddTableDrop', [table]);
+    expect(getLatestState().dropLogs).toEqual([expect.objectContaining({
+      tableId: table.id,
+      gameId: game.id,
+      amount: 42.5,
+      timestamp: now,
+      note: 'Counted drop'
+    })]);
+
+    await invokeAndRecapture(inspectorSession, '__orbitType007dSetDealerDrafts', [{ [table.id]: '  Next Dealer  ' }]);
+    await invokeAndRecapture(inspectorSession, '__orbitType007dAssignDealer', [table]);
+    const afterAssignment = getLatestState();
+    expect(afterAssignment.dealerAssignments).toEqual([
+      { ...openDealer, endedAt: now },
+      {
+        id: expect.any(String),
+        tableId: table.id,
+        gameId: game.id,
+        dealerName: 'Next Dealer',
+        startedAt: now
+      }
+    ]);
+
+    await invokeAndRecapture(inspectorSession, '__orbitType007dEndDealerAssignment', [table]);
+    expect(getLatestState().dealerAssignments).toEqual([
+      { ...openDealer, endedAt: now },
+      expect.objectContaining({ dealerName: 'Next Dealer', endedAt: now })
+    ]);
+
+    await invokeAndRecapture(inspectorSession, '__orbitType007dSetHandCountDrafts', [{ [table.id]: '17' }]);
+    await invokeAndRecapture(inspectorSession, '__orbitType007dRecordHands', [table]);
+    expect(getLatestState().handCountLogs).toEqual([expect.objectContaining({
+      tableId: table.id,
+      gameId: game.id,
+      hands: 17,
+      timestamp: now
+    })]);
+    expect(getPersistedState().handCountLogs).toEqual(getLatestState().handCountLogs);
+    expect(window.alert).not.toHaveBeenCalled();
   });
 });
