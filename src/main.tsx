@@ -88,6 +88,13 @@ import {
   uid
 } from './domain/state';
 import {
+  mergeImportedProfiles,
+  parseCsvRows,
+  parsePastedProfiles,
+  profilesFromImportedRecords,
+  type ProfileImportContext
+} from './domain/profileImport';
+import {
   getCollectionProfile,
   getDealerReport,
   getReportFinancials,
@@ -3349,137 +3356,22 @@ function App() {
     });
   };
 
+  const profileImportContext: ProfileImportContext = {
+    games: state.games,
+    createProfileId: memberId,
+    todayDate,
+    nextYearDate,
+    resolveGameId,
+    validTableTags: gameQualityTags
+  };
+
   const commitImportedProfiles = (imported: PlayerProfile[]) => {
     if (!imported.length) return;
-    const existingNames = new Set(state.profiles.map((profile: { name: string; }) => profile.name.toLowerCase()));
-    const uniqueImports = imported.filter((profile) => !existingNames.has(profile.name.toLowerCase()));
-    const allProfiles = [...state.profiles, ...uniqueImports];
-    const enrichedImports = uniqueImports.map((profile) => ({
-      ...profile,
-      commonlyPlaysWithProfileIds: profile.commonlyPlaysWithProfileIds.length
-        ? profile.commonlyPlaysWithProfileIds
-        : profile.usualCompanions
-            .map((name) => allProfiles.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase())?.id)
-            .filter((id): id is string => Boolean(id))
-    }));
-    persist({ ...state, profiles: [...state.profiles, ...enrichedImports] }, true, {
+    const result = mergeImportedProfiles(state.profiles, imported);
+    persist({ ...state, profiles: result.profiles }, true, {
       feature: 'Profiles',
       action: 'Imported profiles',
-      metadata: { count: enrichedImports.length }
-    });
-  };
-
-  const importedValue = (item: Record<string, unknown>, aliases: string[]) => {
-    const normalizedAliases = new Set(aliases.map((alias) => alias.toLowerCase().replace(/[^a-z0-9]/g, '')));
-    const match = Object.entries(item).find(([key]) => normalizedAliases.has(key.toLowerCase().replace(/[^a-z0-9]/g, '')));
-    return match?.[1];
-  };
-
-  const importedString = (item: Record<string, unknown>, aliases: string[], fallback = '') => {
-    const value = importedValue(item, aliases);
-    return value === undefined || value === null ? fallback : String(value).trim();
-  };
-
-  const importedDate = (item: Record<string, unknown>, aliases: string[], fallback: string) => {
-    const value = importedValue(item, aliases);
-    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      const excelEpoch = Date.UTC(1899, 11, 30);
-      return new Date(excelEpoch + value * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    }
-    const text = value === undefined || value === null ? '' : String(value).trim();
-    if (!text) return fallback;
-    const parsed = new Date(text);
-    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-    return text.slice(0, 10);
-  };
-
-  const importedNumber = (item: Record<string, unknown>, aliases: string[], fallback = 0) => {
-    const value = Number(importedValue(item, aliases) ?? fallback);
-    return Number.isFinite(value) ? value : fallback;
-  };
-
-  const profileFromImportedRecord = (item: Record<string, unknown>): PlayerProfile => {
-    const firstName = importedString(item, ['firstName', 'First Name', 'first']);
-    const lastName = importedString(item, ['lastName', 'Last Name', 'last']);
-    const fullName = importedString(item, ['name', 'Name', 'playerName', 'Player Name', 'player', 'Player', 'customerName', 'Customer Name']);
-    const name = fullName || [firstName, lastName].filter(Boolean).join(' ');
-    const preferredStakes = importedString(item, ['preferredStakes', 'Preferred Stakes', 'preferredGame', 'Preferred Game', 'stakes', 'Game']);
-    const preferredGameId = resolveGameId(
-      state.games,
-      importedString(item, ['preferredGameId', 'Preferred Game Id', 'preferredGame', 'Preferred Game', 'stakes', 'Game'], preferredStakes),
-      resolveGameId(state.games, preferredStakes, state.games[0]?.id ?? '')
-    );
-    const companionNames = importedString(item, ['usualCompanions', 'companions', 'Companions', 'commonlyPlaysWith', 'Commonly Plays With'])
-      .split(/[|;]/)
-      .map((name) => name.trim())
-      .filter(Boolean);
-    return {
-      id: importedString(item, ['id', 'ID', 'memberId', 'Member ID', 'membershipId', 'Membership ID', 'playerId', 'Player ID', 'cardNumber', 'Card Number', 'cardId', 'Card ID'], memberId()),
-      name,
-      phone: importedString(item, ['phone', 'Phone', 'phoneNumber', 'Phone Number', 'mobile', 'Mobile', 'cell', 'Cell']),
-      birthday: importedDate(item, ['birthday', 'Birthday', 'dob', 'DOB', 'dateOfBirth', 'Date of Birth'], ''),
-      membershipStartDate: importedDate(item, ['membershipStartDate', 'Membership Start', 'memberSince', 'Member Since', 'joinDate', 'Join Date', 'createdAt', 'Created At'], todayDate()),
-      membershipExpirationDate: importedDate(item, ['membershipExpirationDate', 'Membership Expiration', 'expiresAt', 'Expires At', 'expirationDate', 'Expiration Date', 'expiryDate', 'Expiry Date'], nextYearDate()),
-      totalTimePlayedHours: importedNumber(item, ['totalTimePlayedHours', 'totalTimePlayed', 'Total Time Played', 'lifetimeHours', 'Lifetime Hours']),
-      lastSessionTimePlayedHours: importedNumber(item, ['lastSessionTimePlayedHours', 'lastSessionTimePlayed', 'Last Session Time Played']),
-      commonlyPlaysWithProfileIds: [],
-      preferredGameId,
-      preferredGameIds: preferredGameId ? [preferredGameId] : [],
-      gamePlayCounts: {},
-      mostPlayedGameId: preferredGameId,
-      preferredStakes,
-      typicalBuyInMin: importedNumber(item, ['typicalBuyInMin', 'buyInMin', 'Buy In Min']),
-      typicalBuyInMax: importedNumber(item, ['typicalBuyInMax', 'buyInMax', 'Buy In Max']),
-      willingnessToMove: ['yes', 'true', 'y', '1'].includes(importedString(item, ['willingnessToMove', 'moveTables', 'Move Tables']).toLowerCase()),
-      typicalAvailability: importedString(item, ['typicalAvailability', 'availability', 'Availability']),
-      preferredTags: Array.isArray(item.preferredTags) ? item.preferredTags as TableTag[] : [],
-      usualCompanions: companionNames,
-      notes: importedString(item, ['notes', 'Notes', 'note', 'Note'])
-    };
-  };
-
-  const parseCsvRows = (text: string) => {
-    const lines = text.split(/\r?\n/).filter((line) => line.trim());
-    if (!lines.length) return [];
-
-    const parseLine = (line: string) => {
-      const cells: string[] = [];
-      let cell = '';
-      let quoted = false;
-
-      for (let index = 0; index < line.length; index += 1) {
-        const char = line[index];
-        const next = line[index + 1];
-        if (char === '"' && quoted && next === '"') {
-          cell += '"';
-          index += 1;
-          continue;
-        }
-        if (char === '"') {
-          quoted = !quoted;
-          continue;
-        }
-        if (char === ',' && !quoted) {
-          cells.push(cell.trim());
-          cell = '';
-          continue;
-        }
-        cell += char;
-      }
-
-      cells.push(cell.trim());
-      return cells;
-    };
-
-    const [headerLine, ...dataLines] = lines;
-    const headers = parseLine(headerLine);
-    return dataLines.map((line) => {
-      const values = parseLine(line);
-      return headers.reduce<Record<string, unknown>>((record, header, index) => {
-        if (header) record[header] = values[index] ?? '';
-        return record;
-      }, {});
+      metadata: { count: result.importedProfiles.length }
     });
   };
 
@@ -3488,7 +3380,7 @@ function App() {
     try {
       if (file.name.toLowerCase().endsWith('.csv')) {
         const rows = parseCsvRows(await file.text());
-        commitImportedProfiles(rows.map(profileFromImportedRecord).filter((profile) => profile.name));
+        commitImportedProfiles(profilesFromImportedRecords(rows, profileImportContext));
         setImportText('');
         return;
       }
@@ -3508,129 +3400,16 @@ function App() {
         }, {});
         if (Object.values(record).some((value) => String(value ?? '').trim())) rows.push(record);
       });
-      commitImportedProfiles(rows.map(profileFromImportedRecord).filter((profile) => profile.name));
+      commitImportedProfiles(profilesFromImportedRecords(rows, profileImportContext));
       setImportText('');
     } catch {
       window.alert('Unable to import that profile file.');
     }
   };
 
-  const isImportedObject = (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null && !Array.isArray(value);
-
-  const isImportedJsonProfile = (value: unknown): value is Record<string, unknown> =>
-    isImportedObject(value) && typeof value.name === 'string' && Boolean(value.name.trim());
-
-  const importedJsonNumber = (value: unknown) => {
-    const parsed = Number(value ?? 0);
-    return Number.isFinite(parsed) ? parsed : 0;
-  };
-
-  const importedJsonStringArray = (value: unknown) =>
-    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-
-  const isTableTag = (value: unknown): value is TableTag =>
-    typeof value === 'string' && gameQualityTags.some((tag) => tag === value);
-
-  const profileFromPastedJsonRecord = (item: Record<string, unknown>): PlayerProfile => {
-    const rawPreferredGameIds = importedJsonStringArray(item.preferredGameIds);
-    const preferredGameId = resolveGameId(
-      state.games,
-      String(item.preferredGameId ?? rawPreferredGameIds[0] ?? item.preferredGame ?? item.stakes ?? ''),
-      state.games[0]?.id ?? 'nlh-1-2'
-    );
-    const companionNames = Array.isArray(item.usualCompanions)
-      ? importedJsonStringArray(item.usualCompanions)
-      : String(item.usualCompanions ?? item.commonlyPlaysWith ?? item.companions ?? '')
-          .split(/[|;]/)
-          .map((name) => name.trim())
-          .filter(Boolean);
-    const preferredGameIds = rawPreferredGameIds
-      .map((gameId) => resolveGameId(state.games, gameId, ''))
-      .filter((gameId): gameId is string => Boolean(gameId));
-    const gamePlayCountsSource = isImportedObject(item.gamePlayCounts) ? item.gamePlayCounts : {};
-
-    return {
-      id: String(item.id ?? memberId()),
-      name: String(item.name).trim(),
-      phone: String(item.phone ?? item.phoneNumber ?? item.mobile ?? item.cell ?? ''),
-      birthday: String(item.birthday ?? ''),
-      membershipStartDate: String(item.membershipStartDate ?? item.memberSince ?? todayDate()),
-      membershipExpirationDate: String(item.membershipExpirationDate ?? item.expiresAt ?? nextYearDate()),
-      totalTimePlayedHours: importedJsonNumber(item.totalTimePlayedHours ?? item.totalTimePlayed),
-      lastSessionTimePlayedHours: importedJsonNumber(item.lastSessionTimePlayedHours ?? item.lastSessionTimePlayed),
-      commonlyPlaysWithProfileIds: importedJsonStringArray(item.commonlyPlaysWithProfileIds),
-      preferredGameId,
-      preferredGameIds: preferredGameIds.length ? Array.from(new Set(preferredGameIds)) : [preferredGameId],
-      gamePlayCounts: Object.entries(gamePlayCountsSource).reduce<Record<string, number>>((counts, [gameId, count]) => {
-        const resolvedGameId = resolveGameId(state.games, gameId, '');
-        const numericCount = Number(count);
-        if (resolvedGameId && Number.isFinite(numericCount) && numericCount > 0) counts[resolvedGameId] = numericCount;
-        return counts;
-      }, {}),
-      mostPlayedGameId: resolveGameId(state.games, String(item.mostPlayedGameId ?? ''), preferredGameId),
-      preferredStakes: String(item.preferredStakes ?? item.stakes ?? state.games.find((game) => game.id === preferredGameId)?.name ?? ''),
-      typicalBuyInMin: importedJsonNumber(item.typicalBuyInMin ?? item.buyInMin),
-      typicalBuyInMax: importedJsonNumber(item.typicalBuyInMax ?? item.buyInMax),
-      willingnessToMove: Boolean(item.willingnessToMove ?? item.moveTables ?? false),
-      typicalAvailability: String(item.typicalAvailability ?? item.availability ?? ''),
-      preferredTags: Array.isArray(item.preferredTags) ? item.preferredTags.filter(isTableTag) : [],
-      usualCompanions: companionNames,
-      notes: String(item.notes ?? '')
-    };
-  };
-
   const importProfiles = () => {
-    const raw = importText.trim();
-    if (!raw) return;
-
-    let imported: PlayerProfile[] = [];
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        imported = parsed
-          .filter(isImportedJsonProfile)
-          .map(profileFromPastedJsonRecord);
-      }
-    } catch {
-      imported = raw
-        .split(/\r?\n/)
-        .map((line: string) => line.trim())
-        .filter(Boolean)
-        .map((line: string) => {
-          const [name, preferredStakes = '', birthday = '', membershipStart = todayDate(), membershipExpiration = nextYearDate(), companions = '', availability = '', moveTables = 'yes'] = line.split(',').map((part: string) => part.trim());
-          const preferredGameId = resolveGameId(state.games, preferredStakes, state.games[0]?.id ?? 'nlh-1-2');
-          return {
-            id: memberId(),
-            name,
-            phone: '',
-            birthday,
-            membershipStartDate: membershipStart || todayDate(),
-            membershipExpirationDate: membershipExpiration || nextYearDate(),
-            totalTimePlayedHours: 0,
-            lastSessionTimePlayedHours: 0,
-            commonlyPlaysWithProfileIds: [],
-            preferredGameId,
-            preferredGameIds: [preferredGameId],
-            gamePlayCounts: {},
-            mostPlayedGameId: preferredGameId,
-            preferredStakes,
-            typicalBuyInMin: 0,
-            typicalBuyInMax: 0,
-            willingnessToMove: !['no', 'false', 'n'].includes(moveTables.toLowerCase()),
-            typicalAvailability: availability,
-            preferredTags: [],
-            usualCompanions: companions
-              .split(/[|;]/)
-              .map((companion: string) => companion.trim())
-              .filter(Boolean),
-            notes: ''
-          };
-        })
-        .filter((profile: { name: any; }) => profile.name);
-    }
-
-    commitImportedProfiles(imported);
+    if (!importText.trim()) return;
+    commitImportedProfiles(parsePastedProfiles(importText, profileImportContext));
     setImportText('');
   };
 

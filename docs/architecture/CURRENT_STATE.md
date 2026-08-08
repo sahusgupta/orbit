@@ -103,3 +103,5 @@ The fresh audit, reproducible metrics, target dependency direction, and active R
 - `docs/refactor/TASKS.yaml`
 
 API route/repository ownership, Electron module ownership, the server sync core, sync protocol-v2 invariants, and ordered CSS ownership remain deliberate current boundaries. The continuation begins with pure management commands and Player domain characterization before moving persistence or external-data adapters.
+
+REF-012 subsequently moved CSV/XLSX/pasted-profile validation, parsing, canonical construction, duplicate filtering, and companion-link enrichment into `src/domain/profileImport.ts`. `src/main.tsx` is now 5,464 lines and `App` is 4,858 lines; file selection, lazy ExcelJS decoding, UI feedback, usage reporting, and persistence remain with the application owner. The import boundary has seven renderer characterization cases and four direct pure cases.

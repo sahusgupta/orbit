@@ -61,7 +61,7 @@ tasks:
 
   - id: REF-012
     title: Extract management profile-import parsing and normalization
-    status: in_progress
+    status: complete
     objective: Move CSV/XLSX/pasted-JSON record interpretation and canonical profile construction out of App into a pure validated domain boundary.
     evidence_root_cause: src/main.tsx owns roughly 240 lines of import parsing, unknown-data checks, canonical defaults, and file-format orchestration; the behavior already has a five-case renderer characterization suite.
     files_areas:

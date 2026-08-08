@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-08 - REF-012 management profile-import domain boundary
+
+- Committed two unchanged-production characterization cases for CSV/XLSX mapping, duplicate handling, and companion linking in `f42e297`; all seven renderer import cases passed before extraction.
+- Moved CSV, spreadsheet-record, pasted JSON/text, canonical profile, deduplication, and companion-enrichment logic into pure `src/domain/profileImport.ts`; `App` retains file decoding, feedback, usage, and persistence orchestration.
+- Added four direct domain cases. Focused verification passed 2 files / 11 tests; full verification passed all compiler projects, Player TypeScript, 56 files / 312 tests, and the 1,933-module renderer build.
+- `src/main.tsx` is 5,464 lines and `App` is 4,858 lines. Known warnings are unchanged; no production-connected runtime or service was invoked.
+
 ## 2026-08-08 - REF-011 fresh architecture audit and continuation queue
 
 - Created `refactor/orbit-architecture` from clean merged commit `801aa8d`; no production source was changed.

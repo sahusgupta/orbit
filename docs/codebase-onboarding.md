@@ -100,6 +100,8 @@ Important workflows inside it:
 
 `src/lib/playerSync.ts` contains the renderer's typed management sync transformations.
 
+`src/domain/profileImport.ts` owns pure CSV/XLSX-row and pasted JSON/text profile normalization, canonical profile construction, duplicate filtering, and companion-link enrichment. `src/main.tsx` retains browser file decoding, user feedback, and persistence orchestration.
+
 `src/lib/firebaseClubSync.ts` handles Firebase state sync, management-account authentication and password-reset email delivery, and player request subscriptions. Management password recovery verifies the new Firebase credential before replacing the desktop account's local password salt and hash.
 
 `apps/api/src/shared/orbitCore.cjs` owns the behaviorally shared API/Electron server transforms. The API consumes it through `apps/api/src/orbitCore.js`; Electron selects its characterized compatibility profile in `electron/main.cjs`.
