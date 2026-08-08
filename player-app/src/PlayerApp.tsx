@@ -4,6 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, PROVIDER_GOOGLE, Circle } from './components/MapView';
+import { MapPicker } from './components/MapPicker';
+import { Chip, Field } from './components/PlayerFields';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -58,6 +60,7 @@ import {
   resolveAddressCoordinate,
   togglePreferredGame
 } from './domain/discovery';
+import { gamePreferenceOptions } from './domain/playerPreferences';
 import type {
   CasinoFilter,
   ClubAccessProduct,
@@ -114,6 +117,9 @@ import {
   unregisterFromTournament,
   updatePlayerClubMembership
 } from './data/orbitSyncApi';
+import { OnboardingScreen } from './features/onboarding/OnboardingScreen';
+import { sharedStyles } from './styles/sharedStyles';
+import { applyDarkComponentTheme, colors } from './styles/playerTheme';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -123,12 +129,6 @@ const tabs: Array<{ id: Screen; label: string; icon: keyof typeof Ionicons.glyph
   { id: 'map', label: 'Map', icon: 'map-outline' },
   { id: 'clubs', label: 'Clubs', icon: 'business-outline' },
   { id: 'settings', label: 'Profile', icon: 'person-outline' }
-];
-
-const gamePreferenceOptions = [
-  { id: 'nlh-1-2', label: '1/2 NLH' },
-  { id: 'nlh-1-3', label: '1/3 NLH' },
-  { id: 'plo-1-2', label: '1/2 PLO' }
 ];
 
 const texasMapRegion = {
@@ -1135,21 +1135,13 @@ export default function PlayerApp() {
 
   if (!hasAccount) {
     return (
-      <SafeAreaProvider>
-        <SafeAreaView style={[styles.safeArea, styles.onboardingSafeArea]}>
-          <StatusBar style="dark" />
-          <AnimatedGradientBackground />
-          <ScrollView style={styles.onboardingShell} contentContainerStyle={styles.onboardingContent} showsVerticalScrollIndicator={false}>
-            <OnboardingFlow
-              draftPlayer={draftPlayer}
-              onboardingStep={onboardingStep}
-              setDraftPlayer={setDraftPlayer}
-              setOnboardingStep={setOnboardingStep}
-              onComplete={completeAccount}
-            />
-          </ScrollView>
-        </SafeAreaView>
-      </SafeAreaProvider>
+      <OnboardingScreen
+        draftPlayer={draftPlayer}
+        onboardingStep={onboardingStep}
+        setDraftPlayer={setDraftPlayer}
+        setOnboardingStep={setOnboardingStep}
+        onComplete={completeAccount}
+      />
     );
   }
 
@@ -1997,422 +1989,7 @@ function InAppNotificationPopup({
   );
 }
 
-function OnboardingFlow({
-  draftPlayer,
-  onboardingStep,
-  setDraftPlayer,
-  setOnboardingStep,
-  onComplete
-}: {
-  draftPlayer: PlayerAccount;
-  onboardingStep: OnboardingStep;
-  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
-  setOnboardingStep: React.Dispatch<React.SetStateAction<OnboardingStep>>;
-  onComplete: () => void;
-}) {
-  const stepOpacity = useRef(new Animated.Value(1)).current;
-  const [hoveredAction, setHoveredAction] = useState<'previous' | null>(null);
-  const finalStep = 3;
-  const totalSteps = finalStep + 1;
-  const phoneTrimmed = (draftPlayer.phone ?? '').trim();
-  const emailIsValid = isValidEmail(draftPlayer.email);
-  const phoneIsValid = !phoneTrimmed || isValidPhoneNumber(phoneTrimmed);
-  const canComplete = Boolean(draftPlayer.name.trim() && emailIsValid && phoneIsValid);
-  const canContinue =
-    onboardingStep === 0 ? Boolean(draftPlayer.name.trim()) :
-    onboardingStep === 1 ? emailIsValid :
-    onboardingStep === 2 ? phoneIsValid :
-    true;
-  const moveToStep = (step: OnboardingStep) => {
-    Animated.timing(stepOpacity, {
-      toValue: 0,
-      duration: 420,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false
-    }).start(() => {
-      setOnboardingStep(step);
-      stepOpacity.setValue(0);
-      Animated.timing(stepOpacity, {
-        toValue: 1,
-        duration: 260,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false
-      }).start();
-    });
-  };
-  const nextStep = () => moveToStep(Math.min(finalStep, onboardingStep + 1) as OnboardingStep);
-  const previousStep = () => moveToStep(Math.max(0, onboardingStep - 1) as OnboardingStep);
-  const finishOnboarding = () => {
-    Animated.timing(stepOpacity, {
-      toValue: 0,
-      duration: 420,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false
-    }).start(onComplete);
-  };
-  const submitStep = onboardingStep < finalStep ? nextStep : finishOnboarding;
-  const canSubmit = onboardingStep < finalStep ? canContinue : canComplete;
 
-  useEffect(() => {
-    if (
-      Platform.OS !== 'web' ||
-      typeof window === 'undefined' ||
-      typeof window.addEventListener !== 'function' ||
-      typeof window.removeEventListener !== 'function'
-    ) return undefined;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const tagName = target?.tagName?.toLowerCase();
-      const isTypingTarget = tagName === 'input' || tagName === 'textarea' || target?.isContentEditable;
-      if (event.key !== 'Enter' || isTypingTarget || !canSubmit) return;
-      event.preventDefault();
-      submitStep();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canSubmit, submitStep]);
-
-  return (
-    <View style={styles.onboardingFlow}>
-      <View style={styles.onboardingTopBar}>
-        <View>
-          <Text style={styles.onboardingBrand}>ORBIT</Text>
-          <Text style={styles.onboardingBrandSubtle}>PLAYER</Text>
-        </View>
-        <OnboardingProgress activeStep={onboardingStep} totalSteps={totalSteps} />
-      </View>
-
-      <Text style={styles.onboardingTitle}>Find live games and join the right room</Text>
-
-      <AnimatedStepCard stepKey={onboardingStep} opacity={stepOpacity}>
-        {onboardingStep === 0 ? <NameStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={canSubmit ? submitStep : undefined} /> : null}
-        {onboardingStep === 1 ? <EmailStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={canSubmit ? submitStep : undefined} /> : null}
-        {onboardingStep === 2 ? <PhoneStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={submitStep} /> : null}
-        {onboardingStep === 3 ? <HomeAreaStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={canSubmit ? submitStep : undefined} /> : null}
-      </AnimatedStepCard>
-
-      <View style={styles.onboardingActions}>
-        <Pressable
-          onHoverIn={() => setHoveredAction('previous')}
-          onHoverOut={() => setHoveredAction(null)}
-          onPress={onboardingStep > 0 ? previousStep : undefined}
-          disabled={onboardingStep === 0}
-          style={styles.arrowAction}
-        >
-          <Ionicons name="arrow-back" size={24} color="#ffffff" />
-          {hoveredAction === 'previous' && onboardingStep > 0 ? (
-            <View pointerEvents="none" style={styles.iconTooltip}>
-              <Text style={styles.iconTooltipText}>Previous step</Text>
-            </View>
-          ) : null}
-        </Pressable>
-        <Pressable
-          disabled={!canSubmit}
-          onPress={submitStep}
-          style={[styles.onboardingNextAction, !canSubmit && styles.arrowActionDisabled]}
-        >
-          <Text style={styles.onboardingNextActionText}>{onboardingStep < finalStep ? 'Continue' : 'Start exploring'}</Text>
-          <Ionicons name="arrow-forward" size={18} color="#ffffff" />
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
-function AnimatedGradientBackground() {
-  return (
-    <View style={styles.animatedGradientRoot}>
-      <View style={styles.orbitPattern} pointerEvents="none">
-        <View style={styles.orbitHalo}>
-          <View style={styles.orbitRing} />
-          <View style={[styles.orbitNode, styles.orbitNodeOne]} />
-          <View style={[styles.orbitNode, styles.orbitNodeTwo]} />
-          <View style={[styles.orbitNode, styles.orbitNodeThree]} />
-          <View style={[styles.orbitNode, styles.orbitNodeFour]} />
-        </View>
-      </View>
-      <View style={styles.gradientShade} />
-    </View>
-  );
-}
-
-function OnboardingProgress({ activeStep, totalSteps }: { activeStep: number; totalSteps: number }) {
-  const progress = `${Math.round(((activeStep + 1) / totalSteps) * 100)}%` as DimensionValue;
-  return (
-    <View style={styles.onboardingProgressShell}>
-      <View style={styles.onboardingProgressTrack}>
-        <View style={[styles.onboardingProgressFill, { width: progress }]} />
-      </View>
-    </View>
-  );
-}
-
-function AnimatedStepCard({ stepKey, children, opacity }: { stepKey: number; children: React.ReactNode; opacity?: Animated.Value }) {
-  const fade = useRef(new Animated.Value(1)).current;
-  const visibleOpacity = opacity ?? fade;
-
-  useEffect(() => {
-    if (opacity) return;
-    fade.setValue(0);
-    Animated.spring(fade, {
-      toValue: 1,
-      friction: 8,
-      tension: 80,
-      useNativeDriver: false
-    }).start();
-  }, [fade, opacity, stepKey]);
-
-  return (
-    <Animated.View
-      style={[
-        styles.onboardingStepSurface,
-        {
-          opacity: visibleOpacity,
-          transform: [
-            {
-              translateY: visibleOpacity.interpolate({
-                inputRange: [0, 1],
-                outputRange: [14, 0]
-              })
-            }
-          ]
-        }
-      ]}
-    >
-      {children}
-    </Animated.View>
-  );
-}
-
-function NameStep({
-  draftPlayer,
-  setDraftPlayer,
-  onSubmit
-}: {
-  draftPlayer: PlayerAccount;
-  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
-  onSubmit?: () => void;
-}) {
-  return (
-    <Field label="Name" placeholder="Your name" tone="light" value={draftPlayer.name} onChangeText={(name) => setDraftPlayer((current) => ({ ...current, name }))} onSubmit={onSubmit} />
-  );
-}
-
-function EmailStep({
-  draftPlayer,
-  setDraftPlayer,
-  onSubmit
-}: {
-  draftPlayer: PlayerAccount;
-  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
-  onSubmit?: () => void;
-}) {
-  return (
-    <Field
-      label="Email"
-      placeholder="you@example.com"
-      tone="light"
-      value={draftPlayer.email}
-      keyboardType="email-address"
-      onChangeText={(email) => setDraftPlayer((current) => ({ ...current, email }))}
-      onSubmit={onSubmit}
-      error={draftPlayer.email.trim() && !isValidEmail(draftPlayer.email) ? 'Enter a valid email like name@example.com.' : ''}
-    />
-  );
-}
-
-function PhoneStep({
-  draftPlayer,
-  setDraftPlayer,
-  onSubmit
-}: {
-  draftPlayer: PlayerAccount;
-  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
-  onSubmit?: () => void;
-}) {
-  return (
-    <View style={styles.optionalStep}>
-      <Field
-        label="Phone Number"
-        placeholder="(555) 555-0123"
-        tone="light"
-        value={draftPlayer.phone ?? ''}
-        keyboardType="phone-pad"
-        onChangeText={(phone) => setDraftPlayer((current) => ({ ...current, phone }))}
-        onSubmit={onSubmit}
-        error={(draftPlayer.phone ?? '').trim() && !isValidPhoneNumber(draftPlayer.phone ?? '') ? 'Enter a valid 10-digit phone number, or leave it blank.' : ''}
-      />
-      <Text style={styles.optionalStepText}>Optional. Used for text updates about games and waitlists you sign up for.</Text>
-    </View>
-  );
-}
-
-function HomeAreaStep({
-  draftPlayer,
-  setDraftPlayer,
-  onSubmit
-}: {
-  draftPlayer: PlayerAccount;
-  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
-  onSubmit?: () => void;
-}) {
-  return (
-    <Field
-      label="Home Area"
-      placeholder="City or neighborhood"
-      tone="light"
-      value={draftPlayer.homeLocation ?? ''}
-      onChangeText={(homeLocation) => setDraftPlayer((current) => ({ ...current, homeLocation }))}
-      onSubmit={onSubmit}
-    />
-  );
-}
-
-function LocationStep({
-  draftPlayer,
-  setDraftPlayer
-}: {
-  draftPlayer: PlayerAccount;
-  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
-}) {
-  return (
-    <>
-      <StepHeader icon="map-outline" title="Home Area" />
-      <MapPicker
-        locationLabel={draftPlayer.homeLocation || 'Choose a home area'}
-        radiusMiles={draftPlayer.searchRadiusMiles ?? 25}
-        onSelectLocation={(homeLocation) => setDraftPlayer((current) => ({ ...current, homeLocation }))}
-      />
-    </>
-  );
-}
-
-function RadiusStep({
-  draftPlayer,
-  setDraftPlayer
-}: {
-  draftPlayer: PlayerAccount;
-  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
-}) {
-  return (
-    <>
-      <StepHeader icon="navigate-outline" title="Search Radius" />
-      <View style={styles.chipRow}>
-        {[10, 25, 50].map((radius) => (
-          <Chip
-            key={radius}
-            label={`${radius} mi`}
-            active={(draftPlayer.searchRadiusMiles ?? 25) === radius}
-            onPress={() => setDraftPlayer((current) => ({ ...current, searchRadiusMiles: radius }))}
-          />
-        ))}
-      </View>
-    </>
-  );
-}
-
-function GameStep({
-  draftPlayer,
-  setDraftPlayer
-}: {
-  draftPlayer: PlayerAccount;
-  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
-}) {
-  return (
-    <>
-      <StepHeader icon="heart-outline" title="Preferred Game" />
-      <View style={styles.chipRow}>
-        {gamePreferenceOptions.map((game) => (
-          <Chip
-            key={game.id}
-            label={game.label}
-            active={draftPlayer.preferredGameIds.includes(game.id)}
-            onPress={() => setDraftPlayer((current) => togglePreferredGame(current, game.id))}
-          />
-        ))}
-      </View>
-    </>
-  );
-}
-
-function StakesStep({
-  draftPlayer,
-  setDraftPlayer
-}: {
-  draftPlayer: PlayerAccount;
-  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
-}) {
-  return (
-    <>
-      <StepHeader icon="cash-outline" title="Preferred Stakes" />
-      <Field
-        label="Preferred Stakes"
-        value={draftPlayer.preferredStakes ?? ''}
-        onChangeText={(preferredStakes) => setDraftPlayer((current) => ({ ...current, preferredStakes }))}
-      />
-    </>
-  );
-}
-
-function StepHeader({ icon, title }: { icon: keyof typeof Ionicons.glyphMap; title: string }) {
-  return (
-    <View style={styles.stepHeader}>
-      <View style={styles.stepHeaderIcon}>
-        <Ionicons name={icon} size={20} color={colors.primaryDark} />
-      </View>
-      <View style={styles.stepHeaderText}>
-        <Text style={styles.sectionTitle}>{title}</Text>
-      </View>
-    </View>
-  );
-}
-
-function MapPicker({
-  locationLabel,
-  radiusMiles,
-  onSelectLocation
-}: {
-  locationLabel: string;
-  radiusMiles: number;
-  onSelectLocation: (location: string) => void;
-}) {
-  const region = {
-    latitude: homeCoordinate.latitude,
-    longitude: homeCoordinate.longitude,
-    latitudeDelta: radiusMiles >= 50 ? 0.55 : radiusMiles >= 25 ? 0.28 : 0.14,
-    longitudeDelta: radiusMiles >= 50 ? 0.55 : radiusMiles >= 25 ? 0.28 : 0.14
-  };
-
-  return (
-    <View style={styles.mapCard}>
-      <View style={styles.mapCanvas}>
-        <MapView
-          provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-          style={styles.liveMap}
-          initialRegion={region}
-          onPress={(event) => {
-            const { latitude, longitude } = event.nativeEvent.coordinate;
-            onSelectLocation(`${latitude.toFixed(3)}, ${longitude.toFixed(3)}`);
-          }}
-        >
-          <Circle
-            center={homeCoordinate}
-            radius={radiusMiles * 1609.34}
-            strokeColor="rgba(56,80,109,0.35)"
-            fillColor="rgba(56,80,109,0.08)"
-          />
-          <Marker coordinate={homeCoordinate} title="Home area" description={locationLabel} pinColor={colors.primary} />
-          <Marker coordinate={{ latitude: 30.674, longitude: -96.37 }} title="Bryan, TX" onPress={() => onSelectLocation('Bryan, TX')} pinColor={colors.amber} />
-          <Marker coordinate={{ latitude: 30.58, longitude: -96.29 }} title="South College Station" onPress={() => onSelectLocation('South College Station, TX')} pinColor={colors.teal} />
-        </MapView>
-      </View>
-      <View style={styles.mapFooter}>
-        <Text style={styles.cardTitle}>{locationLabel}</Text>
-        <Text style={styles.muted}>Tap the map, choose a pin, or type your area below.</Text>
-      </View>
-    </View>
-  );
-}
 
 function SearchToolbar({
   value,
@@ -4633,53 +4210,6 @@ function AnimatedButton({
   );
 }
 
-function Field({
-  label,
-  value,
-  onChangeText,
-  tone,
-  keyboardType,
-  onSubmit,
-  error,
-  placeholder
-}: {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  tone?: 'light';
-  keyboardType?: React.ComponentProps<typeof TextInput>['keyboardType'];
-  onSubmit?: () => void;
-  error?: string;
-  placeholder?: string;
-}) {
-  return (
-    <View style={styles.field}>
-      <Text style={[styles.fieldLabel, tone === 'light' && styles.fieldLabelLight]}>{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        onKeyPress={(event) => {
-          if (event.nativeEvent.key === 'Enter') onSubmit?.();
-        }}
-        onSubmitEditing={onSubmit}
-        placeholder={placeholder ?? label}
-        placeholderTextColor={tone === 'light' ? 'rgba(255,255,255,0.56)' : colors.muted}
-        returnKeyType={onSubmit ? 'next' : 'done'}
-        keyboardType={keyboardType}
-        style={[styles.input, tone === 'light' && styles.inputLight, Boolean(error) && styles.inputError]}
-      />
-      {error ? <Text style={[styles.fieldError, tone === 'light' && styles.fieldErrorLight]}>{error}</Text> : null}
-    </View>
-  );
-}
-
-function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
-      <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
-    </Pressable>
-  );
-}
 
 
 
@@ -4757,141 +4287,10 @@ function formatCurrency(value: number) {
 }
 
 
-const colors = {
-  ink: '#f4f7ff',
-  muted: '#8a9abd',
-  canvas: '#060c1a',
-  panel: '#10192c',
-  line: 'rgba(110,145,255,0.18)',
-  primary: '#4d7cfe',
-  primaryDark: '#080f1f',
-  primarySoft: '#182746',
-  teal: '#35d3a1',
-  tealSoft: '#102d2a',
-  amber: '#a98bff',
-  amberSoft: '#291d45',
-  coral: '#fb7185'
-};
 
-function applyDarkComponentTheme<T extends Record<string, any>>(definitions: T): T {
-  const lightSurfaces: Record<string, string> = {
-    '#ffffff': '#10192c',
-    '#fff': '#10192c',
-    '#f8fafc': '#0d1628',
-    '#f9fafb': '#060c1a',
-    '#f4f4f1': '#151f34',
-    '#f6f6f3': '#121c30',
-    '#fbfffc': '#10211f',
-    '#fff7ed': '#2a201b',
-    '#f3f4f6': '#18233a',
-    '#eef3ff': '#182746',
-    '#dbeafe': '#142b43',
-    '#f3e8ff': '#291d45',
-    '#fff8ed': '#2a2119',
-    '#f4fbf8': '#10211f',
-    '#f7f7f4': '#141e31',
-    '#edf7f5': '#142f31',
-    '#f1f7f6': '#172d30',
-    '#eeeeea': '#1a2334',
-    '#fff8e8': '#2a2117',
-    '#f1f2f4': '#172136',
-    '#f6f7fb': '#121c30',
-    '#eef4ff': '#162541',
-    '#fff0dc': '#2b2117',
-    '#f2fbf8': '#10211f',
-    'rgba(255,254,250,0.92)': '#10192c',
-    'rgba(255,255,255,0.84)': '#142039',
-    'rgba(255,255,255,0.88)': '#142039',
-    'rgba(255,255,255,0.9)': '#142039',
-    'rgba(255,255,255,0.76)': '#142039'
-  };
-  const darkForegrounds: Record<string, string> = {
-    '#0b1020': '#f4f7ff',
-    '#111827': '#eef3ff',
-    '#181716': '#f4f7ff',
-    '#1f2937': '#e6ecfa',
-    '#334155': '#c4cee3',
-    '#475569': '#aab8d2',
-    '#64748b': '#8a9abd'
-  };
-  Object.entries(definitions).forEach(([key, style]) => {
-    if (!style || typeof style !== 'object' || Array.isArray(style)) return;
-    const background = typeof style.backgroundColor === 'string' ? style.backgroundColor.toLowerCase() : '';
-    if (background && lightSurfaces[background]) {
-      style.backgroundColor = key === 'membershipQrCode' ? '#ffffff' : lightSurfaces[background];
-    }
-    const foreground = typeof style.color === 'string' ? style.color.toLowerCase() : '';
-    if (foreground && darkForegrounds[foreground]) style.color = darkForegrounds[foreground];
-  });
-  return definitions;
-}
-
-const styles = StyleSheet.create(applyDarkComponentTheme({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#060c1a'
-  },
+const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
   appBackdrop: {
     ...StyleSheet.absoluteFillObject
-  },
-  animatedGradientRoot: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#102a34',
-    overflow: 'hidden'
-  },
-  orbitPattern: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.28
-  },
-  orbitHalo: {
-    borderColor: 'rgba(255,255,255,0.32)',
-    borderRadius: 999,
-    borderWidth: 2,
-    height: 260,
-    left: -48,
-    position: 'absolute',
-    top: 92,
-    transform: [{ rotate: '-18deg' }],
-    width: 420
-  },
-  orbitRing: {
-    borderColor: 'rgba(45,212,191,0.34)',
-    borderRadius: 999,
-    borderWidth: 14,
-    bottom: 28,
-    left: 34,
-    position: 'absolute',
-    right: 34,
-    top: 28
-  },
-  orbitNode: {
-    backgroundColor: 'rgba(255,255,255,0.76)',
-    borderColor: 'rgba(77,124,254,0.32)',
-    borderRadius: 999,
-    borderWidth: 3,
-    height: 28,
-    position: 'absolute',
-    width: 28
-  },
-  orbitNodeOne: {
-    left: 86,
-    top: 18
-  },
-  orbitNodeTwo: {
-    right: 88,
-    top: 34
-  },
-  orbitNodeThree: {
-    bottom: 22,
-    left: 132
-  },
-  orbitNodeFour: {
-    bottom: 34,
-    right: 118
-  },
-  gradientShade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(16,23,39,0.24)'
   },
   shell: {
     alignSelf: 'center',
@@ -4900,64 +4299,6 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
     paddingHorizontal: 16,
     paddingTop: 6,
     width: '100%'
-  },
-  onboardingSafeArea: {
-    backgroundColor: '#0b1020'
-  },
-  onboardingShell: {
-    flex: 1,
-    paddingHorizontal: 24
-  },
-  onboardingContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    minHeight: '100%',
-    paddingBottom: 34,
-    paddingTop: 22
-  },
-  onboardingFlow: {
-    flex: 1,
-    gap: 26,
-    justifyContent: 'center',
-    minHeight: '100%'
-  },
-  onboardingTopBar: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 20,
-    justifyContent: 'space-between',
-    paddingHorizontal: 2,
-    position: 'absolute',
-    top: 0,
-    width: '100%'
-  },
-  onboardingBrand: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '900',
-    letterSpacing: 1.2
-  },
-  onboardingBrandSubtle: {
-    color: 'rgba(255,255,255,0.68)',
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1.6,
-    textTransform: 'uppercase'
-  },
-  onboardingProgressShell: {
-    flex: 1,
-    maxWidth: 168
-  },
-  onboardingProgressTrack: {
-    backgroundColor: 'rgba(255,255,255,0.22)',
-    borderRadius: 6,
-    height: 3,
-    overflow: 'hidden'
-  },
-  onboardingProgressFill: {
-    backgroundColor: '#ffffff',
-    borderRadius: 6,
-    height: 3
   },
   onboardingHero: {
     backgroundColor: colors.primaryDark,
@@ -5003,54 +4344,11 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
     justifyContent: 'center',
     width: 54
   },
-  onboardingTitle: {
-    color: '#ffffff',
-    fontSize: 34,
-    fontWeight: '700',
-    letterSpacing: 0,
-    lineHeight: 38,
-    textAlign: 'center'
-  },
   onboardingCopy: {
     color: 'rgba(255,255,255,0.74)',
     fontSize: 15,
     fontWeight: '500',
     lineHeight: 22
-  },
-  onboardingStepSurface: {
-    alignSelf: 'stretch',
-    backgroundColor: 'transparent',
-    borderRadius: 0,
-    gap: 12,
-    minHeight: 86,
-    paddingHorizontal: 0,
-    paddingVertical: 0
-  },
-  optionalStep: {
-    gap: 10
-  },
-  optionalStepText: {
-    color: 'rgba(255,255,255,0.72)',
-    fontSize: 13,
-    fontWeight: '600',
-    lineHeight: 18,
-    textAlign: 'center'
-  },
-  onboardingActions: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 2
-  },
-  arrowAction: {
-    alignItems: 'center',
-    height: 44,
-    justifyContent: 'center',
-    minWidth: 44,
-    position: 'relative'
-  },
-  arrowActionDisabled: {
-    opacity: 0.35
   },
   demoLink: {
     color: 'rgba(255,255,255,0.78)',
@@ -5238,12 +4536,6 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
     fontWeight: '900',
     marginTop: 4
   },
-  sectionTitle: {
-    color: colors.ink,
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: 0
-  },
   sectionHeader: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -5276,24 +4568,6 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
     borderWidth: 1,
     gap: 9,
     padding: 10
-  },
-  onboardingNextAction: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderColor: 'rgba(255,255,255,0.36)',
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 9,
-    justifyContent: 'center',
-    minHeight: 48,
-    minWidth: 142,
-    paddingHorizontal: 18
-  },
-  onboardingNextActionText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '800'
   },
   searchToolbar: {
     alignItems: 'center',
@@ -5684,28 +4958,6 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
     backgroundColor: '#eeeeea',
     borderColor: colors.line
   },
-  iconTooltip: {
-    alignItems: 'center',
-    backgroundColor: colors.primaryDark,
-    borderRadius: 8,
-    bottom: 48,
-    maxWidth: 190,
-    minWidth: 84,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    position: 'absolute',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.16,
-    shadowRadius: 10,
-    zIndex: 30
-  },
-  iconTooltipText: {
-    color: '#ffffff',
-    fontSize: 11,
-    fontWeight: '800',
-    textAlign: 'center'
-  },
   emptyState: {
     backgroundColor: colors.panel,
     borderColor: colors.line,
@@ -5713,18 +4965,6 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
     borderWidth: 1,
     gap: 6,
     padding: 16
-  },
-  cardTitle: {
-    color: colors.ink,
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: 0
-  },
-  muted: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: '500',
-    lineHeight: 18
   },
   statusPill: {
     backgroundColor: colors.amberSoft,
@@ -6528,51 +5768,10 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
     lineHeight: 16,
     textAlign: 'center'
   },
-  stepHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 12
-  },
-  stepHeaderIcon: {
-    alignItems: 'center',
-    backgroundColor: colors.primarySoft,
-    borderColor: 'rgba(21,127,109,0.11)',
-    borderRadius: 10,
-    borderWidth: 1,
-    height: 44,
-    justifyContent: 'center',
-    width: 44
-  },
-  stepHeaderText: {
-    flex: 1,
-    gap: 4
-  },
-  mapCard: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 12,
-    overflow: 'hidden',
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.025,
-    shadowRadius: 12
-  },
   mapHeader: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between'
-  },
-  mapCanvas: {
-    aspectRatio: 1.55,
-    backgroundColor: colors.tealSoft,
-    borderColor: colors.line,
-    borderRadius: 10,
-    borderWidth: 1,
-    overflow: 'hidden',
-    position: 'relative'
   },
   mapCanvasLarge: {
     aspectRatio: 1.15,
@@ -6582,9 +5781,6 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
     borderWidth: 1,
     overflow: 'hidden',
     position: 'relative'
-  },
-  liveMap: {
-    ...StyleSheet.absoluteFillObject
   },
   radiusRing: {
     borderColor: 'rgba(56,80,109,0.18)',
@@ -6667,88 +5863,6 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
     color: '#ffffff',
     fontSize: 12,
     fontWeight: '900'
-  },
-  mapFooter: {
-    gap: 3
-  },
-  field: {
-    gap: 6
-  },
-  fieldLabel: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: '700'
-  },
-  fieldLabelLight: {
-    color: 'rgba(255,255,255,0.76)',
-    fontSize: 13,
-    fontWeight: '700',
-    textAlign: 'center'
-  },
-  input: {
-    backgroundColor: '#f7f7f4',
-    borderColor: 'rgba(24,23,22,0.08)',
-    borderRadius: 10,
-    borderWidth: 1,
-    color: colors.ink,
-    fontSize: 15,
-    fontWeight: '600',
-    minHeight: 44,
-    paddingHorizontal: 12,
-    shadowColor: colors.primaryDark,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0,
-    shadowRadius: 0
-  },
-  inputLight: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 10,
-    color: '#ffffff',
-    fontSize: 20,
-    fontWeight: '600',
-    minHeight: 58,
-    paddingHorizontal: 16,
-    textAlign: 'center'
-  },
-  inputError: {
-    borderColor: '#f59e0b'
-  },
-  fieldError: {
-    color: '#b45309',
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 17
-  },
-  fieldErrorLight: {
-    color: '#fde68a',
-    textAlign: 'center'
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8
-  },
-  chip: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 999,
-    borderWidth: 1,
-    minHeight: 38,
-    justifyContent: 'center',
-    paddingHorizontal: 12
-  },
-  chipActive: {
-    backgroundColor: colors.tealSoft,
-    borderColor: 'rgba(21,127,109,0.28)'
-  },
-  chipText: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: '700'
-  },
-  chipTextActive: {
-    color: colors.primary
   },
   animatedButtonShadow: {
     borderRadius: 10,
@@ -7154,4 +6268,6 @@ const styles = StyleSheet.create(applyDarkComponentTheme({
   merchantBand: { alignItems: 'flex-start', backgroundColor: colors.tealSoft, borderColor: 'rgba(21,127,109,0.20)', borderRadius: 13, borderWidth: 1, flexDirection: 'row', gap: 9, padding: 12 },
   merchantBandText: { color: colors.teal, flex: 1, fontSize: 12, fontWeight: '800', lineHeight: 17 }
 }));
+
+const styles = { ...sharedStyles, ...playerAppStyles };
 
