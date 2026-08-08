@@ -10,7 +10,7 @@ The product has three major surfaces:
 
 - Desktop management app: React + Vite + Electron.
 - Local/cloud API: Express + SQLite for telemetry, state, reports, and player sync.
-- Player/mobile integration: sync helpers and a separate `player-app` folder that is intentionally ignored in this repo setup.
+- Player/mobile integration: sync helpers and a tracked Expo application in `player-app/`. The current `orbit.config.json` excludes that directory from assistant indexing, but Git does not ignore it.
 
 ## Start Here
 
@@ -21,16 +21,19 @@ Read these files first:
 - `src/lib/appCore.ts`: small shared pure helpers.
 - `src/lib/playerSync.ts`: player app and management app sync behavior.
 - `electron/main.cjs`: Electron shell, local persistence, telemetry, updates, and embedded backend.
-- `apps/api/src/server.js`: API route entry point.
-- `apps/api/src/database.js`: SQLite persistence for API data.
+- `apps/api/src/server.js` → `apps/api/src/app.js`: API process entrypoint and non-listening app composition.
+- `apps/api/src/routes/` and `apps/api/src/http/`: focused route and middleware owners.
+- `apps/api/src/database.js` → `apps/api/src/db/`: stable SQLite facade and focused persistence owners.
 - `src/components/PokerTable.tsx`: visual table component used by the management UI.
 
 ## How To Run
 
-Install dependencies:
+Install all three lockfiles without rewriting them:
 
 ```powershell
-npm install
+npm ci
+npm ci --prefix apps/api
+npm ci --prefix player-app
 ```
 
 Run the web app:
@@ -50,6 +53,14 @@ Run tests:
 ```powershell
 npm test
 ```
+
+Run the complete repository verification entrypoint:
+
+```powershell
+npm run verify
+```
+
+The current root TypeScript baseline is documented in `docs/agent/BASELINE.md`; do not describe verification as fully passing while that check remains red.
 
 Run the API:
 
@@ -87,9 +98,11 @@ Important workflows inside it:
 - active player counting
 - timer status calculation
 
-`src/lib/playerSync.ts` contains sync transformations between player accounts and club state.
+`src/lib/playerSync.ts` contains the renderer's typed management sync transformations.
 
 `src/lib/firebaseClubSync.ts` handles Firebase state sync, management-account authentication and password-reset email delivery, and player request subscriptions. Management password recovery verifies the new Firebase credential before replacing the desktop account's local password salt and hash.
+
+`apps/api/src/shared/orbitCore.cjs` owns the behaviorally shared API/Electron server transforms. The API consumes it through `apps/api/src/orbitCore.js`; Electron selects its characterized compatibility profile in `electron/main.cjs`.
 
 ### Electron
 
@@ -106,7 +119,7 @@ Important workflows inside it:
 
 ### API
 
-`apps/api/src/server.js` defines HTTP routes.
+`apps/api/src/server.js` starts and stops the process and preserves the exported Express app. `apps/api/src/app.js` composes middleware and route groups without listening.
 
 Key route areas:
 
@@ -119,9 +132,9 @@ Key route areas:
 - membership and waitlist requests
 - analytical reports
 
-`apps/api/src/database.js` owns SQLite tables and persistence functions.
+`apps/api/src/database.js` preserves the persistence import contract. `apps/api/src/db/connection.js` and `schema.js` own SQLite lifecycle/schema; `clients.js`, `telemetry.js`, `state.js`, and `reports.js` own focused repositories.
 
-`apps/api/src/orbitCore.js` duplicates some player-sync/domain behavior from the frontend and should eventually be consolidated.
+`apps/api/src/orbitCore.js` preserves the public API entrypoint for the API-owned shared server sync core. Renderer-specific differences remain in `src/lib/playerSync.ts` by design.
 
 ## Common Questions For Orbit
 

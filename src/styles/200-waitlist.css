@@ -1,0 +1,72 @@
+
+/* Keep the compact waitlist legible and make its primary actions discoverable. */
+.waitlist-popup-content {
+  color: var(--ink);
+}
+
+.waitlist-popup-row {
+  background: var(--panel-solid);
+  border-bottom: 1px solid var(--line);
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.waitlist-popup-row:last-child {
+  border-bottom: 0;
+}
+
+.waitlist-popup-row strong {
+  color: var(--ink);
+}
+
+.waitlist-popup-actions {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  justify-content: flex-end;
+}
+
+.waitlist-popup-actions .secondary-button {
+  min-height: 32px;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.waitlist-no-table {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.waitlist-action-menu.ui-menu-content {
+  background: var(--panel-solid);
+  border-color: var(--line);
+  color: var(--ink);
+  min-width: 210px;
+  padding: 6px;
+  z-index: 160;
+}
+
+.waitlist-action-menu .ui-menu-item {
+  background: transparent;
+  color: var(--ink);
+  min-height: 38px;
+}
+
+.waitlist-action-menu .ui-menu-item[data-highlighted] {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  outline: 0;
+}
+
+@media (max-width: 600px) {
+  .waitlist-popup-row {
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .waitlist-popup-actions {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+}

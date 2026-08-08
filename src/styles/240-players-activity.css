@@ -1,0 +1,309 @@
+
+/* Players: active membership database and today's room activity. */
+.players-section-tabs button {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.players-section-tabs button span {
+  align-items: center;
+  background: var(--primary-soft);
+  border-radius: 999px;
+  color: var(--primary-dark);
+  display: inline-flex;
+  font-size: 0.68rem;
+  justify-content: center;
+  min-width: 23px;
+  padding: 3px 7px;
+}
+
+.today-players-panel {
+  display: grid;
+  gap: 20px;
+  padding: clamp(18px, 2.5vw, 28px);
+}
+
+.today-players-heading {
+  align-items: start;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding-bottom: 18px;
+}
+
+.today-players-heading > div {
+  display: grid;
+  gap: 5px;
+}
+
+.today-players-heading h2,
+.today-players-heading > strong {
+  color: var(--ink);
+}
+
+.today-players-heading h2 {
+  font-size: 1.25rem;
+}
+
+.today-players-heading p {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.today-players-heading > strong {
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.75rem;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.today-player-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.today-player-summary article {
+  --today-status-color: var(--primary);
+  background: color-mix(in srgb, var(--today-status-color) 9%, var(--panel-solid));
+  border: 1px solid color-mix(in srgb, var(--today-status-color) 34%, var(--line));
+  border-radius: 10px;
+  display: grid;
+  gap: 7px;
+  padding: 12px 14px;
+}
+
+.today-player-summary article[data-status="Confirmed Coming"] {
+  --today-status-color: #0f766e;
+}
+
+.today-player-summary article[data-status="Arrived"] {
+  --today-status-color: #0891b2;
+}
+
+.today-player-summary article[data-status="Seated"] {
+  --today-status-color: #15803d;
+}
+
+.today-player-summary span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.today-player-summary strong {
+  color: var(--ink);
+  font-size: 1.35rem;
+}
+
+.today-player-table-head,
+.today-player-row {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(150px, 1.15fr) minmax(120px, 0.78fr) minmax(170px, 1.2fr) minmax(125px, 0.86fr) 72px;
+}
+
+.today-player-table-head {
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 850;
+  letter-spacing: 0.05em;
+  padding: 0 13px;
+  text-transform: uppercase;
+}
+
+.today-player-list {
+  display: grid;
+}
+
+.today-player-row {
+  border-top: 1px solid var(--line);
+  min-width: 0;
+  padding: 14px 13px;
+}
+
+.today-player-row:hover {
+  background: color-mix(in srgb, var(--primary-soft) 42%, transparent);
+}
+
+.today-player-name,
+.today-player-location {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.today-player-name strong,
+.today-player-location strong {
+  color: var(--ink);
+  font-size: 0.84rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-player-name small,
+.today-player-location small {
+  color: var(--muted);
+  font-size: 0.69rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-player-status {
+  --today-status-color: #64748b;
+  background: color-mix(in srgb, var(--today-status-color) 12%, var(--panel-solid));
+  border: 1px solid color-mix(in srgb, var(--today-status-color) 38%, var(--line));
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--today-status-color) 78%, var(--ink));
+  font-size: 0.68rem;
+  font-weight: 850;
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 5px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-player-status[data-status="Interested"] { --today-status-color: #2563eb; }
+.today-player-status[data-status="Confirmed Coming"] { --today-status-color: #0f766e; }
+.today-player-status[data-status="Arrived"] { --today-status-color: #0891b2; }
+.today-player-status[data-status="Seated"] { --today-status-color: #15803d; }
+.today-player-status[data-status="Declined"],
+.today-player-status[data-status="No-Show"],
+.today-player-status[data-status="Left Before Seated"],
+.today-player-status[data-status="Removed"] { --today-status-color: #b45309; }
+
+.today-membership {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.today-membership.active {
+  color: #15803d;
+}
+
+body.low-light .today-membership.active {
+  color: #86efac;
+}
+
+.today-player-row time {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+  text-align: right;
+}
+
+.today-player-empty {
+  align-items: center;
+  color: var(--muted);
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 58px 20px;
+  text-align: center;
+}
+
+.today-player-empty strong {
+  color: var(--ink);
+}
+
+.today-player-empty span {
+  font-size: 0.78rem;
+}
+
+@media (max-width: 760px) {
+  .today-player-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .today-player-table-head {
+    display: none;
+  }
+
+  .today-player-row {
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .today-player-location,
+  .today-membership {
+    grid-column: 1;
+  }
+
+  .today-player-row time {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 520px) {
+  .players-section-tabs {
+    gap: 12px;
+  }
+
+  .players-section-tabs button {
+    font-size: 0.76rem;
+  }
+
+  .today-players-heading {
+    display: grid;
+  }
+
+  .today-players-heading > strong {
+    justify-self: start;
+  }
+}
+.pending-membership-panel {
+  margin-bottom: 16px;
+}
+
+.pending-membership-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.pending-membership-list .duplicate-card {
+  align-items: center;
+}
+
+.pending-membership-list .duplicate-card > span {
+  display: grid;
+  gap: 3px;
+}
+
+.pending-membership-list .duplicate-card small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.approved-membership-panel {
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--line));
+}
+
+@media (max-width: 760px) {
+  .staff-request-notice {
+    align-items: stretch;
+    flex-direction: column;
+    margin-top: 12px;
+    width: calc(100% - 28px);
+  }
+
+  .staff-request-notice-actions {
+    justify-content: flex-end;
+  }
+
+  .membership-qr-manual {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+}

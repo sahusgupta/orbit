@@ -1,0 +1,62 @@
+
+/* Premium dark operating-room refactor. */
+body.low-light {
+  --ink: #f4f7fb;
+  --muted: #8f9aaa;
+  --canvas: #0f141b;
+  --panel: #151b24;
+  --panel-solid: #171d26;
+  --line: #27313e;
+  --line-strong: #364253;
+  --primary: #345ee8;
+  --primary-dark: #7da0ff;
+  --primary-soft: rgba(77, 124, 254, 0.14);
+  --teal: #21b6a4;
+  --teal-soft: rgba(33, 182, 164, 0.13);
+  --amber: #d8a24d;
+  --amber-soft: rgba(216, 162, 77, 0.13);
+  --rose: #ef6f79;
+  --rose-soft: rgba(239, 111, 121, 0.13);
+  --background-start: #10151d;
+  --background-accent-primary: rgba(77, 124, 254, 0.1);
+  --background-accent-secondary: rgba(255, 255, 255, 0.035);
+  color-scheme: dark;
+}
+
+body.low-light {
+  background: #0f141b;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+body.low-light {
+  background:
+    radial-gradient(circle at 22% 0%, rgba(15, 118, 110, 0.08), transparent 28rem),
+    linear-gradient(180deg, #111720 0%, #0f141b 100%);
+  position: relative;
+}
+
+.app-shell {
+  width: min(1440px, calc(100vw - clamp(28px, 4vw, 76px)));
+}
+
+.topbar {
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+}
+
+.eyebrow {
+  color: var(--primary-dark);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+h1 {
+  color: inherit;
+  font-weight: 760;
+  letter-spacing: -0.02em;
+}

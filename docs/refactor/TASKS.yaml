@@ -1,0 +1,104 @@
+queue: orbit-large-refactor
+status: complete
+tasks:
+  - id: REF-001
+    title: Extract canonical management domain types
+    status: complete
+    boundary: renderer_types
+    risk: low_runtime_high_contract
+    depends_on: []
+    spec: docs/agent/tasks/REF-001.md
+    resolution: type_only_canonical_management_contract_module
+    characterization:
+      - existing_stabilization_renderer_suites
+      - root_and_player_typechecks
+    acceptance:
+      - canonical management types live under src/domain
+      - main runtime behavior and persisted shapes are unchanged
+      - renderer and test compiler ownership remains exact
+  - id: REF-002
+    title: Extract state defaults and persisted-state normalization
+    status: complete
+    boundary: renderer_persistence
+    risk: high
+    depends_on: [REF-001]
+    spec: docs/agent/tasks/REF-002.md
+    resolution: characterized_state_defaults_and_normalization_module
+    characterization:
+      - src/lib/accountRestore.test.ts
+      - src/lib/stateCorrections.test.ts
+  - id: REF-003
+    title: Extract report windows and financial analytics
+    status: complete
+    boundary: renderer_reporting
+    risk: medium
+    depends_on: [REF-001]
+    spec: docs/agent/tasks/REF-003.md
+    resolution: characterized_pure_reporting_projection_module
+    characterization:
+      - src/domain/reporting.test.ts
+  - id: REF-004
+    title: Extract licensing and staff-auth helpers
+    status: complete
+    boundary: renderer_identity
+    risk: high
+    depends_on: [REF-001]
+    spec: docs/agent/tasks/REF-004.md
+    resolution: characterized_licensing_and_staff_auth_modules
+    characterization:
+      - src/lib/pilotSignature.test.ts
+      - direct_staff_hash_license_key_and_persisted_sign_in_fixtures
+  - id: REF-005
+    title: Extract remaining demand, table-health, and participant rules
+    status: complete
+    boundary: renderer_domain
+    risk: high
+    depends_on: [REF-001, REF-002]
+    spec: docs/agent/tasks/REF-005.md
+    resolution: characterized_operations_analytics_and_participant_modules
+    characterization:
+      - existing_table_waitlist_participant_suites
+      - src/domain/operations.test.ts
+  - id: REF-006
+    title: Split renderer route sections into typed feature components
+    status: complete
+    boundary: renderer_ui
+    risk: high
+    depends_on: [REF-002, REF-003, REF-004, REF-005]
+    spec: docs/agent/tasks/REF-006.md
+    resolution: nine_characterized_typed_route_extractions
+    execution: one_route_and_one_characterization_boundary_per_subtask
+  - id: REF-007
+    title: Split the ordered global stylesheet by feature
+    status: complete
+    boundary: renderer_css
+    risk: high_visual
+    depends_on: [REF-006]
+    spec: docs/agent/tasks/REF-007.md
+    resolution: byte_preserved_ordered_feature_stylesheets_with_rendered_comparison
+    verification: browser_rendered_comparison_required
+  - id: REF-008
+    title: Extract Electron process modules
+    status: complete
+    boundary: electron
+    risk: high_security
+    depends_on: [TYPE-016]
+    spec: docs/agent/tasks/REF-008.md
+    resolution: extracted_electron_process_modules_with_characterized_composition_boundary
+    prohibited: production_connected_stress_harness
+  - id: REF-009
+    title: Establish and migrate to a shared sync core
+    status: complete
+    boundary: cross_runtime_sync
+    risk: high_architecture
+    depends_on: [TYPE-016, TYPE-018]
+    spec: docs/agent/tasks/REF-009.md
+    resolution: api_owned_server_core_with_explicit_electron_compatibility_profile
+  - id: REF-010
+    title: Split API database and route responsibilities
+    status: complete
+    boundary: api
+    risk: high_data
+    depends_on: [TYPE-018, REF-009]
+    spec: docs/agent/tasks/REF-010.md
+    resolution: stable_database_facade_with_focused_repositories_and_non_listening_route_composition

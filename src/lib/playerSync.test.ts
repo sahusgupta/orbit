@@ -154,6 +154,17 @@ describe('player sync snapshots', () => {
       knownPlayersInHouse: 2,
       waitlistCount: 2
     });
+    expect(Object.keys(snapshot).sort()).toEqual([
+      'club',
+      'games',
+      'generatedAt',
+      'memberships',
+      'notifications',
+      'social',
+      'waitlists'
+    ]);
+    expect(snapshot).not.toHaveProperty('syncProtocolVersion');
+    expect(snapshot).not.toHaveProperty('syncRevision');
   });
 
   it('derives stable club ids and loyalty tiers', () => {
@@ -339,6 +350,98 @@ describe('player sync snapshots', () => {
       preferredStakes: '1/2 PLO',
       notes: 'Player app: taylor@example.com'
     });
+  });
+
+  it.each(['Requested', 'Approved', 'Active', 'Expired'] as const)(
+    'preserves a narrowed %s membership when updating an existing profile',
+    (status) => {
+      const next = applyPlayerProfileDocumentToClubState(state, {
+        id: 'player-1',
+        uid: 'player-1',
+        name: 'Alex',
+        email: 'alex@example.com',
+        preferredGameIds: ['plo-1-2'],
+        clubMemberships: {
+          'lucky-lodge': {
+            clubId: 'lucky-lodge',
+            status,
+            requestedAt: '2026-05-21T12:00:00.000Z',
+            joinedAt: '2026-05-21',
+            expiresAt: '2027-05-21',
+            plan: 'monthly',
+            paymentMethod: 'in-person'
+          }
+        }
+      });
+
+      expect(next.profiles[0]).toMatchObject({
+        id: 'player-1',
+        membershipStatus: status,
+        membershipStartDate: '2026-01-01',
+        membershipExpirationDate: status === 'Active' ? '2027-05-21' : '2099-01-01',
+        membershipExpiresAt: status === 'Active' ? '2027-05-21' : undefined,
+        membershipPlan: 'monthly',
+        membershipPaymentMethod: 'in-person'
+      });
+      expect(state.profiles[0]).not.toHaveProperty('membershipStatus');
+    }
+  );
+
+  it.each(['Requested', 'Approved', 'Active', 'Expired'] as const)(
+    'creates a new profile for a narrowed %s membership',
+    (status) => {
+      const next = applyPlayerProfileDocumentToClubState(
+        { ...state, profiles: [] },
+        {
+          id: `player-${status.toLowerCase()}`,
+          uid: `player-${status.toLowerCase()}`,
+          name: `${status} Player`,
+          email: `${status.toLowerCase()}@example.com`,
+          preferredGameIds: ['plo-1-2'],
+          clubMemberships: {
+            'lucky-lodge': {
+              clubId: 'lucky-lodge',
+              status,
+              requestedAt: '2026-05-21T12:00:00.000Z',
+              joinedAt: '2026-05-21',
+              expiresAt: '2027-05-21',
+              plan: 'monthly',
+              paymentMethod: 'app'
+            }
+          }
+        }
+      );
+
+      expect(next.profiles).toHaveLength(1);
+      expect(next.profiles[0]).toMatchObject({
+        membershipStatus: status,
+        membershipStartDate: '2026-05-21',
+        membershipExpirationDate: '2027-05-21',
+        membershipExpiresAt: status === 'Active' ? '2027-05-21' : undefined,
+        membershipPlan: 'monthly',
+        membershipPaymentMethod: 'app'
+      });
+    }
+  );
+
+  it('ignores a denied membership without mutating or cloning management state', () => {
+    const next = applyPlayerProfileDocumentToClubState(state, {
+      id: 'player-denied',
+      uid: 'player-denied',
+      name: 'Denied Player',
+      email: 'denied@example.com',
+      preferredGameIds: ['nlh-1-2'],
+      clubMemberships: {
+        'lucky-lodge': {
+          clubId: 'lucky-lodge',
+          status: 'Denied',
+          requestedAt: '2026-05-21T12:00:00.000Z'
+        }
+      }
+    });
+
+    expect(next).toBe(state);
+    expect(next.profiles.some((profile) => profile.id === 'player-denied')).toBe(false);
   });
 
   it('syncs arrived, confirmed arrival time, and offered-game availability into Core interests', () => {

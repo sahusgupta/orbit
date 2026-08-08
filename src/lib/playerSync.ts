@@ -119,12 +119,15 @@ export type PlayerProfileDocument = PlayerAccount & {
   updatedAt?: string;
 };
 
+// Pre-publication player-safe payload. Firebase publication adds protocol-v2
+// revision metadata and the parent club commit marker around this shape.
 export type PlayerClubSnapshot = {
   club: PlayerSyncClub;
   games: PlayerSyncGame[];
   memberships: PlayerMembership[];
   waitlists: PlayerWaitlistEntry[];
   notifications: PlayerInAppNotification[];
+  social: PlayerSocialSummary;
   generatedAt: string;
 };
 
@@ -264,7 +267,7 @@ type ManagementStaffAccount = {
   active?: boolean;
 };
 
-type ManagementClubState = {
+export type ManagementClubState = {
   games: ManagementGame[];
   sessions: ManagementSession[];
   playerSessions?: ManagementPlayerSession[];
@@ -611,6 +614,7 @@ export function applyPlayerProfileDocumentToClubState(
 ): ManagementClubState {
   const membership = player.clubMemberships?.[clubId];
   if (!membership || membership.status === 'Denied') return state;
+  const membershipStatus: Exclude<PlayerClubMembershipRecord['status'], 'Denied'> = membership.status;
 
   const existingProfile = state.profiles.find(
     (profile) => profile.id === player.uid || profile.id === player.id || profile.name.toLowerCase() === player.name.toLowerCase()
@@ -633,11 +637,11 @@ export function applyPlayerProfileDocumentToClubState(
               id: player.uid || profile.id,
               name: player.name || profile.name,
               membershipStartDate: profile.membershipStartDate || membershipStartDate,
-              membershipExpirationDate: membership.status === 'Active' ? membershipExpirationDate : profile.membershipExpirationDate || membershipExpirationDate,
-              membershipExpiresAt: membership.status === 'Active' ? membership.expiresAt ?? profile.membershipExpiresAt : profile.membershipExpiresAt,
+              membershipExpirationDate: membershipStatus === 'Active' ? membershipExpirationDate : profile.membershipExpirationDate || membershipExpirationDate,
+              membershipExpiresAt: membershipStatus === 'Active' ? membership.expiresAt ?? profile.membershipExpiresAt : profile.membershipExpiresAt,
               membershipPlan: membership.plan ?? profile.membershipPlan,
               membershipPaymentMethod: membership.paymentMethod ?? profile.membershipPaymentMethod,
-              membershipStatus: membership.status === 'Active' ? 'Active' : profile.membershipStatus ?? membership.status,
+              membershipStatus: membershipStatus === 'Active' ? 'Active' : profile.membershipStatus ?? membershipStatus,
               membershipRequestedAt: membership.requestedAt ?? profile.membershipRequestedAt,
               preferredGameId: preferredGameIds[0] ?? profile.preferredGameId,
               preferredGameIds: mergeUnique([...(profile.preferredGameIds ?? []), ...preferredGameIds]),
@@ -660,10 +664,10 @@ export function applyPlayerProfileDocumentToClubState(
         birthday: '',
         membershipStartDate,
         membershipExpirationDate,
-        membershipExpiresAt: membership.status === 'Active' ? membership.expiresAt : undefined,
+        membershipExpiresAt: membershipStatus === 'Active' ? membership.expiresAt : undefined,
         membershipPlan: membership.plan,
         membershipPaymentMethod: membership.paymentMethod,
-        membershipStatus: membership.status,
+        membershipStatus,
         membershipRequestedAt: membership.requestedAt,
         totalTimePlayedHours: 0,
         lastSessionTimePlayedHours: 0,
@@ -677,7 +681,7 @@ export function applyPlayerProfileDocumentToClubState(
         typicalAvailability: player.typicalAvailability ?? '',
         preferredTags: [],
         usualCompanions: [],
-        notes: `Player app: ${player.email}${membership.status === 'Requested' ? ' | Membership requested' : ''}`
+        notes: `Player app: ${player.email}${membershipStatus === 'Requested' ? ' | Membership requested' : ''}`
       }
     ]
   };

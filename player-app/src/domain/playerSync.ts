@@ -155,6 +155,8 @@ export type PlayerInAppNotification = {
   targetPlayerNames?: string[];
 };
 
+// Hydrated consumer snapshot. Revision fields remain optional so legacy
+// pre-protocol-v2 publishers continue to load through the compatibility path.
 export type PlayerClubSnapshot = {
   club: PlayerSyncClub;
   games: PlayerSyncGame[];

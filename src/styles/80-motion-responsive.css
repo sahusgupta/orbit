@@ -1,0 +1,372 @@
+
+@keyframes panel-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes soft-flicker {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.045);
+  }
+}
+
+@keyframes viable-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@media (max-width: 1060px) {
+  .metric-grid,
+  .history-grid,
+  .builder-grid,
+  .opportunity-grid,
+  .start-list,
+  .interest-pool,
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .minimal-dashboard {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-main-column > .collapsed-panel,
+  .dashboard-side-column > .collapsed-panel {
+    grid-column: auto;
+  }
+
+  .panel.wide {
+    grid-column: auto;
+  }
+
+  .profile-form,
+  .staff-account-form,
+  .builder-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .owner-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 880px) {
+  .app-shell {
+    width: min(100% - 32px, 1360px);
+  }
+
+  .minimal-dashboard {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-main-column > .collapsed-panel,
+  .dashboard-side-column > .collapsed-panel {
+    grid-column: auto;
+  }
+
+  .active-game-card {
+    grid-template-columns: minmax(0, 1fr) minmax(44px, auto);
+  }
+
+  .active-game-card .health-pill {
+    justify-self: start;
+  }
+
+  .active-game-card > .health-pill {
+    grid-column: 1 / -1;
+  }
+
+  .active-game-card .seat-control {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .simple-demand .demand-line {
+    grid-template-columns: minmax(86px, 1fr) repeat(3, minmax(0, auto));
+  }
+
+  .access-grid,
+  .account-form,
+  .account-management-form {
+    grid-template-columns: 1fr;
+  }
+
+  .profiles-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-command-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-command-actions {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-directory-panel,
+  .profiles-right-column {
+    grid-column: auto;
+  }
+
+  .profiles-right-column {
+    grid-template-columns: 1fr;
+  }
+
+  .customization-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-grid {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 680px) {
+  .app-shell {
+    width: min(100% - 24px, 1480px);
+    padding-top: 18px;
+  }
+
+  .topbar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .topbar-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .metric-grid,
+  .history-grid,
+  .builder-grid,
+  .opportunity-grid,
+  .start-list,
+  .interest-pool,
+  .summary-grid,
+  .balance-card,
+  .profile-form,
+  .profile-tag-row,
+  .staff-account-form,
+  .builder-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .demand-header,
+  .demand-line {
+    grid-template-columns: minmax(80px, 1fr) repeat(4, 42px);
+  }
+
+  .simple-demand .demand-line {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-row {
+    grid-template-columns: 1fr;
+  }
+
+  .active-game-card {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .active-game-card > strong,
+  .active-game-card > .health-pill,
+  .active-game-card .seat-control {
+    justify-self: start;
+  }
+
+  .seat-control {
+    align-items: stretch;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(36px, auto));
+    width: 100%;
+  }
+
+  .seat-control .secondary-button,
+  .seat-control .ghost-button {
+    padding-inline: 8px;
+  }
+
+  .minimal-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-main-column > .collapsed-panel,
+  .dashboard-side-column > .collapsed-panel {
+    grid-column: span 1;
+  }
+
+  .kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .action-needed-card {
+    grid-template-columns: 1fr;
+  }
+
+  .timestamp-grid,
+  .correction-grid,
+  .owner-summary-grid,
+  .summary-breakdown {
+    grid-template-columns: 1fr;
+  }
+
+  .wide-field {
+    grid-column: auto;
+  }
+
+  .action-needed-card .secondary-button,
+  .quick-form .primary-button {
+    width: 100%;
+  }
+
+  .profile-search-row,
+  .duplicate-card,
+  .move-row,
+  .seat-help-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .profile-card,
+  .profile-card-header,
+  .profiles-right-column .profile-form,
+  .profile-command-strip,
+  .profile-command-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-actions {
+    align-items: center;
+    grid-template-columns: 1fr auto;
+    justify-items: stretch;
+  }
+
+  .move-row,
+  .preference-row,
+  .quick-seat-row,
+  .checklist-grid,
+  .candidate-edit-grid,
+  .feedback-grid,
+  .seat-player-row,
+  .collection-config-box,
+  .seated-table-head,
+  .seated-table-row,
+  .seated-player-main,
+  .player-action-summary,
+  .player-time-grid,
+  .time-action-row,
+  .buy-in-row {
+    grid-template-columns: 1fr;
+  }
+
+  .poker-table-shell {
+    min-height: 360px;
+    padding: 10px;
+  }
+
+  .poker-table-shell.dense {
+    min-height: 430px;
+    padding: 26px 16px;
+  }
+
+  .poker-table-stage {
+    min-width: min(600px, calc(100vw - 64px));
+  }
+
+  .poker-table-display {
+    overflow-x: auto;
+  }
+
+.poker-seat-menu,
+.poker-seat-menu-header,
+.poker-seat-menu-summary,
+.poker-seat-menu-row,
+.poker-seat-menu-row.buyin {
+  grid-template-columns: 1fr;
+}
+
+  .poker-seat-menu {
+    min-width: 260px;
+  }
+
+  .poker-seat-card-inner {
+    width: 132px;
+  }
+
+  .poker-seat-stat svg,
+  .poker-seat-avatar svg {
+    width: 13px;
+    height: 13px;
+  }
+}
+
+@media (max-width: 420px) {
+  .kpi-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .seat-control {
+    grid-template-columns: repeat(3, minmax(36px, 1fr));
+  }
+
+  .waitlist-card,
+  .table-collapsed-note {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .table-collapsed-note {
+    display: grid;
+  }
+
+  .lifecycle-actions {
+    justify-content: stretch;
+  }
+
+  .lifecycle-actions .ghost-button {
+    width: 100%;
+  }
+
+  .topbar-actions .ghost-button,
+  .topbar-actions .primary-button {
+    width: 100%;
+  }
+}

@@ -24,7 +24,7 @@ The app syncs with the Orbit management app through Firebase Firestore. If no li
 
 ```bash
 cd player-app
-npm install
+npm ci
 npm run start
 ```
 
@@ -72,6 +72,8 @@ The same API URL starts hosted Stripe Identity checks. Orbit stores only a priva
 The management app publishes player-safe card-house and game state to Firebase whenever it saves. The player app listens for live changes and also re-reads all registered card houses every 30 seconds so newly formed games, opened seats, waitlists, and table changes recover cleanly after network interruptions. Polling pauses while the app is backgrounded and refreshes immediately when it becomes active again.
 
 Desktop, API, and mobile use sync protocol v2. Every desktop save has a unique `syncRevision`; child game records are tagged with that revision, and the parent club record is the commit marker with expected entity counts. Mobile keeps its last complete revision until the entire new game set is available, which prevents mixed saves, stale removed games, and partial API publishes. Mobile membership and waitlist mutations also include a stable `clientMutationId`, and desktop marks each request as applied after ingesting it.
+
+The management `buildPlayerClubSnapshot` result is the player-safe pre-publication payload: it includes the required club-wide `social` summary but not revision metadata. The Firebase publisher adds protocol-v2 revision fields, publication timestamps, entity counts, and the parent-club commit marker. The Player hydrated snapshot keeps revision fields optional only so legacy pre-v2 publisher records remain readable.
 
 ## Firebase Sync
 

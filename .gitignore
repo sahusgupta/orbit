@@ -1,29 +1,65 @@
+# Dependencies and package-manager caches
 node_modules/
+
+# Local environment files. Keep variable-name-only templates tracked.
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Build and test output
 .orbit/
 dist/
 release/
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
+*.lcov
+*.tsbuildinfo
+.eslintcache
+.vite/
+
+# Logs and local databases
 *.log
 *.sqlite-shm
 *.sqlite-wal
 *.sqlite3-shm
 *.sqlite3-wal
+
+# Credentials and local service state
 .pilot-license-private-key.pem
 *-pilot-key.json
 *-firebase-adminsdk-*.json
+.firebase/
+.firestore/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
 
+# Packaging and generated downloads
 out/
 download-dist/
 download-site/public/downloads/
 download-site/downloads/
-apps/api/.env
-player-app/.expo/
-player-app/.agents/
-player-app/node_modules/
-player-app/.env
-player-app/*.log
-player-app/dist-*/
+distribution/dist/
 TableTalk-Releases/
 
+# App-specific generated state
+.expo/
+player-app/.agents/
+player-app/*.log
+player-app/dist-*/
+
+# Hosted-tool caches
 .vercel
 .superdesign
 .design-review/
+
+# Editor and operating-system artifacts
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini

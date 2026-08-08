@@ -1,0 +1,347 @@
+
+/* Global dark surface consistency across every route and panel. */
+.app-shell,
+.compact-shell {
+  color: var(--ink);
+}
+
+.metric-card,
+.panel,
+.history-card,
+.access-card,
+.access-step,
+.summary-panel,
+.summary-report,
+.profile-command-strip article,
+.profile-card,
+.club-card,
+.profile-form-hint,
+.duplicate-card,
+.opportunity-card,
+.outreach-card,
+.script-card,
+.candidate-card,
+.demand-line,
+.overflow-card,
+.start-card,
+.interest-chip,
+.balance-card,
+.preference-row,
+.staff-account-row,
+.table-overview-content,
+.seated-table,
+.seated-table-row,
+.seated-player-card,
+.player-action-summary,
+.collection-config-box,
+.timestamp-grid,
+.player-picker-list,
+.player-pick-row,
+.quick-seat-row,
+.seat-help-row,
+.correction-grid,
+.summary-breakdown div,
+.kpi-strip div,
+.move-row,
+.check-in-result,
+.demand-row,
+.script-list article,
+.planned-list span,
+.table-collapsed-note,
+.overview-player-row,
+.player-action-card,
+.seated-table-head,
+.poker-seat-log span {
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: none;
+  color: var(--ink);
+}
+
+.panel,
+.metric-card,
+.history-card,
+.access-card,
+.access-step {
+  backdrop-filter: none;
+}
+
+.metric-card:hover,
+.profile-command-strip article:hover,
+.profile-card:hover,
+.club-card:hover,
+.opportunity-card:hover,
+.outreach-card:hover,
+.script-card:hover,
+.candidate-card:hover,
+.overflow-card:hover,
+.start-card:hover,
+.interest-chip:hover,
+.balance-card:hover,
+.preference-row:hover,
+.staff-account-row:hover {
+  background: color-mix(in srgb, var(--panel-solid) 88%, var(--primary-soft));
+  border-color: color-mix(in srgb, var(--line) 70%, var(--primary));
+  box-shadow: none;
+  transform: none;
+}
+
+.check-in-result:hover,
+.move-row:hover,
+.demand-row:hover,
+.player-action-card:hover,
+.overview-player-row:hover {
+  background: color-mix(in srgb, var(--panel-solid) 88%, var(--primary-soft));
+  border-color: color-mix(in srgb, var(--line) 70%, var(--primary));
+  box-shadow: none;
+  transform: none;
+}
+
+.profile-command-strip strong,
+.profile-form-hint strong,
+.profile-card h3,
+.profile-card-stats strong,
+.club-card strong,
+.opportunity-card strong,
+.outreach-card strong,
+.script-card strong,
+.candidate-card strong,
+.start-card strong,
+.interest-chip strong,
+.balance-card strong,
+.preference-row strong,
+.staff-account-row strong,
+.summary-breakdown strong,
+.summary-report strong,
+.metric-card strong,
+.owner-metric strong {
+  color: var(--ink);
+}
+
+.move-row span,
+.check-in-result strong,
+.demand-row strong,
+.script-list article strong,
+.kpi-strip strong,
+.overview-player-row strong,
+.player-action-summary strong,
+.seated-table-row strong,
+.planned-list span {
+  color: var(--ink);
+}
+
+.profile-command-strip small,
+.profile-card p,
+.profile-card small,
+.profile-card-stats span,
+.club-card small,
+.profile-form-hint span,
+.opportunity-card p,
+.opportunity-card small,
+.outreach-card p,
+.outreach-card small,
+.script-card p,
+.script-card small,
+.candidate-card p,
+.candidate-card small,
+.start-card small,
+.interest-chip span,
+.balance-card p,
+.balance-card small,
+.preference-row span,
+.staff-account-row span,
+.summary-breakdown span,
+.summary-report p,
+.metric-card span,
+.owner-metric span,
+.integration-copy p,
+.demand-header,
+.simple-demand .demand-line small,
+.check-in-result small,
+.check-in-result span,
+.check-in-result em,
+.demand-row p,
+.script-list article p,
+.kpi-strip span,
+.overview-player-row span,
+.player-action-summary span,
+.table-collapsed-note,
+.seated-table-head,
+.seated-table-row span,
+td span,
+th {
+  color: var(--muted);
+}
+
+.profile-search-row,
+.builder-controls,
+.settings-row,
+.script-template-list label,
+.profile-tag-row,
+.inline-form,
+.account-management-form,
+.staff-account-form,
+.profile-form,
+.quick-form,
+.check-in-search {
+  color: var(--ink);
+}
+
+.profile-search-row input,
+.profile-form input,
+.profile-form select,
+.profile-form textarea,
+.profile-edit-form input,
+.profile-edit-form select,
+.profile-edit-form textarea,
+.account-management-form input,
+.staff-account-form input,
+.staff-account-form select,
+.builder-controls input,
+.builder-controls select,
+.settings-row input,
+.settings-row select,
+.script-template-list input,
+.candidate-edit-grid input,
+.candidate-edit-grid select,
+.import-box,
+.integration-copy textarea,
+.quick-form input,
+.quick-form select,
+.quick-form textarea,
+.check-in-search input,
+.preference-row input,
+.preference-row select,
+.collection-profile-control input,
+.collection-profile-control select {
+  background: var(--panel-solid);
+  border-color: var(--line);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.profile-search-row input::placeholder,
+.profile-form input::placeholder,
+.profile-form textarea::placeholder,
+.profile-edit-form input::placeholder,
+.profile-edit-form textarea::placeholder,
+.account-management-form input::placeholder,
+.staff-account-form input::placeholder,
+.builder-controls input::placeholder,
+.script-template-list input::placeholder,
+.import-box::placeholder,
+.integration-copy textarea::placeholder,
+.quick-form input::placeholder,
+.quick-form textarea::placeholder,
+.check-in-search input::placeholder {
+  color: var(--muted);
+}
+
+.profile-card-stats span,
+.balance-movers span,
+.tag,
+.key-file-drop,
+.access-valid,
+.success-copy,
+.save-status,
+.status-pill,
+.health-pill,
+.check-in-result em {
+  background: var(--panel-solid);
+  border-color: var(--line);
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.tag.active,
+.status-pill.viable,
+.status-pill.likely,
+.health-pill.healthy,
+.save-status.saved {
+  background: rgba(33, 182, 164, 0.13);
+  border-color: rgba(77, 124, 254, 0.28);
+  color: #7da0ff;
+}
+
+.health-pill.building {
+  background: rgba(143, 154, 170, 0.11);
+  border-color: rgba(143, 154, 170, 0.22);
+  color: #bac4d1;
+}
+
+.health-pill.fragile,
+.health-pill.needs-attention {
+  background: rgba(216, 162, 77, 0.13);
+  border-color: rgba(216, 162, 77, 0.25);
+  color: #d8a24d;
+}
+
+.access-error {
+  background: rgba(239, 111, 121, 0.13);
+  border-color: rgba(239, 111, 121, 0.25);
+  color: #ef6f79;
+}
+
+.profile-actions .secondary-button,
+.club-card .secondary-button,
+.profile-command-actions .secondary-button,
+.profile-command-actions .ghost-button,
+.lifecycle-actions .secondary-button,
+.lifecycle-actions .ghost-button,
+.outreach-actions .secondary-button,
+.script-card .secondary-button,
+.inline-actions .secondary-button,
+.inline-actions .ghost-button,
+.license-file-button {
+  background: transparent;
+  border-color: #344052;
+  color: #e5ebf2;
+  box-shadow: none;
+}
+
+.profile-actions .secondary-button:hover,
+.profile-edit-actions .ghost-button:hover,
+.club-card .secondary-button:hover,
+.profile-command-actions .secondary-button:hover,
+.profile-command-actions .ghost-button:hover,
+.lifecycle-actions .secondary-button:hover,
+.lifecycle-actions .ghost-button:hover,
+.outreach-actions .secondary-button:hover,
+.script-card .secondary-button:hover,
+.inline-actions .secondary-button:hover,
+.inline-actions .ghost-button:hover,
+.license-file-button:hover {
+  background: #1b2531;
+  border-color: #3a4658;
+}
+
+.profile-grid,
+.profiles-right-column .club-list,
+.profiles-right-column .waitlist-list,
+.waitlist-list,
+.live-feed-list,
+.outreach-list,
+.script-grid,
+.start-list,
+.interest-pool,
+.opportunity-grid,
+.builder-grid,
+.summary-grid,
+.history-grid {
+  scrollbar-color: #384456 transparent;
+}
+
+.panel-title,
+.compact-details,
+.seated-table-head,
+.seated-table-row,
+.staff-account-row,
+.profile-card-header {
+  border-color: rgba(255, 255, 255, 0.065);
+}
+
+th,
+td {
+  border-bottom-color: rgba(255, 255, 255, 0.065);
+}

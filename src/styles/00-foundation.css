@@ -1,0 +1,318 @@
+:root {
+  --ink: #0b1020;
+  --muted: #64748b;
+  --canvas: #f9fafb;
+  --panel: rgba(255, 255, 255, 0.94);
+  --panel-solid: #ffffff;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --primary: #4d7cfe;
+  --primary-dark: #0b1020;
+  --primary-soft: #eef3ff;
+  --teal: #2563eb;
+  --teal-soft: #dbeafe;
+  --amber: #c66a2b;
+  --amber-soft: #fff0e5;
+  --rose: #a33a3a;
+  --rose-soft: #f3dfdf;
+  --background-start: #e7ebf0;
+  --background-accent-primary: rgba(56, 80, 109, 0.08);
+  --background-accent-secondary: rgba(37, 99, 235, 0.06);
+  --brand-font-family: Bahnschrift, Aptos, "Segoe UI Variable", sans-serif;
+  color: var(--ink);
+  background: var(--canvas);
+  font-family: var(--brand-font-family);
+  font-size: 16px;
+  letter-spacing: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background:
+    linear-gradient(135deg, rgba(77, 124, 254, 0.05) 0 1px, transparent 1px 28px),
+    linear-gradient(45deg, rgba(15, 118, 110, 0.045) 0 1px, transparent 1px 34px),
+    linear-gradient(180deg, var(--background-start) 0%, var(--canvas) 100%);
+}
+
+body.low-light {
+  --ink: #e7ecf8;
+  --muted: #aab4ca;
+  --canvas: #101727;
+  --panel: rgba(20, 28, 45, 0.96);
+  --panel-solid: #151f33;
+  --line: #2b3853;
+  --line-strong: #3d4b68;
+  --primary: #7da0ff;
+  --primary-dark: #dbeafe;
+  --primary-soft: #172554;
+  --teal: #93c5fd;
+  --teal-soft: #172554;
+  --amber: #f0a35c;
+  --amber-soft: #4a2b18;
+  --rose: #fda4af;
+  --rose-soft: #4b1f2a;
+  --background-start: #111827;
+  --background-accent-primary: rgba(142, 162, 255, 0.12);
+  --background-accent-secondary: rgba(125, 211, 199, 0.1);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 28px),
+    linear-gradient(45deg, rgba(45, 212, 191, 0.05) 0 1px, transparent 1px 34px),
+    linear-gradient(180deg, var(--background-start) 0%, var(--canvas) 100%);
+}
+
+body::before {
+  display: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+:where(h1, h2, h3, h4, p, span, small, strong, label, legend, li, td, th, dt, dd) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-shell {
+  width: min(1360px, calc(100vw - clamp(32px, 5vw, 96px)));
+  margin: 0 auto;
+  padding: clamp(26px, 3.3vw, 44px) 0 48px;
+}
+
+.compact-shell {
+  width: min(920px, calc(100vw - 28px));
+}
+
+.access-shell {
+  align-items: center;
+  display: grid;
+  min-height: 100vh;
+  padding: clamp(18px, 4vw, 48px);
+}
+
+.access-card {
+  background:
+    linear-gradient(145deg, rgba(248, 250, 252, 0.96), rgba(231, 235, 240, 0.94)),
+    var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 24px;
+  box-shadow: 0 30px 80px rgba(38, 57, 79, 0.18);
+  display: grid;
+  gap: 24px;
+  margin: 0 auto;
+  max-width: 980px;
+  padding: clamp(22px, 3vw, 34px);
+  width: 100%;
+}
+
+.access-brand {
+  align-items: center;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+}
+
+.access-brand p {
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+.brand-logo {
+  display: block;
+  object-fit: contain;
+}
+
+.access-brand-logo {
+  border-radius: 18px;
+  height: clamp(76px, 10vw, 112px);
+  width: clamp(76px, 10vw, 112px);
+}
+
+.access-icon {
+  align-items: center;
+  background: var(--primary-soft);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  color: var(--primary-dark);
+  display: flex;
+  height: 58px;
+  justify-content: center;
+  width: 58px;
+}
+
+.access-grid {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 16px;
+}
+
+.access-step {
+  background: rgba(248, 250, 252, 0.78);
+  border: 1px solid rgba(203, 213, 225, 0.82);
+  border-radius: 18px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.access-step-title {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.access-step-title h2 {
+  font-size: 1rem;
+}
+
+.key-file-drop {
+  border: 1px dashed var(--line-strong);
+  border-radius: 16px;
+  cursor: pointer;
+  display: grid;
+  gap: 5px;
+  padding: 18px;
+}
+
+.key-file-drop input {
+  display: none;
+}
+
+.key-file-drop span,
+.access-valid strong {
+  color: var(--ink);
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.key-file-drop small,
+.access-valid span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.access-valid {
+  background: var(--teal-soft);
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 14px;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.access-error {
+  background: var(--rose-soft);
+  border: 1px solid rgba(163, 58, 58, 0.18);
+  border-radius: 14px;
+  color: var(--rose);
+  font-weight: 850;
+  padding: 10px;
+}
+
+.success-copy {
+  background: var(--teal-soft);
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 14px;
+  color: var(--teal);
+  font-weight: 850;
+  padding: 10px;
+}
+
+.account-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.account-form .access-step-title,
+.account-form textarea,
+.account-form .segmented-control,
+.account-form .switch-control,
+.account-form .access-error,
+.account-form .success-copy,
+.account-form button {
+  grid-column: 1 / -1;
+}
+
+.account-management-panel {
+  column-span: all;
+  grid-column: 1 / -1;
+}
+
+.account-management-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.account-management-form button {
+  justify-self: start;
+}
+
+.staff-account-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(112px, 0.72fr) minmax(88px, 0.6fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.staff-account-form button {
+  min-width: max-content;
+}
+
+.staff-account-list {
+  display: grid;
+  gap: 8px;
+}
+
+.staff-account-row {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 10px;
+}
+
+.staff-account-row.inactive {
+  opacity: 0.62;
+}
+
+.staff-account-row strong,
+.staff-account-row span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.staff-account-row span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.license-file-button {
+  cursor: pointer;
+  min-width: 110px;
+}
+
+.license-file-button input {
+  display: none;
+}

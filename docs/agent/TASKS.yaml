@@ -1,0 +1,570 @@
+queue: root-typescript-remediation
+temporary: true
+source: docs/agent/ROOT_TYPECHECK_REBASELINE.md
+baseline_diagnostics: 0
+baseline_files: 0
+status: complete
+terminal_condition: all_current_root_diagnostics_resolved
+blocked_diagnostics: 0
+blocked_tasks: []
+pending_diagnostics: 0
+pending_tasks: []
+ordering:
+  - project_boundary_configuration
+  - shared_contract_public_interface
+  - active_production_implementation
+  - test_only
+  - stale_dead_code_investigation
+tasks:
+  - id: TYPE-001
+    title: Decide and align the root ECMAScript library boundary
+    classification: CONFIGURATION_BOUNDARY
+    diagnostics: 0
+    diagnostics_before: 6
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: true
+    blocks_player_web: conditional
+    depends_on: []
+    spec: docs/agent/tasks/TYPE-001.md
+    decision: docs/agent/TYPE-001_BOUNDARY_DECISION.md
+    resolution: approved_narrow_es2022_library_correction
+  - id: TYPE-002
+    title: Canonicalize the Player snapshot contract
+    classification: STALE_OR_DEAD_CODE
+    diagnostics: 0
+    diagnostics_before: 4
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: true
+    depends_on: []
+    spec: docs/agent/tasks/TYPE-002.md
+    resolution: required_prepublication_social_with_v2_compatibility_mapping
+  - id: TYPE-003
+    title: Preserve domain types through Firebase synchronization
+    classification: REAL_TYPE_ERROR
+    safety: RESOLVED_AFTER_HUMAN_DECISION
+    diagnostics: 0
+    diagnostics_before: 4
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: indirect
+    depends_on: [TYPE-002]
+    spec: docs/agent/tasks/TYPE-003.md
+    decision: conservative_domain_preservation_bundle
+    resolution: validated_domain_preserving_revenue_and_tournament_sync
+  - id: TYPE-004
+    title: Prove membership status narrowing across synchronization
+    classification: REAL_TYPE_ERROR
+    diagnostics: 0
+    diagnostics_before: 1
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: true
+    depends_on: [TYPE-002]
+    spec: docs/agent/tasks/TYPE-004.md
+    resolution: captured_non_denied_membership_status_narrowing
+  - id: TYPE-005
+    title: Restore synchronized-list tuple inference
+    classification: REAL_TYPE_ERROR
+    diagnostics: 0
+    diagnostics_before: 9
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: indirect
+    depends_on: [TYPE-001]
+    spec: docs/agent/tasks/TYPE-005.md
+    resolution: typed_synchronized_entry_tuples_with_characterization
+  - id: TYPE-006
+    title: Repair map/filter result narrowing
+    classification: REAL_TYPE_ERROR
+    diagnostics: 0
+    diagnostics_before: 6
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-001]
+    spec: docs/agent/tasks/TYPE-006.md
+    resolution: exact_mapper_results_with_non_null_narrowing
+  - id: TYPE-007
+    title: Coordinate renderer callback domain-contract batches
+    classification: REAL_TYPE_ERROR
+    diagnostics: 0
+    diagnostics_before: 51
+    diagnostics_delegated: 0
+    diagnostics_resolved: 51
+    status: complete
+    role: umbrella
+    children: [TYPE-007A, TYPE-007B, TYPE-007C, TYPE-007D, TYPE-007E, TYPE-007F, TYPE-007G, TYPE-007H, TYPE-007I, TYPE-007J]
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-007A, TYPE-007B, TYPE-007C, TYPE-007D, TYPE-007E, TYPE-007F, TYPE-007G, TYPE-007H, TYPE-007I, TYPE-007J]
+    spec: docs/agent/tasks/TYPE-007.md
+    decomposition: docs/agent/TYPE-007_DECOMPOSITION.md
+    resolution: all_ten_characterized_children_complete
+  - id: TYPE-007A
+    title: Preserve complete profiles while grouping duplicates
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 0
+    diagnostics_before: 2
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    resolved_diagnostics:
+      - "src/main.tsx:2631:24 TS2322"
+      - "src/main.tsx:2631:52 TS2740"
+    spec: docs/agent/tasks/TYPE-007A.md
+    resolution: canonical_player_profile_grouping_with_characterization
+  - id: TYPE-007B
+    title: Preserve waitlist entries through patch updates
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 0
+    diagnostics_before: 5
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    resolved_diagnostics:
+      - "src/main.tsx:3244:38 TS2345"
+      - "src/main.tsx:3261:7 TS2345"
+      - "src/main.tsx:3261:74 TS2339"
+      - "src/main.tsx:3262:30 TS2345"
+      - "src/main.tsx:3262:57 TS2339"
+    spec: docs/agent/tasks/TYPE-007B.md
+    resolution: canonical_interest_patch_callback_with_characterization
+  - id: TYPE-007C
+    title: Preserve full records through timestamp corrections
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 0
+    diagnostics_before: 6
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    resolved_diagnostics:
+      - "src/main.tsx:3274:7 TS2322"
+      - "src/main.tsx:3274:38 TS2345"
+      - "src/main.tsx:3277:7 TS2322"
+      - "src/main.tsx:3277:48 TS2345"
+      - "src/main.tsx:3289:7 TS2322"
+      - "src/main.tsx:3289:48 TS2345"
+    spec: docs/agent/tasks/TYPE-007C.md
+    resolution: canonical_interest_and_player_session_correction_callbacks_with_characterization
+  - id: TYPE-007D
+    title: Coordinate player transition typing and departure identity safety
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 0
+    diagnostics_before: 6
+    diagnostics_delegated: 0
+    diagnostics_resolved: 6
+    status: complete
+    role: umbrella
+    children: [TYPE-007D1, TYPE-007D2]
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-007D1, TYPE-007D2]
+    spec: docs/agent/tasks/TYPE-007D.md
+  - id: TYPE-007D1
+    title: Repair behavior-preserving player transition types
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 0
+    diagnostics_before: 5
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006, TYPE-007D2]
+    resolved_diagnostics:
+      - "src/main.tsx:4261:48 TS2345"
+      - "src/main.tsx:4280:55 TS2345"
+      - "src/main.tsx:4299:7 TS2769"
+      - "src/main.tsx:4312:66 TS2345"
+      - "src/main.tsx:4314:13 TS2345"
+    spec: docs/agent/tasks/TYPE-007D1.md
+    resolution: canonical_player_transition_callbacks_with_characterization
+  - id: TYPE-007D2
+    title: Resolve ambiguous profile-less departure identity
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 0
+    diagnostics_before: 1
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    resolved_diagnostics:
+      - "src/main.tsx:4358:81 TS2345"
+    spec: docs/agent/tasks/TYPE-007D2.md
+    resolution_decision: unique_normalized_name_or_no_profile_mutation
+    resolution: unique_name_departure_profile_update_with_ambiguous_no_op
+  - id: TYPE-007E
+    title: Preserve forming and balanced table construction
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 0
+    diagnostics_before: 4
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    resolved_diagnostics:
+      - "src/main.tsx:4405:63 TS2345"
+      - "src/main.tsx:4470:9 TS2322"
+      - "src/main.tsx:4470:31 TS2345"
+      - "src/main.tsx:4481:9 TS2322"
+    spec: docs/agent/tasks/TYPE-007E.md
+    resolution: canonical_game_session_construction_with_characterization
+  - id: TYPE-007F
+    title: Decide the planned-participant domain contract
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 0
+    diagnostics_before: 5
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    resolved_diagnostics:
+      - "src/main.tsx:4415:15 TS2769"
+      - "src/main.tsx:4416:12 TS2345"
+      - "src/main.tsx:4441:39 TS2769"
+      - "src/main.tsx:4441:98 TS2345"
+      - "src/main.tsx:7298:34 TS2345"
+    spec: docs/agent/tasks/TYPE-007F.md
+    decision: preserve_optional_contract_with_interest_only_runtime
+    resolution: explicit_optional_candidate_guards_with_interest_only_characterization
+  - id: TYPE-007G
+    title: Preserve table lifecycle and event transitions
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 0
+    diagnostics_before: 8
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    resolved_diagnostics:
+      - "src/main.tsx:4522:7 TS2322"
+      - "src/main.tsx:4522:36 TS2345"
+      - "src/main.tsx:4554:7 TS2322"
+      - "src/main.tsx:4554:36 TS2345"
+      - "src/main.tsx:4564:7 TS2322"
+      - "src/main.tsx:4564:36 TS2345"
+      - "src/main.tsx:4576:7 TS2322"
+      - "src/main.tsx:4578:38 TS2345"
+    spec: docs/agent/tasks/TYPE-007G.md
+    resolution: canonical_game_and_player_session_lifecycle_callbacks_with_characterization
+  - id: TYPE-007H
+    title: Preserve profile relationships during profile mutations
+    classification: REAL_TYPE_ERROR
+    safety: RESOLVED_AFTER_HUMAN_DECISION
+    diagnostics: 0
+    diagnostics_before: 10
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    owned_diagnostics:
+      - "src/main.tsx:4856:7 TS2322"
+      - "src/main.tsx:4856:38 TS2345"
+      - "src/main.tsx:5007:7 TS2322"
+      - "src/main.tsx:5008:7 TS2322"
+      - "src/main.tsx:5008:38 TS2345"
+      - "src/main.tsx:5011:7 TS2322"
+      - "src/main.tsx:5011:48 TS2345"
+      - "src/main.tsx:5019:7 TS2769"
+      - "src/main.tsx:5115:9 TS2769"
+      - "src/main.tsx:7520:19 TS2345"
+    spec: docs/agent/tasks/TYPE-007H.md
+    decision: authoritative_id_with_unique_unlinked_normalized_name_fallback
+    resolution: collection_aware_profile_reference_matching_with_id_directed_merge_and_deletion
+  - id: TYPE-007I
+    title: Preserve table-event report projections
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 0
+    diagnostics_before: 2
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    resolved_diagnostics:
+      - "src/main.tsx:5594:14 TS2345"
+      - "src/main.tsx:8468:151 TS2345"
+    spec: docs/agent/tasks/TYPE-007I.md
+    resolution: canonical_table_event_report_callbacks_with_characterization
+  - id: TYPE-007J
+    title: Preserve canonical domain items in floor render callbacks
+    classification: REAL_TYPE_ERROR
+    safety: SAFE_AFTER_TESTS
+    diagnostics: 0
+    diagnostics_before: 3
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-005, TYPE-006]
+    resolved_diagnostics:
+      - "src/main.tsx:9697:40 TS2345"
+      - "src/main.tsx:9698:58 TS2345"
+      - "src/main.tsx:9802:22 TS2345"
+    spec: docs/agent/tasks/TYPE-007J.md
+    resolution: canonical_floor_render_callbacks_with_characterization
+  - id: TYPE-008
+    title: Validate and normalize profile imports
+    classification: REAL_TYPE_ERROR
+    diagnostics: 0
+    diagnostics_before: 2
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: []
+    spec: docs/agent/tasks/TYPE-008.md
+    dependency_reassessment: parser_contract_independent_of_TYPE-007H_identity_policy
+    resolution: guarded_unknown_json_and_complete_profile_normalization
+  - id: TYPE-009
+    title: Define the persisted account-restore input contract
+    classification: REAL_TYPE_ERROR
+    diagnostics: 0
+    diagnostics_before: 2
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: []
+    spec: docs/agent/tasks/TYPE-009.md
+    resolution: explicit_versioned_record_and_partial_settings_normalization_boundary
+  - id: TYPE-010
+    title: Align GroupMe candidate state and editor callbacks
+    classification: REAL_TYPE_ERROR
+    diagnostics: 0
+    diagnostics_before: 4
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: []
+    spec: docs/agent/tasks/TYPE-010.md
+    dependency_reassessment: editor_contract_independent_of_TYPE-007H_identity_policy
+    resolution: canonical_groupme_candidate_callbacks_with_timestamp_characterization
+  - id: TYPE-011
+    title: Prove an owned Web Crypto buffer source
+    classification: PLATFORM_TYPE_CONFLICT
+    diagnostics: 0
+    diagnostics_before: 1
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: []
+    spec: docs/agent/tasks/TYPE-011.md
+    resolution: owned_raw_signature_array_buffer_copy
+  - id: TYPE-012
+    title: Correct root test-only type contracts
+    classification: TEST_TYPE_ERROR
+    diagnostics: 0
+    diagnostics_before: 2
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: [TYPE-001]
+    spec: docs/agent/tasks/TYPE-012.md
+    resolution: exact_test_global_and_typed_frequency_fixture
+  - id: TYPE-013
+    title: Decide the legacy settings migration contract
+    classification: STALE_OR_DEAD_CODE
+    diagnostics: 0
+    diagnostics_before: 1
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: []
+    spec: docs/agent/tasks/TYPE-013.md
+    compiler_symptom_removed_by: TYPE-009
+    historical_evidence: defaultRakeMode_persisted_and_consumed_in_4ee2853_and_412bbef
+    resolution: retain_narrow_legacy_default_collection_mode_input
+  - id: TYPE-014
+    title: Decide whether direct seating belongs in add-interest
+    classification: STALE_OR_DEAD_CODE
+    diagnostics: 0
+    diagnostics_before: 1
+    diagnostics_after: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: true
+    blocks_player_web: false
+    depends_on: []
+    spec: docs/agent/tasks/TYPE-014.md
+    resolution: retain_direct_seating_and_remove_unreachable_interest_timestamp_branch
+  - id: TYPE-015
+    title: Separate renderer and root unit-test compiler projects
+    classification: CONFIGURATION_BOUNDARY
+    diagnostics: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: false
+    blocks_player_web: false
+    depends_on: [TYPE-012, TYPE-021]
+    spec: docs/agent/tasks/TYPE-015.md
+    resolution: separate_renderer_and_root_test_projects
+  - id: TYPE-016
+    title: Add Electron main and preload compiler checking
+    classification: VERIFICATION_GAP
+    diagnostics: 0
+    observed_probe_diagnostics: 3
+    status: complete
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: false
+    blocks_player_web: false
+    depends_on: [TYPE-001]
+    spec: docs/agent/tasks/TYPE-016.md
+    resolution: dedicated_electron_checkjs_gate_with_validated_external_errors_and_native_update_event
+  - id: TYPE-017
+    title: Add Node and Vite tooling compiler checking
+    classification: VERIFICATION_GAP
+    diagnostics: 0
+    observed_probe_diagnostics: 2
+    status: planned
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: false
+    blocks_player_web: false
+    depends_on: [TYPE-001]
+    spec: docs/agent/tasks/TYPE-017.md
+  - id: TYPE-018
+    title: Add API compiler coverage
+    classification: VERIFICATION_GAP
+    diagnostics: 0
+    observed_probe_diagnostics: 7
+    status: complete
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: false
+    blocks_player_web: indirect
+    depends_on: []
+    spec: docs/agent/tasks/TYPE-018.md
+    resolution: package_owned_node_check_js_with_validated_privileged_boundaries
+  - id: TYPE-019
+    title: Add download-site compiler coverage
+    classification: VERIFICATION_GAP
+    diagnostics: 0
+    observed_probe_diagnostics: 2
+    status: planned
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: false
+    blocks_player_web: false
+    depends_on: [TYPE-001]
+    spec: docs/agent/tasks/TYPE-019.md
+  - id: TYPE-020
+    title: Add E2E compiler coverage
+    classification: VERIFICATION_GAP
+    diagnostics: 0
+    observed_probe_diagnostics: 2
+    status: planned
+    safe_autonomous: false
+    human_review: true
+    blocks_refactoring: false
+    blocks_player_web: false
+    depends_on: [TYPE-016]
+    spec: docs/agent/tasks/TYPE-020.md
+  - id: TYPE-021
+    title: Remove unintended Player modules from root compiler scope
+    classification: CONFIGURATION_BOUNDARY
+    diagnostics: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: false
+    blocks_player_web: true
+    depends_on: [TYPE-002]
+    spec: docs/agent/tasks/TYPE-021.md
+    resolution: player_domain_tests_owned_by_player_project
+  - id: TYPE-022
+    title: Remove unnecessary Node globals from sandboxed renderer
+    classification: CONFIGURATION_BOUNDARY
+    diagnostics: 0
+    status: complete
+    safe_autonomous: true
+    human_review: false
+    blocks_refactoring: false
+    blocks_player_web: false
+    depends_on: [TYPE-015]
+    spec: docs/agent/tasks/TYPE-022.md
+    resolution: renderer_ambient_types_restricted_to_vite_client

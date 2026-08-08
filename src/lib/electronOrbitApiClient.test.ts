@@ -1,0 +1,481 @@
+import { createRequire } from 'node:module';
+import { describe, expect, it, vi } from 'vitest';
+
+const require = createRequire(import.meta.url);
+
+type ApiResponse = { payload: Record<string, unknown> | null; responsePreview: string };
+type OrbitApiClient = {
+  buildClientTelemetryPayload: (overrides?: Record<string, unknown>) => Record<string, unknown>;
+  getApiConfig: () => { apiUrl: string; apiKey: string };
+  getClientUpdateState: () => { updateStatus: string; updateEvent: string };
+  getOrCreateDeviceId: () => string;
+  loadStateApiFirst: (accountKey?: string, access?: unknown) => Promise<unknown>;
+  loadStateFromApi: (accountKey?: string, access?: unknown) => Promise<unknown>;
+  requestOrbitApi: (
+    pathname: string,
+    options?: { authKey?: string; method?: string; headers?: Record<string, string>; body?: unknown; timeoutMs?: number }
+  ) => Promise<Record<string, unknown> | null>;
+  saveStateApiFirst: (state: unknown) => Promise<unknown>;
+  saveStateToApi: (state: unknown) => Promise<unknown>;
+  sendClientError: (error: unknown, source?: string, details?: Record<string, unknown>) => void;
+  sendClientEvent: (event: string, category?: string, details?: Record<string, unknown>, overrides?: Record<string, unknown>) => void;
+  sendClientHeartbeat: (overrides?: Record<string, unknown>) => void;
+  sendClientUpdateEvent: (event: string, status: string, details?: Record<string, unknown>) => void;
+  startClientTelemetry: () => void;
+  stopClientTelemetry: () => void;
+  submitAnalyticalReportApiFirst: (report: unknown) => Promise<unknown>;
+  submitAnalyticalReportToApi: (report: unknown) => Promise<unknown>;
+  validatePilotAccessApi: (access: unknown) => Promise<Record<string, unknown>>;
+};
+
+type OrbitApiModule = {
+  createOrbitApiClient: (dependencies: Record<string, unknown>) => OrbitApiClient;
+  readApiResponse: (response: { text: () => Promise<string> }) => Promise<ApiResponse>;
+};
+
+const { createOrbitApiClient, readApiResponse }: OrbitApiModule = require('../../electron/orbitApiClient.cjs');
+
+function response(text: string, options: { ok?: boolean; status?: number } = {}) {
+  return {
+    ok: options.ok ?? true,
+    status: options.status ?? 200,
+    text: vi.fn().mockResolvedValue(text)
+  };
+}
+
+function baseDependencies(overrides: Record<string, unknown> = {}) {
+  return {
+    app: { getVersion: () => '1.2.3', getLocale: () => 'en-US', isPackaged: true },
+    buildPlayerClubSnapshot: () => ({ games: [] }),
+    clearIntervalImpl: vi.fn(),
+    clearTimeoutImpl: vi.fn(),
+    environment: {
+      NODE_ENV: 'test',
+      ORBIT_API_URL: 'http://127.0.0.1:4310',
+      ORBIT_CLIENT_API_KEY: 'configured-key'
+    },
+    fetchImpl: vi.fn().mockResolvedValue(response('{"ok":true}')),
+    fileSystem: {
+      existsSync: vi.fn().mockReturnValue(false),
+      readFileSync: vi.fn(),
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn()
+    },
+    getAppStartedAt: () => '2026-08-07T11:59:00.000Z',
+    hostname: () => 'desk-one',
+    isDev: false,
+    isFirebaseConfigured: () => false,
+    loadStateWithFirebaseFallback: vi.fn().mockResolvedValue(null),
+    migrateLocalAccountToPilotAccess: vi.fn().mockReturnValue(null),
+    now: () => new Date('2026-08-07T12:00:00.000Z'),
+    nowMs: () => 1000,
+    platform: 'win32',
+    randomUUID: vi.fn().mockReturnValue('request-001'),
+    readLocalDatabase: () => ({
+      state: {
+        settings: {
+          pilotAccess: { licenseId: 'club-one', authorizationCode: 'pilot-code' },
+          clubAccount: { clubName: 'Orbit Room' }
+        }
+      }
+    }),
+    saveStateEverywhere: vi.fn().mockResolvedValue({ ok: true, engine: 'sqlite' }),
+    setIntervalImpl: vi.fn().mockReturnValue(71),
+    setTimeoutImpl: vi.fn().mockReturnValue(41),
+    storeAnalyticalReport: vi.fn().mockResolvedValue({ ok: true, reportId: 'local-1' }),
+    userDataPath: () => 'C:\\isolated',
+    writeLocalDatabase: vi.fn(),
+    writeOrbitApiLog: vi.fn(),
+    writeStateToFirebase: vi.fn().mockResolvedValue(undefined),
+    ...overrides
+  };
+}
+
+function requestBodies(fetch: ReturnType<typeof vi.fn>) {
+  return fetch.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)) as Record<string, unknown>);
+}
+
+describe('Electron Orbit API transport', () => {
+  it('parses JSON and bounds normalized non-JSON response previews', async () => {
+    await expect(readApiResponse(response('{"ok":true}'))).resolves.toEqual({
+      payload: { ok: true },
+      responsePreview: ''
+    });
+    await expect(readApiResponse(response(''))).resolves.toEqual({ payload: null, responsePreview: '' });
+
+    const invalid = `  gateway\n  unavailable ${'x'.repeat(400)}`;
+    const result = await readApiResponse(response(invalid));
+    expect(result.payload).toBeNull();
+    expect(result.responsePreview).toHaveLength(300);
+    expect(result.responsePreview).toBe(` gateway unavailable ${'x'.repeat(279)}`);
+  });
+
+  it('normalizes the configured URL and prefers the environment API key over the local authorization code', () => {
+    const environmentClient = createOrbitApiClient(baseDependencies({
+      environment: { ORBIT_API_URL: 'http://127.0.0.1:4310///', ORBIT_CLIENT_API_KEY: 'environment-key' },
+      readLocalDatabase: vi.fn(() => {
+        throw new Error('local state must not be read');
+      })
+    }));
+    expect(environmentClient.getApiConfig()).toEqual({ apiUrl: 'http://127.0.0.1:4310', apiKey: 'environment-key' });
+
+    const fallbackClient = createOrbitApiClient(baseDependencies({ environment: {} }));
+    expect(fallbackClient.getApiConfig()).toEqual({ apiUrl: 'https://orbitapp-one.vercel.app', apiKey: 'pilot-code' });
+  });
+
+  it('builds authenticated JSON requests with request IDs, caller headers, bodies, and timeout cleanup', async () => {
+    const fetch = vi.fn().mockResolvedValue(response('{"ok":true,"revision":7}'));
+    const setTimeoutImpl = vi.fn().mockReturnValue(41);
+    const clearTimeoutImpl = vi.fn();
+    const writeOrbitApiLog = vi.fn();
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, setTimeoutImpl, clearTimeoutImpl, writeOrbitApiLog }));
+
+    await expect(client.requestOrbitApi('/state', {
+      method: 'POST',
+      authKey: 'access-key',
+      headers: { 'x-orbit-api-key': 'caller-key', 'x-extra': 'value' },
+      body: { state: { games: [] } },
+      timeoutMs: 987
+    })).resolves.toEqual({ ok: true, revision: 7 });
+
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('http://127.0.0.1:4310/state');
+    expect(init).toMatchObject({
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-orbit-api-key': 'caller-key',
+        'x-orbit-auth-key': 'access-key',
+        'x-orbit-request-id': 'request-001',
+        'x-extra': 'value'
+      },
+      body: '{"state":{"games":[]}}'
+    });
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(setTimeoutImpl).toHaveBeenCalledWith(expect.any(Function), 987);
+    expect(clearTimeoutImpl).toHaveBeenCalledWith(41);
+    expect(writeOrbitApiLog).not.toHaveBeenCalled();
+  });
+
+  it('returns null and projects timeout failures for mutations while GET failures remain log-silent', async () => {
+    const writeOrbitApiLog = vi.fn();
+    const setTimeoutImpl = vi.fn((callback: () => void) => {
+      callback();
+      return 51;
+    });
+    const clearTimeoutImpl = vi.fn();
+    const fetch = vi.fn().mockRejectedValue(new Error('socket closed'));
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, setTimeoutImpl, clearTimeoutImpl, writeOrbitApiLog }));
+
+    await expect(client.requestOrbitApi('/state', { method: 'POST' })).resolves.toBeNull();
+    expect(writeOrbitApiLog).toHaveBeenCalledWith('error', 'sync-update-failed', expect.objectContaining({
+      requestId: 'request-001',
+      method: 'POST',
+      pathname: '/state',
+      timedOut: true,
+      errorName: 'Error',
+      errorMessage: 'socket closed'
+    }));
+
+    writeOrbitApiLog.mockClear();
+    await expect(client.requestOrbitApi('/state/latest')).resolves.toBeNull();
+    expect(writeOrbitApiLog).not.toHaveBeenCalled();
+    expect(clearTimeoutImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('projects pilot-license responses and uses both compatibility auth headers', async () => {
+    const fetch = vi.fn().mockResolvedValue(response('{"ok":true,"managed":false,"active":true,"license":{"id":"license-1"}}'));
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch }));
+
+    await expect(client.validatePilotAccessApi({ licenseId: 'club-one', authorizationCode: 'pilot-code' })).resolves.toEqual({
+      ok: true,
+      managed: true,
+      active: true,
+      license: { id: 'license-1' },
+      error: ''
+    });
+    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:4310/license/status?accountKey=club-one', expect.objectContaining({
+      headers: {
+        'x-orbit-api-key': 'pilot-code',
+        'x-orbit-auth-key': 'pilot-code',
+        'x-orbit-request-id': 'request-001'
+      }
+    }));
+  });
+
+  it('preserves state/report endpoint options and result projections', async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response('{"schemaVersion":4,"savedAt":"2026-08-07T12:00:00.000Z","accountKey":"club-one","state":{"games":[]}}'))
+      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","savedAt":"2026-08-07T12:01:00.000Z"}'))
+      .mockResolvedValueOnce(response('{"ok":true,"reportId":"report-1"}'))
+      .mockRejectedValueOnce(new Error('health unavailable'));
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch }));
+    const state = { games: [] };
+    const report = { account: { accountKey: 'club-one' } };
+
+    await expect(client.loadStateFromApi(' CLUB-ONE ', { authorizationCode: 'pilot-code' })).resolves.toEqual({
+      schemaVersion: 4,
+      savedAt: '2026-08-07T12:00:00.000Z',
+      state,
+      accountKey: 'club-one',
+      source: 'api'
+    });
+    await expect(client.saveStateToApi(state)).resolves.toEqual({
+      ok: true,
+      path: 'orbit-api',
+      engine: 'api',
+      accountKey: 'club-one',
+      savedAt: '2026-08-07T12:01:00.000Z'
+    });
+    await expect(client.submitAnalyticalReportToApi(report)).resolves.toEqual({
+      ok: true,
+      reportId: 'report-1',
+      backend: { running: true, host: 'api', port: 0, reportCount: 0, mode: 'api' }
+    });
+
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      'http://127.0.0.1:4310/state/club-one',
+      'http://127.0.0.1:4310/state',
+      'http://127.0.0.1:4310/analytical-reports',
+      'http://127.0.0.1:4310/health'
+    ]);
+    expect((fetch.mock.calls[0][1] as RequestInit).headers).toMatchObject({ 'x-orbit-auth-key': 'pilot-code' });
+    expect(fetch.mock.calls[1][1]).toMatchObject({ method: 'POST', body: '{"state":{"games":[]}}' });
+    expect(fetch.mock.calls[2][1]).toMatchObject({ method: 'POST', body: JSON.stringify(report) });
+  });
+});
+
+describe('Electron API-first orchestration', () => {
+  it('returns an API load immediately or seeds a missing API venue from the unchanged fallback record', async () => {
+    const fallbackRecord = { schemaVersion: 4, savedAt: 'fallback-time', state: { id: 'fallback' } };
+    const loadStateWithFirebaseFallback = vi.fn().mockResolvedValue(fallbackRecord);
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response('{"schemaVersion":4,"state":{"id":"remote"}}'))
+      .mockResolvedValueOnce(response('{"ok":false}'))
+      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one"}'));
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, loadStateWithFirebaseFallback }));
+
+    await expect(client.loadStateApiFirst('club-one', { authorizationCode: 'pilot-code' })).resolves.toMatchObject({
+      source: 'api',
+      state: { id: 'remote' }
+    });
+    expect(loadStateWithFirebaseFallback).not.toHaveBeenCalled();
+
+    await expect(client.loadStateApiFirst('club-one', { authorizationCode: 'pilot-code' })).resolves.toBe(fallbackRecord);
+    expect(loadStateWithFirebaseFallback).toHaveBeenCalledWith('club-one');
+    expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:4310/state', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ state: fallbackRecord.state })
+    }));
+  });
+
+  it('migrates a replacement-key local account only after API and ordinary fallback misses', async () => {
+    const access = { authorizationCode: 'replacement-code', issuedTo: 'Orbit Room' };
+    const migratedRecord = {
+      schemaVersion: 3,
+      savedAt: '2026-08-07T12:00:00.000Z',
+      state: { settings: { pilotAccess: access } },
+      source: 'local-account-migration'
+    };
+    const loadStateWithFirebaseFallback = vi.fn().mockResolvedValue(null);
+    const migrateLocalAccountToPilotAccess = vi.fn().mockReturnValue(migratedRecord);
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response('{"ok":false}'))
+      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"replacement-code"}'));
+    const client = createOrbitApiClient(baseDependencies({
+      fetchImpl: fetch,
+      loadStateWithFirebaseFallback,
+      migrateLocalAccountToPilotAccess
+    }));
+
+    await expect(client.loadStateApiFirst('replacement-code', access)).resolves.toBe(migratedRecord);
+    expect(loadStateWithFirebaseFallback).toHaveBeenCalledWith('replacement-code');
+    expect(migrateLocalAccountToPilotAccess).toHaveBeenCalledWith(access);
+    expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:4310/state', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ state: migratedRecord.state })
+    }));
+  });
+
+  it('keeps accepted API saves authoritative, treats cache/Firebase work as pending, and falls back after an API miss', async () => {
+    const state = {
+      id: 'state-1',
+      settings: { pilotAccess: { licenseId: 'club-one', authorizationCode: 'pilot-code' } }
+    };
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one"}'))
+      .mockResolvedValueOnce(response('{"ok":false}'));
+    const writeLocalDatabase = vi.fn(() => {
+      throw new Error('cache unavailable');
+    });
+    const writeStateToFirebase = vi.fn().mockResolvedValue(undefined);
+    const saveStateEverywhere = vi.fn().mockResolvedValue({ ok: true, engine: 'sqlite' });
+    const client = createOrbitApiClient(baseDependencies({
+      fetchImpl: fetch,
+      isFirebaseConfigured: () => true,
+      saveStateEverywhere,
+      writeLocalDatabase,
+      writeStateToFirebase
+    }));
+
+    await expect(client.saveStateApiFirst(state)).resolves.toEqual({
+      ok: true,
+      path: 'orbit-api',
+      engine: 'api',
+      accountKey: 'club-one',
+      firebase: { ok: true, engine: 'firebase', accountKey: 'club-one', pending: true }
+    });
+    expect(writeStateToFirebase).toHaveBeenCalledWith('club-one', state, { games: [] });
+
+    await expect(client.saveStateApiFirst(state)).resolves.toEqual({ ok: true, engine: 'sqlite' });
+    expect(saveStateEverywhere).toHaveBeenCalledWith(state);
+  });
+
+  it('falls back to local report storage only when the API report submission has no result', async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error('API unavailable'));
+    const storeAnalyticalReport = vi.fn().mockResolvedValue({ ok: true, reportId: 'local-1' });
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, storeAnalyticalReport }));
+    const report = { account: { accountKey: 'club-one' } };
+
+    await expect(client.submitAnalyticalReportApiFirst(report)).resolves.toEqual({ ok: true, reportId: 'local-1' });
+    expect(storeAnalyticalReport).toHaveBeenCalledWith(report);
+  });
+});
+
+describe('Electron client telemetry', () => {
+  it('reuses a persisted device identifier without rewriting it', () => {
+    const fileSystem = {
+      existsSync: vi.fn().mockReturnValue(true),
+      readFileSync: vi.fn().mockReturnValue('{"deviceId":"persisted-device"}'),
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn()
+    };
+    const randomUUID = vi.fn().mockReturnValue('generated-device');
+    const client = createOrbitApiClient(baseDependencies({ fileSystem, randomUUID }));
+
+    expect(client.getOrCreateDeviceId()).toBe('persisted-device');
+    expect(client.getOrCreateDeviceId()).toBe('persisted-device');
+    expect(fileSystem.readFileSync).toHaveBeenCalledOnce();
+    expect(fileSystem.mkdirSync).not.toHaveBeenCalled();
+    expect(fileSystem.writeFileSync).not.toHaveBeenCalled();
+    expect(randomUUID).not.toHaveBeenCalled();
+  });
+
+  it('generates, caches, and best-effort persists a missing device identifier with its creation timestamp', () => {
+    const fileSystem = {
+      existsSync: vi.fn().mockReturnValue(false),
+      readFileSync: vi.fn(),
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn(() => {
+        throw new Error('read-only directory');
+      })
+    };
+    const randomUUID = vi.fn().mockReturnValue('generated-device');
+    const client = createOrbitApiClient(baseDependencies({ fileSystem, randomUUID }));
+
+    expect(client.getOrCreateDeviceId()).toBe('generated-device');
+    expect(client.getOrCreateDeviceId()).toBe('generated-device');
+    expect(randomUUID).toHaveBeenCalledOnce();
+    expect(fileSystem.mkdirSync).toHaveBeenCalledWith('C:\\isolated', { recursive: true });
+    expect(fileSystem.writeFileSync).toHaveBeenCalledWith(
+      'C:\\isolated\\orbit-device.json',
+      '{\n  "deviceId": "generated-device",\n  "createdAt": "2026-08-07T12:00:00.000Z"\n}'
+    );
+  });
+
+  it('builds base client identity/status fields and lets explicit overrides win', () => {
+    const client = createOrbitApiClient(baseDependencies({
+      environment: { NODE_ENV: 'test' },
+      readLocalDatabase: () => ({
+        state: {
+          settings: {
+            pilotAccess: { licenseId: 'club-one' },
+            clubAccount: { clubName: 'Orbit Room' }
+          }
+        }
+      })
+    }));
+    client.sendClientUpdateEvent('update-available', 'available');
+
+    expect(client.buildClientTelemetryPayload({ venueName: 'Override Room', custom: 7 })).toEqual({
+      venueId: 'club-one',
+      venueName: 'Override Room',
+      deviceId: 'request-001',
+      deviceName: 'desk-one',
+      appVersion: '1.2.3',
+      platform: 'win32',
+      environment: 'test',
+      updateStatus: 'available',
+      updateEvent: 'update-available',
+      lastSeenAt: '2026-08-07T12:00:00.000Z',
+      custom: 7
+    });
+  });
+
+  it('routes heartbeat, usage, errors, and updates to exact telemetry endpoints and payload shapes', () => {
+    const fetch = vi.fn().mockResolvedValue(response('{"ok":true}'));
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch }));
+
+    client.sendClientHeartbeat({ route: 'floor' });
+    client.sendClientEvent('table-started', 'tables', { tableId: 'table-1' }, { route: 'floor' });
+    client.sendClientError(new Error('renderer failed'), 'renderer', { rendererStack: 'renderer-stack', route: 'table' });
+    client.sendClientUpdateEvent('update-error', 'error', { message: 'download failed' });
+
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      'http://127.0.0.1:4310/clients/heartbeat',
+      'http://127.0.0.1:4310/clients/event',
+      'http://127.0.0.1:4310/clients/error',
+      'http://127.0.0.1:4310/clients/update-event'
+    ]);
+    const bodies = requestBodies(fetch);
+    expect(bodies[0]).toMatchObject({ route: 'floor' });
+    expect(bodies[1]).toMatchObject({
+      event: 'table-started',
+      category: 'tables',
+      details: { tableId: 'table-1' },
+      occurredAt: '2026-08-07T12:00:00.000Z',
+      route: 'floor'
+    });
+    expect(bodies[2]).toMatchObject({
+      message: 'renderer failed',
+      stack: 'renderer-stack',
+      source: 'renderer',
+      route: 'table',
+      lastError: 'renderer failed'
+    });
+    expect(bodies[3]).toMatchObject({
+      updateEvent: 'update-error',
+      updateStatus: 'error',
+      details: { message: 'download failed' },
+      lastError: 'download failed'
+    });
+    expect(client.getClientUpdateState()).toEqual({ updateStatus: 'error', updateEvent: 'update-error' });
+  });
+
+  it('starts telemetry with an immediate heartbeat/open event and owns the five-minute interval cleanup', () => {
+    const fetch = vi.fn().mockResolvedValue(response('{"ok":true}'));
+    const setIntervalImpl = vi.fn().mockReturnValue(71);
+    const clearIntervalImpl = vi.fn();
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, setIntervalImpl, clearIntervalImpl }));
+
+    client.startClientTelemetry();
+
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      'http://127.0.0.1:4310/clients/heartbeat',
+      'http://127.0.0.1:4310/clients/event'
+    ]);
+    expect(requestBodies(fetch)[1]).toMatchObject({
+      event: 'app-opened',
+      category: 'lifecycle',
+      details: {
+        packaged: true,
+        startedAt: '2026-08-07T11:59:00.000Z',
+        locale: 'en-US'
+      }
+    });
+    expect(setIntervalImpl).toHaveBeenCalledWith(expect.any(Function), 5 * 60 * 1000);
+
+    client.stopClientTelemetry();
+    expect(clearIntervalImpl).toHaveBeenCalledWith(71);
+  });
+});

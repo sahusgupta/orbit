@@ -13,6 +13,8 @@ import {
   resolveGameId
 } from './appCore';
 
+type GameFrequencyProfile = Parameters<typeof getProfilesWithGameInTopTwoByFrequency>[0][number];
+
 describe('timer status thresholds', () => {
   it('uses green above or at 20 minutes, yellow below 20, and red below 5', () => {
     expect(getTimerStatusFromMinutes(21)).toBe('green');
@@ -128,7 +130,7 @@ describe('game id lookup', () => {
 
 describe('game frequency outreach targeting', () => {
   it('selects only players whose target game is ranked first or second by frequency and have a phone', () => {
-    const profiles = [
+    const profiles: GameFrequencyProfile[] = [
       { id: 'top', phone: '555-0100', gamePlayCounts: { nlh: 12, plo: 3 } },
       { id: 'second', phone: '555-0101', gamePlayCounts: { plo: 12, nlh: 8, lhe: 2 } },
       { id: 'third', phone: '555-0102', gamePlayCounts: { plo: 12, lhe: 8, nlh: 2 } },

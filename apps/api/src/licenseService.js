@@ -77,7 +77,7 @@ async function authenticatePilotLicense(authorizationCode) {
   if (active) {
     const lastAuthenticatedAt = new Date().toISOString();
     await getLicenseCollection().doc(record.id).set({ lastAuthenticatedAt }, { merge: true });
-    record.lastAuthenticatedAt = lastAuthenticatedAt;
+    Object.assign(record, { lastAuthenticatedAt });
   }
   return { managed: true, active, license: publicLicense(record) };
 }
@@ -112,7 +112,12 @@ async function listPilotLicenses() {
   return snapshot.docs.map((document) => publicLicense({ id: document.id, ...document.data() }));
 }
 
-async function renewPilotLicense(id, { expiresAt, extendDays } = {}) {
+/**
+ * @param {unknown} id
+ * @param {{ expiresAt?: unknown, extendDays?: unknown }} [options]
+ */
+async function renewPilotLicense(id, options = {}) {
+  const { expiresAt, extendDays } = options;
   const reference = getLicenseCollection().doc(String(id || ''));
   const snapshot = await reference.get();
   if (!snapshot.exists) throw new Error('Pilot license was not found.');
@@ -123,7 +128,7 @@ async function renewPilotLicense(id, { expiresAt, extendDays } = {}) {
   } else {
     const days = Number(extendDays);
     if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error('Renewal days must be between 1 and 3650.');
-    const base = Math.max(Date.now(), Date.parse(current.expiresAt || '') || 0);
+    const base = Math.max(Date.now(), Date.parse(snapshot.get('expiresAt') || '') || 0);
     nextExpiration = new Date(base + days * 24 * 60 * 60 * 1000).toISOString();
   }
   const updatedAt = new Date().toISOString();

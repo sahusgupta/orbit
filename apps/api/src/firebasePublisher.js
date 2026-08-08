@@ -15,6 +15,17 @@ function base64Url(value) {
     .replace(/\//g, '_');
 }
 
+/**
+ * @param {unknown} value
+ * @param {string} key
+ * @returns {unknown}
+ */
+function getRecordProperty(value, key) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? Reflect.get(value, key)
+    : undefined;
+}
+
 function loadServiceAccount() {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
     const value = process.env.FIREBASE_SERVICE_ACCOUNT_JSON.trim();
@@ -84,7 +95,11 @@ async function getServiceAccountToken(serviceAccount) {
     })
   });
   if (!response.ok) throw new Error(`Firebase token request failed: ${response.status} ${await response.text()}`);
-  return (await response.json()).access_token;
+  const accessToken = getRecordProperty(await response.json(), 'access_token');
+  if (typeof accessToken !== 'string' || !accessToken.trim()) {
+    throw new Error('Firebase token response did not include an access token.');
+  }
+  return accessToken;
 }
 
 function stripUndefined(value) {
@@ -440,11 +455,22 @@ async function deleteLegacyPlayerDocuments(projectId, token, clubId, playerDocs)
   const response = await fetch(endpoint, { headers: { authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error(`Firestore player listing failed for ${clubId}: ${response.status} ${await response.text()}`);
   const payload = await response.json();
-  const stalePaths = (payload.documents || []).flatMap((document) => {
-    const documentId = String(document.name || '').split('/').pop() || '';
-    const sourceProfileId = document.fields?.sourceProfileId?.stringValue || '';
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error(`Firestore player listing returned an invalid payload for ${clubId}.`);
+  }
+  const listedDocuments = getRecordProperty(payload, 'documents');
+  if (listedDocuments !== undefined && !Array.isArray(listedDocuments)) {
+    throw new Error(`Firestore player listing returned an invalid document list for ${clubId}.`);
+  }
+  const documents = Array.isArray(listedDocuments) ? listedDocuments : [];
+  const stalePaths = documents.flatMap((document) => {
+    const documentName = getRecordProperty(document, 'name');
+    const documentId = String(documentName || '').split('/').pop() || '';
+    const fields = getRecordProperty(document, 'fields');
+    const sourceProfile = getRecordProperty(fields, 'sourceProfileId');
+    const sourceProfileId = getRecordProperty(sourceProfile, 'stringValue');
     const expectedId = expectedIdsByProfile.get(sourceProfileId);
-    return expectedId && expectedId !== documentId ? [document.name] : [];
+    return expectedId && expectedId !== documentId && typeof documentName === 'string' ? [documentName] : [];
   });
 
   for (const documentName of stalePaths) {

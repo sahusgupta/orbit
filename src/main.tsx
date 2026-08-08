@@ -23,7 +23,6 @@ import {
   Plus,
   Play,
   Save,
-  ScanLine,
   Settings,
   Target,
   Trash2,
@@ -35,10 +34,19 @@ import {
 import branding from '../branding.config.json';
 import PokerTable, { type Player as PokerTablePlayer } from './components/PokerTable';
 import AppShell, { type PrimaryDestination, type ShellCommand } from './components/AppShell';
+import BuilderView from './components/BuilderView';
+import FloorView from './components/FloorView';
+import KpisView from './components/KpisView';
+import PanelTitle from './components/PanelTitle';
+import ProfilesView from './components/ProfilesView';
+import SettingsView from './components/SettingsView';
+import SignalsView, { type GroupMeCandidate } from './components/SignalsView';
+import SummaryView from './components/SummaryView';
+import TableView from './components/TableView';
+import TournamentsView from './components/TournamentsView';
 import TournamentTvView from './components/TournamentTvView';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import {
-  canonicalPayload,
   countActivePlayersForTable,
   createBackupEnvelope,
   filterRecentActivityAfterClose,
@@ -52,10 +60,121 @@ import {
 import { AccountRecoveryValidationError, recoverAccountLogin } from './lib/accountRecovery';
 import { createMembershipWindow, parseMembershipPrice } from './lib/membership';
 import { validateMembershipQrCheckIn } from './lib/membershipQr';
+import {
+  findUniqueProfileReference,
+  getProfileReferenceMatches,
+  hasProfileReference
+} from './lib/profileRelationships';
 import { loadClubStateFromFirebase, saveClubStateToFirebase, sendFirebasePasswordResetEmail, signInOrCreateFirebaseEmailAccount, signInToFirebaseWithEmail, signOutOfFirebase, subscribeToPlayerRequestUpdates, syncPlayerUpdatesToClubState } from './lib/firebaseClubSync';
 import { rendererFirebaseSyncEnabled } from './lib/firebaseConfig';
-import { buildNightCloseTables, type NightCloseTable } from './lib/nightClose';
-import { normalizePlayerSessionSeats } from './lib/seatNormalization';
+import { buildNightCloseTables } from './lib/nightClose';
+import {
+  getBalancePlans,
+  getTodayPlayerActivity,
+  parseGroupMeMessages,
+  type BalancePlanResult
+} from './lib/resultBuilders';
+import { mergeSyncedList } from './lib/syncedList';
+import {
+  defaultTournamentLevels,
+  defaultTournamentPayouts,
+  nextYearDate,
+  normalizeState,
+  normalizeTableCap,
+  nowIso,
+  parsePersistedAppState,
+  seedState,
+  todayDate,
+  uid
+} from './domain/state';
+import {
+  getCollectionProfile,
+  getDealerReport,
+  getReportFinancials,
+  getReportHourlyBreakdown,
+  getReportState,
+  getReportWindow,
+  getTableFinancialOverview,
+  getTablePlayerFinancialOverview,
+  shiftReportAnchor
+} from './domain/reporting';
+import {
+  getAccountKeyFromAccess,
+  getAccountKeyFromState,
+  getAuthStorageKey,
+  getStorageKeyForState,
+  hasPersistedSignIn,
+  isFutureDate,
+  isPilotAccessActive,
+  managementStorageKey as storageKey,
+  persistSignIn,
+  safeAccountKeyPart,
+  validatePilotKey
+} from './domain/licensing';
+import { hashStaffPin, verifyStaffSecret } from './domain/staffAuth';
+import {
+  buildAnalyticalReportPayload,
+  getAnalytics,
+  getOperationalOpportunities,
+  getUsageAnalytics,
+  type AnalyticalReportPayload
+} from './domain/analytics';
+import {
+  getAverageStackForTable,
+  getClosestGameLabel,
+  getDemand,
+  getOpenSessions,
+  getOverflowOpportunities,
+  getPlayerLoggedHours,
+  getRunningSessions,
+  getSessionBuyIns,
+  getSessionSeatHours,
+  getStaffScripts,
+  getTableHealth,
+  getTimeRemainingMinutes,
+  getViabilityState,
+  hoursBetween
+} from './domain/operations';
+import {
+  activeInterestStatuses,
+  getInClubInterests,
+  getLikelyParticipants,
+  getParticipantPool,
+  getProfileForInterest,
+  hasParticipantInterest,
+  inactiveInterestStatuses,
+  lacksParticipantInterest
+} from './domain/participants';
+import type {
+  AppRoute,
+  AppState,
+  ClubAccount,
+  CollectionProfile,
+  GameConfig,
+  GameSession,
+  GameStatus,
+  Interest,
+  InterestStatus,
+  NightCloseAudit,
+  NightCloseRecord,
+  NightCloseStatus,
+  PersistedAppState,
+  PersistedStateRecord,
+  PilotAccess,
+  PlayerInAppNotification,
+  PlayerProfile,
+  PlayerSession,
+  ReportPeriod,
+  StaffAccount,
+  StaffRole,
+  TableCap,
+  TableEvent,
+  TableEventType,
+  TableTag,
+  Tournament,
+  TournamentPlayer,
+  UsageEvent
+} from './domain/types';
 import './styles.css';
 
 declare global {
@@ -64,8 +183,8 @@ declare global {
       platform: string;
       isDesktop: boolean;
       openWindow: (route: AppRoute, context?: { sessionId?: string; tournamentId?: string }) => Promise<void>;
-      loadState: () => Promise<{ schemaVersion: number; savedAt: string; state: Partial<AppState> } | null>;
-      loadStateForAccount: (access: PilotAccess) => Promise<{ schemaVersion: number; savedAt: string; state: Partial<AppState> } | null>;
+      loadState: () => Promise<PersistedStateRecord | null>;
+      loadStateForAccount: (access: PilotAccess) => Promise<PersistedStateRecord | null>;
       saveState: (state: AppState) => Promise<{ ok: boolean; path: string; accountKey?: string }>;
       preserveStateForUpdate: (requestId: string, state: AppState) => Promise<{ ok: boolean }>;
       onPrepareForUpdate: (callback: (requestId: string) => void) => () => void;
@@ -99,59 +218,6 @@ declare global {
   }
 }
 
-type AppRoute = 'floor' | 'table' | 'builder' | 'profiles' | 'signals' | 'summary' | 'customization' | 'kpis' | 'tournaments' | 'tournament-tv';
-type ReportPeriod = 'day' | 'week' | 'month' | 'year' | 'all';
-type InterestStatus =
-  | 'Interested'
-  | 'Confirmed Coming'
-  | 'Arrived'
-  | 'Seated'
-  | 'Declined'
-  | 'No-Show'
-  | 'Left Before Seated'
-  | 'Removed';
-type GameStatus = 'Running' | 'Forming' | 'Paused' | 'Closed' | 'Failed to Start';
-type TableTag =
-  | 'Action'
-  | 'Social'
-  | 'Competitive'
-  | 'Beginner-Friendly'
-  | 'Deep-Stacked'
-  | 'Relaxed'
-  | 'Short-handed'
-  | 'Full-ring'
-  | 'Fast-moving'
-  | 'Slow-moving';
-
-type GameConfig = {
-  id: string;
-  name: string;
-  maxSeats: number;
-  minInRoomForLikely: number;
-  minFlexibleForLikely: number;
-  minTotalForViable: number;
-};
-
-type Interest = {
-  id: string;
-  profileId?: string;
-  playerName: string;
-  gameId: string;
-  status: InterestStatus;
-  timestamp: string;
-  interestedAt: string;
-  confirmedAt?: string;
-  arrivedAt?: string;
-  seatedAt?: string;
-  closedAt?: string;
-  expectedArrivalTime?: string;
-  availabilityStartTime?: string;
-  availabilityEndTime?: string;
-  tableId?: string;
-  notes: string;
-  manualEdits?: Record<string, string>;
-};
-
 type TodayPlayerRow = {
   id: string;
   playerName: string;
@@ -164,38 +230,6 @@ type TodayPlayerRow = {
   activeMember: boolean;
 };
 
-type PlayerProfile = {
-  id: string;
-  name: string;
-  phone: string;
-  birthday: string;
-  membershipStartDate: string;
-  membershipExpirationDate: string;
-  membershipExpiresAt?: string;
-  membershipPlan?: 'day' | 'monthly';
-  membershipPaymentMethod?: 'app' | 'in-person' | 'core';
-  membershipStatus?: 'Requested' | 'Approved' | 'Active' | 'Expired';
-  membershipRequestedAt?: string;
-  membershipPriceLabel?: string;
-  membershipPlanName?: string;
-  membershipDurationDays?: number;
-  totalTimePlayedHours: number;
-  lastSessionTimePlayedHours: number;
-  commonlyPlaysWithProfileIds: string[];
-  preferredGameId: string;
-  preferredGameIds: string[];
-  gamePlayCounts: Record<string, number>;
-  mostPlayedGameId: string;
-  preferredStakes: string;
-  typicalBuyInMin: number;
-  typicalBuyInMax: number;
-  willingnessToMove: boolean;
-  typicalAvailability: string;
-  usualCompanions: string[];
-  preferredTags: TableTag[];
-  notes: string;
-};
-
 type StaffRequestNotice = {
   id: string;
   kind: 'membership' | 'seat';
@@ -203,236 +237,6 @@ type StaffRequestNotice = {
   body: string;
   createdAt: string;
   read: boolean;
-};
-
-type GameSession = {
-  id: string;
-  gameId: string;
-  label: string;
-  status: GameStatus;
-  seatsFilled: number;
-  maxSeats: number;
-  timeFeeBased?: boolean;
-  collectionMode?: 'Time' | 'Drop';
-  plannedPlayerIds?: string[];
-  tags: TableTag[];
-  startedAt: string;
-  endedAt?: string;
-  manualEdits?: Record<string, string>;
-};
-
-type PlayerSession = {
-  id: string;
-  playerName: string;
-  profileId?: string;
-  gameId: string;
-  tableId: string;
-  seatNumber?: number;
-  seatedAt: string;
-  leftAt?: string;
-  timePurchasedMinutes?: number;
-  timeRemainingMinutes?: number;
-  lastTimeTickAt?: string;
-  timeFeeEnabled?: boolean;
-  manualEdits?: Record<string, string>;
-};
-
-type BuyInLog = {
-  id: string;
-  profileId?: string;
-  playerName: string;
-  tableId: string;
-  gameId: string;
-  amount: number;
-  timestamp: string;
-  note?: string;
-};
-
-type DropLog = {
-  id: string;
-  tableId: string;
-  gameId: string;
-  amount: number;
-  timestamp: string;
-  note?: string;
-};
-
-type DealerAssignment = {
-  id: string;
-  tableId: string;
-  gameId: string;
-  dealerName: string;
-  startedAt: string;
-  endedAt?: string;
-};
-
-type HandCountLog = {
-  id: string;
-  tableId: string;
-  gameId: string;
-  hands: number;
-  timestamp: string;
-};
-
-type TimeFeeLog = {
-  id: string;
-  playerSessionId: string;
-  tableId: string;
-  gameId: string;
-  playerName: string;
-  minutes: number;
-  amount: number;
-  timestamp: string;
-};
-
-type RevenueTransaction = {
-  id: string;
-  type: 'membership' | 'tournament_entry' | 'rebuy' | 'add_on' | 'refund' | 'other';
-  amountCents: number;
-  occurredAt: string;
-  paymentStatus: 'paid' | 'refunded' | 'partially_refunded' | 'pending' | 'failed';
-  source: 'stripe' | 'manual' | 'import';
-  playerId?: string;
-  playerName?: string;
-  playerEmail?: string;
-  membershipPlan?: string;
-  tournamentId?: string;
-  stripeEventId?: string;
-};
-
-type PlayerLedgerEntry = {
-  id: string;
-  type: 'Check-In' | 'Buy-In' | 'Cash-Out';
-  profileId?: string;
-  playerName: string;
-  tableId?: string;
-  gameId?: string;
-  amount?: number;
-  timestamp: string;
-  note?: string;
-};
-
-type CollectionProfile = {
-  gameId: string;
-  collectionMode: 'Time' | 'Drop';
-  hourlyFee: number;
-  estimatedDropPerSeatHour: number;
-};
-
-type TableEventType = 'Created' | 'Started' | 'Failed to Start' | 'Broke' | 'Merged' | 'Closed';
-
-type TableEvent = {
-  id: string;
-  type: TableEventType;
-  gameId: string;
-  tableId?: string;
-  timestamp: string;
-  playerCount: number;
-  reason?: string;
-  note: string;
-};
-
-type NightRecord = {
-  id: string;
-  date: string;
-  occupiedSeatHours: number;
-  gamesStarted: number;
-  averageSessionDurationHours: number;
-  averageActiveTables: number;
-  waitlistConversionRate: number;
-  hadTwoPlusTables: boolean;
-  notes?: string;
-};
-
-type TournamentLevel = {
-  id: string;
-  level: number;
-  smallBlind: number;
-  bigBlind: number;
-  ante: number;
-  durationMinutes: number;
-  breakAfter: boolean;
-  breakMinutes: number;
-};
-
-type TournamentPlayerStatus = 'Registered' | 'Checked In' | 'Active' | 'Eliminated' | 'Finished';
-
-type TournamentPlayer = {
-  id: string;
-  profileId?: string;
-  name: string;
-  phone?: string;
-  email?: string;
-  buyIn: number;
-  rebuys: number;
-  addOns: number;
-  startingStack: number;
-  currentStack?: number;
-  status: TournamentPlayerStatus;
-  registeredAt: string;
-  eliminatedAt?: string;
-  finishPlace?: number;
-  tableNumber?: number;
-  seatNumber?: number;
-};
-
-type TournamentPayout = {
-  place: number;
-  percent: number;
-};
-
-type TournamentStatus = 'Draft' | 'Running' | 'Paused' | 'Finished';
-
-type Tournament = {
-  id: string;
-  name: string;
-  status: TournamentStatus;
-  createdAt: string;
-  startedAt?: string;
-  pausedAt?: string;
-  completedAt?: string;
-  currentLevelIndex: number;
-  levelStartedAt?: string;
-  pausedRemainingSeconds?: number;
-  buyIn: number;
-  startingStack: number;
-  rebuyPrizePercent: number;
-  rebuyPrice?: number;
-  addOnPrice?: number;
-  lateRegistrationThroughLevel?: number;
-  registrationClosesAt?: string;
-  tableSize: number;
-  levels: TournamentLevel[];
-  players: TournamentPlayer[];
-  payouts: TournamentPayout[];
-};
-
-type FeedbackEntry = {
-  id: string;
-  role: 'Staff' | 'Owner';
-  text: string;
-  createdAt: string;
-};
-
-type CorrectionEntry = {
-  id: string;
-  entity: string;
-  field: string;
-  note: string;
-  timestamp: string;
-};
-
-type UsageEvent = {
-  id: string;
-  feature: string;
-  action: string;
-  route: AppRoute | 'access';
-  timestamp: string;
-  staffId?: string;
-  staffName?: string;
-  staffRole?: StaffRole;
-  accountKey: string;
-  metadata?: Record<string, string | number | boolean>;
 };
 
 type UsageDescriptor = {
@@ -443,82 +247,6 @@ type UsageDescriptor = {
 };
 
 type BrandTheme = typeof branding.theme.default;
-
-type PilotAccess = {
-  authorized: boolean;
-  authorizationCode: string;
-  expiresAt: string;
-  activatedAt: string;
-  keyFileName?: string;
-  issuedTo?: string;
-  issuedAt?: string;
-  licenseId?: string;
-  serverManaged?: boolean;
-};
-
-type ClubAccount = {
-  clubName: string;
-  accountName: string;
-  contactName: string;
-  email: string;
-  phone: string;
-  address: string;
-};
-
-type StaffRole = 'Owner' | 'Manager' | 'Floor';
-
-type StaffAccount = {
-  id: string;
-  name: string;
-  role: StaffRole;
-  pinSalt: string;
-  pinHash: string;
-  active: boolean;
-  createdAt: string;
-  lastSelectedAt?: string;
-};
-
-type ClubMembershipPlan = { id: string; name: string; priceLabel: string; durationDays: number; description?: string; active: boolean };
-
-const defaultMembershipPlans: ClubMembershipPlan[] = [
-  { id: 'day', name: 'Day Pass', priceLabel: '$10', durationDays: 1, description: 'One day of club access.', active: true },
-  { id: 'monthly', name: 'Monthly Membership', priceLabel: '$40/mo', durationDays: 30, description: 'Thirty days of club access.', active: true }
-];
-
-type NightCloseStatus = 'Draft' | 'Staff Signed' | 'Locked';
-
-type NightCloseAudit = {
-  id: string;
-  action: 'Created' | 'Saved' | 'Staff Signed' | 'Manager Approved' | 'Reopened';
-  timestamp: string;
-  staffId?: string;
-  staffName: string;
-  staffRole?: StaffRole;
-  note?: string;
-};
-
-type NightCloseRecord = {
-  id: string;
-  date: string;
-  status: NightCloseStatus;
-  createdAt: string;
-  updatedAt: string;
-  lockedAt?: string;
-  notes: string;
-  tables: NightCloseTable[];
-  warnings: string[];
-  staffSignOff?: NightCloseAudit;
-  managerSignOff?: NightCloseAudit;
-  audit: NightCloseAudit[];
-};
-
-type AccountLogin = {
-  username: string;
-  passwordSalt: string;
-  passwordHash: string;
-  createdAt: string;
-  lastLoginAt?: string;
-};
 
 type SaveStatus =
   | { state: 'idle'; message: string }
@@ -542,19 +270,6 @@ type ReportSubmissionResult = {
   backend: BackendStatus;
 };
 
-type PlayerInAppNotification = {
-  id: string;
-  clubId: string;
-  gameId: string;
-  title: string;
-  body: string;
-  reason: 'game-forming' | 'seat-opened' | 'membership-approved' | 'membership-activated';
-  createdAt: string;
-  expiresAt?: string;
-  targetPlayerIds?: string[];
-  targetPlayerNames?: string[];
-};
-
 type TextMessagePayload = {
   to: string;
   body: string;
@@ -575,103 +290,13 @@ type TextMessageBatchResult = {
   error?: string;
 };
 
-type AnalyticalReportPayload = {
-  app: 'TableManager';
-  kind: 'analytical-report';
-  version: 1;
-  generatedAt: string;
-  account: {
-    accountKey: string;
-    clubName: string;
-    accountName: string;
-    contactName: string;
-    email: string;
-    license: string;
-  };
-  operational: Record<string, string | number | boolean>;
-  collectionByGame: ReturnType<typeof getAnalytics>['collectionValueByGame'];
-  usage: {
-    totalEvents: number;
-    eventsLast24Hours: number;
-    eventsLast7Days: number;
-    features: ReturnType<typeof getUsageAnalytics>['eventsByFeature'];
-    actions: ReturnType<typeof getUsageAnalytics>['eventsByAction'];
-    staff: ReturnType<typeof getUsageAnalytics>['eventsByStaff'];
-    recentEvents: UsageEvent[];
-  };
-  feedback: FeedbackEntry[];
-};
-
-type AppState = {
-  games: GameConfig[];
-  profiles: PlayerProfile[];
-  tournaments: Tournament[];
-  interests: Interest[];
-  sessions: GameSession[];
-  playerSessions: PlayerSession[];
-  buyIns: BuyInLog[];
-  dropLogs: DropLog[];
-  dealerAssignments: DealerAssignment[];
-  handCountLogs: HandCountLog[];
-  timeFeeLogs: TimeFeeLog[];
-  revenueTransactions: RevenueTransaction[];
-  playerLedger: PlayerLedgerEntry[];
-  tableEvents: TableEvent[];
-  inAppNotifications: PlayerInAppNotification[];
-  history: NightRecord[];
-  nightCloses: NightCloseRecord[];
-  feedback: FeedbackEntry[];
-  scriptTemplates: string[];
-  correctionLog: CorrectionEntry[];
-  usageEvents: UsageEvent[];
-  settings: {
-    lowLight: boolean;
-    defaultCollectionMode: 'Time' | 'Drop';
-    defaultTableCap: TableCap;
-    defaultHourlyFee: number;
-    defaultEstimatedDropPerSeatHour: number;
-    collectionProfiles: CollectionProfile[];
-    membershipPlans: ClubMembershipPlan[];
-    showPlayerGrid: boolean;
-    showDashboardKpis: boolean;
-    showRecentPlayers: boolean;
-    pilotAccess?: PilotAccess;
-    clubAccount?: ClubAccount;
-    staffAccounts: StaffAccount[];
-    activeStaffId?: string;
-    accountLogin?: AccountLogin;
-  };
-};
-
-type ParticipantCandidate = {
-  id: string;
-  playerName: string;
-  interest?: Interest;
-  profile?: PlayerProfile;
-  confidence: number;
-  reasons: string[];
-  source: 'interest';
-};
-
-type BalancePlan = {
-  game: GameConfig;
-  demand: ReturnType<typeof getDemand>;
-  fromTable: GameSession;
-  moveCandidates: ParticipantCandidate[];
-  tableASeatsAfterMove: number;
-  tableBProjectedSeats: number;
-  nextStep: string;
-};
-
-type GroupMeCandidate = {
-  id: string;
-  playerName: string;
-  gameId: string;
-  status: InterestStatus;
-  timestamp: string;
-  confidence: number;
-  sourceText: string;
-};
+type BalancePlan = BalancePlanResult<
+  GameConfig,
+  ReturnType<typeof getDemand>,
+  GameSession,
+  Interest,
+  PlayerProfile
+>;
 
 type SeatPickerState = {
   sessionId: string;
@@ -706,11 +331,8 @@ const statuses: InterestStatus[] = [
   'Left Before Seated',
   'Removed'
 ];
-const activeInterestStatuses: InterestStatus[] = ['Interested', 'Confirmed Coming', 'Arrived'];
 const closedInterestStatuses: InterestStatus[] = ['Seated', 'Declined', 'No-Show', 'Left Before Seated', 'Removed'];
-const inactiveInterestStatuses: InterestStatus[] = ['Declined', 'No-Show', 'Left Before Seated', 'Removed'];
-const tableCaps = [6, 8, 10] as const;
-type TableCap = typeof tableCaps[number];
+const tableCaps = [6, 8, 10] as const satisfies readonly TableCap[];
 const gameQualityTags: TableTag[] = [
   'Social',
   'Action',
@@ -725,34 +347,8 @@ const gameQualityTags: TableTag[] = [
 ];
 const failedStartReasons = ['not enough arrivals', 'players declined', 'wait too long', 'table fit concern', 'staff decision', 'other'];
 const tableBreakReasons = ['too few players', 'players moved', 'players left', 'game merged', 'room closing', 'other'];
-const defaultScriptTemplates = [
-  'Current {game} has {inRoom} in the room, {coming} coming, and {waiting} waiting or interested.',
-  'Current {game} is full, but overflow is building with {waiting} waiting or interested.',
-  "We're building {game}, but need {needs} more player(s) before it is realistic.",
-  '{game} is close to forming if arrivals hold. We can add you to the interest list.'
-];
-const storageKey = 'table-manager-state-v1';
-const defaultTournamentLevels = (): TournamentLevel[] => [
-  { id: uid(), level: 1, smallBlind: 100, bigBlind: 200, ante: 0, durationMinutes: 20, breakAfter: false, breakMinutes: 0 },
-  { id: uid(), level: 2, smallBlind: 200, bigBlind: 400, ante: 400, durationMinutes: 20, breakAfter: false, breakMinutes: 0 },
-  { id: uid(), level: 3, smallBlind: 300, bigBlind: 600, ante: 600, durationMinutes: 20, breakAfter: true, breakMinutes: 10 },
-  { id: uid(), level: 4, smallBlind: 500, bigBlind: 1000, ante: 1000, durationMinutes: 20, breakAfter: false, breakMinutes: 0 },
-  { id: uid(), level: 5, smallBlind: 1000, bigBlind: 2000, ante: 2000, durationMinutes: 20, breakAfter: false, breakMinutes: 0 },
-  { id: uid(), level: 6, smallBlind: 1500, bigBlind: 3000, ante: 3000, durationMinutes: 20, breakAfter: true, breakMinutes: 10 },
-  { id: uid(), level: 7, smallBlind: 2000, bigBlind: 4000, ante: 4000, durationMinutes: 20, breakAfter: false, breakMinutes: 0 },
-  { id: uid(), level: 8, smallBlind: 3000, bigBlind: 6000, ante: 6000, durationMinutes: 20, breakAfter: false, breakMinutes: 0 }
-];
-const defaultTournamentPayouts = (): TournamentPayout[] => [
-  { place: 1, percent: 50 },
-  { place: 2, percent: 30 },
-  { place: 3, percent: 20 }
-];
-
-const nowIso = () => new Date().toISOString();
-const uid = () => crypto.randomUUID();
 const memberId = () => `mem_${crypto.getRandomValues(new Uint32Array(2))[0].toString(16)}${crypto.getRandomValues(new Uint32Array(2))[1].toString(16)}`;
 const randomToken = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('');
-const todayDate = () => new Date().toISOString().slice(0, 10);
 const toLocalDateValue = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -760,306 +356,6 @@ const toLocalDateValue = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-type ReportWindow = { startMs: number; endMs: number; label: string };
-
-const parseLocalDateValue = (value: string) => {
-  const [year, month, day] = value.split('-').map(Number);
-  return new Date(year, Math.max(0, month - 1), day || 1, 12, 0, 0, 0);
-};
-
-const getReportWindow = (period: ReportPeriod, anchorValue: string): ReportWindow => {
-  const anchor = parseLocalDateValue(anchorValue);
-  const start = new Date(anchor);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-
-  if (period === 'all') {
-    const tomorrow = new Date();
-    tomorrow.setHours(24, 0, 0, 0);
-    return { startMs: 0, endMs: tomorrow.getTime(), label: 'All recorded history' };
-  }
-
-  if (period === 'week') {
-    const mondayOffset = (start.getDay() + 6) % 7;
-    start.setDate(start.getDate() - mondayOffset);
-    end.setTime(start.getTime());
-    end.setDate(end.getDate() + 7);
-  } else if (period === 'month') {
-    start.setDate(1);
-    end.setTime(start.getTime());
-    end.setMonth(end.getMonth() + 1);
-  } else if (period === 'year') {
-    start.setMonth(0, 1);
-    end.setTime(start.getTime());
-    end.setFullYear(end.getFullYear() + 1);
-  } else {
-    end.setDate(end.getDate() + 1);
-  }
-
-  const inclusiveEnd = new Date(end.getTime() - 1);
-  const shortDate = (date: Date, includeYear = true) => date.toLocaleDateString([], {
-    month: 'short',
-    day: 'numeric',
-    ...(includeYear ? { year: 'numeric' as const } : {})
-  });
-  const label = period === 'day'
-    ? shortDate(start)
-    : period === 'month'
-      ? start.toLocaleDateString([], { month: 'long', year: 'numeric' })
-      : period === 'year'
-        ? String(start.getFullYear())
-        : `${shortDate(start, start.getFullYear() !== inclusiveEnd.getFullYear())} – ${shortDate(inclusiveEnd)}`;
-  return { startMs: start.getTime(), endMs: end.getTime(), label };
-};
-
-const shiftReportAnchor = (anchorValue: string, period: ReportPeriod, direction: -1 | 1) => {
-  if (period === 'all') return anchorValue;
-  const date = parseLocalDateValue(anchorValue);
-  if (period === 'day') date.setDate(date.getDate() + direction);
-  if (period === 'week') date.setDate(date.getDate() + direction * 7);
-  if (period === 'month') date.setMonth(date.getMonth() + direction);
-  if (period === 'year') date.setFullYear(date.getFullYear() + direction);
-  return toLocalDateValue(date);
-};
-
-const timestampInReportWindow = (timestamp: string | undefined, window: ReportWindow) => {
-  if (!timestamp) return false;
-  const value = new Date(timestamp).getTime();
-  return Number.isFinite(value) && value >= window.startMs && value < window.endMs;
-};
-
-const getReportState = (state: AppState, window: ReportWindow): AppState => {
-  const now = Date.now();
-  const sessions = state.sessions
-    .filter((session) => {
-      const start = new Date(session.startedAt).getTime();
-      const end = session.endedAt ? new Date(session.endedAt).getTime() : now;
-      return start < window.endMs && end >= window.startMs;
-    })
-    .map((session) => {
-      const continuesThroughCurrentWindow = !session.endedAt && window.endMs > now;
-      const effectiveEnd = Math.min(session.endedAt ? new Date(session.endedAt).getTime() : now, window.endMs - 1);
-      return {
-        ...session,
-        startedAt: new Date(Math.max(new Date(session.startedAt).getTime(), window.startMs)).toISOString(),
-        endedAt: continuesThroughCurrentWindow ? undefined : new Date(effectiveEnd).toISOString(),
-        status: (continuesThroughCurrentWindow || session.status === 'Failed to Start') ? session.status : 'Closed' as GameStatus
-      };
-    });
-  const playerSessions = state.playerSessions
-    .filter((session) => {
-      const start = new Date(session.seatedAt).getTime();
-      const end = session.leftAt ? new Date(session.leftAt).getTime() : now;
-      return start < window.endMs && end >= window.startMs;
-    })
-    .map((session) => {
-      const continuesThroughCurrentWindow = !session.leftAt && window.endMs > now;
-      const effectiveEnd = Math.min(session.leftAt ? new Date(session.leftAt).getTime() : now, window.endMs - 1);
-      return {
-        ...session,
-        seatedAt: new Date(Math.max(new Date(session.seatedAt).getTime(), window.startMs)).toISOString(),
-        leftAt: continuesThroughCurrentWindow ? undefined : new Date(effectiveEnd).toISOString()
-      };
-    });
-  return {
-    ...state,
-    sessions,
-    playerSessions,
-    interests: state.interests.filter((interest) =>
-      [interest.interestedAt, interest.arrivedAt, interest.seatedAt, interest.closedAt].some((timestamp) => timestampInReportWindow(timestamp, window))
-    ),
-    dropLogs: state.dropLogs.filter((entry) => timestampInReportWindow(entry.timestamp, window)),
-    dealerAssignments: state.dealerAssignments.filter((assignment) => {
-      const start = new Date(assignment.startedAt).getTime();
-      const end = assignment.endedAt ? new Date(assignment.endedAt).getTime() : now;
-      return start < window.endMs && end >= window.startMs;
-    }),
-    handCountLogs: state.handCountLogs.filter((entry) => timestampInReportWindow(entry.timestamp, window)),
-    timeFeeLogs: state.timeFeeLogs.filter((entry) => timestampInReportWindow(entry.timestamp, window)),
-    revenueTransactions: state.revenueTransactions.filter((entry) => timestampInReportWindow(entry.occurredAt, window)),
-    tableEvents: state.tableEvents.filter((entry) => timestampInReportWindow(entry.timestamp, window)),
-    history: state.history.filter((night) => timestampInReportWindow(`${night.date}T12:00:00`, window))
-  };
-};
-
-const getReportFinancials = (state: AppState, window: ReportWindow) => {
-  const recordedDrop = state.dropLogs
-    .filter((entry) => timestampInReportWindow(entry.timestamp, window))
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const exactTimeFeeEntries = state.timeFeeLogs
-    .filter((entry) => timestampInReportWindow(entry.timestamp, window))
-    .map((entry) => ({ gameId: entry.gameId, tableId: entry.tableId, amount: entry.amount, timestamp: entry.timestamp }));
-  const loggedPlayerSessionIds = new Set(state.timeFeeLogs.map((entry) => entry.playerSessionId));
-  const legacyTimeFeeEntries = state.playerSessions.flatMap((playerSession) => {
-    if (loggedPlayerSessionIds.has(playerSession.id)) return [];
-    const table = state.sessions.find((session) => session.id === playerSession.tableId);
-    const paidAt = playerSession.lastTimeTickAt || playerSession.seatedAt;
-    if (!table || (table.collectionMode !== 'Time' && !table.timeFeeBased) || !timestampInReportWindow(paidAt, window)) return [];
-    const amount = ((playerSession.timePurchasedMinutes ?? 0) / 60) * getCollectionProfile(state, playerSession.gameId).hourlyFee;
-    return amount > 0 ? [{ gameId: playerSession.gameId, tableId: playerSession.tableId, amount, timestamp: paidAt }] : [];
-  });
-  const timeFeeEntries = [...exactTimeFeeEntries, ...legacyTimeFeeEntries];
-  const timeFees = timeFeeEntries.reduce((sum, entry) => sum + entry.amount, 0);
-  const paidRevenue = state.revenueTransactions.filter((entry) =>
-    (entry.paymentStatus === 'paid' || entry.paymentStatus === 'partially_refunded') && timestampInReportWindow(entry.occurredAt, window)
-  );
-  const revenueAmount = (entry: RevenueTransaction) => (entry.type === 'refund' ? -Math.abs(entry.amountCents) : entry.amountCents) / 100;
-  const membershipRevenue = paidRevenue.filter((entry) => entry.type === 'membership').reduce((sum, entry) => sum + revenueAmount(entry), 0);
-  const tournamentRevenue = paidRevenue.filter((entry) => ['tournament_entry', 'rebuy', 'add_on'].includes(entry.type)).reduce((sum, entry) => sum + revenueAmount(entry), 0);
-  const otherRevenue = paidRevenue.filter((entry) => !['membership', 'tournament_entry', 'rebuy', 'add_on'].includes(entry.type)).reduce((sum, entry) => sum + revenueAmount(entry), 0);
-  const collectionByGame = state.games.map((game) => ({
-    game: game.name,
-    recordedDrop: state.dropLogs
-      .filter((entry) => entry.gameId === game.id && timestampInReportWindow(entry.timestamp, window))
-      .reduce((sum, entry) => sum + entry.amount, 0),
-    timeFees: timeFeeEntries
-      .filter((entry) => entry.gameId === game.id)
-      .reduce((sum, entry) => sum + entry.amount, 0)
-  }));
-  return {
-    recordedDrop,
-    timeFees,
-    membershipRevenue,
-    tournamentRevenue,
-    otherRevenue,
-    totalProfit: recordedDrop + timeFees + membershipRevenue + tournamentRevenue + otherRevenue,
-    collectionByGame,
-    timeFeeEntries,
-    paidRevenue
-  };
-};
-
-const getTableFinancialOverview = (state: AppState, session: GameSession) => {
-  const totalBuyIns = state.buyIns
-    .filter((entry) => entry.tableId === session.id)
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const totalCashOuts = state.playerLedger
-    .filter((entry) => entry.tableId === session.id && entry.type === 'Cash-Out')
-    .reduce((sum, entry) => sum + (entry.amount ?? 0), 0);
-  const totalDrop = state.dropLogs
-    .filter((entry) => entry.tableId === session.id)
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const tableTimeFeeLogs = state.timeFeeLogs.filter((entry) => entry.tableId === session.id);
-  const loggedPlayerSessionIds = new Set(tableTimeFeeLogs.map((entry) => entry.playerSessionId));
-  const exactTimeFees = tableTimeFeeLogs.reduce((sum, entry) => sum + entry.amount, 0);
-  const legacyTimeFees = session.collectionMode === 'Time' || session.timeFeeBased
-    ? state.playerSessions
-        .filter((playerSession) =>
-          playerSession.tableId === session.id &&
-          !loggedPlayerSessionIds.has(playerSession.id) &&
-          (playerSession.timePurchasedMinutes ?? 0) > 0
-        )
-        .reduce(
-          (sum, playerSession) =>
-            sum + ((playerSession.timePurchasedMinutes ?? 0) / 60) * getCollectionProfile(state, session.gameId).hourlyFee,
-          0
-        )
-    : 0;
-  const totalTimeFees = exactTimeFees + legacyTimeFees;
-  const tableProfit = totalDrop + totalTimeFees;
-
-  return {
-    totalBuyIns,
-    totalCashOuts,
-    totalDrop,
-    totalTimeFees,
-    tableProfit,
-    cashInPlay: totalBuyIns - totalCashOuts - totalDrop
-  };
-};
-
-const getTablePlayerFinancialOverview = (state: AppState, session: GameSession, playerSession: PlayerSession) => {
-  const normalizedPlayerName = playerSession.playerName.trim().toLowerCase();
-  const belongsToPlayer = (profileId: string | undefined, playerName: string) =>
-    playerSession.profileId && profileId
-      ? playerSession.profileId === profileId
-      : playerName.trim().toLowerCase() === normalizedPlayerName;
-  const totalBuyIns = state.buyIns
-    .filter((entry) => entry.tableId === session.id && belongsToPlayer(entry.profileId, entry.playerName))
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const totalCashOuts = state.playerLedger
-    .filter((entry) =>
-      entry.tableId === session.id &&
-      entry.type === 'Cash-Out' &&
-      belongsToPlayer(entry.profileId, entry.playerName)
-    )
-    .reduce((sum, entry) => sum + (entry.amount ?? 0), 0);
-  const exactTimeFeeLogs = state.timeFeeLogs.filter((entry) => entry.playerSessionId === playerSession.id);
-  const exactTimeFees = exactTimeFeeLogs.reduce((sum, entry) => sum + entry.amount, 0);
-  const legacyTimeFees =
-    !exactTimeFeeLogs.length &&
-    (session.collectionMode === 'Time' || session.timeFeeBased) &&
-    (playerSession.timePurchasedMinutes ?? 0) > 0
-      ? ((playerSession.timePurchasedMinutes ?? 0) / 60) * getCollectionProfile(state, session.gameId).hourlyFee
-      : 0;
-
-  return {
-    totalBuyIns,
-    totalCashOuts,
-    totalTimeFees: exactTimeFees + legacyTimeFees
-  };
-};
-
-const getReportHourlyBreakdown = (state: AppState, window: ReportWindow, financials: ReturnType<typeof getReportFinancials>) => {
-  const buckets = new Map<number, { startMs: number; drop: number; timeFees: number; otherRevenue: number }>();
-  const add = (timestamp: string, amount: number, kind: 'drop' | 'timeFees' | 'otherRevenue') => {
-    const date = new Date(timestamp);
-    date.setMinutes(0, 0, 0);
-    const startMs = date.getTime();
-    const bucket = buckets.get(startMs) ?? { startMs, drop: 0, timeFees: 0, otherRevenue: 0 };
-    bucket[kind] += amount;
-    buckets.set(startMs, bucket);
-  };
-  state.dropLogs
-    .filter((entry) => timestampInReportWindow(entry.timestamp, window))
-    .forEach((entry) => add(entry.timestamp, entry.amount, 'drop'));
-  financials.timeFeeEntries.forEach((entry) => add(entry.timestamp, entry.amount, 'timeFees'));
-  financials.paidRevenue.forEach((entry) => add(entry.occurredAt, (entry.type === 'refund' ? -Math.abs(entry.amountCents) : entry.amountCents) / 100, 'otherRevenue'));
-  return [...buckets.values()]
-    .map((bucket) => ({ ...bucket, total: bucket.drop + bucket.timeFees + bucket.otherRevenue }))
-    .sort((left, right) => left.startMs - right.startMs);
-};
-
-const getDealerReport = (state: AppState, window: ReportWindow) => {
-  const now = Date.now();
-  const assignments = state.dealerAssignments.filter((assignment) => {
-    const start = new Date(assignment.startedAt).getTime();
-    const end = assignment.endedAt ? new Date(assignment.endedAt).getTime() : now;
-    return start < window.endMs && end >= window.startMs;
-  });
-  const dealerMap = new Map<string, { dealerName: string; milliseconds: number; tableIds: Set<string>; hands: number }>();
-  assignments.forEach((assignment) => {
-    const start = Math.max(new Date(assignment.startedAt).getTime(), window.startMs);
-    const end = Math.min(assignment.endedAt ? new Date(assignment.endedAt).getTime() : now, window.endMs);
-    const entry = dealerMap.get(assignment.dealerName) ?? { dealerName: assignment.dealerName, milliseconds: 0, tableIds: new Set<string>(), hands: 0 };
-    entry.milliseconds += Math.max(0, end - start);
-    entry.tableIds.add(assignment.tableId);
-    entry.hands += state.handCountLogs
-      .filter((log) => log.tableId === assignment.tableId && timestampInReportWindow(log.timestamp, window))
-      .filter((log) => {
-        const timestamp = new Date(log.timestamp).getTime();
-        return timestamp >= new Date(assignment.startedAt).getTime() && timestamp < (assignment.endedAt ? new Date(assignment.endedAt).getTime() : now);
-      })
-      .reduce((sum, log) => sum + log.hands, 0);
-    dealerMap.set(assignment.dealerName, entry);
-  });
-  return [...dealerMap.values()]
-    .map((entry) => ({
-      dealerName: entry.dealerName,
-      hours: entry.milliseconds / 36e5,
-      tables: entry.tableIds.size,
-      hands: entry.hands,
-      handsPerHour: entry.milliseconds > 0 ? entry.hands / (entry.milliseconds / 36e5) : 0
-    }))
-    .sort((left, right) => right.hours - left.hours);
-};
-const nextYearDate = () => {
-  const date = new Date();
-  date.setFullYear(date.getFullYear() + 1);
-  return date.toISOString().slice(0, 10);
-};
-const hoursBetween = (start: string, end = nowIso()) =>
-  Math.max(0, (new Date(end).getTime() - new Date(start).getTime()) / 36e5);
 const formatClock = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '-');
 const minutesSince = (iso?: string) => (iso ? Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000)) : 0);
 const formatHours = (hours: number) => `${hours.toFixed(1)}h`;
@@ -1097,42 +393,11 @@ const getLevelsUntilBreak = (tournament?: Tournament | null) => {
   }
   return null;
 };
-const arrayBufferToHex = (buffer: ArrayBuffer) =>
-  Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, '0')).join('');
-const legacyHashStaffPin = async (pin: string, salt: string) =>
-  arrayBufferToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}:${pin}`)));
-const hashStaffPin = async (pin: string, salt: string) => {
-  const iterations = 210_000;
-  const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveBits']);
-  const derived = await crypto.subtle.deriveBits(
-    {
-      name: 'PBKDF2',
-      salt: new TextEncoder().encode(salt),
-      iterations,
-      hash: 'SHA-256'
-    },
-    keyMaterial,
-    256
-  );
-  return `pbkdf2-sha256$${iterations}$${arrayBufferToHex(derived)}`;
-};
-const verifyStaffSecret = async (secret: string, salt: string, storedHash: string) => {
-  if (storedHash.startsWith('pbkdf2-sha256$')) {
-    return (await hashStaffPin(secret, salt)) === storedHash;
-  }
-  return (await legacyHashStaffPin(secret, salt)) === storedHash;
-};
 const formatMinutesLeft = (minutes: number) => {
   if (minutes <= 0) return '0m';
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
   return hours ? `${hours}h ${mins}m` : `${mins}m`;
-};
-const getTimeRemainingMinutes = (session: PlayerSession, nowMs = Date.now()) => {
-  if (!session.timeFeeEnabled) return 0;
-  const baseRemaining = session.timeRemainingMinutes ?? 0;
-  const lastTick = new Date(session.lastTimeTickAt ?? session.seatedAt).getTime();
-  return Math.max(0, baseRemaining - Math.floor((nowMs - lastTick) / 60000));
 };
 const getTimeRemainingSeconds = (session: PlayerSession, nowMs = Date.now()) => {
   if (!session.timeFeeEnabled) return 0;
@@ -1149,27 +414,6 @@ const formatTimeLeft = (seconds: number) => {
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}` : clock;
 };
 const getTimeStatus = getTimerStatusFromMinutes;
-const isFutureDate = (value?: string) => {
-  if (!value) return false;
-  const expiration = new Date(value.includes('T') ? value : `${value}T23:59:59`).getTime();
-  return Number.isFinite(expiration) && expiration >= Date.now();
-};
-const isPilotAccessActive = (access?: PilotAccess) => Boolean(access?.authorized && isFutureDate(access.expiresAt));
-const safeAccountKeyPart = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 96);
-const getAccountKeyFromAccess = (access?: PilotAccess) =>
-  safeAccountKeyPart(access?.licenseId || access?.authorizationCode || access?.issuedTo || '');
-const getAccountKeyFromState = (state?: Partial<AppState>) =>
-  getAccountKeyFromAccess(state?.settings?.pilotAccess) ||
-  safeAccountKeyPart(state?.settings?.clubAccount?.email || state?.settings?.clubAccount?.clubName || 'unlicensed-local') ||
-  'unlicensed-local';
-const getStorageKeyForState = (state?: Partial<AppState>) => `${storageKey}:${getAccountKeyFromState(state)}`;
-const getAuthStorageKey = (state?: Partial<AppState>) => `${storageKey}:auth:${getAccountKeyFromState(state)}`;
 const localOrbitBridgeBaseUrl = (import.meta.env.VITE_ORBIT_LOCAL_API_URL || 'http://127.0.0.1:4629').replace(/\/$/, '');
 const publishStateToLocalOrbitBridge = (state: AppState) =>
   fetch(`${localOrbitBridgeBaseUrl}/state`, {
@@ -1177,106 +421,6 @@ const publishStateToLocalOrbitBridge = (state: AppState) =>
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ state })
   }).catch(() => undefined);
-const mergeSyncedList = <T extends { id?: string; name?: string; playerName?: string }>(latest: T[], synced: T[]) => {
-  const syncedByKey = new Map(
-    synced.map((item) => [
-      item.id || item.name?.trim().toLowerCase() || item.playerName?.trim().toLowerCase() || '',
-      item
-    ]).filter(([key]) => key)
-  );
-  const latestKeys = new Set<string>();
-  const merged = latest.map((item) => {
-    const key = item.id || item.name?.trim().toLowerCase() || item.playerName?.trim().toLowerCase() || '';
-    if (key) latestKeys.add(key);
-    return key && syncedByKey.has(key) ? syncedByKey.get(key)! : item;
-  });
-  return [
-    ...merged,
-    ...synced.filter((item) => {
-      const key = item.id || item.name?.trim().toLowerCase() || item.playerName?.trim().toLowerCase() || '';
-      return key && !latestKeys.has(key);
-    })
-  ];
-};
-const hasPersistedSignIn = (state: AppState) => {
-  if (!isPilotAccessActive(state.settings.pilotAccess)) return false;
-  try {
-    const stored = localStorage.getItem(getAuthStorageKey(state));
-    if (!stored) return false;
-    const record = JSON.parse(stored) as { expiresAt?: string };
-    return Boolean(record.expiresAt && state.settings.pilotAccess && record.expiresAt === state.settings.pilotAccess.expiresAt && isFutureDate(record.expiresAt));
-  } catch {
-    return false;
-  }
-};
-const persistSignIn = (state: AppState, staySignedIn: boolean) => {
-  const key = getAuthStorageKey(state);
-  if (staySignedIn && state.settings.pilotAccess?.expiresAt) {
-    localStorage.setItem(key, JSON.stringify({ expiresAt: state.settings.pilotAccess.expiresAt, savedAt: nowIso() }));
-    return;
-  }
-  localStorage.removeItem(key);
-};
-const base64ToArrayBuffer = (base64: string) => {
-  const binary = window.atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes.buffer;
-};
-const leftPadSignatureInteger = (bytes: Uint8Array) => {
-  const normalized = bytes[0] === 0 ? bytes.slice(1) : bytes;
-  if (normalized.length > 32) throw new Error('Invalid signature integer length.');
-  const padded = new Uint8Array(32);
-  padded.set(normalized, 32 - normalized.length);
-  return padded;
-};
-const derToRawP256Signature = (signature: Uint8Array) => {
-  if (signature.length === 64) return signature.buffer;
-  if (signature[0] !== 0x30) throw new Error('Invalid signature format.');
-  let offset = 2;
-  if (signature[offset] !== 0x02) throw new Error('Invalid signature format.');
-  const rLength = signature[offset + 1];
-  const r = signature.slice(offset + 2, offset + 2 + rLength);
-  offset += 2 + rLength;
-  if (signature[offset] !== 0x02) throw new Error('Invalid signature format.');
-  const sLength = signature[offset + 1];
-  const s = signature.slice(offset + 2, offset + 2 + sLength);
-  const raw = new Uint8Array(64);
-  raw.set(leftPadSignatureInteger(r), 0);
-  raw.set(leftPadSignatureInteger(s), 32);
-  return raw.buffer;
-};
-const pemToArrayBuffer = (pem: string) =>
-  base64ToArrayBuffer(
-    pem
-      .replace(/-----BEGIN PUBLIC KEY-----/g, '')
-      .replace(/-----END PUBLIC KEY-----/g, '')
-      .replace(/\s/g, '')
-  );
-const verifyPilotSignature = async (payload: Record<string, unknown>, signature: string) => {
-  const publicKeyPem = branding.license?.publicKeyPem?.trim();
-  if (!publicKeyPem) return { ok: false, error: 'License verification is not configured for this build.' };
-  try {
-    const key = await crypto.subtle.importKey(
-      'spki',
-      pemToArrayBuffer(publicKeyPem),
-      { name: 'ECDSA', namedCurve: 'P-256' },
-      false,
-      ['verify']
-    );
-    const verified = await crypto.subtle.verify(
-      { name: 'ECDSA', hash: 'SHA-256' },
-      key,
-      derToRawP256Signature(new Uint8Array(base64ToArrayBuffer(signature))),
-      new TextEncoder().encode(canonicalPayload(payload))
-    );
-    return verified ? { ok: true } : { ok: false, error: 'License signature is invalid.' };
-  } catch {
-    return { ok: false, error: 'Unable to verify license signature.' };
-  }
-};
 const emptyClubAccount: ClubAccount = {
   clubName: '',
   accountName: '',
@@ -1284,47 +428,6 @@ const emptyClubAccount: ClubAccount = {
   email: '',
   phone: '',
   address: ''
-};
-const validatePilotKey = async (licenseFile: unknown, fileName?: string): Promise<{ access?: PilotAccess; error?: string }> => {
-  const file = licenseFile as Record<string, unknown>;
-  const record = (file.payload ?? file) as Record<string, unknown>;
-  const signature = String(file.signature ?? '').trim();
-  const authorizationCode = String(record.authorizationCode ?? record.code ?? '').trim();
-  const expiresAt = String(record.expiresAt ?? record.expirationDate ?? record.validUntil ?? '').slice(0, 10);
-
-  if (!signature) {
-    return { error: 'Key file is not signed. Generate a production pilot key with the license tool.' };
-  }
-
-  if (!authorizationCode || authorizationCode.length < 12) {
-    return { error: 'Key file is missing a valid authorization code.' };
-  }
-
-  if (!expiresAt || Number.isNaN(new Date(expiresAt).getTime())) {
-    return { error: 'Key file is missing a valid expiration date.' };
-  }
-
-  if (!isFutureDate(expiresAt)) {
-    return { error: `This pilot key expired on ${expiresAt}.` };
-  }
-
-  const signatureResult = await verifyPilotSignature(record, signature);
-  if (!signatureResult.ok) {
-    return { error: signatureResult.error ?? 'License signature is invalid.' };
-  }
-
-  return {
-    access: {
-      authorized: true,
-      authorizationCode,
-      expiresAt,
-      activatedAt: nowIso(),
-      keyFileName: fileName,
-      issuedTo: String(record.issuedTo ?? ''),
-      issuedAt: String(record.issuedAt ?? ''),
-      licenseId: String(record.licenseId ?? '')
-    }
-  };
 };
 const toDateTimeInput = (iso?: string) => (iso ? new Date(new Date(iso).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '');
 const fromDateTimeInput = (value: string) => (value ? new Date(value).toISOString() : undefined);
@@ -1356,365 +459,13 @@ const applyBrandTheme = (theme: BrandTheme) => {
   });
   document.body.style.setProperty('--brand-font-family', branding.theme.fontFamily);
 };
-const median = (values: number[]) => {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-};
-const legacyStatusMap: Record<string, InterestStatus> = {
-  'In Room': 'Arrived',
-  Waiting: 'Interested',
-  'Interested / Maybe': 'Interested',
-  Coming: 'Confirmed Coming'
-};
-const normalizeTableCap = (value?: number): TableCap => {
-  if (value === 6 || value === 8 || value === 10) return value;
-  if (!value || value <= 6) return 6;
-  if (value <= 8) return 8;
-  return 10;
-};
-
-const orbitLaunchTournament = (): Tournament => ({
-  id: 'orbit-launch-championship-2026',
-  name: 'Orbit Launch Championship',
-  status: 'Draft',
-  createdAt: nowIso(),
-  currentLevelIndex: 0,
-  buyIn: 0,
-  startingStack: 25000,
-  rebuyPrizePercent: 100,
-  rebuyPrice: 20,
-  addOnPrice: 10,
-  lateRegistrationThroughLevel: 8,
-  registrationClosesAt: '2026-08-01T20:00:00-05:00',
-  tableSize: 9,
-  levels: defaultTournamentLevels().map((level) => ({ ...level, durationMinutes: 15 })),
-  players: [],
-  payouts: defaultTournamentPayouts()
-});
-
-const seedState: AppState = {
-  games: [],
-  profiles: [],
-  tournaments: [orbitLaunchTournament()],
-  interests: [],
-  sessions: [],
-  playerSessions: [],
-  buyIns: [],
-  dropLogs: [],
-  dealerAssignments: [],
-  handCountLogs: [],
-  timeFeeLogs: [],
-  revenueTransactions: [],
-  playerLedger: [],
-  tableEvents: [],
-  inAppNotifications: [],
-  history: [],
-  nightCloses: [],
-  feedback: [],
-  scriptTemplates: defaultScriptTemplates,
-  correctionLog: [],
-  usageEvents: [],
-  settings: {
-      lowLight: false,
-      defaultCollectionMode: 'Drop',
-      defaultTableCap: 10,
-      defaultHourlyFee: 0,
-      defaultEstimatedDropPerSeatHour: 0,
-      collectionProfiles: [],
-      membershipPlans: defaultMembershipPlans,
-      showPlayerGrid: true,
-      showDashboardKpis: false,
-      showRecentPlayers: true,
-      pilotAccess: undefined,
-      clubAccount: undefined,
-      staffAccounts: [],
-      activeStaffId: undefined
-    }
-};
-
-function normalizeState(parsed: Partial<AppState>): AppState {
-  const defaultTableCap = normalizeTableCap(parsed.settings?.defaultTableCap);
-  const games = (parsed.games ?? seedState.games).map((game) =>
-    ({ ...game, maxSeats: normalizeTableCap(game.maxSeats ?? defaultTableCap) })
-  );
-  const fallbackGameId = games[0]?.id ?? 'nlh-1-2';
-  const normalizeGameIds = (values?: Array<string | undefined>, fallback = fallbackGameId) => {
-    const resolved = (values ?? [])
-      .map((value) => resolveGameId(games, value, ''))
-      .filter(Boolean);
-    return resolved.length ? Array.from(new Set(resolved)) : [fallback];
-  };
-  const profiles =
-    parsed.profiles ??
-    (parsed.interests ?? []).map((interest) => ({
-      id: uid(),
-      name: interest.playerName,
-      phone: '',
-      birthday: '',
-      membershipStartDate: todayDate(),
-      membershipExpirationDate: nextYearDate(),
-      totalTimePlayedHours: 0,
-      lastSessionTimePlayedHours: 0,
-      commonlyPlaysWithProfileIds: [],
-      preferredGameId: interest.gameId,
-      preferredGameIds: [interest.gameId],
-      gamePlayCounts: {},
-      mostPlayedGameId: interest.gameId,
-      preferredStakes: '',
-      typicalBuyInMin: 0,
-      typicalBuyInMax: 0,
-      willingnessToMove: false,
-      typicalAvailability: '',
-      preferredTags: [],
-      usualCompanions: [],
-      notes: ''
-    }));
-  const interests = (parsed.interests ?? []).map((interest) => {
-    const status = legacyStatusMap[interest.status] ?? (interest.status as InterestStatus);
-    return {
-      ...interest,
-      status,
-      interestedAt: interest.interestedAt ?? interest.timestamp ?? nowIso(),
-      confirmedAt: interest.confirmedAt ?? (status === 'Confirmed Coming' ? interest.timestamp : undefined),
-      arrivedAt: interest.arrivedAt ?? (status === 'Arrived' ? interest.timestamp : undefined),
-      seatedAt: interest.seatedAt ?? (status === 'Seated' ? interest.timestamp : undefined),
-      closedAt:
-        interest.closedAt ??
-        (['Declined', 'No-Show', 'Left Before Seated', 'Removed'].includes(status) ? interest.timestamp : undefined),
-      manualEdits: interest.manualEdits ?? {}
-    };
-  });
-
-  const getNormalizedGameCounts = (counts?: Record<string, number>) =>
-    Object.entries(counts ?? {}).reduce<Record<string, number>>((record, [gameId, count]) => {
-      const resolvedGameId = resolveGameId(games, gameId, '');
-      const normalizedCount = Number(count);
-      if (resolvedGameId && Number.isFinite(normalizedCount) && normalizedCount > 0) {
-        record[resolvedGameId] = (record[resolvedGameId] ?? 0) + normalizedCount;
-      }
-      return record;
-    }, {});
-  const getMostPlayedGameIdFromCounts = (counts: Record<string, number>, fallback: string) => {
-    const [topGameId] =
-      Object.entries(counts)
-        .filter(([, count]) => count > 0)
-        .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0] ?? [];
-    return topGameId ?? fallback;
-  };
-
-  return {
-    games,
-    profiles: profiles.map((profile) => {
-      const preferredGameIds = normalizeGameIds([profile.preferredGameId, ...(profile.preferredGameIds ?? []), profile.preferredStakes]);
-      const gamePlayCounts = getNormalizedGameCounts(profile.gamePlayCounts);
-      return {
-        ...profile,
-        phone: profile.phone ?? '',
-        birthday: profile.birthday ?? '',
-        membershipStartDate: profile.membershipStartDate ?? todayDate(),
-        membershipExpirationDate: profile.membershipExpirationDate ?? nextYearDate(),
-        totalTimePlayedHours: profile.totalTimePlayedHours ?? 0,
-        lastSessionTimePlayedHours: profile.lastSessionTimePlayedHours ?? 0,
-        commonlyPlaysWithProfileIds:
-          profile.commonlyPlaysWithProfileIds ??
-          (profile.usualCompanions ?? [])
-            .map((name) => profiles.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase())?.id)
-            .filter((id): id is string => Boolean(id)),
-        preferredGameId: preferredGameIds[0],
-        preferredGameIds,
-        gamePlayCounts,
-        mostPlayedGameId: resolveGameId(
-          games,
-          profile.mostPlayedGameId,
-          getMostPlayedGameIdFromCounts(gamePlayCounts, preferredGameIds[0])
-        ),
-        willingnessToMove: profile.willingnessToMove ?? false,
-        typicalAvailability: profile.typicalAvailability ?? '',
-        preferredTags: profile.preferredTags ?? []
-      };
-    }),
-    tournaments: ([...(parsed.tournaments ?? []), ...((parsed.tournaments ?? []).some((tournament) => tournament.id === 'orbit-launch-championship-2026') ? [] : [orbitLaunchTournament()])]).map((tournament) => ({
-      ...tournament,
-      status: tournament.status ?? 'Draft',
-      currentLevelIndex: tournament.currentLevelIndex ?? 0,
-      buyIn: tournament.buyIn ?? 0,
-      startingStack: tournament.startingStack ?? 10000,
-      rebuyPrizePercent: Number(tournament.rebuyPrizePercent ?? 100),
-      tableSize: Number(tournament.tableSize ?? 9),
-      levels: (tournament.levels ?? []).map((level, index) => ({
-        ...level,
-        id: level.id ?? uid(),
-        level: level.level ?? index + 1,
-        smallBlind: Number(level.smallBlind ?? 0),
-        bigBlind: Number(level.bigBlind ?? 0),
-        ante: Number(level.ante ?? 0),
-        durationMinutes: Number(level.durationMinutes ?? 20),
-        breakAfter: Boolean(level.breakAfter),
-        breakMinutes: Number(level.breakMinutes ?? 0)
-      })),
-      players: (tournament.players ?? []).map((player) => ({
-        ...player,
-        id: player.id ?? uid(),
-        buyIn: Number(player.buyIn ?? tournament.buyIn ?? 0),
-        rebuys: Number(player.rebuys ?? 0),
-        addOns: Number(player.addOns ?? 0),
-        startingStack: Number(player.startingStack ?? tournament.startingStack ?? 10000),
-        status: player.status ?? 'Registered',
-        registeredAt: player.registeredAt ?? nowIso()
-      })),
-      payouts: (tournament.payouts ?? []).map((payout, index) => ({
-        place: Number(payout.place ?? index + 1),
-        percent: Number(payout.percent ?? 0)
-      }))
-    })),
-    interests: interests.map((interest) => ({
-      ...interest,
-      gameId: resolveGameId(games, interest.gameId, fallbackGameId)
-    })),
-    sessions: (parsed.sessions ?? []).map((session) => {
-      const legacySession = session as Record<string, unknown>;
-      const legacyMode = legacySession[`ra${'ke'}Mode`];
-      const legacyTimeFlag = legacySession[`time${'Ra'}ked`];
-      const collectionMode =
-        session.collectionMode ??
-        (legacyMode === 'Time' || legacyMode === 'Drop' ? legacyMode : undefined) ??
-        (session.timeFeeBased || legacyTimeFlag ? 'Time' : 'Drop');
-      const gameId = resolveGameId(games, session.gameId, session.gameId);
-      const game = games.find((item) => item.id === gameId);
-      return {
-        ...session,
-        gameId,
-        maxSeats: normalizeTableCap(game?.maxSeats ?? session.maxSeats ?? defaultTableCap),
-        collectionMode,
-        timeFeeBased: collectionMode === 'Time',
-        manualEdits: session.manualEdits ?? {}
-      };
-    }),
-    playerSessions: (() => {
-      return normalizePlayerSessionSeats(parsed.playerSessions ?? [], (session) => {
-        const gameId = resolveGameId(games, session.gameId, fallbackGameId);
-        const table = (parsed.sessions ?? []).find((item) => item.id === session.tableId);
-        return normalizeTableCap(table?.maxSeats ?? games.find((game) => game.id === gameId)?.maxSeats ?? defaultTableCap);
-      }).map((session) => {
-        const gameId = resolveGameId(games, session.gameId, fallbackGameId);
-        return {
-          ...session,
-          gameId,
-          timePurchasedMinutes: session.timePurchasedMinutes ?? 0,
-          timeRemainingMinutes: session.timeRemainingMinutes ?? 0,
-          lastTimeTickAt: session.lastTimeTickAt ?? session.seatedAt,
-          timeFeeEnabled: session.timeFeeEnabled ?? Boolean((session as Record<string, unknown>)[`time${'Ra'}keEnabled`]),
-          manualEdits: session.manualEdits ?? {}
-        };
-      });
-    })(),
-    buyIns: parsed.buyIns ?? [],
-    dropLogs: parsed.dropLogs ?? [],
-    dealerAssignments: parsed.dealerAssignments ?? [],
-    handCountLogs: parsed.handCountLogs ?? [],
-    timeFeeLogs: parsed.timeFeeLogs ?? [],
-    revenueTransactions: parsed.revenueTransactions ?? [],
-    playerLedger: parsed.playerLedger ?? [
-      ...(parsed.playerSessions ?? []).map((session) => ({
-        id: uid(),
-        type: 'Check-In' as const,
-        profileId: session.profileId,
-        playerName: session.playerName,
-        tableId: session.tableId,
-        gameId: session.gameId,
-        timestamp: session.seatedAt,
-        note: 'Imported from seated player history'
-      })),
-      ...(parsed.buyIns ?? []).map((buyIn) => ({
-        id: uid(),
-        type: 'Buy-In' as const,
-        profileId: buyIn.profileId,
-        playerName: buyIn.playerName,
-        tableId: buyIn.tableId,
-        gameId: buyIn.gameId,
-        amount: buyIn.amount,
-        timestamp: buyIn.timestamp,
-        note: buyIn.note
-      })),
-      ...(parsed.playerSessions ?? [])
-        .filter((session) => session.leftAt)
-        .map((session) => ({
-          id: uid(),
-          type: 'Cash-Out' as const,
-          profileId: session.profileId,
-          playerName: session.playerName,
-          tableId: session.tableId,
-          gameId: session.gameId,
-          timestamp: session.leftAt!,
-          note: 'Imported from player leave history'
-        }))
-    ],
-    tableEvents: (parsed.tableEvents ?? []).map((event) => ({ ...event, reason: event.reason ?? '' })),
-    inAppNotifications: (parsed.inAppNotifications ?? []).map((notification) => ({
-      ...notification,
-      targetPlayerIds: notification.targetPlayerIds ?? [],
-      targetPlayerNames: notification.targetPlayerNames ?? []
-    })),
-    history: parsed.history ?? [],
-    nightCloses: parsed.nightCloses ?? [],
-    feedback: parsed.feedback ?? [],
-    scriptTemplates: parsed.scriptTemplates ?? defaultScriptTemplates,
-    correctionLog: parsed.correctionLog ?? [],
-    usageEvents: parsed.usageEvents ?? [],
-    settings: {
-      lowLight: parsed.settings?.lowLight ?? false,
-      defaultCollectionMode:
-        parsed.settings?.defaultCollectionMode ??
-        (((parsed.settings as Record<string, unknown> | undefined)?.[`default${'Ra'}keMode`] === 'Time' ||
-          (parsed.settings as Record<string, unknown> | undefined)?.[`default${'Ra'}keMode`] === 'Drop')
-          ? (parsed.settings as Record<string, 'Time' | 'Drop'>)[`default${'Ra'}keMode`]
-          : 'Drop'),
-      defaultTableCap,
-      defaultHourlyFee: parsed.settings?.defaultHourlyFee ?? 0,
-      defaultEstimatedDropPerSeatHour: parsed.settings?.defaultEstimatedDropPerSeatHour ?? 0,
-      collectionProfiles: (
-        parsed.settings?.collectionProfiles ??
-        ((parsed.settings as Record<string, CollectionProfile[]> | undefined)?.[`ra${'ke'}Profiles`] ?? [])
-      ).map((profile) => {
-        const legacyProfile = profile as Record<string, unknown>;
-        const legacyMode = legacyProfile[`ra${'ke'}Mode`];
-        return {
-          ...profile,
-          collectionMode: profile.collectionMode ?? (legacyMode === 'Time' || legacyMode === 'Drop' ? legacyMode : 'Drop')
-        };
-      }),
-      membershipPlans: (parsed.settings?.membershipPlans ?? defaultMembershipPlans).map((plan) => ({
-        ...plan,
-        durationDays: Math.max(1, Number(plan.durationDays) || 1),
-        active: plan.active !== false
-      })),
-      showPlayerGrid: parsed.settings?.showPlayerGrid ?? true,
-      showDashboardKpis: parsed.settings?.showDashboardKpis ?? false,
-      showRecentPlayers: parsed.settings?.showRecentPlayers ?? true,
-      pilotAccess: parsed.settings?.pilotAccess,
-      clubAccount: parsed.settings?.clubAccount,
-      staffAccounts: parsed.settings?.staffAccounts ?? [],
-      activeStaffId: parsed.settings?.activeStaffId,
-      accountLogin: parsed.settings?.accountLogin
-        ? {
-            ...parsed.settings.accountLogin,
-            username: /^\S+@\S+\.\S+$/.test(parsed.settings.accountLogin.username)
-              ? parsed.settings.accountLogin.username.toLowerCase()
-              : parsed.settings.clubAccount?.email?.trim().toLowerCase() || parsed.settings.accountLogin.username
-          }
-        : undefined
-    }
-  };
-}
-
 function loadState(): AppState {
   try {
     const lastKey = localStorage.getItem(`${storageKey}:last-account`);
     const stored = localStorage.getItem(lastKey || storageKey) ?? localStorage.getItem(storageKey);
     if (!stored) return seedState;
-    return normalizeState(JSON.parse(stored) as Partial<AppState>);
+    const parsed = parsePersistedAppState(stored);
+    return parsed ? normalizeState(parsed) : seedState;
   } catch {
     return seedState;
   }
@@ -1738,665 +489,6 @@ function saveState(state: AppState) {
   return localSave.then((result) => {
     return { ...result, cloud: 'firebase-pending' };
   });
-}
-
-function getDemand(game: GameConfig, interests: Interest[]) {
-  const gameInterests = interests.filter((interest) => interest.gameId === game.id);
-  const inRoom = gameInterests.filter((interest) => interest.status === 'Arrived' || interest.status === 'Seated').length;
-  const confirmed = gameInterests.filter((interest) => interest.status === 'Confirmed Coming').length;
-  const interested = gameInterests.filter((interest) => interest.status === 'Interested').length;
-  const waiting = gameInterests.filter((interest) => interest.status === 'Arrived').length;
-  const flexibleDemand = confirmed + interested + waiting;
-  const totalDemand = inRoom + flexibleDemand;
-  const likely = inRoom >= game.minInRoomForLikely && flexibleDemand >= game.minFlexibleForLikely;
-  const needs = Math.max(0, game.minTotalForViable - totalDemand);
-
-  return {
-    inRoom,
-    confirmed,
-    interested,
-    waiting,
-    flexibleDemand,
-    totalDemand,
-    likely,
-    needs,
-    status: likely ? 'Likely to Start' : needs === 0 ? 'Viable' : `Needs ${needs} More`
-  };
-}
-
-function getRunningSessions(state: AppState, gameId: string) {
-  return state.sessions.filter((session) => session.gameId === gameId && session.status === 'Running');
-}
-
-function getOpenSessions(state: AppState, gameId: string) {
-  return state.sessions.filter((session) => session.gameId === gameId && session.status !== 'Closed' && session.status !== 'Failed to Start');
-}
-
-function getPlayerLoggedHours(state: AppState, playerSession: PlayerSession) {
-  const samePlayerSessions = state.playerSessions.filter((session) =>
-    playerSession.profileId
-      ? session.profileId === playerSession.profileId
-      : session.playerName.toLowerCase() === playerSession.playerName.toLowerCase()
-  );
-  const total = samePlayerSessions.reduce((sum, session) => sum + hoursBetween(session.seatedAt, session.leftAt ?? nowIso()), 0);
-  const tonight = state.playerSessions
-    .filter((session) => session.id === playerSession.id || (
-      !session.leftAt &&
-      (playerSession.profileId
-        ? session.profileId === playerSession.profileId
-        : session.playerName.toLowerCase() === playerSession.playerName.toLowerCase())
-    ))
-    .reduce((sum, session) => sum + hoursBetween(session.seatedAt, session.leftAt ?? nowIso()), 0);
-  return { tonight, total };
-}
-
-function getSessionBuyIns(state: AppState, playerSession: PlayerSession) {
-  return state.buyIns.filter((buyIn) =>
-    buyIn.tableId === playerSession.tableId &&
-    buyIn.gameId === playerSession.gameId &&
-    (playerSession.profileId ? buyIn.profileId === playerSession.profileId : buyIn.playerName.toLowerCase() === playerSession.playerName.toLowerCase())
-  );
-}
-
-function getAverageStackForTable(state: AppState, tableId: string) {
-  const activePlayers = state.playerSessions.filter((playerSession) => playerSession.tableId === tableId && !playerSession.leftAt);
-  if (!activePlayers.length) return 0;
-  const totalBuyIns = activePlayers.reduce(
-    (sum, playerSession) => sum + getSessionBuyIns(state, playerSession).reduce((buyInSum, buyIn) => buyInSum + buyIn.amount, 0),
-    0
-  );
-  return Math.round(totalBuyIns / activePlayers.length);
-}
-
-function getCollectionProfile(state: AppState, gameId: string): CollectionProfile {
-  return state.settings.collectionProfiles.find((profile) => profile.gameId === gameId) ?? {
-    gameId,
-    collectionMode: state.settings.defaultCollectionMode,
-    hourlyFee: state.settings.defaultHourlyFee,
-    estimatedDropPerSeatHour: state.settings.defaultEstimatedDropPerSeatHour
-  };
-}
-
-function getSessionSeatHours(state: AppState, session: GameSession) {
-  return state.playerSessions
-    .filter((playerSession) => playerSession.tableId === session.id)
-    .reduce((sum, playerSession) => sum + hoursBetween(playerSession.seatedAt, playerSession.leftAt), 0);
-}
-
-function getViabilityState(state: AppState, game: GameConfig) {
-  const demand = getDemand(game, state.interests);
-  const running = getRunningSessions(state, game.id);
-  const fullTable = running.some((session) => session.seatsFilled >= session.maxSeats);
-
-  if (running.length && fullTable && demand.flexibleDemand >= game.minFlexibleForLikely) {
-    return { state: 'Likely to Start', nextStep: 'Second table likely' };
-  }
-
-  if (!running.length && demand.inRoom >= game.minInRoomForLikely && demand.totalDemand >= game.minTotalForViable) {
-    return { state: 'Ready to Start', nextStep: 'Enough in-room demand to start' };
-  }
-
-  if (running.length) {
-    const totalSeats = running.reduce((sum, session) => sum + session.seatsFilled, 0);
-    const totalCapacity = running.reduce((sum, session) => sum + session.maxSeats, 0);
-    if (totalSeats <= Math.floor(totalCapacity * 0.55) && demand.flexibleDemand < 2) {
-      return { state: 'Fragile', nextStep: 'Game may not sustain yet' };
-    }
-    return { state: 'Running', nextStep: demand.waiting ? `${demand.waiting} waiting` : 'Game is active' };
-  }
-
-  if (demand.likely) return { state: 'Likely to Start', nextStep: 'Coordinate arrivals' };
-  if (demand.totalDemand >= Math.max(2, game.minTotalForViable - 2)) {
-    return { state: 'Building', nextStep: `Needs ${demand.needs} more player${demand.needs === 1 ? '' : 's'}` };
-  }
-  return { state: 'Not Enough Interest', nextStep: `Needs ${demand.needs} more players` };
-}
-
-function getTableHealth(state: AppState, session: GameSession) {
-  const demand = getDemand(state.games.find((game) => game.id === session.gameId)!, state.interests);
-  const fillRate = session.maxSeats ? session.seatsFilled / session.maxSeats : 0;
-  if (session.status === 'Forming') return 'Building';
-  if (fillRate >= 0.75 || demand.waiting > 0) return 'Healthy';
-  if (fillRate >= 0.55 || demand.flexibleDemand >= 2) return 'Needs Attention';
-  return 'Fragile';
-}
-
-function getOverflowOpportunities(state: AppState) {
-  return state.games
-    .map((game) => {
-      const demand = getDemand(game, state.interests);
-      const fullTables = getRunningSessions(state, game.id).filter((session) => session.seatsFilled >= session.maxSeats);
-      return {
-        game,
-        demand,
-        fullTables,
-        label: `${game.name} full - ${demand.flexibleDemand} waiting/interested - ${
-          demand.flexibleDemand >= game.minFlexibleForLikely ? 'second table possible' : 'keep gathering interest'
-        }`
-      };
-    })
-    .filter((item) => item.fullTables.length && item.demand.flexibleDemand > 0);
-}
-
-function getBalancePlans(state: AppState): BalancePlan[] {
-  return state.games
-    .map((game) => {
-      const demand = getDemand(game, state.interests);
-      const runningTables = getRunningSessions(state, game.id).filter((session) => session.seatsFilled >= Math.min(7, session.maxSeats));
-      const fromTable = runningTables[0];
-      if (!fromTable || demand.totalDemand <= 12) return null;
-
-      const flexibleDemand = demand.confirmed + demand.waiting + demand.interested;
-      const inRoomCandidates = state.interests
-        .filter((interest) => interest.gameId === game.id && interest.status === 'Arrived')
-        .map((interest) => {
-          const profile = getProfileForInterest(interest, state.profiles);
-          const connectedNames = profile?.usualCompanions.filter((name) =>
-            state.interests.some(
-              (other) =>
-                other.playerName === name &&
-                other.gameId === game.id &&
-                ['Arrived', 'Confirmed Coming', 'Interested'].includes(other.status)
-            )
-          ) ?? [];
-          const buyInAverage =
-            profile && profile.typicalBuyInMax > 0
-              ? Math.round((profile.typicalBuyInMin + profile.typicalBuyInMax) / 2)
-              : 0;
-          const confidence =
-            (profile?.preferredGameIds.includes(game.id) || profile?.preferredStakes.includes(game.name) ? 35 : 10) +
-            (profile?.willingnessToMove ? 35 : -15) +
-            connectedNames.length * 20 +
-            Math.min(20, Math.round(buyInAverage / 100));
-
-          return {
-            id: interest.id,
-            playerName: interest.playerName,
-            interest,
-            profile,
-            confidence,
-            reasons: [
-              profile?.willingnessToMove ? 'willing to move' : 'ask before moving',
-              connectedNames.length ? `connected to ${connectedNames.join(', ')}` : '',
-              buyInAverage ? `$${buyInAverage} typical buy-in` : '',
-              profile?.preferredStakes || game.name
-            ].filter(Boolean),
-            source: 'interest' as const
-          };
-        })
-        .sort((a, b) => b.confidence - a.confidence);
-
-      const minimumTableASeats = Math.min(6, fromTable.maxSeats);
-      const projectedTableBTarget = Math.min(game.maxSeats, Math.floor(demand.totalDemand / 2));
-      const moveNeeded = Math.max(2, projectedTableBTarget - flexibleDemand);
-      const maxMovable = Math.max(0, fromTable.seatsFilled - minimumTableASeats);
-      const moveCount = Math.min(inRoomCandidates.length, maxMovable, moveNeeded);
-      const moveCandidates = inRoomCandidates.slice(0, moveCount);
-
-      if (!moveCandidates.length) return null;
-
-      return {
-        game,
-        demand,
-        fromTable,
-        moveCandidates,
-        tableASeatsAfterMove: fromTable.seatsFilled - moveCandidates.length,
-        tableBProjectedSeats: flexibleDemand + moveCandidates.length,
-        nextStep: `${game.name}: move ${moveCandidates.map((candidate) => candidate.playerName).join(', ')} to seed Table B`
-      };
-    })
-    .filter((plan): plan is BalancePlan => Boolean(plan));
-}
-
-function getAnalytics(state: AppState) {
-  const activeSessions = state.sessions.filter((session) => session.status === 'Running' || session.status === 'Forming');
-  const completedSessions = state.sessions.filter((session) => session.endedAt);
-  const liveSeatHours = activeSessions.reduce(
-    (sum, session) => sum + session.seatsFilled * hoursBetween(session.startedAt),
-    0
-  );
-  const completedSeatHours = completedSessions.reduce(
-    (sum, session) => sum + session.seatsFilled * hoursBetween(session.startedAt, session.endedAt),
-    0
-  );
-  const playerSeatHours = state.playerSessions.reduce(
-    (sum, session) => sum + hoursBetween(session.seatedAt, session.leftAt),
-    0
-  );
-  const completedWaits = state.interests.filter((interest) => interest.arrivedAt && interest.seatedAt);
-  const waitMinutes = completedWaits.map(
-    (interest) => (new Date(interest.seatedAt!).getTime() - new Date(interest.arrivedAt!).getTime()) / 60000
-  );
-  const arrivalWaits = state.interests.filter((interest) => interest.interestedAt && interest.arrivedAt);
-  const confirmedComing = state.interests.filter((interest) => interest.confirmedAt || interest.status === 'Confirmed Coming');
-  const confirmedArrived = confirmedComing.filter((interest) => interest.arrivedAt || interest.status === 'Arrived' || interest.status === 'Seated');
-  const durations = state.sessions.map((session) => hoursBetween(session.startedAt, session.endedAt));
-  const conversionEligible = state.interests.filter((interest) => interest.status !== 'Removed');
-  const convertedWaiters = state.interests.filter((interest) => interest.seatedAt).length;
-  const noShows = state.interests.filter((interest) => interest.status === 'No-Show').length;
-  const declined = state.interests.filter((interest) => interest.status === 'Declined').length;
-  const leftBeforeSeated = state.interests.filter((interest) => interest.status === 'Left Before Seated').length;
-  const totalArrivals = state.interests.filter((interest) => interest.arrivedAt || interest.status === 'Arrived' || interest.status === 'Seated').length;
-  const seatHoursByGame = state.games.map((game) => ({
-    game: game.name,
-    hours: state.playerSessions
-      .filter((session) => session.gameId === game.id)
-      .reduce((sum, session) => sum + hoursBetween(session.seatedAt, session.leftAt), 0)
-  }));
-  const seatHoursByTable = state.sessions.map((session) => ({
-    table: session.label,
-    game: state.games.find((game) => game.id === session.gameId)?.name ?? 'Unknown',
-    hours: state.playerSessions
-      .filter((playerSession) => playerSession.tableId === session.id)
-      .reduce((sum, playerSession) => sum + hoursBetween(playerSession.seatedAt, playerSession.leftAt), 0)
-  }));
-  const estimatedTimeFeeRevenue = state.playerSessions.reduce((sum, playerSession) => {
-    const session = state.sessions.find((item) => item.id === playerSession.tableId);
-    if (!session || session.collectionMode !== 'Time') return sum;
-    const profile = getCollectionProfile(state, playerSession.gameId);
-    return sum + ((playerSession.timePurchasedMinutes ?? 0) / 60) * profile.hourlyFee;
-  }, 0);
-  const expiredTimeFeeSeats = state.playerSessions.filter((playerSession) => {
-    const session = state.sessions.find((item) => item.id === playerSession.tableId);
-    return session?.collectionMode === 'Time' && !playerSession.leftAt && (playerSession.timePurchasedMinutes ?? 0) > 0 && getTimeRemainingMinutes(playerSession) <= 0;
-  }).length;
-  const recordedDropTotal = state.dropLogs.reduce((sum, drop) => sum + drop.amount, 0);
-  const estimatedDropRevenue = state.sessions.reduce((sum, session) => {
-    if (session.collectionMode !== 'Drop') return sum;
-    return sum + getSessionSeatHours(state, session) * getCollectionProfile(state, session.gameId).estimatedDropPerSeatHour;
-  }, 0);
-  const collectionValueByGame = state.games.map((game) => {
-    const timeRevenue = state.playerSessions
-      .filter((playerSession) => playerSession.gameId === game.id)
-      .reduce((sum, playerSession) => {
-        const session = state.sessions.find((item) => item.id === playerSession.tableId);
-        return session?.collectionMode === 'Time'
-          ? sum + ((playerSession.timePurchasedMinutes ?? 0) / 60) * getCollectionProfile(state, game.id).hourlyFee
-          : sum;
-      }, 0);
-    const recordedDrop = state.dropLogs
-      .filter((drop) => drop.gameId === game.id)
-      .reduce((sum, drop) => sum + drop.amount, 0);
-    const estimatedDrop = state.sessions
-      .filter((session) => session.gameId === game.id && session.collectionMode === 'Drop')
-      .reduce((sum, session) => sum + getSessionSeatHours(state, session) * getCollectionProfile(state, game.id).estimatedDropPerSeatHour, 0);
-    return { game: game.name, timeRevenue, recordedDrop, estimatedDrop };
-  });
-  const waitByGame = state.games.map((game) => {
-    const waits = completedWaits
-      .filter((interest) => interest.gameId === game.id)
-      .map((interest) => (new Date(interest.seatedAt!).getTime() - new Date(interest.arrivedAt!).getTime()) / 60000);
-    return {
-      game: game.name,
-      averageMinutes: waits.length ? waits.reduce((sum, value) => sum + value, 0) / waits.length : 0,
-      count: waits.length
-    };
-  });
-  const failedStartEvents = state.tableEvents.filter((event) => event.type === 'Failed to Start');
-  const lostSeatHourEstimate = failedStartEvents.length * 2 + leftBeforeSeated * 1.5;
-  const currentNight: NightRecord = {
-    id: 'current',
-    date: new Date().toISOString().slice(0, 10),
-    occupiedSeatHours: Math.max(liveSeatHours + completedSeatHours, playerSeatHours),
-    gamesStarted: state.sessions.filter((session) => session.status !== 'Closed').length,
-    averageSessionDurationHours: durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : 0,
-    averageActiveTables: activeSessions.length,
-    waitlistConversionRate: conversionEligible.length ? convertedWaiters / conversionEligible.length : 0,
-    hadTwoPlusTables: activeSessions.length >= 2
-  };
-  return {
-    currentNight,
-    activeTables: activeSessions.length,
-    averageSeatsOccupied: activeSessions.length
-      ? activeSessions.reduce((sum, session) => sum + session.seatsFilled, 0) / activeSessions.length
-      : 0,
-    averageSeatHoursPerPlayer: state.playerSessions.length ? playerSeatHours / state.playerSessions.length : 0,
-    averageWaitMinutes: waitMinutes.length ? waitMinutes.reduce((sum, value) => sum + value, 0) / waitMinutes.length : 0,
-    medianWaitMinutes: median(waitMinutes),
-    averageInterestToArrivalMinutes: arrivalWaits.length
-      ? arrivalWaits.reduce((sum, interest) => sum + (new Date(interest.arrivedAt!).getTime() - new Date(interest.interestedAt).getTime()) / 60000, 0) /
-        arrivalWaits.length
-      : 0,
-    conversionRate: conversionEligible.length ? convertedWaiters / conversionEligible.length : 0,
-    noShowRate: conversionEligible.length ? noShows / conversionEligible.length : 0,
-    declineRate: conversionEligible.length ? declined / conversionEligible.length : 0,
-    leftBeforeSeatedRate: conversionEligible.length ? leftBeforeSeated / conversionEligible.length : 0,
-    noShows,
-    declined,
-    leftBeforeSeated,
-    confirmedArrivalRate: confirmedComing.length ? confirmedArrived.length / confirmedComing.length : 0,
-    waitlistAbandonmentCount: leftBeforeSeated + declined,
-    lostSeatHourEstimate,
-    failedStarts: state.tableEvents.filter((event) => event.type === 'Failed to Start').length,
-    tableBreaks: state.tableEvents.filter((event) => event.type === 'Broke' || event.type === 'Closed').length,
-    secondTablesStarted: state.sessions.filter((session) => session.status !== 'Failed to Start' && session.label !== 'Main Table').length,
-    totalArrivals,
-    peakWaitlistPressure: Math.max(...state.games.map((game) => getDemand(game, state.interests).waiting + getDemand(game, state.interests).interested), 0),
-    seatHoursByGame,
-    seatHoursByTable,
-    estimatedTimeFeeRevenue,
-    expiredTimeFeeSeats,
-    recordedDropTotal,
-    estimatedDropRevenue,
-    collectionValueByGame,
-    waitByGame,
-    peakActiveTables: Math.max(activeSessions.length, state.history.reduce((max, night) => Math.max(max, night.averageActiveTables), 0)),
-    peakInterestedByGame: state.games
-      .map((game) => ({ game: game.name, count: getDemand(game, state.interests).totalDemand }))
-      .sort((a, b) => b.count - a.count)[0]
-  };
-}
-
-function getUsageAnalytics(state: AppState) {
-  const events = state.usageEvents ?? [];
-  const eventsByFeature = [...events.reduce((map, event) => {
-    const current = map.get(event.feature) ?? { feature: event.feature, count: 0, lastUsedAt: '' };
-    current.count += 1;
-    current.lastUsedAt = current.lastUsedAt && current.lastUsedAt > event.timestamp ? current.lastUsedAt : event.timestamp;
-    map.set(event.feature, current);
-    return map;
-  }, new Map<string, { feature: string; count: number; lastUsedAt: string }>()).values()].sort((a, b) => b.count - a.count);
-  const eventsByAction = [...events.reduce((map, event) => {
-    const key = `${event.feature}:${event.action}`;
-    const current = map.get(key) ?? { key, feature: event.feature, action: event.action, count: 0, lastUsedAt: '' };
-    current.count += 1;
-    current.lastUsedAt = current.lastUsedAt && current.lastUsedAt > event.timestamp ? current.lastUsedAt : event.timestamp;
-    map.set(key, current);
-    return map;
-  }, new Map<string, { key: string; feature: string; action: string; count: number; lastUsedAt: string }>()).values()].sort((a, b) => b.count - a.count);
-  const eventsByStaff = [...events.reduce((map, event) => {
-    const key = event.staffId || 'unassigned';
-    const current = map.get(key) ?? { key, staffName: event.staffName || 'Unassigned', staffRole: event.staffRole || '', count: 0, lastUsedAt: '' };
-    current.count += 1;
-    current.lastUsedAt = current.lastUsedAt && current.lastUsedAt > event.timestamp ? current.lastUsedAt : event.timestamp;
-    map.set(key, current);
-    return map;
-  }, new Map<string, { key: string; staffName: string; staffRole: string; count: number; lastUsedAt: string }>()).values()].sort((a, b) => b.count - a.count);
-  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-
-  return {
-    totalEvents: events.length,
-    eventsLast24Hours: events.filter((event) => new Date(event.timestamp).getTime() >= oneDayAgo).length,
-    eventsLast7Days: events.filter((event) => new Date(event.timestamp).getTime() >= sevenDaysAgo).length,
-    eventsByFeature,
-    eventsByAction,
-    eventsByStaff,
-    recentEvents: [...events].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 20)
-  };
-}
-
-function buildAnalyticalReportPayload(
-  state: AppState,
-  analytics: ReturnType<typeof getAnalytics>,
-  usageAnalytics: ReturnType<typeof getUsageAnalytics>
-): AnalyticalReportPayload {
-  const account = state.settings.clubAccount;
-  const access = state.settings.pilotAccess;
-  return {
-    app: 'TableManager',
-    kind: 'analytical-report',
-    version: 1,
-    generatedAt: nowIso(),
-    account: {
-      accountKey: getAccountKeyFromState(state),
-      clubName: account?.clubName ?? '',
-      accountName: account?.accountName ?? '',
-      contactName: account?.contactName ?? '',
-      email: account?.email ?? '',
-      license: access?.licenseId || access?.authorizationCode || ''
-    },
-    operational: {
-      occupiedSeatHours: Number(analytics.currentNight.occupiedSeatHours.toFixed(1)),
-      averageWaitMinutes: Number(analytics.averageWaitMinutes.toFixed(0)),
-      waitlistConversionRate: Number((analytics.conversionRate * 100).toFixed(0)),
-      gamesStarted: analytics.currentNight.gamesStarted,
-      tableBreaks: analytics.tableBreaks,
-      failedStarts: analytics.failedStarts,
-      medianWaitMinutes: Number(analytics.medianWaitMinutes.toFixed(0)),
-      noShows: analytics.noShows,
-      declined: analytics.declined,
-      leftBeforeSeated: analytics.leftBeforeSeated,
-      confirmedArrivalRate: Number((analytics.confirmedArrivalRate * 100).toFixed(0)),
-      lostSeatHourEstimate: Number(analytics.lostSeatHourEstimate.toFixed(1)),
-      secondTablesStarted: analytics.secondTablesStarted,
-      totalArrivals: analytics.totalArrivals,
-      activeTables: analytics.activeTables,
-      estimatedTimeFeeRevenue: Number(analytics.estimatedTimeFeeRevenue.toFixed(2)),
-      expiredTimeFeeSeats: analytics.expiredTimeFeeSeats,
-      recordedDropTotal: Number(analytics.recordedDropTotal.toFixed(2)),
-      estimatedDropRevenue: Number(analytics.estimatedDropRevenue.toFixed(2))
-    },
-    collectionByGame: analytics.collectionValueByGame,
-    usage: {
-      totalEvents: usageAnalytics.totalEvents,
-      eventsLast24Hours: usageAnalytics.eventsLast24Hours,
-      eventsLast7Days: usageAnalytics.eventsLast7Days,
-      features: usageAnalytics.eventsByFeature,
-      actions: usageAnalytics.eventsByAction,
-      staff: usageAnalytics.eventsByStaff,
-      recentEvents: usageAnalytics.recentEvents
-    },
-    feedback: state.feedback
-  };
-}
-
-function getClosestGameLabel(state: AppState) {
-  const closest = state.games
-    .map((game) => ({ game, demand: getDemand(game, state.interests) }))
-    .sort((a, b) => a.demand.needs - b.demand.needs || b.demand.totalDemand - a.demand.totalDemand)[0];
-
-  if (!closest) return '-';
-  return closest.demand.likely ? `${closest.game.name} likely` : `${closest.game.name}: needs ${closest.demand.needs}`;
-}
-
-function getProfileForInterest(interest: Interest, profiles: PlayerProfile[]) {
-  return (
-    profiles.find((profile) => profile.id === interest.profileId) ??
-    profiles.find((profile) => profile.name.toLowerCase() === interest.playerName.toLowerCase())
-  );
-}
-
-function getInClubInterests(state: AppState) {
-  return state.interests.filter((interest) => interest.status === 'Arrived' || interest.status === 'Seated');
-}
-
-function getInClubNames(state: AppState) {
-  return new Set(getInClubInterests(state).map((interest) => interest.playerName));
-}
-
-function getParticipantPool(state: AppState, gameId: string, seats: number): ParticipantCandidate[] {
-  const availabilityScore: Record<InterestStatus, number> = {
-    Arrived: 100,
-    Seated: 96,
-    Interested: 58,
-    'Confirmed Coming': 76,
-    Declined: 0,
-    'No-Show': 0,
-    'Left Before Seated': 0,
-    Removed: 0
-  };
-  const available = state.interests.filter((interest) => activeInterestStatuses.includes(interest.status) && interest.gameId === gameId);
-  const inClubNames = getInClubNames(state);
-
-  const interestCandidates = available
-    .map((interest) => {
-      const profile = getProfileForInterest(interest, state.profiles);
-      const companions = profile?.usualCompanions ?? [];
-      const companionMatches = companions.filter((name) => inClubNames.has(name));
-      const gameMatch = interest.gameId === gameId || !!profile?.preferredGameIds.includes(gameId);
-      const tagMatches = profile?.preferredTags.filter((tag) =>
-        state.sessions.some((session) => session.gameId === gameId && session.tags.includes(tag))
-      ) ?? [];
-      const buyInAverage =
-        profile && profile.typicalBuyInMax > 0
-          ? Math.round((profile.typicalBuyInMin + profile.typicalBuyInMax) / 2)
-          : 0;
-      const buyInScore = buyInAverage ? Math.min(18, Math.round(buyInAverage / 100)) : 0;
-      const confidence =
-        availabilityScore[interest.status] +
-        (gameMatch ? 28 : -18) +
-        Math.min(14, tagMatches.length * 7) +
-        Math.min(24, companionMatches.length * 8) +
-        buyInScore;
-      const reasons = [
-        interest.status,
-        gameMatch ? 'game/stakes fit' : 'alternate game',
-        tagMatches.length ? `fits ${tagMatches.join(', ')}` : '',
-        companionMatches.length ? `connected to ${companionMatches.join(', ')}` : '',
-        buyInAverage ? `$${buyInAverage} typical buy-in` : ''
-      ].filter(Boolean);
-
-      return {
-        id: interest.id,
-        playerName: interest.playerName,
-        interest,
-        profile,
-        confidence,
-        reasons,
-        source: 'interest' as const
-      };
-    });
-
-  return interestCandidates
-    .sort((a, b) => b.confidence - a.confidence)
-    .slice(0, seats);
-}
-
-function getLikelyParticipants(state: AppState) {
-  const activePlayerNames = getInClubNames(state);
-
-  return state.games
-    .flatMap((game) => {
-      const demand = getDemand(game, state.interests);
-      return state.profiles
-        .filter((profile) => !activePlayerNames.has(profile.name))
-        .map((profile) => {
-          const prefersGame = profile.preferredGameIds.includes(game.id) || profile.preferredStakes.includes(game.name);
-          const tagMatches = profile.preferredTags.filter((tag) =>
-            state.sessions.some((session) => session.gameId === game.id && session.tags.includes(tag))
-          );
-          const companionMatches = profile.usualCompanions.filter((name) => activePlayerNames.has(name));
-          const buyInAverage =
-            profile.typicalBuyInMax > 0 ? Math.round((profile.typicalBuyInMin + profile.typicalBuyInMax) / 2) : 0;
-          const confidence =
-            (prefersGame ? 55 : 8) +
-            demand.totalDemand * 7 +
-            companionMatches.length * 18 +
-            tagMatches.length * 8 +
-            Math.min(20, Math.round(buyInAverage / 100));
-          const reason = [
-            prefersGame ? `prefers ${game.name}` : `possible ${game.name}`,
-            tagMatches.length ? `fits ${tagMatches.join(', ')}` : '',
-            demand.totalDemand ? `${demand.totalDemand} already interested` : '',
-            companionMatches.length ? `connected to ${companionMatches.join(', ')}` : '',
-            demand.needs ? `needs ${demand.needs}` : 'table viable'
-          ].filter(Boolean);
-
-          return {
-            id: `${profile.id}-${game.id}`,
-            profile,
-            game,
-            confidence,
-            reason,
-            message: `${profile.name}, ${game.name} is close to forming. ${demand.totalDemand} players are already in or interested. Would you want a seat if it starts?`
-          };
-        });
-    })
-    .sort((a, b) => b.confidence - a.confidence)
-    .slice(0, 8);
-}
-
-function renderScriptTemplate(template: string, game: GameConfig, demand: ReturnType<typeof getDemand>) {
-  return template
-    .replaceAll('{game}', game.name)
-    .replaceAll('{inRoom}', demand.inRoom.toString())
-    .replaceAll('{coming}', demand.confirmed.toString())
-    .replaceAll('{waiting}', (demand.interested + demand.waiting).toString())
-    .replaceAll('{needs}', demand.needs.toString());
-}
-
-function getStaffScripts(state: AppState) {
-  const gameScripts = state.games.flatMap((game) => {
-    const demand = getDemand(game, state.interests);
-    const running = getRunningSessions(state, game.id);
-    const full = running.some((session) => session.seatsFilled >= session.maxSeats);
-    const scripts = [{ label: `${game.name}: current demand`, text: renderScriptTemplate(state.scriptTemplates[0] ?? defaultScriptTemplates[0], game, demand) }];
-    if (full && demand.flexibleDemand > 0) {
-      scripts.push({
-        label: `${game.name}: overflow`,
-        text: renderScriptTemplate(state.scriptTemplates[1] ?? defaultScriptTemplates[1], game, demand)
-      });
-    }
-    if (demand.needs > 0) {
-      scripts.push({
-        label: `${game.name}: needs more`,
-        text: renderScriptTemplate(state.scriptTemplates[2] ?? defaultScriptTemplates[2], game, demand)
-      });
-    } else {
-      scripts.push({
-        label: `${game.name}: likely`,
-        text: renderScriptTemplate(state.scriptTemplates[3] ?? defaultScriptTemplates[3], game, demand)
-      });
-    }
-    return scripts;
-  });
-  return gameScripts.slice(0, 8);
-}
-
-function getOperationalOpportunities(state: AppState, analytics: ReturnType<typeof getAnalytics>) {
-  const opportunities: string[] = [];
-  if (analytics.failedStarts >= 2) {
-    opportunities.push('Repeated failed starts: review arrival confirmation process.');
-  }
-  if (analytics.averageWaitMinutes >= 30 && analytics.conversionRate < 0.5) {
-    opportunities.push('High wait with low conversion: reduce uncertainty for incoming players.');
-  }
-  if ((analytics.peakInterestedByGame?.count ?? 0) >= 8 && analytics.currentNight.gamesStarted <= 1) {
-    opportunities.push('Strong demand with few starts: focus on second-table coordination.');
-  }
-  if (analytics.tableBreaks >= 2) {
-    opportunities.push('Table breaks above normal: review late-night sustainability.');
-  }
-  if (!opportunities.length) {
-    opportunities.push('No major operational flags yet. Keep tracking wait pressure and table starts.');
-  }
-  return opportunities;
-}
-
-function parseGroupMeMessages(text: string, games: GameConfig[]): GroupMeCandidate[] {
-  const statusFromLine = (line: string): InterestStatus =>
-    /on my way|coming|eta|be there/i.test(line)
-      ? 'Confirmed Coming'
-      : /here|arrived|in room|at the room/i.test(line)
-        ? 'Arrived'
-        : 'Interested';
-
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const matchedGame =
-        games.find((game) => line.toLowerCase().includes(game.name.toLowerCase())) ??
-        games.find((game) => game.name.includes('1/2') && /\b1\s*\/\s*2\b|1-2/i.test(line)) ??
-        games.find((game) => game.name.includes('2/5') && /\b2\s*\/\s*5\b|2-5/i.test(line)) ??
-        games.find((game) => game.name.toLowerCase().includes('plo') && /plo/i.test(line));
-      if (!matchedGame) return null;
-      const nameMatch = line.match(/^([A-Za-z][A-Za-z .'-]{1,32})[:\-]/) ?? line.match(/\bfrom\s+([A-Za-z][A-Za-z .'-]{1,32})\b/i);
-      const playerName = (nameMatch?.[1] ?? line.split(/\s+/)[0] ?? 'Unknown').trim();
-      const confidence = /interested|play|seat|list|coming|eta|arrived|here|in/i.test(line) ? 82 : 62;
-      return {
-        id: uid(),
-        playerName,
-        gameId: matchedGame.id,
-        status: statusFromLine(line),
-        timestamp: nowIso(),
-        confidence,
-        sourceText: line
-      };
-    })
-    .filter((candidate): candidate is GroupMeCandidate => Boolean(candidate));
 }
 
 function App() {
@@ -2584,7 +676,10 @@ function App() {
   const staffScripts = useMemo(() => getStaffScripts(state), [state]);
   const inClubInterests = useMemo(() => getInClubInterests(state), [state]);
   const overflowOpportunities = useMemo(() => getOverflowOpportunities(state), [state]);
-  const balancePlans = useMemo(() => getBalancePlans(state), [state]);
+  const balancePlans = useMemo(
+    () => getBalancePlans(state, { getDemand, getRunningSessions, getProfileForInterest }),
+    [state]
+  );
   const activeAccountKey = getAccountKeyFromState(state);
   const selectedTournament = useMemo(
     () => state.tournaments.find((tournament) => tournament.id === selectedTournamentId) ?? state.tournaments[0] ?? null,
@@ -2744,87 +839,13 @@ function App() {
     () => filteredProfiles.filter((profile) => profile.membershipStatus !== 'Requested' && profile.membershipStatus !== 'Approved'),
     [filteredProfiles]
   );
-  const todayPlayerActivity = useMemo<TodayPlayerRow[]>(() => {
-    const currentDate = toLocalDateValue(new Date());
-    const isToday = (value?: string) => {
-      if (!value) return false;
-      const date = new Date(value);
-      return !Number.isNaN(date.getTime()) && toLocalDateValue(date) === currentDate;
-    };
-    const getInterestTimestamp = (interest: Interest) => {
-      if (interest.status === 'Seated') return interest.seatedAt ?? interest.arrivedAt ?? interest.timestamp;
-      if (interest.status === 'Arrived') return interest.arrivedAt ?? interest.confirmedAt ?? interest.timestamp;
-      if (interest.status === 'Confirmed Coming') return interest.confirmedAt ?? interest.timestamp;
-      if (closedInterestStatuses.includes(interest.status)) return interest.closedAt ?? interest.timestamp;
-      return interest.interestedAt || interest.timestamp;
-    };
-    const findProfile = (profileId: string | undefined, playerName: string) =>
-      state.profiles.find((profile) => profile.id === profileId || profile.name.toLowerCase() === playerName.toLowerCase());
-    const findLatestSession = (profileId: string | undefined, playerName: string) =>
-      state.playerSessions
-        .filter((session) => session.profileId === profileId || session.playerName.toLowerCase() === playerName.toLowerCase())
-        .sort((left, right) => new Date(right.seatedAt).getTime() - new Date(left.seatedAt).getTime())[0];
-
-    const rows: TodayPlayerRow[] = state.interests
-      .map((interest) => {
-        const timestamp = getInterestTimestamp(interest);
-        if (!isToday(timestamp)) return null;
-        const profile = findProfile(interest.profileId, interest.playerName);
-        const playerSession = findLatestSession(interest.profileId, interest.playerName);
-        const table = playerSession ? state.sessions.find((session) => session.id === playerSession.tableId) : undefined;
-        return {
-          id: `interest-${interest.id}`,
-          playerName: interest.playerName,
-          profileId: interest.profileId,
-          status: interest.status,
-          gameName: state.games.find((game) => game.id === interest.gameId)?.name ?? 'Unknown game',
-          tableLabel: interest.status === 'Seated' ? table?.label : undefined,
-          seatNumber: interest.status === 'Seated' ? playerSession?.seatNumber : undefined,
-          timestamp,
-          activeMember: Boolean(profile && profile.membershipStatus !== 'Requested' && isFutureDate(profile.membershipExpiresAt || profile.membershipExpirationDate))
-        } satisfies TodayPlayerRow;
-      })
-      .filter((row): row is TodayPlayerRow => row !== null);
-
-    state.playerSessions
-      .filter((session) => !session.leftAt && isToday(session.seatedAt))
-      .forEach((session) => {
-        const alreadyListed = rows.some((row) =>
-          (session.profileId && row.profileId === session.profileId) || row.playerName.toLowerCase() === session.playerName.toLowerCase()
-        );
-        if (alreadyListed) return;
-        const profile = findProfile(session.profileId, session.playerName);
-        const table = state.sessions.find((candidate) => candidate.id === session.tableId);
-        rows.push({
-          id: `session-${session.id}`,
-          playerName: session.playerName,
-          profileId: session.profileId,
-          status: 'Seated',
-          gameName: state.games.find((game) => game.id === session.gameId)?.name ?? 'Unknown game',
-          tableLabel: table?.label,
-          seatNumber: session.seatNumber,
-          timestamp: session.seatedAt,
-          activeMember: Boolean(profile && profile.membershipStatus !== 'Requested' && isFutureDate(profile.membershipExpiresAt || profile.membershipExpirationDate))
-        });
-      });
-
-    const statusOrder: Record<InterestStatus, number> = {
-      Seated: 0,
-      Arrived: 1,
-      'Confirmed Coming': 2,
-      Interested: 3,
-      Declined: 4,
-      'No-Show': 5,
-      'Left Before Seated': 6,
-      Removed: 7
-    };
-    return rows.sort((left, right) =>
-      statusOrder[left.status] - statusOrder[right.status] || new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime()
-    );
-  }, [state.games, state.interests, state.playerSessions, state.profiles, state.sessions]);
+  const todayPlayerActivity = useMemo<TodayPlayerRow[]>(
+    () => getTodayPlayerActivity(state, { currentDate: new Date(), toLocalDateValue, isFutureDate }),
+    [state.games, state.interests, state.playerSessions, state.profiles, state.sessions]
+  );
   const duplicateProfiles = useMemo(() => {
     const groups = new Map<string, PlayerProfile[]>();
-    state.profiles.forEach((profile: { name: any; id?: string; preferredGameIds?: string[]; preferredStakes?: string; typicalBuyInMin?: number; typicalBuyInMax?: number; willingnessToMove?: boolean; typicalAvailability?: string; usualCompanions?: string[]; preferredTags?: TableTag[]; notes?: string; }) => {
+    state.profiles.forEach((profile: PlayerProfile) => {
       const key = profile.name.trim().toLowerCase();
       groups.set(key, [...(groups.get(key) ?? []), profile]);
     });
@@ -3378,7 +1399,7 @@ function App() {
           interestedAt: timestamp,
           confirmedAt: form.status === 'Confirmed Coming' ? timestamp : undefined,
           arrivedAt: form.status === 'Arrived' ? timestamp : undefined,
-          seatedAt: form.status === 'Seated' ? timestamp : undefined,
+          seatedAt: undefined,
           closedAt: ['Declined', 'No-Show', 'Left Before Seated', 'Removed'].includes(form.status) ? timestamp : undefined
         };
     const nextState = promptDemandAction({
@@ -3408,10 +1429,11 @@ function App() {
   };
 
   const checkInProfileFromSearch = (profile: PlayerProfile) => {
-    const existingInterest = state.interests.find(
-      (interest) =>
-        !inactiveInterestStatuses.includes(interest.status) &&
-        (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase())
+    const existingInterest = findUniqueProfileReference(
+      state.interests,
+      state.profiles,
+      profile,
+      (interest) => !inactiveInterestStatuses.includes(interest.status)
     );
     setForm({
       playerName: profile.name,
@@ -3439,7 +1461,7 @@ function App() {
               : {};
     const nextState = {
       ...state,
-      interests: state.interests.map((interest: { id: string; timestamp: any; manualEdits: any; }) =>
+      interests: state.interests.map((interest: Interest) =>
         interest.id === id
           ? {
               ...interest,
@@ -3469,10 +1491,10 @@ function App() {
     const interest = state.interests.find((item: { id: string; }) => item.id === id);
     persist(withCorrectionLog({
       ...state,
-      interests: state.interests.map((item: { id: string; manualEdits: Record<string, string> | undefined; }) =>
+      interests: state.interests.map((item: Interest) =>
         item.id === id ? { ...item, [key]: nextValue, manualEdits: markManualEdit(item.manualEdits, key) } : item
       ),
-      playerSessions: state.playerSessions.map((session: { playerName: any; gameId: any; manualEdits: Record<string, string> | undefined; }) => {
+      playerSessions: state.playerSessions.map((session: PlayerSession) => {
         if (!interest || session.playerName !== interest.playerName || session.gameId !== interest.gameId) return session;
         if (key === 'seatedAt' && nextValue) return { ...session, seatedAt: nextValue, manualEdits: markManualEdit(session.manualEdits, 'seatedAt') };
         if (key === 'closedAt') return { ...session, leftAt: nextValue, manualEdits: markManualEdit(session.manualEdits, 'leftAt') };
@@ -3484,7 +1506,7 @@ function App() {
   const updatePlayerSession = (sessionId: string, patch: Partial<PlayerSession>, editKey: string) => {
     persist(withCorrectionLog({
       ...state,
-      playerSessions: state.playerSessions.map((session: { id: string; manualEdits: Record<string, string> | undefined; }) =>
+      playerSessions: state.playerSessions.map((session: PlayerSession) =>
         session.id === sessionId ? { ...session, ...patch, manualEdits: markManualEdit(session.manualEdits, editKey) } : session
       )
     }, sessionId, editKey, 'Player session corrected'));
@@ -3884,12 +1906,13 @@ function App() {
     note: string,
     timestamp: string
   ) => {
-    const existing = sourceState.interests.find(
-      (interest) =>
-        (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()) &&
-        interest.gameId === gameId &&
-        !inactiveInterestStatuses.includes(interest.status)
+    const existingRelationship = findUniqueProfileReference(
+      sourceState.interests,
+      sourceState.profiles,
+      profile,
+      (interest) => !inactiveInterestStatuses.includes(interest.status)
     );
+    const existing = existingRelationship?.gameId === gameId ? existingRelationship : undefined;
     if (existing) {
       return sourceState.interests.map((interest) =>
         interest.id === existing.id
@@ -4195,10 +2218,11 @@ function App() {
         return queryParts.every((part) => haystack.includes(part));
       })
       .map((profile) => {
-        const activeInterest = state.interests.find(
-          (interest) =>
-            (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()) &&
-            activeInterestStatuses.includes(interest.status)
+        const activeInterest = findUniqueProfileReference(
+          state.interests,
+          state.profiles,
+          profile,
+          (interest) => activeInterestStatuses.includes(interest.status)
         );
         const preferredGame = state.games.find((game) => game.id === (profile.preferredGameIds?.[0] || profile.preferredGameId));
         const isCheckedIn = Boolean(activeInterest?.status === 'Arrived' || activeInterest?.status === 'Seated');
@@ -4253,10 +2277,11 @@ function App() {
       return;
     }
     const timestamp = nowIso();
-    const alreadyInClub = state.interests.some(
-      (interest) =>
-        (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()) &&
-        activeInterestStatuses.includes(interest.status)
+    const alreadyInClub = hasProfileReference(
+      state.interests,
+      state.profiles,
+      profile,
+      (interest) => activeInterestStatuses.includes(interest.status)
     );
     const checkedInState: AppState = alreadyInClub
       ? state
@@ -4264,15 +2289,16 @@ function App() {
           ...state,
           interests: ensureInterestEntry(state, profile, session.gameId, 'Arrived', 'Checked in from table seat picker', timestamp)
         };
-    const interest = checkedInState.interests.find(
-      (item) =>
-        item.gameId === session.gameId &&
-        activeInterestStatuses.includes(item.status) &&
-        (item.profileId === profile.id || item.playerName.toLowerCase() === profile.name.toLowerCase())
-    ) ?? checkedInState.interests.find(
-      (item) =>
-        activeInterestStatuses.includes(item.status) &&
-        (item.profileId === profile.id || item.playerName.toLowerCase() === profile.name.toLowerCase())
+    const interest = findUniqueProfileReference(
+      checkedInState.interests,
+      checkedInState.profiles,
+      profile,
+      (item) => item.gameId === session.gameId && activeInterestStatuses.includes(item.status)
+    ) ?? findUniqueProfileReference(
+      checkedInState.interests,
+      checkedInState.profiles,
+      profile,
+      (item) => activeInterestStatuses.includes(item.status)
     );
     const result = seatPlayerInState(checkedInState, session.id, {
       playerName: profile.name,
@@ -4446,17 +2472,17 @@ function App() {
 
   const movePlayerToTable = (playerSession: PlayerSession, targetTableId: string) => {
     if (playerSession.tableId === targetTableId) return;
-    const sourceTable = state.sessions.find((session: { id: string; }) => session.id === playerSession.tableId);
-    const targetTable = state.sessions.find((session: { id: string; }) => session.id === targetTableId);
+    const sourceTable = state.sessions.find((session: GameSession) => session.id === playerSession.tableId);
+    const targetTable = state.sessions.find((session: GameSession) => session.id === targetTableId);
     if (!targetTable) return;
     const targetSeatNumber = getAvailableSeatNumber(targetTable, playerSession.seatNumber) ?? getAvailableSeatNumber(targetTable);
     if (!targetSeatNumber) {
       window.alert('No open seats on the target table.');
       return;
     }
-    const movedState = {
+    const movedState: AppState = {
       ...state,
-      playerSessions: state.playerSessions.map((session: { id: string; manualEdits: Record<string, string> | undefined; }) =>
+      playerSessions: state.playerSessions.map((session: PlayerSession) =>
         session.id === playerSession.id
           ? { ...session, tableId: targetTableId, seatNumber: targetSeatNumber, manualEdits: markManualEdit(markManualEdit(session.manualEdits, 'tableId'), 'seatNumber') }
           : session
@@ -4494,15 +2520,15 @@ function App() {
 
   const markPlayerLeft = (interest: Interest) => {
     const openSession = state.playerSessions.find(
-      (session: { playerName: string; gameId: string; leftAt: any; }) => session.playerName === interest.playerName && session.gameId === interest.gameId && !session.leftAt
+      (session: PlayerSession) => session.playerName === interest.playerName && session.gameId === interest.gameId && !session.leftAt
     );
 
-    const nextState = {
+    const nextState: AppState = {
       ...state,
-      interests: state.interests.map((item: { id: string; }) =>
+      interests: state.interests.map((item: Interest) =>
         item.id === interest.id ? { ...item, status: 'Removed', closedAt: nowIso(), timestamp: nowIso() } : item
       ),
-      playerSessions: state.playerSessions.map((session: { id: any; }) =>
+      playerSessions: state.playerSessions.map((session: PlayerSession) =>
         session.id === openSession?.id ? { ...session, leftAt: nowIso() } : session
       )
     };
@@ -4515,7 +2541,11 @@ function App() {
   const markPlayerSessionLeft = (playerSession: PlayerSession, cashOutAmount: number, cashOutNote = '') => {
     const leftAt = nowIso();
     const sessionHours = hoursBetween(playerSession.seatedAt, leftAt);
-    const nextState = {
+    const fallbackProfileMatches = playerSession.profileId
+      ? []
+      : state.profiles.filter((profile) => profile.name.toLowerCase() === playerSession.playerName.toLowerCase());
+    const departureProfileId = playerSession.profileId || (fallbackProfileMatches.length === 1 ? fallbackProfileMatches[0].id : undefined);
+    const nextState: AppState = {
       ...state,
       interests: state.interests.map((interest) => {
         const samePlayer = playerSession.profileId
@@ -4543,8 +2573,7 @@ function App() {
         ...state.playerLedger
       ],
       profiles: state.profiles.map((profile) =>
-        profile.id === playerSession.profileId ||
-        (!playerSession.profileId && profile.name.toLowerCase() === playerSession.playerName.toLowerCase())
+        profile.id === departureProfileId
           ? {
               ...profile,
               totalTimePlayedHours: (profile.totalTimePlayedHours ?? 0) + sessionHours,
@@ -4568,7 +2597,7 @@ function App() {
     const currentCount = state.sessions.filter((session: { gameId: string; status: string; }) => session.gameId === gameId && session.status !== 'Closed').length;
     const sessionId = uid();
     const defaultStartPlayerIds = getSeatOptions(gameId).slice(0, game.maxSeats).map((interest) => interest.id);
-    const nextState = {
+    const nextState: AppState = {
       ...state,
       sessions: [
         ...state.sessions,
@@ -4610,8 +2639,8 @@ function App() {
     const collectionProfile = getCollectionProfile(state, game.id);
     const currentCount = state.sessions.filter((session: { gameId: any; status: string; }) => session.gameId === game.id && session.status !== 'Closed').length;
     const newInterests = participantPool
-      .filter((candidate: { interest: any; }) => !candidate.interest)
-      .map((candidate: { profile: { id: any; }; playerName: any; }) => ({
+      .filter(lacksParticipantInterest)
+      .map((candidate): Interest => ({
         id: uid(),
         profileId: candidate.profile?.id,
         playerName: candidate.playerName,
@@ -4636,8 +2665,8 @@ function App() {
           timeFeeBased: collectionProfile.collectionMode === 'Time',
           collectionMode: collectionProfile.collectionMode,
           plannedPlayerIds: [
-            ...participantPool.filter((candidate: { interest: any; }) => candidate.interest).map((candidate: { interest: any; }) => candidate.interest!.id),
-            ...newInterests.map((interest: { id: any; }) => interest.id)
+            ...participantPool.filter(hasParticipantInterest).map((candidate) => candidate.interest.id),
+            ...newInterests.map((interest) => interest.id)
           ],
           tags: [],
           startedAt: nowIso()
@@ -4662,7 +2691,7 @@ function App() {
     persist({
       ...state,
       sessions: [
-        ...state.sessions.map((session: { id: string; plannedPlayerIds: any; }) =>
+        ...state.sessions.map((session: GameSession) =>
           session.id === plan.fromTable.id
             ? {
                 ...session,
@@ -4714,7 +2743,7 @@ function App() {
           : undefined;
     persist({
       ...state,
-      sessions: state.sessions.map((session: { id: string; endedAt: any; manualEdits: any; }) => {
+      sessions: state.sessions.map((session: GameSession) => {
         if (session.id !== id) return session;
         const closed = patch.status === 'Closed' && !session.endedAt;
         return {
@@ -4746,7 +2775,7 @@ function App() {
     const nextValue = fromDateTimeInput(value);
     persist(withCorrectionLog({
       ...state,
-      sessions: state.sessions.map((session: { id: string; manualEdits: Record<string, string> | undefined; }) =>
+      sessions: state.sessions.map((session: GameSession) =>
         session.id === id ? { ...session, [key]: nextValue, manualEdits: markManualEdit(session.manualEdits, key) } : session
       )
     }, id, key, 'Table timestamp corrected'));
@@ -4756,7 +2785,7 @@ function App() {
     const timestamp = nowIso();
     persist({
       ...state,
-      sessions: state.sessions.map((item: { id: string; status: any; endedAt: any; }) =>
+      sessions: state.sessions.map((item: GameSession) =>
         item.id === session.id
           ? {
               ...item,
@@ -4770,7 +2799,7 @@ function App() {
       ),
       playerSessions:
         type === 'Broke' || type === 'Closed'
-          ? state.playerSessions.map((playerSession: { tableId: string; leftAt: any; }) =>
+          ? state.playerSessions.map((playerSession: PlayerSession) =>
               playerSession.tableId === session.id && !playerSession.leftAt
                 ? { ...playerSession, leftAt: timestamp }
                 : playerSession
@@ -5050,8 +3079,8 @@ function App() {
     if (!window.confirm('Remove this profile? Existing sessions and interest entries will keep the player name.')) return;
     persist({
       ...state,
-      profiles: state.profiles.filter((profile: { id: string; }) => profile.id !== id),
-      interests: state.interests.map((interest: { profileId: string; }) =>
+      profiles: state.profiles.filter((profile) => profile.id !== id),
+      interests: state.interests.map((interest) =>
         interest.profileId === id ? { ...interest, profileId: undefined } : interest
       )
     });
@@ -5202,21 +3231,22 @@ function App() {
 
     persist({
       ...state,
-      profiles: state.profiles.map((profile: { id: string; }) => (profile.id === primary.id ? merged : profile)).filter((profile: { id: string; }) => !duplicateIds.has(profile.id)),
-      interests: state.interests.map((interest: { profileId: string; }) =>
+      profiles: state.profiles.map((profile) => (profile.id === primary.id ? merged : profile)).filter((profile) => !duplicateIds.has(profile.id)),
+      interests: state.interests.map((interest) =>
         interest.profileId && duplicateIds.has(interest.profileId) ? { ...interest, profileId: primary.id } : interest
       ),
-      playerSessions: state.playerSessions.map((session: { profileId: string; }) =>
+      playerSessions: state.playerSessions.map((session) =>
         session.profileId && duplicateIds.has(session.profileId) ? { ...session, profileId: primary.id } : session
       )
     });
   };
 
   const addProfileToClub = (profile: PlayerProfile, sourceState = state) => {
-    const existingInterest = sourceState.interests.find(
-      (interest: { profileId: string; playerName: string; status: InterestStatus; }) =>
-        (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()) &&
-        !inactiveInterestStatuses.includes(interest.status)
+    const existingInterest = findUniqueProfileReference(
+      sourceState.interests,
+      sourceState.profiles,
+      profile,
+      (interest) => !inactiveInterestStatuses.includes(interest.status)
     );
     const preferredGameId = profile.preferredGameIds[0] ?? sourceState.games[0]?.id ?? 'nlh-1-2';
     const timestamp = nowIso();
@@ -5261,9 +3291,7 @@ function App() {
     }
     const profile = validation.profile as PlayerProfile;
 
-    const alreadyInClub = getInClubInterests(sourceState).some(
-      (interest) => interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()
-    );
+    const alreadyInClub = hasProfileReference(getInClubInterests(sourceState), sourceState.profiles, profile);
     if (alreadyInClub) {
       setQrScanMessage(`${profile.name} is already checked in.`);
       return;
@@ -5307,15 +3335,17 @@ function App() {
   }, [playerPopup, qrScanAttempt]);
 
   const removeProfileFromClub = (profile: PlayerProfile) => {
+    const matchingInterestIds = new Set(
+      getProfileReferenceMatches(
+        state.interests,
+        state.profiles,
+        profile,
+        (interest) => interest.status === 'Arrived'
+      ).map((interest) => interest.id)
+    );
     persist({
       ...state,
-      interests: state.interests.filter(
-        (interest: { status: string; profileId: string; playerName: string; }) =>
-          !(
-            interest.status === 'Arrived' &&
-            (interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase())
-          )
-      )
+      interests: state.interests.filter((interest) => !matchingInterestIds.has(interest.id))
     });
   };
 
@@ -5485,67 +3515,89 @@ function App() {
     }
   };
 
+  const isImportedObject = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+
+  const isImportedJsonProfile = (value: unknown): value is Record<string, unknown> =>
+    isImportedObject(value) && typeof value.name === 'string' && Boolean(value.name.trim());
+
+  const importedJsonNumber = (value: unknown) => {
+    const parsed = Number(value ?? 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const importedJsonStringArray = (value: unknown) =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
+  const isTableTag = (value: unknown): value is TableTag =>
+    typeof value === 'string' && gameQualityTags.some((tag) => tag === value);
+
+  const profileFromPastedJsonRecord = (item: Record<string, unknown>): PlayerProfile => {
+    const rawPreferredGameIds = importedJsonStringArray(item.preferredGameIds);
+    const preferredGameId = resolveGameId(
+      state.games,
+      String(item.preferredGameId ?? rawPreferredGameIds[0] ?? item.preferredGame ?? item.stakes ?? ''),
+      state.games[0]?.id ?? 'nlh-1-2'
+    );
+    const companionNames = Array.isArray(item.usualCompanions)
+      ? importedJsonStringArray(item.usualCompanions)
+      : String(item.usualCompanions ?? item.commonlyPlaysWith ?? item.companions ?? '')
+          .split(/[|;]/)
+          .map((name) => name.trim())
+          .filter(Boolean);
+    const preferredGameIds = rawPreferredGameIds
+      .map((gameId) => resolveGameId(state.games, gameId, ''))
+      .filter((gameId): gameId is string => Boolean(gameId));
+    const gamePlayCountsSource = isImportedObject(item.gamePlayCounts) ? item.gamePlayCounts : {};
+
+    return {
+      id: String(item.id ?? memberId()),
+      name: String(item.name).trim(),
+      phone: String(item.phone ?? item.phoneNumber ?? item.mobile ?? item.cell ?? ''),
+      birthday: String(item.birthday ?? ''),
+      membershipStartDate: String(item.membershipStartDate ?? item.memberSince ?? todayDate()),
+      membershipExpirationDate: String(item.membershipExpirationDate ?? item.expiresAt ?? nextYearDate()),
+      totalTimePlayedHours: importedJsonNumber(item.totalTimePlayedHours ?? item.totalTimePlayed),
+      lastSessionTimePlayedHours: importedJsonNumber(item.lastSessionTimePlayedHours ?? item.lastSessionTimePlayed),
+      commonlyPlaysWithProfileIds: importedJsonStringArray(item.commonlyPlaysWithProfileIds),
+      preferredGameId,
+      preferredGameIds: preferredGameIds.length ? Array.from(new Set(preferredGameIds)) : [preferredGameId],
+      gamePlayCounts: Object.entries(gamePlayCountsSource).reduce<Record<string, number>>((counts, [gameId, count]) => {
+        const resolvedGameId = resolveGameId(state.games, gameId, '');
+        const numericCount = Number(count);
+        if (resolvedGameId && Number.isFinite(numericCount) && numericCount > 0) counts[resolvedGameId] = numericCount;
+        return counts;
+      }, {}),
+      mostPlayedGameId: resolveGameId(state.games, String(item.mostPlayedGameId ?? ''), preferredGameId),
+      preferredStakes: String(item.preferredStakes ?? item.stakes ?? state.games.find((game) => game.id === preferredGameId)?.name ?? ''),
+      typicalBuyInMin: importedJsonNumber(item.typicalBuyInMin ?? item.buyInMin),
+      typicalBuyInMax: importedJsonNumber(item.typicalBuyInMax ?? item.buyInMax),
+      willingnessToMove: Boolean(item.willingnessToMove ?? item.moveTables ?? false),
+      typicalAvailability: String(item.typicalAvailability ?? item.availability ?? ''),
+      preferredTags: Array.isArray(item.preferredTags) ? item.preferredTags.filter(isTableTag) : [],
+      usualCompanions: companionNames,
+      notes: String(item.notes ?? '')
+    };
+  };
+
   const importProfiles = () => {
     const raw = importText.trim();
     if (!raw) return;
 
     let imported: PlayerProfile[] = [];
     try {
-      const parsed = JSON.parse(raw);
+      const parsed: unknown = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         imported = parsed
-          .filter((item) => item?.name)
-          .map((item) => {
-            const preferredGameId = resolveGameId(
-              state.games,
-              String(item.preferredGameId ?? item.preferredGameIds?.[0] ?? item.preferredGame ?? item.stakes ?? ''),
-              state.games[0]?.id ?? 'nlh-1-2'
-            );
-            const companionNames = Array.isArray(item.usualCompanions)
-              ? item.usualCompanions.map(String)
-              : String(item.usualCompanions ?? item.commonlyPlaysWith ?? item.companions ?? '')
-                  .split(/[|;]/)
-                  .map((name) => name.trim())
-                  .filter(Boolean);
-            const preferredGameIds = Array.isArray(item.preferredGameIds)
-              ? Array.from(new Set(item.preferredGameIds.map((gameId: unknown) => resolveGameId(state.games, String(gameId), '')).filter(Boolean)))
-              : [preferredGameId];
-            return {
-            id: String(item.id ?? memberId()),
-            name: String(item.name).trim(),
-            phone: String(item.phone ?? item.phoneNumber ?? item.mobile ?? item.cell ?? ''),
-            birthday: String(item.birthday ?? ''),
-            membershipStartDate: String(item.membershipStartDate ?? item.memberSince ?? todayDate()),
-            membershipExpirationDate: String(item.membershipExpirationDate ?? item.expiresAt ?? nextYearDate()),
-            totalTimePlayedHours: Number(item.totalTimePlayedHours ?? item.totalTimePlayed ?? 0),
-            lastSessionTimePlayedHours: Number(item.lastSessionTimePlayedHours ?? item.lastSessionTimePlayed ?? 0),
-            commonlyPlaysWithProfileIds: Array.isArray(item.commonlyPlaysWithProfileIds) ? item.commonlyPlaysWithProfileIds.map(String) : [],
-            preferredGameId,
-            preferredGameIds: preferredGameIds.length ? preferredGameIds : [preferredGameId],
-            gamePlayCounts: Object.entries((item.gamePlayCounts ?? {}) as Record<string, unknown>).reduce<Record<string, number>>((counts, [gameId, count]) => {
-              const resolvedGameId = resolveGameId(state.games, gameId, '');
-              const numericCount = Number(count);
-              if (resolvedGameId && Number.isFinite(numericCount) && numericCount > 0) counts[resolvedGameId] = numericCount;
-              return counts;
-            }, {}),
-            mostPlayedGameId: resolveGameId(state.games, String(item.mostPlayedGameId ?? ''), preferredGameId),
-            preferredStakes: String(item.preferredStakes ?? item.stakes ?? state.games.find((game) => game.id === preferredGameId)?.name ?? ''),
-            typicalBuyInMin: Number(item.typicalBuyInMin ?? item.buyInMin ?? 0),
-            typicalBuyInMax: Number(item.typicalBuyInMax ?? item.buyInMax ?? 0),
-            willingnessToMove: Boolean(item.willingnessToMove ?? item.moveTables ?? false),
-            typicalAvailability: String(item.typicalAvailability ?? item.availability ?? ''),
-            preferredTags: Array.isArray(item.preferredTags) ? item.preferredTags : [],
-            usualCompanions: companionNames,
-            notes: String(item.notes ?? '')
-          };
-          });
+          .filter(isImportedJsonProfile)
+          .map(profileFromPastedJsonRecord);
       }
     } catch {
       imported = raw
         .split(/\r?\n/)
         .map((line: string) => line.trim())
         .filter(Boolean)
-        .map((line: { split: (arg0: string) => { (): any; new(): any; map: { (arg0: (part: any) => any): [any, ("" | undefined)?, ("0" | undefined)?, ("0" | undefined)?, ("" | undefined)?, ("" | undefined)?, ("yes" | undefined)?]; new(): any; }; }; }) => {
+        .map((line: string) => {
           const [name, preferredStakes = '', birthday = '', membershipStart = todayDate(), membershipExpiration = nextYearDate(), companions = '', availability = '', moveTables = 'yes'] = line.split(',').map((part: string) => part.trim());
           const preferredGameId = resolveGameId(state.games, preferredStakes, state.games[0]?.id ?? 'nlh-1-2');
           return {
@@ -5731,7 +3783,7 @@ function App() {
     if (!file) return;
     try {
       const parsed = JSON.parse(await file.text());
-      const backup = readBackupEnvelope<Partial<AppState>>(parsed);
+      const backup = readBackupEnvelope<PersistedAppState>(parsed);
       const restored = normalizeState(backup.state);
       if (!window.confirm(`Restore backup from ${backup.exportedAt || 'unknown date'}? This replaces the current local app state.`)) return;
       persist(restored, true, { feature: 'Data safety', action: 'Restored backup' });
@@ -5789,7 +3841,7 @@ function App() {
       ...reportAnalytics.waitByGame.map((item: { game: any; count: any; averageMinutes: number; }) => [`Wait by game - ${item.game}`, item.count ? `${item.averageMinutes.toFixed(0)} minutes` : 'No seated waits']),
       ...reportState.tableEvents
         .filter((event: { type: string; }) => event.type === 'Failed to Start' || event.type === 'Broke')
-        .map((event: { type: any; reason: any; note: any; }) => [`${event.type} reason`, `${event.reason || 'Unspecified'}${event.note ? ` - ${event.note}` : ''}`])
+        .map((event: TableEvent) => [`${event.type} reason`, `${event.reason || 'Unspecified'}${event.note ? ` - ${event.note}` : ''}`])
     ];
     const csv = rows.map((row) => row.map((cell: string) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -5802,7 +3854,7 @@ function App() {
   };
 
   const scanGroupMeText = () => {
-    setGroupMeCandidates(parseGroupMeMessages(groupMeText, state.games));
+    setGroupMeCandidates(parseGroupMeMessages(groupMeText, state.games, { createId: uid, getTimestamp: nowIso }));
     persist(state, false, { feature: 'Signals', action: 'Scanned pasted messages' });
   };
 
@@ -5826,11 +3878,11 @@ function App() {
         ...state.interests
       ]
     }, true, { feature: 'Signals', action: 'Accepted message candidate', metadata: { gameId: candidate.gameId, confidence: candidate.confidence } });
-    setGroupMeCandidates((candidates: any[]) => candidates.filter((item: { id: string; }) => item.id !== candidate.id));
+    setGroupMeCandidates((candidates) => candidates.filter((item) => item.id !== candidate.id));
   };
 
   const rejectGroupMeCandidate = (id: string) => {
-    setGroupMeCandidates((candidates: any[]) => candidates.filter((item: { id: string; }) => item.id !== id));
+    setGroupMeCandidates((candidates) => candidates.filter((item) => item.id !== id));
   };
 
   const copyMessage = (message: string) => {
@@ -6265,7 +4317,7 @@ function App() {
   };
 
   const loadExistingAccountState = async (access: PilotAccess) => {
-    let desktopRecord: { state?: Partial<AppState> } | undefined;
+    let desktopRecord: PersistedStateRecord | null | undefined;
     try {
       desktopRecord = await window.tableManagerDesktop?.loadStateForAccount(access);
     } catch {
@@ -6276,7 +4328,9 @@ function App() {
       ? desktopRecord
       : (() => {
           const stored = localStorage.getItem(`${storageKey}:${getAccountKeyFromAccess(access)}`);
-          return stored ? { state: JSON.parse(stored) as Partial<AppState> } : null;
+          if (!stored) return null;
+          const restoredState = parsePersistedAppState(stored);
+          return restoredState ? { state: restoredState } : null;
         })();
     if (!localRecord?.state) return false;
 
@@ -6872,2011 +4926,272 @@ function App() {
     const nextLevel = getNextTournamentLevel(tournament);
     const prizePool = getTournamentPrizePool(tournament);
     const remaining = getTournamentLevelRemainingSeconds(tournament, clockNow);
-
-    const tournamentForm = (mode: 'create' | 'edit') => (
-      <form className="tournament-form tournament-focused-form" onSubmit={mode === 'create' ? createTournament : saveTournamentSettings}>
-        <label className="tournament-field tournament-field-wide"><span>Tournament name</span><input value={tournamentDraft.name} onChange={(event) => setTournamentDraft({ ...tournamentDraft, name: event.target.value })} placeholder="Friday Night Main Event" /></label>
-        <label className="tournament-field"><span>Buy-in</span><input value={tournamentDraft.buyIn} onChange={(event) => setTournamentDraft({ ...tournamentDraft, buyIn: event.target.value })} placeholder="$100" type="number" min="0" /></label>
-        <label className="tournament-field"><span>Starting stack</span><input value={tournamentDraft.startingStack} onChange={(event) => setTournamentDraft({ ...tournamentDraft, startingStack: event.target.value })} placeholder="20,000" type="number" min="1000" /></label>
-        <label className="tournament-field tournament-field-wide"><span>Level length <small>Minutes per blind level</small></span><input value={tournamentDraft.levelMinutes} onChange={(event) => setTournamentDraft({ ...tournamentDraft, levelMinutes: event.target.value })} placeholder="20 minutes" type="number" min="5" /></label>
-        <label className="tournament-field"><span>Rebuy to prize pool <small>Percent</small></span><input value={tournamentDraft.rebuyPrizePercent} onChange={(event) => setTournamentDraft({ ...tournamentDraft, rebuyPrizePercent: event.target.value })} type="number" min="0" max="100" /></label>
-        <label className="tournament-field"><span>Players per table</span><input value={tournamentDraft.tableSize} onChange={(event) => setTournamentDraft({ ...tournamentDraft, tableSize: event.target.value })} type="number" min="2" max="10" /></label>
-        <div className="tournament-form-actions">
-          <button className="ghost-button" type="button" onClick={() => setTournamentView('library')}>Cancel</button>
-          <button className="primary-button" type="submit">{mode === 'create' ? 'Create tournament' : 'Save changes'}</button>
-        </div>
-      </form>
-    );
-
     return withShell('tournaments', (
-      <main className="app-shell compact-shell tournament-manager-shell">
-        <header className={tournamentView === 'library' ? 'topbar tournament-library-header' : 'page-header'}>
-          <div>
-            <h1>{tournamentView === 'library' ? 'Tournaments' : tournamentView === 'create' ? 'Create tournament' : tournamentView === 'edit' ? 'Edit tournament' : tournament?.name}</h1>
-            {tournamentView === 'manage' && tournament ? (
-              <div className="tournament-header-meta">
-                <span className={`tournament-status-dot status-${tournament.status.toLowerCase()}`} />
-                <span>{tournament.status}</span>
-                <span aria-hidden="true">·</span>
-                <span>{getTournamentEntries(tournament)} entries</span>
-                <span aria-hidden="true">·</span>
-                <span>${tournament.buyIn.toLocaleString()} buy-in</span>
-              </div>
-            ) : null}
-          </div>
-          <div className="header-actions">
-            {tournamentView === 'library' ? <button className="primary-button" onClick={() => { setTournamentDraft({ name: `Tournament ${todayDate()}`, buyIn: '', startingStack: '20000', levelMinutes: '20', rebuyPrizePercent: '100', tableSize: '9' }); setTournamentView('create'); }}><Plus size={17} /> New tournament</button> : null}
-            {tournamentView === 'create' || tournamentView === 'edit' ? <button className="ghost-button" onClick={() => setTournamentView('library')}><ChevronLeft size={17} /> Cancel</button> : null}
-            {tournamentView === 'manage' && tournament && (tournament.status === 'Running' || tournament.status === 'Paused') ? <button className="secondary-button" onClick={() => openTournamentTv(tournament.id)}><Eye size={17} /> TV View</button> : null}
-          </div>
-        </header>
-
-        {tournamentView === 'library' ? (
-          <section className="tournament-library">
-            <button className="tournament-new-card" onClick={() => { setTournamentDraft({ name: `Tournament ${todayDate()}`, buyIn: '', startingStack: '20000', levelMinutes: '20', rebuyPrizePercent: '100', tableSize: '9' }); setTournamentView('create'); }}>
-              <span><Plus size={28} /></span><strong>Create a new tournament</strong><small>Build a fresh structure from scratch</small>
-            </button>
-            {state.tournaments.length ? <div className="tournament-library-list">
-              {state.tournaments.map((item) => (
-                <article className="tournament-library-card" key={item.id}>
-                  <button className="tournament-library-main" onClick={() => { setSelectedTournamentId(item.id); setTournamentSection('clock'); setTournamentView('manage'); }}>
-                    <span className={`tournament-library-icon tournament-library-icon-${item.status.toLowerCase()}`}><Target size={22} /></span>
-                    <span><strong>{item.name}</strong><small>{item.status} · {getTournamentEntries(item)} entries · ${item.buyIn.toLocaleString()} buy-in</small></span>
-                  </button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild><button className="icon-button" title="Tournament actions"><MoreHorizontal size={18} /></button></DropdownMenuTrigger>
-                    <DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => beginTournamentEdit(item)}>Edit tournament</DropdownMenuItem><DropdownMenuItem onSelect={() => runTournamentAgain(item)}>Run again</DropdownMenuItem></DropdownMenuContent>
-                  </DropdownMenu>
-                </article>
-              ))}
-            </div> : <div className="tournament-empty-library"><Target size={32} /><strong>No tournaments yet</strong><span>Create your first one above.</span></div>}
-          </section>
-        ) : tournamentView === 'create' || tournamentView === 'edit' ? (
-          <section className="panel tournament-panel tournament-form-panel">
-            <PanelTitle icon={tournamentView === 'create' ? <Plus /> : <Edit3 />} title={tournamentView === 'create' ? 'Tournament setup' : 'Tournament details'} />
-            {tournamentForm(tournamentView)}
-          </section>
-        ) : tournament ? (
-          <section className="tournament-workspace">
-            <nav className="tournament-section-nav" aria-label="Tournament sections">
-              <button className={tournamentSection === 'clock' ? 'active' : ''} onClick={() => setTournamentSection('clock')}><Clock size={18} /> Clock & levels</button>
-              <button className={tournamentSection === 'players' ? 'active' : ''} onClick={() => setTournamentSection('players')}><Users size={18} /> Players</button>
-              <button className={tournamentSection === 'tables' ? 'active' : ''} onClick={() => setTournamentSection('tables')}><LayoutDashboard size={18} /> Tables</button>
-              <button className={tournamentSection === 'payouts' ? 'active' : ''} onClick={() => setTournamentSection('payouts')}><WalletCards size={18} /> Payouts</button>
-            </nav>
-
-            {tournamentSection === 'clock' ? <section className="panel tournament-panel tournament-control-panel">
-                <div className="tournament-clock-card">
-                  <span className={`tournament-status tournament-status-${tournament.status.toLowerCase()}`}>{tournament.status}</span>
-                  <strong>{formatTournamentTime(remaining)}</strong>
-                  <small>Level {(tournament.currentLevelIndex + 1).toString()} - {currentLevel ? `${currentLevel.smallBlind}/${currentLevel.bigBlind}${currentLevel.ante ? `/${currentLevel.ante}` : ''}` : '-'}</small>
-                </div>
-                <div className="tournament-actions">
-                  {tournament.status === 'Running' ? (
-                    <button className="secondary-button" onClick={() => pauseTournament(tournament)}>Pause</button>
-                  ) : tournament.status === 'Paused' ? (
-                    <button className="primary-button" onClick={() => resumeTournament(tournament)}>Resume</button>
-                  ) : (
-                    <button className="primary-button" onClick={() => startTournament(tournament)}>Start</button>
-                  )}
-                  <button className="ghost-button" onClick={() => advanceTournamentLevel(tournament, -1)}>Prev Level</button>
-                  <button className="ghost-button" onClick={() => advanceTournamentLevel(tournament, 1)}>Next Level</button>
-                </div>
-                <div className="tournament-level-strip">
-                  <article><span>Next</span><strong>{nextLevel ? `${nextLevel.smallBlind}/${nextLevel.bigBlind}` : 'Final'}</strong></article>
-                  <article><span>Entries</span><strong>{getTournamentEntries(tournament)}</strong></article>
-                  <article><span>Remaining</span><strong>{getTournamentActivePlayers(tournament)}</strong></article>
-                  <article><span>Avg stack</span><strong>{getTournamentAverageStack(tournament).toLocaleString()}</strong></article>
-                </div>
-            </section> : null}
-
-            {tournamentSection === 'tables' ? <section className="panel tournament-panel tournament-tables-panel">
-              <div className="tournament-tables-head"><div><h2>Table overview</h2><p>{tournament.players.filter((player) => player.status !== 'Eliminated').length} active participants · {tournament.tableSize} seats per table</p></div><button className="primary-button" onClick={() => drawTournamentTables(tournament)}>Draw all participants</button></div>
-              <div className="tournament-table-grid">
-                {Array.from(new Set(tournament.players.filter((player) => player.tableNumber).map((player) => player.tableNumber!))).sort((a, b) => a - b).map((tableNumber) => <article key={tableNumber}><header><strong>Table {tableNumber}</strong><span>{tournament.players.filter((player) => player.tableNumber === tableNumber && player.status !== 'Eliminated').length}/{tournament.tableSize}</span></header>{tournament.players.filter((player) => player.tableNumber === tableNumber && player.status !== 'Eliminated').sort((a, b) => (a.seatNumber ?? 0) - (b.seatNumber ?? 0)).map((player) => <div key={player.id}><span>Seat {player.seatNumber}</span><strong>{player.name}</strong></div>)}</article>)}
-                {!tournament.players.some((player) => player.tableNumber) ? <div className="tournament-table-empty">Draw participants to create balanced table assignments.</div> : null}
-              </div>
-            </section> : null}
-
-            {tournamentSection === 'players' ? <section className="panel tournament-panel tournament-players-panel">
-            <PanelTitle icon={<Users />} title="Register Players" />
-                <form className="tournament-form" onSubmit={registerTournamentPlayer}>
-                  <label className="tournament-field tournament-field-wide"><span>Player source <small>Saved profile or someone new</small></span><select value={tournamentPlayerDraft.profileId} onChange={(event) => {
-                    const profile = state.profiles.find((item) => item.id === event.target.value);
-                    setTournamentPlayerDraft({ ...tournamentPlayerDraft, profileId: event.target.value, name: profile?.name ?? tournamentPlayerDraft.name, phone: profile?.phone ?? tournamentPlayerDraft.phone });
-                  }}>
-                    <option value="">New / manual player</option>
-                    {state.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-                  </select></label>
-                  <label className="tournament-field tournament-field-wide"><span>Player name</span><input value={tournamentPlayerDraft.name} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, name: event.target.value })} placeholder="Full name" /></label>
-                  <label className="tournament-field"><span>Phone <small>Optional</small></span><input value={tournamentPlayerDraft.phone} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, phone: event.target.value })} placeholder="(555) 555-0123" /></label>
-                  <label className="tournament-field"><span>Email <small>Optional</small></span><input value={tournamentPlayerDraft.email} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, email: event.target.value })} placeholder="player@example.com" /></label>
-                  <button className="primary-button tournament-submit" type="submit">Register player</button>
-                </form>
-                <div className="tournament-section-label">Registered field</div>
-                <div className="tournament-player-list">
-                  {tournament.players.map((player) => (
-                    <article key={player.id}>
-                      <div>
-                        <strong>{player.name}</strong>
-                        <span>{player.status} · {player.rebuys} rebuys · {player.addOns} add-ons</span>
-                      </div>
-                      <div className="tournament-player-actions">
-                        {player.status === 'Registered' ? <button className="mini-button" onClick={() => checkInTournamentPlayer(tournament, player.id)}>Check in</button> : null}
-                        <button className="mini-button" onClick={() => addTournamentEntry(tournament, player.id, 'rebuys')}>Rebuy</button>
-                        <button className="mini-button" onClick={() => addTournamentEntry(tournament, player.id, 'addOns')}>Add-on</button>
-                        {player.status !== 'Eliminated' ? <button className="mini-button" onClick={() => eliminateTournamentPlayer(tournament, player.id)}>Out</button> : null}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-            </section> : null}
-
-            {tournamentSection === 'payouts' ? <section className="panel tournament-panel tournament-prize-panel">
-            <PanelTitle icon={<Target />} title="Prize Pool" />
-                <div className="tournament-prize-total">
-                  <span>Total prize pool</span>
-                  <strong>${prizePool.toLocaleString()}</strong>
-                </div>
-                <div className="tournament-payout-list">
-                  {tournament.payouts.map((payout) => (
-                    <label key={payout.place}>
-                      <span>{payout.place}{payout.place === 1 ? 'st' : payout.place === 2 ? 'nd' : payout.place === 3 ? 'rd' : 'th'}</span>
-                      <input
-                        value={tournamentPayoutDrafts[payout.place] ?? String(payout.percent)}
-                        onChange={(event) => setTournamentPayoutDrafts({ ...tournamentPayoutDrafts, [payout.place]: event.target.value })}
-                        onBlur={(event) => updateTournamentPayout(tournament, payout.place, Number(event.target.value) || 0)}
-                        type="number"
-                        min="0"
-                        max="100"
-                      />
-                      <strong>${Math.round(prizePool * (payout.percent / 100)).toLocaleString()}</strong>
-                    </label>
-                  ))}
-                </div>
-            </section> : null}
-          </section>
-        ) : null}
-      </main>
+      <TournamentsView
+        state={state}
+        tournament={tournament}
+        currentLevel={currentLevel}
+        nextLevel={nextLevel}
+        prizePool={prizePool}
+        remaining={remaining}
+        tournamentDraft={tournamentDraft}
+        tournamentPayoutDrafts={tournamentPayoutDrafts}
+        tournamentPlayerDraft={tournamentPlayerDraft}
+        tournamentSection={tournamentSection}
+        tournamentView={tournamentView}
+        addTournamentEntry={addTournamentEntry}
+        advanceTournamentLevel={advanceTournamentLevel}
+        beginTournamentEdit={beginTournamentEdit}
+        checkInTournamentPlayer={checkInTournamentPlayer}
+        createTournament={createTournament}
+        drawTournamentTables={drawTournamentTables}
+        eliminateTournamentPlayer={eliminateTournamentPlayer}
+        formatTournamentTime={formatTournamentTime}
+        getTournamentActivePlayers={getTournamentActivePlayers}
+        getTournamentAverageStack={getTournamentAverageStack}
+        getTournamentEntries={getTournamentEntries}
+        onBeginCreate={() => {
+          setTournamentDraft({
+            name: `Tournament ${todayDate()}`,
+            buyIn: '',
+            startingStack: '20000',
+            levelMinutes: '20',
+            rebuyPrizePercent: '100',
+            tableSize: '9'
+          });
+          setTournamentView('create');
+        }}
+        openTournamentTv={openTournamentTv}
+        pauseTournament={pauseTournament}
+        registerTournamentPlayer={registerTournamentPlayer}
+        resumeTournament={resumeTournament}
+        runTournamentAgain={runTournamentAgain}
+        saveTournamentSettings={saveTournamentSettings}
+        setSelectedTournamentId={setSelectedTournamentId}
+        setTournamentDraft={setTournamentDraft}
+        setTournamentPayoutDrafts={setTournamentPayoutDrafts}
+        setTournamentPlayerDraft={setTournamentPlayerDraft}
+        setTournamentSection={setTournamentSection}
+        setTournamentView={setTournamentView}
+        startTournament={startTournament}
+        updateTournamentPayout={updateTournamentPayout}
+      />
     ));
   }
 
   if (route === 'customization') {
     return withShell('settings', (
-      <main className={`app-shell compact-shell settings-page settings-view-${settingsSection}`}>
-        <header className="topbar">
-          <div>
-            <h1>Settings</h1>
-            <p className="page-subtitle">Club, staff, tables, data, display, and legal information</p>
-          </div>
-          <button className="ghost-button" onClick={closeRoute}>
-            <X size={18} />
-            Close
-          </button>
-        </header>
-
-        <nav className="settings-nav" aria-label="Settings sections">
-          <button className={settingsSection === 'club' ? 'active' : ''} onClick={() => setSettingsSection('club')}>Club & license</button><button className={settingsSection === 'staff' ? 'active' : ''} onClick={() => setSettingsSection('staff')}>Staff</button><button className={settingsSection === 'tables' ? 'active' : ''} onClick={() => setSettingsSection('tables')}>Tables & fees</button><button className={settingsSection === 'data' ? 'active' : ''} onClick={() => setSettingsSection('data')}>Data</button><button className={settingsSection === 'display' ? 'active' : ''} onClick={() => setSettingsSection('display')}>Display</button><button className={settingsSection === 'legal' ? 'active' : ''} onClick={() => setSettingsSection('legal')}>Legal & support</button>
-        </nav>
-        <section className="customization-layout">
-          <section className="panel settings-panel account-management-panel" id="settings-club">
-            <PanelTitle icon={<KeyRound />} title="Account & License" />
-            <div className="preference-list">
-              <article className="preference-row">
-                <div>
-                  <strong>{state.settings.clubAccount?.clubName || 'Club account'}</strong>
-                  <span>
-                    {state.settings.pilotAccess
-                      ? `License ${state.settings.pilotAccess.licenseId || state.settings.pilotAccess.authorizationCode} expires ${state.settings.pilotAccess.expiresAt}`
-                      : 'No active license on file'}
-                  </span>
-                </div>
-                <label className="secondary-button license-file-button">
-                  Renew Key
-                  <input
-                    type="file"
-                    accept="application/json,.json,.key"
-                    onChange={(event) => applyReplacementPilotKey(event.target.files?.[0])}
-                  />
-                </label>
-              </article>
-              <form className="account-management-form" onSubmit={saveClubAccount}>
-                <input
-                  value={clubDraft.clubName}
-                  onChange={(event) => setClubDraft({ ...clubDraft, clubName: event.target.value })}
-                  placeholder="Club name"
-                />
-                <input
-                  value={clubDraft.accountName}
-                  onChange={(event) => setClubDraft({ ...clubDraft, accountName: event.target.value })}
-                  placeholder="Account name"
-                />
-                <input
-                  value={clubDraft.contactName}
-                  onChange={(event) => setClubDraft({ ...clubDraft, contactName: event.target.value })}
-                  placeholder="Primary contact"
-                />
-                <input
-                  type="email"
-                  value={clubDraft.email}
-                  onChange={(event) => setClubDraft({ ...clubDraft, email: event.target.value })}
-                  placeholder="Email"
-                />
-                <input
-                  value={clubDraft.phone}
-                  onChange={(event) => setClubDraft({ ...clubDraft, phone: event.target.value })}
-                  placeholder="Phone"
-                />
-                <input
-                  value={clubDraft.address}
-                  onChange={(event) => setClubDraft({ ...clubDraft, address: event.target.value })}
-                  placeholder="Address"
-                />
-                <button className="primary-button" type="submit">
-                  Save Account
-                </button>
-              </form>
-              <article className="preference-row membership-plan-heading">
-                <div><strong>Player memberships</strong><span>Create the plans published to Orbit Player. Purchases become club memberships and unlock game requests.</span></div>
-                <button className="secondary-button" type="button" onClick={() => updateSettings({ membershipPlans: [...state.settings.membershipPlans, { id: `plan-${Date.now()}`, name: 'New Membership', priceLabel: '$0', durationDays: 30, description: '', active: true }] })}><Plus size={16} /> Add plan</button>
-              </article>
-              <div className="preference-list">
-                {state.settings.membershipPlans.map((plan) => (
-                  <article className="preference-row" key={plan.id}>
-                    <div className="account-management-form">
-                      <input value={plan.name} aria-label="Membership name" placeholder="Membership name" onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, name: event.target.value } : item) })} />
-                      <input value={plan.priceLabel} aria-label="Membership price" placeholder="$40/mo" onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, priceLabel: event.target.value } : item) })} />
-                      <input type="number" min="1" value={plan.durationDays} aria-label="Membership duration in days" onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, durationDays: Math.max(1, Number(event.target.value) || 1) } : item) })} />
-                      <input value={plan.description ?? ''} aria-label="Membership description" placeholder="What this plan includes" onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, description: event.target.value } : item) })} />
-                    </div>
-                    <label><input type="checkbox" checked={plan.active} onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, active: event.target.checked } : item) })} /> Published</label>
-                    <button className="icon-button" type="button" aria-label={`Delete ${plan.name}`} onClick={() => updateSettings({ membershipPlans: state.settings.membershipPlans.filter((item) => item.id !== plan.id) })}><Trash2 size={16} /></button>
-                  </article>
-                ))}
-              </div>
-              {pilotKeyError ? <p className="access-error">{pilotKeyError}</p> : null}
-            </div>
-          </section>
-
-          <section className="panel settings-panel" id="settings-staff">
-            <PanelTitle icon={<Users />} title="Staff Accounts" />
-            <div className="preference-list">
-              <article className="preference-row">
-                <div>
-                  <strong>Active operator</strong>
-                  <span>Select the staff account using this station tonight.</span>
-                </div>
-                <select
-                  value={state.settings.activeStaffId ?? ''}
-                  onChange={(event) => selectActiveStaff(event.target.value)}
-                >
-                  <option value="">No operator selected</option>
-                  {state.settings.staffAccounts.filter((staff) => staff.active).map((staff) => (
-                    <option key={staff.id} value={staff.id}>
-                      {staff.name} - {staff.role}
-                    </option>
-                  ))}
-                </select>
-              </article>
-              <form className="staff-account-form" onSubmit={addStaffAccount}>
-                <input
-                  value={staffDraft.name}
-                  onChange={(event) => setStaffDraft({ ...staffDraft, name: event.target.value })}
-                  placeholder="Staff name"
-                />
-                <select
-                  value={staffDraft.role}
-                  onChange={(event) => setStaffDraft({ ...staffDraft, role: event.target.value as StaffRole })}
-                >
-                  <option value="Floor">Floor</option>
-                  <option value="Manager">Manager</option>
-                  <option value="Owner">Owner</option>
-                </select>
-                <input
-                  value={staffDraft.pin}
-                  onChange={(event) => setStaffDraft({ ...staffDraft, pin: event.target.value })}
-                  placeholder="PIN"
-                  type="password"
-                  inputMode="numeric"
-                />
-                <button className="secondary-button" type="submit">
-                  Add Staff
-                </button>
-              </form>
-              {state.settings.staffAccounts.length ? (
-                <div className="staff-account-list">
-                  {state.settings.staffAccounts.map((staff) => (
-                    <article className={staff.active ? 'staff-account-row' : 'staff-account-row inactive'} key={staff.id}>
-                      <div>
-                        <strong>{staff.name}</strong>
-                        <span>{staff.role} {staff.lastSelectedAt ? `- last selected ${formatClock(staff.lastSelectedAt)}` : ''}</span>
-                      </div>
-                      {staff.active ? (
-                        <button className="icon-button danger" onClick={() => deactivateStaffAccount(staff.id)} title="Deactivate staff account">
-                          <X size={16} />
-                        </button>
-                      ) : (
-                        <span>Inactive</span>
-                      )}
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <span className="muted-copy">No staff accounts yet.</span>
-              )}
-            </div>
-          </section>
-
-          <section className="panel settings-panel" id="settings-data">
-            <PanelTitle icon={<Download />} title="Data Safety" />
-            <div className="preference-list">
-              <article className="preference-row">
-                <div>
-                  <strong>Backup room data</strong>
-                  <span>Export a full local backup with tables, profiles, settings, account details, logs, and history.</span>
-                </div>
-                <button className="secondary-button" onClick={exportJson}>
-                  <Download size={16} />
-                  Export Backup
-                </button>
-              </article>
-              <article className="preference-row">
-                <div>
-                  <strong>Restore from backup</strong>
-                  <span>Import an Orbit backup file after confirming it should replace this installation's local state.</span>
-                </div>
-                <label className="secondary-button license-file-button">
-                  <Upload size={16} />
-                  Restore
-                  <input
-                    type="file"
-                    accept="application/json,.json"
-                    onChange={(event) => importBackupFile(event.target.files?.[0])}
-                  />
-                </label>
-              </article>
-              <article className="preference-row">
-                <div>
-                  <strong>Detailed pilot report</strong>
-                  <span>Export account, operational, staff usage, feature frequency, recent events, and feedback analytics.</span>
-                </div>
-                <div className="inline-actions">
-                  <button className="secondary-button" onClick={submitAnalyticalReport}>
-                    <Upload size={16} />
-                    Submit
-                  </button>
-                  <button className="secondary-button" onClick={exportPilotReport}>
-                    <Download size={16} />
-                    Export
-                  </button>
-                </div>
-              </article>
-              <article className="preference-row">
-                <div>
-                  <strong>Embedded backend</strong>
-                  <span>
-                    {backendStatus?.running
-                      ? `Running on ${backendStatus.host}:${backendStatus.port} with ${backendStatus.reportCount} stored report${backendStatus.reportCount === 1 ? '' : 's'}`
-                      : 'Starting with the desktop app'}
-                  </span>
-                </div>
-                <button
-                  className="secondary-button"
-                  onClick={() => window.tableManagerDesktop?.getBackendStatus().then((status) => setBackendStatus(status))}
-                >
-                  Refresh
-                </button>
-              </article>
-              <article className="preference-row">
-                <div>
-                  <strong>Save status</strong>
-                  <span>{saveStatus.message}</span>
-                </div>
-                <span className={`save-status ${saveStatus.state}`}>{saveStatus.state}</span>
-              </article>
-              {backupMessage ? <p className={backupMessage.includes('Backup') ? 'success-copy' : 'access-error'}>{backupMessage}</p> : null}
-              {reportMessage ? <p className={reportMessage.includes('failed') ? 'access-error' : 'success-copy'}>{reportMessage}</p> : null}
-            </div>
-          </section>
-
-          <section className="panel settings-panel" id="settings-tables">
-            <PanelTitle icon={<Settings />} title="Table Defaults" />
-            <div className="preference-list">
-              <article className="preference-row">
-                <div>
-                  <strong>New table fee model</strong>
-                  <span>Choose whether newly created tables use drop collection or player time fees.</span>
-                </div>
-                <div className="segmented-control">
-                  <button
-                    className={state.settings.defaultCollectionMode === 'Drop' ? 'secondary-button active' : 'ghost-button'}
-                    onClick={() => updateSettings({ defaultCollectionMode: 'Drop' })}
-                  >
-                    Drop
-                  </button>
-                  <button
-                    className={state.settings.defaultCollectionMode === 'Time' ? 'secondary-button active' : 'ghost-button'}
-                    onClick={() => updateSettings({ defaultCollectionMode: 'Time' })}
-                  >
-                    Time fees
-                  </button>
-                </div>
-              </article>
-              <article className="preference-row">
-                <div>
-                  <strong>Apply default to active tables</strong>
-                  <span>Update every open table and seated player timer setting to the selected collection mode.</span>
-                </div>
-                <button className="secondary-button" onClick={applyDefaultCollectionToActiveTables}>
-                  Apply
-                </button>
-              </article>
-              <article className="preference-row">
-                <div>
-                  <strong>Table cap</strong>
-                  <span>Use a standard table size for new and open tables. Caps are limited to 6, 8, or 10 seats.</span>
-                </div>
-                <div className="segmented-control">
-                  {tableCaps.map((cap) => (
-                    <button
-                      key={cap}
-                      className={state.settings.defaultTableCap === cap ? 'secondary-button active' : 'ghost-button'}
-                      onClick={() => updateDefaultTableCap(cap)}
-                    >
-                      {cap}
-                    </button>
-                  ))}
-                </div>
-              </article>
-              <article className="preference-row">
-                <div>
-                  <strong>Default hourly fee</strong>
-                  <span>Used for time-fee games where players pay by the hour.</span>
-                </div>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={state.settings.defaultHourlyFee}
-                  onChange={(event) => updateSettings({ defaultHourlyFee: Number(event.target.value) })}
-                />
-              </article>
-              <article className="preference-row">
-                <div>
-                  <strong>Default drop estimate</strong>
-                  <span>Estimated money removed from drop tables per occupied seat-hour when no actual drop is logged.</span>
-                </div>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={state.settings.defaultEstimatedDropPerSeatHour}
-                  onChange={(event) => updateSettings({ defaultEstimatedDropPerSeatHour: Number(event.target.value) })}
-                />
-              </article>
-              {state.games.map((game) => {
-                const collectionProfile = getCollectionProfile(state, game.id);
-                return (
-                  <article className="preference-row collection-profile-row" key={game.id}>
-                    <div>
-                      <strong>{game.name} collection profile</strong>
-                      <span>{collectionProfile.collectionMode === 'Time' ? 'Hourly fee model' : 'Money removed from table model'}</span>
-                    </div>
-                    <div className="segmented-control collection-profile-control">
-                      <button
-                        className={collectionProfile.collectionMode === 'Drop' ? 'secondary-button active' : 'ghost-button'}
-                        onClick={() => updateCollectionProfile(game.id, { collectionMode: 'Drop' })}
-                      >
-                        Drop
-                      </button>
-                      <button
-                        className={collectionProfile.collectionMode === 'Time' ? 'secondary-button active' : 'ghost-button'}
-                        onClick={() => updateCollectionProfile(game.id, { collectionMode: 'Time' })}
-                      >
-                        Time
-                      </button>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={collectionProfile.hourlyFee}
-                        onChange={(event) => updateCollectionProfile(game.id, { hourlyFee: Number(event.target.value) })}
-                        title="Hourly fee"
-                      />
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={collectionProfile.estimatedDropPerSeatHour}
-                        onChange={(event) => updateCollectionProfile(game.id, { estimatedDropPerSeatHour: Number(event.target.value) })}
-                        title="Estimated drop per occupied seat-hour"
-                      />
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="panel settings-panel" id="settings-display">
-            <PanelTitle icon={<Moon />} title="Display" />
-            <div className="preference-list">
-              <article className="preference-row">
-                <div>
-                  <strong>Dark mode</strong>
-                  <span>Use the lower-brightness theme for the floor, pop-outs, and summaries.</span>
-                </div>
-                <label className="switch-control">
-                  <input
-                    type="checkbox"
-                    checked={state.settings.lowLight}
-                    onChange={(event) => updateSettings({ lowLight: event.target.checked })}
-                  />
-                  <span>{state.settings.lowLight ? 'On' : 'Off'}</span>
-                </label>
-              </article>
-              <article className="preference-row">
-                <div>
-                  <strong>Recent player shortcuts</strong>
-                  <span>Show quick-fill buttons below Quick Add on the landing page.</span>
-                </div>
-                <label className="switch-control">
-                  <input
-                    type="checkbox"
-                    checked={state.settings.showRecentPlayers}
-                    onChange={(event) => updateSettings({ showRecentPlayers: event.target.checked })}
-                  />
-                  <span>{state.settings.showRecentPlayers ? 'Shown' : 'Hidden'}</span>
-                </label>
-              </article>
-            </div>
-          </section>
-
-          <section className="panel settings-panel" id="settings-legal">
-            <PanelTitle icon={<FileText />} title="Legal & Support" />
-            <div className="preference-list">
-              <article className="preference-row">
-                <div><strong>Privacy Policy</strong><span>Read how Orbit collects, uses, discloses, and retains personal data.</span></div>
-                <a className="secondary-button" href="https://orbitapp-one.vercel.app/privacy" target="_blank" rel="noreferrer">Read policy</a>
-              </article>
-              <article className="preference-row">
-                <div><strong>Terms of Service</strong><span>Read the terms that govern Orbit websites, software, apps, events, APIs, and related services.</span></div>
-                <a className="secondary-button" href="https://orbitapp-one.vercel.app/terms" target="_blank" rel="noreferrer">Read terms</a>
-              </article>
-              <article className="preference-row">
-                <div><strong>Support</strong><span>Contact Orbit for account, installation, or operating assistance.</span></div>
-                <a className="secondary-button" href="https://orbitapp-one.vercel.app/support" target="_blank" rel="noreferrer">Open support</a>
-              </article>
-            </div>
-          </section>
-        </section>
-      </main>
+      <SettingsView
+        state={state}
+        settingsSection={settingsSection}
+        clubDraft={clubDraft}
+        staffDraft={staffDraft}
+        pilotKeyError={pilotKeyError}
+        backendStatus={backendStatus}
+        saveStatus={saveStatus}
+        backupMessage={backupMessage}
+        reportMessage={reportMessage}
+        closeRoute={closeRoute}
+        applyReplacementPilotKey={applyReplacementPilotKey}
+        saveClubAccount={saveClubAccount}
+        updateSettings={updateSettings}
+        selectActiveStaff={selectActiveStaff}
+        addStaffAccount={addStaffAccount}
+        formatClock={formatClock}
+        deactivateStaffAccount={deactivateStaffAccount}
+        exportJson={exportJson}
+        importBackupFile={importBackupFile}
+        submitAnalyticalReport={submitAnalyticalReport}
+        exportPilotReport={exportPilotReport}
+        applyDefaultCollectionToActiveTables={applyDefaultCollectionToActiveTables}
+        updateDefaultTableCap={updateDefaultTableCap}
+        updateCollectionProfile={updateCollectionProfile}
+        setBackendStatus={setBackendStatus}
+        setClubDraft={setClubDraft}
+        setSettingsSection={setSettingsSection}
+        setStaffDraft={setStaffDraft}
+      />
     ));
   }
 
   if (route === 'builder') {
-    const getGameFormat = (name: string) =>
-      /\broe\b|round of each/i.test(name) ? 'ROE'
-      : /\bdc\b|dealer.?s choice/i.test(name) ? 'Dealer’s Choice'
-      : /\bplo\b|omaha/i.test(name) ? 'PLO'
-      : /\bnlh\b|hold.?em/i.test(name) ? 'NLH'
-      : /mixed|mix/i.test(name) ? 'Mixed'
-      : 'Other';
-    const getGameStakes = (name: string) => name.match(/\d+\s*\/\s*\d+/)?.[0]?.replace(/\s/g, '') ?? 'Unspecified';
-    const getGameStatus = (game: GameConfig) => {
-      if (state.sessions.some((session) => session.gameId === game.id && session.status === 'Running')) return 'Running';
-      const viability = getViabilityState(state, game).state;
-      return viability === 'Ready to Start' || viability === 'Likely to Start' ? 'Ready' : 'Needs players';
-    };
-    const gameFormats = ['All formats', ...Array.from(new Set(state.games.map((game) => getGameFormat(game.name))))];
-    const gameStakes = ['All stakes', ...Array.from(new Set(state.games.map((game) => getGameStakes(game.name))))];
-    const filteredGameOptions = state.games.filter((game) => (gameFormatFilter === 'All formats' || getGameFormat(game.name) === gameFormatFilter) && (gameStakesFilter === 'All stakes' || getGameStakes(game.name) === gameStakesFilter) && (gameStatusFilter === 'All statuses' || getGameStatus(game) === gameStatusFilter));
     return withShell('games', (
-      <main className="app-shell compact-shell">
-        <header className="topbar">
-          <div>
-            <h1>Games</h1>
-            <p className="page-subtitle">Tonight's demand and forming tables</p>
-          </div>
-          <div className="topbar-actions">
-            <button className="ghost-button" onClick={exportPilotReport}>
-              <Download size={18} />
-              Export Pilot
-            </button>
-            <button className="ghost-button" onClick={closeRoute}>
-              <X size={18} />
-              Close
-            </button>
-          </div>
-        </header>
-
-        <nav className="route-tabs" aria-label="Games sections">
-          <span className="active" aria-current="page">Tonight</span>
-          <button onClick={() => openRoute('signals')}>Outreach</button>
-          <button onClick={() => openRoute('customization')}>Configuration</button>
-        </nav>
-
-        <section className="game-filter-bar">
-          <label><span>Stakes</span><select value={gameStakesFilter} onChange={(event) => setGameStakesFilter(event.target.value)}>{gameStakes.map((stakes) => <option key={stakes}>{stakes}</option>)}</select></label>
-          <label><span>Format</span><select value={gameFormatFilter} onChange={(event) => setGameFormatFilter(event.target.value)}>{gameFormats.map((format) => <option key={format}>{format}</option>)}</select></label>
-          <label><span>Status</span><select value={gameStatusFilter} onChange={(event) => setGameStatusFilter(event.target.value)}>{['All statuses', 'Running', 'Ready', 'Needs players'].map((status) => <option key={status}>{status}</option>)}</select></label>
-        </section>
-
-        <section className="panel game-requests-panel">
-          <div className="section-heading">
-            <div>
-              <h2>Player Game Requests</h2>
-              <p className="muted-copy">Member interest by exact stakes and format. Build a forming table when demand is ready.</p>
-            </div>
-          </div>
-          <div className="forming-list">
-            {state.games
-              .map((game) => ({ game, demand: getDemand(game, state.interests) }))
-              .filter(({ demand }) => demand.interested + demand.confirmed + demand.waiting > 0)
-              .sort((left, right) => right.demand.totalDemand - left.demand.totalDemand)
-              .map(({ game, demand }) => {
-                const activeSession = state.sessions.find((session) => session.gameId === game.id && ['Running', 'Forming', 'Paused'].includes(session.status));
-                const viability = getViabilityState(state, game);
-                return (
-                  <article className="forming-card" key={`request-${game.id}`}>
-                    <div>
-                      <strong>{game.name}</strong>
-                      <span className={`status-pill ${viability.state === 'Ready to Start' || viability.state === 'Likely to Start' ? 'likely' : ''}`}>
-                        {activeSession ? activeSession.status : viability.state}
-                      </span>
-                    </div>
-                    <p>{demand.interested} interested / {demand.confirmed} coming / {demand.inRoom} in room</p>
-                    <small>{viability.nextStep}</small>
-                    {!activeSession ? (
-                      <button className="secondary-button" onClick={() => addSession(game.id)}>
-                        Build {game.name}
-                      </button>
-                    ) : (
-                      <small>{activeSession.label} is already {activeSession.status.toLowerCase()}.</small>
-                    )}
-                  </article>
-                );
-              })}
-            {!state.games.some((game) => {
-              const demand = getDemand(game, state.interests);
-              return demand.interested + demand.confirmed + demand.waiting > 0;
-            }) ? <p className="muted-copy">No member game requests yet.</p> : null}
-          </div>
-        </section>
-
-        <section className="panel">
-          <div className="builder-controls">
-            <label>
-              Game
-              <select
-                value={coordinationConfig.gameId}
-                onChange={(event: { target: { value: any; }; }) => setCoordinationConfig({ ...coordinationConfig, gameId: event.target.value })}
-              >
-                {filteredGameOptions.map((game: { id: any; name: any; }) => (
-                  <option key={game.id} value={game.id}>
-                    {game.name}
-                  </option>
-                ))}
-                {!filteredGameOptions.length ? <option value="">No matching games</option> : null}
-              </select>
-            </label>
-            <label>
-              Seats
-              <input
-                type="number"
-                min="2"
-                max={state.games.find((game: { id: any; }) => game.id === coordinationConfig.gameId)?.maxSeats ?? 10}
-                value={coordinationConfig.seats}
-                onChange={(event: { target: { value: any; }; }) => setCoordinationConfig({ ...coordinationConfig, seats: Number(event.target.value) })}
-              />
-            </label>
-            <button className="primary-button" onClick={addPlannedSession}>
-              <Plus size={18} />
-              Start Forming Table
-            </button>
-          </div>
-          <div className="builder-grid single-window-grid">
-            {participantPool.map((candidate: { id: any; playerName: any; reasons: any[]; profile: { preferredStakes: any; typicalBuyInMin: any; typicalBuyInMax: any; }; source: string; }, index: number) => (
-              <article className="candidate-card" key={candidate.id}>
-                <div className="candidate-rank">{index + 1}</div>
-                <div>
-                  <h3>{candidate.playerName}</h3>
-                  <p>{candidate.reasons.slice(0, 3).join(' - ')}</p>
-                  <small>
-                    {candidate.profile?.preferredStakes || 'No saved stakes'} -{' '}
-                    {candidate.profile
-                      ? `$${candidate.profile.typicalBuyInMin}-${candidate.profile.typicalBuyInMax} buy-in`
-                      : 'No profile'}
-                  </small>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel">
-          <PanelTitle icon={<Target />} title="Two-Table Balance Option" />
-          <div className="balance-list">
-            {balancePlans.filter((plan: { game: { id: any; }; }) => plan.game.id === coordinationConfig.gameId).length ? (
-              balancePlans
-                .filter((plan: { game: { id: any; }; }) => plan.game.id === coordinationConfig.gameId)
-                .map((plan: { game: any; fromTable: any; demand: any; tableASeatsAfterMove: any; tableBProjectedSeats: any; nextStep: any; moveCandidates: any; }) => (
-                  <article className="balance-card" key={`${plan.game.id}-${plan.fromTable.id}`}>
-                    <div>
-                      <h3>{plan.game.name}</h3>
-                      <p>{plan.demand.totalDemand} total demand - Table A {plan.tableASeatsAfterMove}/{plan.fromTable.maxSeats} after move - Table B projected {plan.tableBProjectedSeats}/{plan.game.maxSeats}</p>
-                      <small>{plan.nextStep}</small>
-                    </div>
-                    <div className="balance-movers">
-                      {plan.moveCandidates.map((candidate: { id: any; playerName: any; reasons: any[]; }) => (
-                        <span key={candidate.id}>{candidate.playerName} - {candidate.reasons.slice(0, 2).join(' - ')}</span>
-                      ))}
-                    </div>
-                    <button className="primary-button" onClick={() => createBalancedTable(plan)}>
-                      Create Table B
-                    </button>
-                  </article>
-                ))
-            ) : (
-              <p className="muted-copy">This appears when a game has more than 12 total players across in-room, waiting, coming, and interested demand.</p>
-            )}
-          </div>
-        </section>
-      </main>
+      <BuilderView
+        games={state.games}
+        sessions={state.sessions}
+        coordinationConfig={coordinationConfig}
+        gameFormatFilter={gameFormatFilter}
+        gameStakesFilter={gameStakesFilter}
+        gameStatusFilter={gameStatusFilter}
+        participantPool={participantPool}
+        balancePlans={balancePlans}
+        getGameDemand={(game) => getDemand(game, state.interests)}
+        getGameViability={(game) => getViabilityState(state, game)}
+        onAddPlannedSession={addPlannedSession}
+        onBuildGame={addSession}
+        onClose={closeRoute}
+        onCoordinationConfigChange={setCoordinationConfig}
+        onCreateBalancedTable={createBalancedTable}
+        onExportPilotReport={exportPilotReport}
+        onGameFormatFilterChange={setGameFormatFilter}
+        onGameStakesFilterChange={setGameStakesFilter}
+        onGameStatusFilterChange={setGameStatusFilter}
+        onOpenOutreach={() => openRoute('signals')}
+        onOpenConfiguration={() => openRoute('customization')}
+      />
     ));
   }
 
   if (route === 'profiles') {
     return withShell('players', (
-      <main className="app-shell compact-shell">
-        <header className="topbar">
-          <div>
-            <h1>Players</h1>
-            <p className="page-subtitle">Active memberships and today's player activity</p>
-          </div>
-          <div className="topbar-actions players-header-actions">
-            <button
-              className="player-tool-icon"
-              onClick={() => {
-                setQrManualValue('');
-                setQrScanMessage('Point the camera at an active Orbit membership QR code.');
-                setQrScanAttempt((attempt) => attempt + 1);
-                setPlayerPopup('scan');
-              }}
-              title="Scan member QR"
-              aria-label="Scan member QR"
-            >
-              <ScanLine size={19} />
-            </button>
-            <button className="player-tool-icon" onClick={() => setPlayerPopup('ledger')} title="Open player ledger" aria-label="Open player ledger"><Clock size={19} /></button>
-            <button className="player-tool-icon primary" onClick={() => setPlayerPopup('add')} title="Add player" aria-label="Add player"><Plus size={19} /></button>
-          </div>
-        </header>
-
-        <Dialog.Root open={playerPopup !== null} onOpenChange={(open) => { if (!open) setPlayerPopup(null); }}>
-          <Dialog.Portal>
-            <Dialog.Overlay className="player-popup-overlay" />
-            <Dialog.Content className="player-popup-content">
-              <div className="player-popup-header">
-                <div>
-                  <Dialog.Title>{playerPopup === 'add' ? 'Add member' : playerPopup === 'scan' ? 'Scan member QR' : 'Player ledger'}</Dialog.Title>
-                  <Dialog.Description>
-                    {playerPopup === 'add'
-                      ? 'Record a walk-in membership paid at the club.'
-                      : playerPopup === 'scan'
-                        ? 'Scan an active membership from Orbit Player to check the member in.'
-                        : 'Recent check-ins and transactions.'}
-                  </Dialog.Description>
-                </div>
-                <Dialog.Close asChild><button className="icon-button" aria-label="Close"><X size={18} /></button></Dialog.Close>
-              </div>
-              {playerPopup === 'add' ? (
-                <form className="player-popup-form" onSubmit={(event) => { addProfile(event); setPlayerPopup(null); }}>
-                  <label><span>Player name</span><input autoFocus value={newProfile.name} onChange={(event) => setNewProfile({ ...newProfile, name: event.target.value })} placeholder="Full name" /></label>
-                  <label><span>Phone</span><input value={newProfile.phone} onChange={(event) => setNewProfile({ ...newProfile, phone: event.target.value })} placeholder="Phone number" /></label>
-                  <label><span>Preferred game</span><select value={newProfile.preferredGameId} onChange={(event) => setNewProfile({ ...newProfile, preferredGameId: event.target.value, preferredGameIds: [event.target.value] })}>{state.games.map((game) => <option key={game.id} value={game.id}>{game.name}</option>)}</select></label>
-                  <div className="player-popup-form-grid">
-                    <label><span>Pass type</span><select value={newProfile.membershipPlan} onChange={(event) => setNewProfile({ ...newProfile, membershipPlan: event.target.value as 'day' | 'monthly' })}><option value="day">Day pass (24 hours)</option><option value="monthly">Monthly (30 days)</option></select></label>
-                    <label><span>Amount paid in person</span><input type="number" min="0" step="0.01" value={newProfile.membershipAmount} onChange={(event) => setNewProfile({ ...newProfile, membershipAmount: Number(event.target.value) })} placeholder="0.00" /></label>
-                  </div>
-                  <label><span>Birthday</span><input type="date" value={newProfile.birthday} onChange={(event) => setNewProfile({ ...newProfile, birthday: event.target.value })} /></label>
-                  <div className="player-popup-actions"><Dialog.Close asChild><button className="ghost-button" type="button">Cancel</button></Dialog.Close><button className="primary-button" type="submit">Add active member</button></div>
-                </form>
-              ) : playerPopup === 'scan' ? (
-                <div className="membership-qr-scanner">
-                  <div className="membership-qr-camera">
-                    <video ref={qrVideoRef} autoPlay muted playsInline aria-label="Membership QR camera preview" />
-                    <span className="membership-qr-frame" aria-hidden="true" />
-                  </div>
-                  <p className="membership-qr-message" role="status">{qrScanMessage}</p>
-                  <form
-                    className="membership-qr-manual"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      qrScannerControlsRef.current?.stop();
-                      qrScannerControlsRef.current = null;
-                      handleMembershipQrCheckIn(qrManualValue);
-                    }}
-                  >
-                    <label>
-                      <span>USB scanner or QR value</span>
-                      <input
-                        value={qrManualValue}
-                        onChange={(event) => setQrManualValue(event.target.value)}
-                        placeholder="Scan or paste membership QR"
-                        autoComplete="off"
-                      />
-                    </label>
-                    <button className="primary-button" type="submit" disabled={!qrManualValue.trim()}>Check in</button>
-                  </form>
-                  <div className="membership-qr-actions">
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={() => {
-                        qrScannerControlsRef.current?.stop();
-                        qrScannerControlsRef.current = null;
-                        setQrScanMessage('Restarting camera…');
-                        setQrScanAttempt((attempt) => attempt + 1);
-                      }}
-                    >
-                      Restart camera
-                    </button>
-                    <Dialog.Close asChild><button className="secondary-button" type="button">Done</button></Dialog.Close>
-                  </div>
-                </div>
-              ) : (
-                <div className="player-popup-ledger">
-                  {state.playerLedger.length ? state.playerLedger.slice(0, 40).map((entry) => <article key={entry.id}><div><strong>{entry.playerName}</strong><span>{entry.type}{entry.note ? ` · ${entry.note}` : ''}</span></div><div><strong>{entry.amount ? `$${entry.amount.toLocaleString()}` : 'Not recorded'}</strong><time>{formatClock(entry.timestamp)}</time></div></article>) : <div className="player-popup-empty"><strong>No ledger activity</strong><span>Check-ins and transactions will appear here.</span></div>}
-                </div>
-              )}
-            </Dialog.Content>
-          </Dialog.Portal>
-        </Dialog.Root>
-
-        <nav className="route-tabs players-section-tabs" aria-label="Player sections">
-          <button className={playerSection === 'memberships' ? 'active' : ''} onClick={() => setPlayerSection('memberships')}>
-            Memberships <span>{membershipDirectoryProfiles.length}</span>
-          </button>
-          <button className={playerSection === 'requests' ? 'active' : ''} onClick={() => setPlayerSection('requests')}>
-            Requests <span>{pendingMembershipProfiles.length + approvedMembershipProfiles.length}</span>
-          </button>
-          <button className={playerSection === 'today' ? 'active' : ''} onClick={() => setPlayerSection('today')}>
-            Today <span>{todayPlayerActivity.length}</span>
-          </button>
-        </nav>
-
-        {playerSection === 'memberships' ? <>
-
-        <section className="profile-command-strip">
-          <article>
-            <span className="eyebrow">Directory health</span>
-            <strong>{state.profiles.length} profiles</strong>
-            <small>{inClubInterests.length} in club now</small>
-          </article>
-          <article>
-            <span className="eyebrow">Memberships</span>
-            <strong>{activeMemberProfiles.length} active</strong>
-            <small>{pendingMembershipProfiles.length} new · {approvedMembershipProfiles.length} approved at door</small>
-          </article>
-          <div className="profile-command-actions">
-            <button className="ghost-button" onClick={() => setProfileSearch('')}>
-              Clear Search
-            </button>
-          </div>
-        </section>
-
-        <section className="profiles-layout">
-          <section className="panel profile-directory-panel">
-            <PanelTitle icon={<Users />} title="Player Directory" />
-            <div className="profile-search-row">
-              <input
-                value={profileSearch}
-                onChange={(event: { target: { value: any; }; }) => setProfileSearch(event.target.value)}
-                placeholder="Search players, stakes, companions, notes"
-              />
-              <span>{membershipDirectoryProfiles.length} members shown</span>
-            </div>
-            {duplicateProfiles.length ? (
-              <div className="duplicate-list">
-                {duplicateProfiles.map((group: any[]) => (
-                  <article className="duplicate-card" key={group[0].name.toLowerCase()}>
-                    <span>Possible duplicate: {group.map((profile: { name: any; }) => profile.name).join(', ')}</span>
-                    <button className="secondary-button" onClick={() => mergeDuplicateProfiles(group)}>
-                      Merge
-                    </button>
-                  </article>
-                ))}
-              </div>
-            ) : null}
-            <div className="profile-grid">
-              {membershipDirectoryProfiles.map((profile) => {
-                const preferredGame = state.games.find((game) => game.id === profile.preferredGameId)?.name ?? profile.preferredStakes;
-                const gamePlayEntries = getGamePlayEntries(profile);
-                const mostPlayedGame = getMostPlayedGameName(profile);
-                const companionNames = profile.commonlyPlaysWithProfileIds
-                  .map((id) => state.profiles.find((candidate) => candidate.id === id)?.name)
-                  .filter(Boolean);
-                const inClub = inClubInterests.some(
-                  (interest: { profileId: any; playerName: string; }) => interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()
-                );
-                const seated = state.playerSessions.some(
-                  (session) => !session.leftAt && (session.profileId === profile.id || session.playerName.toLowerCase() === profile.name.toLowerCase())
-                );
-                return (
-                  <article className="profile-card" key={profile.id}>
-                    <div className="profile-card-main">
-                      <div className="profile-card-header">
-                        <div>
-                          <h3>{profile.name}</h3>
-                          <p>{preferredGame || 'No preferred game'}</p>
-                        </div>
-                        {seated ? <span className="status-pill viable">Seated</span> : inClub ? <span className="status-pill viable">In club</span> : null}
-                      </div>
-                      <div className="profile-card-stats">
-                        <span>Total <strong>{formatHours(profile.totalTimePlayedHours)}</strong></span>
-                        <span>Last <strong>{formatHours(profile.lastSessionTimePlayedHours)}</strong></span>
-                        <span>Most played <strong>{mostPlayedGame}</strong></span>
-                      </div>
-                      {gamePlayEntries.length ? (
-                        <div className="profile-game-counts">
-                          {gamePlayEntries.slice(0, 4).map(([gameId, count]) => (
-                            <span key={gameId}>{getGameName(gameId)}: <strong>{count}</strong></span>
-                          ))}
-                        </div>
-                      ) : (
-                        <small>No seated game history yet.</small>
-                      )}
-                      <small>Membership: {profile.membershipStartDate || 'Not set'} to {profile.membershipExpirationDate || 'Not set'}</small>
-                      {profile.phone ? <small>Phone: {profile.phone}</small> : null}
-                      {companionNames.length > 0 ? <small>Plays with: {companionNames.join(', ')}</small> : null}
-                      {editingProfileId === profile.id && profileEditDraft ? (
-                        <form className="profile-edit-form" onSubmit={saveProfileEdit}>
-                          <input
-                            value={profileEditDraft.name}
-                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, name: event.target.value })}
-                            placeholder="Player name"
-                          />
-                          <input
-                            value={profileEditDraft.phone}
-                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, phone: event.target.value })}
-                            placeholder="Phone"
-                          />
-                          <label>
-                            Member since
-                            <input
-                              type="date"
-                              value={profileEditDraft.membershipStartDate}
-                              onChange={(event) => setProfileEditDraft({ ...profileEditDraft, membershipStartDate: event.target.value })}
-                            />
-                          </label>
-                          <label>
-                            Expires
-                            <input
-                              type="date"
-                              value={profileEditDraft.membershipExpirationDate}
-                              onChange={(event) => setProfileEditDraft({ ...profileEditDraft, membershipExpirationDate: event.target.value })}
-                            />
-                          </label>
-                          <select
-                            value={profileEditDraft.preferredGameId}
-                            onChange={(event) =>
-                              setProfileEditDraft({
-                                ...profileEditDraft,
-                                preferredGameId: event.target.value,
-                                preferredGameIds: Array.from(new Set([event.target.value, ...(profileEditDraft.preferredGameIds ?? [])]))
-                              })
-                            }
-                          >
-                            {state.games.map((game) => (
-                              <option key={game.id} value={game.id}>
-                                {game.name}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            value={profileEditDraft.preferredStakes}
-                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, preferredStakes: event.target.value })}
-                            placeholder="Preferred stakes"
-                          />
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.1"
-                            value={profileEditDraft.totalTimePlayedHours}
-                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, totalTimePlayedHours: Number(event.target.value) })}
-                            title="Total time played"
-                          />
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.1"
-                            value={profileEditDraft.lastSessionTimePlayedHours}
-                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, lastSessionTimePlayedHours: Number(event.target.value) })}
-                            title="Last session time played"
-                          />
-                          <select
-                            multiple
-                            value={profileEditDraft.commonlyPlaysWithProfileIds}
-                            onChange={(event) =>
-                              setProfileEditDraft({
-                                ...profileEditDraft,
-                                commonlyPlaysWithProfileIds: Array.from(event.target.selectedOptions).map((option) => option.value)
-                              })
-                            }
-                            title="Commonly plays with"
-                          >
-                            {state.profiles
-                              .filter((candidate) => candidate.id !== profile.id)
-                              .map((candidate) => (
-                                <option key={candidate.id} value={candidate.id}>
-                                  {candidate.name}
-                                </option>
-                              ))}
-                          </select>
-                          <textarea
-                            value={profileEditDraft.notes}
-                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, notes: event.target.value })}
-                            placeholder="Owner notes"
-                          />
-                          <div className="profile-edit-actions">
-                            <button className="primary-button" type="submit">
-                              <Save size={16} />
-                              Save
-                            </button>
-                            <button className="ghost-button" type="button" onClick={cancelEditProfile}>
-                              Cancel
-                            </button>
-                          </div>
-                        </form>
-                      ) : null}
-                    </div>
-                    <div className="profile-actions">
-                      <button className="secondary-button" onClick={() => beginEditProfile(profile)}>
-                        <Edit3 size={16} />
-                        Edit
-                      </button>
-                      <button className="secondary-button" onClick={() => (inClub ? removeProfileFromClub(profile) : addProfileToClub(profile))}>
-                        {inClub ? 'Remove' : 'Check in'}
-                      </button>
-                      <button className="icon-button danger" onClick={() => deleteProfile(profile.id)} title="Remove profile">
-                        <Trash2 size={17} />
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
-              {!membershipDirectoryProfiles.length ? <p className="muted-copy">No matching memberships.</p> : null}
-            </div>
-          </section>
-
-          <div className="profiles-right-column">
-            <section className="panel">
-              <PanelTitle icon={<Users />} title="In Club" />
-              <div className="club-list">
-                {inClubInterests.length ? (
-                  inClubInterests.map((interest: { id: string; playerName: any; gameId: any; }) => (
-                    <article className="club-card" key={interest.id}>
-                      <div>
-                        <strong>{interest.playerName}</strong>
-                        <small>{state.games.find((game: { id: any; }) => game.id === interest.gameId)?.name ?? 'Unknown game'}</small>
-                      </div>
-                      <button className="secondary-button" onClick={() => deleteInterest(interest.id)}>
-                        Remove
-                      </button>
-                    </article>
-                  ))
-                ) : (
-                  <p className="muted-copy">No one marked in club.</p>
-                )}
-              </div>
-            </section>
-
-            <section className="panel">
-              <PanelTitle icon={<Plus />} title="Add Players" />
-              <div className="profile-form-hint">
-                <strong>Quick profile builder</strong>
-                <span>Create a usable player record for recommendations, waitlist matching, and loyalty tracking.</span>
-              </div>
-              <form className="profile-form" onSubmit={addProfile}>
-                <input
-                  className="profile-form-name"
-                  value={newProfile.name}
-                  onChange={(event: { target: { value: any; }; }) => setNewProfile({ ...newProfile, name: event.target.value })}
-                  placeholder="Player name"
-                />
-                <input
-                  value={newProfile.phone}
-                  onChange={(event: { target: { value: string; }; }) => setNewProfile({ ...newProfile, phone: event.target.value })}
-                  placeholder="Phone"
-                  title="Phone"
-                />
-                <select
-                  className="profile-form-game"
-                  value={newProfile.preferredGameId}
-                  onChange={(event: { target: { value: any; }; }) =>
-                    setNewProfile({
-                      ...newProfile,
-                      preferredGameId: event.target.value,
-                      preferredGameIds: [event.target.value]
-                    })
-                  }
-                  title="Preferred game"
-                >
-                  {state.games.map((game: { id: any; name: any; }) => (
-                    <option key={game.id} value={game.id}>
-                      {game.name}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="date"
-                  value={newProfile.birthday}
-                  onChange={(event: { target: { value: string; }; }) => setNewProfile({ ...newProfile, birthday: event.target.value })}
-                  title="Birthday"
-                />
-                <input
-                  type="date"
-                  value={newProfile.membershipStartDate}
-                  onChange={(event: { target: { value: string; }; }) => setNewProfile({ ...newProfile, membershipStartDate: event.target.value })}
-                  title="Membership start"
-                />
-                <input
-                  type="date"
-                  value={newProfile.membershipExpirationDate}
-                  onChange={(event: { target: { value: string; }; }) => setNewProfile({ ...newProfile, membershipExpirationDate: event.target.value })}
-                  title="Membership expiration"
-                />
-                <input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={newProfile.totalTimePlayedHours}
-                  onChange={(event: { target: { value: any; }; }) => setNewProfile({ ...newProfile, totalTimePlayedHours: Number(event.target.value) })}
-                  title="Total time played"
-                />
-                <input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={newProfile.lastSessionTimePlayedHours}
-                  onChange={(event: { target: { value: any; }; }) => setNewProfile({ ...newProfile, lastSessionTimePlayedHours: Number(event.target.value) })}
-                  title="Last session time played"
-                />
-                <select
-                  className="profile-form-companions"
-                  multiple
-                  value={newProfile.commonlyPlaysWithProfileIds}
-                  onChange={(event) =>
-                    setNewProfile({
-                      ...newProfile,
-                      commonlyPlaysWithProfileIds: Array.from(event.target.selectedOptions).map((option) => option.value),
-                      usualCompanions: Array.from(event.target.selectedOptions)
-                        .map((option) => option.text)
-                        .join(', ')
-                    })
-                  }
-                  title="Commonly plays with"
-                >
-                  {state.profiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.name}
-                    </option>
-                  ))}
-                </select>
-                <button className="primary-button">
-                  <Plus size={18} />
-                  Add
-                </button>
-              </form>
-              {profileFormMessage ? <p className="profile-form-message">{profileFormMessage}</p> : null}
-              <textarea
-                className="import-box"
-                value={importText}
-                onChange={(event: { target: { value: any; }; }) => setImportText(event.target.value)}
-                placeholder="Import CSV: name, preferred game, birthday, membership start, membership expiration, companions separated by |"
-              />
-              <div className="inline-actions">
-                <button className="secondary-button import-button" onClick={importProfiles}>
-                  Import Pasted People
-                </button>
-                <label className="secondary-button license-file-button">
-                  <Upload size={16} />
-                  Upload CSV / XLSX
-                  <input
-                    type="file"
-                    accept=".csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    onChange={(event) => importProfileFile(event.target.files?.[0])}
-                  />
-                </label>
-              </div>
-            </section>
-
-            <section className="panel">
-              <PanelTitle icon={<Clock />} title="Player Ledger" />
-              <div className="waitlist-list">
-                {state.playerLedger.slice(0, 20).map((entry) => (
-                  <article className="waitlist-card" key={entry.id}>
-                    <div>
-                      <strong>{entry.playerName}</strong>
-                      <span>{entry.type}{entry.amount ? ` - $${entry.amount.toLocaleString()}` : ''}</span>
-                      <small>{formatClock(entry.timestamp)}{entry.note ? ` - ${entry.note}` : ''}</small>
-                    </div>
-                  </article>
-                ))}
-                {!state.playerLedger.length ? <p className="muted-copy">No check-in, buy-in, or cash-out entries yet.</p> : null}
-              </div>
-            </section>
-          </div>
-        </section>
-        </> : playerSection === 'requests' ? (
-          <section className="profiles-layout membership-requests-layout">
-            <section className="panel pending-membership-panel">
-              <PanelTitle
-                icon={<Bell />}
-                title={`New membership requests (${pendingMembershipProfiles.length})`}
-              />
-              <div className="pending-membership-list">
-                {pendingMembershipProfiles.map((profile) => (
-                  <article className="duplicate-card" key={profile.id}>
-                    <span>
-                      <strong>{profile.name}</strong> · {profile.membershipPlanName || 'Membership application'}
-                      {profile.membershipPriceLabel ? ` · ${profile.membershipPriceLabel}` : ''}
-                      {profile.phone ? <small>{profile.phone}</small> : null}
-                    </span>
-                    <button className="primary-button" onClick={() => approveMembershipRequest(profile)}>Approve application</button>
-                  </article>
-                ))}
-                {!pendingMembershipProfiles.length ? (
-                  <div className="player-popup-empty">
-                    <strong>No new requests</strong>
-                    <span>Membership applications submitted from Orbit Player will appear here.</span>
-                  </div>
-                ) : null}
-              </div>
-            </section>
-
-            <section className="panel pending-membership-panel approved-membership-panel">
-              <PanelTitle icon={<BadgeCheck />} title={`Approved, awaiting arrival (${approvedMembershipProfiles.length})`} />
-              <p className="muted-copy">Verify the player’s ID and payment at the front desk before activation.</p>
-              <div className="pending-membership-list">
-                {approvedMembershipProfiles.map((profile) => (
-                  <article className="duplicate-card" key={profile.id}>
-                    <span>
-                      <strong>{profile.name}</strong> · {profile.membershipPlanName || (profile.membershipPlan === 'day' ? 'Day pass' : 'Monthly membership')}
-                      {profile.membershipPriceLabel ? ` · ${profile.membershipPriceLabel}` : ''}
-                      {profile.phone ? <small>{profile.phone}</small> : null}
-                    </span>
-                    <button className="primary-button" onClick={() => activateInPersonMembership(profile)}>Verify ID, mark paid &amp; activate</button>
-                  </article>
-                ))}
-                {!approvedMembershipProfiles.length ? (
-                  <div className="player-popup-empty">
-                    <strong>No approved requests awaiting arrival</strong>
-                  </div>
-                ) : null}
-              </div>
-            </section>
-          </section>
-        ) : (
-          <section className="panel today-players-panel">
-            <div className="today-players-heading">
-              <div>
-                <span className="eyebrow">Daily room activity</span>
-                <h2>Today's players</h2>
-                <p>Everyone whose status changed today, including interest, confirmations, arrivals, and seats.</p>
-              </div>
-              <strong>{toLocalDateValue(new Date())}</strong>
-            </div>
-
-            <div className="today-player-summary" aria-label="Today's player status totals">
-              {(['Interested', 'Confirmed Coming', 'Arrived', 'Seated'] as InterestStatus[]).map((status) => (
-                <article key={status} data-status={status}>
-                  <span>{status === 'Confirmed Coming' ? 'Confirmed' : status}</span>
-                  <strong>{todayPlayerActivity.filter((player) => player.status === status).length}</strong>
-                </article>
-              ))}
-            </div>
-
-            <div className="today-player-table-head" aria-hidden="true">
-              <span>Player</span>
-              <span>Status</span>
-              <span>Game / table</span>
-              <span>Membership</span>
-              <span>Updated</span>
-            </div>
-            <div className="today-player-list">
-              {todayPlayerActivity.map((player) => (
-                <article className="today-player-row" key={player.id}>
-                  <div className="today-player-name">
-                    <strong>{player.playerName}</strong>
-                    <small>{player.profileId ? 'Saved player profile' : 'Guest / manual entry'}</small>
-                  </div>
-                  <span className="today-player-status" data-status={player.status}>{player.status}</span>
-                  <div className="today-player-location">
-                    <strong>{player.gameName}</strong>
-                    <small>{player.tableLabel ? `${player.tableLabel}${player.seatNumber ? ` · Seat ${player.seatNumber}` : ''}` : 'Not seated at a table'}</small>
-                  </div>
-                  <span className={`today-membership ${player.activeMember ? 'active' : ''}`}>
-                    {player.activeMember ? 'Active member' : 'No active membership'}
-                  </span>
-                  <time dateTime={player.timestamp}>{formatClock(player.timestamp)}</time>
-                </article>
-              ))}
-              {!todayPlayerActivity.length ? (
-                <div className="today-player-empty">
-                  <Users size={28} />
-                  <strong>No player activity today</strong>
-                  <span>Interested, confirmed, arrived, and seated players will appear here automatically.</span>
-                </div>
-              ) : null}
-            </div>
-          </section>
-        )}
-      </main>
+      <ProfilesView
+        state={state}
+        activeMemberProfiles={activeMemberProfiles}
+        approvedMembershipProfiles={approvedMembershipProfiles}
+        duplicateProfiles={duplicateProfiles}
+        editingProfileId={editingProfileId}
+        formatClock={formatClock}
+        formatHours={formatHours}
+        getGameName={getGameName}
+        getGamePlayEntries={getGamePlayEntries}
+        getMostPlayedGameName={getMostPlayedGameName}
+        importProfileFile={importProfileFile}
+        importProfiles={importProfiles}
+        importText={importText}
+        inClubInterests={inClubInterests}
+        membershipDirectoryProfiles={membershipDirectoryProfiles}
+        newProfile={newProfile}
+        pendingMembershipProfiles={pendingMembershipProfiles}
+        playerPopup={playerPopup}
+        playerSection={playerSection}
+        profileEditDraft={profileEditDraft}
+        profileFormMessage={profileFormMessage}
+        profileSearch={profileSearch}
+        qrManualValue={qrManualValue}
+        qrScanMessage={qrScanMessage}
+        qrVideoRef={qrVideoRef}
+        todayPlayerActivity={todayPlayerActivity}
+        activateInPersonMembership={activateInPersonMembership}
+        addProfile={addProfile}
+        addProfileToClub={addProfileToClub}
+        approveMembershipRequest={approveMembershipRequest}
+        beginEditProfile={beginEditProfile}
+        cancelEditProfile={cancelEditProfile}
+        deleteInterest={deleteInterest}
+        deleteProfile={deleteProfile}
+        mergeDuplicateProfiles={mergeDuplicateProfiles}
+        onOpenQrScanner={() => {
+          setQrManualValue('');
+          setQrScanMessage('Point the camera at an active Orbit membership QR code.');
+          setQrScanAttempt((attempt) => attempt + 1);
+          setPlayerPopup('scan');
+        }}
+        onRestartQrScanner={() => {
+          qrScannerControlsRef.current?.stop();
+          qrScannerControlsRef.current = null;
+          setQrScanMessage('Restarting camera…');
+          setQrScanAttempt((attempt) => attempt + 1);
+        }}
+        onSubmitQrManual={(event) => {
+          event.preventDefault();
+          qrScannerControlsRef.current?.stop();
+          qrScannerControlsRef.current = null;
+          handleMembershipQrCheckIn(qrManualValue);
+        }}
+        removeProfileFromClub={removeProfileFromClub}
+        saveProfileEdit={saveProfileEdit}
+        setImportText={setImportText}
+        setNewProfile={setNewProfile}
+        setPlayerPopup={setPlayerPopup}
+        setPlayerSection={setPlayerSection}
+        setProfileEditDraft={setProfileEditDraft}
+        setProfileSearch={setProfileSearch}
+        setQrManualValue={setQrManualValue}
+        toLocalDateValue={toLocalDateValue}
+      />
     ));
   }
 
   if (route === 'signals') {
     return withShell('games', (
-      <main className="app-shell compact-shell">
-        <header className="topbar">
-          <div>
-            <h1>Games</h1>
-            <p className="page-subtitle">Outreach and player coordination</p>
-          </div>
-          <button className="ghost-button" onClick={closeRoute}>
-            <X size={18} />
-            Close
-          </button>
-        </header>
-
-        <nav className="route-tabs" aria-label="Games sections">
-          <button onClick={() => openRoute('builder')}>Tonight</button>
-          <span className="active" aria-current="page">Outreach</span>
-          <button onClick={() => openRoute('customization')}>Configuration</button>
-        </nav>
-
-        <section className="panel">
-          <PanelTitle icon={<Target />} title="Likely Participants" />
-          <div className="outreach-list">
-            {likelyParticipants.map((item: { id: any; profile: { name: any; }; game: { name: any; }; reason: any[]; message: string; confidence: number; }) => (
-              <article className="outreach-card" key={item.id}>
-                <div>
-                  <h3>{item.profile.name}</h3>
-                  <p>{item.game.name} - {item.reason.join(' - ')}</p>
-                  <small>{item.message}</small>
-                </div>
-                <div className="outreach-actions">
-                  <strong>{item.confidence >= 95 ? 'High' : item.confidence >= 70 ? 'Medium' : 'Low'}</strong>
-                  <button className="secondary-button" onClick={() => copyMessage(item.message)}>
-                    Copy Text
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel">
-          <PanelTitle icon={<MessageCircle />} title="Message Scan" />
-          <div className="integration-copy">
-            <p>
-              Paste room chat here to detect likely interest. Staff must review every match before it is added.
-            </p>
-            <textarea value={groupMeText} onChange={(event: { target: { value: any; }; }) => setGroupMeText(event.target.value)} placeholder="Paste player interest messages for staff review" />
-            <button className="secondary-button" onClick={scanGroupMeText}>Scan Pasted Messages</button>
-            <div className="script-grid">
-              {groupMeCandidates.map((candidate: { id: any; playerName: any; gameId: any; status: any; sourceText: any; confidence: any; timestamp?: string; }) => (
-                <article className="script-card" key={candidate.id}>
-                  <div className="candidate-edit-grid">
-                    <input
-                      value={candidate.playerName}
-                      onChange={(event: { target: { value: any; }; }) =>
-                        setGroupMeCandidates((candidates: any[]) =>
-                          candidates.map((item: { id: any; }) => (item.id === candidate.id ? { ...item, playerName: event.target.value } : item))
-                        )
-                      }
-                    />
-                    <select
-                      value={candidate.gameId}
-                      onChange={(event: { target: { value: any; }; }) =>
-                        setGroupMeCandidates((candidates: any[]) =>
-                          candidates.map((item: { id: any; }) => (item.id === candidate.id ? { ...item, gameId: event.target.value } : item))
-                        )
-                      }
-                    >
-                      {state.games.map((game: { id: any; name: any; }) => (
-                        <option key={game.id} value={game.id}>{game.name}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={candidate.status}
-                      onChange={(event: { target: { value: string; }; }) =>
-                        setGroupMeCandidates((candidates: any[]) =>
-                          candidates.map((item: { id: any; }) => (item.id === candidate.id ? { ...item, status: event.target.value as InterestStatus } : item))
-                        )
-                      }
-                    >
-                      {statuses.map((status) => (
-                        <option key={status}>{status}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <p>{candidate.sourceText}</p>
-                  <small>{candidate.confidence}% confidence - staff review required</small>
-                  <div className="inline-actions">
-                    <button className="secondary-button" onClick={() => acceptGroupMeCandidate(candidate)}>Add</button>
-                    <button className="ghost-button" onClick={() => rejectGroupMeCandidate(candidate.id)}>Reject</button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="panel">
-          <PanelTitle icon={<MessageCircle />} title="Templates" />
-          <div className="script-template-list">
-            {state.scriptTemplates.map((template: any, index: number) => (
-              <label key={index}>
-                Template {index + 1}
-                <input value={template} onChange={(event: { target: { value: string; }; }) => updateScriptTemplate(index, event.target.value)} />
-              </label>
-            ))}
-          </div>
-          <div className="script-grid">
-            {staffScripts.map((script: { label: any; text: string; }) => (
-              <article className="script-card" key={script.label}>
-                <strong>{script.label}</strong>
-                <p>{script.text}</p>
-                <button className="secondary-button" onClick={() => copyMessage(script.text)}>
-                  Copy
-                </button>
-              </article>
-            ))}
-          </div>
-        </section>
-      </main>
+      <SignalsView
+        games={state.games}
+        groupMeCandidates={groupMeCandidates}
+        groupMeText={groupMeText}
+        likelyParticipants={likelyParticipants}
+        scriptTemplates={state.scriptTemplates}
+        staffScripts={staffScripts}
+        statuses={statuses}
+        onAcceptCandidate={acceptGroupMeCandidate}
+        onClose={closeRoute}
+        onCopyMessage={copyMessage}
+        onGroupMeTextChange={setGroupMeText}
+        onOpenRoute={openRoute}
+        onRejectCandidate={rejectGroupMeCandidate}
+        onScanMessages={scanGroupMeText}
+        onSetCandidates={setGroupMeCandidates}
+        onUpdateScriptTemplate={updateScriptTemplate}
+      />
     ));
   }
 
   if (route === 'summary') {
-    const analytics = reportAnalytics;
-    const gamesStartedInPeriod = reportState.sessions.filter((session) => session.status !== 'Failed to Start').length;
-    const totalTableHours = reportState.sessions.reduce((sum, session) => sum + hoursBetween(session.startedAt, session.endedAt), 0);
-    const totalTrackedHands = reportState.handCountLogs.reduce((sum, entry) => sum + entry.hands, 0);
-    const collectionPerTableHour = totalTableHours > 0 ? reportFinancials.totalProfit / totalTableHours : 0;
-    const handsPerTableHour = totalTableHours > 0 ? totalTrackedHands / totalTableHours : 0;
-    const dropPerSeatHour = analytics.currentNight.occupiedSeatHours > 0 ? reportFinancials.recordedDrop / analytics.currentNight.occupiedSeatHours : 0;
-    const topEarningHour = reportHourlyBreakdown.reduce<(typeof reportHourlyBreakdown)[number] | null>(
-      (best, item) => !best || item.total > best.total ? item : best,
-      null
-    );
-    const hourLabel = (startMs: number) => {
-      const start = new Date(startMs);
-      const end = new Date(startMs + 36e5);
-      const showDate = reportPeriod !== 'day';
-      return `${showDate ? `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ` : ''}${start.toLocaleTimeString([], { hour: 'numeric' })}–${end.toLocaleTimeString([], { hour: 'numeric' })}`;
-    };
     return withShell('reports', (
-      <main className={`app-shell compact-shell reports-page reports-mode-${reportMode} reports-kpi-${kpiCategory}`}>
-        <header className="topbar">
-          <div>
-            <h1>Reports</h1>
-            <p className="page-subtitle">{reportWindow.label} performance and closeout</p>
-          </div>
-          <div className="topbar-actions">
-            <button className="ghost-button" onClick={exportCsv}>
-              <Download size={18} />
-              CSV
-            </button>
-            <button className="ghost-button" onClick={() => window.print()}>
-              <Download size={18} />
-              Screenshot / Print
-            </button>
-            <button className="ghost-button" onClick={closeRoute}>
-              <X size={18} />
-              Close
-            </button>
-            <button
-              className="ghost-button"
-              onClick={() => persist({ ...state, settings: { ...state.settings, lowLight: !state.settings.lowLight } })}
-            >
-              {state.settings.lowLight ? 'Day Mode' : 'Low Light'}
-            </button>
-          </div>
-        </header>
-
-        <nav className="report-mode-switch" aria-label="Report view">
-          <button className={reportMode === 'kpis' ? 'active' : ''} onClick={() => setReportMode('kpis')}>KPIs & statistics</button>
-          <button className={reportMode === 'night' ? 'active' : ''} onClick={() => setReportMode('night')}>Tonight's report</button>
-          <button className={reportMode === 'close' ? 'active' : ''} onClick={() => setReportMode('close')}>Night close</button>
-        </nav>
-        <section className="report-period-toolbar" aria-label="Report date range">
-          <nav className="report-period-tabs" aria-label="Group reports by">
-            {([
-              ['day', 'Tonight'],
-              ['week', 'Week'],
-              ['month', 'Month'],
-              ['year', 'Year'],
-              ['all', 'All time']
-            ] as [ReportPeriod, string][]).map(([period, label]) => (
-              <button
-                key={period}
-                className={reportPeriod === period ? 'active' : ''}
-                onClick={() => setReportPeriod(period)}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-          <div className="report-period-navigation">
-            <button
-              className="ghost-button"
-              disabled={reportPeriod === 'all'}
-              onClick={() => setReportAnchorDate((current) => shiftReportAnchor(current, reportPeriod, -1))}
-            >
-              Previous
-            </button>
-            <strong>{reportWindow.label}</strong>
-            <button
-              className="ghost-button"
-              disabled={reportIsCurrentPeriod}
-              onClick={() => setReportAnchorDate((current) => shiftReportAnchor(current, reportPeriod, 1))}
-            >
-              Next
-            </button>
-            <button className="ghost-button" onClick={() => setReportAnchorDate(toLocalDateValue(new Date()))}>Today</button>
-          </div>
-        </section>
-
-        <section className="report-profit-banner" aria-live="polite">
-          <div className="report-profit-total">
-            <span>Total profit · {reportWindow.label}</span>
-            <strong>${reportFinancials.totalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-            <small>Recorded drop, time fees, memberships, and tournament payments before expenses</small>
-          </div>
-          <div className="report-profit-breakdown">
-            <article>
-              <span>Recorded drop</span>
-              <strong>${reportFinancials.recordedDrop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-            </article>
-            <article>
-              <span>Time fees</span>
-              <strong>${reportFinancials.timeFees.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-            </article>
-            <article>
-              <span>Memberships</span>
-              <strong>${reportFinancials.membershipRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-            </article>
-            <article>
-              <span>Tournaments</span>
-              <strong>${reportFinancials.tournamentRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-            </article>
-          </div>
-        </section>
-        <section className="report-numerical-grid" aria-label="Detailed report numbers">
-          <article><span>Collection / table-hour</span><strong>${collectionPerTableHour.toFixed(2)}</strong></article>
-          <article><span>Drop / occupied seat-hour</span><strong>${dropPerSeatHour.toFixed(2)}</strong></article>
-          <article><span>Hands logged</span><strong>{totalTrackedHands.toLocaleString()}</strong></article>
-          <article><span>Hands / table-hour</span><strong>{handsPerTableHour.toFixed(1)}</strong></article>
-          <article><span>Table-hours</span><strong>{totalTableHours.toFixed(1)}</strong></article>
-          <article><span>Best earning hour</span><strong>{topEarningHour ? `$${topEarningHour.total.toFixed(0)}` : '$0'}</strong><small>{topEarningHour ? hourLabel(topEarningHour.startMs) : 'No collections logged'}</small></article>
-        </section>
-        {reportMode === 'kpis' ? <nav className="metric-category-menu" aria-label="Metric categories"><button className={kpiCategory === 'operations' ? 'active' : ''} onClick={() => setKpiCategory('operations')}>Operations</button><button className={kpiCategory === 'waitlist' ? 'active' : ''} onClick={() => setKpiCategory('waitlist')}>Waitlist</button><button className={kpiCategory === 'tables' ? 'active' : ''} onClick={() => setKpiCategory('tables')}>Tables</button><button className={kpiCategory === 'collections' ? 'active' : ''} onClick={() => setKpiCategory('collections')}>Collections</button></nav> : null}
-
-        {reportMode === 'close' ? <section className="night-close-workspace">
-          <header className="night-close-header">
-            <div>
-              <span className={`night-close-status status-${(currentNightClose?.status ?? 'Draft').toLowerCase().replace(/\s+/g, '-')}`}>{currentNightClose?.status ?? 'Draft'}</span>
-              <h2>Reconcile {todayDate()}</h2>
-              <p>Count each table, review exceptions, then complete staff and manager sign-off.</p>
-            </div>
-            <div className="night-close-header-actions">
-              <button className="ghost-button" onClick={() => window.print()}><Download size={17} /> Print / PDF</button>
-              {currentNightClose?.status === 'Locked' ? <button className="ghost-button danger" onClick={reopenNightClose}>Reopen with audit</button> : null}
-            </div>
-          </header>
-
-          <div className="night-close-totals">
-            <article><span>Total buy-ins</span><strong>${nightCloseTotals.buyIns.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
-            <article><span>Cash-outs</span><strong>${nightCloseTotals.cashOuts.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
-            <article><span>Drop + time</span><strong>${nightCloseTotals.removed.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
-            <article><span>Expected cash</span><strong>${nightCloseTotals.expected.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
-            <article><span>Actual cash</span><strong>${nightCloseTotals.actual.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></article>
-            <article className={nightCloseHasMissingActual ? 'pending' : Math.abs(nightCloseTotals.discrepancy) < .01 ? 'balanced' : 'unbalanced'}><span>Over / short</span><strong>{nightCloseHasMissingActual ? 'Pending' : `${nightCloseTotals.discrepancy >= 0 ? '+' : '-'}$${Math.abs(nightCloseTotals.discrepancy).toLocaleString(undefined, { maximumFractionDigits: 2 })}`}</strong></article>
-          </div>
-
-          <section className="night-close-profit-panel" aria-label="Tonight's total profits">
-            <div className="night-close-profit-tab">Total profits</div>
-            <div className="night-close-profit-total">
-              <span>Tonight's total</span>
-              <strong>${nightCloseTotalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-              <small>Recorded drop + time fees + membership fees</small>
-            </div>
-            <div className="night-close-profit-breakdown">
-              <article>
-                <span>Recorded drop</span>
-                <strong>${nightCloseFinancials.recordedDrop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-              </article>
-              <article>
-                <span>Time fees</span>
-                <strong>${nightCloseFinancials.timeFees.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-              </article>
-              <article>
-                <span>Membership fees</span>
-                <strong>${nightCloseFinancials.membershipRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-              </article>
-            </div>
-          </section>
-
-          <section className="night-close-table-panel">
-            <div className="night-close-section-title"><div><h3>Table reconciliation</h3><span>{nightCloseTables.length} tables in this shift</span></div><code>Buy-ins + time − cash-outs = expected; drop is reflected in cash-outs</code></div>
-            <div className="night-close-table-head"><span>Table</span><span>Buy-ins</span><span>Cash-outs</span><span>Drop / time</span><span>Expected</span><span>Actual count</span><span>Over / short</span></div>
-            <div className="night-close-table-list">
-              {nightCloseTables.map((table) => <article className="night-close-table-row" key={table.tableId}>
-                <div><strong>{table.tableLabel}</strong><span>{table.gameName}</span></div>
-                <strong>${table.buyIns.toLocaleString()}</strong>
-                <strong>${table.cashOuts.toLocaleString()}</strong>
-                <strong>−${table.drop.toLocaleString(undefined, { maximumFractionDigits: 2 })} / +${table.timeFees.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-                <strong>${table.expectedCash.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-                <label><span>Actual cash</span><input type="number" min="0" step=".01" disabled={Boolean(currentNightClose && currentNightClose.status !== 'Draft')} value={effectiveNightCloseActuals[table.tableId] ?? ''} onChange={(event) => setNightCloseActuals((actuals) => ({ ...actuals, [table.tableId]: event.target.value }))} placeholder="$0.00" /></label>
-                <strong className={(table.discrepancy ?? 0) === 0 ? 'balanced' : 'unbalanced'}>{table.discrepancy === undefined ? 'Not recorded' : `${table.discrepancy >= 0 ? '+' : '-'}$${Math.abs(table.discrepancy).toFixed(2)}`}</strong>
-                {table.warnings.length ? <div className="night-close-row-warnings">{table.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div> : <div className="night-close-row-clear">Reconciled inputs complete</div>}
-              </article>)}
-              {!nightCloseTables.length ? <div className="night-close-empty"><strong>No current-shift tables</strong><span>Open or operate a table before starting night close.</span></div> : null}
-            </div>
-          </section>
-
-          <div className="night-close-lower-grid">
-            <section className="night-close-exceptions">
-              <div className="night-close-section-title"><div><h3>Exceptions</h3><span>{nightCloseWarnings.length} items need review</span></div></div>
-              {nightCloseWarnings.length ? <div>{nightCloseWarnings.map((warning) => <span key={warning}>{warning}</span>)}</div> : <p>All tables have complete reconciliation inputs.</p>}
-            </section>
-            <section className="night-close-signoff">
-              <div className="night-close-section-title"><div><h3>Approval</h3><span>Every action is retained in the audit log</span></div></div>
-              <div className="night-close-operator">
-                <label htmlFor="night-close-staff">Staff member using this station</label>
-                {state.settings.staffAccounts.some((staff) => staff.active) ? (
-                  <>
-                    <select
-                      id="night-close-staff"
-                      value={state.settings.staffAccounts.some((staff) => staff.active && staff.id === state.settings.activeStaffId) ? state.settings.activeStaffId : ''}
-                      onChange={(event) => selectActiveStaff(event.target.value)}
-                      disabled={currentNightClose?.status === 'Locked'}
-                    >
-                      <option value="">Select a staff member</option>
-                      {state.settings.staffAccounts.filter((staff) => staff.active).map((staff) => (
-                        <option key={staff.id} value={staff.id}>{staff.name} - {staff.role}</option>
-                      ))}
-                    </select>
-                    <small>
-                      Select the staff signer first. After staff sign-off, select a Manager or Owner here to approve and lock.
-                    </small>
-                  </>
-                ) : (
-                  <div className="night-close-no-staff">
-                    <span>No active staff accounts are available.</span>
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={() => {
-                        setSettingsSection('staff');
-                        openRoute('customization');
-                      }}
-                    >
-                      Add staff in Settings
-                    </button>
-                  </div>
-                )}
-              </div>
-              <textarea value={nightCloseNotes || currentNightClose?.notes || ''} onChange={(event) => setNightCloseNotes(event.target.value)} disabled={Boolean(currentNightClose && currentNightClose.status !== 'Draft')} placeholder="Close notes, discrepancy explanation, cage count, or manager comments" />
-              <div className="night-close-signatures">
-                <article className={currentNightClose?.staffSignOff ? 'complete' : ''}><span>Staff sign-off</span><strong>{currentNightClose?.staffSignOff?.staffName ?? 'Pending'}</strong><small>{currentNightClose?.staffSignOff ? formatClock(currentNightClose.staffSignOff.timestamp) : 'Actual counts required'}</small></article>
-                <article className={currentNightClose?.managerSignOff ? 'complete' : ''}><span>Manager approval</span><strong>{currentNightClose?.managerSignOff?.staffName ?? 'Pending'}</strong><small>{currentNightClose?.managerSignOff ? formatClock(currentNightClose.managerSignOff.timestamp) : 'Manager or Owner required'}</small></article>
-              </div>
-              {currentNightClose?.status !== 'Locked' ? <div className="night-close-actions">
-                {!currentNightClose || currentNightClose.status === 'Draft' ? <><button className="ghost-button" onClick={() => saveNightClose()}>Save draft</button><button className="secondary-button" onClick={signNightClose}>Staff sign-off</button></> : null}
-                <button className="primary-button" onClick={approveAndLockNightClose}>Approve & lock night</button>
-              </div> : <div className="night-close-locked"><LockKeyhole size={17} /> Locked {currentNightClose.lockedAt ? new Date(currentNightClose.lockedAt).toLocaleString() : ''}</div>}
-            </section>
-          </div>
-
-          {currentNightClose?.audit.length ? <section className="night-close-audit">
-            <div className="night-close-section-title"><div><h3>Audit trail</h3><span>{currentNightClose.audit.length} recorded actions</span></div></div>
-            <div>{[...currentNightClose.audit].reverse().map((entry) => <article key={entry.id}><time>{new Date(entry.timestamp).toLocaleString()}</time><strong>{entry.action}</strong><span>{entry.staffName}{entry.staffRole ? ` · ${entry.staffRole}` : ''}</span><em>{entry.note ?? ''}</em></article>)}</div>
-          </section> : null}
-        </section> : null}
-
-        <section className="owner-summary-grid">
-          <article className="panel owner-metric">
-            <span>Occupied Seat-Hours</span>
-            <strong>{analytics.currentNight.occupiedSeatHours.toFixed(1)}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Avg Wait</span>
-            <strong>{analytics.averageWaitMinutes.toFixed(0)}m</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Conversion</span>
-            <strong>{(analytics.conversionRate * 100).toFixed(0)}%</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Games Started</span>
-            <strong>{gamesStartedInPeriod}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Failed Starts</span>
-            <strong>{analytics.failedStarts}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Table Breaks</span>
-            <strong>{analytics.tableBreaks}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Median Wait</span>
-            <strong>{analytics.medianWaitMinutes.toFixed(0)}m</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>No-Shows</span>
-            <strong>{analytics.noShows}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Left Wait</span>
-            <strong>{analytics.leftBeforeSeated}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Confirmed Arrived</span>
-            <strong>{(analytics.confirmedArrivalRate * 100).toFixed(0)}%</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Abandonment</span>
-            <strong>{analytics.waitlistAbandonmentCount}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Lost Seat-Hours</span>
-            <strong>{analytics.lostSeatHourEstimate.toFixed(1)}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Second Tables</span>
-            <strong>{analytics.secondTablesStarted}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Peak Wait</span>
-            <strong>{analytics.peakWaitlistPressure}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Arrivals</span>
-            <strong>{analytics.totalArrivals}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Time Fees</span>
-            <strong>${reportFinancials.timeFees.toFixed(0)}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Expired Time</span>
-            <strong>{analytics.expiredTimeFeeSeats}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Recorded Drop</span>
-            <strong>${reportFinancials.recordedDrop.toFixed(0)}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Drop Est.</span>
-            <strong>${analytics.estimatedDropRevenue.toFixed(0)}</strong>
-          </article>
-        </section>
-
-        <section className="panel summary-report">
-          <PanelTitle icon={<Target />} title={`What Happened · ${reportWindow.label}`} />
-          <p>
-            The room generated {analytics.currentNight.occupiedSeatHours.toFixed(1)} occupied seat-hours across {gamesStartedInPeriod} tables.
-            Average wait is {analytics.averageWaitMinutes.toFixed(0)} minutes, with {(analytics.conversionRate * 100).toFixed(0)}% waitlist conversion.
-          </p>
-          <p>
-            Peak demand is {analytics.peakInterestedByGame ? `${analytics.peakInterestedByGame.game} with ${analytics.peakInterestedByGame.count} interested/in-room players` : 'not available yet'}.
-            Failed starts: {analytics.failedStarts}. Table breaks: {analytics.tableBreaks}.
-          </p>
-          <div className="report-analysis-grid">
-            <section className="report-analysis-card">
-              <div className="report-analysis-heading">
-                <div>
-                  <span>Collections by time</span>
-                  <h3>Money made each hour</h3>
-                </div>
-                <strong>{topEarningHour ? `${hourLabel(topEarningHour.startMs)} was highest` : 'Waiting for collection data'}</strong>
-              </div>
-              <div className="report-hour-list">
-                {reportHourlyBreakdown.length ? reportHourlyBreakdown.map((item) => (
-                  <article className={item.startMs === topEarningHour?.startMs ? 'top-hour' : ''} key={item.startMs}>
-                    <time>{hourLabel(item.startMs)}</time>
-                    <div><span>Drop</span><strong>${item.drop.toFixed(2)}</strong></div>
-                    <div><span>Time</span><strong>${item.timeFees.toFixed(2)}</strong></div>
-                    <div><span>Members/events</span><strong>${item.otherRevenue.toFixed(2)}</strong></div>
-                    <div className="hour-total"><span>Total</span><strong>${item.total.toFixed(2)}</strong></div>
-                  </article>
-                )) : <p className="muted-copy">No drop or time-fee payments were recorded in this period.</p>}
-              </div>
-            </section>
-            <section className="report-analysis-card">
-              <div className="report-analysis-heading">
-                <div>
-                  <span>Dealer performance</span>
-                  <h3>Who dealt each table</h3>
-                </div>
-              </div>
-              <div className="report-dealer-list">
-                {reportDealerBreakdown.length ? reportDealerBreakdown.map((dealer) => (
-                  <article key={dealer.dealerName}>
-                    <div><strong>{dealer.dealerName}</strong><span>{dealer.tables} table{dealer.tables === 1 ? '' : 's'} · {dealer.hours.toFixed(1)}h</span></div>
-                    <div><span>Hands</span><strong>{dealer.hands}</strong></div>
-                    <div><span>Hands/hr</span><strong>{dealer.handsPerHour.toFixed(1)}</strong></div>
-                  </article>
-                )) : <p className="muted-copy">No dealer downs tracked yet. Assign dealers from each table's Table admin section.</p>}
-              </div>
-            </section>
-          </div>
-          <div className="summary-breakdown">
-            <div>
-              <h3>Seat-Hours by Game</h3>
-              {analytics.seatHoursByGame.map((item: { game: any; hours: number; }) => (
-                <span key={item.game}>{item.game}: {item.hours.toFixed(1)}</span>
-              ))}
-            </div>
-            <div>
-              <h3>Seat-Hours by Table</h3>
-              {analytics.seatHoursByTable.slice(0, 6).map((item: { table: any; game: any; hours: number; }) => (
-                <span key={`${item.table}-${item.game}`}>{item.table} ({item.game}): {item.hours.toFixed(1)}</span>
-              ))}
-            </div>
-            <div>
-              <h3>Wait by Game</h3>
-              {analytics.waitByGame.map((item: { game: any; count: any; averageMinutes: number; }) => (
-                <span key={item.game}>{item.game}: {item.count ? `${item.averageMinutes.toFixed(0)}m avg` : 'No seated waits'}</span>
-              ))}
-            </div>
-            <div>
-              <h3>Collection Value by Game</h3>
-              {reportFinancials.collectionByGame.map((item) => (
-                <span key={item.game}>
-                  {item.game}: ${item.timeFees.toFixed(0)} time / ${item.recordedDrop.toFixed(0)} actual drop / ${(analytics.collectionValueByGame.find((estimate) => estimate.game === item.game)?.estimatedDrop ?? 0).toFixed(0)} est. drop
-                </span>
-              ))}
-            </div>
-            <div>
-              <h3>Event Reasons</h3>
-              {reportState.tableEvents.filter((event: { type: string; }) => event.type === 'Failed to Start' || event.type === 'Broke').slice(-6).map((event: { id: any; type: any; reason: any; note: any; }) => (
-                <span key={event.id}>{event.type}: {event.reason || 'Unspecified'}{event.note ? ` - ${event.note}` : ''}</span>
-              ))}
-              {!reportState.tableEvents.some((event: { type: string; }) => event.type === 'Failed to Start' || event.type === 'Broke') ? <span>No failed starts or breaks logged.</span> : null}
-            </div>
-          </div>
-          <div className="summary-breakdown">
-            <div>
-              <h3>Last 5 Nights</h3>
-              {state.history.slice(-5).reverse().map((night: { id: any; date: any; occupiedSeatHours: number; gamesStarted: any; waitlistConversionRate: number; averageActiveTables: number; }) => (
-                <span key={night.id}>
-                  {night.date}: {night.occupiedSeatHours.toFixed(1)} seat-hours / {night.gamesStarted} starts / {(night.waitlistConversionRate * 100).toFixed(0)}% conversion / {night.averageActiveTables.toFixed(1)} avg tables
-                </span>
-              ))}
-              {!state.history.length ? <span>No archived nights yet.</span> : null}
-            </div>
-            <div>
-              <h3>Operational Opportunities</h3>
-              {reportOpportunities.map((item: any) => (
-                <span key={item}>{item}</span>
-              ))}
-            </div>
-            <div>
-              <h3>Correction Log</h3>
-              {state.correctionLog.slice(0, 8).map((entry: { id: any; timestamp: string | undefined; entity: any; field: any; }) => (
-                <span key={entry.id}>{formatClock(entry.timestamp)} - {entry.entity}: {entry.field}</span>
-              ))}
-              {!state.correctionLog.length ? <span>No corrections logged.</span> : null}
-            </div>
-          </div>
-          <div className="summary-breakdown">
-            <div>
-              <h3>Feature Usage</h3>
-              {usageAnalytics.eventsByFeature.slice(0, 8).map((entry) => (
-                <span key={entry.feature}>{entry.feature}: {entry.count} uses{entry.lastUsedAt ? ` / last ${formatClock(entry.lastUsedAt)}` : ''}</span>
-              ))}
-              {!usageAnalytics.eventsByFeature.length ? <span>No usage events recorded yet.</span> : null}
-            </div>
-            <div>
-              <h3>Action Frequency</h3>
-              {usageAnalytics.eventsByAction.slice(0, 8).map((entry) => (
-                <span key={entry.key}>{entry.action}: {entry.count}</span>
-              ))}
-              {!usageAnalytics.eventsByAction.length ? <span>No tracked actions yet.</span> : null}
-            </div>
-            <div>
-              <h3>Staff Activity</h3>
-              {usageAnalytics.eventsByStaff.slice(0, 8).map((entry) => (
-                <span key={entry.key}>{entry.staffName}{entry.staffRole ? ` (${entry.staffRole})` : ''}: {entry.count}</span>
-              ))}
-              {!usageAnalytics.eventsByStaff.length ? <span>No staff usage recorded yet.</span> : null}
-            </div>
-          </div>
-          <textarea
-            className="summary-notes"
-            value={summaryNotes}
-            onChange={(event: { target: { value: any; }; }) => setSummaryNotes(event.target.value)}
-            placeholder="Owner-facing notes"
-          />
-          <button className="primary-button" onClick={() => setReportMode('close')}>
-            <Save size={18} />
-            Reconcile & Close Night
-          </button>
-        </section>
-      </main>
+      <SummaryView
+        state={state}
+        reportAnalytics={reportAnalytics}
+        reportState={reportState}
+        reportFinancials={reportFinancials}
+        reportHourlyBreakdown={reportHourlyBreakdown}
+        reportDealerBreakdown={reportDealerBreakdown}
+        reportOpportunities={reportOpportunities}
+        reportWindow={reportWindow}
+        usageAnalytics={usageAnalytics}
+        reportMode={reportMode}
+        reportPeriod={reportPeriod}
+        reportIsCurrentPeriod={reportIsCurrentPeriod}
+        kpiCategory={kpiCategory}
+        currentNightClose={currentNightClose}
+        effectiveNightCloseActuals={effectiveNightCloseActuals}
+        nightCloseTables={nightCloseTables}
+        nightCloseWarnings={nightCloseWarnings}
+        nightCloseTotals={nightCloseTotals}
+        nightCloseHasMissingActual={nightCloseHasMissingActual}
+        nightCloseTotalProfit={nightCloseTotalProfit}
+        nightCloseFinancials={nightCloseFinancials}
+        nightCloseNotes={nightCloseNotes}
+        summaryNotes={summaryNotes}
+        exportCsv={exportCsv}
+        closeRoute={closeRoute}
+        formatClock={formatClock}
+        onOpenStaffSettings={() => {
+          setSettingsSection('staff');
+          openRoute('customization');
+        }}
+        onToggleLowLight={() => persist({
+          ...state,
+          settings: { ...state.settings, lowLight: !state.settings.lowLight }
+        })}
+        reopenNightClose={reopenNightClose}
+        saveNightClose={saveNightClose}
+        signNightClose={signNightClose}
+        approveAndLockNightClose={approveAndLockNightClose}
+        selectActiveStaff={selectActiveStaff}
+        setKpiCategory={setKpiCategory}
+        setNightCloseActuals={setNightCloseActuals}
+        setNightCloseNotes={setNightCloseNotes}
+        setReportAnchorDate={setReportAnchorDate}
+        setReportMode={setReportMode}
+        setReportPeriod={setReportPeriod}
+        setSummaryNotes={setSummaryNotes}
+        toLocalDateValue={toLocalDateValue}
+      />
     ));
   }
 
   if (route === 'kpis') {
     return withShell('reports', (
-      <main className="app-shell compact-shell">
-        <header className="topbar">
-          <div>
-            <div className="eyebrow">Operating metrics</div>
-            <h1>KPIs</h1>
-          </div>
-          <div className="topbar-actions">
-            <button className="ghost-button" onClick={exportCsv}>
-              <Download size={18} />
-              CSV
-            </button>
-            <button className="ghost-button" onClick={closeRoute}>
-              <X size={18} />
-              Close
-            </button>
-          </div>
-        </header>
-
-        <section className="owner-summary-grid">
-          <article className="panel owner-metric">
-            <span>Seat-Hours</span>
-            <strong>{analytics.currentNight.occupiedSeatHours.toFixed(1)}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Active Tables</span>
-            <strong>{analytics.activeTables}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Average Wait</span>
-            <strong>{analytics.averageWaitMinutes.toFixed(0)}m</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Conversion</span>
-            <strong>{(analytics.conversionRate * 100).toFixed(0)}%</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Failed Starts</span>
-            <strong>{analytics.failedStarts}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Table Breaks</span>
-            <strong>{analytics.tableBreaks}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Time Fees Est.</span>
-            <strong>${analytics.estimatedTimeFeeRevenue.toFixed(0)}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Recorded Drop</span>
-            <strong>${analytics.recordedDropTotal.toFixed(0)}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Drop Est.</span>
-            <strong>${analytics.estimatedDropRevenue.toFixed(0)}</strong>
-          </article>
-          <article className="panel owner-metric">
-            <span>Expired Time</span>
-            <strong>{analytics.expiredTimeFeeSeats}</strong>
-          </article>
-        </section>
-      </main>
+      <KpisView analytics={analytics} onClose={closeRoute} onExportCsv={exportCsv} />
     ));
   }
 
@@ -9150,1097 +5465,116 @@ function App() {
         return (left.playerSession.seatNumber ?? 99) - (right.playerSession.seatNumber ?? 99);
       });
 
-    return (
-      <main className="table-view-shell">
-        <header className="table-view-topbar">
-          <button className="icon-button" onClick={closeRoute} title="Back to floor">
-            <X size={18} />
-          </button>
-          <div>
-            <span>{tableGame?.name ?? 'Table View'}</span>
-            <h1>{tableSession?.label ?? 'No Open Table'}</h1>
-          </div>
-          {tableSession ? (
-            <div className="table-view-stats">
-              <span>{tableSession.status}</span>
-              <strong>{seatedPlayers.length}/{tableSession.maxSeats}</strong>
-              <em>Avg ${tableAverageStack.toLocaleString()}</em>
-              <em>{isTimeCollection ? 'Time' : 'Drop'}</em>
-              <button className="ghost-button" onClick={() => setTableLedgerSessionId(tableSession.id)}><WalletCards size={17} /> Ledger</button>
-            </div>
-          ) : null}
-        </header>
-        {seatPickerModal}
-        {cashOutModal}
-        {tableLedgerModal}
-        {tableSession ? <button className="table-live-feed-overlay" onClick={() => setTableEventLogSessionId(tableSession.id)}>
-          <span className="table-live-feed-title"><i /> Live feed <em>View full log →</em></span>
-          <span className="table-live-feed-items">
-            {tableActivity.length ? tableActivity.slice(0, 3).map((entry) => <span key={entry.id}><i className={entry.type.toLowerCase().replace(/\s+/g, '-')} /><span><strong>{entry.type}</strong>{entry.text}</span><time>{formatClock(entry.timestamp)}</time></span>) : <small>Awaiting table activity…</small>}
-          </span>
-        </button> : null}
-        {tableSession ? <button className="table-buyin-float" onClick={() => setTableLedgerSessionId(tableSession.id)}>
-          <span className="table-buyin-float-title"><WalletCards size={12} /> Buy-in ledger</span>
-          <span className="table-buyin-float-rows">
-            {tableBuyInRows.length ? tableBuyInRows.map(({ entry, seatNumber }) => <span key={entry.id}><i>S{seatNumber ?? '-'}</i><span>{entry.playerName}<small>{formatClock(entry.timestamp)}</small></span><em>Buy-in</em><strong>+${entry.amount.toLocaleString()}</strong></span>) : <small>No buy-ins recorded</small>}
-          </span>
-          <span className="table-buyin-float-total"><span>Total buy-ins</span><strong>${tableBuyInRows.reduce((sum, row) => sum + row.entry.amount, 0).toLocaleString()}</strong></span>
-        </button> : null}
-        {tableSession && tableEventLogSessionId === tableSession.id ? <div className="modal-backdrop table-event-log-backdrop" role="dialog" aria-modal="true" aria-label={`${tableSession.label} event log`}>
-          <section className="table-event-log-modal">
-            <div className="table-event-log-head"><div><span>Table event log</span><h2>{tableSession.label}</h2></div><button className="icon-button" onClick={() => setTableEventLogSessionId(null)}><X size={18} /></button></div>
-            <div className="table-event-log-list">{tableActivity.length ? tableActivity.map((entry) => <article key={entry.id}><i className={entry.type.toLowerCase().replace(/\s+/g, '-')} /><div><strong>{entry.type}</strong><span>{entry.text}</span></div><time>{formatClock(entry.timestamp)}</time></article>) : <p className="muted-copy">No table activity recorded yet.</p>}</div>
-          </section>
-        </div> : null}
-
-        {tableSession ? (
-          <section className="table-view-grid">
-            <section className="table-view-stage">
-              <div className="table-view-stage-head">
-                <p>Click any open seat and choose a player from the club database.</p>
-                <button
-                  className="ghost-button"
-                  onClick={() => {
-                    openSeatPicker(tableSession);
-                  }}
-                >
-                  Next seat
-                </button>
-              </div>
-              <div className="table-view-table">
-                <div className="table-view-poker-table">
-                  <PokerTable
-                    players={pokerTablePlayers}
-                    showTimeRemaining={isTimeCollection}
-                    maxPlayers={tableSession.maxSeats}
-                    selectedSeatNumber={seatPicker?.sessionId === tableSession.id ? seatPicker.seatNumber : undefined}
-                    moveTargets={getMoveTargets(tableSession.id)}
-                    onSeatClick={(seatNumber) =>
-                      openSeatPicker(tableSession, seatNumber)
-                    }
-                    onAddTime={(playerId, minutes) => {
-                      const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                      if (playerSession) addPlayerTime(playerSession, minutes);
-                    }}
-                    onAddBuyIn={(playerId, amount, note) => {
-                      const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                      if (playerSession) addBuyIn(playerSession, amount, note);
-                    }}
-                    onRemovePlayer={(playerId) => {
-                      const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                      if (playerSession) requestPlayerCashOut(playerSession);
-                    }}
-                    onChangeSeat={(playerId, seatNumber) => {
-                      const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                      if (playerSession) changePlayerSeat(playerSession, seatNumber);
-                    }}
-                    onMovePlayer={(playerId, targetTableId) => {
-                      const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                      if (playerSession) movePlayerToTable(playerSession, targetTableId);
-                    }}
-                  />
-                </div>
-              </div>
-            </section>
-
-            <aside className="table-view-time-overview" aria-label="Table time overview">
-              <div className="table-view-panel-title">
-                <span><Clock size={13} /> Time overview</span>
-                <strong>{tableTimePlayers.filter((item) => item.hasTimer).length}</strong>
-              </div>
-              <div className="table-view-time-list">
-                {tableTimePlayers.length ? (
-                  tableTimePlayers.map(({ playerSession, remainingSeconds, hasTimer }) => {
-                    const timeStatus = hasTimer ? getTimerStatusFromSeconds(remainingSeconds) : 'off';
-                    return <article key={playerSession.id}>
-                      <div>
-                        <span>Seat {playerSession.seatNumber ?? '-'}</span>
-                        <strong>{playerSession.playerName}</strong>
-                      </div>
-                      <em className={`time-left-pill ${timeStatus}`}>{hasTimer ? formatTimeLeft(remainingSeconds) : 'No timer'}</em>
-                    </article>;
-                  })
-                ) : (
-                  <p className="muted-copy">No players are seated at this table.</p>
-                )}
-              </div>
-            </aside>
-          </section>
-        ) : (
-          <section className="table-view-empty">
-            <h2>No open tables</h2>
-            <p>Create or run a table from the floor to use Table View.</p>
-            <button className="ghost-button" onClick={closeRoute}>Back to floor</button>
-          </section>
-        )}
-      </main>
-    );
+    return <TableView
+      tableGame={tableGame}
+      tableSession={tableSession}
+      seatedPlayers={seatedPlayers}
+      tableAverageStack={tableAverageStack}
+      isTimeCollection={isTimeCollection}
+      seatPickerModal={seatPickerModal}
+      cashOutModal={cashOutModal}
+      tableLedgerModal={tableLedgerModal}
+      tableActivity={tableActivity}
+      tableBuyInRows={tableBuyInRows}
+      tableTimePlayers={tableTimePlayers}
+      pokerTablePlayers={pokerTablePlayers}
+      tableEventLogSessionId={tableEventLogSessionId}
+      seatPicker={seatPicker}
+      closeRoute={closeRoute}
+      formatClock={formatClock}
+      formatTimeLeft={formatTimeLeft}
+      getTimerStatusFromSeconds={getTimerStatusFromSeconds}
+      getMoveTargets={getMoveTargets}
+      openSeatPicker={openSeatPicker}
+      addPlayerTime={addPlayerTime}
+      addBuyIn={addBuyIn}
+      requestPlayerCashOut={requestPlayerCashOut}
+      changePlayerSeat={changePlayerSeat}
+      movePlayerToTable={movePlayerToTable}
+      setTableEventLogSessionId={setTableEventLogSessionId}
+      setTableLedgerSessionId={setTableLedgerSessionId}
+    />;
   }
 
   return withShell('floor', (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <h1>Floor</h1>
-          <p className="page-subtitle">Live room operations</p>
-        </div>
-        <div className="topbar-actions">
-          <button className="waitlist-icon-trigger" onClick={() => setWaitlistPopupOpen(true)} title="Open waitlist" aria-label={`Open waitlist, ${state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length} waiting`}>
-            <Users size={19} />
-            {state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length ? <span>{state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length}</span> : null}
-          </button>
-          <button className="primary-button" onClick={() => setOpenPanels((panels) => ({ ...panels, quickAdd: true }))}><Plus size={18} /> Add player</button>
-        </div>
-      </header>
-      {seatPickerModal}
-      {cashOutModal}
-      {tableLedgerModal}
-
-      <Dialog.Root open={waitlistPopupOpen} onOpenChange={setWaitlistPopupOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="waitlist-popup-overlay" />
-          <Dialog.Content className="waitlist-popup-content">
-            <div className="waitlist-popup-header">
-              <div><Dialog.Title>Waitlist</Dialog.Title><Dialog.Description>{state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length} players need attention</Dialog.Description></div>
-              <Dialog.Close asChild><button className="icon-button" aria-label="Close waitlist"><X size={18} /></button></Dialog.Close>
-            </div>
-            <div className="waitlist-popup-list">
-              {state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length ? state.interests
-                .filter((interest) => activeInterestStatuses.includes(interest.status))
-                .sort((left, right) => left.interestedAt.localeCompare(right.interestedAt))
-                .map((interest) => {
-                  const game = state.games.find((item) => item.id === interest.gameId);
-                  const openTables = state.sessions.filter(
-                    (session) =>
-                      session.gameId === interest.gameId &&
-                      session.status !== 'Closed' &&
-                      session.status !== 'Failed to Start' &&
-                      getAvailableSeatNumber(session) !== undefined
-                  );
-                  return <article className="waitlist-popup-row" key={interest.id}>
-                    <div>
-                      <strong>{interest.playerName}</strong>
-                      <span>{game?.name ?? 'Unknown game'} · {interest.status === 'Confirmed Coming' ? 'Coming' : interest.status === 'Arrived' ? 'Here' : interest.status}</span>
-                      {interest.expectedArrivalTime ? <span>Expected at {interest.expectedArrivalTime}</span> : null}
-                      {interest.availabilityStartTime ? <span>Available {interest.availabilityStartTime}{interest.availabilityEndTime ? `–${interest.availabilityEndTime}` : ''}</span> : null}
-                    </div>
-                    <em className="waitlist-popup-age">{minutesSince(interest.interestedAt)}m</em>
-                    <div className="waitlist-popup-actions">
-                      {interest.status === 'Arrived' ? (
-                        openTables.length ? (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <button className="secondary-button waitlist-seat-button" type="button">Seat at table</button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="waitlist-action-menu">
-                              {openTables.map((session) => (
-                                <DropdownMenuItem
-                                  key={session.id}
-                                  onSelect={() => {
-                                    seatInterestAtTable(interest, session.id);
-                                    setWaitlistPopupOpen(false);
-                                  }}
-                                >
-                                  {session.label} · {session.maxSeats - getActivePlayerSessionsForTable(state, session.id).length} open
-                                </DropdownMenuItem>
-                              ))}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        ) : <span className="waitlist-no-table">No open table</span>
-                      ) : (
-                        <button className="secondary-button waitlist-arrive-button" onClick={() => updateInterest(interest.id, { status: 'Arrived' })}>
-                          Mark arrived
-                        </button>
-                      )}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild><button className="icon-button" aria-label={`Actions for ${interest.playerName}`}><MoreHorizontal size={17} /></button></DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="waitlist-action-menu"><DropdownMenuItem onSelect={() => deleteInterest(interest.id)}>Remove from waitlist</DropdownMenuItem></DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </article>;
-                }) : <div className="waitlist-popup-empty"><strong>No one is waiting</strong><span>New interest will appear here.</span></div>}
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-
-      <section className="floor-summary-bar" aria-label="Floor summary">
-        <span><strong>{state.sessions.filter((session) => session.status === 'Running').length}</strong> running</span>
-        <span><strong>{state.playerSessions.filter((session) => !session.leftAt).length}</strong> seated</span>
-        <span><strong>{state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length}</strong> waiting</span>
-        <span className={analytics.expiredTimeFeeSeats ? 'alert' : ''}><strong>{analytics.expiredTimeFeeSeats}</strong> actions needed</span>
-      </section>
-
-      <section className="minimal-dashboard dashboard-simple">
-        <div className="dashboard-main-column">
-        <section className={`panel floor-panel current-tables-panel ${openPanels.currentTables ? '' : 'collapsed-panel'}`}>
-          <PanelTitle
-            icon={<LayoutDashboard />}
-            title="Current Tables"
-            collapsed={!openPanels.currentTables}
-            onToggle={() => togglePanel('currentTables')}
-          />
-          {openPanels.currentTables ? <div className="active-game-list">
-            {state.sessions.filter((session: { status: string; }) => session.status !== 'Closed' && session.status !== 'Failed to Start').length ? (
-              state.sessions.filter((session: { status: string; }) => session.status !== 'Closed' && session.status !== 'Failed to Start').map((session: GameSession) => {
-                const game = state.games.find((item: { id: any; }) => item.id === session.gameId);
-                const health = getTableHealth(state, session);
-                const seatOptions = getSeatOptions(session.gameId);
-                const seatedPlayers = state.playerSessions.filter((playerSession) => playerSession.tableId === session.id && !playerSession.leftAt);
-                const selectedForStart = startPlayerDrafts[session.id] ?? [];
-                const isTimeCollection = session.collectionMode === 'Time' || session.timeFeeBased;
-                const averageStack = getAverageStackForTable(state, session.id);
-                const tableDropTotal = state.dropLogs
-                  .filter((drop) => drop.tableId === session.id)
-                  .reduce((sum, drop) => sum + drop.amount, 0);
-                const currentDealer = state.dealerAssignments.find((assignment) => assignment.tableId === session.id && !assignment.endedAt);
-                const tableHandsTotal = state.handCountLogs
-                  .filter((entry) => entry.tableId === session.id)
-                  .reduce((sum, entry) => sum + entry.hands, 0);
-                const tableExpanded = collapsedTables[session.id] ?? true;
-                const pokerTablePlayers: PokerTablePlayer[] = seatedPlayers.map((playerSession, index) => {
-                  const hours = getPlayerLoggedHours(state, playerSession);
-                  const buyIns = getSessionBuyIns(state, playerSession);
-                  const buyInTotal = buyIns.reduce((sum, buyIn) => sum + buyIn.amount, 0);
-                  return {
-                    id: playerSession.id,
-                    seatNumber: playerSession.seatNumber ?? index + 1,
-                    name: playerSession.playerName,
-                    membershipId: playerSession.profileId ?? playerSession.id.slice(0, 8),
-                    joinedAt: new Date(playerSession.seatedAt).getTime(),
-                    hourlyTimeLimit: isTimeCollection ? Math.max(1, playerSession.timePurchasedMinutes ?? 60) : undefined,
-                    timeRemainingSeconds: isTimeCollection ? getTimeRemainingSeconds(playerSession, clockNow) : undefined,
-                    tonightHours: formatHours(hours.tonight),
-                    totalHours: formatHours(hours.total),
-                    buyInTotal,
-                    recentBuyIns: buyIns.slice(0, 4).map((buyIn) => ({
-                      id: buyIn.id,
-                      label: `$${buyIn.amount.toLocaleString()} at ${formatClock(buyIn.timestamp)}${buyIn.note ? ` - ${buyIn.note}` : ''}`
-                    }))
-                  };
-                });
-                return (
-                  <article className="active-game-card floor-table-launcher" key={session.id} onClick={() => openTableView(session.id)}>
-                    <div>
-                      <h3>{game?.name ?? 'Unknown'}</h3>
-                    <span>{session.label} - {session.status} - {isTimeCollection ? 'Time fees' : 'Drop'}</span>
-                      <small>
-                        Start {formatClock(session.startedAt)} {session.manualEdits?.startedAt ? <em className="edited-marker">edited</em> : null}
-                        {session.endedAt ? <> / End {formatClock(session.endedAt)} {session.manualEdits?.endedAt ? <em className="edited-marker">edited</em> : null}</> : null}
-                        {' '} / Avg stack ${averageStack.toLocaleString()}
-                        {currentDealer ? <> / Dealer {currentDealer.dealerName}</> : null}
-                        {tableHandsTotal ? <> / {tableHandsTotal} hands logged</> : null}
-                      </small>
-                    </div>
-                    <strong>{pokerTablePlayers.length}/{session.maxSeats}</strong>
-                    <span className={`health-pill ${health.toLowerCase().replace(/\s+/g, '-')}`}>{health}</span>
-                    <div className="seat-control" onClick={(event) => event.stopPropagation()}>
-                      <button
-                        className="mini-button"
-                        onClick={() => {
-                          openSeatPicker(session);
-                          setCollapsedTables((tables) => ({ ...tables, [session.id]: true }));
-                        }}
-                        title="Add player to an open seat"
-                      >
-                        +
-                      </button>
-                      {session.status !== 'Running' ? (
-                        <button className="secondary-button" onClick={() => startSessionWithPlayers(session)}>Start Table</button>
-                      ) : null}
-                      <button className="ghost-button" onClick={() => openTableView(session.id)}><Eye size={17} /> Open</button>
-                      <button className="ghost-button" onClick={() => setTableLedgerSessionId(session.id)}><WalletCards size={17} /> Ledger</button>
-                      <button
-                        className="icon-button"
-                        onClick={() => setCollapsedTables((tables) => ({ ...tables, [session.id]: !(tables[session.id] ?? true) }))}
-                        title={tableExpanded ? 'Hide table' : 'Show table'}
-                      >
-                        {tableExpanded ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
-                      </button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild><button className="icon-button" title="Table actions"><MoreHorizontal size={17} /></button></DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {session.status === 'Running' ? <DropdownMenuItem onSelect={() => updateSession(session.id, { status: 'Paused' })}>Pause table</DropdownMenuItem> : null}
-                          <DropdownMenuItem onSelect={() => setCollapsedTables((tables) => ({ ...tables, [session.id]: true }))}>Table settings</DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onSelect={() => recordTableEvent(session, 'Broke', eventDrafts[session.id]?.breakReason || tableBreakReasons[0], eventDrafts[session.id]?.breakNote ?? '')}>Mark as broke</DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => recordTableEvent(session, 'Closed', 'Staff closed table')}>Close table</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                    <div className="table-detail-panel">
-                      <div className="seat-help-row">
-                        <span>Click an open seat and choose a player from the club database.</span>
-                        <button
-                          className="ghost-button"
-                          onClick={() => {
-                            openSeatPicker(session);
-                            setCollapsedTables((tables) => ({ ...tables, [session.id]: true }));
-                          }}
-                        >
-                          Next open seat
-                        </button>
-                      </div>
-                      {session.status !== 'Running' ? (
-                        <div className="start-table-panel">
-                          <div className="start-table-head">
-                            <strong>Select players to start this table</strong>
-                            <span>{selectedForStart.length}/{session.maxSeats} selected</span>
-                          </div>
-                          <div className="player-picker-list start-table-picker">
-                            {seatOptions.length ? (
-                              seatOptions.slice(0, session.maxSeats).map((interest) => (
-                                <label className="player-pick-row" key={interest.id}>
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedForStart.includes(interest.id)}
-                                    onChange={() => toggleStartPlayer(session.id, interest.id)}
-                                  />
-                                  <span>{interest.playerName}</span>
-                                  <small>{interest.status}</small>
-                                </label>
-                              ))
-                            ) : (
-                              <span className="muted-copy">No waiting or arrived players for this game yet. You can still start the table empty and add players from the + seat control.</span>
-                            )}
-                          </div>
-                          <div className="inline-actions">
-                            <button className="primary-button" onClick={() => startSessionWithPlayers(session)}>
-                              {selectedForStart.length ? 'Start with selected' : 'Start empty'}
-                            </button>
-                            {selectedForStart.length ? (
-                              <button className="ghost-button" onClick={() => setStartPlayerDrafts((drafts) => ({ ...drafts, [session.id]: [] }))}>
-                                Clear
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                      ) : null}
-                      {tableExpanded ? (
-                        <div className="poker-table-display">
-                          <PokerTable
-                            players={pokerTablePlayers}
-                            showTimeRemaining={isTimeCollection}
-                            maxPlayers={session.maxSeats}
-                            selectedSeatNumber={seatPicker?.sessionId === session.id ? seatPicker.seatNumber : undefined}
-                            moveTargets={getMoveTargets(session.id)}
-                            onSeatClick={(seatNumber) =>
-                              openSeatPicker(session, seatNumber)
-                            }
-                            onAddTime={(playerId, minutes) => {
-                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              if (playerSession) addPlayerTime(playerSession, minutes);
-                            }}
-                            onAddBuyIn={(playerId, amount, note) => {
-                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              if (playerSession) addBuyIn(playerSession, amount, note);
-                            }}
-                            onRemovePlayer={(playerId) => {
-                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              if (playerSession) requestPlayerCashOut(playerSession);
-                            }}
-                            onChangeSeat={(playerId, seatNumber) => {
-                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              if (playerSession) changePlayerSeat(playerSession, seatNumber);
-                            }}
-                            onMovePlayer={(playerId, targetTableId) => {
-                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              if (playerSession) movePlayerToTable(playerSession, targetTableId);
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <div className="table-collapsed-note">
-                          <span>{seatedPlayers.length} seated player{seatedPlayers.length === 1 ? '' : 's'}</span>
-                          <button
-                            className="ghost-button"
-                            onClick={() => setCollapsedTables((tables) => ({ ...tables, [session.id]: true }))}
-                          >
-                            Show table
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    <details className="compact-details table-admin-details" onClick={(event) => event.stopPropagation()}>
-                      <summary>Table admin</summary>
-                      <div className="correction-grid">
-                        <label>
-                          Collection mode
-                          <div className="segmented-control table-mode-control">
-                            <button
-                              type="button"
-                              className={!isTimeCollection ? 'secondary-button active' : 'ghost-button'}
-                              onClick={() => setTableCollectionMode(session.id, 'Drop')}
-                            >
-                              Drop
-                            </button>
-                            <button
-                              type="button"
-                              className={isTimeCollection ? 'secondary-button active' : 'ghost-button'}
-                              onClick={() => setTableCollectionMode(session.id, 'Time')}
-                            >
-                              Time fees
-                            </button>
-                          </div>
-                        </label>
-                        <label>
-                          Start
-                          <input
-                            type="datetime-local"
-                            value={toDateTimeInput(session.startedAt)}
-                            onChange={(event: { target: { value: string; }; }) => updateSessionTimestamp(session.id, 'startedAt', event.target.value)}
-                          />
-                        </label>
-                        <label>
-                          End
-                          <input
-                            type="datetime-local"
-                            value={toDateTimeInput(session.endedAt)}
-                            onChange={(event: { target: { value: string; }; }) => updateSessionTimestamp(session.id, 'endedAt', event.target.value)}
-                          />
-                        </label>
-                        <label>
-                          Current dealer
-                          <input
-                            list={`dealer-options-${session.id}`}
-                            value={dealerDrafts[session.id] ?? currentDealer?.dealerName ?? ''}
-                            onChange={(event) => setDealerDrafts((drafts) => ({ ...drafts, [session.id]: event.target.value }))}
-                            placeholder="Dealer name"
-                          />
-                          <datalist id={`dealer-options-${session.id}`}>
-                            {state.settings.staffAccounts.filter((staff) => staff.active).map((staff) => <option key={staff.id} value={staff.name} />)}
-                          </datalist>
-                        </label>
-                        <div className="table-tracking-actions">
-                          <button className="secondary-button" onClick={() => assignDealer(session)}>Start dealer down</button>
-                          {currentDealer ? <button className="ghost-button" onClick={() => endDealerAssignment(session)}>End {currentDealer.dealerName}</button> : null}
-                        </div>
-                        <label>
-                          Hands since last count
-                          <input
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={handCountDrafts[session.id] ?? ''}
-                            onChange={(event) => setHandCountDrafts((drafts) => ({ ...drafts, [session.id]: event.target.value }))}
-                            placeholder="Example: 15"
-                          />
-                        </label>
-                        <div className="table-tracking-actions">
-                          <button className="secondary-button" onClick={() => recordHands(session)}>Record hands</button>
-                          <span className="muted-copy">{tableHandsTotal} total logged</span>
-                        </div>
-                        <label>
-                          Break reason
-                          <select
-                            value={eventDrafts[session.id]?.breakReason ?? tableBreakReasons[0]}
-                            onChange={(event: { target: { value: any; }; }) =>
-                              setEventDrafts((drafts: { [x: string]: any; }) => ({
-                                ...drafts,
-                                [session.id]: { failReason: failedStartReasons[0], failNote: '', breakNote: '', ...(drafts[session.id] ?? {}), breakReason: event.target.value }
-                              }))
-                            }
-                          >
-                            {tableBreakReasons.map((reason) => (
-                              <option key={reason}>{reason}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>
-                          Break note
-                          <input
-                            value={eventDrafts[session.id]?.breakNote ?? ''}
-                            onChange={(event: { target: { value: any; }; }) =>
-                              setEventDrafts((drafts: { [x: string]: any; }) => ({
-                                ...drafts,
-                                [session.id]: { failReason: failedStartReasons[0], failNote: '', breakReason: tableBreakReasons[0], ...(drafts[session.id] ?? {}), breakNote: event.target.value }
-                              }))
-                            }
-                            placeholder="Optional"
-                          />
-                        </label>
-                        {!isTimeCollection ? (
-                          <>
-                            <label>
-                              Table drop
-                              <input
-                                value={dropDrafts[session.id]?.amount ?? ''}
-                                onChange={(event) =>
-                                  setDropDrafts((drafts) => ({
-                                    ...drafts,
-                                    [session.id]: { amount: event.target.value, note: drafts[session.id]?.note ?? '' }
-                                  }))
-                                }
-                                placeholder="Amount removed"
-                                type="number"
-                                min="0"
-                                step="1"
-                              />
-                            </label>
-                            <label>
-                              Drop note
-                              <input
-                                value={dropDrafts[session.id]?.note ?? ''}
-                                onChange={(event) =>
-                                  setDropDrafts((drafts) => ({
-                                    ...drafts,
-                                    [session.id]: { amount: drafts[session.id]?.amount ?? '', note: event.target.value }
-                                  }))
-                                }
-                                placeholder="Down, dealer, or note"
-                              />
-                            </label>
-                            <button className="secondary-button" onClick={() => addTableDrop(session)}>
-                              Record Drop
-                            </button>
-                            <span className="muted-copy">Recorded drop: ${tableDropTotal.toLocaleString()}</span>
-                          </>
-                        ) : null}
-                      </div>
-                    </details>
-                  </article>
-                );
-              })
-            ) : (
-              <p className="muted-copy">No active tables.</p>
-            )}
-          </div> : null}
-        </section>
-        </div>
-
-        <div className="dashboard-side-column">
-        <section className={`panel floor-panel table-overview-panel ${openPanels.tableOverview ? '' : 'collapsed-panel'}`}>
-          <PanelTitle
-            icon={<Clock />}
-            title="Time Overview"
-            collapsed={!openPanels.tableOverview}
-            onToggle={() => togglePanel('tableOverview')}
-          />
-          {openPanels.tableOverview ? (() => {
-            const allTimeOverviewId = 'all-time-overview';
-            const openSessions = state.sessions.filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start');
-            const isAllTimeOverview = overviewTableId === allTimeOverviewId;
-            const openSessionsById = new Map(openSessions.map((session) => [session.id, session]));
-            const selectedTable = openSessions.find((session) => session.id === overviewTableId) ?? openSessions[0];
-            const selectedPlayers = selectedTable
-              ? state.playerSessions
-                  .filter((playerSession) => playerSession.tableId === selectedTable.id && !playerSession.leftAt)
-                  .map((playerSession) => ({
-                    playerSession,
-                    isTimeCollection: Boolean(selectedTable.collectionMode === 'Time' || selectedTable.timeFeeBased || playerSession.timeFeeEnabled),
-                    remainingSeconds: getTimeRemainingSeconds(playerSession, clockNow)
-                  }))
-                  .sort((left, right) => {
-                    if (left.isTimeCollection !== right.isTimeCollection) return left.isTimeCollection ? -1 : 1;
-                    if (left.isTimeCollection && right.isTimeCollection) return left.remainingSeconds - right.remainingSeconds;
-                    return left.playerSession.playerName.localeCompare(right.playerSession.playerName);
-                  })
-              : [];
-            const allTimePlayers = state.playerSessions
-              .filter((playerSession) => !playerSession.leftAt && openSessionsById.has(playerSession.tableId))
-              .map((playerSession) => {
-                const table = openSessionsById.get(playerSession.tableId);
-                const isTimeCollection = Boolean(table && (table.collectionMode === 'Time' || table.timeFeeBased || playerSession.timeFeeEnabled));
-                const remainingSeconds = getTimeRemainingSeconds(playerSession, clockNow);
-                return { playerSession, table, isTimeCollection, remainingSeconds };
-              })
-              .sort((left, right) => {
-                if (left.isTimeCollection !== right.isTimeCollection) return left.isTimeCollection ? -1 : 1;
-                if (left.isTimeCollection && right.isTimeCollection) return left.remainingSeconds - right.remainingSeconds;
-                return minutesSince(right.playerSession.seatedAt) - minutesSince(left.playerSession.seatedAt);
-              });
-            return (
-              <div className="table-overview-content">
-                {openSessions.length ? (
-                  <>
-                    <select value={isAllTimeOverview ? allTimeOverviewId : selectedTable?.id ?? ''} onChange={(event) => setOverviewTableId(event.target.value)}>
-                      <option value={allTimeOverviewId}>All Players - Time Left</option>
-                      {openSessions.map((session) => (
-                        <option key={session.id} value={session.id}>
-                          {session.label} - {state.games.find((game) => game.id === session.gameId)?.name ?? 'Unknown'}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="overview-player-list">
-                      {isAllTimeOverview ? (
-                        allTimePlayers.length ? (
-                          allTimePlayers.map(({ playerSession, table, isTimeCollection, remainingSeconds }) => {
-                            const timeStatus = isTimeCollection ? getTimerStatusFromSeconds(remainingSeconds) : 'off';
-                            return (
-                              <div className="overview-player-row all-time-row" key={playerSession.id}>
-                                <span>{table?.label ?? 'Table'} - Seat {playerSession.seatNumber ?? '-'}</span>
-                                <strong>{playerSession.playerName}</strong>
-                                <small>{state.games.find((game) => game.id === playerSession.gameId)?.name ?? 'Unknown'}</small>
-                                <em className={`time-left-pill ${timeStatus}`}>
-                                  {isTimeCollection ? formatTimeLeft(remainingSeconds) : 'No timer'}
-                                </em>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <p className="muted-copy">No seated players on open tables.</p>
-                        )
-                      ) : selectedPlayers.length ? (
-                        selectedPlayers.map(({ playerSession, isTimeCollection, remainingSeconds }) => {
-                          const timeStatus = isTimeCollection ? getTimerStatusFromSeconds(remainingSeconds) : 'off';
-                          return (
-                            <div className="overview-player-row" key={playerSession.id}>
-                              <span>Seat {playerSession.seatNumber ?? '-'}</span>
-                              <strong>{playerSession.playerName}</strong>
-                              <em className={`time-left-pill ${timeStatus}`}>
-                                {isTimeCollection ? formatTimeLeft(remainingSeconds) : 'No timer'}
-                              </em>
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <p className="muted-copy">No seated players on this table.</p>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <p className="muted-copy">No open tables to summarize.</p>
-                )}
-              </div>
-            );
-          })() : null}
-        </section>
-
-        <section className={`panel floor-panel table-financial-overview-panel ${openPanels.tableFinancials ? '' : 'collapsed-panel'}`}>
-          <PanelTitle
-            icon={<WalletCards />}
-            title="Table Overview"
-            collapsed={!openPanels.tableFinancials}
-            onToggle={() => togglePanel('tableFinancials')}
-          />
-          {openPanels.tableFinancials ? (() => {
-            const allTableFinancialsId = 'all-table-financials';
-            const openSessions = state.sessions.filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start');
-            const selectedTable = openSessions.find((session) => session.id === financialOverviewTableId);
-            const isAllTables = financialOverviewTableId === allTableFinancialsId || !selectedTable;
-            const sessionsToShow: GameSession[] = isAllTables || !selectedTable ? openSessions : [selectedTable];
-            return openSessions.length ? (
-              <div className="table-financial-content">
-                <select
-                  className="table-financial-selector"
-                  value={isAllTables ? allTableFinancialsId : selectedTable?.id ?? allTableFinancialsId}
-                  onChange={(event) => setFinancialOverviewTableId(event.target.value)}
-                  aria-label="Choose table financial overview"
-                >
-                  <option value={allTableFinancialsId}>All Tables - Financial Overview</option>
-                  {openSessions.map((session) => (
-                    <option key={session.id} value={session.id}>
-                      {session.label} - {state.games.find((game) => game.id === session.gameId)?.name ?? 'Unknown'}
-                    </option>
-                  ))}
-                </select>
-                <div className="table-financial-list">
-                {sessionsToShow.map((session) => {
-                  const game = state.games.find((entry) => entry.id === session.gameId);
-                  const currentDealer = state.dealerAssignments
-                    .filter((assignment) => assignment.tableId === session.id && !assignment.endedAt)
-                    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
-                  const tablePlayers = getActivePlayerSessionsForTable(state, session.id)
-                    .sort((left, right) => (left.seatNumber ?? Number.MAX_SAFE_INTEGER) - (right.seatNumber ?? Number.MAX_SAFE_INTEGER));
-                  const seatedCount = tablePlayers.length;
-                  const financials = getTableFinancialOverview(state, session);
-                  const currency = (amount: number) =>
-                    `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-                  return (
-                    <article className="table-financial-card" key={session.id}>
-                      <div className="table-financial-head">
-                        <div>
-                          <strong>{session.label}</strong>
-                          <span>{game?.name ?? 'Unknown game'} · {session.collectionMode ?? (session.timeFeeBased ? 'Time' : 'Drop')}</span>
-                        </div>
-                        <em>{seatedCount}/{session.maxSeats} seated</em>
-                      </div>
-                      <div className="table-financial-metrics">
-                        <div>
-                          <span>Buy-ins</span>
-                          <strong>{currency(financials.totalBuyIns)}</strong>
-                        </div>
-                        <div className="table-profit-metric">
-                          <span>Table profit</span>
-                          <strong>{currency(financials.tableProfit)}</strong>
-                          <small>{currency(financials.totalDrop)} drop · {currency(financials.totalTimeFees)} time</small>
-                        </div>
-                        <div>
-                          <span>Cash in play</span>
-                          <strong>{currency(financials.cashInPlay)}</strong>
-                        </div>
-                      </div>
-                      <div className="table-financial-footer">
-                        <div>
-                          <span>Current dealer</span>
-                          <strong>{currentDealer?.dealerName ?? 'Unassigned'}</strong>
-                        </div>
-                        <div>
-                          <span>Cash-outs</span>
-                          <strong>{currency(financials.totalCashOuts)}</strong>
-                        </div>
-                      </div>
-                      {!isAllTables ? (
-                        <div className="table-player-financials">
-                          <div className="table-player-financials-title">
-                            <strong>Players at this table</strong>
-                            <span>{tablePlayers.length} currently seated</span>
-                          </div>
-                          {tablePlayers.length ? (
-                            <div className="table-player-financial-list">
-                              {tablePlayers.map((playerSession) => {
-                                const playerFinancials = getTablePlayerFinancialOverview(state, session, playerSession);
-                                return (
-                                  <article className="table-player-financial-row" key={playerSession.id}>
-                                    <div className="table-player-financial-head">
-                                      <strong>{playerSession.playerName}</strong>
-                                      <span>Seat {playerSession.seatNumber ?? '-'}</span>
-                                    </div>
-                                    <div className="table-player-financial-metrics">
-                                      <div><span>Buy-ins</span><strong>{currency(playerFinancials.totalBuyIns)}</strong></div>
-                                      <div><span>Cash-outs</span><strong>{currency(playerFinancials.totalCashOuts)}</strong></div>
-                                      <div><span>Time paid</span><strong>{currency(playerFinancials.totalTimeFees)}</strong></div>
-                                    </div>
-                                  </article>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <p className="muted-copy">No players are currently seated at this table.</p>
-                          )}
-                          <small className="table-player-financial-note">Recorded drop stays in the table total because it is not assigned to an individual player.</small>
-                        </div>
-                      ) : null}
-                    </article>
-                  );
-                })}
-                </div>
-              </div>
-            ) : (
-              <p className="muted-copy">No open tables to summarize.</p>
-            );
-          })() : null}
-        </section>
-
-        <section className={`panel floor-panel live-feed-panel ${openPanels.recentActivity ? '' : 'collapsed-panel'}`}>
-          <PanelTitle
-            icon={<MessageCircle />}
-            title="Recent Activity"
-            collapsed={!openPanels.recentActivity}
-            onToggle={() => togglePanel('recentActivity')}
-          />
-          {openPanels.recentActivity ? <div className="live-feed-list" aria-live="polite">
-            {liveFeedItems.length ? (
-              liveFeedItems.map((item) => (
-                <article className={`live-feed-item ${item.kind}`} key={item.id}>
-                  <div className="live-feed-dot" />
-                  <div>
-                    <div className="live-feed-head">
-                      <strong>{item.actor}</strong>
-                      <span>{formatClock(item.timestamp)}</span>
-                    </div>
-                    <p>{item.label}{item.detail ? ` - ${item.detail}` : ''}</p>
-                  </div>
-                </article>
-              ))
-            ) : (
-              <p className="muted-copy">Live floor events will appear here.</p>
-            )}
-          </div> : null}
-        </section>
-
-        <section className={`panel floor-panel shown-interest-panel ${openPanels.formingGames ? '' : 'collapsed-panel'}`}>
-          <PanelTitle icon={<Users />} title="Forming Games" collapsed={!openPanels.formingGames} onToggle={() => togglePanel('formingGames')} />
-          {openPanels.formingGames ? <div className="forming-list">
-            {state.games.length ? (
-              <label className="forming-game-menu">
-                <span>Game to form</span>
-                <select
-                  value={state.games.some((game) => game.id === formingGameId) ? formingGameId : state.games[0].id}
-                  onChange={(event) => setFormingGameId(event.target.value)}
-                >
-                  {state.games.map((game) => {
-                    const demand = getDemand(game, state.interests);
-                    const forming = state.sessions.some((session) => session.gameId === game.id && session.status === 'Forming');
-                    return (
-                      <option key={game.id} value={game.id}>
-                        {game.name}{forming ? ', forming' : ''}{demand.inRoom ? `, ${demand.inRoom} in room` : ''}
-                      </option>
-                    );
-                  })}
-                </select>
-              </label>
-            ) : null}
-            {state.games
-              .filter((game) => game.id === (state.games.some((item) => item.id === formingGameId) ? formingGameId : state.games[0]?.id))
-              .map((game: { id: any; name: any; maxSeats?: number; minInRoomForLikely?: number; minFlexibleForLikely?: number; minTotalForViable?: number; }) => {
-              const demand = getDemand(game, state.interests);
-              const viability = getViabilityState(state, game);
-              const formingSession = state.sessions.find((session: { gameId: any; status: string; }) => session.gameId === game.id && session.status === 'Forming');
-              const candidates = getParticipantPool(state, game.id, 3);
-              const startOptions = getSeatOptions(game.id);
-              const selectedForStart = formingSession ? (startPlayerDrafts[formingSession.id] ?? []) : [];
-              return (
-                <article className="forming-card" key={game.id}>
-                  <div>
-                    <strong>{game.name}</strong>
-                    <span className={`status-pill ${viability.state === 'Ready to Start' || viability.state === 'Likely to Start' ? 'likely' : ''}`}>
-                      {viability.state}
-                    </span>
-                  </div>
-                  <p>{demand.inRoom} in / {demand.confirmed} coming / {demand.interested + demand.waiting} waiting</p>
-                  <small>{viability.nextStep}</small>
-                  {candidates.length ? <small>Likely: {candidates.map((candidate) => candidate.playerName).join(', ')}</small> : null}
-                  <div className="inline-actions">
-                    {formingSession ? (
-                      <>
-                        <button className="secondary-button" onClick={() => startSessionWithPlayers(formingSession)}>
-                          Select + Start
-                        </button>
-                        <button className="ghost-button" onClick={() => failFormingGame(formingSession)}>
-                          Failed
-                        </button>
-                      </>
-                    ) : (
-                      <button className="secondary-button" onClick={() => addSession(game.id)}>
-                        Build Game
-                      </button>
-                    )}
-                  </div>
-                  {formingSession ? (
-                    <details className="compact-details">
-                      <summary>Players</summary>
-                      <div className="player-picker-list">
-                        {startOptions.length ? (
-                          startOptions.slice(0, formingSession.maxSeats).map((interest) => (
-                            <label className="player-pick-row" key={interest.id}>
-                              <input
-                                type="checkbox"
-                                checked={selectedForStart.includes(interest.id)}
-                                onChange={() => toggleStartPlayer(formingSession.id, interest.id)}
-                              />
-                              <span>{interest.playerName}</span>
-                              <small>{interest.status}</small>
-                            </label>
-                          ))
-                        ) : (
-                          <span className="muted-copy">No players available.</span>
-                        )}
-                      </div>
-                    </details>
-                  ) : null}
-                  {formingSession ? (
-                    <details className="compact-details">
-                      <summary>Failed start</summary>
-                      <div className="correction-grid">
-                      <label>
-                        Failed reason
-                        <select
-                          value={eventDrafts[formingSession.id]?.failReason ?? failedStartReasons[0]}
-                          onChange={(event: { target: { value: any; }; }) =>
-                            setEventDrafts((drafts: { [x: string]: any; }) => ({
-                              ...drafts,
-                              [formingSession.id]: { breakReason: tableBreakReasons[0], breakNote: '', failNote: '', ...(drafts[formingSession.id] ?? {}), failReason: event.target.value }
-                            }))
-                          }
-                        >
-                          {failedStartReasons.map((reason) => (
-                            <option key={reason}>{reason}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        Failed note
-                        <input
-                          value={eventDrafts[formingSession.id]?.failNote ?? ''}
-                          onChange={(event: { target: { value: any; }; }) =>
-                            setEventDrafts((drafts: { [x: string]: any; }) => ({
-                              ...drafts,
-                              [formingSession.id]: { breakReason: tableBreakReasons[0], breakNote: '', failReason: failedStartReasons[0], ...(drafts[formingSession.id] ?? {}), failNote: event.target.value }
-                            }))
-                          }
-                          placeholder="Optional"
-                        />
-                      </label>
-                      </div>
-                    </details>
-                  ) : null}
-                </article>
-              );
-            })}
-            {!state.games.length ? <p className="muted-copy">Add a game in Settings before forming a table.</p> : null}
-          </div> : null}
-        </section>
-
-        <section className={`panel floor-panel recommended-panel ${openPanels.waitlist ? '' : 'collapsed-panel'}`}>
-          <PanelTitle icon={<Target />} title="Waitlist" collapsed={!openPanels.waitlist} onToggle={() => togglePanel('waitlist')} />
-          {openPanels.waitlist ? <div className="waitlist-list">
-            {state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length ? (
-              state.interests
-                .filter((interest) => activeInterestStatuses.includes(interest.status))
-                .slice(0, 8)
-                .map((interest: { gameId: any; id: any; playerName: any; status: any; interestedAt: any; manualEdits: any; arrivedAt: any; }) => {
-                const game = state.games.find((item: { id: any; }) => item.id === interest.gameId);
-                return (
-                  <article className="waitlist-card" key={interest.id}>
-                    <div>
-                      <strong>{interest.playerName}</strong>
-                      <span>{game?.name ?? 'Unknown'} - {interest.status}</span>
-                      <small>
-                        Logged {formatClock(interest.interestedAt)} ({minutesSince(interest.interestedAt)}m)
-                        {interest.manualEdits?.interestedAt ? <em className="edited-marker">edited</em> : null}
-                      </small>
-                      {interest.arrivedAt ? (
-                        <small>
-                          Arrived {formatClock(interest.arrivedAt)} ({minutesSince(interest.arrivedAt)}m)
-                          {interest.manualEdits?.arrivedAt ? <em className="edited-marker">edited</em> : null}
-                        </small>
-                      ) : null}
-                    </div>
-                    <div className="lifecycle-actions">
-                      <button className="ghost-button" onClick={() => deleteInterest(interest.id)}>Remove</button>
-                    </div>
-                  </article>
-                );
-              })
-            ) : (
-              <p className="muted-copy">No one is on the waitlist.</p>
-            )}
-          </div> : null}
-        </section>
-
-        {openPanels.quickAdd ? (
-          <button
-            className="quick-add-drawer-backdrop"
-            type="button"
-            aria-label="Close Quick Add"
-            onClick={() => setOpenPanels((panels) => ({ ...panels, quickAdd: false }))}
-          />
-        ) : null}
-        <section className={`panel floor-panel quick-add-panel ${openPanels.quickAdd ? '' : 'collapsed-panel'}`}>
-          {openPanels.quickAdd ? (
-            <button
-              className="quick-add-drawer-close"
-              type="button"
-              aria-label="Close Quick Add"
-              title="Close Quick Add"
-              onClick={() => setOpenPanels((panels) => ({ ...panels, quickAdd: false }))}
-            >
-              <X size={19} />
-            </button>
-          ) : null}
-          <PanelTitle icon={<Plus />} title="Quick Add" collapsed={!openPanels.quickAdd} onToggle={() => togglePanel('quickAdd')} />
-          {openPanels.quickAdd ? <>
-          <form className="quick-form" onSubmit={addInterest}>
-            <input
-              value={form.playerName}
-              onChange={(event) => setForm({ ...form, playerName: event.target.value })}
-              placeholder="Player name"
-            />
-            <select value={form.gameId} onChange={(event) => setForm({ ...form, gameId: event.target.value, tableId: '', seatNumber: '' })}>
-              {state.games.map((game) => (
-                <option key={game.id} value={game.id}>
-                  {game.name}
-                </option>
-              ))}
-            </select>
-            <select
-              id="quick-add-status"
-              value={form.status}
-              onChange={(event) =>
-                setForm({
-                  ...form,
-                  status: event.target.value as InterestStatus,
-                  tableId: event.target.value === 'Seated' ? form.tableId : '',
-                  seatNumber: event.target.value === 'Seated' ? form.seatNumber : '',
-                  initialBuyIn: event.target.value === 'Seated' ? form.initialBuyIn : ''
-                })
-              }
-            >
-              {statuses.map((status) => (
-                <option key={status}>{status}</option>
-              ))}
-            </select>
-            {form.status === 'Seated' ? (
-              <>
-                <select value={form.tableId} onChange={(event) => setForm({ ...form, tableId: event.target.value, seatNumber: '' })}>
-                  <option value="">
-                    {quickAddOpenSeatSessions.length > 1 ? 'Choose table' : 'Auto table'}
-                  </option>
-                  {quickAddOpenSeatSessions.map((session) => {
-                    const game = state.games.find((item) => item.id === session.gameId);
-                    const openSeatCount = session.maxSeats - getActivePlayerSessionsForTable(state, session.id).length;
-                    return (
-                      <option key={session.id} value={session.id}>
-                        {session.label} - {game?.name ?? 'Table'} ({openSeatCount} open)
-                      </option>
-                    );
-                  })}
-                </select>
-                <input
-                  value={form.seatNumber}
-                  onChange={(event) => setForm({ ...form, seatNumber: event.target.value })}
-                  placeholder="Seat #"
-                  type="number"
-                  min="1"
-                  step="1"
-                />
-                <input
-                  value={form.initialBuyIn}
-                  onChange={(event) => setForm({ ...form, initialBuyIn: event.target.value })}
-                  placeholder="Initial buy-in $"
-                  type="number"
-                  min="0"
-                  step="1"
-                />
-              </>
-            ) : null}
-            <input
-              value={form.notes}
-              onChange={(event) => setForm({ ...form, notes: event.target.value })}
-              placeholder="Notes"
-            />
-            <button className="primary-button">
-              <Plus size={18} />
-              Add
-            </button>
-          </form>
-          <div className="check-in-search">
-            <input
-              value={checkInSearch}
-              onChange={(event) => setCheckInSearch(event.target.value)}
-              placeholder="Search first or last name"
-            />
-            <p className="check-in-help">Choose a member, then use the game and status options above.</p>
-            <div className="check-in-results">
-              {checkInMatches.length ? (
-                checkInMatches.map((profile) => {
-                  const preferredGame = state.games.find((game) => game.id === profile.preferredGameId)?.name ?? profile.preferredStakes;
-                  const inClub = inClubInterests.some(
-                    (interest) => interest.profileId === profile.id || interest.playerName.toLowerCase() === profile.name.toLowerCase()
-                  );
-                  return (
-                    <button className="check-in-result" type="button" key={profile.id} onClick={() => checkInProfileFromSearch(profile)}>
-                      <span>
-                        <strong>{profile.name}</strong>
-                        <small>{preferredGame || 'No preferred game'}</small>
-                      </span>
-                      <em>{inClub ? 'Edit status' : 'Choose'}</em>
-                    </button>
-                  );
-                })
-              ) : (
-                <p className="muted-copy">No matching players.</p>
-              )}
-            </div>
-          </div>
-          </> : null}
-        </section>
-        </div>
-
-      </section>
-    </main>
+    <FloorView
+      state={state}
+      analytics={analytics}
+      clockNow={clockNow}
+      openPanels={openPanels}
+      collapsedTables={collapsedTables}
+      startPlayerDrafts={startPlayerDrafts}
+      eventDrafts={eventDrafts}
+      dropDrafts={dropDrafts}
+      dealerDrafts={dealerDrafts}
+      handCountDrafts={handCountDrafts}
+      formingGameId={formingGameId}
+      overviewTableId={overviewTableId}
+      financialOverviewTableId={financialOverviewTableId}
+      waitlistPopupOpen={waitlistPopupOpen}
+      seatPickerModal={seatPickerModal}
+      cashOutModal={cashOutModal}
+      tableLedgerModal={tableLedgerModal}
+      seatPicker={seatPicker}
+      liveFeedItems={liveFeedItems}
+      quickAddOpenSeatSessions={quickAddOpenSeatSessions}
+      form={form}
+      statuses={statuses}
+      checkInSearch={checkInSearch}
+      checkInMatches={checkInMatches}
+      inClubInterests={inClubInterests}
+      failedStartReasons={failedStartReasons}
+      tableBreakReasons={tableBreakReasons}
+      setWaitlistPopupOpen={setWaitlistPopupOpen}
+      setOpenPanels={setOpenPanels}
+      setCollapsedTables={setCollapsedTables}
+      setStartPlayerDrafts={setStartPlayerDrafts}
+      setEventDrafts={setEventDrafts}
+      setDropDrafts={setDropDrafts}
+      setDealerDrafts={setDealerDrafts}
+      setHandCountDrafts={setHandCountDrafts}
+      setFormingGameId={setFormingGameId}
+      setOverviewTableId={setOverviewTableId}
+      setFinancialOverviewTableId={setFinancialOverviewTableId}
+      setTableLedgerSessionId={setTableLedgerSessionId}
+      setForm={setForm}
+      setCheckInSearch={setCheckInSearch}
+      minutesSince={minutesSince}
+      getAvailableSeatNumber={getAvailableSeatNumber}
+      getActivePlayerSessionsForTable={getActivePlayerSessionsForTable}
+      getSeatOptions={getSeatOptions}
+      getTimeRemainingSeconds={getTimeRemainingSeconds}
+      getMoveTargets={getMoveTargets}
+      formatHours={formatHours}
+      formatClock={formatClock}
+      formatTimeLeft={formatTimeLeft}
+      toDateTimeInput={toDateTimeInput}
+      togglePanel={togglePanel}
+      seatInterestAtTable={seatInterestAtTable}
+      updateInterest={updateInterest}
+      deleteInterest={deleteInterest}
+      openTableView={openTableView}
+      openSeatPicker={openSeatPicker}
+      startSessionWithPlayers={startSessionWithPlayers}
+      updateSession={updateSession}
+      recordTableEvent={recordTableEvent}
+      toggleStartPlayer={toggleStartPlayer}
+      addPlayerTime={addPlayerTime}
+      addBuyIn={addBuyIn}
+      requestPlayerCashOut={requestPlayerCashOut}
+      changePlayerSeat={changePlayerSeat}
+      movePlayerToTable={movePlayerToTable}
+      setTableCollectionMode={setTableCollectionMode}
+      updateSessionTimestamp={updateSessionTimestamp}
+      assignDealer={assignDealer}
+      endDealerAssignment={endDealerAssignment}
+      recordHands={recordHands}
+      addTableDrop={addTableDrop}
+      failFormingGame={failFormingGame}
+      addSession={addSession}
+      addInterest={addInterest}
+      checkInProfileFromSearch={checkInProfileFromSearch}
+    />
   ));
 }
 
@@ -10323,31 +5657,6 @@ function TableBuyInLedger({ state, session }: { state: AppState; session: GameSe
   );
 }
 
-function PanelTitle({
-  icon,
-  title,
-  collapsed,
-  onToggle
-}: {
-  icon: React.ReactNode;
-  title: string;
-  collapsed?: boolean;
-  onToggle?: () => void;
-}) {
-  return (
-    <div className="panel-title">
-      <div className="panel-title-main">
-        {icon}
-        <h2>{title}</h2>
-      </div>
-      {onToggle ? (
-        <button className="icon-button panel-toggle-button" onClick={onToggle} title={collapsed ? `Open ${title}` : `Close ${title}`}>
-          {collapsed ? <ChevronDown size={17} /> : <ChevronUp size={17} />}
-        </button>
-      ) : null}
-    </div>
-  );
-}
 
 function TagPicker({ selected, onChange }: { selected: TableTag[]; onChange: (tags: TableTag[]) => void }) {
   return (

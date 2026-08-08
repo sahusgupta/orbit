@@ -1,0 +1,51 @@
+
+/* Tournament cards need their own contrast contract because the whole card is a button. */
+body:not(.low-light) .tournament-library-card {
+  background: #ffffff;
+}
+
+body:not(.low-light) .tournament-library-main,
+body:not(.low-light) .tournament-library-main strong {
+  color: #0b1020 !important;
+}
+
+body:not(.low-light) .tournament-library-main small {
+  color: #64748b !important;
+}
+
+body.low-light .tournament-library-card {
+  background: #171d26;
+}
+
+body.low-light .tournament-library-main,
+body.low-light .tournament-library-main strong {
+  color: #f4f7fb !important;
+}
+
+body.low-light .tournament-library-main small {
+  color: #aab4ca !important;
+}
+
+@media (max-width: 1100px) {
+  .report-numerical-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .report-analysis-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .report-numerical-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .report-hour-list > article {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .report-hour-list time {
+    grid-column: 1 / -1;
+  }
+}

@@ -5,7 +5,7 @@ Standalone backend foundation for Orbit desktop, the future mobile app, and a fu
 ## Run Locally
 
 ```powershell
-npm run api:install
+npm ci --prefix apps/api
 $env:ORBIT_CLIENT_API_KEY="dev-orbit-key"
 $env:API_PORT="4629"
 $env:DATABASE_URL="file:./data/orbit-api.sqlite3"
@@ -57,7 +57,9 @@ All other endpoints require `x-orbit-api-key`.
 - `ORBIT_DAY_PASS_PRICE_CENTS` and `ORBIT_MONTHLY_MEMBERSHIP_PRICE_CENTS`: authoritative server-side membership prices (defaults: `1000` and `3500`).
 - `ORBIT_PAYMENT_CURRENCY`: three-letter currency code, defaults to `usd`.
 
-The database layer is intentionally small and isolated in `src/database.js` so it can later be swapped for Postgres or Supabase.
+`src/database.js` is the stable persistence facade. SQLite connection/schema and focused client, telemetry, state, and report repositories live under `src/db/`, preserving a narrow boundary for a future reviewed adapter.
+
+`src/server.js` owns process listen/shutdown and exports the composed Express app. Non-listening middleware/route composition lives in `src/app.js`, with focused owners under `src/http/` and `src/routes/`.
 
 Vercel's deployment filesystem is read-only except for `/tmp`, so do not set `DATABASE_URL=file:./data/orbit-api.sqlite3` there. `/tmp` prevents startup crashes, but it is ephemeral; use a persistent database provider for production logs.
 
