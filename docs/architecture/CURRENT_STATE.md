@@ -9,7 +9,7 @@ Date: 2026-08-07
 | Management renderer | `src/main.tsx` plus `src/components/` | React/Vite UI, management state/domain orchestration, typed route composition, browser persistence, Firebase client coordination | `tsconfig.renderer.json`, root Vitest, Vite build |
 | Renderer tests | `src/**/*.test.ts(x)` | jsdom/Node-assisted characterization and pure unit tests | `tsconfig.test.json`, root Vitest |
 | Electron | `electron/main.cjs`, extracted process modules, and API-owned `apps/api/src/shared/orbitCore.cjs` | desktop windowing, IPC, local SQLite, hosted/local API fallback, telemetry, reports, updates, explicit server-sync compatibility profile | dedicated non-DOM `tsconfig.electron.json`, tests, renderer build |
-| API | `apps/api/src/server.js`, `apps/api/src/orbitCore.js`, `apps/api/src/shared/orbitCore.cjs` | Express routes, SQLite, Firebase Admin publication, licensing/payment integrations, shared server-side player transforms | dedicated non-DOM `apps/api/tsconfig.json` check-JS plus root Vitest |
+| API | `apps/api/src/server.js` → `apps/api/src/app.js`, `apps/api/src/routes/`, `apps/api/src/http/`, `apps/api/src/database.js`, and `apps/api/src/db/` | process startup, non-listening Express composition, focused route/middleware owners, stable SQLite facade/repositories, privileged integrations, shared server-side player transforms | dedicated non-DOM `apps/api/tsconfig.json` check-JS plus API localhost characterization and root Vitest |
 | Player | `player-app/App.tsx` → `player-app/src/PlayerApp.tsx` | Expo mobile client and Player-owned domain/data code | Player TypeScript plus root Vitest |
 
 ## Current concentration
@@ -21,8 +21,8 @@ Date: 2026-08-07
 | `electron/main.cjs` | 505 | Wires the shared server-sync compatibility profile, windows, IPC, Firebase request polling, outreach transport/logging, and application lifecycle. Extracted modules own updates, embedded backend, local SQLite/reports, API transport/telemetry, and pure runtime helpers. |
 | `src/lib/playerSync.ts` | 847 | Canonical renderer publication/merge logic; protected by focused tests and protocol-v2 invariants. |
 | `apps/api/src/shared/orbitCore.cjs` | 471 | Pure API/Electron server-side snapshot and request transformations with explicit validation/compatibility profiles. |
-| `apps/api/src/server.js` | 668 | Route composition and service orchestration are still combined. |
-| `apps/api/src/database.js` | 556 | Connection/schema, mapping, state, telemetry, and reports share one module. |
+| `apps/api/src/server.js` and `apps/api/src/app.js` | 25 and 35 | Process listen/shutdown/export and non-listening HTTP composition are separate; focused HTTP/route modules are at most 162 lines. |
+| `apps/api/src/database.js` and `apps/api/src/db/` | 33-line facade; focused modules at most 212 | The stable 17-export facade delegates to one connection/schema owner and focused client, telemetry, state, and report repositories. |
 
 The previous compactness audit's approximate 6,300/4,700/1,300-line figures for the renderer, stylesheet, and Electron main process are obsolete.
 
@@ -41,6 +41,28 @@ REF-006 moved all nine remaining renderer route branches into typed feature comp
 REF-007 replaced the 8,840-line stylesheet entrypoint with 35 ordered imports under `src/styles/`. The recursively flattened source is byte-identical to the prior cascade, the generated CSS asset is unchanged, and eight isolated route/theme/viewport comparisons preserve rendered output. `src/styles/README.md` records the feature/layer owners and the compatibility-order constraint.
 
 REF-008 extracted Electron transport, persistence, embedded-backend, updater, and utility modules behind characterized process-local interfaces. REF-009 then moved the duplicated API/Electron player snapshot and request transformations into the API-contained `apps/api/src/shared/orbitCore.cjs`; the API keeps its public wrapper and validation defaults while Electron selects an explicit compatibility profile. Renderer management transforms remain intentionally separate because their account-key, membership-note, and full-table behaviors are observably different. Player remains the protocol consumer and revision-selection owner.
+
+REF-010 preserved the API's CommonJS start/export and database facade while separating schema/connection, four persistence repositories, non-listening app composition, authentication/error/publication/SSE middleware, and system/Player/dashboard/client route groups. Its isolated localhost characterization uses a unique temporary SQLite file and disabled external credentials; all 38 method/path registrations remain present.
+
+## Remaining large-file ownership
+
+The tracked production files above 500 lines are deliberate current boundaries, not undiscovered API/database/route ownership:
+
+| Owner | Lines | Current cohesion or safety reason |
+| --- | ---: | --- |
+| `player-app/src/PlayerApp.tsx` | 7,430 | Expo state/effect/navigation shell plus colocated React Native presentation components. Player UI decomposition was not part of this authorized phase, and the repository has no safe local native build; this remains an explicit future concentration. |
+| `src/main.tsx` | 5,599 | Management state/effect/command orchestration and typed route composition after domain and nine route views moved to focused owners. |
+| `player-app/src/data/orbitSyncApi.ts` | 1,328 | Player's single Firebase/API authentication, transport, hydration, and protocol-compatibility adapter. |
+| `src/components/FloorView.tsx` | 1,123 | One management route and its characterized floor/table callback surface. |
+| `src/lib/playerSync.ts` | 847 | Renderer-specific management sync transformation boundary whose semantics intentionally differ from the server core. |
+| `src/lib/firebaseClubSync.ts` | 756 | Renderer Firebase publication/subscription and protocol-v2 boundary. |
+| `src/components/ProfilesView.tsx` | 727 | One management route and its characterized profile/import/relationship callback surface. |
+| `src/styles/91-dark-theme-compatibility.css` | 649 | Ordered equal-specificity compatibility pass; moving rules changes the preserved cascade. |
+| `apps/api/src/firebasePublisher.js` | 644 | API's sequential Firestore REST publisher, including child-first/parent-last protocol-v2 commit semantics. |
+| `src/components/SummaryView.tsx` | 574 | One management summary/closeout/report route boundary. |
+| `electron/main.cjs` | 505 | Reviewed Electron process composition, window/IPC lifecycle, and remaining privileged outreach/Firebase wiring. |
+
+Ten additional tracked files over 500 lines are focused characterization suites. Their size comes from complete lifecycle, transition, planning, synchronization, persistence, identity, and ordering matrices; splitting those fixtures would obscure the behavioral boundary they protect.
 
 ## Renderer dependency shape
 

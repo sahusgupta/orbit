@@ -1,6 +1,5 @@
 queue: orbit-large-refactor
-status: active
-current: REF-010
+status: complete
 tasks:
   - id: REF-001
     title: Extract canonical management domain types
@@ -97,9 +96,9 @@ tasks:
     resolution: api_owned_server_core_with_explicit_electron_compatibility_profile
   - id: REF-010
     title: Split API database and route responsibilities
-    status: active
+    status: complete
     boundary: api
     risk: high_data
     depends_on: [TYPE-018, REF-009]
     spec: docs/agent/tasks/REF-010.md
-    current_subtask: REF-010C
+    resolution: stable_database_facade_with_focused_repositories_and_non_listening_route_composition

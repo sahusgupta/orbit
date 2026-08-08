@@ -128,11 +128,7 @@ This is now a deliberate ownership split rather than unreviewed duplication.
 
 ### `apps/api/src/database.js`
 
-Current size: 556 lines as of 2026-08-07.
-
-This is not dangerously large yet, but it mixes schema creation, row mapping, writes, reads, telemetry queries, state persistence, and reports.
-
-Suggested split:
+REF-010 replaced the 556-line mixed module with a 33-line stable facade and focused repositories:
 
 ```text
 apps/api/src/db/
@@ -144,21 +140,27 @@ apps/api/src/db/
   reports.js
 ```
 
+`connection.js` owns the one lazy process-local SQLite handle, `schema.js` owns unchanged schema creation, and the remaining modules own client, telemetry, state, and report persistence. The largest is 212 lines.
+
 ### `apps/api/src/server.js`
 
-Current size: 668 lines as of 2026-08-07.
-
-This file is still manageable, but route groups should eventually move into files:
+REF-010 reduced process startup/shutdown/export to 25 lines and introduced a 35-line non-listening `app.js`. Focused HTTP and route owners now live under:
 
 ```text
 apps/api/src/routes/
-  dashboard.js
-  clients.js
-  telemetry.js
-  state.js
+  system.js
   player.js
-  reports.js
+  dashboard.js
+  client.js
+apps/api/src/http/
+  auth.js
+  middleware.js
+  domainEvents.js
+  firebasePublication.js
+  liveUpdates.js
 ```
+
+All 38 method/path registrations and the raw-webhook/general-JSON/auth/error ordering remain characterized through an isolated localhost API child.
 
 ### `scripts/firestore-club-members.cjs`
 

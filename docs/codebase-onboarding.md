@@ -21,8 +21,9 @@ Read these files first:
 - `src/lib/appCore.ts`: small shared pure helpers.
 - `src/lib/playerSync.ts`: player app and management app sync behavior.
 - `electron/main.cjs`: Electron shell, local persistence, telemetry, updates, and embedded backend.
-- `apps/api/src/server.js`: API route entry point.
-- `apps/api/src/database.js`: SQLite persistence for API data.
+- `apps/api/src/server.js` → `apps/api/src/app.js`: API process entrypoint and non-listening app composition.
+- `apps/api/src/routes/` and `apps/api/src/http/`: focused route and middleware owners.
+- `apps/api/src/database.js` → `apps/api/src/db/`: stable SQLite facade and focused persistence owners.
 - `src/components/PokerTable.tsx`: visual table component used by the management UI.
 
 ## How To Run
@@ -118,7 +119,7 @@ Important workflows inside it:
 
 ### API
 
-`apps/api/src/server.js` defines HTTP routes.
+`apps/api/src/server.js` starts and stops the process and preserves the exported Express app. `apps/api/src/app.js` composes middleware and route groups without listening.
 
 Key route areas:
 
@@ -131,7 +132,7 @@ Key route areas:
 - membership and waitlist requests
 - analytical reports
 
-`apps/api/src/database.js` owns SQLite tables and persistence functions.
+`apps/api/src/database.js` preserves the persistence import contract. `apps/api/src/db/connection.js` and `schema.js` own SQLite lifecycle/schema; `clients.js`, `telemetry.js`, `state.js`, and `reports.js` own focused repositories.
 
 `apps/api/src/orbitCore.js` preserves the public API entrypoint for the API-owned shared server sync core. Renderer-specific differences remain in `src/lib/playerSync.ts` by design.
 

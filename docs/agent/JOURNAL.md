@@ -1,5 +1,14 @@
 # Agent Journal
 
+## 2026-08-07 - REF-010 API persistence and route composition
+
+- Committed unchanged-production characterization first for the complete database facade and an isolated localhost HTTP child. The child uses a unique temporary SQLite file, synthetic authorization, and explicitly blank Firebase/Stripe/RevenueCat credentials.
+- Preserved the 17-export `database.js` contract while moving one connection/schema owner plus client, telemetry, state, and report repositories under `apps/api/src/db/`; the facade is 33 lines and the largest repository is 212.
+- Preserved the CommonJS `server.js` start/export contract while moving non-listening composition to `app.js`, HTTP concerns to `http/`, and all system/Player/dashboard/client routes to `routes/`. The 38 method/path inventory and parser/auth/error order are unchanged; `server.js` is 25 lines and no new HTTP/route module exceeds 162.
+- Focused characterization passed 3 files/10 tests and the complete API set passed 7 files/26 tests after both moves. Each implementation boundary passed all root compiler projects, Player TypeScript, 51 files/293 tests, the 1,930-module build, and `npm run verify`.
+- The REF-001–REF-010 queue is complete. Remaining files over 500 lines have explicit current owners in `docs/architecture/CURRENT_STATE.md`; ten are characterization matrices, and the out-of-scope Player UI concentration remains documented because no safe local native build exists.
+- No tracked database, hosted endpoint, valid external credential, production integration, deployment, package/release build, push, or publication was used.
+
 ## 2026-08-07 - REF-009 shared API/Electron sync core
 
 - Characterized API/Electron parity and every observed compatibility difference before moving code. The same audit proved the renderer is not interchangeable because club-ID precedence, notes, membership projection, and full-table/table-ID behavior differ.

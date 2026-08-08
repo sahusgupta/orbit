@@ -2,6 +2,8 @@
 
 Date: 2026-08-07
 
+Status: complete
+
 ## Objective
 
 Make runtime ownership obvious and behavior independently testable while preserving public contracts, persistence, synchronization, security, and failure semantics. The first active phase is the management renderer; Electron, API, shared-core, and CSS phases remain gated by their boundary-specific prerequisites.
@@ -32,3 +34,9 @@ Make runtime ownership obvious and behavior independently testable while preserv
 - API database and route responsibilities are separated only after check-JS coverage is active.
 - Files above 500 lines are rare or have a documented cohesion reason.
 - Every active task is complete or records a genuine human blocker; all repository verification gates pass.
+
+## Completion record
+
+REF-001 through REF-010 are complete. The management renderer has focused domain and route owners; the stylesheet has ordered feature owners; Electron primarily wires characterized process modules; API/Electron server transforms have one deliberate core; and API persistence, HTTP composition, and process startup now have separate owners behind stable entrypoints.
+
+The remaining tracked files over 500 lines are inventoried with their current responsibility and safety/cohesion reason in `docs/architecture/CURRENT_STATE.md`. Ten are characterization matrices. Production concentrations are explicit route/app orchestration, sync adapter/publisher, process wiring, or ordered compatibility owners; Player UI decomposition remains outside this authorized phase and lacks a safe local native build. No hidden active queue item remains.

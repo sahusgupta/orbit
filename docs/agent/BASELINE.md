@@ -107,6 +107,12 @@ Use explicit localhost overrides and disabled sync for isolated development.
 - No Firebase emulator configuration or rules test suite.
 - No standalone shared package/build is required for the current deployment layout. REF-009 established an API-contained pure core for behaviorally identical API/Electron transforms and documented the renderer/Player responsibilities that intentionally differ.
 
+## Refactor completion update — 2026-08-07
+
+The stabilization/refactor queue is complete through REF-010. The API now keeps `src/server.js` as process/export entrypoint, composes a non-listening app in `src/app.js`, delegates HTTP groups through `src/http/` and `src/routes/`, and preserves `src/database.js` as a stable facade over focused `src/db/` repositories.
+
+Final implementation verification passed all four root compiler projects, Player TypeScript, 51 files / 293 tests, the 1,930-module renderer build, and `npm run verify`. The route coverage included only an isolated `127.0.0.1` child with a unique temporary SQLite file, synthetic credentials, and external integrations disabled. The known SQLite experimental, ExcelJS `eval`, and large-chunk warnings remain; no production service, tracked database, package/release build, deployment, push, or publication was used.
+
 ## Unified Verification Result
 
 `npm run verify` was executed after the preparation files were created. It ran all four checks in 34.7 seconds and exited 1 because the pre-existing root TypeScript check failed:

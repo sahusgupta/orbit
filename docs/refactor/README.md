@@ -1,6 +1,6 @@
 # Refactor Planning
 
-The large refactor was authorized after the TypeScript stabilization gate passed on 2026-08-07.
+The authorized large-refactor queue completed on 2026-08-07 after the TypeScript stabilization gate passed.
 
 - Current architecture evidence: `docs/architecture/CURRENT_STATE.md`
 - Sequenced plan and completion criteria: `docs/refactor/PLAN.md`
