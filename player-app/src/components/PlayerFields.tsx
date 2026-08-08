@@ -42,7 +42,6 @@ export function Field({
     </View>
   );
 }
-
 export function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
@@ -50,4 +49,3 @@ export function Chip({ label, active, onPress }: { label: string; active: boolea
     </Pressable>
   );
 }
-

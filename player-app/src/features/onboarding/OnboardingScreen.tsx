@@ -46,7 +46,6 @@ export function OnboardingScreen({
     </SafeAreaProvider>
   );
 }
-
 function OnboardingFlow({
   draftPlayer,
   onboardingStep,
@@ -416,4 +415,3 @@ function StepHeader({ icon, title }: { icon: keyof typeof Ionicons.glyphMap; tit
     </View>
   );
 }
-
