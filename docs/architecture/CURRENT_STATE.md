@@ -8,7 +8,7 @@ Fresh audit date: 2026-08-08
 
 | Surface | Entrypoint | Current ownership | Verification |
 | --- | --- | --- | --- |
-| Management renderer | `src/main.tsx` plus `src/components/` | React/Vite UI, management state/domain orchestration, typed route composition, browser persistence, Firebase client coordination | `tsconfig.renderer.json`, root Vitest, Vite build |
+| Management renderer | `src/main.tsx`, `src/components/`, `src/app/persistence/`, and `src/application/management/` | React/Vite composition and UI state, typed routes, pure commands, explicit persistence adapters, and synchronization hooks | `tsconfig.renderer.json`, root Vitest, Vite build |
 | Renderer tests | `src/**/*.test.ts(x)` | jsdom/Node-assisted characterization and pure unit tests | `tsconfig.test.json`, root Vitest |
 | Electron | `electron/main.cjs`, extracted process modules, and API-owned `apps/api/src/shared/orbitCore.cjs` | desktop windowing, IPC, local SQLite, hosted/local API fallback, telemetry, reports, updates, explicit server-sync compatibility profile | dedicated non-DOM `tsconfig.electron.json`, tests, renderer build |
 | API | `apps/api/src/server.js` → `apps/api/src/app.js`, `apps/api/src/routes/`, `apps/api/src/http/`, `apps/api/src/database.js`, and `apps/api/src/db/` | process startup, non-listening Express composition, focused route/middleware owners, stable SQLite facade/repositories, privileged integrations, shared server-side player transforms | dedicated non-DOM `apps/api/tsconfig.json` check-JS plus API localhost characterization and root Vitest |
@@ -18,7 +18,7 @@ Fresh audit date: 2026-08-08
 
 | File | Lines | Evidence-backed concern |
 | --- | ---: | --- |
-| `src/main.tsx` | 5,599 | Domain contracts, pure projections, and nine route views have focused owners; top-level state, effects, persistence, and mutation orchestration remain concentrated here. |
+| `src/main.tsx` | 4,010 | Management composition, UI drafts/feedback, route wiring, and feature callback assembly remain concentrated here; domain transitions and persistence/synchronization policy have focused owners. |
 | `src/styles.css` and `src/styles/*.css` | 35-line entrypoint; 8,840 owned lines | The unchanged ordered cascade now has 35 feature/layer owners. Only the documented dark-theme compatibility pass exceeds 500 lines (649) because equal-specificity historical ordering is cohesive behavior. |
 | `electron/main.cjs` | 505 | Wires the shared server-sync compatibility profile, windows, IPC, Firebase request polling, outreach transport/logging, and application lifecycle. Extracted modules own updates, embedded backend, local SQLite/reports, API transport/telemetry, and pure runtime helpers. |
 | `src/lib/playerSync.ts` | 847 | Canonical renderer publication/merge logic; protected by focused tests and protocol-v2 invariants. |
@@ -53,7 +53,7 @@ The tracked production files above 500 lines are deliberate current boundaries, 
 | Owner | Lines | Current cohesion or safety reason |
 | --- | ---: | --- |
 | `player-app/src/PlayerApp.tsx` | 7,430 | Expo state/effect/navigation shell plus colocated React Native presentation components. Player UI decomposition was not part of this authorized phase, and the repository has no safe local native build; this remains an explicit future concentration. |
-| `src/main.tsx` | 5,599 | Management state/effect/command orchestration and typed route composition after domain and nine route views moved to focused owners. |
+| `src/main.tsx` | 4,010 | Management React state, UI drafts/feedback, route composition, and feature callback assembly after domain commands and persistence/sync effects moved to focused owners. |
 | `player-app/src/data/orbitSyncApi.ts` | 1,328 | Player's single Firebase/API authentication, transport, hydration, and protocol-compatibility adapter. |
 | `src/components/FloorView.tsx` | 1,123 | One management route and its characterized floor/table callback surface. |
 | `src/lib/playerSync.ts` | 847 | Renderer-specific management sync transformation boundary whose semantics intentionally differ from the server core. |
@@ -68,7 +68,7 @@ Ten additional tracked files over 500 lines are focused characterization suites.
 
 ## Renderer dependency shape
 
-`src/domain/types.ts` owns the canonical management `AppState` and related persisted contracts; focused state, reporting, licensing/staff-auth, operations, analytics, and participant modules own renderer domain projections. Typed components own route markup while `src/main.tsx` remains their state/effect/mutation orchestrator and still imports focused behavior from `src/lib/`. Renderer-mount characterization remains for persistence and state mutations; pure projections have direct focused boundaries. Renderer styles retain one explicit import entrypoint with ordered feature and compatibility owners.
+`src/domain/types.ts` owns canonical management `AppState` and persisted contracts. Focused domain modules own projections; `src/application/management/*Commands.ts` owns state transitions; `src/app/persistence/` owns browser/preload/localhost selection and save policy; synchronization hooks own startup, polling, reconciliation, update preservation, and pilot refresh. Typed components own route markup while `src/main.tsx` composes those owners. Renderer-mount characterization remains at cross-owner behavior boundaries, and pure adapters/commands have direct focused tests. Renderer styles retain one explicit import entrypoint with ordered feature and compatibility owners.
 
 The renderer phases now follow this dependency direction:
 
@@ -115,3 +115,7 @@ REF-015 moved normal and demand-driven forming tables, planned and balanced tabl
 REF-016 moved quick and walk-in profile construction, edit normalization/reference propagation, deletion, selected duplicate merges, and canonical club relationships into `src/application/management/profileCommands.ts`. Membership request approval, in-person activation, notification pruning, and optional manual revenue now belong to `src/application/management/membershipCommands.ts`. `src/main.tsx` is 4,446 lines and `App` is 3,804 lines; form state, confirmation, QR validation, demand prompts, feedback, usage, persistence, and route composition remain in the shell. Direct and renderer coverage preserve authoritative-ID/no-fabrication invariants and exact money/date shapes.
 
 REF-017 moved tournament creation/settings/rerun, registration/draw, clock/level transitions, entries, payouts, check-in, elimination, and completion into `src/application/management/tournamentCommands.ts`. Night-close save/sign/lock/reopen validation, staff/manager audits, history, warning cleanup, and room closure now belong to `src/application/management/closeoutCommands.ts`. `src/main.tsx` is 4,351 lines and `App` is 3,692 lines; forms, navigation timing, dialogs, closeout calculations, usage, persistence, and route composition remain in the shell. Direct and renderer lifecycle matrices preserve financial, signature, lock, status, ordering, and idempotency behavior.
+
+REF-018 characterized the unchanged browser, preload, localhost-bridge, and Firebase orchestration before any owner moved. The browser and desktop App-level suites pin account partitions, startup timestamp precedence, save fan-out/result policy, bridge bootstrap/retry, desktop polling, four-collection Firebase reconciliation, notification priority, update preservation, failure recovery, and cleanup.
+
+REF-019 moved per-account browser persistence into `src/app/persistence/browserStateRepository.ts` and platform selection/HTTP mapping/account restore into `managementPersistence.ts`. Focused hooks under `src/application/management/sync/` now own desktop/Firebase startup, local/desktop/Firebase reconciliation, cross-window reload, update preservation, pilot refresh, and staff-request notification policy. `src/main.tsx` is 4,010 lines and `App` is 3,387 lines; its remaining direct preload calls are UI navigation, backend status, reports, and telemetry rather than state persistence algorithms. The affected boundary passes 7 files / 29 tests, full verification passes 72 files / 393 tests, and the renderer build transforms 1,949 modules with a 998.42 kB main chunk.

@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-08 - REF-019 management persistence and synchronization application layer
+
+- Kept the REF-018 4-file / 18-test App-level contract green after every cohesive move, then added direct browser repository, platform adapter, and staff-notification policy coverage; the final affected boundary passed 7 files / 29 tests.
+- Moved per-account browser persistence and browser/preload/localhost/Firebase save selection into `src/app/persistence/`; moved startup precedence, three player-update loops, cross-window sync, update preservation, pilot refresh, and staff request notifications into focused management synchronization hooks.
+- Preserved account partitioning, desktop/cloud precedence, the characterized startup/poll ordering, merge widths/order, retry cadence, save-result/failure messages, notification priority/cap, queued reconciliation, cleanup, and protocol-v2 contracts.
+- `src/main.tsx` is 4,010 lines and `App` is 3,387 lines. Full verification passed all root compiler projects, Player TypeScript, 72 files / 393 tests, and the 1,949-module build; the main chunk is 998.42 kB. No production-connected runtime, provider, credential, database, or deployment was used.
+
 ## 2026-08-08 - REF-018 management persistence and sync characterization
 
 - Re-ran the 2-file / 16-test account-restore and Firebase adapter boundary, then added unchanged-production browser and desktop/Firebase orchestration cases; the expanded boundary passed 4 files / 18 tests.

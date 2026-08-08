@@ -358,7 +358,7 @@ tasks:
 
   - id: REF-019
     title: Extract management persistence and synchronization application layer
-    status: pending
+    status: complete
     objective: Move platform selection, state publication, reconciliation, and save-result policy out of App behind explicit adapters and hooks.
     evidence_root_cause: App directly contains 25 localStorage references, 18 preload references, 10 renderer Firebase calls, and several polling/listener effects.
     files_areas:

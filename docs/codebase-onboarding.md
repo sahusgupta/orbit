@@ -17,7 +17,9 @@ The product has three major surfaces:
 Read these files first:
 
 - `package.json`: available commands and packaging setup.
-- `src/main.tsx`: current main React app and most business workflows.
+- `src/main.tsx`: management composition root, UI drafts, route wiring, and command invocation.
+- `src/app/persistence/`: browser/preload/localhost/Firebase persistence adapters and result policy.
+- `src/application/management/`: pure management commands plus synchronization hooks.
 - `src/lib/appCore.ts`: small shared pure helpers.
 - `src/lib/playerSync.ts`: player app and management app sync behavior.
 - `electron/main.cjs`: Electron shell, local persistence, telemetry, updates, and embedded backend.
@@ -60,7 +62,7 @@ Run the complete repository verification entrypoint:
 npm run verify
 ```
 
-The current root TypeScript baseline is documented in `docs/agent/BASELINE.md`; do not describe verification as fully passing while that check remains red.
+The historical TypeScript stabilization record is in `docs/agent/BASELINE.md`. The current `npm run verify` gate requires every root compiler project, Player TypeScript, unit tests, and the renderer build to pass.
 
 Run the API:
 
@@ -72,12 +74,12 @@ npm run api:dev
 
 ### React App
 
-The React app currently lives mostly in `src/main.tsx`.
+`src/main.tsx` is the management composition root. It owns top-level React state, UI-only drafts, route selection, feedback, and feature callback wiring. Domain transitions are delegated to `src/application/management/*Commands.ts`; persistence and player-update coordination are delegated to explicit adapters and hooks.
 
 Important workflows inside it:
 
 - pilot access and license validation
-- local state loading/saving
+- persistence-hook composition
 - account/staff sign-in
 - waitlist and interest tracking
 - game/table lifecycle management
@@ -100,7 +102,22 @@ Important workflows inside it:
 
 `src/lib/playerSync.ts` contains the renderer's typed management sync transformations.
 
-`src/domain/profileImport.ts` owns pure CSV/XLSX-row and pasted JSON/text profile normalization, canonical profile construction, duplicate filtering, and companion-link enrichment. `src/main.tsx` retains browser file decoding, user feedback, and persistence orchestration.
+Management persistence follows this ownership map:
+
+| Concern | Owner |
+| --- | --- |
+| Per-account browser keys, last-account precedence, parse/normalize fallback | `src/app/persistence/browserStateRepository.ts` |
+| Browser/preload save selection, localhost HTTP mapping, desktop operations, account restore | `src/app/persistence/managementPersistence.ts` |
+| Desktop/Firebase startup timestamp precedence and first snapshot publication | `src/application/management/sync/useManagementStartupSync.ts` |
+| Browser bridge, desktop API, and Firebase reconciliation loops | `src/application/management/sync/useManagementPlayerUpdateSync.ts` |
+| Cross-window reload and Electron update preservation | `src/application/management/sync/useManagementPersistenceEvents.ts` |
+| Server-managed pilot refresh and persistence | `src/application/management/sync/useManagementPilotAccessRefresh.ts` |
+| Staff membership/seat notification priority, deduplication, and storage | `src/application/management/sync/staffRequestNotifications.ts` |
+| Firebase protocol-v2 publication, ingestion, and request subscriptions | `src/lib/firebaseClubSync.ts` and `src/lib/playerSync.ts` |
+
+The browser repository is always written first. A desktop build then uses the preload bridge; a browser build publishes to the optional localhost bridge. Renderer Firebase publication remains optional and fire-and-forget for ordinary saves. Do not bypass these owners or change account partition, timestamp precedence, merge ordering, retry cadence, or save-result semantics without characterization.
+
+`src/domain/profileImport.ts` owns pure CSV/XLSX-row and pasted JSON/text profile normalization, canonical profile construction, duplicate filtering, and companion-link enrichment. `src/main.tsx` retains browser file decoding and user feedback, then invokes the shared persistence owner.
 
 `src/lib/firebaseClubSync.ts` handles Firebase state sync, management-account authentication and password-reset email delivery, and player request subscriptions. Management password recovery verifies the new Firebase credential before replacing the desktop account's local password salt and hash.
 
@@ -159,7 +176,7 @@ Ask these after indexing this repo:
 Good first tasks:
 
 - Add tests for pure helpers in `src/lib/appCore.ts`.
-- Extract one pure helper from `src/main.tsx` into `src/lib/appCore.ts`.
+- Add a focused case to an existing pure management command or persistence adapter.
 - Add a small API route test around state save/load.
 - Improve documentation around one workflow, such as player seating or failed table starts.
 
