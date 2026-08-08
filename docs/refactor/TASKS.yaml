@@ -1,6 +1,6 @@
 queue: orbit-large-refactor
 status: active
-current: REF-009
+current: REF-010
 tasks:
   - id: REF-001
     title: Extract canonical management domain types
@@ -89,16 +89,15 @@ tasks:
     prohibited: production_connected_stress_harness
   - id: REF-009
     title: Establish and migrate to a shared sync core
-    status: active
+    status: complete
     boundary: cross_runtime_sync
     risk: high_architecture
     depends_on: [TYPE-016, TYPE-018]
     spec: docs/agent/tasks/REF-009.md
-    current_subtask: REF-009C
-    blocker: shared_package_ownership_decision_if_no_single_behavior_preserving_boundary_emerges
+    resolution: api_owned_server_core_with_explicit_electron_compatibility_profile
   - id: REF-010
     title: Split API database and route responsibilities
-    status: gated
+    status: ready
     boundary: api
     risk: high_data
     depends_on: [TYPE-018, REF-009]

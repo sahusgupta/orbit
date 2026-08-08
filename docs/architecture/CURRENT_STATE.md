@@ -40,6 +40,8 @@ REF-006 moved all nine remaining renderer route branches into typed feature comp
 
 REF-007 replaced the 8,840-line stylesheet entrypoint with 35 ordered imports under `src/styles/`. The recursively flattened source is byte-identical to the prior cascade, the generated CSS asset is unchanged, and eight isolated route/theme/viewport comparisons preserve rendered output. `src/styles/README.md` records the feature/layer owners and the compatibility-order constraint.
 
+REF-008 extracted Electron transport, persistence, embedded-backend, updater, and utility modules behind characterized process-local interfaces. REF-009 then moved the duplicated API/Electron player snapshot and request transformations into the API-contained `apps/api/src/shared/orbitCore.cjs`; the API keeps its public wrapper and validation defaults while Electron selects an explicit compatibility profile. Renderer management transforms remain intentionally separate because their account-key, membership-note, and full-table behaviors are observably different. Player remains the protocol consumer and revision-selection owner.
+
 ## Renderer dependency shape
 
 `src/domain/types.ts` owns the canonical management `AppState` and related persisted contracts; focused state, reporting, licensing/staff-auth, operations, analytics, and participant modules own renderer domain projections. Typed components own route markup while `src/main.tsx` remains their state/effect/mutation orchestrator and still imports focused behavior from `src/lib/`. Renderer-mount characterization remains for persistence and state mutations; pure projections have direct focused boundaries. Renderer styles retain one explicit import entrypoint with ordered feature and compatibility owners.
@@ -54,12 +56,12 @@ domain types
   → ordered CSS feature slices
 ```
 
-Electron and API refactoring are separate later phases. They require their own compiler coverage and characterization before moving persistence, privileged integrations, or duplicated sync code.
+Electron and API now have dedicated compiler coverage. API route/database decomposition remains separate from the shared pure server-sync core and requires its own persistence/route characterization.
 
 ## Invariants
 
 - The renderer uses the preload bridge; it does not gain Node globals or direct Electron imports.
 - Persisted management state and API/Firebase payload shapes remain unchanged unless separately approved.
-- Sync protocol v2 child-first/commit-marker semantics and per-club isolation remain intact.
+- Sync protocol v2 atomic-batch or REST parent-last commit semantics and per-club isolation remain intact.
 - Payment/profile/tournament identities remain authoritative and validated at external boundaries.
 - Electron/API production defaults are never exercised by ordinary refactor verification.

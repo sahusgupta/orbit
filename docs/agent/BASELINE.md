@@ -105,7 +105,7 @@ Use explicit localhost overrides and disabled sync for isolated development.
 - No safe local native Player build command.
 - No secret-free, automatically orchestrated e2e entrypoint and no e2e CI job.
 - No Firebase emulator configuration or rules test suite.
-- No separated shared package/build despite duplicated sync behavior across runtime boundaries.
+- No standalone shared package/build is required for the current deployment layout. REF-009 established an API-contained pure core for behaviorally identical API/Electron transforms and documented the renderer/Player responsibilities that intentionally differ.
 
 ## Unified Verification Result
 

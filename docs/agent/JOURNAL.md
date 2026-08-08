@@ -1,5 +1,13 @@
 # Agent Journal
 
+## 2026-08-07 - REF-009 shared API/Electron sync core
+
+- Characterized API/Electron parity and every observed compatibility difference before moving code. The same audit proved the renderer is not interchangeable because club-ID precedence, notes, membership projection, and full-table/table-ID behavior differ.
+- Made `apps/api/src/shared/orbitCore.cjs` the deployment-contained server transform owner, retained `apps/api/src/orbitCore.js` as the public API entrypoint, and migrated Electron through an explicit no-validation/legacy-projection/random-ID compatibility profile.
+- Removed the duplicated snapshot/membership/waitlist algorithms from `electron/main.cjs`, reducing it from 853 to 505 lines, and pinned the Electron package allowlist entry without running a package or release build.
+- Audited protocol-v2 publication: renderer/Electron publish the parent and children atomically in one Firestore batch; API REST publishes children before the parent commit marker; Player rejects incomplete/future revisions and retains legacy fallback. Current/legacy request paths remain club-scoped.
+- Final verification passed all four root compiler projects, Player TypeScript, 49 files/284 tests, the 1,930-module renderer build, and `npm run verify`. No Electron/API runtime, socket, package build, tracked database, production service, credential, deployment, push, or release was used.
+
 ## 2026-08-07 - TYPE-018 API check-JS boundary
 
 - Triggered TYPE-018 when REF-009 made API/shared-sync work the next refactor boundary and reproduced exactly seven diagnostics: two Firebase REST JSON properties, four licensing shapes, and one Stripe CommonJS constructor mismatch.

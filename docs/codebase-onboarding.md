@@ -97,9 +97,11 @@ Important workflows inside it:
 - active player counting
 - timer status calculation
 
-`src/lib/playerSync.ts` contains sync transformations between player accounts and club state.
+`src/lib/playerSync.ts` contains the renderer's typed management sync transformations.
 
 `src/lib/firebaseClubSync.ts` handles Firebase state sync and player request subscriptions.
+
+`apps/api/src/shared/orbitCore.cjs` owns the behaviorally shared API/Electron server transforms. The API consumes it through `apps/api/src/orbitCore.js`; Electron selects its characterized compatibility profile in `electron/main.cjs`.
 
 ### Electron
 
@@ -131,7 +133,7 @@ Key route areas:
 
 `apps/api/src/database.js` owns SQLite tables and persistence functions.
 
-`apps/api/src/orbitCore.js` duplicates some player-sync/domain behavior from the frontend and should eventually be consolidated.
+`apps/api/src/orbitCore.js` preserves the public API entrypoint for the API-owned shared server sync core. Renderer-specific differences remain in `src/lib/playerSync.ts` by design.
 
 ## Common Questions For Orbit
 

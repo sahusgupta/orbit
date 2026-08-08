@@ -114,24 +114,15 @@ electron/
 
 ### API/Core Duplication
 
-The app has similar player sync/domain logic in multiple places:
+REF-009 resolved the behaviorally identical API/Electron duplication through an API-contained pure CommonJS core:
 
-- `src/lib/playerSync.ts`
-- `apps/api/src/orbitCore.js`
-- `electron/main.cjs`
+- `apps/api/src/shared/orbitCore.cjs` owns server-side snapshot and request transforms.
+- `apps/api/src/orbitCore.js` preserves the API's public module entrypoint and validation defaults.
+- `electron/main.cjs` selects an explicit compatibility profile and no longer contains the algorithms.
 
-This should be compacted into one shared source of truth. A good direction is to create a shared package or plain shared module:
+`src/lib/playerSync.ts` remains a separate typed renderer owner. Characterization found materially different account-key precedence, membership notes/projection, full-table attendance, and invalid table-ID behavior, so silently merging it would change product/data semantics. Player continues to own request construction and protocol hydration under `player-app/`.
 
-```text
-packages/
-  table-core/
-    src/
-      playerSync.ts
-      accountKeys.ts
-      stateValidation.ts
-```
-
-Then both the frontend and API can depend on the same behavior.
+This is now a deliberate ownership split rather than unreviewed duplication.
 
 ## Medium Priority
 
