@@ -126,6 +126,19 @@ import {
   setTableCollectionMode as setTableCollectionModeInState
 } from './application/management/playerSessionCommands';
 import {
+  createBalancedTable as createBalancedTableInState,
+  createDemandFormingTable,
+  createFormingTable,
+  createPlannedTable,
+  startTableWithPlayers,
+  switchRunningTableGame
+} from './application/management/tableCommands';
+import {
+  correctTableTimestamp,
+  recordTableLifecycleEvent,
+  updateTableSession
+} from './application/management/tableLifecycleCommands';
+import {
   getCollectionProfile,
   getDealerReport,
   getReportFinancials,
@@ -177,9 +190,7 @@ import {
   getLikelyParticipants,
   getParticipantPool,
   getProfileForInterest,
-  hasParticipantInterest,
-  inactiveInterestStatuses,
-  lacksParticipantInterest
+  inactiveInterestStatuses
 } from './domain/participants';
 import type {
   AppRoute,
@@ -1670,97 +1681,12 @@ function App() {
     payload: SeatPlayerPayload
   ): SeatPlayerResult => seatPlayerWithCommand(sourceState, tableId, payload, { createId: uid, nowIso });
 
-  const buildSeatedState = (sourceState: AppState, session: GameSession, profile: PlayerProfile, seatNumber: number, note: string) => {
-    const result = seatPlayerInState(sourceState, session.id, {
-      playerName: profile.name,
-      profileId: profile.id,
-      requestedSeatNumber: seatNumber,
-      note
-    });
-    return result.ok ? result.state : sourceState;
-  };
-
   const addSessionToState = (sourceState: AppState, gameId: string, note = 'Table forming') => {
-    const game = sourceState.games.find((item) => item.id === gameId);
-    if (!game) return sourceState;
-    const collectionProfile = getCollectionProfile(sourceState, gameId);
-    const currentCount = sourceState.sessions.filter((session) => session.gameId === gameId && session.status !== 'Closed').length;
-    const timestamp = nowIso();
-    return {
-      ...sourceState,
-      sessions: [
-        ...sourceState.sessions,
-        {
-          id: uid(),
-          gameId,
-          label: currentCount ? `Table ${currentCount + 1}` : 'Main Table',
-          status: 'Forming' as GameStatus,
-          seatsFilled: 0,
-          maxSeats: game.maxSeats,
-          timeFeeBased: collectionProfile.collectionMode === 'Time',
-          collectionMode: collectionProfile.collectionMode,
-          tags: [],
-          startedAt: timestamp
-        }
-      ],
-      tableEvents: [
-        ...sourceState.tableEvents,
-        {
-          id: uid(),
-          type: 'Created' as TableEventType,
-          gameId,
-          timestamp,
-          playerCount: 0,
-          note
-        }
-      ]
-    };
+    return createDemandFormingTable(sourceState, gameId, note, { createId: uid, nowIso })?.state ?? sourceState;
   };
 
   const switchOpenTableToGame = (sourceState: AppState, targetGameId: string) => {
-    const targetGame = sourceState.games.find((game) => game.id === targetGameId);
-    const table = sourceState.sessions.find((session) => session.status === 'Running' && session.gameId !== targetGameId);
-    if (!targetGame || !table) return sourceState;
-    const collectionProfile = getCollectionProfile(sourceState, targetGameId);
-    const timestamp = nowIso();
-    return {
-      ...sourceState,
-      sessions: sourceState.sessions.map((session) =>
-        session.id === table.id
-          ? {
-              ...session,
-              gameId: targetGameId,
-              maxSeats: targetGame.maxSeats,
-              collectionMode: collectionProfile.collectionMode,
-              timeFeeBased: collectionProfile.collectionMode === 'Time',
-              manualEdits: markManualEdit(session.manualEdits, 'gameId')
-            }
-          : session
-      ),
-      playerSessions: sourceState.playerSessions.map((playerSession) =>
-        playerSession.tableId === table.id && !playerSession.leftAt
-          ? {
-              ...playerSession,
-              gameId: targetGameId,
-              timeFeeEnabled: collectionProfile.collectionMode === 'Time',
-              manualEdits: markManualEdit(playerSession.manualEdits, 'gameId')
-            }
-          : playerSession
-      ),
-      tableEvents: [
-        ...sourceState.tableEvents,
-        {
-          id: uid(),
-          type: 'Merged' as TableEventType,
-          gameId: targetGameId,
-          tableId: table.id,
-          timestamp,
-          playerCount: table.seatsFilled,
-          reason: 'game switched',
-          note: `${table.label} switched to ${targetGame.name}`
-        }
-      ]
-    };
+    return switchRunningTableGame(sourceState, targetGameId, { createId: uid, nowIso }).state;
   };
 
   const applyWaitlistDemandPrompt = (sourceState: AppState, prompt: WaitlistDemandPrompt | null) => {
@@ -2005,62 +1931,32 @@ function App() {
 
   const startSessionWithPlayers = (session: GameSession) => {
     const selectedIds = startPlayerDrafts[session.id] ?? [];
-    const selectedInterests = state.interests.filter((interest) => selectedIds.includes(interest.id) && !closedInterestStatuses.includes(interest.status));
-    const alreadySeated = getActivePlayerSessionsForTable(state, session.id);
-    const seatedAt = nowIso();
-    let nextState = state;
-    const seatedNames: string[] = [];
-    const skippedErrors: string[] = [];
-    selectedInterests.forEach((interest) => {
-      const result = seatPlayerInState(nextState, session.id, {
-        playerName: interest.playerName,
-        profileId: interest.profileId,
-        interestId: interest.id,
-        note: 'Started table'
-      });
-      if (result.ok) {
-        nextState = result.state;
-        seatedNames.push(result.playerName);
-      } else {
-        skippedErrors.push(result.error);
-      }
+    const triggeringCardHouse = getClubDisplayName(state);
+    const result = startTableWithPlayers(
+      state,
+      session,
+      selectedIds,
+      triggeringCardHouse,
+      { createId: uid, nowIso }
+    );
+    persist(result.state, true, {
+      feature: 'Tables',
+      action: 'Started table',
+      metadata: { gameId: session.gameId, players: result.selectedPlayerCount + result.alreadySeatedCount }
     });
-    nextState = syncSessionSeatCount(nextState, session.id, { status: 'Running', startedAt: seatedAt });
-    const table = nextState.sessions.find((item) => item.id === session.id);
-    const playerCount = table?.seatsFilled ?? alreadySeated.length + seatedNames.length;
-    const triggeringCardHouse = getClubDisplayName(nextState);
-    persist({
-      ...nextState,
-      tableEvents: [
-        ...nextState.tableEvents,
-        {
-          id: uid(),
-          type: 'Started' as TableEventType,
-          gameId: session.gameId,
-          tableId: session.id,
-          timestamp: seatedAt,
-          playerCount,
-          note: `${
-            seatedNames.length || alreadySeated.length
-              ? `Started with ${[...alreadySeated.map((player) => player.playerName), ...seatedNames].join(', ')}`
-              : 'Started empty'
-          } - messaging trigger: ${triggeringCardHouse}`
-        }
-      ]
-    }, true, { feature: 'Tables', action: 'Started table', metadata: { gameId: session.gameId, players: selectedInterests.length + alreadySeated.length } });
     window.setTimeout(() => {
       setSaveStatus({ state: 'saved', message: `Messaging trigger: ${triggeringCardHouse}` });
     }, 350);
     window.tableManagerDesktop?.recordClientEvent('table-started', 'tables', {
       gameId: session.gameId,
       tableId: session.id,
-      tableLabel: table?.label ?? session.label,
-      playerCount,
-      selectedPlayers: selectedInterests.length,
-      alreadySeated: alreadySeated.length
+      tableLabel: result.table?.label ?? session.label,
+      playerCount: result.playerCount,
+      selectedPlayers: result.selectedPlayerCount,
+      alreadySeated: result.alreadySeatedCount
     }, route).catch(() => undefined);
-    if (skippedErrors.length) {
-      setSaveStatus({ state: 'error', message: skippedErrors[0] });
+    if (result.skippedErrors.length) {
+      setSaveStatus({ state: 'error', message: result.skippedErrors[0] });
     }
     setStartPlayerDrafts((drafts) => ({ ...drafts, [session.id]: [] }));
   };
@@ -2117,240 +2013,53 @@ function App() {
   };
 
   const addSession = (gameId: string) => {
-    const game = state.games.find((item: { id: string; }) => item.id === gameId);
-    if (!game) return;
-    const collectionProfile = getCollectionProfile(state, gameId);
-    const currentCount = state.sessions.filter((session: { gameId: string; status: string; }) => session.gameId === gameId && session.status !== 'Closed').length;
-    const sessionId = uid();
-    const defaultStartPlayerIds = getSeatOptions(gameId).slice(0, game.maxSeats).map((interest) => interest.id);
-    const nextState: AppState = {
-      ...state,
-      sessions: [
-        ...state.sessions,
-        {
-          id: sessionId,
-          gameId,
-          label: currentCount ? `Table ${currentCount + 1}` : 'Main Table',
-          status: 'Forming',
-          seatsFilled: 0,
-          maxSeats: game.maxSeats,
-          timeFeeBased: collectionProfile.collectionMode === 'Time',
-          collectionMode: collectionProfile.collectionMode,
-          tags: [],
-          startedAt: nowIso()
-        }
-      ],
-      tableEvents: [
-        ...state.tableEvents,
-        {
-          id: uid(),
-          type: 'Created',
-          gameId,
-          timestamp: nowIso(),
-          playerCount: 0,
-          note: 'Table forming'
-        }
-      ]
-    };
-    const notifiedState = withGameFrequencyInAppNotifications(nextState, gameId, 'game-forming');
+    const result = createFormingTable(state, gameId, { createId: uid, nowIso });
+    if (!result) return;
+    const notifiedState = withGameFrequencyInAppNotifications(result.state, gameId, 'game-forming');
     persist(notifiedState, true, { feature: 'Tables', action: 'Created forming table', metadata: { gameId } });
-    if (defaultStartPlayerIds.length) {
-      setStartPlayerDrafts((drafts) => ({ ...drafts, [sessionId]: defaultStartPlayerIds }));
+    if (result.defaultStartPlayerIds.length) {
+      setStartPlayerDrafts((drafts) => ({ ...drafts, [result.sessionId]: result.defaultStartPlayerIds }));
     }
   };
 
   const addPlannedSession = () => {
-    const game = state.games.find((item: { id: any; }) => item.id === coordinationConfig.gameId);
-    if (!game) return;
-    const collectionProfile = getCollectionProfile(state, game.id);
-    const currentCount = state.sessions.filter((session: { gameId: any; status: string; }) => session.gameId === game.id && session.status !== 'Closed').length;
-    const newInterests = participantPool
-      .filter(lacksParticipantInterest)
-      .map((candidate): Interest => ({
-        id: uid(),
-        profileId: candidate.profile?.id,
-        playerName: candidate.playerName,
-        gameId: game.id,
-        status: 'Interested' as InterestStatus,
-        notes: 'Connected participant',
-        timestamp: nowIso(),
-        interestedAt: nowIso()
-      }));
-    persist({
-      ...state,
-      interests: [...newInterests, ...state.interests],
-      sessions: [
-        ...state.sessions,
-        {
-          id: uid(),
-          gameId: game.id,
-          label: currentCount ? `Coordinated Table ${currentCount + 1}` : 'Coordinated Table',
-          status: 'Forming',
-          seatsFilled: 0,
-          maxSeats: game.maxSeats,
-          timeFeeBased: collectionProfile.collectionMode === 'Time',
-          collectionMode: collectionProfile.collectionMode,
-          plannedPlayerIds: [
-            ...participantPool.filter(hasParticipantInterest).map((candidate) => candidate.interest.id),
-            ...newInterests.map((interest) => interest.id)
-          ],
-          tags: [],
-          startedAt: nowIso()
-        }
-      ],
-      tableEvents: [
-        ...state.tableEvents,
-        {
-          id: uid(),
-          type: 'Created',
-          gameId: game.id,
-          timestamp: nowIso(),
-          playerCount: participantPool.length,
-          note: participantPool.length ? 'Staff-created planned table' : 'Staff-created empty table'
-        }
-      ]
-    }, true, { feature: 'Table builder', action: 'Created planned table', metadata: { gameId: game.id, players: participantPool.length } });
+    const result = createPlannedTable(
+      state,
+      coordinationConfig.gameId,
+      participantPool,
+      { createId: uid, nowIso }
+    );
+    if (!result) return;
+    persist(result.state, true, {
+      feature: 'Table builder',
+      action: 'Created planned table',
+      metadata: { gameId: coordinationConfig.gameId, players: result.playerCount }
+    });
   };
 
   const createBalancedTable = (plan: BalancePlan) => {
-    const currentCount = state.sessions.filter((session: { gameId: string; status: string; }) => session.gameId === plan.game.id && session.status !== 'Closed').length;
-    persist({
-      ...state,
-      sessions: [
-        ...state.sessions.map((session: GameSession) =>
-          session.id === plan.fromTable.id
-            ? {
-                ...session,
-                seatsFilled: plan.tableASeatsAfterMove,
-                plannedPlayerIds: (session.plannedPlayerIds ?? []).filter(
-                  (id: string | undefined) => !plan.moveCandidates.some((candidate) => candidate.interest?.id === id)
-                )
-              }
-            : session
-        ),
-        {
-          id: uid(),
-          gameId: plan.game.id,
-          label: `Balanced Table ${currentCount + 1}`,
-          status: 'Forming',
-          seatsFilled: plan.tableBProjectedSeats,
-          maxSeats: plan.game.maxSeats,
-          timeFeeBased: plan.fromTable.timeFeeBased ?? false,
-          collectionMode: plan.fromTable.collectionMode ?? (plan.fromTable.timeFeeBased ? 'Time' : 'Drop'),
-          plannedPlayerIds: plan.moveCandidates.map((candidate) => candidate.interest!.id),
-          tags: [],
-          startedAt: nowIso()
-        }
-      ],
-      tableEvents: [
-        ...state.tableEvents,
-        {
-          id: uid(),
-          type: 'Created',
-          gameId: plan.game.id,
-          tableId: plan.fromTable.id,
-          timestamp: nowIso(),
-          playerCount: plan.tableBProjectedSeats,
-          note: `Table B created from Table A balance option: ${plan.moveCandidates.map((candidate) => candidate.playerName).join(', ')}`
-        }
-      ]
-    }, true, { feature: 'Table builder', action: 'Created balanced table', metadata: { gameId: plan.game.id, players: plan.tableBProjectedSeats } });
+    persist(createBalancedTableInState(state, plan, { createId: uid, nowIso }), true, {
+      feature: 'Table builder',
+      action: 'Created balanced table',
+      metadata: { gameId: plan.game.id, players: plan.tableBProjectedSeats }
+    });
   };
 
   const updateSession = (id: string, patch: Partial<GameSession>) => {
-    const current = state.sessions.find((session: { id: string; }) => session.id === id);
-    const eventType: TableEventType | undefined =
-      patch.status === 'Running'
-        ? 'Started'
-        : patch.status === 'Closed'
-          ? current?.status === 'Forming'
-            ? 'Failed to Start'
-            : 'Closed'
-          : undefined;
-    persist({
-      ...state,
-      sessions: state.sessions.map((session: GameSession) => {
-        if (session.id !== id) return session;
-        const closed = patch.status === 'Closed' && !session.endedAt;
-        return {
-          ...session,
-          ...patch,
-          endedAt: closed ? nowIso() : patch.status === 'Running' ? undefined : session.endedAt,
-          manualEdits: Object.keys(patch).reduce((edits, key) => markManualEdit(edits, key), session.manualEdits)
-        };
-      }),
-      tableEvents:
-        eventType && current
-          ? [
-              ...state.tableEvents,
-              {
-                id: uid(),
-                type: eventType,
-                gameId: current.gameId,
-                tableId: current.id,
-                timestamp: nowIso(),
-                playerCount: current.seatsFilled,
-                note: ''
-              }
-            ]
-          : state.tableEvents
-    });
+    persist(updateTableSession(state, id, patch, { createId: uid, nowIso }));
   };
 
   const updateSessionTimestamp = (id: string, key: 'startedAt' | 'endedAt', value: string) => {
     const nextValue = fromDateTimeInput(value);
-    persist(withCorrectionLog({
-      ...state,
-      sessions: state.sessions.map((session: GameSession) =>
-        session.id === id ? { ...session, [key]: nextValue, manualEdits: markManualEdit(session.manualEdits, key) } : session
-      )
-    }, id, key, 'Table timestamp corrected'));
+    persist(correctTableTimestamp(state, id, key, nextValue, { createId: uid, nowIso }));
   };
 
   const recordTableEvent = (session: GameSession, type: TableEventType, reason: string, note = '') => {
-    const timestamp = nowIso();
-    persist({
-      ...state,
-      sessions: state.sessions.map((item: GameSession) =>
-        item.id === session.id
-          ? {
-              ...item,
-              status: type === 'Started' ? 'Running' : type === 'Failed to Start' ? 'Failed to Start' : type === 'Broke' || type === 'Closed' ? 'Closed' : item.status,
-              endedAt:
-                type === 'Failed to Start' || type === 'Broke' || type === 'Closed'
-                  ? item.endedAt ?? timestamp
-                  : item.endedAt
-            }
-          : item
-      ),
-      playerSessions:
-        type === 'Broke' || type === 'Closed'
-          ? state.playerSessions.map((playerSession: PlayerSession) =>
-              playerSession.tableId === session.id && !playerSession.leftAt
-                ? { ...playerSession, leftAt: timestamp }
-                : playerSession
-            )
-          : state.playerSessions,
-      dealerAssignments:
-        type === 'Broke' || type === 'Closed' || type === 'Failed to Start'
-          ? state.dealerAssignments.map((assignment) =>
-              assignment.tableId === session.id && !assignment.endedAt ? { ...assignment, endedAt: timestamp } : assignment
-            )
-          : state.dealerAssignments,
-      tableEvents: [
-        ...state.tableEvents,
-        {
-          id: uid(),
-          type,
-          gameId: session.gameId,
-          tableId: session.id,
-          timestamp,
-          playerCount: session.seatsFilled,
-          reason,
-          note
-        }
-      ]
-    }, true, { feature: 'Tables', action: type, metadata: { gameId: session.gameId, tableId: session.id, reason } });
+    persist(
+      recordTableLifecycleEvent(state, session, type, reason, note, { createId: uid, nowIso }),
+      true,
+      { feature: 'Tables', action: type, metadata: { gameId: session.gameId, tableId: session.id, reason } }
+    );
   };
 
   const failFormingGame = (session: GameSession) => {

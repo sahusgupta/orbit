@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-08 - REF-015 table-planning and lifecycle command boundaries
+
+- Re-ran 3 files / 19 existing planning/lifecycle cases, then committed missing unchanged-production table-start and demand-switch cases as `aca78c3`; the expanded boundary passed 4 files / 27 tests.
+- Moved forming/planned/balanced construction, game switching, and selected-player starts into `tableCommands.ts`; moved table patches, corrections, and lifecycle propagation into `tableLifecycleCommands.ts`.
+- Kept drafts, feedback, notification/telemetry fan-out, usage, and persistence in `App`. Added 12 direct command cases; the affected six renderer/application suites retained all 47 cases.
+- Full verification passed all compiler projects, Player TypeScript, 61 files / 355 tests, and the 1,938-module build. `src/main.tsx` is 4,700 lines and `App` is 4,068 lines; known warnings are unchanged and no production-connected runtime was invoked.
+
 ## 2026-08-08 - REF-014 seating and player-session command boundaries
 
 - Re-ran 3 files / 23 existing transition/lifecycle cases, then committed four missing unchanged-production seating/accounting/operational cases as `81dc007`; the expanded boundary passed 27 tests.

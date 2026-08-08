@@ -199,7 +199,7 @@ tasks:
 
   - id: REF-015
     title: Extract table planning and lifecycle commands
-    status: pending
+    status: complete
     objective: Give forming, balanced creation, game switching, table updates, lifecycle events, and close transitions focused pure owners.
     evidence_root_cause: Table-planning projections are focused, but state-changing table use cases remain inside App and share orchestration with UI drafts.
     files_areas:
