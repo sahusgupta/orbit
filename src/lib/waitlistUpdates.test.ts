@@ -102,6 +102,12 @@ const game = {
   minFlexibleForLikely: 2,
   minTotalForViable: 6
 };
+const alternateGame = {
+  ...game,
+  id: 'game-other',
+  name: 'Alternate Omaha',
+  maxSeats: 6
+};
 const targetInterest = {
   id: 'interest-target',
   profileId: 'profile-target',
@@ -149,7 +155,11 @@ const getLatestState = () => {
   return harness.latestState;
 };
 
-const resetState = async (interests: IdentifiedRecord[] = sourceInterests, sessions: IdentifiedRecord[] = [openSession]) => {
+const resetState = async (
+  interests: IdentifiedRecord[] = sourceInterests,
+  sessions: IdentifiedRecord[] = [openSession],
+  games: IdentifiedRecord[] = [game]
+) => {
   const stateSetter = harness.stateSetter;
   if (typeof stateSetter !== 'function') throw new Error('Expected to capture the application state setter');
 
@@ -158,6 +168,7 @@ const resetState = async (interests: IdentifiedRecord[] = sourceInterests, sessi
       if (!isCapturedState(current)) throw new Error('Expected the current application state');
       return {
         ...current,
+        games,
         interests,
         sessions,
         tableEvents: [],
@@ -490,6 +501,48 @@ describe('waitlist interest patching', () => {
       notes: 'Demand-triggering edit',
       timestamp: targetInterest.timestamp
     });
+  });
+
+  it('switches the first running alternate-game table with target collection and an exact event', async () => {
+    const alternateTable = {
+      ...openSession,
+      id: 'alternate-table',
+      gameId: 'game-other',
+      label: 'Alternate Table',
+      maxSeats: 6,
+      timeFeeBased: true,
+      collectionMode: 'Time',
+      manualEdits: { label: '2026-08-07T18:05:00.000Z' }
+    };
+    await resetState(sourceInterests, [alternateTable], [game, alternateGame]);
+    const previousState = getLatestState();
+    const previousSnapshot = structuredClone(previousState);
+    vi.mocked(window.prompt).mockReturnValue('switch');
+
+    await invokeUpdateInterest(inspectorSession, targetInterest.id, { notes: 'Switch-triggering edit' });
+
+    const nextState = getLatestState();
+    expect(previousState).toEqual(previousSnapshot);
+    expect(nextState.sessions[0]).toEqual({
+      ...alternateTable,
+      gameId: game.id,
+      maxSeats: game.maxSeats,
+      collectionMode: 'Drop',
+      timeFeeBased: false,
+      manualEdits: { label: '2026-08-07T18:05:00.000Z', gameId: now }
+    });
+    expect(nextState.tableEvents).toEqual([{
+      id: expect.any(String),
+      type: 'Merged',
+      gameId: game.id,
+      tableId: alternateTable.id,
+      timestamp: now,
+      playerCount: alternateTable.seatsFilled,
+      reason: 'game switched',
+      note: `${alternateTable.label} switched to ${game.name}`
+    }]);
+    expect(getPersistedState().sessions).toEqual(nextState.sessions);
+    expect(getPersistedState().tableEvents).toEqual(nextState.tableEvents);
   });
 
   it('skips demand follow-up for an inactive result and still persists that exact patch state', async () => {

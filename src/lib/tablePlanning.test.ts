@@ -342,7 +342,9 @@ const armPlanningFunctionCapture = async (session: Session) => {
             callFrameId: callFrame.callFrameId,
             expression:
               'globalThis.__orbitType007eAddSession = addSession; ' +
-              'globalThis.__orbitType007eCreateBalancedTable = createBalancedTable; true'
+              'globalThis.__orbitType007eCreateBalancedTable = createBalancedTable; ' +
+              'globalThis.__orbitType007eSetStartPlayerDrafts = setStartPlayerDrafts; ' +
+              'globalThis.__orbitType007eStartSessionWithPlayers = startSessionWithPlayers; true'
           });
           await session.post('Debugger.removeBreakpoint', { breakpointId: breakpoint.breakpointId });
           resolve();
@@ -378,8 +380,15 @@ const replaceCapturedState = async (session: Session, fixtures: PlanningFixtures
   await capture.completed;
 };
 
-const invokePlanningFunction = async (session: Session, bindingName: 'addSession' | 'createBalancedTable', args: unknown[]) => {
-  const globalName = bindingName === 'addSession' ? '__orbitType007eAddSession' : '__orbitType007eCreateBalancedTable';
+type PlanningFunctionName = 'addSession' | 'createBalancedTable' | 'setStartPlayerDrafts' | 'startSessionWithPlayers';
+
+const invokePlanningFunction = async (session: Session, bindingName: PlanningFunctionName, args: unknown[]) => {
+  const globalName = {
+    addSession: '__orbitType007eAddSession',
+    createBalancedTable: '__orbitType007eCreateBalancedTable',
+    setStartPlayerDrafts: '__orbitType007eSetStartPlayerDrafts',
+    startSessionWithPlayers: '__orbitType007eStartSessionWithPlayers'
+  }[bindingName];
   const evaluated = await session.post('Runtime.evaluate', { expression: `globalThis.${globalName}` });
   const functionObjectId = evaluated.result.objectId;
   if (!functionObjectId) throw new Error(`Expected the captured ${bindingName} function`);
@@ -461,6 +470,8 @@ describe('forming and balanced table planning', () => {
     Reflect.deleteProperty(globalThis, '__orbitType007eApp');
     Reflect.deleteProperty(globalThis, '__orbitType007eAddSession');
     Reflect.deleteProperty(globalThis, '__orbitType007eCreateBalancedTable');
+    Reflect.deleteProperty(globalThis, '__orbitType007eSetStartPlayerDrafts');
+    Reflect.deleteProperty(globalThis, '__orbitType007eStartSessionWithPlayers');
     act(() => harness.root?.unmount());
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -746,5 +757,66 @@ describe('forming and balanced table planning', () => {
       tags: [],
       startedAt: now
     });
+  });
+
+  it('starts a forming table with selected players in source order and records the exact lifecycle outcome', async () => {
+    const formingTable = {
+      id: 'table-start-selected',
+      gameId: game.id,
+      label: 'Selected Start Table',
+      status: 'Forming',
+      seatsFilled: 0,
+      maxSeats: 8,
+      timeFeeBased: false,
+      collectionMode: 'Drop',
+      tags: [],
+      startedAt: '2026-08-07T19:00:00.000Z'
+    };
+    const selectedA = buildInterest(41, 'Arrived');
+    const selectedB = buildInterest(42, 'Confirmed Coming');
+    await replaceCapturedState(inspectorSession, {
+      interests: [selectedA, selectedB],
+      sessions: [formingTable],
+      tableEvents: [],
+      usageEvents: []
+    });
+    const draftCapture = await armPlanningFunctionCapture(inspectorSession);
+    await invokePlanningFunction(inspectorSession, 'setStartPlayerDrafts', [{
+      [formingTable.id]: [selectedB.id, selectedA.id]
+    }]);
+    await draftCapture.completed;
+    const previousState = getLatestState();
+    const previousSnapshot = structuredClone(previousState);
+
+    await invokePlanningFunction(inspectorSession, 'startSessionWithPlayers', [formingTable]);
+
+    const nextState = getLatestState();
+    expectPreviousStateUnchanged(previousState, previousSnapshot);
+    expect(nextState.sessions[0]).toEqual({ ...formingTable, status: 'Running', seatsFilled: 2, startedAt: now });
+    expect(nextState.playerSessions.map((playerSession) => playerSession.playerName)).toEqual([
+      selectedA.playerName,
+      selectedB.playerName
+    ]);
+    expect(nextState.playerSessions.map((playerSession) => playerSession.seatNumber)).toEqual([1, 2]);
+    expect(nextState.interests.map((interest) => interest.status)).toEqual(['Seated', 'Seated']);
+    expect(nextState.tableEvents).toEqual([{
+      id: expect.any(String),
+      type: 'Started',
+      gameId: game.id,
+      tableId: formingTable.id,
+      timestamp: now,
+      playerCount: 2,
+      note: `Started with ${selectedA.playerName}, ${selectedB.playerName} - messaging trigger: Local Planning Club`
+    }]);
+    expect(nextState.usageEvents).toEqual([expect.objectContaining({
+      feature: 'Tables',
+      action: 'Started table',
+      metadata: { gameId: game.id, players: 2 }
+    })]);
+    if (!isStringArrayRecord(harness.startPlayerDrafts)) throw new Error('Expected start-player drafts');
+    expect(harness.startPlayerDrafts[formingTable.id]).toEqual([]);
+    expect(getPersistedState().sessions).toEqual(nextState.sessions);
+    expect(getPersistedState().playerSessions).toEqual(nextState.playerSessions);
+    expect(getPersistedState().tableEvents).toEqual(nextState.tableEvents);
   });
 });
