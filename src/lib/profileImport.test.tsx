@@ -18,9 +18,23 @@ type CapturedState = Record<string, unknown> & {
 };
 
 const harness = vi.hoisted(() => ({
+  excelRows: [] as unknown[][],
   latestState: undefined as unknown,
   root: undefined as { unmount: () => void } | undefined,
   stateSetter: undefined as unknown
+}));
+
+vi.mock('exceljs', () => ({
+  Workbook: class Workbook {
+    worksheets = [{
+      getRow: (rowNumber: number) => ({ values: harness.excelRows[rowNumber - 1] ?? [] }),
+      eachRow: (callback: (row: { values: unknown[] }, rowNumber: number) => void) => {
+        harness.excelRows.forEach((values, index) => callback({ values }, index + 1));
+      }
+    }];
+
+    xlsx = { load: vi.fn(async () => undefined) };
+  }
 }));
 
 const isIdentifiedRecord = (value: unknown): value is IdentifiedRecord =>
@@ -143,13 +157,22 @@ const importPastedProfiles = async (text: string) => {
   await invoke(getReactHandler(button, 'onClick'));
 };
 
-const resetProfiles = async () => {
+const importProfileFile = async (file: File) => {
+  const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+  if (!input) throw new Error('Expected the profile import file input');
+  await act(async () => {
+    await getReactHandler(input, 'onChange')({ target: { files: [file] } });
+    await Promise.resolve();
+  });
+};
+
+const resetProfiles = async (profiles: IdentifiedRecord[] = []) => {
   const stateSetter = harness.stateSetter;
   if (typeof stateSetter !== 'function') throw new Error('Expected to capture the application state setter');
   await act(async () => {
     stateSetter((current: unknown) => {
       if (!isCapturedState(current)) throw new Error('Expected the current application state');
-      return { ...current, games, profiles: [] };
+      return { ...current, games, profiles };
     });
   });
 };
@@ -195,6 +218,7 @@ describe('pasted profile import boundary', () => {
   });
 
   beforeEach(async () => {
+    harness.excelRows = [];
     await resetProfiles();
   });
 
@@ -330,6 +354,59 @@ describe('pasted profile import boundary', () => {
       preferredTags: [],
       usualCompanions: ['Bob', 'Carol'],
       notes: ''
+    });
+  });
+
+  it('imports quoted CSV aliases, skips existing names, and resolves companion profile IDs', async () => {
+    await importPastedProfiles(JSON.stringify([{ id: 'existing-bob', name: 'Bob' }]));
+    const csv = [
+      'Name,Phone,DOB,Member Since,Expires At,Game,Companions,Notes',
+      '" Alice, Jr. ",555-0100,1990-02-03,2025-01-02,2027-03-04,PLO,Bob|Carol,"Says ""hello"""',
+      'Bob,555-0199,,,,1/2 NLH,,Duplicate should be skipped'
+    ].join('\n');
+    const file = new File([], 'profiles.csv', { type: 'text/csv' });
+    Object.defineProperty(file, 'text', { value: async () => csv });
+
+    await importProfileFile(file);
+
+    expect(getLatestState().profiles).toHaveLength(2);
+    expect(getLatestState().profiles[0]).toMatchObject({ id: 'existing-bob', name: 'Bob' });
+    expect(getLatestState().profiles[1]).toMatchObject({
+      name: 'Alice, Jr.',
+      phone: '555-0100',
+      birthday: '1990-02-03',
+      membershipStartDate: '2025-01-02',
+      membershipExpirationDate: '2027-03-04',
+      preferredGameId: 'plo',
+      preferredGameIds: ['plo'],
+      commonlyPlaysWithProfileIds: ['existing-bob'],
+      usualCompanions: ['Bob', 'Carol'],
+      notes: 'Says "hello"'
+    });
+  });
+
+  it('imports XLSX date cells, Excel serial dates, numeric values, and name aliases', async () => {
+    harness.excelRows = [
+      [undefined, 'First Name', 'Last Name', 'DOB', 'Join Date', 'Expiration Date', 'Lifetime Hours', 'Game', 'Move Tables'],
+      [undefined, 'Dora', 'Lane', new Date('1991-02-03T00:00:00.000Z'), 1, 2, 7.5, '1/2 NLH', 'yes']
+    ];
+    const file = new File([], 'profiles.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    Object.defineProperty(file, 'arrayBuffer', { value: async () => new ArrayBuffer(0) });
+
+    await importProfileFile(file);
+
+    expect(getLatestState().profiles).toHaveLength(1);
+    expect(getLatestState().profiles[0]).toMatchObject({
+      name: 'Dora Lane',
+      birthday: '1991-02-03',
+      membershipStartDate: '1899-12-31',
+      membershipExpirationDate: '1900-01-01',
+      totalTimePlayedHours: 7.5,
+      preferredGameId: 'nlh-1-2',
+      preferredGameIds: ['nlh-1-2'],
+      willingnessToMove: true
     });
   });
 
