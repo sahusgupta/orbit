@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-08 - REF-021 Player discovery domain
+
+- Added and separately committed eight unchanged-behavior fixtures through a temporary `PlayerApp` seam, pinning discovery filters/order, distance/location, grouping, labels, tournament/map/private-game selectors, form validation, and immutable preference updates.
+- Moved canonical platform-neutral contracts into `playerTypes.ts` and the characterized pure rules into `discovery.ts`; direct tests no longer import or mock React Native, Expo, Firebase, storage, maps, or purchases.
+- Reduced `PlayerApp.tsx` from 7,430 to 7,157 lines. Full verification passed all root compiler projects, Player TypeScript, 73 files / 401 tests, and the unchanged 1,956-module management build.
+- Updated the Player-web inventory with the two new directly reusable modules. No native EAS build, production-connected runtime, provider, credential, database, deployment, dependency change, or push was used.
+
 ## 2026-08-08 - REF-020 management composition root
 
 - Kept tournament, profile/membership, settings/account, reporting/closeout, floor/table, games/outreach, and table-ledger route matrices green immediately before and after their cohesive moves.

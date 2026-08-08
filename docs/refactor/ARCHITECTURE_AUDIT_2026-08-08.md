@@ -172,9 +172,11 @@ Already reusable without React Native presentation:
 - `player-app/src/domain/syncProtocol.ts`;
 - `player-app/src/domain/clubVisibility.ts`;
 - `player-app/src/domain/membershipQr.ts`;
+- `player-app/src/domain/playerTypes.ts` for platform-neutral screen, filter, opportunity, coordinate, and draft contracts;
+- `player-app/src/domain/discovery.ts` for private-game/map/tournament/live-game selectors, distance/location rules, stable keys, grouping, discovery labels, validation, and immutable preference updates;
 - `player-app/src/data/playerRequests.ts` after its platform dependencies remain absent.
 
-The next phase should add reusable Player discovery selectors, runtime decoders, and transport-independent API contracts. `PlayerApp.tsx`, React Native components, AsyncStorage, RevenueCat, Firebase initialization, and native map behavior remain platform-specific.
+REF-021 completed the reusable discovery-selector/type boundary. The next phases should add runtime decoders and transport-independent API contracts. `PlayerApp.tsx`, React Native components, AsyncStorage, RevenueCat, Firebase initialization, native map behavior, and club checkout/presentation remain platform-specific.
 
 ## Audit conclusion
 

@@ -444,7 +444,7 @@ tasks:
 
   - id: REF-021
     title: Extract canonical Player discovery selectors and view models
-    status: pending
+    status: complete
     objective: Move platform-independent discovery, filtering, distance, grouping, labels, and form rules from PlayerApp into directly tested Player domain/application modules.
     evidence_root_cause: PlayerApp colocates dozens of pure selectors and local domain types with React Native presentation, limiting testability and future web reuse.
     files_areas:
