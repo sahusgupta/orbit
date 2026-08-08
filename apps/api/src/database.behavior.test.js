@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import database from './database.js';
 
 const databasePath = path.join(os.tmpdir(), `orbit-database-${process.pid}-${Date.now()}.sqlite3`);
@@ -64,6 +64,10 @@ afterAll(() => {
   }
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('API database facade behavior', () => {
   it('resolves file URLs and rejects the reserved Postgres adapter', () => {
     expect(getDatabasePath()).toBe(path.resolve(databasePath));
@@ -116,6 +120,8 @@ describe('API database facade behavior', () => {
   });
 
   it('records update, usage, and error history with current filtering and summary behavior', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-08T12:00:00.000Z'));
     const updateClient = recordUpdateEvent({
       ...clientPayload,
       updateEvent: 'downloaded',
