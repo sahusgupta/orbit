@@ -7,8 +7,10 @@ import { describe, expect, it } from 'vitest';
 const playerSourceRoot = fileURLToPath(new URL('../../player-app/src/', import.meta.url));
 const playerAppPath = join(playerSourceRoot, 'PlayerApp.tsx');
 const onboardingFeatureRoot = join(playerSourceRoot, 'features', 'onboarding');
+const discoveryFeatureRoot = join(playerSourceRoot, 'features', 'discovery');
 const sharedComponentsRoot = join(playerSourceRoot, 'components');
 const sharedStylesRoot = join(playerSourceRoot, 'styles');
+const playerDomainRoot = join(playerSourceRoot, 'domain');
 
 const componentNames = [
   'OnboardingFlow',
@@ -101,12 +103,13 @@ function listSourceFiles(root: string): string[] {
   });
 }
 
-function parseSources(): ParsedSource[] {
+function parseSources(featureRoots: string[]): ParsedSource[] {
   return [
     playerAppPath,
-    ...listSourceFiles(onboardingFeatureRoot),
+    ...featureRoots.flatMap((root) => listSourceFiles(root)),
     ...listSourceFiles(sharedComponentsRoot),
-    ...listSourceFiles(sharedStylesRoot)
+    ...listSourceFiles(sharedStylesRoot),
+    ...listSourceFiles(playerDomainRoot)
   ].map((path) => ({
     path,
     source: readFileSync(path, 'utf8')
@@ -178,7 +181,7 @@ function findOnboardingShellSource(sources: ParsedSource[]): string {
 
 describe('Player onboarding presentation contract', () => {
   it('preserves the characterized component hierarchy, copy, callbacks, and animation implementation', () => {
-    const sources = parseSources();
+    const sources = parseSources([onboardingFeatureRoot]);
     const componentDigest = digest(componentNames.map((name) => findFunction(sources, name)));
     const shell = findOnboardingShellSource(sources);
     const orderedShellTokens = [
@@ -198,9 +201,75 @@ describe('Player onboarding presentation contract', () => {
   });
 
   it('preserves every onboarding-owned and shared style value byte-for-byte', () => {
-    const sources = parseSources();
+    const sources = parseSources([onboardingFeatureRoot]);
     const styleDigest = digest(styleNames.map((name) => findStyleProperty(sources, name)));
 
     expect(styleDigest).toBe('75e4608919eddaaa9bca644c541a2443e83adb9161ead4506cd820ed8a5c1865');
+  });
+});
+
+const discoveryComponentNames = [
+  "SearchToolbar",
+  "DiscoverySearchModal",
+  "FiltersBottomSheet",
+  "MapExploreScreen",
+  "GameFilterPanel",
+  "MapFilterControls",
+  "DistanceFilterControl",
+  "IconActionButton",
+  "PremiumPaywall",
+  "HostControlPanel",
+  "PrivateGameComposer",
+  "PrivateGameCard",
+  "DiscoveryDeck",
+  "DiscoveryCardContent",
+  "AnimatedDiscoveryCardBackground",
+  "getDiscoveryAccent",
+  "SavedGamesStrip",
+  "GameDetailsScreen",
+  "DiscoveryDetailsModal",
+  "DetailRow",
+  "OpportunitySectionList",
+  "OpportunityCard",
+  "GameCard",
+  "MyGamesSection",
+  "AnimatedSurface",
+  "AnimatedButton",
+  "getClubProductName",
+  "formatDropFee",
+  "getClubProductLabel",
+  "getClubMembershipPrices",
+  "getClubFeeProfile",
+  "getAccessProfileText"
+] as const;
+const discoveryStyleNames = 'agentCopy,agentHeader,agentIcon,agentKicker,agentPanel,animatedButtonShadow,buttonGradient,cardCornerAction,cardDetailsAction,cardHouseScroller,cardPickAction,cardRejectAction,cardSelectionRow,cardTitle,clubAvatar,clubAvatarText,clubCard,clubFolder,clubFolderAvatar,clubFolderAvatarText,clubFolderCopy,clubFolderGames,clubFolderHeader,clubFolderTitleRow,clubMain,compatibilityBadge,compatibilityLabel,compatibilityValue,composerGrid,contextChip,contextRow,contextText,detailRow,detailRowLabel,detailRowValue,detailsActionRow,detailsDisclosureGroup,detailsDisclosureLabel,detailsDisclosureRow,detailsInfoCard,detailsPrimaryButton,detailsQuickDivider,detailsQuickSummary,detailsQuickValue,detailsSecondaryButton,detailsSecondaryText,disabledButton,discoveryAccentGlow,discoveryAnimatedBackground,discoveryBuyInLabel,discoveryBuyInRow,discoveryBuyInValue,discoveryCard,discoveryCardBehind,discoveryCardBody,discoveryCardHero,discoveryCardHeroCompact,discoveryCardHeroTop,discoveryCardTop,discoveryClubName,discoveryDeck,discoveryDeckSection,discoveryDetailsContent,discoveryDetailsHeader,discoveryDetailsScore,discoveryDetailsScoreValue,discoveryDetailsSheet,discoveryDetailsTitleBlock,discoveryEmpty,discoveryEmptyIcon,discoveryEmptyTitle,discoveryGameTitle,discoveryHeroBottom,discoveryLocation,discoveryMetric,discoveryMetricLabel,discoveryMetricValue,discoveryMetrics,discoveryNotice,discoveryNoticeText,discoveryProgressFill,discoveryProgressRow,discoveryProgressText,discoveryProgressTrack,discoveryQuickFilter,discoveryQuickFilterActive,discoveryQuickFilterText,discoveryQuickFilterTextActive,discoveryQuickFilters,discoveryResetButton,discoveryResetText,discoverySavedCount,discoverySearchBackdrop,discoverySearchClose,discoverySearchDone,discoverySearchDoneText,discoverySearchHeader,discoverySearchInput,discoverySearchInputShell,discoverySearchPopup,discoverySearchTitle,discoveryToolbar,discoveryToolbarButton,discoveryToolbarButtonActive,discoveryToolbarText,discoveryToolbarTextActive,distanceChip,distanceChipActive,distanceChipText,distanceChipTextActive,distanceRow,emptyState,favoriteBadge,favoriteBadgeText,feeInfoBand,feeInfoText,feeTypePill,feeTypePillText,feedAvatar,feedAvatarText,field,fieldLabel,filterChipRow,filterGrid,filterPanel,filterSheetBackdrop,filterSheetCard,filterSheetContent,filterSheetDismiss,filterSheetDoneAction,filterSheetDoneText,filterSheetHandle,filterSheetHeader,filterSheetHeaderAction,filterSheetResetText,filterSheetTitle,fitBreakdown,fullWidthButton,gameActionRow,gameCard,gameDetailsBack,gameDetailsBackText,gameDetailsClub,gameDetailsFacts,gameDetailsHero,gameDetailsHeroCopy,gameDetailsHeroTop,gameDetailsLivePill,gameDetailsLiveText,gameDetailsLocation,gameDetailsNav,gameDetailsPage,gameDetailsReason,gameDetailsScore,gameDetailsScoreValue,gameDetailsSection,gameDetailsSectionHeading,gameDetailsSectionIcon,gameDetailsSectionTitle,gameDetailsStatus,gameDetailsTitle,gameHeader,gameTitleBlock,hostPromptCard,hostPromptCopy,hostPromptIcon,iconActionButton,iconActionButtonActive,iconActionButtonDisabled,iconActionRow,iconTooltip,iconTooltipText,inlineBackAction,inlineBackText,liveDot,liveDotWarm,liveMap,liveStatusRow,liveStatusText,lockedFilterRow,lockedFilterRowActive,lockedFilterText,lockedRecommendationBand,lockedRecommendationText,mapCanvasLarge,mapCard,mapFooter,membershipTitle,modalBackdrop,modalCloseButton,muted,myGameActions,myGameCard,myGameCardCopy,myGameCardHeader,myGameMerchantNote,myGamePrimaryAction,myGamePrimaryActionText,myGameSecondaryAction,myGameSecondaryActionText,myGameStatusBand,myGameStatusDetail,myGameStatusIcon,myGameStatusLabel,myGamesCount,myGamesCountText,myGamesRail,myGamesSection,notificationPromise,notificationPromiseCopy,notificationPromiseIcon,offeredGameBand,offeredGameText,openPill,paywallHeader,paywallIcon,paywallPanel,plainFiltersButton,plainFiltersText,plainSearchBar,preferenceBand,preferenceText,priceRow,priceText,primaryButton,primaryButtonText,privateBadge,privateBadgeText,privateGameCard,privateGameComposer,privateGameMarker,privateGameMarkerInner,privateGameStatus,publishPrivateGame,publishPrivateGameDisabled,publishPrivateGameText,rakeTypePill,rakeTypePillText,recommendationBadge,recommendationBadgeText,recommendationBand,recommendationText,savedGameCopy,savedGameRow,savedGameScore,savedGameScoreValue,savedGamesHeader,savedGamesSection,searchInput,searchToolbar,sectionHeader,sectionTitle,sheetField,sheetHandle,sheetTextInput,statusPill,statusText,storeButton,storeButtonCopy,storeButtonText,swipeFeedback,swipeFeedbackPass,swipeFeedbackPick,swipeStamp,swipeStampPass,swipeStampPick,swipeStampText,swipeStampTextPass,swipeStampTextPick,tableName,tableRow,tableSeats,valuePill,valuePillText,valueRow,venueTypeBadge,venueTypeText,waitlistAheadBand,waitlistAheadText,waitlistPill,waitlistPillText'.split(',');
+
+describe('Player discovery presentation contract', () => {
+  it('preserves the characterized screens, controls, cards, callbacks, animations, and fee labels', () => {
+    const sources = parseSources([discoveryFeatureRoot]);
+    const componentDigest = digest(discoveryComponentNames.map((name) => findFunction(sources, name)));
+    const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
+
+    expect(componentDigest).toBe('1e255e35f164b1ef89add3c4d035ff8f011d8d08ad72c2900c67e702a5123537');
+    [
+      '<GameDetailsScreen',
+      '<MyGamesSection',
+      '<DiscoverySearchModal',
+      '<DiscoveryDeck',
+      '<SavedGamesStrip',
+      '<MapExploreScreen',
+      '<HostControlPanel',
+      '<PrivateGameComposer',
+      '<PremiumPaywall',
+      '<GameFilterPanel',
+      '<MapFilterControls'
+    ].forEach((token) => expect(playerApp).toContain(token));
+  });
+
+  it('preserves every discovery-owned and shared style value byte-for-byte', () => {
+    const sources = parseSources([discoveryFeatureRoot]);
+    const styleDigest = digest(discoveryStyleNames.map((name) => findStyleProperty(sources, name)));
+
+    expect(styleDigest).toBe('731c3f4f775b41faffc89449de922e5fa6b5ff422097f6c36c663061148ac4f7');
   });
 });
