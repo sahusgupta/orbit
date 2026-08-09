@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-09 - REF-024 Player external-data characterization
+
+- Added a hoisted fake-only Firebase App/Auth/Firestore and `fetch` harness; no SDK, loopback socket, hosted endpoint, credential, or production record was contacted.
+- Expanded direct Player adapter/protocol evidence from 2 files / 7 tests to 3 files / 44 tests across authenticated HTTP/Auth, Firestore records and writes, local/remote/published/legacy snapshots, malformed inputs, revision ordering, deduplication, polling, error fallback, and listener teardown.
+- Recorded the adapter's non-uniform malformed-record behavior for REF-025, including profile passthrough, private-game error results, published-game throws, sparse tournament projection, permissive invalid/missing v2 counts, and timestamp-dependent future-revision detection.
+- Full verification passed all root compiler projects, Player TypeScript, 75 files / 450 tests, and the unchanged 1,956-module build. Production source, schemas/paths, dependencies, native/EAS workflows, databases, deployments, and pushes were unchanged.
+
 ## 2026-08-09 - REF-022 Player presentation ownership
 
 - Characterized onboarding, discovery, tournament, club/membership, identity/settings, notification, shared primitive, and style contracts before relocating each feature in a separate green commit.

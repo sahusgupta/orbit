@@ -566,7 +566,7 @@ tasks:
 
   - id: REF-024
     title: Characterize Player external-data and subscription boundaries
-    status: pending
+    status: complete
     objective: Pin current HTTP, Firestore, protocol, legacy, ordering, refresh, and malformed-record behavior before splitting and validating the Player data adapter.
     evidence_root_cause: orbitSyncApi.ts has 44 assertions, 9 any keywords, eight HTTP JSON boundaries, and 34 Firestore operations, with only one direct test.
     files_areas:

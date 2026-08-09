@@ -1,6 +1,6 @@
 # Refactor Planning
 
-The first authorized refactor queue, REF-001 through REF-010, completed on 2026-08-07. The continuation has now separated management mutation, persistence/synchronization, feature composition, reusable Player discovery rules, and characterized Player presentation through REF-022. REF-023 Player application/storage orchestration is the next dependency-ready architecture work.
+The first authorized refactor queue, REF-001 through REF-010, completed on 2026-08-07. The continuation has now separated management mutation, persistence/synchronization, feature composition, reusable Player discovery rules, and characterized Player presentation through REF-022. REF-024's fake-only external-data/subscription gate is also complete, satisfying REF-023's final dependency; Player application/storage orchestration is next.
 
 - Fresh audit and starting metrics: `docs/refactor/ARCHITECTURE_AUDIT_2026-08-08.md`
 - Active target architecture: `docs/refactor/TARGET_ARCHITECTURE.md`
