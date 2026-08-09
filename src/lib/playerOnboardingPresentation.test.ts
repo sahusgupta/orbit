@@ -8,6 +8,7 @@ const playerSourceRoot = fileURLToPath(new URL('../../player-app/src/', import.m
 const playerAppPath = join(playerSourceRoot, 'PlayerApp.tsx');
 const onboardingFeatureRoot = join(playerSourceRoot, 'features', 'onboarding');
 const discoveryFeatureRoot = join(playerSourceRoot, 'features', 'discovery');
+const tournamentFeatureRoot = join(playerSourceRoot, 'features', 'tournaments');
 const sharedComponentsRoot = join(playerSourceRoot, 'components');
 const sharedStylesRoot = join(playerSourceRoot, 'styles');
 const playerDomainRoot = join(playerSourceRoot, 'domain');
@@ -271,5 +272,26 @@ describe('Player discovery presentation contract', () => {
     const styleDigest = digest(discoveryStyleNames.map((name) => findStyleProperty(sources, name)));
 
     expect(styleDigest).toBe('731c3f4f775b41faffc89449de922e5fa6b5ff422097f6c36c663061148ac4f7');
+  });
+});
+
+const tournamentComponentNames = ["TournamentCard","formatEventDate","TournamentFilterControls"] as const;
+const tournamentStyleNames = 'cardTitle,clubMain,compactButton,compactButtonText,disabledAction,emptyState,fieldLabel,filterChipRow,filterPanel,muted,secondaryActionButton,secondaryActionText,sectionHeader,sectionTitle,sheetField,sheetTextInput,statusPill,statusText,tournamentCard,tournamentCardFeatured,tournamentClosedPill,tournamentClubHeader,tournamentClubSection,tournamentConfirmation,tournamentIcon,tournamentMessage,tournamentMoneyGrid,tournamentMoneyItem,tournamentMoneyItemWide,tournamentMoneyValue,tournamentOpenPill,tournamentPrize,tournamentRule,tournamentRules,tournamentStatLabel,tournamentStatValue,tournamentStats,tournamentStructure,tournamentTitleRow'.split(',');
+
+describe('Player tournament presentation contract', () => {
+  it('preserves the characterized cards, date labels, filters, registration callbacks, and route composition', () => {
+    const sources = parseSources([tournamentFeatureRoot]);
+    const componentDigest = digest(tournamentComponentNames.map((name) => findFunction(sources, name)));
+    const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
+
+    expect(componentDigest).toBe('94efe4a56e326f60fe9820cc5e19e6212be876eafdcf59f370375e35ef6453f3');
+    ['<TournamentCard', '<SearchToolbar', '<TournamentFilterControls'].forEach((token) => expect(playerApp).toContain(token));
+  });
+
+  it('preserves every tournament-owned and shared style value byte-for-byte', () => {
+    const sources = parseSources([tournamentFeatureRoot]);
+    const styleDigest = digest(tournamentStyleNames.map((name) => findStyleProperty(sources, name)));
+
+    expect(styleDigest).toBe('8277efdefc313544a285bd92ae367ce860afef98e07f845e7722a60291910592');
   });
 });
