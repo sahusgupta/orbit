@@ -389,3 +389,32 @@ describe('Player identity and settings presentation contract', () => {
     expect(styleDigest).toBe('3dc383f4433ac7a95c4a8ce91e1c8e498d8828301d5400991bb91cdc13df9d5b');
   });
 });
+
+describe('Player application shell presentation ownership', () => {
+  it('keeps only referenced navigation-shell styles in PlayerApp', () => {
+    const playerApp = readFileSync(playerAppPath, 'utf8').replace(/\r\n/g, '\n');
+    const declarationStart = playerApp.indexOf('const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({');
+    const styleObject = extractBalancedBlock(playerApp, declarationStart);
+    const ownedStyles = [...styleObject.matchAll(/^  ([A-Za-z][A-Za-z0-9]*): \{/gm)].map((match) => match[1]);
+    const referencedStyles = new Set([...playerApp.matchAll(/styles\.([A-Za-z][A-Za-z0-9]*)/g)].map((match) => match[1]));
+
+    expect(ownedStyles.filter((name) => !referencedStyles.has(name))).toEqual([]);
+    expect(ownedStyles).toEqual([
+      'appBackdrop',
+      'shell',
+      'header',
+      'eyebrow',
+      'title',
+      'darkShellEyebrow',
+      'darkShellTitle',
+      'avatar',
+      'avatarText',
+      'content',
+      'tabBar',
+      'tab',
+      'activeTab',
+      'tabText',
+      'activeTabText'
+    ]);
+  });
+});
