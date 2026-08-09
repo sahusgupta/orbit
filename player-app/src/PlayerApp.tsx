@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type AppStateStatus } from 'react-native';
+import { BackHandler, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { InAppNotificationPopup } from './components/InAppNotificationPopup';
 import { FiltersBottomSheet } from './components/PlayerPresentation';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as WebBrowser from 'expo-web-browser';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getClubMembershipPrices,
   getClubProductLabel
@@ -18,16 +16,7 @@ import {
   isPlayerMembership,
   isPlayerWaitlistEntry,
   type PlayerAccount,
-  type PlayerClubMembershipRecord,
-  type PlayerClubSnapshot,
-  type PlayerMembershipOption,
-  type PlayerPrivateGameListing,
-  type PlayerSyncGame,
-  type PlayerTournament,
-  type PlayerTournamentRegistration,
-  type PlayerWaitlistEntry,
-  type ClubMembershipPaymentMethod,
-  type ClubMembershipPlan
+  type PlayerClubSnapshot
 } from './domain/playerSync';
 import {
   buildFindGameClubs,
@@ -39,68 +28,20 @@ import {
   getDiscoveryDeck,
   getOpportunityKey,
   getSavedOpportunities,
-  isActivePlayerGame,
-  isValidEmail,
-  isValidPhoneNumber,
   resolveAddressCoordinate
 } from './domain/discovery';
 import { getLatestInAppNotification } from './domain/playerNotifications';
 import type {
   CasinoFilter,
-  ClubAccessProduct,
   DiscoveryDecision,
   DistanceFilter,
   GameOpportunity,
   GameTypeFilter,
   MapVenueFilter,
-  OnboardingStep,
-  PrivateGameDraft,
   Screen,
-  SeatRequestDraft,
   TournamentFilter
 } from './domain/playerTypes';
-import {
-  applyMembershipRequest,
-  applyWaitlistRequest,
-  buildJoinRequest,
-  buildWaitRequest
-} from './data/playerRequests';
-import {
-  configureApplePurchases,
-  getPlayerPremiumOffering,
-  purchasePlayerPremium,
-  restorePlayerPremium,
-  subscribeToPremiumChanges,
-  type PlayerPremiumOffering
-} from './data/applePurchases';
-import {
-  fetchAllClubSnapshots,
-  fetchPrivateGameListings,
-  fetchPlayerIdentityStatus,
-  fetchPlayerProfile,
-  fetchPlayerTournaments,
-  createClubMembershipCheckout,
-  createPlayerIdentityVerificationSession,
-  deleteCurrentPlayerAccount,
-  getCurrentFirebasePlayer,
-  onFirebasePlayerChanged,
-  type FirebasePlayerIdentity,
-  type PlayerIdentityStatus,
-  isSyncConfigured,
-  savePlayerProfile,
-  signOutCurrentPlayer,
-  signInOrCreatePlayerWithEmail,
-  signInOrCreatePlayerWithPhone,
-  registerForTournament,
-  subscribeToAllClubSnapshots,
-  subscribeToPrivateGameListings,
-  subscribeToPlayerTournaments,
-  submitMembershipRequest,
-  submitPrivateGameListing,
-  submitWaitlistRequest,
-  unregisterFromTournament,
-  updatePlayerClubMembership
-} from './data/orbitSyncApi';
+import { isSyncConfigured } from './data/orbitSyncApi';
 import { OnboardingScreen } from './features/onboarding/OnboardingScreen';
 import { DiscoveryDeck, SavedGamesStrip } from './features/discovery/DiscoveryDeck';
 import { DiscoverySearchModal, GameFilterPanel, MapFilterControls } from './features/discovery/DiscoveryFilters';
@@ -117,8 +58,16 @@ import { IdentityVerificationScreen } from './features/settings/IdentityVerifica
 import { SettingsScreen } from './features/settings/SettingsScreen';
 import { sharedStyles } from './styles/sharedStyles';
 import { applyDarkComponentTheme, colors } from './styles/playerTheme';
+import { usePlayerStorage } from './application/usePlayerStorage';
+import { usePlayerIdentity } from './application/usePlayerIdentity';
+import { playerPlatform } from './app/playerPlatform';
+import { usePlayerPremium } from './application/usePlayerPremium';
+import { usePlayerLiveData } from './application/usePlayerLiveData';
+import { usePlayerPrivateGames } from './application/usePlayerPrivateGames';
+import { usePlayerTournaments } from './application/usePlayerTournaments';
+import { usePlayerClubs } from './application/usePlayerClubs';
 
-WebBrowser.maybeCompleteAuthSession();
+playerPlatform.completeAuthSession();
 
 const tabs: Array<{ id: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
   { id: 'findGames', label: 'Games', icon: 'flame-outline' },
@@ -140,32 +89,25 @@ const emptyPlayer: PlayerAccount = {
   preferredStakes: '',
   typicalAvailability: ''
 };
-const emptyPrivateGameDraft: PrivateGameDraft = {
-  name: '',
-  location: '',
-  startsAt: '',
-  seats: '6',
-  note: ''
-};
-const emptyIdentityStatus: PlayerIdentityStatus = {
-  status: 'unverified',
-  ageVerified: false,
-  ageLevel: 0,
-  minimumAge: 21,
-  verifiedAt: null,
-  failureCode: null
-};
-const legacyPlayerStorageKeys = ['tabletalk-player-account-v1', 'tabletalk-player-account-v2'];
-const playerStorageKey = 'orbit-player-account-v1';
-const dismissedAlertsStorageKey = 'orbit-player-dismissed-alerts-v1';
-const accountSignInReadyStatus = 'Use your email address or phone number to sync this player profile.';
-const defaultPremiumMonthlyPriceLabel = '$12.99/month';
 const playerPremiumEnabled = process.env.EXPO_PUBLIC_ENABLE_PLAYER_PREMIUM === 'true';
 const cardHouseCheckoutEnabled = process.env.EXPO_PUBLIC_ENABLE_CARD_HOUSE_CHECKOUT === 'true';
 
 export default function PlayerApp() {
-  const [hasAccount, setHasAccount] = useState(false);
-  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(0);
+  const {
+    accountLoaded,
+    clearLocalPlayer,
+    dismissedAlertsLoaded,
+    dismissedNotificationIds,
+    dismissInAppAlert,
+    draftPlayer,
+    hasAccount,
+    onboardingStep,
+    player,
+    setDraftPlayer,
+    setHasAccount,
+    setOnboardingStep,
+    setPlayer
+  } = usePlayerStorage(emptyPlayer);
   const [screen, setScreen] = useState<Screen>('findGames');
   const [showHostScreen, setShowHostScreen] = useState(false);
   const [gameQuery, setGameQuery] = useState('');
@@ -189,44 +131,133 @@ export default function PlayerApp() {
   const [discoveryDecisions, setDiscoveryDecisions] = useState<Record<string, DiscoveryDecision>>({});
   const [selectedDiscoveryOpportunity, setSelectedDiscoveryOpportunity] = useState<GameOpportunity | null>(null);
   const [discoveryNotice, setDiscoveryNotice] = useState('');
-  const [privateGameDraft, setPrivateGameDraft] = useState<PrivateGameDraft>(emptyPrivateGameDraft);
-  const [privateGames, setPrivateGames] = useState<PlayerPrivateGameListing[]>([]);
-  const [privateGameStatus, setPrivateGameStatus] = useState('');
   const [avatarHovered, setAvatarHovered] = useState(false);
-  const [premiumStatus, setPremiumStatus] = useState<'inactive' | 'pending' | 'active'>('inactive');
-  const [premiumMessage, setPremiumMessage] = useState('');
-  const [premiumOffering, setPremiumOffering] = useState<PlayerPremiumOffering | null>(null);
-  const [premiumMonthlyPriceLabel, setPremiumMonthlyPriceLabel] = useState(defaultPremiumMonthlyPriceLabel);
-  const [clubMembershipMessage, setClubMembershipMessage] = useState('');
-  const [pendingClubProduct, setPendingClubProduct] = useState<ClubAccessProduct | null>(null);
-  const [seatRequestDraft, setSeatRequestDraft] = useState<SeatRequestDraft | null>(null);
-  const [seatRequestMessage, setSeatRequestMessage] = useState('');
-  const [clockNow, setClockNow] = useState(Date.now());
-  const [player, setPlayer] = useState<PlayerAccount>(emptyPlayer);
-  const [draftPlayer, setDraftPlayer] = useState<PlayerAccount>(emptyPlayer);
-  const [accountLoaded, setAccountLoaded] = useState(false);
-  const [clubs, setClubs] = useState<PlayerClubSnapshot[]>([]);
-  const [tournaments, setTournaments] = useState<PlayerTournament[]>([]);
-  const [tournamentRegistrations, setTournamentRegistrations] = useState<PlayerTournamentRegistration[]>([]);
-  const [tournamentMessage, setTournamentMessage] = useState('');
-  const [selectedClubId, setSelectedClubId] = useState('');
-  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
-  const [dismissedAlertsLoaded, setDismissedAlertsLoaded] = useState(false);
-  const [firebaseIdentity, setFirebaseIdentity] = useState<FirebasePlayerIdentity | null>(() => getCurrentFirebasePlayer());
-  const [identityStatus, setIdentityStatus] = useState<PlayerIdentityStatus>(emptyIdentityStatus);
-  const [identityBusy, setIdentityBusy] = useState(false);
-  const [identityMessage, setIdentityMessage] = useState('');
-  const [identityReturnScreen, setIdentityReturnScreen] = useState<Screen>('findGames');
-  const [authStatus, setAuthStatus] = useState(accountSignInReadyStatus);
-  const [playerAuthMethod, setPlayerAuthMethod] = useState<'email' | 'phone'>('email');
-  const [playerAuthEmail, setPlayerAuthEmail] = useState('');
-  const [playerAuthPhone, setPlayerAuthPhone] = useState('');
-  const [playerAuthPassword, setPlayerAuthPassword] = useState('');
   const mainScrollRef = useRef<ScrollView>(null);
-  const membershipStatusRef = useRef<Record<string, string>>({});
   const [, setSyncStatus] = useState(
     isSyncConfigured() ? 'Connecting to Firebase club sync...' : 'Live club sync is not configured.'
   );
+  const {
+    authStatus,
+    completeAccount,
+    connectPlayerAccount,
+    deletePlayerAccount,
+    firebaseIdentity,
+    identityBusy,
+    identityMessage,
+    identityReturnScreen,
+    identityStatus,
+    playerAuthEmail,
+    playerAuthMethod,
+    playerAuthPassword,
+    playerAuthPhone,
+    refreshIdentityVerification,
+    requireVerifiedAge,
+    setPlayerAuthEmail,
+    setPlayerAuthMethod,
+    setPlayerAuthPassword,
+    setPlayerAuthPhone,
+    showIdentityVerification,
+    signOutPlayer,
+    startIdentityVerification
+  } = usePlayerIdentity({
+    clearLocalPlayer,
+    draftPlayer,
+    platform: playerPlatform,
+    player,
+    setDraftPlayer,
+    setHasAccount,
+    setPlayer,
+    setScreen,
+    setSyncStatus
+  });
+  const {
+    hasPlayerPremium,
+    openPremiumCheckout,
+    premiumMessage,
+    premiumMonthlyPriceLabel,
+    premiumStatus,
+    restorePremiumPurchases,
+    setPremiumMessage,
+    setPremiumStatus
+  } = usePlayerPremium({
+    accountLoaded,
+    enabled: playerPremiumEnabled,
+    hasAccount,
+    platformOS: playerPlatform.os,
+    playerId: player.id
+  });
+  const {
+    clockNow,
+    clubMembershipMessage,
+    clubs,
+    privateGames,
+    privateGameStatus,
+    selectedClubId,
+    setClubMembershipMessage,
+    setClubs,
+    setPrivateGames,
+    setPrivateGameStatus,
+    setSelectedClubId,
+    setTournamentRegistrations,
+    tournamentRegistrations,
+    tournaments
+  } = usePlayerLiveData({
+    accountLoaded,
+    firebaseIdentity,
+    hasAccount,
+    platform: playerPlatform,
+    player,
+    setDraftPlayer,
+    setPlayer,
+    setPremiumStatus,
+    setScreen,
+    setSyncStatus
+  });
+  const {
+    cancelWaitlist,
+    changeMembership,
+    completeClubPayment,
+    joinWaitlist,
+    openClubPayment,
+    openClubSignup,
+    openDirections,
+    pendingClubProduct,
+    requestInPersonMembership,
+    seatRequestDraft,
+    seatRequestMessage,
+    setPendingClubProduct,
+    setSeatRequestDraft,
+    setSeatRequestMessage,
+    submitMembershipApplication,
+    submitSeatRequest,
+    toggleFavoriteClub
+  } = usePlayerClubs({
+    clockNow,
+    firebaseIdentity,
+    platform: playerPlatform,
+    player,
+    requireVerifiedAge,
+    setClubMembershipMessage,
+    setClubs,
+    setPlayer,
+    setScreen,
+    setSelectedClubId,
+    setSyncStatus
+  });
+  const { privateGameDraft, publishPrivateGame, setPrivateGameDraft } = usePlayerPrivateGames({
+    hasPlayerPremium,
+    player,
+    requireVerifiedAge,
+    setPremiumMessage,
+    setPrivateGames,
+    setPrivateGameStatus
+  });
+  const { registerTournament, tournamentMessage, unregisterTournament } = usePlayerTournaments({
+    firebaseIdentity,
+    player,
+    requireVerifiedAge,
+    setTournamentRegistrations
+  });
 
   const selectedClub = clubs.find((club) => club.club.id === selectedClubId) ?? clubs[0];
   const activeInAppNotification = useMemo(
@@ -259,7 +290,6 @@ export default function PlayerApp() {
   const findGameClubs = useMemo(() => buildFindGameClubs(clubs), [clubs]);
   const playerHomeCoordinate = useMemo(() => resolveAddressCoordinate(player.homeLocation), [player.homeLocation]);
   const searchRadius = distanceFilter;
-  const hasPlayerPremium = premiumStatus === 'active';
   const visiblePrivateGames = useMemo(
     () => filterPrivateGames(privateGames, gameQuery, stakesFilter, gameTypeFilter),
     [gameQuery, gameTypeFilter, privateGames, stakesFilter]
@@ -284,8 +314,6 @@ export default function PlayerApp() {
     [clubs, player.id, playerHomeCoordinate, tournamentClubFilter, tournamentDistanceFilter, tournamentFilter, tournamentQuery, tournamentRegistrations, tournaments]
   );
 
-  useEffect(() => onFirebasePlayerChanged(setFirebaseIdentity), []);
-
   useEffect(() => {
     mainScrollRef.current?.scrollTo({ y: 0, animated: false });
     setShowDiscoverySearch(false);
@@ -298,230 +326,6 @@ export default function PlayerApp() {
     if (screen !== 'findGames') setShowHostScreen(false);
     if (screen !== 'clubPayment') setPendingClubProduct(null);
   }, [screen]);
-
-  useEffect(() => {
-    if (!firebaseIdentity) {
-      setIdentityStatus(emptyIdentityStatus);
-      return undefined;
-    }
-    let active = true;
-    const refresh = (forceTokenRefresh = false) => {
-      fetchPlayerIdentityStatus(forceTokenRefresh)
-        .then((status) => {
-          if (!active) return;
-          setIdentityStatus(status);
-          setIdentityMessage(status.ageVerified ? 'Your age is verified.' : '');
-        })
-        .catch((error) => {
-          if (active) setIdentityMessage(error instanceof Error ? error.message : 'Unable to check age-verification status.');
-        });
-    };
-    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') refresh(true);
-    });
-    refresh();
-    return () => {
-      active = false;
-      appStateSubscription.remove();
-    };
-  }, [firebaseIdentity?.uid]);
-
-  useEffect(() => {
-    let active = true;
-    AsyncStorage.multiGet([playerStorageKey, ...legacyPlayerStorageKeys])
-      .then((entries) => {
-        if (!active) return;
-        const stored = entries.find(([, value]) => Boolean(value))?.[1];
-        if (!stored) return;
-        const parsed = JSON.parse(stored) as Partial<PlayerAccount>;
-        if (!parsed.name?.trim() || !parsed.email?.trim()) return;
-        const restored: PlayerAccount = {
-          ...emptyPlayer,
-          ...parsed,
-          preferredGameIds: Array.isArray(parsed.preferredGameIds) ? parsed.preferredGameIds : [],
-          favoriteClubIds: Array.isArray(parsed.favoriteClubIds) ? parsed.favoriteClubIds : []
-        };
-        setPlayer(restored);
-        setDraftPlayer(restored);
-        setHasAccount(true);
-        setOnboardingStep(3);
-      })
-      .catch(() => undefined)
-      .finally(() => active && setAccountLoaded(true));
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!accountLoaded || !hasAccount || !player.name.trim() || !player.email.trim()) return;
-    AsyncStorage.setItem(playerStorageKey, JSON.stringify(player)).catch(() => undefined);
-  }, [accountLoaded, hasAccount, player]);
-
-  useEffect(() => {
-    if (!accountLoaded || !hasAccount) return;
-    AsyncStorage.getItem(dismissedAlertsStorageKey)
-      .then((stored) => setDismissedNotificationIds(stored ? JSON.parse(stored) : []))
-      .catch(() => setDismissedNotificationIds([]))
-      .finally(() => setDismissedAlertsLoaded(true));
-  }, [accountLoaded, hasAccount]);
-
-  useEffect(() => {
-    if (!playerPremiumEnabled) return undefined;
-    if (!accountLoaded || !hasAccount || !player.id) return;
-    let active = true;
-    let unsubscribe: () => void = () => undefined;
-
-    configureApplePurchases(player.id)
-      .then(async (status) => {
-        if (!active) return;
-        if (!status.configured) {
-          setPremiumStatus('inactive');
-          setPremiumMessage(Platform.OS === 'ios' ? 'Apple purchases are not configured for this build.' : '');
-          return;
-        }
-        setPremiumStatus(status.active ? 'active' : 'inactive');
-        const offering = await getPlayerPremiumOffering();
-        if (!active) return;
-        setPremiumOffering(offering);
-        if (offering) setPremiumMonthlyPriceLabel(offering.priceLabel);
-        unsubscribe = subscribeToPremiumChanges((isActive) => {
-          setPremiumStatus(isActive ? 'active' : 'inactive');
-        });
-      })
-      .catch((error) => {
-        if (active) setPremiumMessage(error instanceof Error ? error.message : 'Unable to connect to Apple purchases.');
-      });
-
-    return () => {
-      active = false;
-      unsubscribe();
-    };
-  }, [accountLoaded, hasAccount, player.id]);
-
-  useEffect(() => {
-    const timer = setInterval(() => setClockNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!accountLoaded || !hasAccount || !firebaseIdentity || player.id !== firebaseIdentity.uid) return;
-    savePlayerProfile(player).catch(() => undefined);
-  }, [accountLoaded, firebaseIdentity, hasAccount, player]);
-
-  useEffect(() => {
-    if (!accountLoaded || !hasAccount) return;
-    fetchPlayerProfile()
-      .then((profile) => {
-        if (!profile) return;
-        const nextPlayer = {
-          ...player,
-          id: profile.uid,
-          name: profile.name || player.name,
-          email: profile.email || player.email,
-          phone: profile.phone || player.phone,
-          homeLocation: profile.homeLocation ?? player.homeLocation,
-          searchRadiusMiles: profile.searchRadiusMiles ?? player.searchRadiusMiles,
-          preferredGameIds: profile.preferredGameIds?.length ? profile.preferredGameIds : player.preferredGameIds,
-          favoriteClubIds: profile.favoriteClubIds ?? player.favoriteClubIds ?? [],
-          preferredStakes: profile.preferredStakes ?? player.preferredStakes,
-          typicalAvailability: profile.typicalAvailability ?? player.typicalAvailability
-        };
-        setPlayer(nextPlayer);
-        setDraftPlayer(nextPlayer);
-        setPremiumStatus(profile.premium?.status === 'active' || profile.subscriptionStatus === 'active' ? 'active' : 'inactive');
-        const clubIds = new Set(Object.entries(profile.clubMemberships ?? {}).filter(([, membership]) => membership.status === 'Active' || membership.status === 'Approved' || membership.status === 'Requested').map(([clubId]) => clubId));
-        const firstClub = clubs.find((club) => clubIds.has(club.club.id));
-        if (firstClub) {
-          setSelectedClubId(firstClub.club.id);
-          setScreen('findGames');
-        } else {
-          setScreen('findGames');
-        }
-      })
-      .catch(() => undefined);
-  }, [accountLoaded, firebaseIdentity?.uid, hasAccount]);
-
-  useEffect(() => {
-    if (!accountLoaded || !hasAccount || !isSyncConfigured()) return;
-    let currentAppState = AppState.currentState;
-
-    const handleClubSync = (result: Awaited<ReturnType<typeof fetchAllClubSnapshots>>) => {
-      if (result.ok) {
-        const liveClubs = result.clubs;
-        setClubs(liveClubs);
-        const existingMembershipClub = result.clubs.find((club) => club.memberships.some((membership) => isPlayerMembership(membership, player)));
-        const nextStatuses: Record<string, string> = {};
-        for (const club of liveClubs) {
-          const membership = club.memberships.find((record) => isPlayerMembership(record, player));
-          if (!membership) continue;
-          nextStatuses[club.club.id] = membership.status;
-          const previousStatus = membershipStatusRef.current[club.club.id];
-          if (previousStatus === 'Requested' && (membership.status === 'Approved' || membership.status === 'Active')) {
-            setSelectedClubId(club.club.id);
-            setClubMembershipMessage(
-              membership.status === 'Active'
-                ? `You are now a member of ${club.club.name}.`
-                : `${club.club.name} approved your membership.`
-            );
-            setScreen('clubs');
-          }
-        }
-        membershipStatusRef.current = nextStatuses;
-        setSelectedClubId((current) => existingMembershipClub?.club.id ?? liveClubs.find((club) => club.club.id === current)?.club.id ?? liveClubs[0]?.club.id ?? '');
-        setSyncStatus(`Showing ${result.clubs.length} live card house${result.clubs.length === 1 ? '' : 's'}.`);
-      } else {
-        setSyncStatus(`Unable to load live club data: ${result.error}`);
-      }
-    };
-
-    const liveGameSubscription = subscribeToAllClubSnapshots(player, handleClubSync);
-
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      const returnedToForeground = nextAppState === 'active' && currentAppState !== 'active';
-      currentAppState = nextAppState;
-      if (nextAppState === 'active') {
-        if (returnedToForeground) void liveGameSubscription.refresh();
-        liveGameSubscription.startPolling();
-      } else {
-        liveGameSubscription.stopPolling();
-      }
-    };
-
-    const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
-
-    void liveGameSubscription.refresh();
-    if (currentAppState === 'active' || currentAppState == null) liveGameSubscription.startPolling();
-
-    return () => {
-      appStateSubscription.remove();
-      liveGameSubscription.unsubscribe();
-    };
-  }, [accountLoaded, hasAccount, player.id, player.name]);
-
-  useEffect(() => {
-    if (!accountLoaded || !hasAccount) return;
-    const handlePrivateGames = (result: Awaited<ReturnType<typeof fetchPrivateGameListings>>) => {
-      if (result.ok) {
-        setPrivateGames(result.games);
-        setPrivateGameStatus('');
-      } else {
-        setPrivateGameStatus(result.error);
-      }
-    };
-    fetchPrivateGameListings().then(handlePrivateGames);
-    return subscribeToPrivateGameListings(handlePrivateGames);
-  }, [accountLoaded, hasAccount]);
-
-  useEffect(() => {
-    if (!accountLoaded || !hasAccount || !firebaseIdentity) return;
-    const handleTournaments = (result: Awaited<ReturnType<typeof fetchPlayerTournaments>>) => {
-      setTournaments(result.tournaments);
-      setTournamentRegistrations(result.registrations);
-    };
-    fetchPlayerTournaments(player.id).then(handleTournaments).catch(() => undefined);
-    return subscribeToPlayerTournaments(player.id, handleTournaments);
-  }, [accountLoaded, firebaseIdentity?.uid, hasAccount, player.id]);
 
   const opportunities = useMemo(
     () => buildGameOpportunities({
@@ -555,496 +359,6 @@ export default function PlayerApp() {
     () => getActiveDiscoveryOpportunity(displayedOpportunities, selectedDiscoveryOpportunity),
     [displayedOpportunities, selectedDiscoveryOpportunity]
   );
-
-  const finishAccount = (identity?: FirebasePlayerIdentity | null) => {
-    const normalizedName = draftPlayer.name.trim() || identity?.name.trim() || '';
-    const normalizedEmail = draftPlayer.email.trim() || identity?.email.trim() || '';
-    if (!normalizedName || !isValidEmail(normalizedEmail) || !isValidPhoneNumber(draftPlayer.phone ?? '', true)) return;
-    const id = identity?.uid || draftPlayer.id || `player_${normalizedEmail.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || Date.now()}`;
-    const nextPlayer = {
-      ...draftPlayer,
-      id,
-      name: normalizedName,
-      email: normalizedEmail,
-      searchRadiusMiles: draftPlayer.searchRadiusMiles ?? 20,
-      preferredGameIds: draftPlayer.preferredGameIds.length ? draftPlayer.preferredGameIds : ['nlh-1-2']
-    };
-    setPlayer(nextPlayer);
-    setDraftPlayer(nextPlayer);
-    setHasAccount(true);
-    setScreen('findGames');
-    setSyncStatus(isSyncConfigured() ? 'Account ready - syncing from Firebase...' : 'Account ready, but live club sync is unavailable.');
-    if (identity) savePlayerProfile(nextPlayer).catch(() => undefined);
-  };
-
-  const completeAccount = async () => {
-    const normalizedName = draftPlayer.name.trim();
-    const normalizedEmail = draftPlayer.email.trim();
-    if (!normalizedName || !isValidEmail(normalizedEmail) || !isValidPhoneNumber(draftPlayer.phone ?? '', true)) return;
-    finishAccount(firebaseIdentity);
-  };
-
-  const openPremiumCheckout = async () => {
-    if (Platform.OS !== 'ios') {
-      setPremiumMessage('Player Premium purchases are currently available in the iOS app.');
-      return;
-    }
-    if (!premiumOffering) {
-      setPremiumMessage('Player Premium is not available from the App Store right now. Please try again later.');
-      return;
-    }
-    setPremiumMessage('Opening Apple purchase sheet...');
-    setPremiumStatus('pending');
-    try {
-      const active = await purchasePlayerPremium(premiumOffering);
-      setPremiumStatus(active ? 'active' : 'inactive');
-      setPremiumMessage(active ? 'Player Premium is active.' : 'Apple did not confirm an active subscription.');
-    } catch (error) {
-      setPremiumStatus('inactive');
-      const cancelled = (error as { userCancelled?: boolean }).userCancelled;
-      setPremiumMessage(cancelled ? 'Purchase cancelled.' : error instanceof Error ? error.message : 'Unable to complete the purchase.');
-    }
-  };
-
-  const restorePremiumPurchases = async () => {
-    setPremiumMessage('Restoring Apple purchases...');
-    try {
-      const active = await restorePlayerPremium();
-      setPremiumStatus(active ? 'active' : 'inactive');
-      setPremiumMessage(active ? 'Player Premium restored.' : 'No active Player Premium subscription was found.');
-    } catch (error) {
-      setPremiumMessage(error instanceof Error ? error.message : 'Unable to restore purchases.');
-    }
-  };
-
-  const showIdentityVerification = (returnScreen: Screen, message = '') => {
-    setIdentityReturnScreen(returnScreen);
-    setIdentityMessage(message);
-    setScreen('identityVerification');
-  };
-
-  const requireVerifiedAge = (returnScreen: Screen, action: string) => {
-    if (firebaseIdentity && identityStatus.ageVerified) return true;
-    if (!firebaseIdentity) {
-      showIdentityVerification(returnScreen, `Sign in, then verify your age before ${action}.`);
-    } else if (identityStatus.status === 'underage') {
-      showIdentityVerification(returnScreen, `You must be ${identityStatus.minimumAge}+ to ${action}.`);
-    } else if (identityStatus.status === 'processing') {
-      showIdentityVerification(returnScreen, 'Stripe is still reviewing your verification.');
-    } else {
-      showIdentityVerification(returnScreen, `Verify that you are ${identityStatus.minimumAge}+ before ${action}.`);
-    }
-    return false;
-  };
-
-  const refreshIdentityVerification = async () => {
-    if (!firebaseIdentity) {
-      setIdentityMessage('Sign in to your Orbit Player account before verifying your age.');
-      return null;
-    }
-    setIdentityBusy(true);
-    try {
-      const status = await fetchPlayerIdentityStatus(true);
-      setIdentityStatus(status);
-      setIdentityMessage(
-        status.ageVerified
-          ? 'Your age is verified.'
-          : status.status === 'processing'
-            ? 'Stripe is still reviewing your verification.'
-            : status.status === 'underage'
-              ? `You must be ${status.minimumAge}+ to use player access features.`
-              : 'Verification is not complete yet.'
-      );
-      return status;
-    } catch (error) {
-      setIdentityMessage(error instanceof Error ? error.message : 'Unable to refresh age-verification status.');
-      return null;
-    } finally {
-      setIdentityBusy(false);
-    }
-  };
-
-  const startIdentityVerification = async () => {
-    if (!firebaseIdentity) {
-      setIdentityMessage('Sign in to your Orbit Player account before verifying your age.');
-      return;
-    }
-    setIdentityBusy(true);
-    setIdentityMessage('Opening Stripe Identity...');
-    try {
-      const session = await createPlayerIdentityVerificationSession();
-      setIdentityStatus(session.identity);
-      if (session.alreadyVerified || session.identity.ageVerified) {
-        setIdentityMessage('Your age is verified.');
-        return;
-      }
-      if (!session.verificationUrl) {
-        setIdentityMessage('Stripe is still reviewing your verification. Check again shortly.');
-        return;
-      }
-      const browserResult = await WebBrowser.openAuthSessionAsync(session.verificationUrl, session.returnUrl);
-      const status = await fetchPlayerIdentityStatus(true);
-      setIdentityStatus(status);
-      setIdentityMessage(
-        status.ageVerified
-          ? 'Your age is verified.'
-          : status.status === 'processing'
-            ? 'Stripe received your information and is reviewing it.'
-            : status.status === 'underage'
-              ? `You must be ${status.minimumAge}+ to use player access features.`
-              : browserResult.type === 'cancel' || browserResult.type === 'dismiss'
-                ? 'Verification was not completed. You can continue when ready.'
-                : 'Stripe needs more information to finish verification.'
-      );
-    } catch (error) {
-      setIdentityMessage(error instanceof Error ? error.message : 'Unable to start age verification.');
-    } finally {
-      setIdentityBusy(false);
-    }
-  };
-
-  const openClubSignup = (club: PlayerClubSnapshot) => {
-    setSelectedClubId(club.club.id);
-    setPendingClubProduct(null);
-    setClubMembershipMessage('');
-    setScreen('clubSignup');
-  };
-
-  const openClubPayment = (club: PlayerClubSnapshot, product: ClubAccessProduct) => {
-    if (!player.id || !player.name.trim()) {
-      setClubMembershipMessage('Finish creating your Orbit profile before continuing.');
-      return;
-    }
-    setSelectedClubId(club.club.id);
-    setPendingClubProduct(product);
-    setClubMembershipMessage('');
-    setScreen('clubPayment');
-  };
-
-  const completeClubPayment = async (club: PlayerClubSnapshot, product: ClubAccessProduct) => {
-    if (!requireVerifiedAge('clubPayment', 'purchasing card-house access')) return;
-    setSelectedClubId(club.club.id);
-    setClubMembershipMessage('');
-    const prices = getClubMembershipPrices(club);
-    const planLabel = getClubProductLabel(product, prices);
-    if (!firebaseIdentity) {
-      setClubMembershipMessage('Sign in before purchasing from this card house.');
-      return;
-    }
-    try {
-      setClubMembershipMessage(`Opening ${club.club.name}'s secure checkout for ${planLabel}...`);
-      const checkout = await createClubMembershipCheckout({ clubId: club.club.id, product, playerName: player.name });
-      const result = await WebBrowser.openBrowserAsync(checkout.checkoutUrl);
-      setClubMembershipMessage(
-        result.type === 'cancel'
-          ? 'Checkout was closed. Nothing was purchased.'
-          : `Checkout completed. Waiting for ${club.club.name} to confirm your purchase.`
-      );
-      setPendingClubProduct(null);
-    } catch (error) {
-      setClubMembershipMessage(error instanceof Error ? error.message : 'Unable to start the card house checkout.');
-    }
-  };
-
-  const requestInPersonMembership = async (club: PlayerClubSnapshot, product: ClubAccessProduct) => {
-    const prices = getClubMembershipPrices(club);
-    const planLabel = getClubProductLabel(product, prices);
-    setClubMembershipMessage(`Sending a ${planLabel} pay-in-person request to ${club.club.name}...`);
-    await requestMembership(club, product === 'monthly' ? 'monthly' : 'day', 'in-person');
-    setPendingClubProduct(null);
-  };
-
-  const finishFirebaseAccountConnection = async (identity: FirebasePlayerIdentity) => {
-    const usesPhoneAlias = identity.email.endsWith('@players.orbit.local');
-    const nextPlayer: PlayerAccount = {
-      ...player,
-      id: identity.uid,
-      name: identity.name || player.name,
-      email: usesPhoneAlias ? player.email : identity.email || player.email,
-      phone: playerAuthMethod === 'phone' ? playerAuthPhone.trim() || player.phone : player.phone
-    };
-    setFirebaseIdentity(identity);
-    setDraftPlayer(nextPlayer);
-    setPlayer(nextPlayer);
-    setHasAccount(true);
-    await savePlayerProfile(nextPlayer);
-    setAuthStatus(`Connected as ${playerAuthMethod === 'phone' ? nextPlayer.phone : nextPlayer.email}.`);
-  };
-
-  const connectPlayerAccount = async () => {
-    setAuthStatus('Signing in to your Orbit Player account...');
-    try {
-      const identity = playerAuthMethod === 'email'
-        ? await signInOrCreatePlayerWithEmail(playerAuthEmail, playerAuthPassword)
-        : await signInOrCreatePlayerWithPhone(playerAuthPhone || player.phone || '', playerAuthPassword);
-      await finishFirebaseAccountConnection(identity);
-      setPlayerAuthPassword('');
-    } catch (error) {
-      setAuthStatus(error instanceof Error ? error.message : 'Sign-in could not be completed.');
-    }
-  };
-
-  const publishPrivateGame = async () => {
-    if (!requireVerifiedAge('findGames', 'hosting a game')) return;
-    if (!hasPlayerPremium) {
-      setPrivateGameStatus('Player hosting requires Player Premium.');
-      setPremiumMessage('Upgrade to Player Premium to host private games.');
-      return;
-    }
-    const name = privateGameDraft.name.trim();
-    const location = privateGameDraft.location.trim();
-    if (!name || !location) return;
-    const createdAt = new Date().toISOString();
-    const listing: PlayerPrivateGameListing = {
-      id: `private_${player.id || 'player'}_${Date.now()}`,
-      name,
-      location,
-      startsAt: privateGameDraft.startsAt.trim() || 'Tonight',
-      seats: privateGameDraft.seats.trim() || '6',
-      note: privateGameDraft.note.trim(),
-      hostPlayerId: player.id,
-      hostPlayerPath: `players/${player.id}`,
-      hostPlayerName: player.name,
-      createdAt,
-      status: 'Open'
-    };
-    setPrivateGameStatus('Listing private game...');
-    const result = await submitPrivateGameListing(listing);
-    if (!result.ok) {
-      setPrivateGameStatus(result.error);
-      return;
-    }
-    setPrivateGames((current) => [result.game, ...current.filter((game) => game.id !== result.game.id)]);
-    setPrivateGameStatus('Private game listed.');
-    setPrivateGameDraft(emptyPrivateGameDraft);
-  };
-
-  const replaceSyncedClub = (snapshot: PlayerClubSnapshot) => {
-    setClubs((current) => {
-      const exists = current.some((club) => club.club.id === snapshot.club.id);
-      return exists ? current.map((club) => (club.club.id === snapshot.club.id ? snapshot : club)) : [snapshot, ...current];
-    });
-    setSelectedClubId(snapshot.club.id);
-  };
-
-  const updateClubSnapshot = (club: PlayerClubSnapshot, updater: (club: PlayerClubSnapshot) => PlayerClubSnapshot) => {
-    setClubs((current) => current.map((snapshot) => (snapshot.club.id === club.club.id ? updater(snapshot) : snapshot)));
-  };
-
-  const requestMembership = async (
-    club: PlayerClubSnapshot,
-    plan: ClubMembershipPlan = 'monthly',
-    paymentMethod: ClubMembershipPaymentMethod = 'app',
-    membershipOption?: PlayerMembershipOption
-  ) => {
-    setSelectedClubId(club.club.id);
-    const prices = getClubMembershipPrices(club);
-    const priceLabel = membershipOption?.priceLabel ?? (plan === 'day' ? prices.day : prices.monthly);
-    const request = buildJoinRequest(player, club.club.id, plan, paymentMethod, priceLabel, membershipOption);
-    if (isSyncConfigured()) {
-      setSyncStatus(paymentMethod === 'in-person' ? 'Sending pay-in-person membership request...' : 'Activating membership...');
-      const result = await submitMembershipRequest(request);
-      if (result.ok) {
-        replaceSyncedClub(result.snapshot);
-        setScreen('clubs');
-        setClubMembershipMessage(paymentMethod === 'in-person'
-          ? `Application sent. ${result.snapshot.club.name} will review it, then you can show ID and pay at the door.`
-          : `${plan === 'day' ? 'Day pass' : 'Monthly membership'} activated.`);
-        setSyncStatus(`Membership updated with ${result.snapshot.club.name}`);
-        return;
-      }
-      setSyncStatus(`Membership request failed - ${result.error}`);
-      setClubMembershipMessage(`Could not send your application. ${result.error}`);
-      setScreen('clubs');
-      return;
-    }
-    updateClubSnapshot(club, (snapshot) => applyMembershipRequest(snapshot, request));
-    setScreen('clubs');
-    setClubMembershipMessage(paymentMethod === 'in-person'
-      ? `Application sent. ${club.club.name} will review it, then you can show ID and pay at the door.`
-      : `${plan === 'day' ? 'Day pass' : 'Monthly membership'} activated.`);
-  };
-
-  const joinWaitlist = (club: PlayerClubSnapshot, game: PlayerSyncGame) => {
-    const membership = club.memberships.find((record) => isPlayerMembership(record, player));
-    if (!membership || !isMembershipCurrentlyActive(membership, clockNow)) {
-      setSelectedClubId(club.club.id);
-      setScreen('clubs');
-      setClubMembershipMessage(
-        membership?.status === 'Approved'
-          ? 'Your membership is approved. Bring your ID and pay at the front desk to activate it before requesting a seat.'
-          : membership?.status === 'Requested'
-            ? 'Your membership application is still waiting for card-room approval.'
-            : `Join ${club.club.name} before requesting a seat.`
-      );
-      return;
-    }
-    setSelectedClubId(club.club.id);
-    setSeatRequestMessage('');
-    setSeatRequestDraft({
-      club,
-      game,
-      attendance: isActivePlayerGame(game) ? 'arrived' : 'interested',
-      expectedArrivalTime: '',
-      availabilityStartTime: '',
-      availabilityEndTime: ''
-    });
-  };
-
-  const submitSeatRequest = async () => {
-    if (!seatRequestDraft) return;
-    const { club, game, attendance, expectedArrivalTime, availabilityStartTime, availabilityEndTime } = seatRequestDraft;
-    if (attendance === 'confirmed' && !expectedArrivalTime.trim()) {
-      setSeatRequestMessage('Enter what time you expect to arrive.');
-      return;
-    }
-    if (attendance === 'interested' && !availabilityStartTime.trim()) {
-      setSeatRequestMessage('Enter the time or start of the time range you would come.');
-      return;
-    }
-    const request = buildWaitRequest(
-      player,
-      club.club.id,
-      game.id,
-      game.openTables[0]?.id,
-      'join',
-      attendance,
-      expectedArrivalTime.trim() || undefined,
-      availabilityStartTime.trim() || undefined,
-      availabilityEndTime.trim() || undefined
-    );
-    if (isSyncConfigured()) {
-      setSyncStatus('Sending seat request...');
-      const result = await submitWaitlistRequest(request);
-      if (result.ok) {
-        replaceSyncedClub(result.snapshot);
-        setSeatRequestDraft(null);
-        setSyncStatus(`Seat request synced with ${result.snapshot.club.name}`);
-        return;
-      }
-      setSyncStatus(`Saved locally - ${result.error}`);
-    }
-    updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
-  };
-
-  const cancelWaitlist = async (club: PlayerClubSnapshot, game: PlayerSyncGame, entry: PlayerWaitlistEntry) => {
-    setSelectedClubId(club.club.id);
-    const request = buildWaitRequest(player, club.club.id, game.id, entry.tableId, 'cancel');
-    if (isSyncConfigured()) {
-      setSyncStatus('Cancelling seat request...');
-      const result = await submitWaitlistRequest(request);
-      if (result.ok) {
-        replaceSyncedClub(result.snapshot);
-        setSyncStatus(`Seat request cancelled with ${result.snapshot.club.name}`);
-        return;
-      }
-      setSyncStatus(`Cancellation saved locally - ${result.error}`);
-    }
-    updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
-    setSeatRequestDraft(null);
-  };
-
-  const registerTournament = async (tournament: PlayerTournament) => {
-    if (!requireVerifiedAge('tournaments', 'registering for an event')) return;
-    if (!firebaseIdentity || firebaseIdentity.uid !== player.id) {
-      setTournamentMessage('Sign in to your Orbit Player account to register for this event.');
-      return;
-    }
-    setTournamentMessage('Registering your free entry...');
-    try {
-      const registration = await registerForTournament(tournament, player);
-      setTournamentRegistrations((current) => [registration, ...current.filter((item) => item.id !== registration.id)]);
-      setTournamentMessage(`You're registered for the ${tournament.name}. Your entry is free.`);
-    } catch (error) {
-      setTournamentMessage(error instanceof Error ? error.message : 'Unable to register right now.');
-    }
-  };
-
-  const unregisterTournament = async (tournament: PlayerTournament, registration: PlayerTournamentRegistration) => {
-    setTournamentMessage('Removing your registration...');
-    try {
-      await unregisterFromTournament(tournament, registration);
-      setTournamentRegistrations((current) => current.filter((item) => item.id !== registration.id));
-      setTournamentMessage(`Your registration for ${tournament.name} was removed.`);
-    } catch (error) {
-      setTournamentMessage(error instanceof Error ? error.message : 'Unable to unregister right now.');
-    }
-  };
-
-  const openDirections = (club: PlayerClubSnapshot) => {
-    const destination = encodeURIComponent(club.club.address || club.club.name);
-    const url = Platform.select({
-      ios: `http://maps.apple.com/?daddr=${destination}`,
-      android: `google.navigation:q=${destination}`,
-      default: `https://www.google.com/maps/dir/?api=1&destination=${destination}`
-    });
-    if (url) Linking.openURL(url).catch(() => undefined);
-  };
-
-  const toggleFavoriteClub = (clubId: string) => {
-    setPlayer((current) => {
-      const favorites = current.favoriteClubIds ?? [];
-      const favoriteClubIds = favorites.includes(clubId) ? favorites.filter((id) => id !== clubId) : [...favorites, clubId];
-      return { ...current, favoriteClubIds };
-    });
-  };
-
-  const submitMembershipApplication = async (club: PlayerClubSnapshot, membershipOption?: PlayerMembershipOption) => {
-    if (!player.id || !player.name.trim()) {
-      setClubMembershipMessage('Finish creating your Orbit profile before applying.');
-      return;
-    }
-    const plan: ClubMembershipPlan = membershipOption?.durationDays === 1 ? 'day' : 'monthly';
-    await requestMembership(club, plan, 'in-person', membershipOption);
-  };
-
-  const dismissInAppAlert = (notificationId: string) => {
-    setDismissedNotificationIds((current) => {
-      const next = Array.from(new Set([...current, notificationId]));
-      AsyncStorage.setItem(dismissedAlertsStorageKey, JSON.stringify(next)).catch(() => undefined);
-      return next;
-    });
-  };
-
-  const resetLocalAccount = async () => {
-    await AsyncStorage.multiRemove([playerStorageKey, ...legacyPlayerStorageKeys]);
-    setFirebaseIdentity(null);
-    setPlayer(emptyPlayer);
-    setDraftPlayer(emptyPlayer);
-    setHasAccount(false);
-    setOnboardingStep(0);
-    setScreen('findGames');
-  };
-
-  const deletePlayerAccount = () => {
-    Alert.alert(
-      'Delete Orbit Player account?',
-      'This permanently deletes your Orbit Player profile and sign-in. Club transaction records may be retained where legally required.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete account',
-          style: 'destructive',
-          onPress: () => {
-            setAuthStatus('Deleting your account...');
-            deleteCurrentPlayerAccount()
-              .then(resetLocalAccount)
-              .catch((error) => {
-                const requiresLogin = (error as { code?: string }).code === 'auth/requires-recent-login';
-                setAuthStatus(requiresLogin
-                  ? 'For security, sign out and sign back in before deleting your account.'
-                  : error instanceof Error ? error.message : 'Unable to delete the account.');
-              });
-          }
-        }
-      ]
-    );
-  };
-
-  const signOutPlayer = async () => {
-    await signOutCurrentPlayer();
-    await resetLocalAccount();
-  };
 
   const decideDiscoveryOpportunity = (item: GameOpportunity, decision: DiscoveryDecision) => {
     const key = getOpportunityKey(item);
@@ -1082,39 +396,6 @@ export default function PlayerApp() {
   const resetDiscoveryDeck = () => {
     setDiscoveryDecisions({});
     setDiscoveryNotice('Discovery deck refreshed.');
-  };
-
-  const changeMembership = async (club: PlayerClubSnapshot, patch: Partial<PlayerClubMembershipRecord>) => {
-    const current = club.memberships.find((membership) => isPlayerMembership(membership, player));
-    const today = new Date().toISOString().slice(0, 10);
-    const nextMembership: PlayerClubMembershipRecord = {
-      clubId: club.club.id,
-      status: patch.status ?? (current?.status === 'Expired' ? 'Expired' : 'Active'),
-      joinedAt: patch.joinedAt ?? current?.joinedAt ?? today,
-      expiresAt: patch.expiresAt ?? current?.expiresAt,
-      preferredGameIds: player.preferredGameIds,
-      preferredStakes: player.preferredStakes
-    };
-    if (isSyncConfigured()) await updatePlayerClubMembership(player, nextMembership).catch(() => undefined);
-    setClubs((currentClubs) =>
-      currentClubs.map((snapshot) =>
-        snapshot.club.id === club.club.id
-          ? {
-              ...snapshot,
-              memberships: snapshot.memberships.map((membership) =>
-                isPlayerMembership(membership, player)
-                  ? {
-                      ...membership,
-                      status: nextMembership.status === 'Denied' ? 'Expired' : nextMembership.status,
-                      joinedAt: nextMembership.joinedAt ?? membership.joinedAt,
-                      expiresAt: nextMembership.expiresAt ?? membership.expiresAt
-                    }
-                  : membership
-              )
-            }
-          : snapshot
-      )
-    );
   };
 
   if (!hasAccount) {

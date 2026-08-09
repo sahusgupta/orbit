@@ -88,17 +88,24 @@ describe('Player storage and lifecycle orchestration contract', () => {
     const sources = parseSources();
     const combined = sources.map(({ source }) => source).join('\n');
     const storageDigest = digest([
-      findUseEffectContaining(sources, 'AsyncStorage.multiGet'),
-      findUseEffectContaining(sources, 'AsyncStorage.setItem(playerStorageKey'),
-      findUseEffectContaining(sources, 'AsyncStorage.getItem(dismissedAlertsStorageKey'),
+      findUseEffectContaining(sources, 'playerStorage.loadPlayer'),
+      findUseEffectContaining(sources, 'playerStorage.savePlayer'),
+      findUseEffectContaining(sources, 'playerStorage.loadDismissedAlertIds'),
       findVariableFunction(sources, 'dismissInAppAlert'),
-      findVariableFunction(sources, 'resetLocalAccount')
+      findVariableFunction(sources, 'clearLocalPlayer')
     ]);
+    const asyncStorageOwners = sources.filter(({ source }) => source.includes("from '@react-native-async-storage/async-storage'"));
+    const nativeApplicationImports = sources.filter(({ path, source }) =>
+      path.includes(`${join('src', 'application')}`) && source.includes("from 'react-native'")
+    );
 
     expect(combined).toContain("const legacyPlayerStorageKeys = ['tabletalk-player-account-v1', 'tabletalk-player-account-v2']");
     expect(combined).toContain("const playerStorageKey = 'orbit-player-account-v1'");
     expect(combined).toContain("const dismissedAlertsStorageKey = 'orbit-player-dismissed-alerts-v1'");
-    expect(storageDigest).toBe('7335799eb75620e75275e2f791aa0f44b36a179f1418f471f4afb65de631ea31');
+    expect(asyncStorageOwners).toHaveLength(1);
+    expect(asyncStorageOwners[0].path.endsWith(join('data', 'storage', 'playerStorage.ts'))).toBe(true);
+    expect(nativeApplicationImports).toEqual([]);
+    expect(storageDigest).toBe('f936aa519dd0473242a61a8dc398a81d3c1f7655ff9a3d69c03ef95e828d4002');
   });
 
   it('preserves auth/identity, premium, profile, live-club, private-game, and tournament lifecycles', () => {
@@ -114,6 +121,6 @@ describe('Player storage and lifecycle orchestration contract', () => {
       findUseEffectContaining(sources, 'subscribeToPlayerTournaments')
     ]);
 
-    expect(lifecycleDigest).toBe('5a43e4220ad18b9d6b91c87b4454cee461857f3cea0446e8bddb2d18f49e79a2');
+    expect(lifecycleDigest).toBe('7fec1c3dec22aa980237b2ce31ab136d3714e002ec9c4a3422d39941c416bf0e');
   });
 });
