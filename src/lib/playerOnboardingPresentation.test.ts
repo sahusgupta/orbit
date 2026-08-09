@@ -10,6 +10,7 @@ const onboardingFeatureRoot = join(playerSourceRoot, 'features', 'onboarding');
 const discoveryFeatureRoot = join(playerSourceRoot, 'features', 'discovery');
 const tournamentFeatureRoot = join(playerSourceRoot, 'features', 'tournaments');
 const clubsFeatureRoot = join(playerSourceRoot, 'features', 'clubs');
+const settingsFeatureRoot = join(playerSourceRoot, 'features', 'settings');
 const sharedComponentsRoot = join(playerSourceRoot, 'components');
 const sharedStylesRoot = join(playerSourceRoot, 'styles');
 const playerDomainRoot = join(playerSourceRoot, 'domain');
@@ -181,6 +182,20 @@ function findOnboardingShellSource(sources: ParsedSource[]): string {
   return playerApp.slice(start, end);
 }
 
+function findSettingsPresentationSource(sources: ParsedSource[]): string {
+  const ownedScreen = sources.map(({ source }) => {
+    const match = /^(?:export\s+)?function\s+SettingsScreen\(/m.exec(source);
+    return match ? extractFunctionSource(source, match.index) : '';
+  }).find(Boolean);
+  if (ownedScreen) return ownedScreen;
+
+  const playerApp = (sources.find(({ path }) => path === playerAppPath)?.source ?? '').replace(/\r\n/g, '\n');
+  const routeStart = playerApp.indexOf("{screen === 'settings' ? (");
+  const presentationStart = playerApp.indexOf('(', routeStart);
+  if (routeStart < 0 || presentationStart < 0) throw new Error('Could not find the settings presentation in PlayerApp.');
+  return extractBalancedBlock(playerApp, presentationStart, '(', ')');
+}
+
 describe('Player onboarding presentation contract', () => {
   it('preserves the characterized component hierarchy, copy, callbacks, and animation implementation', () => {
     const sources = parseSources([onboardingFeatureRoot]);
@@ -319,5 +334,58 @@ describe('Player clubs and membership presentation contract', () => {
     const styleDigest = digest(clubStyleNames.map((name) => findStyleProperty(sources, name)));
 
     expect(styleDigest).toBe('9d9c74e0b40999cd73583eacd31466df833c1714b8f1764394fcb87fbaaa8b0f');
+  });
+});
+
+const settingsComponentNames = [
+  'IdentityVerificationScreen',
+  'InAppNotificationPopup',
+  'getScreenTitle',
+  'getIdentityStatusLabel',
+  'getLatestInAppNotification'
+] as const;
+const settingsStyleNames = 'accountCard,alertPopup,alertPopupBody,alertPopupClose,alertPopupCopy,alertPopupIcon,alertPopupTitle,alertToastHost,cardTitle,chipRow,compactButton,compactButtonText,disabledAction,emailAuthPanel,fieldLabel,fullWidthButton,googleAuthBody,googleAuthIcon,googleAuthPanel,identityCard,identityCopy,identityIcon,identityPrivacy,muted,primaryButton,primaryButtonText,privateGameStatus,searchInput,searchInputRow,secondaryActionButton,secondaryActionText,sectionHeader,sectionTitle,simpleMenu,simpleMenuCopy,simpleMenuIcon,simpleMenuRow'.split(',');
+
+describe('Player identity and settings presentation contract', () => {
+  it('preserves the settings hierarchy, copy, account actions, preferences, legal links, and premium controls', () => {
+    const sources = parseSources([settingsFeatureRoot]);
+    const settings = findSettingsPresentationSource(sources);
+    const orderedTokens = [
+      'Profile & settings',
+      'Account access',
+      'onPress={connectPlayerAccount}',
+      'title="Identity & age"',
+      "onPress={() => showIdentityVerification('settings')}",
+      'playerPremiumEnabled ? (',
+      'onPress={openPremiumCheckout}',
+      'onPress={restorePremiumPurchases}',
+      '<Field label="Name"',
+      '<Text style={styles.fieldLabel}>Preferred games</Text>',
+      'togglePreferredGame(current, game.id)',
+      'title="Support"',
+      'title="Privacy Policy"',
+      'title="Terms of Service"',
+      'onPress={signOutPlayer}',
+      'onPress={deletePlayerAccount}'
+    ];
+
+    orderedTokens.forEach((token) => expect(settings).toContain(token));
+    for (let index = 1; index < orderedTokens.length; index += 1) {
+      expect(settings.indexOf(orderedTokens[index])).toBeGreaterThan(settings.indexOf(orderedTokens[index - 1]));
+    }
+  });
+
+  it('preserves identity, notification, title, label, and notification-selection behavior byte-for-byte', () => {
+    const sources = parseSources([settingsFeatureRoot]);
+    const componentDigest = digest(settingsComponentNames.map((name) => findFunction(sources, name)));
+
+    expect(componentDigest).toBe('f180e89e9ec3161b3805bcfa2cf8cdbe9f2b3e6b31607aff8d91f0626f8bd69e');
+  });
+
+  it('preserves every identity/settings-owned and shared style value byte-for-byte', () => {
+    const sources = parseSources([settingsFeatureRoot]);
+    const styleDigest = digest(settingsStyleNames.map((name) => findStyleProperty(sources, name)));
+
+    expect(styleDigest).toBe('3dc383f4433ac7a95c4a8ce91e1c8e498d8828301d5400991bb91cdc13df9d5b');
   });
 });
