@@ -126,7 +126,7 @@ The browser repository is always written first. A desktop build then uses the pr
 
 ### Player App
 
-`player-app/src/PlayerApp.tsx` is the Expo application composition shell. It owns Player state, storage migration, effect/subscription lifecycle, purchase/authentication/network use cases, navigation, feature assembly, shared filter sheets/seat-request modal composition, and only the referenced header/content/tab styles. Add or change feature presentation in its focused owner:
+`player-app/src/PlayerApp.tsx` is the Expo composition shell. It owns navigation/filter state, domain selector composition, feature assembly, shared filter sheets/modals, two route-local effects, and only the referenced header/content/tab styles. Application and platform behavior has focused owners:
 
 | Concern | Owner |
 | --- | --- |
@@ -138,9 +138,12 @@ The browser repository is always written first. A desktop build then uses the pr
 | Shared fields, map picker, animated presentation primitives, and notification popup | `player-app/src/components/` |
 | Shared, theme, and notification styles | `player-app/src/styles/` |
 | Platform-neutral Player types, discovery rules, preferences, membership QR, and notification selection | `player-app/src/domain/` |
+| Native AppState, Alert, Linking, Platform, directions, and Expo browser services | `player-app/src/app/playerPlatform.ts` |
+| Account/identity, premium, profile/live-data, polling, club/waitlist, private-game, and tournament orchestration | `player-app/src/application/` |
+| Current/legacy account and dismissed-alert persistence | `player-app/src/data/storage/playerStorage.ts` |
 | Firebase/API/authentication transport and hydration | `player-app/src/data/orbitSyncApi.ts` |
 
-`src/lib/playerOnboardingPresentation.test.ts` protects feature ownership plus exact component/style presentation fingerprints. Run Player TypeScript and that focused test while moving presentation, then run the full root verification gate. Keep storage, subscription, purchase, authentication, and network orchestration in the application shell until REF-023 gives those concerns characterized owners.
+`src/lib/playerOnboardingPresentation.test.ts` protects feature ownership plus exact component/style presentation fingerprints. `src/lib/playerApplicationOrchestration.test.ts` protects storage/lifecycle ownership; direct storage and polling tests live beside their Player owners. Run Player TypeScript and the affected focused suites before the full root verification gate. Keep `orbitSyncApi.ts` as the stable facade until REF-025 migrates its characterized HTTP/Firebase/subscription responsibilities.
 
 ### Electron
 

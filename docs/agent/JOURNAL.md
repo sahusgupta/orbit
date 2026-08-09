@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-09 - REF-023 Player application and storage orchestration
+
+- Committed unchanged-production storage and eight-lifecycle fingerprints first, then moved platform services, current/legacy storage, identity/account, premium, profile/live-data, polling, club/waitlist, private-game, and tournament workflows into focused Player adapters/hooks.
+- Confined AsyncStorage to `data/storage/playerStorage.ts` and React Native/Expo services to `app/playerPlatform.ts`; application hooks have zero React Native imports and consume the already-characterized `orbitSyncApi.ts` facade unchanged.
+- Added 3 direct storage cases and 2 polling-lifecycle cases. The affected presentation/application/data boundary passed 7 files / 63 tests; `PlayerApp.tsx` fell from 1,678 to 959 lines, 65 to 25 direct state hooks, and 18 to two direct effects.
+- The first aggregate run had one unrelated 5-second API Stripe compiler-boundary timeout after 456 passes; that case passed alone in 117 ms, then full verification passed all compiler projects, Player TypeScript, 78 files / 457 tests, and the unchanged 1,956-module build. No production-connected runtime, provider, credential, database, schema/path, deployment, native/EAS workflow, or push was used.
+
 ## 2026-08-09 - REF-024 Player external-data characterization
 
 - Added a hoisted fake-only Firebase App/Auth/Firestore and `fetch` harness; no SDK, loopback socket, hosted endpoint, credential, or production record was contacted.

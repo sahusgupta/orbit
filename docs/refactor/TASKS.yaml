@@ -527,7 +527,7 @@ tasks:
 
   - id: REF-023
     title: Extract Player application and storage orchestration
-    status: pending
+    status: complete
     objective: Move Player AsyncStorage migration, subscription lifecycle, and feature use cases into focused application hooks/adapters.
     evidence_root_cause: PlayerApp owns 65 state hooks, 18 effects, AsyncStorage migration, subscriptions, foreground refresh, identity, membership, waitlist, and account workflows.
     files_areas:
