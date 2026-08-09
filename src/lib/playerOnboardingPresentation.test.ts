@@ -9,6 +9,7 @@ const playerAppPath = join(playerSourceRoot, 'PlayerApp.tsx');
 const onboardingFeatureRoot = join(playerSourceRoot, 'features', 'onboarding');
 const discoveryFeatureRoot = join(playerSourceRoot, 'features', 'discovery');
 const tournamentFeatureRoot = join(playerSourceRoot, 'features', 'tournaments');
+const clubsFeatureRoot = join(playerSourceRoot, 'features', 'clubs');
 const sharedComponentsRoot = join(playerSourceRoot, 'components');
 const sharedStylesRoot = join(playerSourceRoot, 'styles');
 const playerDomainRoot = join(playerSourceRoot, 'domain');
@@ -295,5 +296,26 @@ describe('Player tournament presentation contract', () => {
     const styleDigest = digest(tournamentStyleNames.map((name) => findStyleProperty(sources, name)));
 
     expect(styleDigest).toBe('8277efdefc313544a285bd92ae367ce860afef98e07f845e7722a60291910592');
+  });
+});
+
+const clubComponentNames = ["NearbyCheckInPanel","ClubMembershipPlanScreen","SeatRequestModal","ClubAccessCheckoutScreen","MembershipPlanCard","formatFamiliar","MembershipApplicationStatusCard","MembershipWalletCard","MembershipQrCode","getMembershipDisplayId","ClubHubSections","SimpleMenuRow","ClubMembershipPanel","ClubHistoryPanel"] as const;
+const clubStyleNames = 'accountCard,agentKicker,attendanceChoice,attendanceChoiceActive,attendanceChoiceBody,attendanceChoiceRow,attendanceChoiceTextActive,attendanceChoiceTitle,buyAnotherPassButton,buyAnotherPassText,cardTitle,checkedInBand,checkedInText,clubAvatar,clubAvatarActive,clubAvatarText,clubAvatarTextActive,clubCard,clubGameGroupLabel,clubHub,clubHubCopy,clubHubIcon,clubHubPanel,clubHubRow,clubMain,clubRequestHeader,compactEventRow,compactGameAction,compactGameActionMuted,compactGameCopy,compactGameRow,compactManageButton,compactManageText,compactStatLabel,compactStatValue,emptyState,formError,fullWidthButton,iconActionRow,inlineBackAction,inlineBackText,inputLabel,loyaltyBadge,loyaltyBadgeText,loyaltyCard,loyaltyHeader,membershipApplicationCard,membershipApplicationStatus,membershipApplicationStatusCopy,membershipApplicationStatusIcon,membershipCompactStats,membershipHero,membershipHeroCopy,membershipHeroIcon,membershipHeroText,membershipIdentityLabel,membershipIdentityRow,membershipIdentityValue,membershipNumberBlock,membershipProfileAvatar,membershipProfileAvatarText,membershipProfileCopy,membershipProfileSummary,membershipQrCode,membershipQrCopy,membershipQrMember,membershipQrShell,membershipQrTitle,membershipScreen,membershipStatusBadge,membershipStatusBadgeInactive,membershipStatusDot,membershipStatusDotInactive,membershipStatusText,membershipTitle,membershipWalletBrand,membershipWalletCard,membershipWalletClub,membershipWalletMonogram,membershipWalletMonogramText,membershipWalletPlan,membershipWalletTop,merchantBand,merchantBandText,modalBackdrop,modalCloseButton,muted,passTimer,passTimerActive,passTimerCopy,passTimerInactive,passTimerTitle,payInPersonButton,payInPersonCopy,paymentPlaceholder,paymentPlaceholderIcon,planCard,planCardCopy,planCardFeatured,planCardPriceBlock,planCompactPrice,planGrid,planIcon,points,primaryButton,primaryButtonText,privateGameStatus,requestGameRow,seatRequestHeader,seatRequestHeaderCopy,seatRequestModal,seatTimeField,seatTimeInput,sectionHeader,sectionTitle,selectedCard,simpleMenuCopy,simpleMenuIcon,simpleMenuRow,statusPill,statusText,timeRangeInput,timeRangeRow'.split(',');
+
+describe('Player clubs and membership presentation contract', () => {
+  it('preserves the characterized club, plan, checkout, wallet, QR, seat-request, and hub components', () => {
+    const sources = parseSources([clubsFeatureRoot, tournamentFeatureRoot]);
+    const componentDigest = digest(clubComponentNames.map((name) => findFunction(sources, name)));
+    const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
+
+    expect(componentDigest).toBe('d8e8572e05b7814c8f0b292e9e0f9f51a5646a0c17b6f1a80738193afbd75db5');
+    ['<ClubMembershipPlanScreen', '<ClubAccessCheckoutScreen', '<SeatRequestModal', '<ClubHubSections'].forEach((token) => expect(playerApp).toContain(token));
+  });
+
+  it('preserves every clubs/membership-owned and shared style value byte-for-byte', () => {
+    const sources = parseSources([clubsFeatureRoot, tournamentFeatureRoot]);
+    const styleDigest = digest(clubStyleNames.map((name) => findStyleProperty(sources, name)));
+
+    expect(styleDigest).toBe('9d9c74e0b40999cd73583eacd31466df833c1714b8f1764394fcb87fbaaa8b0f');
   });
 });
