@@ -484,5 +484,20 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
     color: colors.ink,
     fontSize: 15,
     fontWeight: '800'
-  }
+  },
+  accountCard: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.025,
+    shadowRadius: 12
+  },
+  simpleMenuCopy: { flex: 1, gap: 2 },
+  simpleMenuIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 11, height: 42, justifyContent: 'center', width: 42 },
+  simpleMenuRow: { alignItems: 'center', borderBottomColor: colors.line, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 74, paddingHorizontal: 14 }
 }));

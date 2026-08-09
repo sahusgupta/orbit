@@ -220,3 +220,25 @@ export function AnimatedButton({
     </Animated.View>
   );
 }
+export function SimpleMenuRow({
+  icon,
+  title,
+  subtitle,
+  onPress
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={styles.simpleMenuRow}>
+      <View style={styles.simpleMenuIcon}><Ionicons name={icon} size={20} color={colors.primary} /></View>
+      <View style={styles.simpleMenuCopy}>
+        <Text style={styles.cardTitle}>{title}</Text>
+        <Text style={styles.muted}>{subtitle}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+    </Pressable>
+  );
+}

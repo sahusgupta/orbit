@@ -307,9 +307,11 @@ describe('Player clubs and membership presentation contract', () => {
     const sources = parseSources([clubsFeatureRoot, tournamentFeatureRoot]);
     const componentDigest = digest(clubComponentNames.map((name) => findFunction(sources, name)));
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
+    const clubsScreen = findFunction(sources, 'ClubsScreen');
 
     expect(componentDigest).toBe('d8e8572e05b7814c8f0b292e9e0f9f51a5646a0c17b6f1a80738193afbd75db5');
-    ['<ClubMembershipPlanScreen', '<ClubAccessCheckoutScreen', '<SeatRequestModal', '<ClubHubSections'].forEach((token) => expect(playerApp).toContain(token));
+    ['<ClubsScreen', '<ClubMembershipPlanScreen', '<ClubAccessCheckoutScreen', '<SeatRequestModal'].forEach((token) => expect(playerApp).toContain(token));
+    expect(clubsScreen).toContain('<ClubHubSections');
   });
 
   it('preserves every clubs/membership-owned and shared style value byte-for-byte', () => {

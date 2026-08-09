@@ -1,31 +1,22 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, BackHandler, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type AppStateStatus } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, AppState, BackHandler, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type AppStateStatus } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { MapPicker } from './components/MapPicker';
 import { Chip, Field } from './components/PlayerFields';
 import {
-  AnimatedButton,
-  AnimatedSurface,
   FiltersBottomSheet,
-  IconActionButton
+  SimpleMenuRow
 } from './components/PlayerPresentation';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import QRCode from 'react-native-qrcode-svg';
 import { privacyPolicyUrl, termsOfServiceUrl } from './config/playerLinks';
-import { createMembershipQrValue } from './domain/membershipQr';
 import {
-  getClubFeeProfile,
   getClubMembershipPrices,
-  getClubProductLabel,
-  getClubProductName
+  getClubProductLabel
 } from './domain/clubAccess';
 import {
-  formatPassCountdown,
-  getPlayerGameStatusLabel,
   isActivePlayerGameRequest,
   isMembershipCurrentlyActive,
   isPlayerMembership,
@@ -50,9 +41,7 @@ import {
   filterPrivateGames,
   filterTournaments,
   getActiveDiscoveryOpportunity,
-  getClubDistance,
   getDiscoveryDeck,
-  getGameStatusLabel,
   getOpportunityKey,
   getSavedOpportunities,
   isActivePlayerGame,
@@ -126,8 +115,10 @@ import { HostControlPanel, PremiumPaywall, PrivateGameCard, PrivateGameComposer 
 import { MyGamesSection } from './features/discovery/DiscoveryLists';
 import { MapExploreScreen } from './features/discovery/MapExploreScreen';
 import { discoveryStyles } from './features/discovery/discoveryStyles';
-import { formatEventDate, TournamentFilterControls, TournamentScreen } from './features/tournaments/TournamentScreen';
+import { TournamentFilterControls, TournamentScreen } from './features/tournaments/TournamentScreen';
 import { tournamentStyles } from './features/tournaments/tournamentStyles';
+import { ClubAccessCheckoutScreen, ClubMembershipPlanScreen, ClubsScreen, SeatRequestModal } from './features/clubs/ClubRoutes';
+import { clubStyles } from './features/clubs/clubStyles';
 import { sharedStyles } from './styles/sharedStyles';
 import { applyDarkComponentTheme, colors } from './styles/playerTheme';
 
@@ -1386,74 +1377,24 @@ export default function PlayerApp() {
             ) : null}
 
             {screen === 'clubs' ? (
-              <>
-                {memberClubs.length ? memberClubs
-                  .slice()
-                  .sort((left, right) => getClubDistance(left, playerHomeCoordinate) - getClubDistance(right, playerHomeCoordinate))
-                  .map((club) => {
-                    const isSelected = club.club.id === selectedClub.club.id;
-                    const membership = club.memberships.find((item) => isPlayerMembership(item, player));
-                    const openSeats = club.games.reduce((sum, game) => sum + game.availableSeats, 0);
-                    const familiarText = club.social?.knownPlayersInHouse ? ` - ${club.social.knownPlayersInHouse} familiar players` : '';
-                    return (
-                      <Pressable
-                        key={club.club.id}
-                        onPress={() => {
-                          setSelectedClubId(club.club.id);
-                        }}
-                        style={[styles.clubCard, isSelected && styles.selectedCard]}
-                      >
-                        <View style={[styles.clubAvatar, isSelected && styles.clubAvatarActive]}>
-                          <Text style={[styles.clubAvatarText, isSelected && styles.clubAvatarTextActive]}>{club.club.name.slice(0, 1)}</Text>
-                        </View>
-                        <View style={styles.clubMain}>
-                          <Text style={styles.cardTitle}>{club.club.name}</Text>
-                          <Text style={styles.muted}>
-                            {getClubDistance(club, playerHomeCoordinate).toFixed(1)} mi - {openSeats} seats{familiarText}
-                          </Text>
-                        </View>
-                        <View style={styles.statusPill}>
-                          <Text style={styles.statusText}>{membership?.status ?? 'Join'}</Text>
-                        </View>
-                      </Pressable>
-                    );
-                  }) : (
-                    <View style={styles.emptyState}>
-                      <Text style={styles.cardTitle}>No club memberships yet</Text>
-                      <Text style={styles.muted}>Join a card house from Find Games and your memberships will show here.</Text>
-                    </View>
-                  )}
-
-                {selectedMembership ? (
-                  <>
-                    {selectedMembership.status === 'Requested' ? (
-                      <MembershipApplicationStatusCard club={selectedClub} membership={selectedMembership} />
-                    ) : (
-                      <MembershipWalletCard
-                        club={selectedClub}
-                        membership={selectedMembership}
-                        nowMs={clockNow}
-                        player={player}
-                      />
-                    )}
-                    {clubMembershipMessage ? <Text style={styles.privateGameStatus}>{clubMembershipMessage}</Text> : null}
-                    <ClubHubSections
-                      club={selectedClub}
-                      membership={selectedMembership}
-                      games={selectedClub.games}
-                      waitlists={playerWaitlists}
-                      tournaments={selectedClubTournaments}
-                      nowMs={clockNow}
-                      onGame={(game) => joinWaitlist(selectedClub, game)}
-                      onManageAccess={() => openClubSignup(selectedClub)}
-                      onViewEvents={() => {
-                        setTournamentClubFilter(selectedClub.club.id);
-                        setScreen('tournaments');
-                      }}
-                    />
-                  </>
-                ) : null}
-              </>
+              <ClubsScreen
+                memberClubs={memberClubs}
+                selectedClub={selectedClub}
+                selectedMembership={selectedMembership}
+                player={player}
+                originCoordinate={playerHomeCoordinate}
+                nowMs={clockNow}
+                message={clubMembershipMessage}
+                waitlists={playerWaitlists}
+                tournaments={selectedClubTournaments}
+                onSelectClub={(club) => setSelectedClubId(club.club.id)}
+                onGame={(game) => joinWaitlist(selectedClub, game)}
+                onManageAccess={() => openClubSignup(selectedClub)}
+                onViewEvents={() => {
+                  setTournamentClubFilter(selectedClub.club.id);
+                  setScreen('tournaments');
+                }}
+              />
             ) : null}
 
             {screen === 'clubSignup' && selectedClub ? (
@@ -1869,685 +1810,6 @@ function InAppNotificationPopup({
   );
 }
 
-
-
-
-
-function NearbyCheckInPanel({
-  clubs,
-  checkedInClubIds,
-  onCheckIn,
-  onDirections
-}: {
-  clubs: PlayerClubSnapshot[];
-  checkedInClubIds: Set<string>;
-  onCheckIn: (club: PlayerClubSnapshot) => void;
-  onDirections: (club: PlayerClubSnapshot) => void;
-}) {
-  const nearbyClubs = clubs.slice().sort((left, right) => getClubDistance(left) - getClubDistance(right));
-  return (
-    <>
-      <MapPicker
-        locationLabel="Clubs near you"
-        radiusMiles={20}
-        onSelectLocation={() => undefined}
-      />
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Nearest clubs</Text>
-        <Text style={styles.muted}>Within 20 mi</Text>
-      </View>
-      {nearbyClubs.length ? nearbyClubs.map((club) => {
-        const checkedIn = checkedInClubIds.has(club.club.id);
-        const openSeats = club.games.reduce((sum, game) => sum + game.availableSeats, 0);
-        return (
-          <AnimatedSurface key={club.club.id} style={[styles.clubCard, checkedIn && styles.selectedCard]}>
-            <View style={[styles.clubAvatar, checkedIn && styles.clubAvatarActive]}>
-              <Text style={[styles.clubAvatarText, checkedIn && styles.clubAvatarTextActive]}>{club.club.name.slice(0, 1)}</Text>
-            </View>
-            <View style={styles.clubMain}>
-              <Text style={styles.cardTitle}>{club.club.name}</Text>
-              <Text style={styles.muted}>{getClubDistance(club).toFixed(1)} mi / {openSeats} seats / {club.social?.activePlayerCount ?? 0} players</Text>
-            </View>
-            <View style={styles.iconActionRow}>
-              <IconActionButton icon="navigate-outline" label={`Directions to ${club.club.name}`} onPress={() => onDirections(club)} />
-              <IconActionButton icon={checkedIn ? 'checkmark-circle' : 'enter-outline'} label={`Check in to ${club.club.name}`} onPress={() => onCheckIn(club)} active={checkedIn} />
-            </View>
-          </AnimatedSurface>
-        );
-      }) : (
-        <View style={styles.emptyState}>
-          <Text style={styles.cardTitle}>No clubs nearby</Text>
-          <Text style={styles.muted}>Published clubs will appear here when they are within your check-in area.</Text>
-        </View>
-      )}
-    </>
-  );
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function ClubMembershipPlanScreen({
-  club,
-  prices,
-  message,
-  player,
-  onBack,
-  onSubmit
-}: {
-  club: PlayerClubSnapshot;
-  prices: { day: string; monthly: string; timePack: string };
-  message: string;
-  player: PlayerAccount;
-  onBack: () => void;
-  onSubmit: (membershipOption?: PlayerMembershipOption) => void;
-}) {
-  const membershipOptions: PlayerMembershipOption[] = club.club.membershipOptions?.length
-    ? club.club.membershipOptions
-    : [
-        { id: 'day', name: 'Day Pass', priceLabel: prices.day, durationDays: 1 },
-        { id: 'monthly', name: 'Monthly Membership', priceLabel: prices.monthly, durationDays: 30 },
-        ...(getClubFeeProfile(club).type === 'time'
-          ? [{ id: 'time-5', name: '5-Hour Time Pack', priceLabel: prices.timePack, durationDays: 1 }]
-          : [])
-      ];
-  const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
-  const selectedOption = membershipOptions.find((option) => option.id === selectedOptionId);
-  return (
-    <View style={styles.membershipScreen}>
-      <Pressable style={styles.inlineBackAction} onPress={onBack}>
-        <Ionicons name="chevron-back" size={17} color={colors.primary} />
-        <Text style={styles.inlineBackText}>Clubs</Text>
-      </Pressable>
-      <View style={styles.membershipHero}>
-        <View style={styles.membershipHeroIcon}>
-          <Text style={styles.membershipHeroText}>{club.club.name.slice(0, 1)}</Text>
-        </View>
-        <View style={styles.membershipHeroCopy}>
-          <Text style={styles.membershipTitle}>{club.club.name}</Text>
-          {club.club.address ? <Text style={styles.muted}>{club.club.address}</Text> : null}
-        </View>
-      </View>
-
-      <View style={styles.membershipApplicationCard}>
-        <View>
-          <Text style={styles.cardTitle}>Apply with your Orbit profile</Text>
-          <Text style={styles.muted}>Your identity and poker profile are shared securely with this card house. Nothing needs to be entered again.</Text>
-        </View>
-        <View style={styles.membershipProfileSummary}>
-          <View style={styles.membershipProfileAvatar}>
-            <Text style={styles.membershipProfileAvatarText}>{player.name.slice(0, 1).toUpperCase()}</Text>
-          </View>
-          <View style={styles.membershipProfileCopy}>
-            <Text style={styles.cardTitle}>{player.name}</Text>
-            <Text style={styles.muted}>Orbit Player profile</Text>
-          </View>
-          <Ionicons name="shield-checkmark-outline" size={21} color={colors.teal} />
-        </View>
-      </View>
-
-      <View>
-        <Text style={styles.cardTitle}>Available options</Text>
-        <Text style={styles.muted}>Optional</Text>
-      </View>
-      <View style={styles.planGrid}>
-        {membershipOptions.map((option) => (
-          <MembershipPlanCard
-            key={option.id}
-            icon={option.durationDays === 1 ? 'today-outline' : 'calendar-outline'}
-            title={option.name}
-            price={option.priceLabel}
-            description={option.description}
-            selected={selectedOptionId === option.id}
-            onPress={() => setSelectedOptionId((current) => current === option.id ? null : option.id)}
-          />
-        ))}
-      </View>
-
-      <AnimatedButton variant="primary" onPress={() => onSubmit(selectedOption)} style={[styles.primaryButton, styles.fullWidthButton]}>
-        <Ionicons name="person-add-outline" size={18} color="#ffffff" />
-        <Text style={styles.primaryButtonText}>{selectedOption ? `Request ${selectedOption.name}` : 'Request membership'}</Text>
-      </AnimatedButton>
-      {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
-    </View>
-  );
-}
-
-function SeatRequestModal({
-  draft,
-  message,
-  onChange,
-  onClose,
-  onSubmit
-}: {
-  draft: SeatRequestDraft | null;
-  message: string;
-  onChange: React.Dispatch<React.SetStateAction<SeatRequestDraft | null>>;
-  onClose: () => void;
-  onSubmit: () => void;
-}) {
-  if (!draft) return null;
-  const hasOpenTable = isActivePlayerGame(draft.game);
-  const update = (patch: Partial<SeatRequestDraft>) => onChange((current) => current ? { ...current, ...patch } : current);
-  return (
-    <Modal transparent visible animationType="fade" onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.seatRequestModal}>
-          <View style={styles.seatRequestHeader}>
-            <View style={styles.seatRequestHeaderCopy}>
-              <Text style={styles.agentKicker}>{draft.club.club.name}</Text>
-              <Text style={styles.membershipTitle}>{hasOpenTable ? `Join ${draft.game.name}` : `When would you play ${draft.game.name}?`}</Text>
-              <Text style={styles.muted}>{hasOpenTable
-                ? 'Tell the club whether you are already there or when you are coming.'
-                : 'This game is offered, but no table is open. Share when you would come so the club can form one.'}</Text>
-            </View>
-            <Pressable style={styles.modalCloseButton} onPress={onClose}>
-              <Ionicons name="close" size={20} color={colors.ink} />
-            </Pressable>
-          </View>
-
-          {hasOpenTable ? (
-            <View style={styles.attendanceChoiceRow}>
-              <Pressable
-                style={[styles.attendanceChoice, draft.attendance === 'arrived' && styles.attendanceChoiceActive]}
-                onPress={() => update({ attendance: 'arrived', expectedArrivalTime: '' })}
-              >
-                <Ionicons name="location-outline" size={20} color={draft.attendance === 'arrived' ? '#fff' : colors.primary} />
-                <Text style={[styles.attendanceChoiceTitle, draft.attendance === 'arrived' && styles.attendanceChoiceTextActive]}>At club now</Text>
-                <Text style={[styles.attendanceChoiceBody, draft.attendance === 'arrived' && styles.attendanceChoiceTextActive]}>Mark me arrived</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.attendanceChoice, draft.attendance === 'confirmed' && styles.attendanceChoiceActive]}
-                onPress={() => update({ attendance: 'confirmed' })}
-              >
-                <Ionicons name="time-outline" size={20} color={draft.attendance === 'confirmed' ? '#fff' : colors.primary} />
-                <Text style={[styles.attendanceChoiceTitle, draft.attendance === 'confirmed' && styles.attendanceChoiceTextActive]}>Coming later</Text>
-                <Text style={[styles.attendanceChoiceBody, draft.attendance === 'confirmed' && styles.attendanceChoiceTextActive]}>Confirm a time</Text>
-              </Pressable>
-            </View>
-          ) : null}
-
-          {hasOpenTable && draft.attendance === 'confirmed' ? (
-            <View style={styles.seatTimeField}>
-              <Text style={styles.inputLabel}>Expected arrival time</Text>
-              <TextInput
-                value={draft.expectedArrivalTime}
-                onChangeText={(expectedArrivalTime) => update({ expectedArrivalTime })}
-                placeholder="Example: 7:30 PM"
-                placeholderTextColor={colors.muted}
-                style={styles.seatTimeInput}
-              />
-            </View>
-          ) : null}
-
-          {!hasOpenTable ? (
-            <View style={styles.seatTimeField}>
-              <Text style={styles.inputLabel}>Time or range you would come</Text>
-              <View style={styles.timeRangeRow}>
-                <TextInput
-                  value={draft.availabilityStartTime}
-                  onChangeText={(availabilityStartTime) => update({ attendance: 'interested', availabilityStartTime })}
-                  placeholder="From, e.g. 6 PM"
-                  placeholderTextColor={colors.muted}
-                  style={[styles.seatTimeInput, styles.timeRangeInput]}
-                />
-                <TextInput
-                  value={draft.availabilityEndTime}
-                  onChangeText={(availabilityEndTime) => update({ attendance: 'interested', availabilityEndTime })}
-                  placeholder="To, e.g. 10 PM"
-                  placeholderTextColor={colors.muted}
-                  style={[styles.seatTimeInput, styles.timeRangeInput]}
-                />
-              </View>
-            </View>
-          ) : null}
-
-          {message ? <Text style={styles.formError}>{message}</Text> : null}
-          <AnimatedButton variant="primary" onPress={onSubmit} style={[styles.primaryButton, styles.fullWidthButton]}>
-            <Ionicons name={draft.attendance === 'arrived' ? 'location-outline' : 'checkmark-circle-outline'} size={18} color="#fff" />
-            <Text style={styles.primaryButtonText}>{draft.attendance === 'arrived' ? 'Tell club I am here' : 'Send request'}</Text>
-          </AnimatedButton>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function ClubAccessCheckoutScreen({
-  club,
-  product,
-  price,
-  message,
-  connectedCheckoutEnabled,
-  onBack,
-  onPayInApp,
-  onPayInPerson
-}: {
-  club: PlayerClubSnapshot;
-  product: ClubAccessProduct;
-  price: string;
-  message: string;
-  connectedCheckoutEnabled: boolean;
-  onBack: () => void;
-  onPayInApp: () => void;
-  onPayInPerson: () => void;
-}) {
-  return (
-    <View style={styles.membershipScreen}>
-      <Pressable style={styles.inlineBackAction} onPress={onBack}>
-        <Ionicons name="chevron-back" size={17} color={colors.primary} />
-        <Text style={styles.inlineBackText}>Membership</Text>
-      </Pressable>
-      <View style={styles.paymentPlaceholder}>
-        <View style={styles.paymentPlaceholderIcon}>
-          <Ionicons name={connectedCheckoutEnabled ? 'card-outline' : 'person-add-outline'} size={28} color={colors.primary} />
-        </View>
-        <Text style={styles.membershipTitle}>{connectedCheckoutEnabled ? 'Payment' : 'Review application'}</Text>
-        <Text style={styles.muted}>
-          {club.club.name} / {getClubProductName(product)} / {price}
-        </Text>
-      </View>
-      {connectedCheckoutEnabled ? (
-        <>
-          <View style={styles.merchantBand}>
-            <Ionicons name="shield-checkmark-outline" size={18} color={colors.teal} />
-            <Text style={styles.merchantBandText}>Sold and fulfilled by {club.club.name}. Orbit securely passes you to the card house’s connected checkout.</Text>
-          </View>
-          <AnimatedButton variant="primary" onPress={onPayInApp} style={[styles.primaryButton, styles.fullWidthButton]}>
-            <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-            <Text style={styles.primaryButtonText}>Continue to card house checkout</Text>
-          </AnimatedButton>
-        </>
-      ) : null}
-      <Pressable style={styles.payInPersonButton} onPress={onPayInPerson}>
-        <Ionicons name="storefront-outline" size={18} color={colors.ink} />
-        <View style={styles.payInPersonCopy}>
-          <Text style={styles.cardTitle}>{connectedCheckoutEnabled ? 'Pay in person' : 'Send membership application'}</Text>
-          <Text style={styles.muted}>{connectedCheckoutEnabled ? 'Staff will confirm payment and activate your access.' : 'The card room will review it. After approval, bring your ID and pay at the door.'}</Text>
-        </View>
-      </Pressable>
-      {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
-    </View>
-  );
-}
-
-function MembershipPlanCard({
-  icon,
-  title,
-  price,
-  description,
-  selected,
-  onPress
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  price: string;
-  description?: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable accessibilityState={{ selected }} style={[styles.planCard, selected && styles.planCardFeatured]} onPress={onPress}>
-      <View style={styles.planIcon}>
-        <Ionicons name={icon} size={19} color={colors.primary} />
-      </View>
-      <View style={styles.planCardCopy}>
-        <Text style={styles.cardTitle}>{title}</Text>
-        {description ? <Text style={styles.muted} numberOfLines={2}>{description}</Text> : null}
-      </View>
-      <View style={styles.planCardPriceBlock}>
-        <Text style={styles.planCompactPrice}>{price}</Text>
-        <Ionicons name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={18} color={selected ? colors.primary : colors.muted} />
-      </View>
-    </Pressable>
-  );
-}
-
-function formatFamiliar(value?: number) {
-  const count = Number(value ?? 0);
-  return count > 0 ? ` - ${count} familiar player${count === 1 ? '' : 's'}` : '';
-}
-
-function MembershipApplicationStatusCard({
-  club,
-  membership
-}: {
-  club: PlayerClubSnapshot;
-  membership: PlayerClubSnapshot['memberships'][number];
-}) {
-  return (
-    <View style={styles.membershipApplicationStatus}>
-      <View style={styles.membershipApplicationStatusIcon}>
-        <Ionicons name="time-outline" size={21} color={colors.primary} />
-      </View>
-      <View style={styles.membershipApplicationStatusCopy}>
-        <Text style={styles.cardTitle}>Application received</Text>
-        <Text style={styles.muted}>{club.club.name} is reviewing your {membership.plan === 'day' ? 'day pass' : 'membership'} request. This screen updates as soon as staff approves it.</Text>
-      </View>
-      <View style={styles.statusPill}><Text style={styles.statusText}>Requested</Text></View>
-    </View>
-  );
-}
-
-function MembershipWalletCard({
-  club,
-  membership,
-  nowMs,
-  player
-}: {
-  club: PlayerClubSnapshot;
-  membership: PlayerClubSnapshot['memberships'][number];
-  nowMs: number;
-  player: PlayerAccount;
-}) {
-  const active = isMembershipCurrentlyActive(membership, nowMs);
-  const approved = membership.status === 'Approved';
-  const membershipPlayerId = membership.playerId || player.id;
-  const credential = getMembershipDisplayId(club.club.id, membershipPlayerId);
-  const qrValue = createMembershipQrValue(club.club.id, membershipPlayerId);
-  return (
-    <LinearGradient colors={['#111827', '#12384A', '#155E75']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.membershipWalletCard}>
-      <View style={styles.membershipWalletTop}>
-        <View style={styles.membershipWalletBrand}>
-          <View style={styles.membershipWalletMonogram}>
-            <Text style={styles.membershipWalletMonogramText}>{club.club.name.slice(0, 1)}</Text>
-          </View>
-          <View>
-            <Text style={styles.membershipWalletClub}>{club.club.name}</Text>
-            <Text style={styles.membershipWalletPlan}>{membership.plan === 'day' ? 'DAY PASS' : 'MEMBER'} · {membership.loyalty.tier.toUpperCase()}</Text>
-          </View>
-        </View>
-        <View style={[styles.membershipStatusBadge, !active && styles.membershipStatusBadgeInactive]}>
-          <View style={[styles.membershipStatusDot, !active && styles.membershipStatusDotInactive]} />
-          <Text style={styles.membershipStatusText}>{active ? 'ACTIVE' : membership.status.toUpperCase()}</Text>
-        </View>
-      </View>
-
-      <View style={styles.membershipIdentityRow}>
-        <View>
-          <Text style={styles.membershipIdentityLabel}>MEMBER</Text>
-          <Text style={styles.membershipIdentityValue}>{player.name}</Text>
-        </View>
-        <View style={styles.membershipNumberBlock}>
-          <Text style={styles.membershipIdentityLabel}>MEMBER ID</Text>
-          <Text style={styles.membershipIdentityValue}>{credential.slice(-8)}</Text>
-        </View>
-      </View>
-
-      {active ? <MembershipQrCode value={qrValue} memberId={credential} /> : null}
-
-      <View style={styles.checkedInBand}>
-        <Ionicons name={approved ? 'id-card-outline' : 'scan-outline'} size={17} color="#bfdbfe" />
-        <Text style={styles.checkedInText}>{approved
-          ? 'Approved. Bring your ID and pay the card-room fee at the front desk to activate.'
-          : 'Have staff scan this QR code to check you in.'}</Text>
-      </View>
-    </LinearGradient>
-  );
-}
-
-function MembershipQrCode({ value, memberId }: { value: string; memberId: string }) {
-  return (
-    <View accessibilityLabel={`Membership check-in QR for member ${memberId}`} style={styles.membershipQrShell}>
-      <View style={styles.membershipQrCode}>
-        <QRCode value={value} size={142} color="#0f172a" backgroundColor="#ffffff" ecl="M" />
-      </View>
-      <View style={styles.membershipQrCopy}>
-        <Text style={styles.membershipQrTitle}>SCAN TO CHECK IN</Text>
-        <Text style={styles.membershipQrMember}>Member {memberId}</Text>
-      </View>
-    </View>
-  );
-}
-
-function getMembershipDisplayId(clubId: string, playerId: string) {
-  const source = `${clubId}:${playerId}`;
-  let hash = 2166136261;
-  for (let index = 0; index < source.length; index += 1) {
-    hash ^= source.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).toUpperCase().padStart(8, '0');
-}
-
-function ClubHubSections({
-  club,
-  membership,
-  games,
-  waitlists,
-  tournaments,
-  nowMs,
-  onGame,
-  onManageAccess,
-  onViewEvents
-}: {
-  club: PlayerClubSnapshot;
-  membership: PlayerClubSnapshot['memberships'][number];
-  games: PlayerSyncGame[];
-  waitlists: PlayerWaitlistEntry[];
-  tournaments: PlayerTournament[];
-  nowMs: number;
-  onGame: (game: PlayerSyncGame) => void;
-  onManageAccess: () => void;
-  onViewEvents: () => void;
-}) {
-  const [openSection, setOpenSection] = useState<'games' | 'membership' | 'events' | null>(null);
-  const toggle = (section: 'games' | 'membership' | 'events') => setOpenSection((current) => current === section ? null : section);
-  const activeGames = games.filter(isActivePlayerGame);
-  const requestableGames = games.filter((game) => !isActivePlayerGame(game));
-  return (
-    <View style={styles.clubHub}>
-      <Pressable onPress={() => toggle('games')} style={styles.clubHubRow}>
-        <View style={styles.clubHubIcon}><Ionicons name="layers-outline" size={19} color={colors.primary} /></View>
-        <View style={styles.clubHubCopy}>
-          <Text style={styles.cardTitle}>Games</Text>
-          <Text style={styles.muted}>{activeGames.length} active · {requestableGames.length} requestable</Text>
-        </View>
-        <Ionicons name={openSection === 'games' ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} />
-      </Pressable>
-      {openSection === 'games' ? (
-        <View style={styles.clubHubPanel}>
-          {activeGames.length ? <Text style={styles.clubGameGroupLabel}>ACTIVE NOW</Text> : null}
-          {activeGames.map((game) => {
-            const waitlist = waitlists.find((entry) => entry.gameId === game.id);
-            return (
-              <Pressable key={game.id} disabled={Boolean(waitlist)} onPress={() => onGame(game)} style={styles.compactGameRow}>
-                <View style={styles.compactGameCopy}>
-                  <Text style={styles.cardTitle}>{game.name}</Text>
-                  <Text style={styles.muted}>{getGameStatusLabel(game)}</Text>
-                </View>
-                <Text style={[styles.compactGameAction, waitlist && styles.compactGameActionMuted]}>
-                  {waitlist ? getPlayerGameStatusLabel(waitlist) : 'Join game'}
-                </Text>
-              </Pressable>
-            );
-          })}
-          {requestableGames.length ? (
-            <>
-              <View style={styles.clubRequestHeader}>
-                <Text style={styles.clubGameGroupLabel}>REQUEST ANOTHER GAME</Text>
-                <Text style={styles.muted}>Your interest helps the card house decide what to open.</Text>
-              </View>
-              {requestableGames.map((game) => {
-                const request = waitlists.find((entry) => entry.gameId === game.id);
-                return (
-                  <Pressable key={game.id} disabled={Boolean(request)} onPress={() => onGame(game)} style={[styles.compactGameRow, styles.requestGameRow]}>
-                    <View style={styles.compactGameCopy}>
-                      <Text style={styles.cardTitle}>{game.name}</Text>
-                      <Text style={styles.muted}>
-                        {game.waitlistCount
-                          ? `${game.waitlistCount} player${game.waitlistCount === 1 ? '' : 's'} interested`
-                          : 'No active table · Be the first to request it'}
-                      </Text>
-                    </View>
-                    <Text style={[styles.compactGameAction, request && styles.compactGameActionMuted]}>
-                      {request ? 'Requested' : 'Request game'}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </>
-          ) : null}
-        </View>
-      ) : null}
-
-      <Pressable onPress={() => toggle('membership')} style={styles.clubHubRow}>
-        <View style={styles.clubHubIcon}><Ionicons name="card-outline" size={19} color={colors.primary} /></View>
-        <View style={styles.clubHubCopy}>
-          <Text style={styles.cardTitle}>Membership</Text>
-          <Text style={styles.muted}>{isMembershipCurrentlyActive(membership, nowMs) ? formatPassCountdown(membership.expiresAt, nowMs) : membership.status}</Text>
-        </View>
-        <Ionicons name={openSection === 'membership' ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} />
-      </Pressable>
-      {openSection === 'membership' ? (
-        <View style={styles.clubHubPanel}>
-          <View style={styles.membershipCompactStats}>
-            <View><Text style={styles.compactStatValue}>{membership.loyalty.points.toLocaleString()}</Text><Text style={styles.compactStatLabel}>Points</Text></View>
-            <View><Text style={styles.compactStatValue}>{membership.loyalty.tier}</Text><Text style={styles.compactStatLabel}>Tier</Text></View>
-            <View><Text style={styles.compactStatValue}>{membership.plan === 'day' ? 'Day' : 'Monthly'}</Text><Text style={styles.compactStatLabel}>Plan</Text></View>
-          </View>
-          <Pressable onPress={onManageAccess} style={styles.compactManageButton}>
-            <Text style={styles.compactManageText}>Manage access</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-      <Pressable onPress={() => toggle('events')} style={styles.clubHubRow}>
-        <View style={styles.clubHubIcon}><Ionicons name="trophy-outline" size={19} color={colors.primary} /></View>
-        <View style={styles.clubHubCopy}>
-          <Text style={styles.cardTitle}>Events</Text>
-          <Text style={styles.muted}>{tournaments.length ? `${tournaments.length} upcoming` : 'None scheduled'}</Text>
-        </View>
-        <Ionicons name={openSection === 'events' ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} />
-      </Pressable>
-      {openSection === 'events' ? (
-        <View style={styles.clubHubPanel}>
-          {tournaments.slice(0, 2).map((tournament) => (
-            <View key={tournament.id} style={styles.compactEventRow}>
-              <View style={styles.compactGameCopy}>
-                <Text style={styles.cardTitle}>{tournament.name}</Text>
-                <Text style={styles.muted}>{formatEventDate(tournament.startsAt)}</Text>
-              </View>
-            </View>
-          ))}
-          <Pressable onPress={onViewEvents} style={styles.compactManageButton}>
-            <Text style={styles.compactManageText}>View events</Text>
-          </Pressable>
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-function SimpleMenuRow({
-  icon,
-  title,
-  subtitle,
-  onPress
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  subtitle: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable onPress={onPress} style={styles.simpleMenuRow}>
-      <View style={styles.simpleMenuIcon}><Ionicons name={icon} size={20} color={colors.primary} /></View>
-      <View style={styles.simpleMenuCopy}>
-        <Text style={styles.cardTitle}>{title}</Text>
-        <Text style={styles.muted}>{subtitle}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={colors.muted} />
-    </Pressable>
-  );
-}
-
-function ClubMembershipPanel({
-  club,
-  membership,
-  nowMs,
-  onBuyPass
-}: {
-  club: PlayerClubSnapshot;
-  membership: PlayerClubSnapshot['memberships'][number];
-  nowMs: number;
-  onBuyPass: () => void;
-}) {
-  const active = isMembershipCurrentlyActive(membership, nowMs);
-  const requested = membership.status === 'Requested';
-  const approved = membership.status === 'Approved';
-  return (
-    <View style={styles.loyaltyCard}>
-      <View style={styles.loyaltyHeader}>
-        <View>
-          <Text style={styles.cardTitle}>Membership</Text>
-          <Text style={styles.muted}>{membership.plan === 'day' ? 'Day pass' : 'Monthly membership'} · {requested ? 'Under review' : approved ? 'Approved' : active ? 'Active' : 'Expired'}</Text>
-        </View>
-        <View style={styles.loyaltyBadge}>
-          <Text style={styles.loyaltyBadgeText}>{membership.loyalty.tier}</Text>
-        </View>
-      </View>
-      <Text style={styles.points}>{membership.loyalty.points.toLocaleString()} pts</Text>
-      <View style={[styles.passTimer, active ? styles.passTimerActive : styles.passTimerInactive]}>
-        <Ionicons name={requested ? 'time-outline' : approved ? 'id-card-outline' : 'timer-outline'} size={18} color={active ? colors.teal : colors.ink} />
-        <View style={styles.passTimerCopy}>
-          <Text style={styles.passTimerTitle}>{requested
-            ? 'Application under review'
-            : approved
-              ? 'Visit the front desk to activate'
-            : active
-              ? formatPassCountdown(membership.expiresAt, nowMs)
-              : 'Pass expired, buy a new pass'}</Text>
-          <Text style={styles.muted}>{requested
-            ? 'The card room will approve or follow up on your application.'
-            : approved
-              ? 'Bring your ID and pay the membership fee. Staff will activate you at the door.'
-            : membership.expiresAt
-              ? `Ends ${new Date(membership.expiresAt).toLocaleString()}`
-              : 'No active expiration time is set.'}</Text>
-        </View>
-      </View>
-      <Text style={styles.muted}>{club.games.length} games available</Text>
-      <Pressable style={styles.buyAnotherPassButton} onPress={onBuyPass}>
-        <Text style={styles.buyAnotherPassText}>{active ? 'Buy another pass' : 'Choose a pass'}</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-function ClubHistoryPanel() {
-  return (
-    <View style={styles.accountCard}>
-      <Text style={styles.sectionTitle}>Prior Sessions</Text>
-      <Text style={styles.muted}>Check-in and cash-out history will appear here.</Text>
-      <Text style={styles.sectionTitle}>Scheduled Games</Text>
-      <Text style={styles.muted}>No scheduled games posted yet.</Text>
-    </View>
-  );
-}
-
-
-
-
-
-
 function getScreenTitle(screen: Screen) {
   if (screen === 'settings') return 'Profile';
   if (screen === 'identityVerification') return 'Age Verification';
@@ -2856,16 +2118,6 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
     gap: 10,
     paddingTop: 10
   },
-  selectedCard: {
-    backgroundColor: '#fbfffc',
-    borderColor: 'rgba(21,127,109,0.26)'
-  },
-  clubAvatarActive: {
-    backgroundColor: colors.primary
-  },
-  clubAvatarTextActive: {
-    color: '#ffffff'
-  },
   clubGamesHeader: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -3000,114 +2252,16 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
     flex: 1,
     gap: 4
   },
-  membershipScreen: {
-    gap: 12
-  },
-  membershipHero: {
-    backgroundColor: '#fbfffc',
-    borderColor: 'rgba(21,127,109,0.18)',
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 13,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.03,
-    shadowRadius: 12
-  },
-  membershipHeroIcon: {
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    borderRadius: 14,
-    height: 52,
-    justifyContent: 'center',
-    width: 52
-  },
-  membershipHeroText: {
-    color: '#ffffff',
-    fontSize: 22,
-    fontWeight: '900'
-  },
-  membershipHeroCopy: {
-    flex: 1,
-    gap: 5
-  },
-  membershipApplicationCard: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 11,
-    padding: 14
-  },
-  membershipProfileSummary: { alignItems: 'center', backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 11 },
-  membershipProfileAvatar: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 10, height: 40, justifyContent: 'center', width: 40 },
-  membershipProfileAvatarText: { color: colors.primary, fontSize: 17, fontWeight: '900' },
-  membershipProfileCopy: { flex: 1, gap: 2 },
-  paymentPlaceholder: {
-    alignItems: 'center',
-    backgroundColor: '#fbfffc',
-    borderColor: colors.line,
-    borderRadius: 12,
-    borderStyle: 'dashed',
-    borderWidth: 1,
-    gap: 10,
-    minHeight: 220,
-    justifyContent: 'center',
-    padding: 20
-  },
-  paymentPlaceholderIcon: {
-    alignItems: 'center',
-    backgroundColor: colors.primarySoft,
-    borderRadius: 16,
-    height: 56,
-    justifyContent: 'center',
-    width: 56
-  },
-  planGrid: {
-    gap: 10
-  },
-  planCard: {
-    alignItems: 'center',
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 11,
-    minHeight: 72,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.025,
-    shadowRadius: 12
-  },
-  planCardFeatured: {
-    backgroundColor: '#f4fbf8',
-    borderColor: 'rgba(21,127,109,0.24)'
-  },
   planCardHeader: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between'
   },
-  planIcon: {
-    alignItems: 'center',
-    backgroundColor: colors.primarySoft,
-    borderRadius: 12,
-    height: 40,
-    justifyContent: 'center',
-    width: 40
-  },
   planIconFeatured: {
     backgroundColor: colors.primary
   },
-  planCardCopy: { flex: 1, gap: 3 },
   planCardTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 7 },
   planInlineBadge: { color: colors.teal, fontSize: 9, fontWeight: '900', textTransform: 'uppercase' },
-  planCardPriceBlock: { alignItems: 'flex-end', flexDirection: 'row', gap: 4 },
-  planCompactPrice: { color: colors.ink, fontSize: 13, fontWeight: '900' },
   planBadge: {
     backgroundColor: colors.tealSoft,
     borderRadius: 999,
@@ -3174,34 +2328,6 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
     minHeight: 46,
     paddingHorizontal: 14
   },
-  loyaltyCard: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 12,
-    padding: 16
-  },
-  loyaltyHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between'
-  },
-  loyaltyBadge: {
-    backgroundColor: colors.tealSoft,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7
-  },
-  loyaltyBadgeText: {
-    color: colors.teal,
-    fontWeight: '800'
-  },
-  points: {
-    color: colors.ink,
-    fontSize: 34,
-    fontWeight: '800'
-  },
   progressTrack: {
     backgroundColor: colors.primarySoft,
     borderRadius: 999,
@@ -3212,18 +2338,6 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
     backgroundColor: colors.teal,
     borderRadius: 999,
     height: 10
-  },
-  accountCard: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.025,
-    shadowRadius: 12
   },
   identityCard: {
     alignSelf: 'center',
@@ -3371,39 +2485,6 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
   activeTabText: {
     color: '#6f91ff'
   },
-  seatRequestModal: {
-    backgroundColor: '#ffffff',
-    borderColor: colors.line,
-    borderRadius: 20,
-    borderWidth: 1,
-    gap: 16,
-    maxWidth: 540,
-    padding: 20,
-    width: '100%'
-  },
-  seatRequestHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 12 },
-  seatRequestHeaderCopy: { flex: 1, gap: 5 },
-  attendanceChoiceRow: { flexDirection: 'row', gap: 10 },
-  attendanceChoice: { backgroundColor: '#f8fafc', borderColor: colors.line, borderRadius: 14, borderWidth: 1, flex: 1, gap: 5, minHeight: 108, padding: 14 },
-  attendanceChoiceActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  attendanceChoiceTitle: { color: colors.ink, fontSize: 14, fontWeight: '900' },
-  attendanceChoiceBody: { color: colors.muted, fontSize: 12, fontWeight: '600' },
-  attendanceChoiceTextActive: { color: '#ffffff' },
-  seatTimeField: { gap: 7 },
-  inputLabel: { color: colors.ink, fontSize: 12, fontWeight: '800' },
-  seatTimeInput: { backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 11, borderWidth: 1, color: colors.ink, fontSize: 15, minHeight: 46, paddingHorizontal: 12 },
-  timeRangeRow: { flexDirection: 'row', gap: 8 },
-  timeRangeInput: { flex: 1 },
-  formError: { color: '#b42318', fontSize: 12, fontWeight: '700' },
-  payInPersonButton: { alignItems: 'center', backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 15 },
-  payInPersonCopy: { flex: 1, gap: 2 },
-  passTimer: { alignItems: 'center', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 13 },
-  passTimerActive: { backgroundColor: colors.tealSoft, borderColor: 'rgba(21,127,109,0.20)' },
-  passTimerInactive: { backgroundColor: '#f4f4f1', borderColor: colors.line },
-  passTimerCopy: { flex: 1, gap: 2 },
-  passTimerTitle: { color: colors.ink, fontSize: 14, fontWeight: '900' },
-  buyAnotherPassButton: { alignItems: 'center', backgroundColor: colors.primaryDark, borderRadius: 11, minHeight: 42, justifyContent: 'center', paddingHorizontal: 14 },
-  buyAnotherPassText: { color: '#ffffff', fontSize: 13, fontWeight: '900' },
   discoveryIntro: {
     alignItems: 'flex-start',
     backgroundColor: '#111a2d',
@@ -3458,63 +2539,14 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
   walletCountBadge: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 13, minWidth: 56, padding: 9 },
   walletCountValue: { color: colors.primary, fontSize: 20, fontWeight: '900' },
   walletCountLabel: { color: colors.primary, fontSize: 8, fontWeight: '900', letterSpacing: 0.8 },
-  membershipApplicationStatus: { alignItems: 'center', backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 15, borderWidth: 1, flexDirection: 'row', gap: 11, padding: 14 },
-  membershipApplicationStatusIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 11, height: 42, justifyContent: 'center', width: 42 },
-  membershipApplicationStatusCopy: { flex: 1, gap: 3 },
-  membershipWalletCard: { borderRadius: 22, gap: 15, overflow: 'hidden', padding: 17, shadowColor: '#0f172a', shadowOffset: { width: 0, height: 16 }, shadowOpacity: 0.18, shadowRadius: 28 },
-  membershipWalletTop: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
-  membershipWalletBrand: { alignItems: 'center', flexDirection: 'row', gap: 10 },
-  membershipWalletMonogram: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.16)', borderColor: 'rgba(255,255,255,0.22)', borderRadius: 12, borderWidth: 1, height: 42, justifyContent: 'center', width: 42 },
-  membershipWalletMonogramText: { color: '#ffffff', fontSize: 18, fontWeight: '900' },
-  membershipWalletClub: { color: '#ffffff', fontSize: 15, fontWeight: '900' },
-  membershipWalletPlan: { color: 'rgba(255,255,255,0.65)', fontSize: 9, fontWeight: '900', letterSpacing: 0.8 },
-  membershipStatusBadge: { alignItems: 'center', backgroundColor: 'rgba(74,222,128,0.16)', borderRadius: 99, flexDirection: 'row', gap: 5, paddingHorizontal: 9, paddingVertical: 6 },
-  membershipStatusBadgeInactive: { backgroundColor: 'rgba(251,191,36,0.16)' },
-  membershipStatusDot: { backgroundColor: '#4ade80', borderRadius: 99, height: 6, width: 6 },
-  membershipStatusDotInactive: { backgroundColor: '#fbbf24' },
-  membershipStatusText: { color: '#ffffff', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 },
-  membershipIdentityRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  membershipIdentityLabel: { color: 'rgba(255,255,255,0.55)', fontSize: 8, fontWeight: '900', letterSpacing: 1 },
-  membershipIdentityValue: { color: '#ffffff', fontSize: 13, fontWeight: '800', marginTop: 3 },
-  membershipNumberBlock: { alignItems: 'flex-end' },
-  membershipQrShell: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 16, flexDirection: 'row', gap: 15, padding: 12 },
-  membershipQrCode: { alignItems: 'center', backgroundColor: '#ffffff', height: 150, justifyContent: 'center', width: 150 },
-  membershipQrCopy: { flex: 1, gap: 5 },
-  membershipQrTitle: { color: '#0f172a', fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
-  membershipQrMember: { color: '#64748b', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
-  checkedInBand: { alignItems: 'center', backgroundColor: 'rgba(74,222,128,0.12)', borderRadius: 10, flexDirection: 'row', gap: 7, padding: 9 },
-  checkedInText: { color: '#dcfce7', flex: 1, fontSize: 10, fontWeight: '800' },
   gameAlertCard: { alignItems: 'center', backgroundColor: '#edf7f5', borderColor: '#b9d9d3', borderRadius: 15, borderWidth: 1, flexDirection: 'row', gap: 10, padding: 13 },
   gameAlertIcon: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 11, height: 40, justifyContent: 'center', width: 40 },
   gameAlertCopy: { flex: 1, gap: 2 },
   alertOnPill: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 99, flexDirection: 'row', gap: 4, paddingHorizontal: 8, paddingVertical: 5 },
   alertOnDot: { backgroundColor: '#22c55e', borderRadius: 99, height: 6, width: 6 },
   alertOnText: { color: colors.ink, fontSize: 9, fontWeight: '900' },
-  clubHub: { backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
-  clubHubRow: { alignItems: 'center', borderBottomColor: colors.line, borderBottomWidth: 1, flexDirection: 'row', gap: 11, minHeight: 66, paddingHorizontal: 13 },
-  clubHubIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 10, height: 38, justifyContent: 'center', width: 38 },
-  clubHubCopy: { flex: 1, gap: 2 },
-  clubHubPanel: { backgroundColor: '#f8fafc', borderBottomColor: colors.line, borderBottomWidth: 1, gap: 8, padding: 11 },
-  clubGameGroupLabel: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 1.15, marginBottom: 2 },
-  clubRequestHeader: { gap: 3, marginTop: 8 },
-  compactGameRow: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 11, flexDirection: 'row', minHeight: 52, paddingHorizontal: 11 },
-  requestGameRow: { backgroundColor: '#f1f7f6', borderColor: 'rgba(15,118,110,0.18)', borderWidth: 1 },
-  compactGameCopy: { flex: 1, gap: 2 },
-  compactGameAction: { color: colors.primary, fontSize: 12, fontWeight: '900' },
-  compactGameActionMuted: { color: colors.muted },
-  membershipCompactStats: { backgroundColor: '#ffffff', borderRadius: 11, flexDirection: 'row', justifyContent: 'space-around', padding: 11 },
-  compactStatValue: { color: colors.ink, fontSize: 14, fontWeight: '900', textAlign: 'center' },
-  compactStatLabel: { color: colors.muted, fontSize: 9, fontWeight: '700', marginTop: 2, textAlign: 'center' },
-  compactManageButton: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 10, justifyContent: 'center', minHeight: 40 },
-  compactManageText: { color: colors.primary, fontSize: 12, fontWeight: '900' },
-  compactEventRow: { backgroundColor: '#ffffff', borderRadius: 11, minHeight: 52, padding: 11 },
-  simpleMenu: { backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
-  simpleMenuRow: { alignItems: 'center', borderBottomColor: colors.line, borderBottomWidth: 1, flexDirection: 'row', gap: 12, minHeight: 74, paddingHorizontal: 14 },
-  simpleMenuIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 11, height: 42, justifyContent: 'center', width: 42 },
-  simpleMenuCopy: { flex: 1, gap: 2 },
-  merchantBand: { alignItems: 'flex-start', backgroundColor: colors.tealSoft, borderColor: 'rgba(21,127,109,0.20)', borderRadius: 13, borderWidth: 1, flexDirection: 'row', gap: 9, padding: 12 },
-  merchantBandText: { color: colors.teal, flex: 1, fontSize: 12, fontWeight: '800', lineHeight: 17 }
+  simpleMenu: { backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 16, borderWidth: 1, overflow: 'hidden' }
 }));
 
-const styles = { ...sharedStyles, ...discoveryStyles, ...tournamentStyles, ...playerAppStyles };
+const styles = { ...sharedStyles, ...discoveryStyles, ...tournamentStyles, ...clubStyles, ...playerAppStyles };
 
