@@ -485,7 +485,7 @@ tasks:
 
   - id: REF-022
     title: Split Player presentation by feature
-    status: pending
+    status: complete
     objective: Move cohesive Player screens/components and feature-owned styles out of PlayerApp while preserving native/web rendering contracts.
     evidence_root_cause: PlayerApp is 7,430 lines and owns over 40 top-level presentation components plus roughly 2,300 lines of style definitions.
     files_areas:

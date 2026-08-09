@@ -2,7 +2,7 @@
 
 Initial phase date: 2026-08-07
 
-Fresh audit date: 2026-08-08
+Fresh audit date: 2026-08-09
 
 ## Runtime boundaries
 
@@ -12,7 +12,7 @@ Fresh audit date: 2026-08-08
 | Renderer tests | `src/**/*.test.ts(x)` | jsdom/Node-assisted characterization and pure unit tests | `tsconfig.test.json`, root Vitest |
 | Electron | `electron/main.cjs`, extracted process modules, and API-owned `apps/api/src/shared/orbitCore.cjs` | desktop windowing, IPC, local SQLite, hosted/local API fallback, telemetry, reports, updates, explicit server-sync compatibility profile | dedicated non-DOM `tsconfig.electron.json`, tests, renderer build |
 | API | `apps/api/src/server.js` → `apps/api/src/app.js`, `apps/api/src/routes/`, `apps/api/src/http/`, `apps/api/src/database.js`, and `apps/api/src/db/` | process startup, non-listening Express composition, focused route/middleware owners, stable SQLite facade/repositories, privileged integrations, shared server-side player transforms | dedicated non-DOM `apps/api/tsconfig.json` check-JS plus API localhost characterization and root Vitest |
-| Player | `player-app/App.tsx` → `player-app/src/PlayerApp.tsx` | Expo mobile client and Player-owned domain/data code | Player TypeScript plus root Vitest |
+| Player | `player-app/App.tsx` → `player-app/src/PlayerApp.tsx`, `player-app/src/features/`, `components/`, `styles/`, and `domain/` | Expo state/effect/navigation composition, feature-owned React Native presentation, shared primitives/styles, and pure Player rules | Player TypeScript plus root Vitest |
 
 ## Current concentration
 
@@ -52,7 +52,7 @@ The tracked production files above 500 lines are deliberate current boundaries, 
 
 | Owner | Lines | Current cohesion or safety reason |
 | --- | ---: | --- |
-| `player-app/src/PlayerApp.tsx` | 7,157 | Expo state/effect/navigation shell plus colocated React Native presentation components. Platform-neutral discovery selectors, view models, validation, and canonical screen/filter contracts now have directly tested domain owners; presentation decomposition remains next. |
+| `player-app/src/PlayerApp.tsx` | 1,678 | Expo application shell: state, storage migration, subscription/effect lifecycle, purchases/auth/network use cases, navigation, feature composition, sheets/modals, and 15 referenced header/content/tab styles. Feature screens and presentation helpers have focused owners; application/storage orchestration is the next boundary. |
 | `src/main.tsx` | 3,593 | Management composition root with five application-wide state declarations, cross-feature effects, command invocation, persistence calls, dialogs, and typed route assembly. Feature-local drafts and presentation models have focused owners. |
 | `player-app/src/data/orbitSyncApi.ts` | 1,328 | Player's single Firebase/API authentication, transport, hydration, and protocol-compatibility adapter. |
 | `src/components/FloorView.tsx` | 1,118 | One management route and its characterized floor/table callback surface; transient workspace state and the ledger presentation have feature owners. |
@@ -123,3 +123,5 @@ REF-019 moved per-account browser persistence into `src/app/persistence/browserS
 REF-020 moved tournament, profile/membership, settings/account, reporting/closeout, floor/table, and games-builder/outreach UI state into focused workspaces under `src/features/`. Those owners also expose canonical draft contracts and cohesive selectors/effects; the live table-ledger presentation moved out of the entrypoint, and unreachable local feedback/component code was removed. `src/main.tsx` is 3,593 lines and `App` is 3,144 lines; direct entrypoint `useState` declarations fell from 70 to five, all application-wide. Route matrices passed before and after every move, full verification passes 72 files / 393 tests, and the renderer build transforms 1,956 modules with a 1,005.90 kB main chunk.
 
 REF-021 moved platform-neutral screen/filter/opportunity/draft contracts into `playerTypes.ts` and characterized private-game, map, tournament, live-game, distance, grouping, label, validation, and immutable-preference rules into `discovery.ts`. `PlayerApp.tsx` is 7,157 lines and imports the pure owners; the eight-fixture discovery suite runs without React Native mocks. Full verification passes 73 files / 401 tests. Native presentation, state/effects, storage, purchases, Firebase/network behavior, and map rendering remain deliberately platform-specific.
+
+REF-022 moved onboarding, discovery, tournament, club/membership, identity/settings, and notification presentation into focused Player feature/component owners with colocated style modules. Static characterization pins component hierarchy, copy, callbacks, animations, and 535 feature/shared style values across the five feature slices. `PlayerApp.tsx` is 1,678 lines, contains no colocated feature/helper component, and retains only 15 referenced navigation-shell styles; 114 orphaned declarations were removed under an ownership regression. Full verification passes 74 files / 413 tests and the unchanged 1,956-module management build. State/effects, storage migration, subscriptions, purchases, authentication/network use cases, navigation, and route composition remain intentionally together for REF-023.

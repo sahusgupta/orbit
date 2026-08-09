@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-09 - REF-022 Player presentation ownership
+
+- Characterized onboarding, discovery, tournament, club/membership, identity/settings, notification, shared primitive, and style contracts before relocating each feature in a separate green commit.
+- Moved all feature/helper presentation functions from `PlayerApp.tsx` into focused owners under `player-app/src/features/` and `components/`; feature/shared styles now live under those feature folders or `player-app/src/styles/`.
+- Removed 114 proven-unreferenced local style declarations and added a regression that limits `PlayerApp` to its 15 referenced navigation-shell styles. The file fell from 7,157 to 1,678 lines; its state/effects, storage, subscriptions, purchases, auth/network use cases, navigation, and composition remain the characterized REF-023 boundary.
+- Full verification passed all root compiler projects, Player TypeScript, 74 files / 413 tests, and the unchanged 1,956-module build. No native/EAS build, production-connected runtime, provider, credential, database, deployment, dependency change, or push was used.
+
 ## 2026-08-08 - REF-021 Player discovery domain
 
 - Added and separately committed eight unchanged-behavior fixtures through a temporary `PlayerApp` seam, pinning discovery filters/order, distance/location, grouping, labels, tournament/map/private-game selectors, form validation, and immutable preference updates.

@@ -124,6 +124,24 @@ The browser repository is always written first. A desktop build then uses the pr
 
 `apps/api/src/shared/orbitCore.cjs` owns the behaviorally shared API/Electron server transforms. The API consumes it through `apps/api/src/orbitCore.js`; Electron selects its characterized compatibility profile in `electron/main.cjs`.
 
+### Player App
+
+`player-app/src/PlayerApp.tsx` is the Expo application composition shell. It owns Player state, storage migration, effect/subscription lifecycle, purchase/authentication/network use cases, navigation, feature assembly, shared filter sheets/seat-request modal composition, and only the referenced header/content/tab styles. Add or change feature presentation in its focused owner:
+
+| Concern | Owner |
+| --- | --- |
+| Onboarding | `player-app/src/features/onboarding/` |
+| Discovery deck, filters, details, hosting, lists, and map | `player-app/src/features/discovery/` |
+| Tournaments | `player-app/src/features/tournaments/` |
+| Clubs, membership store, wallet/QR, seat requests, and club hub | `player-app/src/features/clubs/` |
+| Profile/account/preferences and identity verification | `player-app/src/features/settings/` |
+| Shared fields, map picker, animated presentation primitives, and notification popup | `player-app/src/components/` |
+| Shared, theme, and notification styles | `player-app/src/styles/` |
+| Platform-neutral Player types, discovery rules, preferences, membership QR, and notification selection | `player-app/src/domain/` |
+| Firebase/API/authentication transport and hydration | `player-app/src/data/orbitSyncApi.ts` |
+
+`src/lib/playerOnboardingPresentation.test.ts` protects feature ownership plus exact component/style presentation fingerprints. Run Player TypeScript and that focused test while moving presentation, then run the full root verification gate. Keep storage, subscription, purchase, authentication, and network orchestration in the application shell until REF-023 gives those concerns characterized owners.
+
 ### Electron
 
 `electron/main.cjs` owns the desktop runtime:
