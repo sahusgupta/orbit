@@ -3,15 +3,11 @@ import { Alert, AppState, BackHandler, Linking, Platform, Pressable, ScrollView,
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { Chip, Field } from './components/PlayerFields';
-import {
-  FiltersBottomSheet,
-  SimpleMenuRow
-} from './components/PlayerPresentation';
+import { InAppNotificationPopup } from './components/InAppNotificationPopup';
+import { FiltersBottomSheet } from './components/PlayerPresentation';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { privacyPolicyUrl, termsOfServiceUrl } from './config/playerLinks';
 import {
   getClubMembershipPrices,
   getClubProductLabel
@@ -24,7 +20,6 @@ import {
   type PlayerAccount,
   type PlayerClubMembershipRecord,
   type PlayerClubSnapshot,
-  type PlayerInAppNotification,
   type PlayerMembershipOption,
   type PlayerPrivateGameListing,
   type PlayerSyncGame,
@@ -47,10 +42,9 @@ import {
   isActivePlayerGame,
   isValidEmail,
   isValidPhoneNumber,
-  resolveAddressCoordinate,
-  togglePreferredGame
+  resolveAddressCoordinate
 } from './domain/discovery';
-import { gamePreferenceOptions } from './domain/playerPreferences';
+import { getLatestInAppNotification } from './domain/playerNotifications';
 import type {
   CasinoFilter,
   ClubAccessProduct,
@@ -119,6 +113,8 @@ import { TournamentFilterControls, TournamentScreen } from './features/tournamen
 import { tournamentStyles } from './features/tournaments/tournamentStyles';
 import { ClubAccessCheckoutScreen, ClubMembershipPlanScreen, ClubsScreen, SeatRequestModal } from './features/clubs/ClubRoutes';
 import { clubStyles } from './features/clubs/clubStyles';
+import { IdentityVerificationScreen } from './features/settings/IdentityVerificationScreen';
+import { SettingsScreen } from './features/settings/SettingsScreen';
 import { sharedStyles } from './styles/sharedStyles';
 import { applyDarkComponentTheme, colors } from './styles/playerTheme';
 
@@ -164,8 +160,6 @@ const playerStorageKey = 'orbit-player-account-v1';
 const dismissedAlertsStorageKey = 'orbit-player-dismissed-alerts-v1';
 const accountSignInReadyStatus = 'Use your email address or phone number to sync this player profile.';
 const defaultPremiumMonthlyPriceLabel = '$12.99/month';
-const supportPhone = '346-434-1402';
-const supportPhoneUrl = 'tel:+13464341402';
 const playerPremiumEnabled = process.env.EXPO_PUBLIC_ENABLE_PLAYER_PREMIUM === 'true';
 const cardHouseCheckoutEnabled = process.env.EXPO_PUBLIC_ENABLE_CARD_HOUSE_CHECKOUT === 'true';
 
@@ -1422,147 +1416,31 @@ export default function PlayerApp() {
             ) : null}
 
             {screen === 'settings' ? (
-              <View style={styles.accountCard}>
-                <View style={styles.sectionHeader}>
-                  <View>
-                    <Text style={styles.sectionTitle}>Profile & settings</Text>
-                    <Text style={styles.muted}>Keep your account and poker preferences current.</Text>
-                  </View>
-                </View>
-                {!firebaseIdentity ? (
-                  <View style={styles.emailAuthPanel}>
-                    <Text style={styles.cardTitle}>Account access</Text>
-                    <Text style={styles.muted}>{authStatus}</Text>
-                    <View style={styles.chipRow}>
-                      <Chip label="Email address" active={playerAuthMethod === 'email'} onPress={() => setPlayerAuthMethod('email')} />
-                      <Chip label="Phone number" active={playerAuthMethod === 'phone'} onPress={() => setPlayerAuthMethod('phone')} />
-                    </View>
-                    {playerAuthMethod === 'email' ? (
-                      <View style={styles.searchInputRow}>
-                        <Ionicons name="mail-outline" size={18} color={colors.muted} />
-                        <TextInput
-                          value={playerAuthEmail}
-                          onChangeText={setPlayerAuthEmail}
-                          autoCapitalize="none"
-                          keyboardType="email-address"
-                          placeholder="Email address"
-                          placeholderTextColor={colors.muted}
-                          style={styles.searchInput}
-                        />
-                      </View>
-                    ) : (
-                      <View style={styles.searchInputRow}>
-                        <Ionicons name="call-outline" size={18} color={colors.muted} />
-                        <TextInput
-                          value={playerAuthPhone}
-                          onChangeText={setPlayerAuthPhone}
-                          keyboardType="phone-pad"
-                          placeholder="Phone number"
-                          placeholderTextColor={colors.muted}
-                          style={styles.searchInput}
-                        />
-                      </View>
-                    )}
-                    <View style={styles.searchInputRow}>
-                      <Ionicons name="lock-closed-outline" size={18} color={colors.muted} />
-                      <TextInput
-                        value={playerAuthPassword}
-                        onChangeText={setPlayerAuthPassword}
-                        autoCapitalize="none"
-                        secureTextEntry
-                        placeholder="Password (6+ characters)"
-                        placeholderTextColor={colors.muted}
-                        style={styles.searchInput}
-                      />
-                    </View>
-                    <Pressable style={styles.compactButton} onPress={connectPlayerAccount}>
-                      <Text style={styles.compactButtonText}>Sign in or create account</Text>
-                    </Pressable>
-                  </View>
-                ) : (
-                  <View style={styles.googleAuthPanel}>
-                    <View style={styles.googleAuthIcon}>
-                      <Ionicons name="checkmark-circle-outline" size={20} color={colors.teal} />
-                    </View>
-                    <View style={styles.googleAuthBody}>
-                      <Text style={styles.cardTitle}>Account connected</Text>
-                      <Text style={styles.muted}>{player.phone || player.email}</Text>
-                    </View>
-                  </View>
-                )}
-                <SimpleMenuRow
-                  icon="shield-checkmark-outline"
-                  title="Identity & age"
-                  subtitle={getIdentityStatusLabel(identityStatus, Boolean(firebaseIdentity))}
-                  onPress={() => showIdentityVerification('settings')}
-                />
-                {playerPremiumEnabled ? (
-                  <>
-                    <View style={styles.googleAuthPanel}>
-                      <View style={styles.googleAuthIcon}>
-                        <Ionicons name={hasPlayerPremium ? 'diamond' : 'diamond-outline'} size={20} color={hasPlayerPremium ? colors.teal : colors.primaryDark} />
-                      </View>
-                      <View style={styles.googleAuthBody}>
-                        <Text style={styles.cardTitle}>{hasPlayerPremium ? 'Player Premium Active' : `Player Premium ${premiumMonthlyPriceLabel}`}</Text>
-                      </View>
-                      {!hasPlayerPremium ? (
-                        <Pressable style={styles.compactButton} onPress={openPremiumCheckout}>
-                          <Text style={styles.compactButtonText}>Upgrade</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                    {premiumMessage ? <Text style={styles.privateGameStatus}>{premiumMessage}</Text> : null}
-                    <Pressable style={styles.secondaryActionButton} onPress={restorePremiumPurchases}>
-                      <Text style={styles.secondaryActionText}>Restore Apple purchases</Text>
-                    </Pressable>
-                  </>
-                ) : null}
-                <Field label="Name" value={player.name} onChangeText={(name) => setPlayer((current) => ({ ...current, name }))} />
-                <Field label="Email address" keyboardType="email-address" value={player.email} onChangeText={(email) => setPlayer((current) => ({ ...current, email }))} />
-                <Field label="Phone number" keyboardType="phone-pad" value={player.phone ?? ''} onChangeText={(phone) => setPlayer((current) => ({ ...current, phone }))} />
-                <Field
-                  label="Home area"
-                  value={player.homeLocation ?? ''}
-                  onChangeText={(homeLocation) => setPlayer((current) => ({ ...current, homeLocation }))}
-                />
-                <Text style={styles.fieldLabel}>Preferred games</Text>
-                <View style={styles.chipRow}>
-                  {gamePreferenceOptions.map((game) => (
-                    <Chip
-                      key={game.id}
-                      label={game.label}
-                      active={player.preferredGameIds.includes(game.id)}
-                      onPress={() => setPlayer((current) => togglePreferredGame(current, game.id))}
-                    />
-                  ))}
-                </View>
-                <Field
-                  label="Preferred stakes"
-                  value={player.preferredStakes ?? ''}
-                  onChangeText={(preferredStakes) => setPlayer((current) => ({ ...current, preferredStakes }))}
-                />
-                <Field
-                  label="Typical availability"
-                  value={player.typicalAvailability ?? ''}
-                  placeholder="Evenings, weekends, after 6 PM..."
-                  onChangeText={(typicalAvailability) => setPlayer((current) => ({ ...current, typicalAvailability }))}
-                />
-                <View style={styles.simpleMenu}>
-                  <SimpleMenuRow icon="call-outline" title="Support" subtitle={supportPhone} onPress={() => Linking.openURL(supportPhoneUrl)} />
-                  <SimpleMenuRow icon="shield-checkmark-outline" title="Privacy Policy" subtitle="Legal" onPress={() => Linking.openURL(privacyPolicyUrl)} />
-                  <SimpleMenuRow icon="document-text-outline" title="Terms of Service" subtitle="Legal" onPress={() => Linking.openURL(termsOfServiceUrl)} />
-                </View>
-                {firebaseIdentity ? (
-                  <>
-                    <Pressable style={styles.secondaryActionButton} onPress={signOutPlayer}>
-                      <Text style={styles.secondaryActionText}>Sign out</Text>
-                    </Pressable>
-                    <Pressable style={styles.secondaryActionButton} onPress={deletePlayerAccount}>
-                      <Text style={[styles.secondaryActionText, { color: '#b42318' }]}>Delete account</Text>
-                    </Pressable>
-                  </>
-                ) : null}
-              </View>
+              <SettingsScreen
+                firebaseIdentity={firebaseIdentity}
+                authStatus={authStatus}
+                playerAuthMethod={playerAuthMethod}
+                setPlayerAuthMethod={setPlayerAuthMethod}
+                playerAuthEmail={playerAuthEmail}
+                setPlayerAuthEmail={setPlayerAuthEmail}
+                playerAuthPhone={playerAuthPhone}
+                setPlayerAuthPhone={setPlayerAuthPhone}
+                playerAuthPassword={playerAuthPassword}
+                setPlayerAuthPassword={setPlayerAuthPassword}
+                connectPlayerAccount={connectPlayerAccount}
+                identityStatus={identityStatus}
+                showIdentityVerification={showIdentityVerification}
+                playerPremiumEnabled={playerPremiumEnabled}
+                hasPlayerPremium={hasPlayerPremium}
+                premiumMonthlyPriceLabel={premiumMonthlyPriceLabel}
+                premiumMessage={premiumMessage}
+                openPremiumCheckout={openPremiumCheckout}
+                restorePremiumPurchases={restorePremiumPurchases}
+                player={player}
+                setPlayer={setPlayer}
+                signOutPlayer={signOutPlayer}
+                deletePlayerAccount={deletePlayerAccount}
+              />
             ) : null}
           </ScrollView>
 
@@ -1698,150 +1576,11 @@ export default function PlayerApp() {
   );
 }
 
-function IdentityVerificationScreen({
-  status,
-  signedIn,
-  busy,
-  message,
-  onBack,
-  onSignIn,
-  onStart,
-  onRefresh
-}: {
-  status: PlayerIdentityStatus;
-  signedIn: boolean;
-  busy: boolean;
-  message: string;
-  onBack: () => void;
-  onSignIn: () => void;
-  onStart: () => void | Promise<void>;
-  onRefresh: () => void | Promise<unknown>;
-}) {
-  const verified = status.ageVerified;
-  const processing = status.status === 'processing';
-  const underage = status.status === 'underage';
-  const primaryLabel = !signedIn
-    ? 'Sign in to continue'
-    : verified
-      ? 'Continue'
-      : processing
-        ? 'Check status'
-        : busy
-          ? 'Opening Stripe...'
-          : 'Verify with Stripe';
-  const primaryAction = !signedIn
-    ? onSignIn
-    : verified
-      ? onBack
-      : processing
-        ? () => void onRefresh()
-        : () => void onStart();
-
-  return (
-    <View style={[styles.accountCard, styles.identityCard]}>
-      <View style={styles.identityIcon}>
-        <Ionicons
-          name={verified ? 'checkmark-circle' : underage ? 'alert-circle-outline' : 'shield-checkmark-outline'}
-          size={34}
-          color={verified ? colors.teal : underage ? '#b42318' : colors.primary}
-        />
-      </View>
-      <View style={styles.identityCopy}>
-        <Text style={styles.sectionTitle}>
-          {verified ? 'Age verified' : underage ? 'Age requirement not met' : `Verify that you are ${status.minimumAge}+`}
-        </Text>
-        <Text style={styles.muted}>
-          {verified
-            ? 'Your age is verified for hosted games, tournament registration, and eligible connected purchases.'
-            : underage
-              ? `Orbit player access features are limited to verified players age ${status.minimumAge} or older.`
-              : 'Card-house membership ID is checked by staff at the door. Stripe verification is only used for hosted games, tournament registration, and eligible connected purchases.'}
-        </Text>
-      </View>
-      {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
-      {!underage ? (
-        <Pressable
-          disabled={busy}
-          onPress={primaryAction}
-          style={[styles.primaryButton, styles.fullWidthButton, busy && styles.disabledAction]}
-        >
-          <Text style={styles.primaryButtonText}>{primaryLabel}</Text>
-        </Pressable>
-      ) : null}
-      {signedIn && !verified && !underage && !processing ? (
-        <Pressable disabled={busy} onPress={() => void onRefresh()} style={styles.secondaryActionButton}>
-          <Text style={styles.secondaryActionText}>I already completed verification</Text>
-        </Pressable>
-      ) : null}
-      <Pressable onPress={onBack} style={styles.secondaryActionButton}>
-        <Text style={styles.secondaryActionText}>{verified ? 'Back' : 'Not now'}</Text>
-      </Pressable>
-      <Text style={styles.identityPrivacy}>
-        Your ID images and document details are handled by Stripe Identity and are not stored in Orbit.
-      </Text>
-    </View>
-  );
-}
-
-
-
-function InAppNotificationPopup({
-  notification,
-  onDismiss
-}: {
-  notification: PlayerInAppNotification;
-  onDismiss: () => void;
-}) {
-  return (
-    <View pointerEvents="box-none" style={styles.alertToastHost}>
-      <View style={styles.alertPopup}>
-        <View style={styles.alertPopupIcon}>
-          <Ionicons name="notifications-outline" size={20} color={colors.primary} />
-        </View>
-        <View style={styles.alertPopupCopy}>
-          <Text style={styles.alertPopupTitle}>{notification.title}</Text>
-          <Text style={styles.alertPopupBody}>{notification.body}</Text>
-        </View>
-        <Pressable accessibilityLabel="Dismiss notification" style={styles.alertPopupClose} onPress={onDismiss}>
-          <Ionicons name="close" size={18} color={colors.muted} />
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
 function getScreenTitle(screen: Screen) {
   if (screen === 'settings') return 'Profile';
   if (screen === 'identityVerification') return 'Age Verification';
   return tabs.find((tab) => tab.id === screen)?.label ?? 'Orbit';
 }
-
-function getIdentityStatusLabel(status: PlayerIdentityStatus, signedIn: boolean) {
-  if (!signedIn) return 'Not signed in';
-  if (status.ageVerified) return `Verified ${status.minimumAge}+`;
-  if (status.status === 'processing') return 'Verification pending';
-  if (status.status === 'underage') return `Minimum age ${status.minimumAge}`;
-  return 'Not verified';
-}
-
-
-function getLatestInAppNotification(clubs: PlayerClubSnapshot[], dismissedIds: string[]) {
-  const dismissed = new Set(dismissedIds);
-  const now = Date.now();
-  return clubs
-    .flatMap((club) => club.notifications ?? [])
-    .filter((notification) => !dismissed.has(notification.id))
-    .filter((notification) => !notification.expiresAt || Date.parse(notification.expiresAt) > now)
-    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
-}
-
-
-function formatCurrency(value: number) {
-  const prefix = value < 0 ? '-' : '';
-  return `${prefix}$${Math.abs(Math.round(value)).toLocaleString()}`;
-}
-
-
 
 const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
   appBackdrop: {
@@ -2009,13 +1748,6 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
     justifyContent: 'center',
     width: 30
   },
-  alertToastHost: { left: 14, position: 'absolute', right: 14, top: 58, zIndex: 200 },
-  alertPopup: { alignItems: 'flex-start', backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 16, borderWidth: 1, elevation: 12, flexDirection: 'row', gap: 11, padding: 14, shadowColor: '#000000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.28, shadowRadius: 24 },
-  alertPopupIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 11, height: 40, justifyContent: 'center', width: 40 },
-  alertPopupCopy: { flex: 1, gap: 3, paddingTop: 1 },
-  alertPopupTitle: { color: colors.ink, fontSize: 15, fontWeight: '900' },
-  alertPopupBody: { color: colors.muted, fontSize: 12, fontWeight: '600', lineHeight: 17 },
-  alertPopupClose: { alignItems: 'center', height: 32, justifyContent: 'center', marginRight: -5, marginTop: -5, width: 32 },
   heroPanel: {
     borderRadius: 28,
     overflow: 'hidden',
@@ -2099,17 +1831,6 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
     gap: 9,
     padding: 10
   },
-  searchInputRow: {
-    alignItems: 'center',
-    backgroundColor: '#f4f4f1',
-    borderColor: 'rgba(24,23,22,0.06)',
-    borderRadius: 10,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 8,
-    minHeight: 44,
-    paddingHorizontal: 12
-  },
   hostPrompt: {
     alignItems: 'center',
     borderTopColor: colors.line,
@@ -2149,36 +1870,6 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
   },
   clubSwitchTextActive: {
     color: colors.primary
-  },
-  googleAuthPanel: {
-    alignItems: 'center',
-    backgroundColor: '#f6f6f3',
-    borderColor: colors.line,
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 10,
-    padding: 12
-  },
-  emailAuthPanel: {
-    backgroundColor: '#f6f6f3',
-    borderColor: colors.line,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 10,
-    padding: 12
-  },
-  googleAuthIcon: {
-    alignItems: 'center',
-    backgroundColor: colors.panel,
-    borderRadius: 999,
-    height: 40,
-    justifyContent: 'center',
-    width: 40
-  },
-  googleAuthBody: {
-    flex: 1,
-    gap: 3
   },
   socialPulse: {
     alignItems: 'center',
@@ -2338,32 +2029,6 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
     backgroundColor: colors.teal,
     borderRadius: 999,
     height: 10
-  },
-  identityCard: {
-    alignSelf: 'center',
-    marginTop: 18,
-    maxWidth: 520,
-    padding: 22,
-    width: '100%'
-  },
-  identityIcon: {
-    alignItems: 'center',
-    alignSelf: 'center',
-    backgroundColor: colors.primarySoft,
-    borderRadius: 999,
-    height: 68,
-    justifyContent: 'center',
-    width: 68
-  },
-  identityCopy: {
-    alignItems: 'center',
-    gap: 7
-  },
-  identityPrivacy: {
-    color: colors.muted,
-    fontSize: 11,
-    lineHeight: 16,
-    textAlign: 'center'
   },
   mapHeader: {
     alignItems: 'center',
@@ -2544,8 +2209,7 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
   gameAlertCopy: { flex: 1, gap: 2 },
   alertOnPill: { alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 99, flexDirection: 'row', gap: 4, paddingHorizontal: 8, paddingVertical: 5 },
   alertOnDot: { backgroundColor: '#22c55e', borderRadius: 99, height: 6, width: 6 },
-  alertOnText: { color: colors.ink, fontSize: 9, fontWeight: '900' },
-  simpleMenu: { backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 16, borderWidth: 1, overflow: 'hidden' }
+  alertOnText: { color: colors.ink, fontSize: 9, fontWeight: '900' }
 }));
 
 const styles = { ...sharedStyles, ...discoveryStyles, ...tournamentStyles, ...clubStyles, ...playerAppStyles };
