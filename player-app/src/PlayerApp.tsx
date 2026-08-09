@@ -8,10 +8,8 @@ import { Chip, Field } from './components/PlayerFields';
 import {
   AnimatedButton,
   AnimatedSurface,
-  DistanceFilterControl,
   FiltersBottomSheet,
-  IconActionButton,
-  SearchToolbar
+  IconActionButton
 } from './components/PlayerPresentation';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
@@ -128,6 +126,8 @@ import { HostControlPanel, PremiumPaywall, PrivateGameCard, PrivateGameComposer 
 import { MyGamesSection } from './features/discovery/DiscoveryLists';
 import { MapExploreScreen } from './features/discovery/MapExploreScreen';
 import { discoveryStyles } from './features/discovery/discoveryStyles';
+import { formatEventDate, TournamentFilterControls, TournamentScreen } from './features/tournaments/TournamentScreen';
+import { tournamentStyles } from './features/tournaments/tournamentStyles';
 import { sharedStyles } from './styles/sharedStyles';
 import { applyDarkComponentTheme, colors } from './styles/playerTheme';
 
@@ -1312,60 +1312,23 @@ export default function PlayerApp() {
             ) : null}
 
             {screen === 'tournaments' ? (
-              <>
-                <SearchToolbar
-                  value={tournamentQuery}
-                  onChangeText={setTournamentQuery}
-                  placeholder="Search tournaments, clubs, or prizes"
-                  filterLabel="tournament"
-                  onOpenFilters={() => setShowTournamentFilters(true)}
-                />
-
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Upcoming tournaments</Text>
-                  <Text style={styles.muted}>{visibleTournaments.length} found</Text>
-                </View>
-                {visibleTournaments.length ? Array.from(new Set(visibleTournaments.map((item) => item.tournament.clubId))).map((clubId) => {
-                  const listings = visibleTournaments.filter((item) => item.tournament.clubId === clubId);
-                  const club = listings[0]?.club;
-                  return (
-                    <View style={styles.tournamentClubSection} key={clubId}>
-                      <Pressable
-                        disabled={!club}
-                        style={styles.tournamentClubHeader}
-                        onPress={() => {
-                          if (!club) return;
-                          setSelectedClubId(club.club.id);
-                          setScreen('clubs');
-                        }}
-                      >
-                        <View>
-                          <Text style={styles.cardTitle}>{club?.club.name ?? 'Tournament host'}</Text>
-                          <Text style={styles.muted}>{club ? `${listings[0].distanceMiles.toFixed(1)} mi · ${club.club.address ?? 'Address unavailable'}` : 'Club details unavailable'}</Text>
-                        </View>
-                        {club ? <Ionicons name="chevron-forward" size={19} color={colors.muted} /> : null}
-                      </Pressable>
-                      {listings.map(({ tournament, registration }) => (
-                        <TournamentCard
-                          key={tournament.id}
-                          tournament={tournament}
-                          registration={registration}
-                          hasOrbitAccount={Boolean(firebaseIdentity && firebaseIdentity.uid === player.id)}
-                          message={tournamentMessage}
-                          onRegister={() => registerTournament(tournament)}
-                          onUnregister={() => registration && unregisterTournament(tournament, registration)}
-                        />
-                      ))}
-                    </View>
-                  );
-                }) : (
-                  <View style={styles.emptyState}>
-                    <Text style={styles.cardTitle}>No tournaments found</Text>
-                    <Text style={styles.muted}>Try a different club, distance, or registration filter.</Text>
-                  </View>
-                )}
-              </>
+              <TournamentScreen
+                query={tournamentQuery}
+                onQueryChange={setTournamentQuery}
+                onOpenFilters={() => setShowTournamentFilters(true)}
+                opportunities={visibleTournaments}
+                hasOrbitAccount={Boolean(firebaseIdentity && firebaseIdentity.uid === player.id)}
+                message={tournamentMessage}
+                onSelectClub={(club) => {
+                  setSelectedClubId(club.club.id);
+                  setScreen('clubs');
+                }}
+                onRegister={registerTournament}
+                onUnregister={unregisterTournament}
+              />
             ) : null}
+
+
 
             {screen === 'map' ? (
               <MapExploreScreen
@@ -1879,89 +1842,7 @@ function IdentityVerificationScreen({
   );
 }
 
-function TournamentCard({
-  tournament,
-  registration,
-  hasOrbitAccount,
-  message,
-  onRegister,
-  onUnregister
-}: {
-  tournament: PlayerTournament;
-  registration?: PlayerTournamentRegistration;
-  hasOrbitAccount: boolean;
-  message: string;
-  onRegister: () => void;
-  onUnregister: () => void;
-}) {
-  const registrationOpen = tournament.registrationStatus === 'open' && Date.now() < Date.parse(tournament.registrationClosesAt);
-  const canUnregister = Boolean(registration && tournament.unregisterAllowed && Date.now() < Date.parse(tournament.startsAt));
-  const liveEntrants = Math.max(tournament.entrantCount, registration ? 1 : 0);
-  return (
-    <View style={[styles.tournamentCard, tournament.featured && styles.tournamentCardFeatured]}>
-      <View style={styles.tournamentTitleRow}>
-        <View style={styles.tournamentIcon}><Ionicons name="trophy-outline" size={22} color={colors.primary} /></View>
-        <View style={styles.clubMain}>
-          <Text style={styles.cardTitle}>{tournament.name}</Text>
-          <Text style={styles.muted}>{formatEventDate(tournament.startsAt)}</Text>
-        </View>
-        <View style={[styles.statusPill, registrationOpen ? styles.tournamentOpenPill : styles.tournamentClosedPill]}>
-          <Text style={styles.statusText}>{registrationOpen ? 'Open' : 'Closed'}</Text>
-        </View>
-      </View>
-      <Text style={styles.tournamentPrize}>{tournament.buyIn === 0 ? 'FREE ENTRY · FREEROLL' : `$${tournament.buyIn} ENTRY`}</Text>
-      <View style={styles.tournamentMoneyGrid}>
-        <View style={styles.tournamentMoneyItem}>
-          <Text style={styles.tournamentStatLabel}>Buy-in</Text>
-          <Text style={styles.tournamentMoneyValue}>{tournament.buyIn === 0 ? 'Free' : `$${tournament.buyIn.toLocaleString()}`}</Text>
-        </View>
-        <View style={styles.tournamentMoneyItem}>
-          <Text style={styles.tournamentStatLabel}>Rebuys</Text>
-          <Text style={styles.tournamentMoneyValue}>{tournament.unlimitedRebuys ? `Unlimited · $${tournament.rebuyPrice}` : 'Not allowed'}</Text>
-        </View>
-        <View style={[styles.tournamentMoneyItem, styles.tournamentMoneyItemWide]}>
-          <Text style={styles.tournamentStatLabel}>Prize pool</Text>
-          <Text style={styles.tournamentMoneyValue}>{tournament.prizePoolLabel}</Text>
-        </View>
-      </View>
-      <View style={styles.tournamentStats}>
-        <View><Text style={styles.tournamentStatValue}>{tournament.startingStack.toLocaleString()}</Text><Text style={styles.tournamentStatLabel}>Starting chips</Text></View>
-        <View><Text style={styles.tournamentStatValue}>{tournament.levelMinutes} min</Text><Text style={styles.tournamentStatLabel}>Blind levels</Text></View>
-        <View><Text style={styles.tournamentStatValue}>{liveEntrants}</Text><Text style={styles.tournamentStatLabel}>Entrants</Text></View>
-      </View>
-      <View style={styles.tournamentStructure}>
-        <Text style={styles.cardTitle}>Structure</Text>
-        <Text style={styles.muted}>Unlimited ${tournament.rebuyPrice} rebuys through Level {tournament.lateRegistrationThroughLevel} · {tournament.rebuyStack.toLocaleString()} chips each</Text>
-        <Text style={styles.muted}>${tournament.addOnPrice} add-on after late registration · {tournament.addOnStack.toLocaleString()} chips</Text>
-        <Text style={styles.muted}>Live: {tournament.totalRebuys} rebuys · {tournament.totalAddOns} add-ons</Text>
-      </View>
-      <View style={styles.tournamentRules}>
-        <Text style={styles.cardTitle}>Rules</Text>
-        {tournament.rules.map((rule) => <Text key={rule} style={styles.tournamentRule}>• {rule}</Text>)}
-      </View>
-      {registration ? (
-        <View style={styles.tournamentConfirmation}>
-          <Ionicons name="checkmark-circle" size={20} color={colors.teal} />
-          <View style={styles.clubMain}><Text style={styles.cardTitle}>Registration confirmed</Text><Text style={styles.muted}>Status: {registration.status.replace(/-/g, ' ')}</Text></View>
-        </View>
-      ) : null}
-      {!hasOrbitAccount ? <Text style={styles.tournamentMessage}>Sign in with your email address or phone number under Profile to register.</Text> : null}
-      {message ? <Text style={styles.tournamentMessage}>{message}</Text> : null}
-      {registration ? (
-        canUnregister ? <Pressable style={styles.secondaryActionButton} onPress={onUnregister}><Text style={styles.secondaryActionText}>Unregister</Text></Pressable> : null
-      ) : (
-        <Pressable disabled={!registrationOpen || !hasOrbitAccount} style={[styles.compactButton, (!registrationOpen || !hasOrbitAccount) && styles.disabledAction]} onPress={onRegister}>
-          <Text style={styles.compactButtonText}>{registrationOpen ? 'Register free' : 'Registration closed'}</Text>
-        </Pressable>
-      )}
-    </View>
-  );
-}
 
-function formatEventDate(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
-}
 
 function InAppNotificationPopup({
   notification,
@@ -2044,56 +1925,6 @@ function NearbyCheckInPanel({
 }
 
 
-function TournamentFilterControls({
-  clubs,
-  eventFilter,
-  setEventFilter,
-  clubFilter,
-  setClubFilter,
-  distance,
-  setDistance
-}: {
-  clubs: PlayerClubSnapshot[];
-  eventFilter: TournamentFilter;
-  setEventFilter: (value: TournamentFilter) => void;
-  clubFilter: string;
-  setClubFilter: (value: string) => void;
-  distance: DistanceFilter;
-  setDistance: (value: DistanceFilter) => void;
-}) {
-  return (
-    <View style={styles.filterPanel}>
-      <View style={styles.sheetField}>
-        <Text style={styles.fieldLabel}>Event type</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipRow}>
-          {([
-            ['all', 'All events'],
-            ['open', 'Registration open'],
-            ['free', 'Freerolls'],
-            ['registered', 'My entries']
-          ] as Array<[TournamentFilter, string]>).map(([id, label]) => (
-            <Chip key={id} label={label} active={eventFilter === id} onPress={() => setEventFilter(id)} />
-          ))}
-        </ScrollView>
-      </View>
-      <View style={styles.sheetField}>
-        <Text style={styles.fieldLabel}>Club</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipRow}>
-          <Chip label="All clubs" active={clubFilter === 'all'} onPress={() => setClubFilter('all')} />
-          {clubs.map((club) => (
-            <Chip
-              key={club.club.id}
-              label={club.club.name}
-              active={clubFilter === club.club.id}
-              onPress={() => setClubFilter(club.club.id)}
-            />
-          ))}
-        </ScrollView>
-      </View>
-      <DistanceFilterControl value={distance} onChange={setDistance} />
-    </View>
-  );
-}
 
 
 
@@ -3035,18 +2866,6 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
   clubAvatarTextActive: {
     color: '#ffffff'
   },
-  compactButton: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 9
-  },
-  compactButtonText: {
-    color: colors.ink,
-    fontWeight: '800'
-  },
   clubGamesHeader: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -3355,11 +3174,6 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
     minHeight: 46,
     paddingHorizontal: 14
   },
-  secondaryActionText: {
-    color: colors.ink,
-    fontSize: 15,
-    fontWeight: '800'
-  },
   loyaltyCard: {
     backgroundColor: colors.panel,
     borderColor: colors.line,
@@ -3557,72 +3371,6 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
   activeTabText: {
     color: '#6f91ff'
   },
-  tournamentCard: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 14,
-    marginBottom: 14,
-    padding: 18
-  },
-  tournamentCardFeatured: {
-    borderColor: 'rgba(77,124,254,0.48)',
-    borderWidth: 2
-  },
-  tournamentClubSection: {
-    gap: 10
-  },
-  tournamentClubHeader: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,254,250,0.92)',
-    borderColor: colors.line,
-    borderRadius: 14,
-    borderWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 15,
-    paddingVertical: 12
-  },
-  tournamentTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 12 },
-  tournamentIcon: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 12, height: 44, justifyContent: 'center', width: 44 },
-  tournamentOpenPill: { backgroundColor: colors.tealSoft },
-  tournamentClosedPill: { backgroundColor: '#f1f2f4' },
-  tournamentPrize: { color: colors.primary, fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
-  tournamentMoneyGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8
-  },
-  tournamentMoneyItem: {
-    backgroundColor: colors.primarySoft,
-    borderColor: 'rgba(77,124,254,0.18)',
-    borderRadius: 12,
-    borderWidth: 1,
-    flexGrow: 1,
-    gap: 4,
-    minWidth: 130,
-    padding: 11
-  },
-  tournamentMoneyItemWide: {
-    flexBasis: '100%'
-  },
-  tournamentMoneyValue: {
-    color: colors.ink,
-    fontSize: 13,
-    fontWeight: '900',
-    lineHeight: 18
-  },
-  tournamentStats: { backgroundColor: '#f6f7fb', borderRadius: 14, flexDirection: 'row', justifyContent: 'space-between', padding: 14 },
-  tournamentStatValue: { color: colors.ink, fontSize: 16, fontWeight: '900' },
-  tournamentStatLabel: { color: colors.muted, fontSize: 10, fontWeight: '700', marginTop: 2 },
-  tournamentStructure: { gap: 5 },
-  tournamentRules: { gap: 6 },
-  tournamentRule: { color: colors.muted, fontSize: 12, lineHeight: 18 },
-  tournamentConfirmation: { alignItems: 'center', backgroundColor: colors.tealSoft, borderRadius: 12, flexDirection: 'row', gap: 10, padding: 12 },
-  tournamentMessage: { color: colors.primaryDark, fontSize: 12, fontWeight: '700' },
-  secondaryActionButton: { alignItems: 'center', borderColor: colors.line, borderRadius: 10, borderWidth: 1, minHeight: 42, justifyContent: 'center' },
-  disabledAction: { opacity: 0.45 },
   seatRequestModal: {
     backgroundColor: '#ffffff',
     borderColor: colors.line,
@@ -3768,5 +3516,5 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
   merchantBandText: { color: colors.teal, flex: 1, fontSize: 12, fontWeight: '800', lineHeight: 17 }
 }));
 
-const styles = { ...sharedStyles, ...discoveryStyles, ...playerAppStyles };
+const styles = { ...sharedStyles, ...discoveryStyles, ...tournamentStyles, ...playerAppStyles };
 

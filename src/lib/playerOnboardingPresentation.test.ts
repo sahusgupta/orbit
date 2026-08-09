@@ -283,9 +283,11 @@ describe('Player tournament presentation contract', () => {
     const sources = parseSources([tournamentFeatureRoot]);
     const componentDigest = digest(tournamentComponentNames.map((name) => findFunction(sources, name)));
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
+    const tournamentScreen = findFunction(sources, 'TournamentScreen');
 
     expect(componentDigest).toBe('94efe4a56e326f60fe9820cc5e19e6212be876eafdcf59f370375e35ef6453f3');
-    ['<TournamentCard', '<SearchToolbar', '<TournamentFilterControls'].forEach((token) => expect(playerApp).toContain(token));
+    ['<TournamentScreen', '<TournamentFilterControls'].forEach((token) => expect(playerApp).toContain(token));
+    ['<TournamentCard', '<SearchToolbar'].forEach((token) => expect(tournamentScreen).toContain(token));
   });
 
   it('preserves every tournament-owned and shared style value byte-for-byte', () => {

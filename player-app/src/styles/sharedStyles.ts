@@ -465,5 +465,24 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
     color: colors.ink,
     fontSize: 12,
     fontWeight: '800'
+  },
+  compactButton: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9
+  },
+  compactButtonText: {
+    color: colors.ink,
+    fontWeight: '800'
+  },
+  disabledAction: { opacity: 0.45 },
+  secondaryActionButton: { alignItems: 'center', borderColor: colors.line, borderRadius: 10, borderWidth: 1, minHeight: 42, justifyContent: 'center' },
+  secondaryActionText: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: '800'
   }
 }));
