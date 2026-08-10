@@ -399,13 +399,17 @@ export function normalizeState(parsed: PersistedAppState): AppState {
 export function parsePersistedAppState(serialized: string): PersistedAppState | null {
   try {
     const parsed: unknown = JSON.parse(serialized);
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
-    const settings: unknown = Reflect.get(parsed, 'settings');
-    if (settings !== undefined && (typeof settings !== 'object' || settings === null || Array.isArray(settings))) {
-      return null;
-    }
-    return parsed as PersistedAppState;
+    return decodePersistedAppState(parsed);
   } catch {
     return null;
   }
+}
+
+export function decodePersistedAppState(value: unknown): PersistedAppState | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const settings: unknown = Reflect.get(value, 'settings');
+  if (settings !== undefined && (typeof settings !== 'object' || settings === null || Array.isArray(settings))) {
+    return null;
+  }
+  return value as PersistedAppState;
 }

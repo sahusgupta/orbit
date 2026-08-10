@@ -98,6 +98,12 @@ import {
   type ManagementTournament,
   type ManagementTournamentPlayer
 } from './firebaseClubSync';
+import {
+  decodeFirebaseClubStateRecord,
+  decodeMembershipRequest,
+  decodeWaitlistRequest,
+  readPendingRequestMarker
+} from './firebaseClubDecoders';
 
 const clubId = 'type-003-fixture';
 const paths = {
@@ -235,6 +241,40 @@ beforeEach(() => {
 });
 
 describe('Firebase state and Player request input characterization', () => {
+  it('returns canonical decoder results, validates state containers, and retains known legacy fallbacks', () => {
+    expect(decodeFirebaseClubStateRecord({ state: { profiles: 'not-an-array' } })).toBeNull();
+    expect(decodeFirebaseClubStateRecord({ state: { profiles: [], settings: [] } })).toBeNull();
+    expect(decodeMembershipRequest({
+      id: 'membership-decoded',
+      clubId,
+      player: { id: 'player-decoded', name: 'Decoded Player', email: 'decoded@example.test' },
+      plan: 'day',
+      paymentMethod: 'app',
+      requestedAt: '2026-08-10T05:01:00.000Z'
+    })).toMatchObject({
+      id: 'membership-decoded',
+      type: 'membership-request',
+      player: { preferredGameIds: [] }
+    });
+    expect(decodeWaitlistRequest({
+      id: 'waitlist-decoded',
+      clubId,
+      player: { id: 'player-decoded', name: 'Decoded Player', email: 'decoded@example.test' },
+      gameId: game.id,
+      action: 'legacy-action',
+      attendance: 'legacy-attendance',
+      requestedAt: '2026-08-10T05:02:00.000Z'
+    })).toMatchObject({
+      id: 'waitlist-decoded',
+      type: 'waitlist-request',
+      action: undefined,
+      attendance: undefined
+    });
+    expect(() => decodeMembershipRequest({ type: 'waitlist-request' })).toThrow('Membership request record is malformed.');
+    expect(readPendingRequestMarker({ id: 'duplicate', status: 'applied' })).toEqual({ id: 'duplicate', status: 'applied' });
+    expect(readPendingRequestMarker(null)).toEqual({ id: undefined, status: undefined });
+  });
+
   it('returns a valid cloud envelope unchanged and treats an existing null document as the current null fallback', async () => {
     const record = {
       accountKey: clubId,

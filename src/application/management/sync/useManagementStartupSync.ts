@@ -43,7 +43,7 @@ export const useManagementStartupSync = ({
         setHasAuthenticated(hasPersistedSignIn(next));
         saveBrowserManagementState(next);
         if (canUseRendererFirebaseAuth()) {
-          loadClubStateFromFirebase<AppState>(getAccountKeyFromState(next))
+          loadClubStateFromFirebase(getAccountKeyFromState(next))
             .then((cloudRecord) => {
               if (!cloudRecord?.state) {
                 saveClubStateToFirebase(next).catch(() => undefined);

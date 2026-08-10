@@ -3,6 +3,13 @@ import { createUserWithEmailAndPassword, getAuth, sendPasswordResetEmail, signIn
 import { collection, getDocs, initializeFirestore, getFirestore, doc, getDoc, onSnapshot, setDoc, serverTimestamp, updateDoc, writeBatch, type Unsubscribe } from 'firebase/firestore';
 import { firebaseConfig } from './firebaseConfig';
 import {
+  decodeFirebaseClubStateRecord,
+  decodeMembershipRequest,
+  decodeWaitlistRequest,
+  readFirebaseErrorCode,
+  readPendingRequestMarker
+} from './firebaseClubDecoders';
+import {
   applyMembershipRequestToClubState,
   applyWaitlistRequestToClubState,
   buildPlayerClubSnapshot,
@@ -12,13 +19,6 @@ import {
   type PlayerMembershipRequest,
   type PlayerWaitlistRequest
 } from './playerSync';
-
-type FirebaseClubStateRecord<TState> = {
-  accountKey: string;
-  savedAt: string;
-  state: TState;
-  snapshot: PlayerClubSnapshot;
-};
 
 type RevenueTransactionType = 'membership' | 'time-package' | 'tournament_entry' | 'rebuy' | 'add_on' | 'refund' | 'other';
 type RevenuePaymentStatus = 'paid' | 'refunded' | 'partially_refunded' | 'pending' | 'failed';
@@ -199,7 +199,7 @@ export async function signInOrCreateFirebaseEmailAccount(email: string, password
     try {
       return await createFirebaseEmailAccount(normalizedEmail, password);
     } catch (createError) {
-      if ((createError as { code?: string }).code === 'auth/email-already-in-use') {
+      if (readFirebaseErrorCode(createError) === 'auth/email-already-in-use') {
         throw signInError;
       }
       throw createError;
@@ -244,7 +244,7 @@ export async function saveClubStateToFirebase(state: FirebaseSyncState) {
   );
 }
 
-export async function loadClubStateFromFirebase<TState = unknown>(accountKey: string) {
+export async function loadClubStateFromFirebase(accountKey: string) {
   const user = await withFirebaseTimeout(ensureFirebaseSession(), null);
   if (!user) throw new Error('Firebase authentication timed out before synchronization.');
   const normalizedKey = accountKey.trim().toLowerCase();
@@ -252,7 +252,7 @@ export async function loadClubStateFromFirebase<TState = unknown>(accountKey: st
   const snapshot = await withFirebaseTimeout(getDoc(doc(db, 'clubStates', normalizedKey)), null);
   if (!snapshot) return null;
   if (!snapshot.exists()) return null;
-  return snapshot.data() as FirebaseClubStateRecord<TState>;
+  return decodeFirebaseClubStateRecord(snapshot.data());
 }
 
 export function syncPlayerUpdatesToClubState<TState extends FirebaseSyncState>(state: TState): Promise<TState>;
@@ -264,9 +264,11 @@ export async function syncPlayerUpdatesToClubState(state: FirebaseSyncState): Pr
   if (membershipRequests.length) {
     const appliedIds = new Set<string>();
     for (const requestDoc of membershipRequests) {
-      const request = requestDoc.data() as PlayerMembershipRequest & { status?: string };
-      if (appliedIds.has(request.id)) continue;
-      if (request.status === 'applied') continue;
+      const rawRequest = requestDoc.data();
+      const marker = readPendingRequestMarker(rawRequest);
+      if (marker.id && appliedIds.has(marker.id)) continue;
+      if (marker.status === 'applied') continue;
+      const request = decodeMembershipRequest(rawRequest);
       appliedIds.add(request.id);
       const updatedState = applyMembershipRequestToClubState(nextState, request);
       if (updatedState !== nextState) nextState = { ...nextState, ...updatedState };
@@ -279,9 +281,11 @@ export async function syncPlayerUpdatesToClubState(state: FirebaseSyncState): Pr
   if (waitlistRequests.length) {
     const appliedIds = new Set<string>();
     for (const requestDoc of waitlistRequests) {
-      const request = requestDoc.data() as PlayerWaitlistRequest & { status?: string };
-      if (appliedIds.has(request.id)) continue;
-      if (request.status === 'applied') continue;
+      const rawRequest = requestDoc.data();
+      const marker = readPendingRequestMarker(rawRequest);
+      if (marker.id && appliedIds.has(marker.id)) continue;
+      if (marker.status === 'applied') continue;
+      const request = decodeWaitlistRequest(rawRequest);
       appliedIds.add(request.id);
       const updatedState = applyWaitlistRequestToClubState(nextState, request);
       if (updatedState !== nextState) nextState = { ...nextState, ...updatedState };
