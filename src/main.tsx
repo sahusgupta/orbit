@@ -48,6 +48,7 @@ import {
   type ProfileImportContext
 } from './domain/profileImport';
 import {
+  correctWaitlistInterestTimestamp,
   ensureWaitlistInterest,
   getWaitlistDemandPrompt,
   patchWaitlistInterest,
@@ -929,6 +930,12 @@ function App() {
       true,
       { feature: 'Waitlist', action: patch.status ? 'Updated status' : 'Edited interest', metadata: { status: patch.status ?? '', interestId: id } }
     );
+  };
+
+  // Kept as a named application boundary for the characterized correction workflow.
+  const updateInterestTimestamp = (id: string, key: 'interestedAt' | 'confirmedAt' | 'arrivedAt' | 'seatedAt' | 'closedAt', value: string) => {
+    const nextValue = fromDateTimeInput(value);
+    persist(correctWaitlistInterestTimestamp(state, id, key, nextValue, { createId: uid, nowIso }));
   };
 
   const updatePlayerSession = (sessionId: string, patch: Partial<PlayerSession>, editKey: string) => {

@@ -105,7 +105,7 @@ describe('Player storage and lifecycle orchestration contract', () => {
     expect(asyncStorageOwners).toHaveLength(1);
     expect(asyncStorageOwners[0].path.endsWith(join('data', 'storage', 'playerStorage.ts'))).toBe(true);
     expect(nativeApplicationImports).toEqual([]);
-    expect(storageDigest).toBe('f936aa519dd0473242a61a8dc398a81d3c1f7655ff9a3d69c03ef95e828d4002');
+    expect(storageDigest).toBe('62f74797e9042bd9e213c209b4df13b2ee2b385b60104af45414b2185eb4eb48');
   });
 
   it('preserves auth/identity, premium, profile, live-club, private-game, and tournament lifecycles', () => {
@@ -121,6 +121,6 @@ describe('Player storage and lifecycle orchestration contract', () => {
       findUseEffectContaining(sources, 'subscribeToPlayerTournaments')
     ]);
 
-    expect(lifecycleDigest).toBe('7fec1c3dec22aa980237b2ce31ab136d3714e002ec9c4a3422d39941c416bf0e');
+    expect(lifecycleDigest).toBe('23eac4ed93c2ae104e8a93077732f8491501917fa514fb71625bf9cca04c6866');
   });
 });
