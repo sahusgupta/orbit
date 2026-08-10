@@ -604,7 +604,7 @@ tasks:
 
   - id: REF-025
     title: Split and validate Player data adapters
-    status: pending
+    status: complete
     objective: Separate authenticated HTTP, Firebase auth, Firestore repositories, subscriptions, decoders, and legacy state compatibility while validating untrusted records.
     evidence_root_cause: One 1,328-line module combines every Player data responsibility and converts raw external values through assertions.
     files_areas:

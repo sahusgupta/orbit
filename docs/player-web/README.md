@@ -1,3 +1,26 @@
 # Orbit Player Web Planning
 
-Reserved for a separately authorized Orbit Player website plan. This preparation task does not design or build the website.
+This directory remains an implementation-readiness inventory, not an authorization to design or build an Orbit Player website.
+
+## Directly reusable platform-neutral source
+
+- `player-app/src/domain/playerTypes.ts`: navigation, filter, opportunity, coordinate, and draft contracts.
+- `player-app/src/domain/playerSync.ts`: canonical Player account, snapshot, membership, waitlist, tournament, private-game, and request contracts plus pure membership/request rules.
+- `player-app/src/domain/discovery.ts`: discovery, distance, filtering, ordering, grouping, labels, validation, and immutable preference helpers.
+- `player-app/src/domain/syncProtocol.ts`: protocol-v2 revision/commit selection.
+- `player-app/src/domain/playerIdentity.ts`: canonical identity-verification contract.
+- `player-app/src/domain/decoders/playerBoundaryDecoders.ts` and `player-app/src/domain/decoders/playerSnapshotDecoders.ts`: structural response/document validation and explicit legacy outcomes without React Native or Expo runtime imports.
+- Other focused pure Player modules under `domain/`, including access, visibility, preference, notification, and membership-QR rules.
+
+## Reusable with an explicit web adapter decision
+
+- `player-app/src/application/` contains React orchestration with no React Native imports, but its hooks currently import the concrete Player data facade. A web composition can reuse them only if that facade remains compatible or is supplied through a future port.
+- `player-app/src/data/api/` and `data/firebase/` now have separate responsibilities, so a web client can select compatible Firebase Web/HTTP owners instead of inheriting the full native data monolith.
+- `player-app/src/domain/decoders/playerGameDecoder.ts` and `player-app/src/domain/playerSnapshotTransforms.ts` contain platform-neutral behavior but still use Firestore document types. A non-Firebase web transport would need a neutral document adapter first.
+- `player-app/src/data/orbitSyncApi.ts` is a stable 66-line compatibility facade, not the implementation owner for new transport behavior.
+
+## Platform-specific boundaries
+
+React Native feature/components/styles, native maps, `app/playerPlatform.ts`, AsyncStorage wiring, RevenueCat, Expo browser/linking behavior, and native/EAS build configuration are not claimed as web-ready.
+
+REF-021, REF-023, and REF-025 established this inventory. No website routes, UI, deployment plan, framework choice, or web product behavior is defined here.

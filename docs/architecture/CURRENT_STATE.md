@@ -2,7 +2,7 @@
 
 Initial phase date: 2026-08-07
 
-Fresh audit date: 2026-08-09
+Fresh audit date: 2026-08-10
 
 ## Runtime boundaries
 
@@ -12,7 +12,7 @@ Fresh audit date: 2026-08-09
 | Renderer tests | `src/**/*.test.ts(x)` | jsdom/Node-assisted characterization and pure unit tests | `tsconfig.test.json`, root Vitest |
 | Electron | `electron/main.cjs`, extracted process modules, and API-owned `apps/api/src/shared/orbitCore.cjs` | desktop windowing, IPC, local SQLite, hosted/local API fallback, telemetry, reports, updates, explicit server-sync compatibility profile | dedicated non-DOM `tsconfig.electron.json`, tests, renderer build |
 | API | `apps/api/src/server.js` → `apps/api/src/app.js`, `apps/api/src/routes/`, `apps/api/src/http/`, `apps/api/src/database.js`, and `apps/api/src/db/` | process startup, non-listening Express composition, focused route/middleware owners, stable SQLite facade/repositories, privileged integrations, shared server-side player transforms | dedicated non-DOM `apps/api/tsconfig.json` check-JS plus API localhost characterization and root Vitest |
-| Player | `player-app/App.tsx` → `player-app/src/PlayerApp.tsx`, `app/`, `application/`, `features/`, `components/`, `styles/`, `domain/`, and `data/storage/` | Expo navigation/composition, native platform adapter, focused application/storage hooks, feature-owned React Native presentation, shared primitives/styles, and pure Player rules | Player TypeScript plus root Vitest |
+| Player | `player-app/App.tsx` → `player-app/src/PlayerApp.tsx`, `app/`, `application/`, `features/`, `components/`, `styles/`, `domain/`, and focused `data/` adapters | Expo navigation/composition, native platform adapter, focused application/storage hooks, feature-owned React Native presentation, pure Player rules/decoders, and separate API/Firebase/subscription owners | Player TypeScript plus root Vitest |
 
 ## Current concentration
 
@@ -54,7 +54,6 @@ The tracked production files above 500 lines are deliberate current boundaries, 
 | --- | ---: | --- |
 | `player-app/src/PlayerApp.tsx` | 959 | Expo composition shell: navigation/filter state, domain selectors, feature assembly, shared sheets/modals, two route-local effects, and 15 referenced header/content/tab styles. Storage, native services, subscriptions, identity, purchases, and feature workflows have focused owners. |
 | `src/main.tsx` | 3,593 | Management composition root with five application-wide state declarations, cross-feature effects, command invocation, persistence calls, dialogs, and typed route assembly. Feature-local drafts and presentation models have focused owners. |
-| `player-app/src/data/orbitSyncApi.ts` | 1,328 | Player's single Firebase/API authentication, transport, hydration, and protocol-compatibility adapter. |
 | `src/components/FloorView.tsx` | 1,118 | One management route and its characterized floor/table callback surface; transient workspace state and the ledger presentation have feature owners. |
 | `src/lib/playerSync.ts` | 847 | Renderer-specific management sync transformation boundary whose semantics intentionally differ from the server core. |
 | `src/lib/firebaseClubSync.ts` | 756 | Renderer Firebase publication/subscription and protocol-v2 boundary. |
@@ -129,3 +128,5 @@ REF-022 moved onboarding, discovery, tournament, club/membership, identity/setti
 REF-024 added fake-only characterization for the unchanged 1,328-line Player data adapter and sync protocol. The direct boundary is now 3 files / 44 tests covering authenticated HTTP/Auth, Firestore reads/writes, configured/missing/malformed/failed local and remote sources, published-v2 and legacy hydration, request fallback, revisions, ordering, deduplication, polling, listener replacement/teardown, and malformed-record behavior. Full verification passes 75 files / 450 tests. REF-023's external-data dependency is now satisfied; REF-025 can later split/validate the adapter against the same evidence.
 
 REF-023 moved current/legacy account storage and dismissed-alert persistence into `data/storage/`, native AppState/Alert/Linking/Platform/browser services into `app/playerPlatform.ts`, and identity, premium, profile/live-data, polling, club/waitlist, private-game, and tournament workflows into focused `application/` hooks. `PlayerApp.tsx` is 959 lines with 25 direct state hooks and two route-local effects; AsyncStorage has one owner, application hooks import no React Native module, and `orbitSyncApi.ts` remains unchanged for REF-025. Direct storage/polling tests plus the affected presentation/data matrix pass 7 files / 63 tests; full verification passes 78 files / 457 tests and the unchanged 1,956-module build.
+
+REF-025 split the 1,328-line Player data adapter into hosted/local HTTP adapters, focused Firebase Auth/account/profile/tournament/private-game/request/club repositories, one live-club subscription owner, runtime/legacy decoders, and snapshot transforms. `orbitSyncApi.ts` is now a stable 66-line re-export facade; the largest new data owner is 192 lines. Raw HTTP values are decoded from `unknown`, while REF-024's profile, tournament, and private-game malformed-record policies remain explicit compatibility functions. The final focused gate passes 4 files / 48 tests, the Player data/domain gate passes 9 files / 73 tests, and full verification passes 79 files / 461 tests plus the unchanged 1,956-module build.

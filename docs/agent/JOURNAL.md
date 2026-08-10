@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-10 - REF-025 Player data adapter ownership
+
+- Kept REF-024's fake-only 3-file / 44-test HTTP/Auth/Firestore/protocol/subscription boundary green before and after each migration, then split the 1,328-line mixed adapter into focused API, Firebase, subscription, decoder, snapshot-transform, and request/account owners behind the same public facade.
+- Reduced `orbitSyncApi.ts` to a 66-line re-export facade, moved raw HTTP payloads through structural decoders, localized characterized malformed-record compatibility, removed proven-unreachable private helpers, and added 4 direct decoder cases. Paths, requests, revisions, fallback/order, identity rules, messages, schemas, and dependencies are unchanged.
+- The final focused decoder/characterization gate passed 4 files / 48 tests; the broader Player data/domain gate passed 9 files / 73 tests. A full-gate ownership-test regression was corrected by following the migrated request repository without weakening path checks.
+- A later aggregate run had the same unrelated five-second API Stripe compiler-boundary timeout seen in REF-023; the file passed alone 6/6 in 379 ms of test time. Final verification passed all compiler projects, Player TypeScript, 79 files / 461 tests, and the 1,956-module build. No production-connected service, credential, database, deployment, native/EAS workflow, dependency change, or push was used.
+
 ## 2026-08-09 - REF-023 Player application and storage orchestration
 
 - Committed unchanged-production storage and eight-lifecycle fingerprints first, then moved platform services, current/legacy storage, identity/account, premium, profile/live-data, polling, club/waitlist, private-game, and tournament workflows into focused Player adapters/hooks.

@@ -141,9 +141,13 @@ The browser repository is always written first. A desktop build then uses the pr
 | Native AppState, Alert, Linking, Platform, directions, and Expo browser services | `player-app/src/app/playerPlatform.ts` |
 | Account/identity, premium, profile/live-data, polling, club/waitlist, private-game, and tournament orchestration | `player-app/src/application/` |
 | Current/legacy account and dismissed-alert persistence | `player-app/src/data/storage/playerStorage.ts` |
-| Firebase/API/authentication transport and hydration | `player-app/src/data/orbitSyncApi.ts` |
+| Stable application-facing Player data exports | `player-app/src/data/orbitSyncApi.ts` |
+| Hosted and local HTTP transport | `player-app/src/data/api/` |
+| Firebase Auth, account, profile, tournament, private-game, request, and club repositories | `player-app/src/data/firebase/` |
+| Live club listener, refresh, polling, and teardown ownership | `player-app/src/data/subscriptions/` |
+| External decoding, legacy compatibility, and snapshot transforms | `player-app/src/domain/decoders/` and `player-app/src/domain/playerSnapshotTransforms.ts` |
 
-`src/lib/playerOnboardingPresentation.test.ts` protects feature ownership plus exact component/style presentation fingerprints. `src/lib/playerApplicationOrchestration.test.ts` protects storage/lifecycle ownership; direct storage and polling tests live beside their Player owners. Run Player TypeScript and the affected focused suites before the full root verification gate. Keep `orbitSyncApi.ts` as the stable facade until REF-025 migrates its characterized HTTP/Firebase/subscription responsibilities.
+`src/lib/playerOnboardingPresentation.test.ts` protects feature ownership plus exact component/style presentation fingerprints. `src/lib/playerApplicationOrchestration.test.ts` protects storage/lifecycle ownership; direct storage, polling, decoder, and fake-only external-boundary tests live beside their Player owners. Run Player TypeScript and the affected focused suites before the full root verification gate. Treat `orbitSyncApi.ts` as a compatibility facade: new transport, repository, subscription, normalization, or decoding behavior belongs in the focused owner, not in the facade.
 
 ### Electron
 
