@@ -11,6 +11,7 @@
     "linked:dev": "node scripts/dev-linked.cjs",
     "desktop": "npm run build && node scripts/launch-electron.cjs",
     "build": "vite build",
+    "audit:module-graph": "node scripts/audit-module-graph.mjs",
     "measure:renderer-bundle": "node scripts/measure-renderer-bundle.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "download:stage": "node scripts/stage-download-site.cjs",
