@@ -118,6 +118,8 @@ Management persistence follows this ownership map:
 
 The browser repository is always written first. A desktop build then uses the preload bridge; a browser build publishes to the optional localhost bridge. Renderer Firebase publication remains optional and fire-and-forget for ordinary saves. Do not bypass these owners or change account partition, timestamp precedence, merge ordering, retry cadence, or save-result semantics without characterization.
 
+`src/main.tsx` loads the default Floor view synchronously and defers the nine non-default management route components with `React.lazy`. Keep route content inside the shared Suspense boundary and use `npm run measure:renderer-bundle` to prove any bundle-loading change; the command builds in memory and reports exact initial, lazy, and gzip bytes. Route tests preload the component they exercise before asserting its settled DOM.
+
 `src/domain/profileImport.ts` owns pure CSV/XLSX-row and pasted JSON/text profile normalization, canonical profile construction, duplicate filtering, and companion-link enrichment. `src/main.tsx` retains browser file decoding and user feedback, then invokes the shared persistence owner.
 
 `src/lib/firebaseClubSync.ts` handles Firebase state sync, management-account authentication and password-reset email delivery, and player request subscriptions. `src/lib/firebaseClubDecoders.ts` validates cloud-state containers and constructs canonical membership/waitlist inputs before those records reach management transforms. Management password recovery verifies the new Firebase credential before replacing the desktop account's local password salt and hash.

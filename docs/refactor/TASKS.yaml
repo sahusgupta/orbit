@@ -726,7 +726,7 @@ tasks:
 
   - id: REF-028
     title: Execute measurement-driven performance improvements
-    status: pending
+    status: complete
     objective: Re-measure bundle/runtime/data hot spots after modularization and improve only proven bottlenecks.
     evidence_root_cause: The starting build has a 989.62 kB main renderer chunk and 1,066.53 kB lazy ExcelJS chunk; subscription/read patterns are candidates but lack runtime measurements.
     files_areas:

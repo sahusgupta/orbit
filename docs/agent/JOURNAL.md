@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-10 - REF-028 measured renderer route loading
+
+- Added a write-free production-config bundle measurement. The baseline entry was 1,009,541 bytes / 301,459 gzip, and nine non-default route components contributed 194,351 rendered bytes before minification; Player polling was rejected as an unproven candidate because it already guards overlap, app-state cadence, and teardown.
+- Kept Floor synchronous and deferred Builder, KPIs, Profiles, Settings, Signals, Summary, Table, Tournaments, and Tournament TV behind a shell-local Suspense boundary. Initial JavaScript fell by 93,991 bytes (9.31%) and 20,089 gzip bytes (6.66%); CSS/ZXing are byte-identical and ExcelJS remains on demand at the same emitted size.
+- The settled route contract remains unchanged across 11 files / 37 tests. The first aggregate run found one unadapted Profiles harness; the complete harness audit corrected four non-default-route preloads, and the affected 5-file / 16-test gate passed.
+- Final verification passed all compiler projects, Player TypeScript, 81 files / 471 tests, and the 1,957-module build. No warning suppression, speculative polling change, production runtime/provider, credential, database, dependency, deployment, native workflow, or push was used.
+
 ## 2026-08-10 - REF-027 API privileged-client bootstrap
 
 - Characterized the unchanged Firebase Admin credential precedence, license-only explicit file fallback, existing-app reuse, one-time initialization, Stripe missing-key error, and service-local caching with injected fakes; the gate passed 13 tests without loading SDKs or reading credentials.
