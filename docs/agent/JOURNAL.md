@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-10 - REF-026 renderer Firebase input validation
+
+- Added and separately committed unchanged-production fixtures for valid/null cloud records, current/legacy request order, duplicate IDs, applied-marker short-circuiting, discriminator-less legacy requests, and null-record rejection; the gate passed 3 files / 37 tests and all root compiler projects.
+- Added `firebaseClubDecoders.ts` for cloud envelope/collection validation, canonical membership/waitlist request decoding, legacy fallback normalization, request markers, and Firebase error codes. Removed the three raw Firestore data assertions and the Auth error assertion from `firebaseClubSync.ts` without changing paths, publication, identity inference, request ordering, acknowledgements, or retry policy.
+- Post-change focused coverage passed 3 files / 38 tests; browser persistence/restore passed 2 files / 11 tests. Final verification passed all compiler projects, Player TypeScript, 79 files / 465 tests, and the 1,957-module build.
+- The explicit decoder adds one module and moves the main chunk from 1,005.90 to 1,009.54 kB (301.46 kB gzip); this measured cost is recorded for REF-028. No production service, credential, database, dependency, deployment, native workflow, or push was used.
+
 ## 2026-08-10 - REF-025 Player data adapter ownership
 
 - Kept REF-024's fake-only 3-file / 44-test HTTP/Auth/Firestore/protocol/subscription boundary green before and after each migration, then split the 1,328-line mixed adapter into focused API, Firebase, subscription, decoder, snapshot-transform, and request/account owners behind the same public facade.

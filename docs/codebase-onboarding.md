@@ -120,7 +120,7 @@ The browser repository is always written first. A desktop build then uses the pr
 
 `src/domain/profileImport.ts` owns pure CSV/XLSX-row and pasted JSON/text profile normalization, canonical profile construction, duplicate filtering, and companion-link enrichment. `src/main.tsx` retains browser file decoding and user feedback, then invokes the shared persistence owner.
 
-`src/lib/firebaseClubSync.ts` handles Firebase state sync, management-account authentication and password-reset email delivery, and player request subscriptions. Management password recovery verifies the new Firebase credential before replacing the desktop account's local password salt and hash.
+`src/lib/firebaseClubSync.ts` handles Firebase state sync, management-account authentication and password-reset email delivery, and player request subscriptions. `src/lib/firebaseClubDecoders.ts` validates cloud-state containers and constructs canonical membership/waitlist inputs before those records reach management transforms. Management password recovery verifies the new Firebase credential before replacing the desktop account's local password salt and hash.
 
 `apps/api/src/shared/orbitCore.cjs` owns the behaviorally shared API/Electron server transforms. The API consumes it through `apps/api/src/orbitCore.js`; Electron selects its characterized compatibility profile in `electron/main.cjs`.
 

@@ -649,7 +649,7 @@ tasks:
 
   - id: REF-026
     title: Validate renderer Firebase input boundaries
-    status: pending
+    status: complete
     objective: Replace raw Firestore assertions with explicit validation and known legacy normalization before applying requests/state to management contracts.
     evidence_root_cause: firebaseClubSync.ts casts state, membership, and waitlist documents at the external boundary despite strong downstream identity/protocol tests.
     files_areas:
