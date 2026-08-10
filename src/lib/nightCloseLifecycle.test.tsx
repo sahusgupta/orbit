@@ -131,6 +131,7 @@ describe('night-close mutation orchestration', () => {
     vi.stubGlobal('alert', vi.fn());
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
     await act(async () => {
+      await import('../components/SummaryView');
       await import('../main');
     });
   });

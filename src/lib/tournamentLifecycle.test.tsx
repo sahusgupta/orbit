@@ -138,6 +138,7 @@ describe('tournament mutation orchestration', () => {
     document.body.innerHTML = '<div id="root"></div>';
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
     await act(async () => {
+      await import('../components/TournamentsView');
       await import('../main');
     });
   });

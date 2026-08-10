@@ -191,6 +191,7 @@ describe('duplicate profile grouping', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
 
     await act(async () => {
+      await import('../components/ProfilesView');
       await import('../main');
     });
   });

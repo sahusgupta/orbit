@@ -319,6 +319,7 @@ describe('profile relationship mutations', () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
     await act(async () => {
+      await import('../components/ProfilesView');
       await import('../main');
     });
   });
