@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 const apiPublisherSource = readFileSync(new URL('../../apps/api/src/firebasePublisher.js', import.meta.url), 'utf8');
 const electronPublisherSource = readFileSync(new URL('../../electron/firebaseSync.cjs', import.meta.url), 'utf8');
 const rendererPublisherSource = readFileSync(new URL('./firebaseClubSync.ts', import.meta.url), 'utf8');
-const playerSyncSource = readFileSync(new URL('../../player-app/src/data/orbitSyncApi.ts', import.meta.url), 'utf8');
+const playerRequestSource = readFileSync(new URL('../../player-app/src/data/firebase/playerRequestRepository.ts', import.meta.url), 'utf8');
 const playerProtocolSource = readFileSync(new URL('../../player-app/src/domain/syncProtocol.ts', import.meta.url), 'utf8');
 
 function extractFunctionSource(source: string, file: string, name: string) {
@@ -104,8 +104,8 @@ describe('sync protocol publisher ownership', () => {
       'markPlayerRequestApplied'
     );
     const playerWrite = extractFunctionSource(
-      playerSyncSource,
-      'player-app/src/data/orbitSyncApi.ts',
+      playerRequestSource,
+      'player-app/src/data/firebase/playerRequestRepository.ts',
       'writeRequestToClubPaths'
     );
 
