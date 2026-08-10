@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 type StoredDocument = Record<string, unknown>;
 
 type DocumentSnapshot = {
-  data: () => StoredDocument;
+  data: () => unknown;
   id: string;
   ref: { path: string };
 };
@@ -22,7 +22,8 @@ const firebaseHarness = vi.hoisted(() => ({
   },
   batchCommits: 0,
   batchOperations: [] as WriteOperation[],
-  documentsByPath: new Map<string, StoredDocument[]>(),
+  documentsByPath: new Map<string, unknown[]>(),
+  loadedDocument: { exists: false, data: undefined as unknown },
   setDocCalls: [] as Array<{ data: StoredDocument; options?: unknown; path: string }>,
   updateDocCalls: [] as Array<{ data: StoredDocument; path: string }>
 }));
@@ -30,11 +31,16 @@ const firebaseHarness = vi.hoisted(() => ({
 const pathFrom = (parts: unknown[]) => parts.filter((part): part is string => typeof part === 'string').join('/');
 
 const snapshotsFor = (path: string): DocumentSnapshot[] =>
-  (firebaseHarness.documentsByPath.get(path) ?? []).map((record, index) => ({
-    data: () => structuredClone(record),
-    id: typeof record.id === 'string' ? record.id : `document-${index}`,
-    ref: { path: `${path}/${typeof record.id === 'string' ? record.id : `document-${index}`}` }
-  }));
+  (firebaseHarness.documentsByPath.get(path) ?? []).map((record, index) => {
+    const id = record && typeof record === 'object' && !Array.isArray(record) && typeof (record as { id?: unknown }).id === 'string'
+      ? (record as { id: string }).id
+      : `document-${index}`;
+    return {
+      data: () => structuredClone(record),
+      id,
+      ref: { path: `${path}/${id}` }
+    };
+  });
 
 vi.mock('firebase/app', () => ({
   getApps: vi.fn(() => [{ name: 'type-003-app' }]),
@@ -51,7 +57,10 @@ vi.mock('firebase/auth', () => ({
 vi.mock('firebase/firestore', () => ({
   collection: vi.fn((...parts: unknown[]) => ({ path: pathFrom(parts) })),
   doc: vi.fn((...parts: unknown[]) => ({ path: pathFrom(parts) })),
-  getDoc: vi.fn(async () => ({ exists: () => false })),
+  getDoc: vi.fn(async () => ({
+    exists: () => firebaseHarness.loadedDocument.exists,
+    data: () => structuredClone(firebaseHarness.loadedDocument.data)
+  })),
   getDocs: vi.fn(async (reference: { path: string }) => ({ docs: snapshotsFor(reference.path) })),
   getFirestore: vi.fn(() => ({ name: 'type-003-firestore' })),
   initializeFirestore: vi.fn(() => ({ name: 'type-003-firestore' })),
@@ -81,6 +90,7 @@ vi.mock('./firebaseConfig', () => ({
 }));
 
 import {
+  loadClubStateFromFirebase,
   saveClubStateToFirebase,
   syncPlayerUpdatesToClubState,
   type FirebaseSyncState,
@@ -202,7 +212,7 @@ const buildState = (overrides: Partial<TestState> = {}): TestState => ({
   ...overrides
 });
 
-const setRemoteDocuments = (path: string, documents: StoredDocument[]) => {
+const setRemoteDocuments = (path: string, documents: unknown[]) => {
   firebaseHarness.documentsByPath.set(path, documents);
 };
 
@@ -219,8 +229,73 @@ beforeEach(() => {
   firebaseHarness.batchCommits = 0;
   firebaseHarness.batchOperations.length = 0;
   firebaseHarness.documentsByPath.clear();
+  firebaseHarness.loadedDocument = { exists: false, data: undefined };
   firebaseHarness.setDocCalls.length = 0;
   firebaseHarness.updateDocCalls.length = 0;
+});
+
+describe('Firebase state and Player request input characterization', () => {
+  it('returns a valid cloud envelope unchanged and treats an existing null document as the current null fallback', async () => {
+    const record = {
+      accountKey: clubId,
+      savedAt: '2026-08-10T05:00:00.000Z',
+      state: { profiles: [], interests: [] },
+      snapshot: { club: { id: clubId, name: 'TYPE-003 Club' } }
+    };
+    firebaseHarness.loadedDocument = { exists: true, data: record };
+
+    await expect(loadClubStateFromFirebase(clubId)).resolves.toEqual(record);
+
+    firebaseHarness.loadedDocument = { exists: true, data: null };
+    await expect(loadClubStateFromFirebase(clubId)).resolves.toBeNull();
+  });
+
+  it('accepts legacy requests without discriminators, deduplicates current/legacy IDs, and skips malformed applied records', async () => {
+    const membership = {
+      id: 'membership-legacy',
+      clubId,
+      player: {
+        id: 'player-membership',
+        name: 'Membership Player',
+        email: 'membership@example.test',
+        preferredGameIds: [game.id]
+      },
+      plan: 'monthly',
+      paymentMethod: 'in-person',
+      requestedAt: '2026-08-10T05:05:00.000Z'
+    };
+    const waitlist = {
+      id: 'waitlist-legacy',
+      clubId,
+      player: {
+        id: 'player-waitlist',
+        name: 'Waitlist Player',
+        email: 'waitlist@example.test'
+      },
+      gameId: game.id,
+      requestedAt: '2026-08-10T05:06:00.000Z'
+    };
+    setRemoteDocuments(paths.membershipRequests, [membership]);
+    setRemoteDocuments(paths.legacyMembershipRequests, [membership]);
+    setRemoteDocuments(paths.waitlistRequests, [waitlist]);
+    setRemoteDocuments(paths.legacyWaitlistRequests, [{ status: 'applied' }]);
+
+    const result = await syncPlayerUpdatesToClubState(buildState());
+
+    expect(result.profiles.filter((profile) => profile.id === 'player-membership')).toHaveLength(1);
+    expect(result.profiles.filter((profile) => profile.id === 'player-waitlist')).toHaveLength(1);
+    expect(result.interests.filter((interest) => interest.id === 'waitlist-legacy')).toHaveLength(1);
+    expect(firebaseHarness.setDocCalls.filter((call) => call.path === `clubs/${clubId}/memberships/player-membership`)).toHaveLength(1);
+    expect(firebaseHarness.updateDocCalls).toHaveLength(4);
+  });
+
+  it('rejects a malformed null pending request before mutating or acknowledging state', async () => {
+    setRemoteDocuments(paths.membershipRequests, [null]);
+
+    await expect(syncPlayerUpdatesToClubState(buildState())).rejects.toThrow();
+    expect(firebaseHarness.setDocCalls).toHaveLength(0);
+    expect(firebaseHarness.updateDocCalls).toHaveLength(0);
+  });
 });
 
 describe('Firebase club synchronization transforms', () => {
