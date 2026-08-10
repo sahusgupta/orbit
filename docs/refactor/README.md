@@ -1,6 +1,6 @@
 # Refactor Planning
 
-The first authorized refactor queue, REF-001 through REF-010, completed on 2026-08-07. The continuation has now separated management mutation, persistence/synchronization, feature composition, reusable Player discovery/presentation, Player application/storage orchestration, Player data ownership, and renderer Firebase input validation through REF-026. The next dependency-ready task is REF-027, API privileged-client bootstrap consolidation.
+The first authorized refactor queue, REF-001 through REF-010, completed on 2026-08-07. The continuation has now separated management mutation, persistence/synchronization, feature composition, reusable Player discovery/presentation, Player application/storage orchestration, Player data ownership, renderer Firebase input validation, and API privileged-client bootstrap through REF-027. The next dependency-ready task is REF-028, measurement-driven performance work.
 
 - Fresh audit and starting metrics: `docs/refactor/ARCHITECTURE_AUDIT_2026-08-08.md`
 - Active target architecture: `docs/refactor/TARGET_ARCHITECTURE.md`

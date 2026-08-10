@@ -686,7 +686,7 @@ tasks:
 
   - id: REF-027
     title: Consolidate API privileged client bootstrap
-    status: pending
+    status: complete
     objective: Give Firebase Admin credentials/app ownership and Stripe client construction focused API-internal owners without changing provider behavior.
     evidence_root_cause: identityService.js, licenseService.js, and paymentService.js repeat Firebase service-account loading; identity and payment separately construct Stripe clients.
     files_areas:

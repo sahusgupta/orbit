@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-10 - REF-027 API privileged-client bootstrap
+
+- Characterized the unchanged Firebase Admin credential precedence, license-only explicit file fallback, existing-app reuse, one-time initialization, Stripe missing-key error, and service-local caching with injected fakes; the gate passed 13 tests without loading SDKs or reading credentials.
+- Added `services/firebaseAdmin.js` and `services/stripeClient.js` as the API runtime owners, then migrated identity, license, and payment services without changing exports, routes, errors/statuses, authorization, webhooks, payment/identity semantics, or per-club paths.
+- API check-JS passed, the affected service/route gate passed 4 files / 20 tests, and the complete API source gate passed 8 files / 31 tests. Final verification passed all compiler projects, Player TypeScript, 80 files / 470 tests, and the unchanged 1,957-module renderer build.
+- Security review found no secret read/log, provider call, production connection, credential, database, dependency, deployment, native workflow, administrative script, or push.
+
 ## 2026-08-10 - REF-026 renderer Firebase input validation
 
 - Added and separately committed unchanged-production fixtures for valid/null cloud records, current/legacy request order, duplicate IDs, applied-marker short-circuiting, discriminator-less legacy requests, and null-record rejection; the gate passed 3 files / 37 tests and all root compiler projects.

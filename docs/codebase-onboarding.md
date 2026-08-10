@@ -179,6 +179,8 @@ Key route areas:
 
 `apps/api/src/database.js` preserves the persistence import contract. `apps/api/src/db/connection.js` and `schema.js` own SQLite lifecycle/schema; `clients.js`, `telemetry.js`, `state.js`, and `reports.js` own focused repositories.
 
+Privileged runtime clients have focused owners under `apps/api/src/services/`: `firebaseAdmin.js` owns lazy Firebase Admin SDK/app initialization and credential-source precedence, while `stripeClient.js` owns lazy Stripe construction and missing-key behavior. Identity, license, and payment services consume those providers. Add provider lifecycle or credential-loading behavior to these owners rather than recreating it in a route or service; tests must use the injected factory seams and placeholder values rather than real credentials or provider calls.
+
 `apps/api/src/orbitCore.js` preserves the public API entrypoint for the API-owned shared server sync core. Renderer-specific differences remain in `src/lib/playerSync.ts` by design.
 
 ## Common Questions For Orbit
