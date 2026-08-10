@@ -1,34 +1,6 @@
-const admin = require('firebase-admin');
-const { Stripe } = require('stripe');
 const { handleStripeIdentityEvent } = require('./identityService');
-
-let adminApp;
-let stripeClient;
-
-function readServiceAccount() {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
-    return JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8'));
-  }
-  return null;
-}
-
-function getAdminApp() {
-  if (adminApp) return adminApp;
-  if (admin.apps.length) {
-    adminApp = admin.app();
-    return adminApp;
-  }
-  const serviceAccount = readServiceAccount();
-  adminApp = admin.initializeApp(serviceAccount ? { credential: admin.credential.cert(serviceAccount) } : undefined);
-  return adminApp;
-}
-
-function getStripe() {
-  if (!process.env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY is not configured.');
-  stripeClient = stripeClient || new Stripe(process.env.STRIPE_SECRET_KEY);
-  return stripeClient;
-}
+const { getAdminApp, getAdminSdk } = require('./services/firebaseAdmin');
+const { getStripe } = require('./services/stripeClient');
 
 function getPaymentServiceStatus() {
   return {
@@ -43,6 +15,7 @@ function getPaymentServiceStatus() {
 
 async function requireFirebasePlayer(request, response, next) {
   try {
+    const admin = getAdminSdk();
     const token = String(request.get('authorization') || '').replace(/^Bearer\s+/i, '');
     if (!token) {
       response.status(401).json({ ok: false, error: 'Firebase player sign-in is required.' });
@@ -56,6 +29,7 @@ async function requireFirebasePlayer(request, response, next) {
 }
 
 async function createMembershipCheckout(request, response) {
+  const admin = getAdminSdk();
   const { clubId, playerName } = request.body || {};
   const product = request.body?.product || request.body?.plan;
   if (!clubId || !['day', 'monthly', 'time-5'].includes(product)) {
@@ -112,6 +86,7 @@ async function createMembershipCheckout(request, response) {
 }
 
 async function handleRevenueCatWebhook(request, response) {
+  const admin = getAdminSdk();
   const expectedToken = process.env.REVENUECAT_WEBHOOK_AUTH_TOKEN;
   const receivedToken = String(request.get('authorization') || '').replace(/^Bearer\s+/i, '');
   if (!expectedToken || receivedToken !== expectedToken) {
@@ -165,6 +140,7 @@ async function handleStripeWebhook(request, response) {
 }
 
 async function recordMembershipPayment(event) {
+  const admin = getAdminSdk();
   const session = event.data.object;
   const metadata = session.metadata || {};
   const clubId = metadata.clubId;

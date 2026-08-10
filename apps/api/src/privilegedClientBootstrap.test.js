@@ -1,45 +1,19 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import firebaseAdminProvider from './services/firebaseAdmin.js';
+import stripeClientProvider from './services/stripeClient.js';
 
+const { createFirebaseAdminProvider } = firebaseAdminProvider;
+const { createStripeClientProvider } = stripeClientProvider;
 const serviceSources = [
   ['identityService.js', readFileSync(resolve('apps/api/src/identityService.js'), 'utf8')],
   ['licenseService.js', readFileSync(resolve('apps/api/src/licenseService.js'), 'utf8')],
   ['paymentService.js', readFileSync(resolve('apps/api/src/paymentService.js'), 'utf8')]
 ];
 
-function extractFunctionSource(source, file, name) {
-  const start = source.indexOf(`function ${name}(`);
-  if (start < 0) throw new Error(`Could not find ${name} in ${file}.`);
-  const parametersStart = source.indexOf('(', start);
-  let parameterDepth = 0;
-  let parametersEnd = -1;
-  for (let index = parametersStart; index < source.length; index += 1) {
-    if (source[index] === '(') parameterDepth += 1;
-    if (source[index] === ')') parameterDepth -= 1;
-    if (parameterDepth === 0) {
-      parametersEnd = index;
-      break;
-    }
-  }
-  const bodyStart = source.indexOf('{', parametersEnd);
-  let bodyDepth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') bodyDepth += 1;
-    if (source[index] === '}') bodyDepth -= 1;
-    if (bodyDepth === 0) return source.slice(start, index + 1);
-  }
-  throw new Error(`Could not find the end of ${name} in ${file}.`);
-}
-
-function loadFunction(source, file, name, globals) {
-  const names = Object.keys(globals);
-  const factory = Function(...names, `${extractFunctionSource(source, file, name)}; return ${name};`);
-  return factory(...names.map((key) => globals[key]));
-}
-
-describe('unchanged API Firebase Admin bootstrap', () => {
-  it('prefers JSON over base64 everywhere and keeps the license-only explicit credential-file fallback', () => {
+describe('API Firebase Admin bootstrap', () => {
+  it('preserves JSON, base64, and opt-in credential-file precedence without reading real files', () => {
     const jsonAccount = { project_id: 'json-project' };
     const base64Account = { project_id: 'base64-project' };
     const fileAccount = { project_id: 'file-project' };
@@ -48,105 +22,107 @@ describe('unchanged API Firebase Admin bootstrap', () => {
       FIREBASE_SERVICE_ACCOUNT_BASE64: Buffer.from(JSON.stringify(base64Account)).toString('base64'),
       GOOGLE_APPLICATION_CREDENTIALS: 'local-placeholder.json'
     };
+    const readFile = vi.fn(() => JSON.stringify(fileAccount));
+    const provider = createFirebaseAdminProvider({ env, readFileSync: readFile, loadAdminSdk: vi.fn() });
 
-    for (const [file, source] of serviceSources) {
-      const fs = { readFileSync: vi.fn(() => JSON.stringify(fileAccount)) };
-      const readServiceAccount = loadFunction(source, file, 'readServiceAccount', {
-        Buffer,
-        fs,
-        process: { env }
-      });
-      expect(readServiceAccount(), file).toEqual(jsonAccount);
-      expect(fs.readFileSync, file).not.toHaveBeenCalled();
-    }
+    expect(provider.readServiceAccount()).toEqual(jsonAccount);
+    expect(provider.readServiceAccount({ allowCredentialsFile: true })).toEqual(jsonAccount);
+    expect(readFile).not.toHaveBeenCalled();
 
-    const base64Only = {
-      FIREBASE_SERVICE_ACCOUNT_JSON: '',
-      FIREBASE_SERVICE_ACCOUNT_BASE64: env.FIREBASE_SERVICE_ACCOUNT_BASE64,
-      GOOGLE_APPLICATION_CREDENTIALS: env.GOOGLE_APPLICATION_CREDENTIALS
-    };
-    for (const [file, source] of serviceSources) {
-      const fs = { readFileSync: vi.fn(() => JSON.stringify(fileAccount)) };
-      const readServiceAccount = loadFunction(source, file, 'readServiceAccount', {
-        Buffer,
-        fs,
-        process: { env: base64Only }
-      });
-      expect(readServiceAccount(), file).toEqual(base64Account);
-      expect(fs.readFileSync, file).not.toHaveBeenCalled();
-    }
+    env.FIREBASE_SERVICE_ACCOUNT_JSON = '';
+    expect(provider.readServiceAccount()).toEqual(base64Account);
+    expect(provider.readServiceAccount({ allowCredentialsFile: true })).toEqual(base64Account);
+    expect(readFile).not.toHaveBeenCalled();
 
-    const fileOnly = {
-      FIREBASE_SERVICE_ACCOUNT_JSON: '',
-      FIREBASE_SERVICE_ACCOUNT_BASE64: '',
-      GOOGLE_APPLICATION_CREDENTIALS: env.GOOGLE_APPLICATION_CREDENTIALS
-    };
-    for (const [file, source] of serviceSources) {
-      const fs = { readFileSync: vi.fn(() => JSON.stringify(fileAccount)) };
-      const readServiceAccount = loadFunction(source, file, 'readServiceAccount', {
-        Buffer,
-        fs,
-        process: { env: fileOnly }
-      });
-      expect(readServiceAccount(), file).toEqual(file === 'licenseService.js' ? fileAccount : null);
-      expect(fs.readFileSync, file).toHaveBeenCalledTimes(file === 'licenseService.js' ? 1 : 0);
-    }
+    env.FIREBASE_SERVICE_ACCOUNT_BASE64 = '';
+    expect(provider.readServiceAccount()).toBeNull();
+    expect(provider.readServiceAccount({ allowCredentialsFile: true })).toEqual(fileAccount);
+    expect(readFile).toHaveBeenCalledWith('local-placeholder.json', 'utf8');
   });
 
-  it('reuses an existing Admin app before credentials and initializes at most once otherwise', () => {
+  it('reuses an existing Admin app before credential parsing and initializes at most once otherwise', () => {
+    const existingApp = { name: 'existing' };
+    const existingAdmin = {
+      apps: [existingApp],
+      app: vi.fn(() => existingApp),
+      credential: { cert: vi.fn() },
+      initializeApp: vi.fn()
+    };
+    const existingProvider = createFirebaseAdminProvider({
+      env: { FIREBASE_SERVICE_ACCOUNT_JSON: '{not-parsed' },
+      loadAdminSdk: () => existingAdmin,
+      readFileSync: vi.fn()
+    });
+
+    expect(existingProvider.getAdminApp()).toBe(existingApp);
+    expect(existingProvider.getAdminApp({ allowCredentialsFile: true })).toBe(existingApp);
+    expect(existingAdmin.app).toHaveBeenCalledOnce();
+    expect(existingAdmin.credential.cert).not.toHaveBeenCalled();
+    expect(existingAdmin.initializeApp).not.toHaveBeenCalled();
+
+    const initializedApp = { name: 'initialized' };
+    const freshAdmin = {
+      apps: [],
+      app: vi.fn(),
+      credential: { cert: vi.fn((account) => ({ account })) },
+      initializeApp: vi.fn(() => initializedApp)
+    };
+    const freshProvider = createFirebaseAdminProvider({
+      env: { FIREBASE_SERVICE_ACCOUNT_JSON: JSON.stringify({ project_id: 'local-project' }) },
+      loadAdminSdk: () => freshAdmin,
+      readFileSync: vi.fn()
+    });
+
+    expect(freshProvider.getAdminApp()).toBe(initializedApp);
+    expect(freshProvider.getAdminApp()).toBe(initializedApp);
+    expect(freshAdmin.credential.cert).toHaveBeenCalledOnce();
+    expect(freshAdmin.initializeApp).toHaveBeenCalledOnce();
+  });
+
+  it('keeps credential-file parsing opt-in for license calls while all callers share one owner', () => {
+    const sources = Object.fromEntries(serviceSources);
+    expect(sources['identityService.js']).toContain("require('./services/firebaseAdmin')");
+    expect(sources['paymentService.js']).toContain("require('./services/firebaseAdmin')");
+    expect(sources['licenseService.js']).toContain("require('./services/firebaseAdmin')");
+    expect(sources['licenseService.js']).toContain('getAdminApp({ allowCredentialsFile: true })');
     for (const [file, source] of serviceSources) {
-      const existingApp = { name: `${file}-existing` };
-      const app = vi.fn(() => existingApp);
-      const initializeApp = vi.fn(() => ({ name: `${file}-initialized` }));
-      const cert = vi.fn((account) => ({ account }));
-      const readServiceAccount = vi.fn(() => ({ project_id: 'local-project' }));
-      const admin = { apps: [existingApp], app, initializeApp, credential: { cert } };
-      const globals = file === 'identityService.js'
-        ? { adminApp: undefined, getAdminSdk: () => admin, readServiceAccount }
-        : { admin, adminApp: undefined, readServiceAccount };
-      const getAdminApp = loadFunction(source, file, 'getAdminApp', globals);
-
-      expect(getAdminApp(), file).toBe(existingApp);
-      expect(getAdminApp(), file).toBe(existingApp);
-      expect(app, file).toHaveBeenCalledOnce();
-      expect(readServiceAccount, file).not.toHaveBeenCalled();
-      expect(initializeApp, file).not.toHaveBeenCalled();
-
-      admin.apps = [];
-      const initializingRead = vi.fn(() => ({ project_id: 'local-project' }));
-      const initializingGlobals = file === 'identityService.js'
-        ? { adminApp: undefined, getAdminSdk: () => admin, readServiceAccount: initializingRead }
-        : { admin, adminApp: undefined, readServiceAccount: initializingRead };
-      const initializeFreshApp = loadFunction(source, file, 'getAdminApp', initializingGlobals);
-      const first = initializeFreshApp();
-      expect(initializeFreshApp(), file).toBe(first);
-      expect(initializingRead, file).toHaveBeenCalledOnce();
-      expect(cert, file).toHaveBeenCalledOnce();
-      expect(initializeApp, file).toHaveBeenCalledOnce();
+      expect(source, file).not.toContain('function readServiceAccount(');
+      expect(source, file).not.toContain('function getAdminApp(');
+      expect(source, file).not.toContain("require('firebase-admin')");
     }
   });
 });
 
-describe('unchanged API Stripe construction', () => {
-  it('throws the existing missing-key error and caches one client per service module', () => {
-    for (const [file, source] of serviceSources.filter(([name]) => name !== 'licenseService.js')) {
-      const constructedKeys = [];
-      function Stripe(key) {
-        constructedKeys.push(key);
-        this.kind = file;
-      }
-      const globals = file === 'identityService.js'
-        ? { process: { env: {} }, stripeClient: undefined, getStripeConstructor: () => Stripe }
-        : { process: { env: {} }, stripeClient: undefined, Stripe };
-      const getStripeWithoutKey = loadFunction(source, file, 'getStripe', globals);
-      expect(() => getStripeWithoutKey(), file).toThrow('STRIPE_SECRET_KEY is not configured.');
-      expect(constructedKeys, file).toEqual([]);
+describe('API Stripe construction', () => {
+  it('throws the existing missing-key error, loads lazily, and caches one shared client', () => {
+    /** @type {Record<string, string | undefined>} */
+    const env = {};
+    const loadStripe = vi.fn();
+    const missingProvider = createStripeClientProvider({ env, loadStripe });
 
-      globals.process.env.STRIPE_SECRET_KEY = 'local-placeholder-key';
-      const getStripe = loadFunction(source, file, 'getStripe', globals);
-      const first = getStripe();
-      expect(getStripe(), file).toBe(first);
-      expect(constructedKeys, file).toEqual(['local-placeholder-key']);
+    expect(() => missingProvider.getStripe()).toThrow('STRIPE_SECRET_KEY is not configured.');
+    expect(loadStripe).not.toHaveBeenCalled();
+
+    const constructedKeys = [];
+    function Stripe(key) {
+      constructedKeys.push(key);
+      this.kind = 'local-placeholder-client';
+    }
+    env.STRIPE_SECRET_KEY = 'local-placeholder-key';
+    loadStripe.mockReturnValue({ Stripe });
+    const first = missingProvider.getStripe();
+    expect(missingProvider.getStripe()).toBe(first);
+    expect(loadStripe).toHaveBeenCalledOnce();
+    expect(constructedKeys).toEqual(['local-placeholder-key']);
+  });
+
+  it('routes identity and payment through the same lazy Stripe owner', () => {
+    const sources = Object.fromEntries(serviceSources);
+    for (const file of ['identityService.js', 'paymentService.js']) {
+      expect(sources[file]).toContain("require('./services/stripeClient')");
+      expect(sources[file]).not.toContain('function getStripe(');
+      expect(sources[file]).not.toContain("require('stripe')");
+      expect(sources[file]).not.toContain('new Stripe(');
     }
   });
 });

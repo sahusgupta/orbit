@@ -1,44 +1,5 @@
-let adminApp;
-let adminSdk;
-let stripeClient;
-let stripeConstructor;
-
-function getAdminSdk() {
-  adminSdk = adminSdk || require('firebase-admin');
-  return adminSdk;
-}
-
-function getStripeConstructor() {
-  stripeConstructor = stripeConstructor || require('stripe');
-  return stripeConstructor;
-}
-
-function readServiceAccount() {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
-    return JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8'));
-  }
-  return null;
-}
-
-function getAdminApp() {
-  const admin = getAdminSdk();
-  if (adminApp) return adminApp;
-  if (admin.apps.length) {
-    adminApp = admin.app();
-    return adminApp;
-  }
-  const serviceAccount = readServiceAccount();
-  adminApp = admin.initializeApp(serviceAccount ? { credential: admin.credential.cert(serviceAccount) } : undefined);
-  return adminApp;
-}
-
-function getStripe() {
-  if (!process.env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY is not configured.');
-  const Stripe = getStripeConstructor();
-  stripeClient = stripeClient || new Stripe(process.env.STRIPE_SECRET_KEY);
-  return stripeClient;
-}
+const { getAdminApp, getAdminSdk } = require('./services/firebaseAdmin');
+const { getStripe } = require('./services/stripeClient');
 
 function getRequiredMinimumAge() {
   return 21;
@@ -404,7 +365,7 @@ async function createPlayerIdentitySession(request, response) {
     ...(verificationFlow
       ? { verification_flow: verificationFlow }
       : {
-          type: 'document',
+          type: /** @type {'document'} */ ('document'),
           ...(isMatchingSelfieRequired()
             ? { options: { document: { require_matching_selfie: true } } }
             : {})

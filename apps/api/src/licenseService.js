@@ -1,34 +1,10 @@
 const crypto = require('crypto');
-const fs = require('fs');
-const admin = require('firebase-admin');
 const { sanitizeAccountKey } = require('./orbitCore');
-
-let adminApp;
-
-function readServiceAccount() {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
-    return JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8'));
-  }
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    return JSON.parse(fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8'));
-  }
-  return null;
-}
-
-function getAdminApp() {
-  if (adminApp) return adminApp;
-  if (admin.apps.length) {
-    adminApp = admin.app();
-    return adminApp;
-  }
-  const serviceAccount = readServiceAccount();
-  adminApp = admin.initializeApp(serviceAccount ? { credential: admin.credential.cert(serviceAccount) } : undefined);
-  return adminApp;
-}
+const { getAdminApp, getAdminSdk } = require('./services/firebaseAdmin');
 
 function getLicenseCollection() {
-  return admin.firestore(getAdminApp()).collection('pilotLicenses');
+  const admin = getAdminSdk();
+  return admin.firestore(getAdminApp({ allowCredentialsFile: true })).collection('pilotLicenses');
 }
 
 function hashAuthorizationCode(value) {
