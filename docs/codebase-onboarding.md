@@ -28,6 +28,7 @@ Read these files first:
 - `apps/api/src/routes/` and `apps/api/src/http/`: focused route and middleware owners.
 - `apps/api/src/database.js` → `apps/api/src/db/`: stable SQLite facade and focused persistence owners.
 - `src/components/PokerTable.tsx`: visual table component used by the management UI.
+- `docs/refactor/FINAL_REFACTOR_REPORT.md`: terminal architecture, metrics, verification, debt, and Player-web reuse assessment.
 
 ## How To Run
 

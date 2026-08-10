@@ -2,7 +2,7 @@
 
 Date: 2026-08-08
 
-Status: active target for REF-011 and later tasks
+Status: achieved and terminally audited on 2026-08-10
 
 ## Dependency direction
 
