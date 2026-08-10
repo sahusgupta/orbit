@@ -1,5 +1,4 @@
-import type { QueryDocumentSnapshot } from 'firebase/firestore';
-import type { PlayerSyncGame } from '../playerSync';
+import type { PlayerRecordDocument, PlayerSyncGame } from '../playerSync';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -38,7 +37,7 @@ function normalizePublishedGame(raw: UnknownRecord, documentId: string): PlayerS
   };
 }
 
-export function normalizePublishedGames(gameDocs: QueryDocumentSnapshot[]): PlayerSyncGame[] {
+export function normalizePublishedGames(gameDocs: readonly PlayerRecordDocument[]): PlayerSyncGame[] {
   const records = gameDocs.map((gameDoc) => ({ documentId: gameDoc.id, raw: requireRecord(gameDoc.data()) }));
   const aggregateRecords = records.filter(({ raw }) => typeof raw.name === 'string' && raw.name.trim());
 

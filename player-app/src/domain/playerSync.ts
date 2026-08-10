@@ -9,6 +9,11 @@ export type PlayerSyncInterestStatus =
   | 'Left Before Seated'
   | 'Removed';
 
+export type PlayerRecordDocument = {
+  id: string;
+  data(): unknown;
+};
+
 export type PlayerSyncClub = {
   id: string;
   name: string;

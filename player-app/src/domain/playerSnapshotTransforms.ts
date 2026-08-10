@@ -1,6 +1,5 @@
-import type { QueryDocumentSnapshot } from 'firebase/firestore';
 import { isPlayerVisibleClubName, isPlayerVisibleGameName } from './clubVisibility';
-import type { PlayerAccount, PlayerClubSnapshot } from './playerSync';
+import type { PlayerAccount, PlayerClubSnapshot, PlayerRecordDocument } from './playerSync';
 import { hasUncommittedFutureRevision, selectCommittedGames, selectRevisionCompatibleRecords } from './syncProtocol';
 import { decodePlayerRecord, decodePublishedClubRecord } from './decoders/playerSnapshotDecoders';
 
@@ -24,7 +23,7 @@ export function getSnapshotFreshness(snapshot: PlayerClubSnapshot) {
 }
 
 export function buildPublishedClubSnapshot(
-  clubDoc: QueryDocumentSnapshot,
+  clubDoc: PlayerRecordDocument,
   games: PlayerClubSnapshot['games'],
   memberships: PlayerClubSnapshot['memberships'],
   waitlists: PlayerClubSnapshot['waitlists'],
@@ -71,7 +70,7 @@ export function buildPublishedClubSnapshot(
 }
 
 export function mergeClubSnapshots(clubs: PlayerClubSnapshot[]): PlayerClubSnapshot {
-  const [first, ...rest] = clubs;
+  const [first] = clubs;
   return {
     ...first,
     club: { id: '__all__', name: 'All Clubs' },
@@ -88,9 +87,7 @@ export function mergeClubSnapshots(clubs: PlayerClubSnapshot[]): PlayerClubSnaps
       }),
       { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: 0 }
     ),
-    generatedAt: new Date().toISOString(),
-    // Keep the original club snapshots available to callers through the normal state merge path.
-    ...(rest.length ? {} : {})
+    generatedAt: new Date().toISOString()
   };
 }
 
