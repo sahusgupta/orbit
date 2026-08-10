@@ -6,6 +6,7 @@ import {
   signOut,
   type User
 } from 'firebase/auth';
+import { readFirebaseErrorCode } from '../../domain/decoders/playerBoundaryDecoders';
 import { auth } from './firebaseClient';
 
 export type FirebasePlayerIdentity = {
@@ -35,7 +36,7 @@ export async function signInOrCreatePlayerWithEmail(email: string, password: str
       const result = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
       return toFirebasePlayerIdentity(result.user);
     } catch (createError) {
-      if ((createError as { code?: string }).code === 'auth/email-already-in-use') throw signInError;
+      if (readFirebaseErrorCode(createError) === 'auth/email-already-in-use') throw signInError;
       throw createError;
     }
   }

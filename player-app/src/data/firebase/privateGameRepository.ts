@@ -1,10 +1,11 @@
 import { collection, doc, getDocs, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { decodePrivateGameRecord } from '../../domain/decoders/playerBoundaryDecoders';
 import type { PlayerPrivateGameListing } from '../../domain/playerSync';
 import { db } from './firebaseClient';
 
 function projectOpenPrivateGames(documents: Array<{ data(): unknown }>) {
   return documents
-    .map((snapshot) => snapshot.data() as PlayerPrivateGameListing)
+    .map((snapshot) => decodePrivateGameRecord(snapshot.data()))
     .filter((game) => game.status === 'Open')
     .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
 }

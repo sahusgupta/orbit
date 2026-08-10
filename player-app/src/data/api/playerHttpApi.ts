@@ -1,29 +1,20 @@
 import type { User } from 'firebase/auth';
+import {
+  decodeCheckoutResponse,
+  decodeIdentityResponse,
+  decodeSnapshotEnvelope,
+  readBoundaryError
+} from '../../domain/decoders/playerBoundaryDecoders';
 import type { PlayerAccount, PlayerMembershipRequest, PlayerWaitlistRequest } from '../../domain/playerSync';
 import { auth } from '../firebase/firebaseClient';
 import type { SyncResult } from '../playerDataContracts';
+
+export type { PlayerIdentityStatus } from '../../domain/playerIdentity';
 
 export const orbitApiBaseUrl = (
   process.env.EXPO_PUBLIC_ORBIT_API_URL ||
   'https://orbitapp-one.vercel.app'
 ).replace(/\/$/, '');
-
-export type PlayerIdentityStatus = {
-  status: 'unverified' | 'requires_input' | 'processing' | 'verified' | 'underage' | 'canceled' | 'redacted';
-  ageVerified: boolean;
-  ageLevel: number;
-  minimumAge: number;
-  verifiedAt: string | null;
-  failureCode: string | null;
-};
-
-type PlayerIdentityResponse = {
-  ok: true;
-  identity: PlayerIdentityStatus;
-  alreadyVerified?: boolean;
-  verificationUrl?: string | null;
-  returnUrl?: string;
-};
 
 async function getOrbitPlayerToken(forceRefresh = false) {
   if (!orbitApiBaseUrl) throw new Error('EXPO_PUBLIC_ORBIT_API_URL is not configured.');
@@ -37,9 +28,9 @@ export async function fetchPlayerIdentityStatus(forceTokenRefresh = false) {
   const response = await fetch(`${orbitApiBaseUrl}/player/identity/status`, {
     headers: { authorization: `Bearer ${token}` }
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload.identity) throw new Error(payload.error || 'Unable to check age-verification status.');
-  const result = payload as PlayerIdentityResponse;
+  const payload: unknown = await response.json().catch(() => ({}));
+  const result = decodeIdentityResponse(payload);
+  if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Unable to check age-verification status.'));
   if (result.identity.ageVerified) await user.getIdToken(true);
   return result.identity;
 }
@@ -53,9 +44,9 @@ export async function createPlayerIdentityVerificationSession() {
       'content-type': 'application/json'
     }
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload.identity) throw new Error(payload.error || 'Unable to start age verification.');
-  const result = payload as PlayerIdentityResponse;
+  const payload: unknown = await response.json().catch(() => ({}));
+  const result = decodeIdentityResponse(payload);
+  if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Unable to start age verification.'));
   if (result.identity.ageVerified) await user.getIdToken(true);
   return result;
 }
@@ -70,9 +61,10 @@ export async function createClubMembershipCheckout(input: { clubId: string; prod
     },
     body: JSON.stringify(input)
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload.checkoutUrl) throw new Error(payload.error || 'Unable to start the card house checkout.');
-  return payload as { ok: true; checkoutUrl: string; sessionId: string };
+  const payload: unknown = await response.json().catch(() => ({}));
+  const result = decodeCheckoutResponse(payload);
+  if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Unable to start the card house checkout.'));
+  return result;
 }
 
 export async function fetchRemoteClubSnapshot(player: Pick<PlayerAccount, 'id' | 'name'>, accountKey: string): Promise<SyncResult> {
@@ -83,9 +75,10 @@ export async function fetchRemoteClubSnapshot(player: Pick<PlayerAccount, 'id' |
     const response = await fetch(`${orbitApiBaseUrl}/player/snapshot?${params.toString()}`, {
       headers: { authorization: `Bearer ${token}` }
     });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload?.snapshot) throw new Error(payload?.error || 'Orbit API club snapshot is unavailable.');
-    return payload as SyncResult;
+    const payload: unknown = await response.json().catch(() => ({}));
+    const result = decodeSnapshotEnvelope(payload);
+    if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Orbit API club snapshot is unavailable.'));
+    return result;
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Orbit API club snapshot is unavailable.' };
   }
@@ -103,9 +96,10 @@ export async function submitRemotePlayerRequest(path: string, request: PlayerMem
       },
       body: JSON.stringify(request)
     });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload?.snapshot) throw new Error(payload?.error || 'Orbit API request failed.');
-    return payload as SyncResult;
+    const payload: unknown = await response.json().catch(() => ({}));
+    const result = decodeSnapshotEnvelope(payload);
+    if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Orbit API request failed.'));
+    return result;
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Orbit API is unavailable.' };
   }
@@ -118,6 +112,6 @@ export async function deleteRemotePlayerIdentity(user: User) {
     method: 'DELETE',
     headers: { authorization: `Bearer ${token}` }
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || 'Unable to remove identity-verification data.');
+  const payload: unknown = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(readBoundaryError(payload, 'Unable to remove identity-verification data.'));
 }

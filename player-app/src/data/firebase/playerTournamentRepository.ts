@@ -1,5 +1,6 @@
 import { collection, deleteDoc, doc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, type Unsubscribe } from 'firebase/firestore';
 import { isPlayerVisibleClubName } from '../../domain/clubVisibility';
+import { decodeTournamentEvent, decodeTournamentRegistration } from '../../domain/decoders/playerBoundaryDecoders';
 import type { PlayerAccount, PlayerTournament, PlayerTournamentRegistration } from '../../domain/playerSync';
 import { auth, db } from './firebaseClient';
 import { ensureSignedInIdentity } from './playerAuth';
@@ -14,8 +15,8 @@ export async function fetchPlayerTournaments(playerId: string) {
       ? await getDocs(query(collection(db, 'clubs', clubDoc.id, 'tournamentRegistrations'), where('playerId', '==', playerId)))
       : null;
     return {
-      tournaments: events.docs.map((eventDoc) => ({ ...eventDoc.data(), id: eventDoc.id, clubId: clubDoc.id } as PlayerTournament)),
-      registrations: registrations?.docs.map((registrationDoc) => registrationDoc.data() as PlayerTournamentRegistration) ?? []
+      tournaments: events.docs.map((eventDoc) => decodeTournamentEvent(eventDoc.data(), eventDoc.id, clubDoc.id)),
+      registrations: registrations?.docs.map((registrationDoc) => decodeTournamentRegistration(registrationDoc.data())) ?? []
     };
   }));
   return {

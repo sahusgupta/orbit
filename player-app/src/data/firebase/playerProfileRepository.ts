@@ -1,4 +1,5 @@
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { preserveLegacyPlayerProfile } from '../../domain/decoders/playerBoundaryDecoders';
 import type { PlayerAccount, PlayerClubMembershipRecord, PlayerProfileDocument } from '../../domain/playerSync';
 import { db } from './firebaseClient';
 import { ensureSignedInIdentity } from './playerAuth';
@@ -7,7 +8,9 @@ export async function savePlayerProfile(player: PlayerAccount, membershipPatch?:
   const uid = ensureSignedInIdentity();
   const profileRef = doc(db, 'players', uid);
   const existing = await getDoc(profileRef);
-  const existingData = existing.exists() ? (existing.data() as Partial<PlayerProfileDocument>) : {};
+  const existingData: Partial<PlayerProfileDocument> = existing.exists()
+    ? preserveLegacyPlayerProfile(existing.data())
+    : {};
   const clubMemberships = {
     ...(existingData.clubMemberships ?? {}),
     ...(membershipPatch ? { [membershipPatch.clubId]: membershipPatch } : {})
@@ -42,7 +45,7 @@ export async function savePlayerProfile(player: PlayerAccount, membershipPatch?:
 export async function fetchPlayerProfile() {
   const uid = ensureSignedInIdentity();
   const snapshot = await getDoc(doc(db, 'players', uid));
-  return snapshot.exists() ? (snapshot.data() as PlayerProfileDocument) : null;
+  return snapshot.exists() ? preserveLegacyPlayerProfile(snapshot.data()) : null;
 }
 
 export async function updatePlayerClubMembership(player: PlayerAccount, membership: PlayerClubMembershipRecord) {

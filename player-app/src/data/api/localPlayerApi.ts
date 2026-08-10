@@ -1,3 +1,4 @@
+import { decodeSnapshotEnvelope, readBoundaryError } from '../../domain/decoders/playerBoundaryDecoders';
 import type { PlayerAccount, PlayerMembershipRequest, PlayerWaitlistRequest } from '../../domain/playerSync';
 import type { SyncResult } from '../playerDataContracts';
 
@@ -11,9 +12,10 @@ export async function fetchLocalClubSnapshot(player: Pick<PlayerAccount, 'id' | 
   try {
     const params = new URLSearchParams({ playerId: player.id || '', playerName: player.name || '' });
     const response = await fetch(`${localOrbitApiBaseUrl}/player/snapshot?${params.toString()}`);
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload?.snapshot) throw new Error(payload?.error || 'Local Orbit club is not available.');
-    return payload as SyncResult;
+    const payload: unknown = await response.json().catch(() => ({}));
+    const result = decodeSnapshotEnvelope(payload);
+    if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Local Orbit club is not available.'));
+    return result;
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Local Orbit bridge is unavailable.' };
   }
@@ -27,9 +29,10 @@ export async function submitLocalPlayerRequest(path: string, request: PlayerMemb
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(request)
     });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload?.snapshot) throw new Error(payload?.error || 'Local Orbit request failed.');
-    return payload as SyncResult;
+    const payload: unknown = await response.json().catch(() => ({}));
+    const result = decodeSnapshotEnvelope(payload);
+    if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Local Orbit request failed.'));
+    return result;
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Local Orbit bridge is unavailable.' };
   }
