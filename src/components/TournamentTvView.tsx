@@ -101,7 +101,6 @@ export default function TournamentTvView({ tournament, nowMs, remainingSeconds, 
     : 0;
   const durationSeconds = Math.max(1, (currentLevel?.durationMinutes ?? 20) * 60);
   const elapsedPercent = Math.min(100, Math.max(0, ((durationSeconds - remainingSeconds) / durationSeconds) * 100));
-  const ringCircumference = 2 * Math.PI * 128;
   const lateRegistrationSeconds = getLateRegistrationSeconds(tournament, nowMs, remainingSeconds);
   const lateRegistrationOpen = tournament.status !== 'Finished' && lateRegistrationSeconds > 0;
   const lowTime = remainingSeconds <= 60 && tournament.status === 'Running';

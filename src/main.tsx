@@ -1,48 +1,24 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import * as Dialog from '@radix-ui/react-dialog';
 import {
   BadgeCheck,
   Bell,
-  ChevronDown,
-  ChevronUp,
-  Clock,
-  ChevronLeft,
   ChevronRight,
-  Download,
-  Edit3,
-  Eye,
-  FileText,
   KeyRound,
-  LayoutDashboard,
   LockKeyhole,
-  MessageCircle,
-  MoreHorizontal,
-  Moon,
   Plus,
-  Play,
-  Save,
-  Settings,
-  Target,
-  Trash2,
-  Upload,
   Users,
-  WalletCards,
   X
 } from 'lucide-react';
 import branding from '../branding.config.json';
 import type { Player as PokerTablePlayer } from './components/PokerTable';
 import AppShell, { type PrimaryDestination, type ShellCommand } from './components/AppShell';
 import FloorView from './components/FloorView';
-import PanelTitle from './components/PanelTitle';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import {
-  countActivePlayersForTable,
   createBackupEnvelope,
   filterRecentActivityAfterClose,
   getGameFrequencyRank,
   getLatestLockedNightCloseAt,
-  getTimerStatusFromMinutes,
   getTimerStatusFromSeconds,
   readBackupEnvelope,
   resolveGameId
@@ -72,7 +48,6 @@ import {
   type ProfileImportContext
 } from './domain/profileImport';
 import {
-  correctWaitlistInterestTimestamp,
   ensureWaitlistInterest,
   getWaitlistDemandPrompt,
   patchWaitlistInterest,
@@ -85,7 +60,6 @@ import {
   getAvailableSeatNumber as getAvailableSeatNumberFromState,
   movePlayerToTable as movePlayerToTableInState,
   seatPlayerInState as seatPlayerWithCommand,
-  syncSessionSeatCount,
   type SeatPlayerPayload,
   type SeatPlayerResult
 } from './application/management/seatingCommands';
@@ -197,7 +171,6 @@ import {
 } from './domain/reporting';
 import {
   getAccountKeyFromState,
-  getAuthStorageKey,
   hasPersistedSignIn,
   isPilotAccessActive,
   managementStorageKey as storageKey,
@@ -212,16 +185,11 @@ import {
 } from './domain/analytics';
 import {
   getAverageStackForTable,
-  getClosestGameLabel,
   getDemand,
-  getOpenSessions,
-  getOverflowOpportunities,
   getPlayerLoggedHours,
   getRunningSessions,
   getSessionBuyIns,
-  getSessionSeatHours,
   getStaffScripts,
-  getTableHealth,
   getViabilityState
 } from './domain/operations';
 import {
@@ -238,7 +206,6 @@ import type {
   CollectionProfile,
   GameConfig,
   GameSession,
-  GameStatus,
   Interest,
   InterestStatus,
   PersistedAppState,
@@ -251,7 +218,6 @@ import type {
   TableEvent,
   TableEventType,
   TableTag,
-  Tournament,
   UsageEvent
 } from './domain/types';
 import './styles.css';
@@ -370,7 +336,6 @@ const statuses: InterestStatus[] = [
   'Removed'
 ];
 const closedInterestStatuses: InterestStatus[] = ['Seated', 'Declined', 'No-Show', 'Left Before Seated', 'Removed'];
-const tableCaps = [6, 8, 10] as const satisfies readonly TableCap[];
 const gameQualityTags: TableTag[] = [
   'Social',
   'Action',
@@ -390,19 +355,6 @@ const randomToken = () => Array.from(crypto.getRandomValues(new Uint8Array(16)),
 const formatClock = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '-');
 const minutesSince = (iso?: string) => (iso ? Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000)) : 0);
 const formatHours = (hours: number) => `${hours.toFixed(1)}h`;
-const getLevelsUntilBreak = (tournament?: Tournament | null) => {
-  if (!tournament) return null;
-  for (let index = tournament.currentLevelIndex; index < tournament.levels.length; index += 1) {
-    if (tournament.levels[index]?.breakAfter) return index - tournament.currentLevelIndex + 1;
-  }
-  return null;
-};
-const formatMinutesLeft = (minutes: number) => {
-  if (minutes <= 0) return '0m';
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return hours ? `${hours}h ${mins}m` : `${mins}m`;
-};
 const getTimeRemainingSeconds = (session: PlayerSession, nowMs = Date.now()) => {
   if (!session.timeFeeEnabled) return 0;
   const baseRemaining = (session.timeRemainingMinutes ?? 0) * 60;
@@ -417,10 +369,8 @@ const formatTimeLeft = (seconds: number) => {
   const clock = `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}` : clock;
 };
-const getTimeStatus = getTimerStatusFromMinutes;
 const toDateTimeInput = (iso?: string) => (iso ? new Date(new Date(iso).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '');
 const fromDateTimeInput = (value: string) => (value ? new Date(value).toISOString() : undefined);
-const markManualEdit = (edits: Record<string, string> | undefined, key: string) => ({ ...(edits ?? {}), [key]: nowIso() });
 const cssBrandVariableMap: Record<keyof BrandTheme, string> = {
   ink: '--ink',
   muted: '--muted',
@@ -596,7 +546,8 @@ function App() {
     setSetupDraft,
     setStaffDraft
   } = settingsWorkspace;
-  const [undoStack, setUndoStack] = useState<AppState[]>([]);
+  // The undo control was removed before this refactor; keep its write cadence until product scope decides whether to restore or remove it.
+  const [, setUndoStack] = useState<AppState[]>([]);
   const tournamentWorkspace = useTournamentWorkspaceState();
   const {
     selectedTournamentId,
@@ -632,7 +583,6 @@ function App() {
     analytics,
     nightCloseFinancials,
     nightCloseTotalProfit,
-    operationalOpportunities,
     reportAnalytics,
     reportDealerBreakdown,
     reportFinancials,
@@ -650,7 +600,6 @@ function App() {
   const likelyParticipants = useMemo(() => getLikelyParticipants(state), [state]);
   const staffScripts = useMemo(() => getStaffScripts(state), [state]);
   const inClubInterests = useMemo(() => getInClubInterests(state), [state]);
-  const overflowOpportunities = useMemo(() => getOverflowOpportunities(state), [state]);
   const balancePlans = useMemo(
     () => getBalancePlans(state, { getDemand, getRunningSessions, getProfileForInterest }),
     [state]
@@ -875,31 +824,6 @@ function App() {
       });
   };
 
-  const withCorrectionLog = (next: AppState, entity: string, field: string, note: string) => ({
-    ...next,
-    correctionLog: [
-      {
-        id: uid(),
-        entity,
-        field,
-        note,
-        timestamp: nowIso()
-      },
-      ...next.correctionLog
-    ].slice(0, 50)
-  });
-
-  const undoLastAction = () => {
-    const [previous, ...rest] = undoStack;
-    if (!previous) return;
-    setUndoStack(rest);
-    setState(previous);
-    setSaveStatus({ state: 'saving', message: 'Saving undo...' });
-    saveManagementState(previous)
-      .then(() => setSaveStatus({ state: 'saved', message: 'Undo saved' }))
-      .catch(() => setSaveStatus({ state: 'error', message: 'Undo save failed' }));
-  };
-
   const addInterest = (event: React.FormEvent) => {
     event.preventDefault();
     const playerName = form.playerName.trim();
@@ -975,18 +899,6 @@ function App() {
     setForm({ ...form, playerName: '', notes: '', tableId: '', seatNumber: '', initialBuyIn: '' });
   };
 
-  const quickFillProfile = (profile: PlayerProfile) => {
-    setForm({
-      playerName: profile.name,
-      gameId: profile.preferredGameIds[0] ?? form.gameId,
-      status: 'Confirmed Coming',
-      notes: profile.notes ? `Profile note: ${profile.notes}` : '',
-      tableId: '',
-      seatNumber: '',
-      initialBuyIn: ''
-    });
-  };
-
   const checkInProfileFromSearch = (profile: PlayerProfile) => {
     const existingInterest = findUniqueProfileReference(
       state.interests,
@@ -1014,11 +926,6 @@ function App() {
       true,
       { feature: 'Waitlist', action: patch.status ? 'Updated status' : 'Edited interest', metadata: { status: patch.status ?? '', interestId: id } }
     );
-  };
-
-  const updateInterestTimestamp = (id: string, key: 'interestedAt' | 'confirmedAt' | 'arrivedAt' | 'seatedAt' | 'closedAt', value: string) => {
-    const nextValue = fromDateTimeInput(value);
-    persist(correctWaitlistInterestTimestamp(state, id, key, nextValue, { createId: uid, nowIso }));
   };
 
   const updatePlayerSession = (sessionId: string, patch: Partial<PlayerSession>, editKey: string) => {
@@ -1127,13 +1034,6 @@ function App() {
         const bRunning = b.status === 'Running' ? 0 : 1;
         return aRunning - bRunning || a.startedAt.localeCompare(b.startedAt);
       });
-
-  const findOpenSeatSession = (gameId?: string) => getOpenSeatSessions(gameId)[0];
-
-  const findAnyRunningOpenSeatSession = () =>
-    state.sessions
-      .filter((session) => session.status === 'Running' && Boolean(getAvailableSeatNumber(session)))
-      .sort((a, b) => a.startedAt.localeCompare(b.startedAt))[0];
 
   const getGameName = (gameId?: string) => state.games.find((game) => game.id === gameId)?.name ?? gameId ?? 'Unknown game';
 
@@ -1462,8 +1362,6 @@ function App() {
     persist(result.state, true, { feature: 'Seating', action: 'Seated player', metadata: { gameId: interest.gameId, tableId: table.id, seatNumber: result.seatNumber } });
   };
 
-  const seatInterest = (interest: Interest) => seatInterestAtTable(interest);
-
   const toggleStartPlayer = (sessionId: string, interestId: string) => {
     setStartPlayerDrafts((drafts) => {
       const current = drafts[sessionId] ?? [];
@@ -1531,6 +1429,8 @@ function App() {
       }))
       .filter((target) => target.openSeats > 0);
 
+  // Kept as a named application boundary: characterization coverage invokes this
+  // transition directly even though the current view does not render its control.
   const markPlayerLeft = (interest: Interest) => {
     const result = markInterestPlayerLeft(state, interest, { nowIso });
     const finalState = result.notification
@@ -3427,11 +3327,6 @@ function App() {
       : [];
     const isTimeCollection = Boolean(tableSession && (tableSession.collectionMode === 'Time' || tableSession.timeFeeBased));
     const tableAverageStack = tableSession ? getAverageStackForTable(state, tableSession.id) : 0;
-    const tableWaitlist = tableSession
-      ? state.interests
-          .filter((interest) => interest.gameId === tableSession.gameId && activeInterestStatuses.includes(interest.status))
-          .sort((left, right) => left.interestedAt.localeCompare(right.interestedAt))
-      : [];
     const pokerTablePlayers: PokerTablePlayer[] = seatedPlayers.map((playerSession, index) => {
       const hours = getPlayerLoggedHours(state, playerSession);
       const buyIns = getSessionBuyIns(state, playerSession);

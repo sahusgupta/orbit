@@ -16,8 +16,7 @@ import {
   getClubIdFromState,
   type ManagementClubState,
   type PlayerClubSnapshot,
-  type PlayerMembershipRequest,
-  type PlayerWaitlistRequest
+  type PlayerMembershipRequest
 } from './playerSync';
 
 type RevenueTransactionType = 'membership' | 'time-package' | 'tournament_entry' | 'rebuy' | 'add_on' | 'refund' | 'other';

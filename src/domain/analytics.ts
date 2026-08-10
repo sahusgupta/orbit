@@ -276,7 +276,7 @@ export function buildAnalyticalReportPayload(
   };
 }
 
-export function getOperationalOpportunities(state: AppState, analytics: ReturnType<typeof getAnalytics>) {
+export function getOperationalOpportunities(_state: AppState, analytics: ReturnType<typeof getAnalytics>) {
   const opportunities: string[] = [];
   if (analytics.failedStarts >= 2) {
     opportunities.push('Repeated failed starts: review arrival confirmation process.');

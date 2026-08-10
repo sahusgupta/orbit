@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Clock, DollarSign, Plus, X } from 'lucide-react';
+import { DollarSign, Plus, X } from 'lucide-react';
 import { getTimerStatusFromSeconds } from '../lib/appCore';
 
 /**

@@ -72,7 +72,7 @@ export function NearbyCheckInPanel({
 }
 
 export function ClubHubSections({
-  club,
+  club: _club,
   membership,
   games,
   waitlists,

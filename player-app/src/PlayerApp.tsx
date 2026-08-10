@@ -15,8 +15,7 @@ import {
   isMembershipCurrentlyActive,
   isPlayerMembership,
   isPlayerWaitlistEntry,
-  type PlayerAccount,
-  type PlayerClubSnapshot
+  type PlayerAccount
 } from './domain/playerSync';
 import {
   buildFindGameClubs,
@@ -175,7 +174,6 @@ export default function PlayerApp() {
     openPremiumCheckout,
     premiumMessage,
     premiumMonthlyPriceLabel,
-    premiumStatus,
     restorePremiumPurchases,
     setPremiumMessage,
     setPremiumStatus
@@ -215,7 +213,6 @@ export default function PlayerApp() {
   });
   const {
     cancelWaitlist,
-    changeMembership,
     completeClubPayment,
     joinWaitlist,
     openClubPayment,
@@ -229,8 +226,7 @@ export default function PlayerApp() {
     setSeatRequestDraft,
     setSeatRequestMessage,
     submitMembershipApplication,
-    submitSeatRequest,
-    toggleFavoriteClub
+    submitSeatRequest
   } = usePlayerClubs({
     clockNow,
     firebaseIdentity,
@@ -289,7 +285,6 @@ export default function PlayerApp() {
   const selectedClubTournaments = selectedClub ? tournaments.filter((tournament) => tournament.clubId === selectedClub.club.id) : [];
   const findGameClubs = useMemo(() => buildFindGameClubs(clubs), [clubs]);
   const playerHomeCoordinate = useMemo(() => resolveAddressCoordinate(player.homeLocation), [player.homeLocation]);
-  const searchRadius = distanceFilter;
   const visiblePrivateGames = useMemo(
     () => filterPrivateGames(privateGames, gameQuery, stakesFilter, gameTypeFilter),
     [gameQuery, gameTypeFilter, privateGames, stakesFilter]
