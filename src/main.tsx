@@ -814,7 +814,7 @@ function App() {
   const persist = (nextState: AppState, trackUndo = true, usage?: UsageDescriptor) => {
     const next = withUsageEvent(nextState, usage);
     if (trackUndo) {
-      setUndoStack((previous: any) => [state, ...previous].slice(0, 5));
+      setUndoStack((previous) => [state, ...previous].slice(0, 5));
     }
     setState(next);
     setSaveStatus({ state: 'saving', message: 'Saving...' });
@@ -1617,7 +1617,7 @@ function App() {
   const updateScriptTemplate = (index: number, value: string) => {
     persist({
       ...state,
-      scriptTemplates: state.scriptTemplates.map((template: any, templateIndex: number) => (templateIndex === index ? value : template))
+      scriptTemplates: state.scriptTemplates.map((template, templateIndex) => (templateIndex === index ? value : template))
     });
   };
 
@@ -1969,7 +1969,7 @@ function App() {
         [`Dealer hands - ${dealer.dealerName}`, dealer.hands.toString()],
         [`Dealer hands/hour - ${dealer.dealerName}`, dealer.handsPerHour.toFixed(2)]
       ]),
-      ...reportAnalytics.waitByGame.map((item: { game: any; count: any; averageMinutes: number; }) => [`Wait by game - ${item.game}`, item.count ? `${item.averageMinutes.toFixed(0)} minutes` : 'No seated waits']),
+      ...reportAnalytics.waitByGame.map((item) => [`Wait by game - ${item.game}`, item.count ? `${item.averageMinutes.toFixed(0)} minutes` : 'No seated waits']),
       ...reportState.tableEvents
         .filter((event: { type: string; }) => event.type === 'Failed to Start' || event.type === 'Broke')
         .map((event: TableEvent) => [`${event.type} reason`, `${event.reason || 'Unspecified'}${event.note ? ` - ${event.note}` : ''}`])

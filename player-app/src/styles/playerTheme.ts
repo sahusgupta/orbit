@@ -14,7 +14,7 @@ export const colors = {
   coral: '#fb7185'
 };
 
-export function applyDarkComponentTheme<T extends Record<string, any>>(definitions: T): T {
+export function applyDarkComponentTheme<T extends Record<string, unknown>>(definitions: T): T {
   const lightSurfaces: Record<string, string> = {
     '#ffffff': '#10192c',
     '#fff': '#10192c',
@@ -57,12 +57,14 @@ export function applyDarkComponentTheme<T extends Record<string, any>>(definitio
   };
   Object.entries(definitions).forEach(([key, style]) => {
     if (!style || typeof style !== 'object' || Array.isArray(style)) return;
-    const background = typeof style.backgroundColor === 'string' ? style.backgroundColor.toLowerCase() : '';
+    const backgroundColor = Reflect.get(style, 'backgroundColor');
+    const background = typeof backgroundColor === 'string' ? backgroundColor.toLowerCase() : '';
     if (background && lightSurfaces[background]) {
-      style.backgroundColor = key === 'membershipQrCode' ? '#ffffff' : lightSurfaces[background];
+      Reflect.set(style, 'backgroundColor', key === 'membershipQrCode' ? '#ffffff' : lightSurfaces[background]);
     }
-    const foreground = typeof style.color === 'string' ? style.color.toLowerCase() : '';
-    if (foreground && darkForegrounds[foreground]) style.color = darkForegrounds[foreground];
+    const color = Reflect.get(style, 'color');
+    const foreground = typeof color === 'string' ? color.toLowerCase() : '';
+    if (foreground && darkForegrounds[foreground]) Reflect.set(style, 'color', darkForegrounds[foreground]);
   });
   return definitions;
 }
