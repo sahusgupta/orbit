@@ -1,20 +1,9 @@
-import { initializeApp, getApps } from 'firebase/app';
-import {
-  createUserWithEmailAndPassword,
-  deleteUser,
-  getAuth,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut,
-  type User
-} from 'firebase/auth';
 import {
   collection,
   deleteDoc,
   doc,
   getDoc,
   getDocs,
-  getFirestore,
   onSnapshot,
   query,
   runTransaction,
@@ -45,6 +34,26 @@ import {
   selectRevisionCompatibleRecords
 } from '../domain/syncProtocol';
 import { firebaseConfig } from './firebaseConfig';
+import { auth, db } from './firebase/firebaseClient';
+import {
+  deleteFirebasePlayer,
+  ensureSignedInIdentity,
+  getCurrentFirebasePlayer,
+  onFirebasePlayerChanged,
+  signInOrCreatePlayerWithEmail,
+  signInOrCreatePlayerWithPhone,
+  signOutFirebasePlayer,
+  type FirebasePlayerIdentity
+} from './firebase/playerAuth';
+
+export {
+  ensureSignedInIdentity,
+  getCurrentFirebasePlayer,
+  onFirebasePlayerChanged,
+  signInOrCreatePlayerWithEmail,
+  signInOrCreatePlayerWithPhone
+};
+export type { FirebasePlayerIdentity };
 
 type ClubStateRecord = {
   accountKey: string;
@@ -68,10 +77,6 @@ type PublishedClubRecord = PlayerClubSnapshot['club'] & {
 type SyncResult =
   | { ok: true; snapshot: PlayerClubSnapshot; accountKey: string; savedAt?: string }
   | { ok: false; error: string };
-
-const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const auth = getAuth(app);
 
 export const syncBaseUrl = `firebase://${firebaseConfig.projectId}/clubs`;
 export const orbitApiBaseUrl = (
@@ -316,55 +321,6 @@ export async function unregisterFromTournament(tournament: PlayerTournament, reg
 
 export function isSyncConfigured() {
   return true;
-}
-
-export type FirebasePlayerIdentity = {
-  uid: string;
-  email: string;
-  name: string;
-  photoUrl?: string;
-};
-
-export function getCurrentFirebasePlayer() {
-  return auth.currentUser ? toFirebasePlayerIdentity(auth.currentUser) : null;
-}
-
-export function onFirebasePlayerChanged(callback: (identity: FirebasePlayerIdentity | null) => void) {
-  return onAuthStateChanged(auth, (user) => callback(user ? toFirebasePlayerIdentity(user) : null));
-}
-
-export async function signInOrCreatePlayerWithEmail(email: string, password: string) {
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail || !password) throw new Error('Enter your email and password.');
-  if (password.length < 6) throw new Error('Password must be at least 6 characters.');
-  try {
-    const result = await signInWithEmailAndPassword(auth, normalizedEmail, password);
-    return toFirebasePlayerIdentity(result.user);
-  } catch (signInError) {
-    try {
-      const result = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
-      return toFirebasePlayerIdentity(result.user);
-    } catch (createError) {
-      if ((createError as { code?: string }).code === 'auth/email-already-in-use') throw signInError;
-      throw createError;
-    }
-  }
-}
-
-export async function signInOrCreatePlayerWithPhone(phone: string, password: string) {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.length < 10 || digits.length > 15) throw new Error('Enter a valid phone number.');
-  // Firebase email/password is used behind the scenes so this works in Expo Go
-  // without a native SMS SDK. The real phone number remains on the player profile.
-  return signInOrCreatePlayerWithEmail(`phone-${digits}@players.orbit.local`, password);
-}
-
-export function ensureSignedInIdentity() {
-  const identity = getCurrentFirebasePlayer();
-  if (!identity) {
-    throw new Error('Sign in with your email address or phone number before syncing.');
-  }
-  return identity.uid;
 }
 
 export async function savePlayerProfile(player: PlayerAccount, membershipPatch?: PlayerClubMembershipRecord) {
@@ -657,11 +613,11 @@ export async function deleteCurrentPlayerAccount() {
     if (!response.ok) throw new Error(payload.error || 'Unable to remove identity-verification data.');
   }
   await deleteDoc(doc(db, 'players', user.uid));
-  await deleteUser(user);
+  await deleteFirebasePlayer(user);
 }
 
 export async function signOutCurrentPlayer() {
-  await signOut(auth);
+  await signOutFirebasePlayer();
 }
 
 export async function fetchPrivateGameListings() {
@@ -1316,13 +1272,4 @@ function getPassExpiration(request: PlayerMembershipRequest) {
 
 function mergeUnique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
-}
-
-function toFirebasePlayerIdentity(user: User): FirebasePlayerIdentity {
-  return {
-    uid: user.uid,
-    email: user.email ?? '',
-    name: user.displayName ?? user.email?.split('@')[0] ?? 'Player',
-    photoUrl: user.photoURL ?? undefined
-  };
 }
