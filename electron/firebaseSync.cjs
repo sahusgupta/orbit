@@ -209,6 +209,7 @@ async function markPlayerRequestApplied(accountKey, kind, requestId) {
     appliedBy: 'orbit-desktop-electron',
     syncProtocolVersion: orbitSyncProtocolVersion
   };
+  // Current and legacy request aliases are independent; one missing alias must not block the other acknowledgement.
   await Promise.all([
     updateDoc(doc(db, 'clubs', accountKey, collectionName, requestId), acknowledgement).catch(() => undefined),
     updateDoc(doc(db, 'clubStates', accountKey, collectionName, requestId), acknowledgement).catch(() => undefined)

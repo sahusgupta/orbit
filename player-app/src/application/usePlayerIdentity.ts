@@ -110,6 +110,7 @@ export function usePlayerIdentity({
     setHasAccount(true);
     setScreen('findGames');
     setSyncStatus(isSyncConfigured() ? 'Account ready - syncing from Firebase...' : 'Account ready, but live club sync is unavailable.');
+    // Account creation is locally complete; remote profile publication is background fan-out.
     if (identity) savePlayerProfile(nextPlayer).catch(() => undefined);
   };
 

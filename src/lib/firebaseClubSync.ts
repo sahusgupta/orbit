@@ -725,6 +725,7 @@ async function markRequestApplied(accountKey: string, collectionName: 'membershi
     appliedBy: 'orbit-desktop',
     syncProtocolVersion: orbitSyncProtocolVersion
   };
+  // Current and legacy request aliases are independent; one missing alias must not block the other acknowledgement.
   await Promise.all([
     updateDoc(doc(db, 'clubs', accountKey, collectionName, requestId), acknowledgement).catch(() => undefined),
     updateDoc(doc(db, 'clubStates', accountKey, collectionName, requestId), acknowledgement).catch(() => undefined)
@@ -734,6 +735,7 @@ async function markRequestApplied(accountKey: string, collectionName: 'membershi
 async function updatePlayerMembershipStatus(playerId: string | undefined, clubId: string, request: PlayerMembershipRequest) {
   if (!playerId) return;
   const requestedAt = request.requestedAt || new Date().toISOString();
+  // The player profile mirror is secondary to the authoritative club request update.
   await setDoc(
     doc(db, 'clubs', clubId, 'memberships', playerId),
     {

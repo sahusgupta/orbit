@@ -35,6 +35,7 @@ export const useManagementStartupSync = ({
   const hasPublishedStartupSnapshot = useRef(false);
 
   useEffect(() => {
+    // Browser state initialized the app before this optional desktop hydration.
     loadDesktopManagementState()?.then((record) => {
       if (record?.state) {
         const next = normalizeState(record.state);
@@ -43,6 +44,7 @@ export const useManagementStartupSync = ({
         setHasAuthenticated(hasPersistedSignIn(next));
         saveBrowserManagementState(next);
         if (canUseRendererFirebaseAuth()) {
+          // Cloud bootstrap is best-effort after a usable desktop snapshot has loaded.
           loadClubStateFromFirebase(getAccountKeyFromState(next))
             .then((cloudRecord) => {
               if (!cloudRecord?.state) {

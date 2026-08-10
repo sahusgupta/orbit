@@ -13,6 +13,7 @@ export function usePlayerStorage(emptyPlayer: PlayerAccount) {
 
   useEffect(() => {
     let active = true;
+    // A storage read failure follows the same cold-start path as missing local data.
     playerStorage.loadPlayer(emptyPlayer)
       .then((result) => {
         if (!active || result.kind !== 'restored') return;
@@ -30,6 +31,7 @@ export function usePlayerStorage(emptyPlayer: PlayerAccount) {
 
   useEffect(() => {
     if (!accountLoaded || !hasAccount || !player.name.trim() || !player.email.trim()) return;
+    // The in-memory account remains usable if background device persistence fails.
     playerStorage.savePlayer(player).catch(() => undefined);
   }, [accountLoaded, hasAccount, player]);
 
@@ -44,6 +46,7 @@ export function usePlayerStorage(emptyPlayer: PlayerAccount) {
   const dismissInAppAlert = (notificationId: string) => {
     setDismissedNotificationIds((current) => {
       const next = Array.from(new Set([...current, notificationId]));
+      // Dismissal remains effective for this session if device persistence fails.
       playerStorage.saveDismissedAlertIds(next).catch(() => undefined);
       return next;
     });

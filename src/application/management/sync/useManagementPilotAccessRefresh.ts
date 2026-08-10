@@ -22,6 +22,7 @@ export const useManagementPilotAccessRefresh = ({
     let cancelled = false;
 
     const refresh = async () => {
+      // A failed advisory refresh leaves the currently activated signed access unchanged.
       let result = await validatePilotAccess(access).catch(() => null);
       if (cancelled || !result) return;
       if (!result.managed) {
@@ -49,6 +50,7 @@ export const useManagementPilotAccessRefresh = ({
           }
         };
         saveBrowserManagementState(next);
+        // The refreshed value is already durable in browser storage; desktop mirroring is best-effort here.
         saveDesktopManagementState(next)?.catch(() => undefined);
         return next;
       });

@@ -58,11 +58,13 @@ export function usePlayerLiveData({
 
   useEffect(() => {
     if (!accountLoaded || !hasAccount || !firebaseIdentity || player.id !== firebaseIdentity.uid) return;
+    // Local profile editing stays responsive while background publication is best-effort.
     savePlayerProfile(player).catch(() => undefined);
   }, [accountLoaded, firebaseIdentity, hasAccount, player]);
 
   useEffect(() => {
     if (!accountLoaded || !hasAccount) return;
+    // A failed remote hydrate preserves the locally restored profile.
     fetchPlayerProfile()
       .then((profile) => {
         if (!profile) return;
@@ -149,6 +151,7 @@ export function usePlayerLiveData({
       setTournaments(result.tournaments);
       setTournamentRegistrations(result.registrations);
     };
+    // The live subscription remains active if its initial eager refresh fails.
     fetchPlayerTournaments(player.id).then(handleTournaments).catch(() => undefined);
     return subscribeToPlayerTournaments(player.id, handleTournaments);
   }, [accountLoaded, firebaseIdentity?.uid, hasAccount, player.id]);

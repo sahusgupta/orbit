@@ -264,6 +264,7 @@ export function usePlayerClubs({
       preferredGameIds: player.preferredGameIds,
       preferredStakes: player.preferredStakes
     };
+    // Preserve the current optimistic editor policy; live snapshots reconcile publication failures.
     if (isSyncConfigured()) await updatePlayerClubMembership(player, nextMembership).catch(() => undefined);
     setClubs((currentClubs) =>
       currentClubs.map((snapshot) =>

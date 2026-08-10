@@ -29,6 +29,7 @@ export function subscribeToPlayerTournaments(playerId: string, callback: (result
   let active = true;
   let childUnsubscribers: Unsubscribe[] = [];
   const canReadRegistrations = Boolean(auth.currentUser && auth.currentUser.uid === playerId);
+  // Snapshot listeners continue to provide future updates if this eager aggregate refresh fails.
   const refresh = () => fetchPlayerTournaments(playerId).then((result) => active && callback(result)).catch(() => undefined);
   const rootUnsubscribe = onSnapshot(collection(db, 'clubs'), (clubsSnapshot) => {
     childUnsubscribers.forEach((unsubscribe) => unsubscribe());

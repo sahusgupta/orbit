@@ -56,6 +56,8 @@ export type LocalBridgeStateResult =
 const defaultBridgeBaseUrl = (import.meta.env.VITE_ORBIT_LOCAL_API_URL || 'http://127.0.0.1:4629').replace(/\/$/, '');
 
 export const createManagementPersistence = (dependencies: ManagementPersistenceDependencies) => {
+  // The loopback bridge is an optional browser-development mirror; its failure
+  // must not replace the browser or desktop persistence result.
   const publishStateToLocalBridge = (state: AppState) =>
     dependencies.fetchState(`${dependencies.bridgeBaseUrl}/state`, {
       method: 'POST',
@@ -110,6 +112,7 @@ export const createManagementPersistence = (dependencies: ManagementPersistenceD
       void publishStateToLocalBridge(state);
     }
     if (dependencies.firebaseEnabled) {
+      // Firebase is a best-effort fan-out; the local save remains authoritative.
       dependencies.saveFirebaseState(state).catch(() => undefined);
     }
     return localSave.then((result) => ({ ...result, cloud: 'firebase-pending' as const }));

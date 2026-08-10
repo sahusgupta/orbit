@@ -702,6 +702,7 @@ function App() {
   useManagementUpdatePreservation(state);
 
   useEffect(() => {
+    // Backend status is advisory; the shell retains its initial disconnected status if unavailable.
     window.tableManagerDesktop?.getBackendStatus()
       .then((status) => setBackendStatus(status))
       .catch(() => undefined);
@@ -742,6 +743,7 @@ function App() {
       line?: number;
       column?: number;
     }) => {
+      // Error telemetry must never recurse into a renderer failure.
       window.tableManagerDesktop?.recordClientError({ ...payload, route }).catch(() => undefined);
     };
     const onError = (event: ErrorEvent) => {
@@ -785,6 +787,7 @@ function App() {
       accountKey: getAccountKeyFromState(next),
       metadata: usage.metadata
     };
+    // Usage telemetry is best-effort and never changes the state mutation result.
     window.tableManagerDesktop?.recordClientEvent(
       usage.action.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'usage-event',
       'usage',
@@ -1392,6 +1395,7 @@ function App() {
     window.setTimeout(() => {
       setSaveStatus({ state: 'saved', message: `Messaging trigger: ${triggeringCardHouse}` });
     }, 350);
+    // Operational telemetry is best-effort; the completed table transition remains authoritative.
     window.tableManagerDesktop?.recordClientEvent('table-started', 'tables', {
       gameId: session.gameId,
       tableId: session.id,
@@ -2006,6 +2010,7 @@ function App() {
   };
 
   const copyMessage = (message: string) => {
+    // Clipboard access is optional; analytics preserves the existing attempted-copy policy.
     navigator.clipboard?.writeText(message).catch(() => undefined);
     persist(state, false, { feature: 'Staff scripts', action: 'Copied script' });
   };
@@ -2521,7 +2526,12 @@ function App() {
       operator={activeStaffAccount?.name}
       saveState={saveStatus.state}
       onNavigate={navigatePrimary}
-      onSignOut={() => { persistSignIn(state, false); signOutOfFirebase().catch(() => undefined); setHasAuthenticated(false); }}
+      onSignOut={() => {
+        persistSignIn(state, false);
+        // Local sign-out must complete even if the optional Firebase session cannot be cleared.
+        signOutOfFirebase().catch(() => undefined);
+        setHasAuthenticated(false);
+      }}
       commands={shellCommands}
     >
       {staffRequestNotice ? (

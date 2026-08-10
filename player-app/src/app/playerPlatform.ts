@@ -34,6 +34,7 @@ export const playerPlatform = {
       android: `google.navigation:q=${encodedDestination}`,
       default: `https://www.google.com/maps/dir/?api=1&destination=${encodedDestination}`
     });
+    // Navigation is handed off to the operating system with no in-app recovery surface.
     if (url) Linking.openURL(url).catch(() => undefined);
   },
 
