@@ -57,6 +57,22 @@ import {
 } from './api/playerHttpApi';
 import { fetchLocalClubSnapshot, submitLocalPlayerRequest } from './api/localPlayerApi';
 import type { SyncResult } from './playerDataContracts';
+import {
+  fetchPlayerProfile,
+  savePlayerProfile,
+  updatePlayerClubMembership
+} from './firebase/playerProfileRepository';
+import {
+  fetchPlayerTournaments,
+  registerForTournament,
+  subscribeToPlayerTournaments,
+  unregisterFromTournament
+} from './firebase/playerTournamentRepository';
+import {
+  fetchPrivateGameListings,
+  submitPrivateGameListing,
+  subscribeToPrivateGameListings
+} from './firebase/privateGameRepository';
 
 export {
   ensureSignedInIdentity,
@@ -73,6 +89,18 @@ export {
   orbitApiBaseUrl
 };
 export type { PlayerIdentityStatus };
+export {
+  fetchPlayerProfile,
+  fetchPlayerTournaments,
+  fetchPrivateGameListings,
+  registerForTournament,
+  savePlayerProfile,
+  submitPrivateGameListing,
+  subscribeToPlayerTournaments,
+  subscribeToPrivateGameListings,
+  unregisterFromTournament,
+  updatePlayerClubMembership
+};
 
 type ClubStateRecord = {
   accountKey: string;
@@ -116,132 +144,8 @@ function getSnapshotFreshness(snapshot: PlayerClubSnapshot) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-export async function fetchPlayerTournaments(playerId: string) {
-  const clubsSnapshot = await getDocs(collection(db, 'clubs'));
-  const visibleClubDocs = clubsSnapshot.docs.filter((clubDoc) => isPlayerVisibleClubName(clubDoc.data()?.name));
-  const canReadRegistrations = Boolean(auth.currentUser && auth.currentUser.uid === playerId);
-  const rows = await Promise.all(visibleClubDocs.map(async (clubDoc) => {
-    const events = await getDocs(collection(db, 'clubs', clubDoc.id, 'tournaments'));
-    const registrations = canReadRegistrations
-      ? await getDocs(query(collection(db, 'clubs', clubDoc.id, 'tournamentRegistrations'), where('playerId', '==', playerId)))
-      : null;
-    return {
-      tournaments: events.docs.map((eventDoc) => ({ ...eventDoc.data(), id: eventDoc.id, clubId: clubDoc.id } as PlayerTournament)),
-      registrations: registrations?.docs.map((registrationDoc) => registrationDoc.data() as PlayerTournamentRegistration) ?? []
-    };
-  }));
-  return {
-    tournaments: rows.flatMap((row) => row.tournaments),
-    registrations: rows.flatMap((row) => row.registrations)
-  };
-}
-
-export function subscribeToPlayerTournaments(playerId: string, callback: (result: Awaited<ReturnType<typeof fetchPlayerTournaments>>) => void) {
-  let active = true;
-  let childUnsubscribers: Unsubscribe[] = [];
-  const canReadRegistrations = Boolean(auth.currentUser && auth.currentUser.uid === playerId);
-  const refresh = () => fetchPlayerTournaments(playerId).then((result) => active && callback(result)).catch(() => undefined);
-  const rootUnsubscribe = onSnapshot(collection(db, 'clubs'), (clubsSnapshot) => {
-    childUnsubscribers.forEach((unsubscribe) => unsubscribe());
-    childUnsubscribers = clubsSnapshot.docs
-      .filter((clubDoc) => isPlayerVisibleClubName(clubDoc.data()?.name))
-      .flatMap((clubDoc) => {
-        const subscriptions = [onSnapshot(collection(db, 'clubs', clubDoc.id, 'tournaments'), refresh, () => undefined)];
-        if (canReadRegistrations) {
-          subscriptions.push(onSnapshot(query(collection(db, 'clubs', clubDoc.id, 'tournamentRegistrations'), where('playerId', '==', playerId)), refresh, () => undefined));
-        }
-        return subscriptions;
-      });
-    refresh();
-  }, () => undefined);
-  return () => {
-    active = false;
-    rootUnsubscribe();
-    childUnsubscribers.forEach((unsubscribe) => unsubscribe());
-  };
-}
-
-export async function registerForTournament(tournament: PlayerTournament, player: PlayerAccount) {
-  const uid = ensureSignedInIdentity();
-  if (uid !== player.id) throw new Error('The signed-in Orbit Player account does not match this profile.');
-  if (tournament.registrationStatus !== 'open' || Date.now() >= Date.parse(tournament.registrationClosesAt)) {
-    throw new Error('Registration for this tournament is closed.');
-  }
-  const now = new Date().toISOString();
-  const registration: PlayerTournamentRegistration = {
-    id: `${tournament.id}:${uid}`,
-    tournamentId: tournament.id,
-    clubId: tournament.clubId,
-    playerId: uid,
-    playerName: player.name,
-    playerEmail: player.email,
-    status: 'registered',
-    rebuys: 0,
-    addOns: 0,
-    registeredAt: now,
-    updatedAt: now
-  };
-  await setDoc(doc(db, 'clubs', tournament.clubId, 'tournamentRegistrations', registration.id), { ...registration, updatedAt: serverTimestamp() });
-  return registration;
-}
-
-export async function unregisterFromTournament(tournament: PlayerTournament, registration: PlayerTournamentRegistration) {
-  const uid = ensureSignedInIdentity();
-  if (registration.playerId !== uid) throw new Error('You can only remove your own registration.');
-  if (!tournament.unregisterAllowed || Date.now() >= Date.parse(tournament.startsAt)) {
-    throw new Error('Self-unregistration is no longer available. Contact tournament staff.');
-  }
-  await deleteDoc(doc(db, 'clubs', tournament.clubId, 'tournamentRegistrations', registration.id));
-}
-
 export function isSyncConfigured() {
   return true;
-}
-
-export async function savePlayerProfile(player: PlayerAccount, membershipPatch?: PlayerClubMembershipRecord) {
-  const uid = ensureSignedInIdentity();
-  const profileRef = doc(db, 'players', uid);
-  const existing = await getDoc(profileRef);
-  const existingData = existing.exists() ? (existing.data() as Partial<PlayerProfileDocument>) : {};
-  const clubMemberships = {
-    ...(existingData.clubMemberships ?? {}),
-    ...(membershipPatch ? { [membershipPatch.clubId]: membershipPatch } : {})
-  };
-  const profile: PlayerProfileDocument = {
-    ...player,
-    id: uid,
-    uid,
-    name: player.name,
-    email: player.email,
-    preferredGameIds: player.preferredGameIds,
-    favoriteClubIds: player.favoriteClubIds ?? [],
-    preferredStakes: player.preferredStakes,
-    typicalAvailability: player.typicalAvailability,
-    homeLocation: player.homeLocation,
-    searchRadiusMiles: player.searchRadiusMiles,
-    clubMemberships,
-    updatedAt: new Date().toISOString()
-  };
-
-  await setDoc(
-    profileRef,
-    {
-      ...profile,
-      updatedAt: serverTimestamp()
-    },
-    { merge: true }
-  );
-  return profile;
-}
-
-export async function fetchPlayerProfile() {
-  const uid = ensureSignedInIdentity();
-  const snapshot = await getDoc(doc(db, 'players', uid));
-  return snapshot.exists() ? (snapshot.data() as PlayerProfileDocument) : null;
-}
-
-export async function updatePlayerClubMembership(player: PlayerAccount, membership: PlayerClubMembershipRecord) {
-  return savePlayerProfile(player, membership);
 }
 
 export async function fetchClubSnapshot(player: Pick<PlayerAccount, 'id' | 'name'>, accountKey?: string): Promise<SyncResult> {
@@ -485,51 +389,6 @@ export async function deleteCurrentPlayerAccount() {
 
 export async function signOutCurrentPlayer() {
   await signOutFirebasePlayer();
-}
-
-export async function fetchPrivateGameListings() {
-  try {
-    const snapshots = await getDocs(collection(db, 'privateGames'));
-    const games = snapshots.docs
-      .map((snapshot) => snapshot.data() as PlayerPrivateGameListing)
-      .filter((game) => game.status === 'Open')
-      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
-    return { ok: true as const, games };
-  } catch (error) {
-    return { ok: false as const, error: error instanceof Error ? error.message : 'Unable to read private games.' };
-  }
-}
-
-export function subscribeToPrivateGameListings(
-  callback: (result: { ok: true; games: PlayerPrivateGameListing[] } | { ok: false; error: string }) => void
-) {
-  return onSnapshot(
-    collection(db, 'privateGames'),
-    (snapshots) => {
-      const games = snapshots.docs
-        .map((snapshot) => snapshot.data() as PlayerPrivateGameListing)
-        .filter((game) => game.status === 'Open')
-        .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
-      callback({ ok: true, games });
-    },
-    (error) => callback({ ok: false, error: error.message || 'Unable to subscribe to private games.' })
-  );
-}
-
-export async function submitPrivateGameListing(listing: PlayerPrivateGameListing) {
-  try {
-    await setDoc(
-      doc(db, 'privateGames', listing.id),
-      {
-        ...listing,
-        updatedAt: serverTimestamp()
-      },
-      { merge: false }
-    );
-    return { ok: true as const, game: listing };
-  } catch (error) {
-    return { ok: false as const, error: error instanceof Error ? error.message : 'Unable to list private game.' };
-  }
 }
 
 export async function submitMembershipRequest(request: PlayerMembershipRequest): Promise<SyncResult> {
