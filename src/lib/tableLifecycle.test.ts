@@ -492,6 +492,7 @@ describe('table lifecycle transitions', () => {
     inspectorSession.connect();
     await inspectorSession.post('Debugger.enable');
     await act(async () => {
+      await import('../components/TableView');
       await import('../main');
     });
   });

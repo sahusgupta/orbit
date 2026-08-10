@@ -283,6 +283,10 @@ describe('table event report projection', () => {
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
 
     await act(async () => {
+      await Promise.all([
+        import('../components/KpisView'),
+        import('../components/SummaryView')
+      ]);
       await import('../main');
     });
   });

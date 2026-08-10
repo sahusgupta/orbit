@@ -453,6 +453,7 @@ describe('planned participant construction and persistence', () => {
     inspectorSession.connect();
     await inspectorSession.post('Debugger.enable');
     await act(async () => {
+      await import('../components/BuilderView');
       await import('../main');
     });
   });

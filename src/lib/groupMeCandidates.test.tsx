@@ -230,6 +230,7 @@ describe('GroupMe candidate review boundary', () => {
     });
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
     await act(async () => {
+      await import('../components/SignalsView');
       await import('../main');
     });
   });

@@ -31,19 +31,10 @@ import {
   X
 } from 'lucide-react';
 import branding from '../branding.config.json';
-import PokerTable, { type Player as PokerTablePlayer } from './components/PokerTable';
+import type { Player as PokerTablePlayer } from './components/PokerTable';
 import AppShell, { type PrimaryDestination, type ShellCommand } from './components/AppShell';
-import BuilderView from './components/BuilderView';
 import FloorView from './components/FloorView';
-import KpisView from './components/KpisView';
 import PanelTitle from './components/PanelTitle';
-import ProfilesView from './components/ProfilesView';
-import SettingsView from './components/SettingsView';
-import SignalsView from './components/SignalsView';
-import SummaryView from './components/SummaryView';
-import TableView from './components/TableView';
-import TournamentsView from './components/TournamentsView';
-import TournamentTvView from './components/TournamentTvView';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import {
   countActivePlayersForTable,
@@ -264,6 +255,22 @@ import type {
   UsageEvent
 } from './domain/types';
 import './styles.css';
+
+const BuilderView = React.lazy(() => import('./components/BuilderView'));
+const KpisView = React.lazy(() => import('./components/KpisView'));
+const ProfilesView = React.lazy(() => import('./components/ProfilesView'));
+const SettingsView = React.lazy(() => import('./components/SettingsView'));
+const SignalsView = React.lazy(() => import('./components/SignalsView'));
+const SummaryView = React.lazy(() => import('./components/SummaryView'));
+const TableView = React.lazy(() => import('./components/TableView'));
+const TournamentsView = React.lazy(() => import('./components/TournamentsView'));
+const TournamentTvView = React.lazy(() => import('./components/TournamentTvView'));
+
+const withRouteLoadingBoundary = (content: React.ReactNode) => (
+  <React.Suspense fallback={<main aria-busy="true" aria-label="Loading view" />}>
+    {content}
+  </React.Suspense>
+);
 
 declare global {
   interface Window {
@@ -2686,7 +2693,7 @@ function App() {
           </section>
         ) : null}
       </div>
-      {content}
+      {withRouteLoadingBoundary(content)}
     </AppShell>
   );
 
@@ -2932,7 +2939,9 @@ function App() {
     const remaining = getTournamentLevelRemainingSeconds(tournament, clockNow);
     return (
       tournament ? (
-        <TournamentTvView tournament={tournament} nowMs={clockNow} remainingSeconds={remaining} prizePool={prizePool} />
+        withRouteLoadingBoundary(
+          <TournamentTvView tournament={tournament} nowMs={clockNow} remainingSeconds={remaining} prizePool={prizePool} />
+        )
       ) : (
         <main className="orbit-tournament-display">
           <section className="tournament-tv-empty">
