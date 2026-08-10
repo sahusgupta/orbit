@@ -8,7 +8,6 @@ import {
   type ClubMembershipPaymentMethod,
   type ClubMembershipPlan,
   type PlayerAccount,
-  type PlayerClubMembershipRecord,
   type PlayerClubSnapshot,
   type PlayerMembershipOption,
   type PlayerSyncGame,
@@ -21,7 +20,6 @@ import {
   isSyncConfigured,
   submitMembershipRequest,
   submitWaitlistRequest,
-  updatePlayerClubMembership,
   type FirebasePlayerIdentity
 } from '../data/orbitSyncApi';
 
@@ -33,7 +31,6 @@ type UsePlayerClubsOptions = {
   requireVerifiedAge(returnScreen: Screen, action: string): boolean;
   setClubMembershipMessage: Dispatch<SetStateAction<string>>;
   setClubs: Dispatch<SetStateAction<PlayerClubSnapshot[]>>;
-  setPlayer: Dispatch<SetStateAction<PlayerAccount>>;
   setScreen: Dispatch<SetStateAction<Screen>>;
   setSelectedClubId: Dispatch<SetStateAction<string>>;
   setSyncStatus: Dispatch<SetStateAction<string>>;
@@ -47,7 +44,6 @@ export function usePlayerClubs({
   requireVerifiedAge,
   setClubMembershipMessage,
   setClubs,
-  setPlayer,
   setScreen,
   setSelectedClubId,
   setSyncStatus
@@ -236,14 +232,6 @@ export function usePlayerClubs({
     platform.openDirections(club.club.address || club.club.name);
   };
 
-  const toggleFavoriteClub = (clubId: string) => {
-    setPlayer((current) => {
-      const favorites = current.favoriteClubIds ?? [];
-      const favoriteClubIds = favorites.includes(clubId) ? favorites.filter((id) => id !== clubId) : [...favorites, clubId];
-      return { ...current, favoriteClubIds };
-    });
-  };
-
   const submitMembershipApplication = async (club: PlayerClubSnapshot, membershipOption?: PlayerMembershipOption) => {
     if (!player.id || !player.name.trim()) {
       setClubMembershipMessage('Finish creating your Orbit profile before applying.');
@@ -253,43 +241,8 @@ export function usePlayerClubs({
     await requestMembership(club, plan, 'in-person', membershipOption);
   };
 
-  const changeMembership = async (club: PlayerClubSnapshot, patch: Partial<PlayerClubMembershipRecord>) => {
-    const current = club.memberships.find((membership) => isPlayerMembership(membership, player));
-    const today = new Date().toISOString().slice(0, 10);
-    const nextMembership: PlayerClubMembershipRecord = {
-      clubId: club.club.id,
-      status: patch.status ?? (current?.status === 'Expired' ? 'Expired' : 'Active'),
-      joinedAt: patch.joinedAt ?? current?.joinedAt ?? today,
-      expiresAt: patch.expiresAt ?? current?.expiresAt,
-      preferredGameIds: player.preferredGameIds,
-      preferredStakes: player.preferredStakes
-    };
-    // Preserve the current optimistic editor policy; live snapshots reconcile publication failures.
-    if (isSyncConfigured()) await updatePlayerClubMembership(player, nextMembership).catch(() => undefined);
-    setClubs((currentClubs) =>
-      currentClubs.map((snapshot) =>
-        snapshot.club.id === club.club.id
-          ? {
-              ...snapshot,
-              memberships: snapshot.memberships.map((membership) =>
-                isPlayerMembership(membership, player)
-                  ? {
-                      ...membership,
-                      status: nextMembership.status === 'Denied' ? 'Expired' : nextMembership.status,
-                      joinedAt: nextMembership.joinedAt ?? membership.joinedAt,
-                      expiresAt: nextMembership.expiresAt ?? membership.expiresAt
-                    }
-                  : membership
-              )
-            }
-          : snapshot
-      )
-    );
-  };
-
   return {
     cancelWaitlist,
-    changeMembership,
     completeClubPayment,
     joinWaitlist,
     openClubPayment,
@@ -303,7 +256,6 @@ export function usePlayerClubs({
     setSeatRequestDraft,
     setSeatRequestMessage,
     submitMembershipApplication,
-    submitSeatRequest,
-    toggleFavoriteClub
+    submitSeatRequest
   };
 }

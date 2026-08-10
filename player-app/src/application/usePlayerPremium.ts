@@ -95,7 +95,6 @@ export function usePlayerPremium({ accountLoaded, enabled, hasAccount, platformO
     openPremiumCheckout,
     premiumMessage,
     premiumMonthlyPriceLabel,
-    premiumStatus,
     restorePremiumPurchases,
     setPremiumMessage,
     setPremiumStatus

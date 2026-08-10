@@ -235,7 +235,6 @@ export default function PlayerApp() {
     requireVerifiedAge,
     setClubMembershipMessage,
     setClubs,
-    setPlayer,
     setScreen,
     setSelectedClubId,
     setSyncStatus
