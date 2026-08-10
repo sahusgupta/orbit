@@ -1,5 +1,12 @@
 # Agent Journal
 
+## 2026-08-10 - REF-029 dependency, error-policy, and dead-code audit
+
+- Added `npm run audit:module-graph`; the final 170-module / 521-edge production graph has zero cycles, dependency violations, or unresolved imports. All zero-incoming runtime entries are configured, and the only two unconfigured candidates are deliberately retained Badge/Button design-system sources.
+- Removed the Player domain Firebase SDK type dependency, compiler/search/history-proven management locals, and two obsolete Player hook actions. Aggregate characterization restored two named management closures that remain protected despite compiler reachability; four dormant onboarding steps and the undo write cadence are also explicitly retained.
+- Classified silent failures as explicit failures, defensive defaults, local-authoritative fan-out, best-effort hydrate/subscription, compatibility acknowledgements, or optional OS handoffs. Ambiguous best-effort catches now state their unchanged policy adjacent to the call site.
+- The first aggregate gate exposed one removed closure and two intentional comment fingerprints; the 2-file / 8-test correction gate then passed. Final verification passed all compiler projects, Player TypeScript, 81 files / 471 tests, and the 1,957-module build. The renderer entry is 914,989 bytes / 281,186 gzip. No production service, credential, database, dependency, deployment, native workflow, warning suppression, or push was used.
+
 ## 2026-08-10 - REF-028 measured renderer route loading
 
 - Added a write-free production-config bundle measurement. The baseline entry was 1,009,541 bytes / 301,459 gzip, and nine non-default route components contributed 194,351 rendered bytes before minification; Player polling was rejected as an unproven candidate because it already guards overlap, app-state cadence, and teardown.

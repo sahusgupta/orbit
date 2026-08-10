@@ -766,7 +766,7 @@ tasks:
 
   - id: REF-029
     title: Audit error handling, dependency direction, and dead code
-    status: pending
+    status: complete
     objective: Perform a post-migration consistency audit, make expected fallback policies explicit, remove only proven dead code, and close temporary compatibility seams.
     evidence_root_cause: Starting code has silent optional catches, two zero-incoming UI candidates, and migrations may temporarily retain facades or adapters.
     files_areas:

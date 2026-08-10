@@ -63,6 +63,14 @@ Run the complete repository verification entrypoint:
 npm run verify
 ```
 
+Audit production import direction, cycles, unresolved local imports, and zero-incoming entry candidates:
+
+```powershell
+npm run audit:module-graph
+```
+
+The graph audit knows the configured Electron, API, Expo, platform-variant, and script entrypoints. Treat any remaining zero-incoming module as a review candidate, not automatic deletion; verify build configuration, dynamic loading, history, and product intent first.
+
 The historical TypeScript stabilization record is in `docs/agent/BASELINE.md`. The current `npm run verify` gate requires every root compiler project, Player TypeScript, unit tests, and the renderer build to pass.
 
 Run the API:
@@ -117,6 +125,8 @@ Management persistence follows this ownership map:
 | Firebase protocol-v2 publication, ingestion, and request subscriptions | `src/lib/firebaseClubSync.ts` and `src/lib/playerSync.ts` |
 
 The browser repository is always written first. A desktop build then uses the preload bridge; a browser build publishes to the optional localhost bridge. Renderer Firebase publication remains optional and fire-and-forget for ordinary saves. Do not bypass these owners or change account partition, timestamp precedence, merge ordering, retry cadence, or save-result semantics without characterization.
+
+Best-effort catches are limited to documented fallback classes: optional local/cloud mirroring, telemetry, already-backed local/device state, eager reads followed by live subscriptions, current/legacy acknowledgement aliases, and OS handoffs. Authentication, payment, licensing, external-input decoding, and authoritative request failures must remain explicit. Do not convert a caught failure between those classes without a separately characterized product/error-policy change.
 
 `src/main.tsx` loads the default Floor view synchronously and defers the nine non-default management route components with `React.lazy`. Keep route content inside the shared Suspense boundary and use `npm run measure:renderer-bundle` to prove any bundle-loading change; the command builds in memory and reports exact initial, lazy, and gzip bytes. Route tests preload the component they exercise before asserting its settled DOM.
 
