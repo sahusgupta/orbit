@@ -15,6 +15,13 @@ export const publicPages = Object.freeze({
     schemaType: 'SoftwareApplication',
     indexable: true
   },
+  'faq.html': {
+    path: '/faq.html',
+    title: 'Orbit FAQ | Product, identity, and release answers',
+    description: 'Factual answers about Orbit poker room operations, player identity, connectivity, releases, and account support.',
+    schemaType: 'WebPage',
+    indexable: true
+  },
   'support.html': {
     path: '/support.html',
     title: 'Orbit Support | Account and installation help',

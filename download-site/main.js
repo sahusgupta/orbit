@@ -9,6 +9,11 @@ async function loadManifest() {
   const versionElement = document.querySelector('#version');
   const updatedElement = document.querySelector('#updated');
   const installerLink = document.querySelector('#installer-link');
+  const releaseStatus = document.querySelector('#release-status');
+  if (!versionElement || !updatedElement || !installerLink || !releaseStatus) return;
+
+  releaseStatus.classList.add('is-loading');
+  releaseStatus.setAttribute('aria-busy', 'true');
 
   try {
     const staged = await readSameOriginManifest('./downloads/manifest.json');
@@ -29,6 +34,9 @@ async function loadManifest() {
     }
   } catch {
     updatedElement.textContent = 'Release metadata unavailable';
+  } finally {
+    releaseStatus.classList.remove('is-loading');
+    releaseStatus.removeAttribute('aria-busy');
   }
 }
 

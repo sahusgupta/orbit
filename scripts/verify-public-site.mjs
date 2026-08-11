@@ -75,8 +75,22 @@ assert.ok(robots.includes(`Sitemap: ${publicOrigin}/sitemap.xml`));
 assert.match(read('llms.txt'), /Authenticated, administrative, API, player-private, and venue-private routes/);
 assert.match(read('ai-policy.txt'), /Automated crawlers may index the public static pages/);
 assert.ok(fs.existsSync(path.join(outputRoot, 'orbit-icon.png')), 'OG image must be emitted');
-
 const emittedFiles = fs.readdirSync(outputRoot, { recursive: true }).map(String);
+
+const generatedArt = path.join(outputRoot, 'art', 'orbit-table-rhythm-v1.jpg');
+const productProof = path.join(outputRoot, 'proof', 'orbit-core-empty-workspace.jpg');
+assert.ok(fs.statSync(generatedArt).size > 100_000, 'Intentional generated atmospheric artwork must be emitted');
+assert.ok(fs.statSync(productProof).size > 40_000, 'Current redacted product capture must be emitted');
+assert.match(read('index.html'), /alt="Abstract editorial illustration[^\"]+does not depict the Orbit product\./);
+assert.match(read('product.html'), /alt="Current Orbit Core Floor interface in an empty local workspace[^\"]+redacted\./);
+assert.match(read('product.html'), /Current application capture/);
+assert.equal((read('faq.html').match(/<details class="faq-disclosure">/g) || []).length, 7, 'FAQ must contain seven factual disclosures');
+
+const marketingSource = ['index.html', 'product.html', 'faq.html', 'support.html'].map(read).join('\n');
+assert.doesNotMatch(marketingSource, /testimonial|trusted by|customer stor(?:y|ies)|five-star|pricing card|built for the future/i);
+const publicStyles = read(emittedFiles.find((fileName) => fileName.endsWith('.css')));
+assert.doesNotMatch(publicStyles, /(?:linear|radial)-gradient|aurora|gradient-blob|backdrop-filter|noise-overlay/i);
+
 assert.equal(emittedFiles.some((fileName) => fileName.endsWith('.map')), false, 'Public source maps must not be emitted');
 
 console.log(`Public site verification passed: ${Object.keys(publicPages).length} static pages, ${indexedPages.length} indexed routes, configured preview origin.`);

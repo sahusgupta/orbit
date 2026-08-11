@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Factual answers about Orbit poker room operations, player identity, connectivity, releases, and account support." />
+    <title>Orbit FAQ | Product, identity, and release answers</title>
+    <!-- orbit-public-metadata -->
+    <link rel="icon" type="image/svg+xml" href="./orbit-logo.svg" />
+    <link rel="icon" type="image/png" sizes="512x512" href="./orbit-icon.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="site-brand" href="./index.html" aria-label="Orbit home"><img src="./orbit-logo.svg" alt="" /><span>Orbit</span></a>
+      <nav aria-label="Primary navigation"><a href="./product.html">Product</a><a href="./faq.html" aria-current="page">FAQ</a><a href="./support.html">Support</a></nav>
+    </header>
+    <main class="faq-shell">
+      <header class="faq-intro"><p class="eyebrow">Orbit FAQ</p><h1>Direct answers before you operate or install.</h1><p class="lead">These answers describe behavior established in the current Orbit repository. They do not add pricing, customer claims, or unreleased functionality.</p><a class="secondary-button" href="./support.html">Contact support</a></header>
+      <section class="faq-stack" aria-label="Frequently asked questions">
+        <details class="faq-disclosure">
+          <summary><span><small>Scope</small>What does Orbit connect?</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 10 5 5 5-5" /></svg></summary>
+          <div><p>Orbit connects live poker room demand, waitlists, check-in, seating, table state, memberships, tournaments, and closeout reporting. Orbit Core is the management desktop application; Orbit Player is the player-facing application for participating rooms.</p></div>
+        </details>
+        <details class="faq-disclosure">
+          <summary><span><small>Workflow</small>How do player requests reach staff?</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 10 5 5 5-5" /></svg></summary>
+          <div><p>Authenticated players can send membership and waitlist requests through Orbit Player. The backend validates identity and tenant scope before the request becomes available to the participating room's staff workflow.</p></div>
+        </details>
+        <details class="faq-disclosure">
+          <summary><span><small>Connectivity</small>Does Orbit Core work without a connection?</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 10 5 5 5-5" /></svg></summary>
+          <div><p>Orbit Core keeps local persistence as an offline cache. Durable shared state remains server-owned, and realtime publication or reconciliation requires a connection. Revision and conflict semantics prevent a local cache from silently becoming the shared authority.</p></div>
+        </details>
+        <details class="faq-disclosure">
+          <summary><span><small>Identity</small>How are player and staff privileges separated?</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 10 5 5 5-5" /></svg></summary>
+          <div><p>Orbit Player uses Firebase Authentication for player identity. Tenant and staff role privileges are verified by trusted server or desktop main-process boundaries rather than accepted from browser-selected state.</p></div>
+        </details>
+        <details class="faq-disclosure">
+          <summary><span><small>Release</small>Can I download Orbit Core now?</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 10 5 5 5-5" /></svg></summary>
+          <div><p>The public page exposes an installer only after an approved, verified release promotion provides a real same-origin download. Until then, the release state remains unavailable rather than pointing to an unverified fallback.</p></div>
+        </details>
+        <details class="faq-disclosure">
+          <summary><span><small>Platform</small>Which desktop platform is listed?</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 10 5 5 5-5" /></svg></summary>
+          <div><p>The current public release manifest identifies Orbit Core for Windows x64. A release is not treated as production merely because code reaches the main branch.</p></div>
+        </details>
+        <details class="faq-disclosure">
+          <summary><span><small>Account help</small>How can a Player account be deleted?</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 10 5 5 5-5" /></svg></summary>
+          <div><p>Use the account deletion action in Orbit Player's Profile and Settings area. If you cannot access the app, call Orbit support for help with the request.</p></div>
+        </details>
+      </section>
+      <aside class="faq-note"><strong>Need help with a specific account or installation?</strong><p>Do not include passwords, pilot keys, or other credentials when requesting support.</p><a href="./support.html">Open Support</a></aside>
+    </main>
+    <footer class="site-footer"><span>Orbit Technologies LLC</span><nav aria-label="Footer navigation"><a href="./index.html">Home</a><a href="./product.html">Product</a><a href="./support.html">Support</a><a href="./privacy.html">Privacy</a><a href="./terms.html">Terms</a></nav></footer>
+  </body>
+</html>

@@ -94,6 +94,7 @@ export default defineConfig(() => {
         input: {
           index: fileURLToPath(new URL('./index.html', import.meta.url)),
           product: fileURLToPath(new URL('./product.html', import.meta.url)),
+          faq: fileURLToPath(new URL('./faq.html', import.meta.url)),
           support: fileURLToPath(new URL('./support.html', import.meta.url)),
           privacy: fileURLToPath(new URL('./privacy.html', import.meta.url)),
           terms: fileURLToPath(new URL('./terms.html', import.meta.url)),
