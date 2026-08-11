@@ -86,8 +86,14 @@ function registerClientRoutes(app, liveUpdates) {
     response.status(202).json({ ok: true, error });
   }));
 
-  app.get('/clients', requireOwnerApiKey, asyncRoute(async (_request, response) => {
-    response.json({ ok: true, clients: await listClients() });
+  app.get('/clients', requireOwnerApiKey, asyncRoute(async (request, response) => {
+    const limit = Math.min(Math.max(Number(request.query.limit || 100), 1), 250);
+    const clients = await listClients({
+      limit: limit + 1,
+      beforeLastSeenAt: request.query.beforeLastSeenAt,
+      beforeDeviceId: request.query.beforeDeviceId
+    });
+    response.json({ ok: true, clients: clients.slice(0, limit), hasMore: clients.length > limit });
   }));
 
   app.get('/clients/:deviceId', requireOwnerApiKey, asyncRoute(async (request, response) => {
@@ -96,46 +102,81 @@ function registerClientRoutes(app, liveUpdates) {
       response.status(404).json({ ok: false, error: 'Client not found.' });
       return;
     }
-    response.json({ ok: true, client, updateEvents: await listClientUpdateEvents(request.params.deviceId) });
+    const limit = Math.min(Math.max(Number(request.query.limit || 100), 1), 250);
+    const updateEvents = await listClientUpdateEvents(request.params.deviceId, {
+      limit: limit + 1,
+      beforeOccurredAt: request.query.beforeOccurredAt,
+      beforeId: request.query.beforeId
+    });
+    response.json({ ok: true, client, updateEvents: updateEvents.slice(0, limit), hasMore: updateEvents.length > limit });
   }));
 
   app.get('/telemetry/events', requireOwnerApiKey, asyncRoute(async (request, response) => {
+    const limit = Math.min(Math.max(Number(request.query.limit || 100), 1), 250);
+    const events = await listTelemetryEvents({
+      venueId: request.query.venueId,
+      deviceId: request.query.deviceId,
+      beforeOccurredAt: request.query.beforeOccurredAt,
+      beforeId: request.query.beforeId,
+      limit: limit + 1
+    });
     response.json({
       ok: true,
-      events: await listTelemetryEvents({
-        venueId: request.query.venueId,
-        deviceId: request.query.deviceId,
-        limit: request.query.limit
-      })
+      events: events.slice(0, limit),
+      hasMore: events.length > limit
     });
   }));
 
   app.get('/telemetry/errors', requireOwnerApiKey, asyncRoute(async (request, response) => {
+    const limit = Math.min(Math.max(Number(request.query.limit || 100), 1), 250);
+    const errors = await listClientErrors({
+      venueId: request.query.venueId,
+      deviceId: request.query.deviceId,
+      beforeOccurredAt: request.query.beforeOccurredAt,
+      beforeId: request.query.beforeId,
+      limit: limit + 1
+    });
     response.json({
       ok: true,
-      errors: await listClientErrors({
-        venueId: request.query.venueId,
-        deviceId: request.query.deviceId,
-        limit: request.query.limit
-      })
+      errors: errors.slice(0, limit),
+      hasMore: errors.length > limit
     });
   }));
 
-  app.get('/venues', requireOwnerApiKey, asyncRoute(async (_request, response) => {
-    response.json({ ok: true, venues: await listVenues() });
+  app.get('/venues', requireOwnerApiKey, asyncRoute(async (request, response) => {
+    const limit = Math.min(Math.max(Number(request.query.limit || 100), 1), 250);
+    const venues = await listVenues({
+      limit: limit + 1,
+      beforeSavedAt: request.query.beforeSavedAt,
+      beforeVenueId: request.query.beforeVenueId
+    });
+    response.json({ ok: true, venues: venues.slice(0, limit), hasMore: venues.length > limit });
   }));
 
   app.get('/venues/:venueId/clients', requireOwnerApiKey, asyncRoute(async (request, response) => {
-    response.json({ ok: true, clients: await listClients({ venueId: request.params.venueId }) });
+    const limit = Math.min(Math.max(Number(request.query.limit || 100), 1), 250);
+    const clients = await listClients({
+      venueId: request.params.venueId,
+      limit: limit + 1,
+      beforeLastSeenAt: request.query.beforeLastSeenAt,
+      beforeDeviceId: request.query.beforeDeviceId
+    });
+    response.json({ ok: true, clients: clients.slice(0, limit), hasMore: clients.length > limit });
   }));
 
   app.get('/publications', requireOwnerApiKey, asyncRoute(async (request, response) => {
+    const limit = Math.min(Math.max(Number(request.query.limit || 100), 1), 250);
+    const publications = await listPublicationOutbox({
+      accountKey: request.query.accountKey,
+      limit: limit + 1,
+      beforeCreatedAt: request.query.beforeCreatedAt,
+      beforeAccountKey: request.query.beforeAccountKey,
+      beforeRevision: request.query.beforeRevision
+    });
     response.json({
       ok: true,
-      publications: await listPublicationOutbox({
-        accountKey: request.query.accountKey,
-        limit: request.query.limit
-      })
+      publications: publications.slice(0, limit),
+      hasMore: publications.length > limit
     });
   }));
 

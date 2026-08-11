@@ -157,8 +157,16 @@ async function registerSignedPilotLicense(envelope) {
   return registerPilotLicense(verification.access);
 }
 
-async function listPilotLicenses() {
-  const snapshot = await getLicenseCollection().orderBy('expiresAt', 'asc').get();
+async function listPilotLicenses(options = {}) {
+  const limit = Math.min(Math.max(Number(options.limit || 100), 1), 251);
+  const admin = getAdminSdk();
+  let query = getLicenseCollection()
+    .orderBy('expiresAt', 'asc')
+    .orderBy(admin.firestore.FieldPath.documentId(), 'asc');
+  if (options.afterExpiresAt && options.afterId) {
+    query = query.startAfter(String(options.afterExpiresAt), String(options.afterId));
+  }
+  const snapshot = await query.limit(limit).get();
   return snapshot.docs.map((document) => publicLicense({ id: document.id, ...document.data() }));
 }
 

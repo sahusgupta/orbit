@@ -5,6 +5,7 @@ import {
   managementStorageKey
 } from '../../domain/licensing';
 import type { AppState, PersistedAppState, PilotAccess } from '../../domain/types';
+import { isLocalE2EFixtureMode } from '../../lib/e2eFixtureMode';
 
 export type BrowserStorage = Pick<Storage, 'getItem' | 'setItem'> & Partial<Pick<Storage, 'removeItem'>>;
 
@@ -25,7 +26,7 @@ const memoryStates = (storage: BrowserStorage) => {
   return states;
 };
 const usesLegacyVitestStorage = (storage: BrowserStorage) =>
-  import.meta.env.MODE === 'test' && typeof localStorage !== 'undefined' && storage === localStorage;
+  (import.meta.env.MODE === 'test' || isLocalE2EFixtureMode()) && typeof localStorage !== 'undefined' && storage === localStorage;
 
 export const loadBrowserManagementState = (storage: BrowserStorage = localStorage): AppState => {
   try {

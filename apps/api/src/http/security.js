@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { sendOperationalAlert } = require('./operationalAlerts');
 
 function configuredOrigins() {
   return new Set(String(process.env.ORBIT_ALLOWED_ORIGINS || '')
@@ -90,6 +91,13 @@ function createRateLimit(options = {}) {
     response.set('x-ratelimit-limit', String(maximum));
     response.set('x-ratelimit-remaining', String(Math.max(maximum - bucket.count, 0)));
     if (bucket.count > maximum) {
+      if (bucket.count === maximum + 1) {
+        void sendOperationalAlert('authentication-abuse', 'warning', {
+          limiter: options.name || 'general',
+          identityRef: key.split(':').at(-1),
+          requestId: request.orbitRequestId || ''
+        });
+      }
       response.set('retry-after', String(Math.max(Math.ceil((bucket.resetAt - now) / 1000), 1)));
       response.status(429).json({ ok: false, error: 'Too many requests. Try again later.', code: 'RATE_LIMITED' });
       return;

@@ -3,6 +3,7 @@ import { firebaseConfig } from './firebaseConfig';
 export {
   createClubMembershipCheckout,
   createPlayerIdentityVerificationSession,
+  fetchRemotePlayerDiscovery,
   fetchPlayerIdentityStatus,
   orbitApiBaseUrl
 } from './api/playerHttpApi';

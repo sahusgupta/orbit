@@ -124,6 +124,7 @@ export function ClubMembershipPlanScreen({
   prices,
   message,
   player,
+  busy,
   onBack,
   onSubmit
 }: {
@@ -131,6 +132,7 @@ export function ClubMembershipPlanScreen({
   prices: { day: string; monthly: string; timePack: string };
   message: string;
   player: PlayerAccount;
+  busy: boolean;
   onBack: () => void;
   onSubmit: (membershipOption?: PlayerMembershipOption) => void;
 }) {
@@ -196,9 +198,9 @@ export function ClubMembershipPlanScreen({
         ))}
       </View>
 
-      <AnimatedButton variant="primary" onPress={() => onSubmit(selectedOption)} style={[styles.primaryButton, styles.fullWidthButton]}>
+      <AnimatedButton disabled={busy} variant="primary" onPress={() => onSubmit(selectedOption)} style={[styles.primaryButton, styles.fullWidthButton]}>
         <Ionicons name="person-add-outline" size={18} color="#ffffff" />
-        <Text style={styles.primaryButtonText}>{selectedOption ? `Request ${selectedOption.name}` : 'Request membership'}</Text>
+        <Text style={styles.primaryButtonText}>{busy ? 'Sending request...' : selectedOption ? `Request ${selectedOption.name}` : 'Request membership'}</Text>
       </AnimatedButton>
       {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
     </View>
@@ -208,12 +210,14 @@ export function ClubMembershipPlanScreen({
 export function SeatRequestModal({
   draft,
   message,
+  busy,
   onChange,
   onClose,
   onSubmit
 }: {
   draft: SeatRequestDraft | null;
   message: string;
+  busy: boolean;
   onChange: React.Dispatch<React.SetStateAction<SeatRequestDraft | null>>;
   onClose: () => void;
   onSubmit: () => void;
@@ -295,9 +299,9 @@ export function SeatRequestModal({
           ) : null}
 
           {message ? <Text style={styles.formError}>{message}</Text> : null}
-          <AnimatedButton variant="primary" onPress={onSubmit} style={[styles.primaryButton, styles.fullWidthButton]}>
+          <AnimatedButton disabled={busy} variant="primary" onPress={onSubmit} style={[styles.primaryButton, styles.fullWidthButton]}>
             <Ionicons name={draft.attendance === 'arrived' ? 'location-outline' : 'checkmark-circle-outline'} size={18} color="#fff" />
-            <Text style={styles.primaryButtonText}>{draft.attendance === 'arrived' ? 'Tell club I am here' : 'Send request'}</Text>
+            <Text style={styles.primaryButtonText}>{busy ? 'Sending...' : draft.attendance === 'arrived' ? 'Tell club I am here' : 'Send request'}</Text>
           </AnimatedButton>
         </View>
       </View>
@@ -311,6 +315,7 @@ export function ClubAccessCheckoutScreen({
   price,
   message,
   connectedCheckoutEnabled,
+  busy,
   onBack,
   onPayInApp,
   onPayInPerson
@@ -320,6 +325,7 @@ export function ClubAccessCheckoutScreen({
   price: string;
   message: string;
   connectedCheckoutEnabled: boolean;
+  busy: boolean;
   onBack: () => void;
   onPayInApp: () => void;
   onPayInPerson: () => void;
@@ -345,13 +351,13 @@ export function ClubAccessCheckoutScreen({
             <Ionicons name="shield-checkmark-outline" size={18} color={colors.teal} />
             <Text style={styles.merchantBandText}>Sold and fulfilled by {club.club.name}. Orbit securely passes you to the card house’s connected checkout.</Text>
           </View>
-          <AnimatedButton variant="primary" onPress={onPayInApp} style={[styles.primaryButton, styles.fullWidthButton]}>
+          <AnimatedButton disabled={busy} variant="primary" onPress={onPayInApp} style={[styles.primaryButton, styles.fullWidthButton]}>
             <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-            <Text style={styles.primaryButtonText}>Continue to card house checkout</Text>
+            <Text style={styles.primaryButtonText}>{busy ? 'Opening checkout...' : 'Continue to card house checkout'}</Text>
           </AnimatedButton>
         </>
       ) : null}
-      <Pressable style={styles.payInPersonButton} onPress={onPayInPerson}>
+      <Pressable disabled={busy} style={[styles.payInPersonButton, busy && styles.disabledAction]} onPress={onPayInPerson}>
         <Ionicons name="storefront-outline" size={18} color={colors.ink} />
         <View style={styles.payInPersonCopy}>
           <Text style={styles.cardTitle}>{connectedCheckoutEnabled ? 'Pay in person' : 'Send membership application'}</Text>

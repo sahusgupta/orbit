@@ -1,5 +1,7 @@
 const { getFirebasePublisherStatus, publishStateToFirebase } = require('../firebasePublisher');
 const { sanitizeAccountKey } = require('../orbitCore');
+const { protectedIdentifier } = require('../http/dataProtection');
+const { sendOperationalAlert } = require('../http/operationalAlerts');
 const { getDatabase } = require('./connection');
 
 let scheduledDrain;
@@ -62,6 +64,13 @@ async function markFailed(publication, error, nowMs = Date.now()) {
     SET status = 'failed', last_error = $3, next_attempt_at = $4, updated_at = $5
     WHERE account_key = $1 AND revision = $2
   `, [publication.accountKey, publication.revision, message.slice(0, 1000), nextAttemptAt, now]);
+  void sendOperationalAlert('publication-retry', publication.attempts >= 3 ? 'critical' : 'warning', {
+    tenantRef: protectedIdentifier(publication.accountKey),
+    revision: publication.revision,
+    attempts: publication.attempts,
+    errorRef: protectedIdentifier(message),
+    nextAttemptAt
+  });
   return { ok: false, error: message, nextAttemptAt };
 }
 
@@ -122,14 +131,36 @@ function schedulePublicationDrain() {
 async function listPublicationOutbox(filters = {}) {
   const db = await getDatabase();
   const accountKey = filters.accountKey ? sanitizeAccountKey(filters.accountKey) : '';
+  const params = [];
+  const conditions = [];
+  if (accountKey) {
+    conditions.push(`account_key = $${params.length + 1}`);
+    params.push(accountKey);
+  }
+  if (filters.beforeCreatedAt) {
+    const start = params.length + 1;
+    conditions.push(`(
+      created_at < $${start}
+      OR (created_at = $${start + 1} AND account_key > $${start + 2})
+      OR (created_at = $${start + 3} AND account_key = $${start + 4} AND revision < $${start + 5})
+    )`);
+    params.push(
+      String(filters.beforeCreatedAt),
+      String(filters.beforeCreatedAt),
+      String(filters.beforeAccountKey || ''),
+      String(filters.beforeCreatedAt),
+      String(filters.beforeAccountKey || ''),
+      Number(filters.beforeRevision || Number.MAX_SAFE_INTEGER)
+    );
+  }
   const limit = Math.min(Math.max(Number(filters.limit || 100), 1), 500);
   const rows = await db.all(`
     SELECT account_key, revision, status, attempts, next_attempt_at, last_error, created_at, updated_at, published_at
     FROM publication_outbox
-    ${accountKey ? 'WHERE account_key = $1' : ''}
-    ORDER BY created_at DESC
+    ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+    ORDER BY created_at DESC, account_key ASC, revision DESC
     LIMIT ${limit}
-  `, accountKey ? [accountKey] : []);
+  `, params);
   return rows.map((row) => ({
     accountKey: row.account_key,
     revision: Number(row.revision),

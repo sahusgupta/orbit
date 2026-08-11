@@ -3,6 +3,8 @@ global.crypto = global.crypto || crypto.webcrypto;
 
 const { createApp } = require('./app');
 const { closeDatabase, drainPublicationOutbox } = require('./database');
+const { protectedIdentifier } = require('./http/dataProtection');
+const { sendOperationalAlert } = require('./http/operationalAlerts');
 
 const app = createApp();
 const port = Number(process.env.API_PORT || 4629);
@@ -15,6 +17,9 @@ const server = app.listen(port, host, () => {
 const publicationTimer = setInterval(() => {
   void drainPublicationOutbox({ limit: 25 }).catch((error) => {
     console.warn('[publication-outbox] scheduled drain failed:', error instanceof Error ? error.message : 'Unknown error');
+    void sendOperationalAlert('publication-drain-failed', 'critical', {
+      errorRef: protectedIdentifier(error instanceof Error ? error.message : 'Unknown error')
+    });
   });
 }, 30_000);
 publicationTimer.unref();

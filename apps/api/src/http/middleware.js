@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { protectedIdentifier, redactText } = require('./dataProtection');
+const { sendOperationalAlert } = require('./operationalAlerts');
 
 function assignRequestId(request, response, next) {
   const requestId = request.get('x-orbit-request-id') || crypto.randomUUID();
@@ -9,16 +10,23 @@ function assignRequestId(request, response, next) {
 }
 
 function handleApiError(error, request, response, _next) {
+  const errorRef = protectedIdentifier(error?.stack || error?.message || request.orbitRequestId);
   console.error(JSON.stringify({
     timestamp: new Date().toISOString(),
     event: 'api-error',
     requestId: request.orbitRequestId || '',
     method: request.method,
     pathname: request.path,
-    errorRef: protectedIdentifier(error?.stack || error?.message || request.orbitRequestId),
+    errorRef,
     message: redactText(error instanceof Error ? error.message : 'Request failed.', 300),
     stack: process.env.NODE_ENV === 'production' ? undefined : redactText(error?.stack, 2000)
   }));
+  void sendOperationalAlert('api-error', 'critical', {
+    requestId: request.orbitRequestId || '',
+    method: request.method,
+    pathname: request.path,
+    errorRef
+  });
   if (error?.code === 'STATE_REVISION_CONFLICT') {
     response.status(409).json({
       ok: false,

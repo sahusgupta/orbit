@@ -54,8 +54,10 @@ const firebase = vi.hoisted(() => ({
   getDoc: vi.fn(),
   getDocs: vi.fn(),
   initializeApp: vi.fn(),
+  limit: vi.fn(),
   onAuthStateChanged: vi.fn(),
   onSnapshot: vi.fn(),
+  orderBy: vi.fn(),
   query: vi.fn(),
   runTransaction: vi.fn(),
   sendEmailVerification: vi.fn(),
@@ -94,7 +96,9 @@ vi.mock('firebase/firestore', () => ({
   getDoc: firebase.getDoc,
   getDocs: firebase.getDocs,
   getFirestore: () => ({}),
+  limit: firebase.limit,
   onSnapshot: firebase.onSnapshot,
+  orderBy: firebase.orderBy,
   query: firebase.query,
   runTransaction: firebase.runTransaction,
   serverTimestamp: firebase.serverTimestamp,
@@ -319,6 +323,8 @@ beforeEach(() => {
     path: segments.join('/')
   } satisfies FakeReference));
   firebase.where.mockImplementation((field: string, operator: string, value: unknown) => ({ field, operator, value }));
+  firebase.limit.mockImplementation((count: number) => ({ type: 'limit', count }));
+  firebase.orderBy.mockImplementation((field: string, direction: string) => ({ type: 'orderBy', field, direction }));
   firebase.query.mockImplementation((source: FakeReference, ...constraints: unknown[]) => ({
     kind: 'query',
     path: source.path,
@@ -383,7 +389,7 @@ describe('authenticated Orbit API boundaries', () => {
 
     expect(firebase.fetch).toHaveBeenCalledWith(
       'https://orbitapp-one.vercel.app/player/identity/status',
-      { headers: { authorization: 'Bearer player-token' } }
+      expect.objectContaining({ headers: { authorization: 'Bearer player-token' }, signal: expect.any(AbortSignal) })
     );
     expect(user.getIdToken).toHaveBeenNthCalledWith(1, true);
     expect(user.getIdToken).toHaveBeenNthCalledWith(2, true);
@@ -422,21 +428,21 @@ describe('authenticated Orbit API boundaries', () => {
       sessionId: 'session-1'
     });
 
-    expect(firebase.fetch).toHaveBeenNthCalledWith(1, 'https://orbitapp-one.vercel.app/player/identity/session', {
+    expect(firebase.fetch).toHaveBeenNthCalledWith(1, 'https://orbitapp-one.vercel.app/player/identity/session', expect.objectContaining({
       method: 'POST',
       headers: {
         authorization: 'Bearer player-token',
         'content-type': 'application/json'
       }
-    });
-    expect(firebase.fetch).toHaveBeenNthCalledWith(2, 'https://orbitapp-one.vercel.app/player/membership-checkout', {
+    }));
+    expect(firebase.fetch).toHaveBeenNthCalledWith(2, 'https://orbitapp-one.vercel.app/player/membership-checkout', expect.objectContaining({
       method: 'POST',
       headers: {
         authorization: 'Bearer player-token',
         'content-type': 'application/json'
       },
       body: JSON.stringify({ clubId: 'club-1', product: 'monthly', playerName: 'Alex' })
-    });
+    }));
   });
 
   it('delegates complete account deletion to the trusted API and surfaces retained categories', async () => {
@@ -449,10 +455,10 @@ describe('authenticated Orbit API boundaries', () => {
 
     firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, retainedCategories: ['audit-records:anonymize'] }));
     await expect(deleteCurrentPlayerAccount()).resolves.toEqual({ retainedCategories: ['audit-records:anonymize'] });
-    expect(firebase.fetch).toHaveBeenLastCalledWith('https://orbitapp-one.vercel.app/player/account', {
+    expect(firebase.fetch).toHaveBeenLastCalledWith('https://orbitapp-one.vercel.app/player/account', expect.objectContaining({
       method: 'DELETE',
       headers: { authorization: 'Bearer player-token' }
-    });
+    }));
     expect(user.getIdToken).toHaveBeenLastCalledWith(true);
     expect(firebase.deleteDoc).not.toHaveBeenCalled();
     expect(firebase.deleteUser).not.toHaveBeenCalled();
@@ -660,14 +666,14 @@ describe('request HTTP boundaries', () => {
 
     await expect(submitMembershipRequest(request)).resolves.toEqual({ ok: true, accountKey: 'club-1', savedAt: snapshot.generatedAt, snapshot });
 
-    expect(firebase.fetch).toHaveBeenCalledWith('https://orbitapp-one.vercel.app/player/membership-requests', {
+    expect(firebase.fetch).toHaveBeenCalledWith('https://orbitapp-one.vercel.app/player/membership-requests', expect.objectContaining({
       method: 'POST',
       headers: {
         authorization: 'Bearer player-token',
         'content-type': 'application/json'
       },
       body: JSON.stringify({ ...request, player: { ...request.player, id: 'player-1' } })
-    });
+    }));
     expect(firebase.setDoc).not.toHaveBeenCalled();
   });
 
@@ -694,24 +700,31 @@ describe('published and legacy club snapshot boundaries', () => {
       club: { id: 'local-club', name: 'Local Room' },
       generatedAt: '2026-08-09T14:00:00.000Z'
     });
-    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, snapshot: localSnapshot, accountKey: 'local-club' }));
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({ ok: true, snapshot: localSnapshot, accountKey: 'local-club' }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
     setCollection('clubs', []);
     setCollection('clubStates', []);
 
     await expect(localAdapter.fetchAllClubSnapshots(player())).resolves.toEqual({ ok: true, clubs: [localSnapshot] });
     expect(firebase.fetch).toHaveBeenCalledWith(
       'http://127.0.0.1:4629/player/snapshot?playerId=player-1&playerName=Alex+Player',
-      { headers: { authorization: 'Bearer player-token' } }
+      expect.objectContaining({ headers: { authorization: 'Bearer player-token' }, signal: expect.any(AbortSignal) })
     );
 
     setPublishedClubGraph();
-    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
     await expect(localAdapter.fetchAllClubSnapshots(player())).resolves.toMatchObject({
       ok: true,
       clubs: [{ club: { id: 'club-1', name: 'River Room' } }]
     });
 
-    firebase.fetch.mockRejectedValueOnce(new Error('local bridge offline'));
+    firebase.fetch
+      .mockRejectedValueOnce(new Error('local bridge offline'))
+      .mockRejectedValueOnce(new Error('discovery offline'))
+      .mockRejectedValueOnce(new Error('discovery offline'));
     await expect(localAdapter.fetchAllClubSnapshots(player())).resolves.toMatchObject({
       ok: true,
       clubs: [{ club: { id: 'club-1', name: 'River Room' } }]
@@ -804,22 +817,32 @@ describe('published and legacy club snapshot boundaries', () => {
     });
   });
 
-  it('uses the freshest remote duplicate while retaining published ordering and bearer authentication', async () => {
+  it('uses one authenticated bounded discovery page and falls back to Firebase projections when unavailable', async () => {
     const user = signedInUser();
     setPublishedClubGraph();
     const remote = publishedClubSnapshot({
       club: { id: 'club-1', name: 'River Room Remote', publishedAt: '2026-08-09T13:00:00.000Z' },
       generatedAt: '2026-08-09T13:00:00.000Z'
     });
-    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, snapshot: remote, accountKey: 'club-1' }));
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({
+      ok: true,
+      clubs: [remote],
+      tournaments: [],
+      registrations: [],
+      page: { count: 1, hasMore: false, nextCursor: null, databaseQueries: 2 }
+    }));
 
     const result = await fetchAllClubSnapshots(player());
 
-    expect(result).toEqual({ ok: true, clubs: [remote] });
+    expect(result).toEqual({
+      ok: true,
+      clubs: [remote],
+      page: { count: 1, hasMore: false, nextCursor: null, databaseQueries: 2 }
+    });
     expect(user.getIdToken).toHaveBeenCalledWith(false);
     expect(firebase.fetch).toHaveBeenCalledWith(
-      'https://orbitapp-one.vercel.app/player/snapshot?accountKey=club-1&playerName=Alex+Player',
-      { headers: { authorization: 'Bearer player-token' } }
+      'https://orbitapp-one.vercel.app/player/discovery?limit=50',
+      expect.objectContaining({ headers: { authorization: 'Bearer player-token' }, signal: expect.any(AbortSignal) })
     );
 
     firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
@@ -888,44 +911,35 @@ describe('published and legacy club snapshot boundaries', () => {
   });
 });
 
-describe('tournament Firestore boundaries', () => {
-  it('filters hidden clubs, maps document IDs, and reads registrations only for the matching signed-in player', async () => {
+describe('bounded tournament discovery boundary', () => {
+  it('loads tournaments and self registrations from one authenticated discovery page', async () => {
     signedInUser();
-    const tournament = { name: 'Sunday Major', startsAt: '2026-08-10T18:00:00.000Z' };
+    const tournament = { id: 'event-doc', clubId: 'club-1', name: 'Sunday Major', startsAt: '2026-08-10T18:00:00.000Z' };
     const registration = { id: 'registration-source', playerId: 'player-1', tournamentId: 'event-doc' };
-    setCollection('clubs', [['club-1', { name: 'River Room' }], ['hidden', { name: 'Test Club' }], ['malformed', null]]);
-    setCollection('clubs/club-1/tournaments', [['event-doc', tournament]]);
-    setCollection('clubs/club-1/tournamentRegistrations', [['registration-doc', registration]]);
-
-    const result = await fetchPlayerTournaments('player-1');
-
-    expect(result).toEqual({
-      tournaments: [{ ...tournament, id: 'event-doc', clubId: 'club-1' }],
-      registrations: [registration]
-    });
-    expect(firebase.getDocs.mock.calls.map(([reference]) => referencePath(reference))).not.toContain('clubs/hidden/tournaments');
-    expect(firebase.query).toHaveBeenCalledWith(
-      expect.objectContaining({ path: 'clubs/club-1/tournamentRegistrations' }),
-      { field: 'playerId', operator: '==', value: 'player-1' }
-    );
-  });
-
-  it('skips private registrations for an identity mismatch and preserves missing, malformed-event, and failure behavior', async () => {
-    signedInUser('different-player');
-    setCollection('clubs', [['club-1', { name: 'River Room' }]]);
-    setCollection('clubs/club-1/tournaments', [['malformed-event', null]]);
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({
+      ok: true,
+      clubs: [],
+      tournaments: [tournament],
+      registrations: [registration, { ...registration, id: 'other', playerId: 'other' }],
+      page: { count: 0, hasMore: false, nextCursor: null, databaseQueries: 2 }
+    }));
 
     await expect(fetchPlayerTournaments('player-1')).resolves.toEqual({
-      tournaments: [{ id: 'malformed-event', clubId: 'club-1' }],
-      registrations: []
+      tournaments: [tournament],
+      registrations: [registration],
+      page: { count: 0, hasMore: false, nextCursor: null, databaseQueries: 2 }
     });
-    expect(firebase.getDocs.mock.calls.map(([reference]) => referencePath(reference))).not.toContain('clubs/club-1/tournamentRegistrations');
+    expect(firebase.fetch).toHaveBeenCalledWith(
+      'https://orbitapp-one.vercel.app/player/discovery?limit=50',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect(firebase.getDocs).not.toHaveBeenCalled();
+  });
 
-    setCollection('clubs', []);
-    await expect(fetchPlayerTournaments('player-1')).resolves.toEqual({ tournaments: [], registrations: [] });
-
-    firebase.getDocs.mockRejectedValueOnce(new Error('tournaments denied'));
-    await expect(fetchPlayerTournaments('player-1')).rejects.toThrow('tournaments denied');
+  it('rejects a mismatched signed-in identity before making a discovery request', async () => {
+    signedInUser('different-player');
+    await expect(fetchPlayerTournaments('player-1')).rejects.toThrow('does not match this profile');
+    expect(firebase.fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -1064,6 +1078,11 @@ describe('private-game subscription lifecycle', () => {
     const callback = vi.fn();
     const unsubscribe = subscribeToPrivateGameListings(callback);
     const listener = listenersAt('privateGames')[0];
+    expect(listener.reference.constraints).toEqual([
+      { field: 'status', operator: '==', value: 'Open' },
+      { type: 'orderBy', field: 'createdAt', direction: 'desc' },
+      { type: 'limit', count: 100 }
+    ]);
     const newer = { id: 'new', status: 'Open', createdAt: '2026-08-09T12:00:00.000Z' };
     const older = { id: 'old', status: 'Open', createdAt: '2026-08-08T12:00:00.000Z' };
 
@@ -1080,41 +1099,34 @@ describe('private-game subscription lifecycle', () => {
 });
 
 describe('tournament subscription lifecycle', () => {
-  it('replaces child listeners on every visible-club snapshot and tears down root/current children', async () => {
+  it('uses one commit-marker listener and deduplicates authoritative discovery refreshes', async () => {
     signedInUser();
-    setCollection('clubs', [['club-1', { name: 'River Room' }]]);
-    setCollection('clubs/club-1/tournaments', [['event-1', { name: 'Sunday Major' }]]);
-    setCollection('clubs/club-1/tournamentRegistrations', [['registration-1', { id: 'registration-1', playerId: 'player-1' }]]);
+    const payload = {
+      ok: true,
+      clubs: [],
+      tournaments: [{ name: 'Sunday Major', id: 'event-1', clubId: 'club-1' }],
+      registrations: [{ id: 'registration-1', playerId: 'player-1' }],
+      page: { count: 0, hasMore: false, nextCursor: null, databaseQueries: 2 }
+    };
+    firebase.fetch.mockResolvedValue(jsonResponse(payload));
     const callback = vi.fn();
     const unsubscribe = subscribeToPlayerTournaments('player-1', callback);
     const root = listenersAt('clubs')[0];
 
     root.next(fakeSnapshot([['club-1', { name: 'River Room' }], ['hidden', { name: 'Stress Club' }]]));
-    await flushPromises();
-    const firstEventListener = listenersAt('clubs/club-1/tournaments')[0];
-    const firstRegistrationListener = listenersAt('clubs/club-1/tournamentRegistrations')[0];
-    expect(callback).toHaveBeenCalledWith({
-      tournaments: [{ name: 'Sunday Major', id: 'event-1', clubId: 'club-1' }],
-      registrations: [{ id: 'registration-1', playerId: 'player-1' }]
-    });
-
     root.next(fakeSnapshot([['club-1', { name: 'River Room Updated' }]]));
     await flushPromises();
-    expect(firstEventListener.unsubscribe).toHaveBeenCalledOnce();
-    expect(firstRegistrationListener.unsubscribe).toHaveBeenCalledOnce();
-    expect(listenersAt('clubs/club-1/tournaments')).toHaveLength(2);
-    expect(listenersAt('clubs/club-1/tournamentRegistrations')).toHaveLength(2);
+    expect(callback).toHaveBeenCalledOnce();
+    expect(callback).toHaveBeenCalledWith(expect.objectContaining({ tournaments: payload.tournaments, registrations: payload.registrations }));
+    expect(listenersAt('clubs')).toHaveLength(1);
+    expect(snapshotListeners.filter((listener) => listener.reference.path.startsWith('clubs/club-1/'))).toHaveLength(0);
 
     unsubscribe();
     expect(root.unsubscribe).toHaveBeenCalledOnce();
-    expect(listenersAt('clubs/club-1/tournaments')[1].unsubscribe).toHaveBeenCalledOnce();
-    expect(listenersAt('clubs/club-1/tournamentRegistrations')[1].unsubscribe).toHaveBeenCalledOnce();
   });
 
   it('does not subscribe to private registrations for a mismatched identity and suppresses late results after unsubscribe', async () => {
     signedInUser('different-player');
-    setCollection('clubs', [['club-1', { name: 'River Room' }]]);
-    setCollection('clubs/club-1/tournaments', []);
     const callback = vi.fn();
     const unsubscribe = subscribeToPlayerTournaments('player-1', callback);
     const root = listenersAt('clubs')[0];
@@ -1123,61 +1135,70 @@ describe('tournament subscription lifecycle', () => {
     unsubscribe();
     await flushPromises();
 
-    expect(listenersAt('clubs/club-1/tournaments')).toHaveLength(1);
-    expect(listenersAt('clubs/club-1/tournamentRegistrations')).toHaveLength(0);
+    expect(snapshotListeners.filter((listener) => listener.reference.path.startsWith('clubs/club-1/'))).toHaveLength(0);
     expect(callback).not.toHaveBeenCalled();
   });
 });
 
 describe('live club subscription lifecycle and revisions', () => {
-  it('deduplicates club listeners, emits only committed revisions, detaches removed clubs, and tears down every listener', () => {
+  it('shares one commit-marker listener across club and tournament discovery', async () => {
+    signedInUser();
+    firebase.fetch.mockResolvedValue(jsonResponse({
+      ok: true,
+      clubs: [],
+      tournaments: [],
+      registrations: [],
+      page: { count: 0, hasMore: false, nextCursor: null, databaseQueries: 2 }
+    }));
+    const clubSubscription = subscribeToAllClubSnapshots(player(), vi.fn());
+    const tournamentUnsubscribe = subscribeToPlayerTournaments('player-1', vi.fn());
+    expect(listenersAt('clubs')).toHaveLength(1);
+
+    listenersAt('clubs')[0].next(fakeSnapshot([['club-1', { syncRevision: 'revision-2' }]]));
+    await clubSubscription.refresh();
+    await flushPromises();
+    expect(firebase.fetch).toHaveBeenCalledOnce();
+
+    clubSubscription.unsubscribe();
+    expect(listenersAt('clubs')[0].unsubscribe).not.toHaveBeenCalled();
+    tournamentUnsubscribe();
+    expect(listenersAt('clubs')[0].unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('uses one commit-marker listener, deduplicates refreshes, and tears down cleanly', async () => {
+    signedInUser();
+    const snapshot = publishedClubSnapshot();
+    firebase.fetch.mockResolvedValue(jsonResponse({
+      ok: true,
+      clubs: [snapshot],
+      tournaments: [],
+      registrations: [],
+      page: { count: 1, hasMore: false, nextCursor: null, databaseQueries: 2 }
+    }));
     const callback = vi.fn();
     const subscription = subscribeToAllClubSnapshots(player(), callback);
     const root = listenersAt('clubs')[0];
-    const parent = {
-      id: 'club-1',
-      name: 'River Room',
-      syncProtocolVersion: 2,
-      syncRevision: 'revision-2',
-      publishedAt: '2026-08-09T12:00:00.000Z',
-      entityCounts: { games: 1 }
-    };
-
-    root.next(fakeSnapshot([['club-1', parent], ['hidden', { id: 'hidden', name: 'Stress Club' }]]));
-    expect(callback).not.toHaveBeenCalled();
-    expect(listenersAt('clubs/club-1/games')).toHaveLength(1);
-    expect(listenersAt('clubs/club-1/memberships')).toHaveLength(1);
-    expect(listenersAt('clubs/club-1/waitlists')).toHaveLength(1);
-    expect(listenersAt('clubs/club-1/notifications')).toHaveLength(1);
-
-    emitSnapshot('clubs/club-1/games', [['game-1', { id: 'game-1', name: '1/2 NLH', syncRevision: 'revision-2' }]]);
-    expect(callback).toHaveBeenLastCalledWith({
-      ok: true,
-      clubs: [expect.objectContaining({ club: expect.objectContaining({ id: 'club-1', syncRevision: 'revision-2' }), games: [expect.objectContaining({ id: 'game-1' })] })]
-    });
-    const committedCallCount = callback.mock.calls.length;
-
-    emitSnapshot('clubs/club-1/memberships', [['future-membership', {
-      id: 'future-membership',
-      playerId: 'player-1',
-      playerName: 'Alex Player',
-      syncRevision: 'revision-3',
-      publishedAt: '2026-08-09T12:00:01.000Z'
-    }]]);
-    expect(callback).toHaveBeenCalledTimes(committedCallCount);
-
-    root.next(fakeSnapshot([['club-1', { ...parent, address: '2 River Road' }]]));
-    expect(listenersAt('clubs/club-1/games')).toHaveLength(1);
-
-    const childListeners = snapshotListeners.filter((listener) => listener.reference.path.startsWith('clubs/club-1/'));
-    root.next(fakeSnapshot([]));
-    childListeners.forEach((listener) => expect(listener.unsubscribe).toHaveBeenCalledOnce());
+    root.next(fakeSnapshot([['club-1', { syncRevision: 'revision-2' }]]));
+    root.next(fakeSnapshot([['club-1', { syncRevision: 'revision-3' }]]));
+    await subscription.refresh();
+    expect(callback).toHaveBeenCalledOnce();
+    expect(callback).toHaveBeenLastCalledWith({ ok: true, clubs: [snapshot] });
+    expect(snapshotListeners.filter((listener) => listener.reference.path.startsWith('clubs/club-1/'))).toHaveLength(0);
 
     subscription.unsubscribe();
     expect(root.unsubscribe).toHaveBeenCalledOnce();
   });
 
-  it('reports root failure before data, re-emits cached data after failure, and characterizes malformed child records', () => {
+  it('reports root failure before data and re-emits cached data after a listener failure', async () => {
+    signedInUser();
+    const snapshot = publishedClubSnapshot();
+    firebase.fetch.mockResolvedValue(jsonResponse({
+      ok: true,
+      clubs: [snapshot],
+      tournaments: [],
+      registrations: [],
+      page: { count: 1, hasMore: false, nextCursor: null, databaseQueries: 2 }
+    }));
     const callback = vi.fn();
     const subscription = subscribeToAllClubSnapshots(player(), callback);
     const root = listenersAt('clubs')[0];
@@ -1186,26 +1207,32 @@ describe('live club subscription lifecycle and revisions', () => {
     expect(callback).toHaveBeenLastCalledWith({ ok: false, error: 'club listener denied' });
 
     root.next(fakeSnapshot([['club-1', { id: 'club-1', name: 'River Room' }]]));
-    emitSnapshot('clubs/club-1/games', [['game-1', { id: 'game-1', name: '1/2 NLH' }]]);
+    await subscription.refresh();
     const beforeError = callback.mock.calls.length;
     root.error?.(new Error('transient listener error'));
     expect(callback).toHaveBeenCalledTimes(beforeError + 1);
     expect(callback.mock.calls.at(-1)?.[0]).toMatchObject({ ok: true });
 
-    expect(() => emitSnapshot('clubs/club-1/games', [['malformed', null]])).toThrow();
     subscription.unsubscribe();
   });
 
   it('deduplicates concurrent refreshes and owns one restartable polling timer', async () => {
     vi.useFakeTimers();
-    setPublishedClubGraph();
+    signedInUser();
+    firebase.fetch.mockResolvedValue(jsonResponse({
+      ok: true,
+      clubs: [],
+      tournaments: [],
+      registrations: [],
+      page: { count: 0, hasMore: false, nextCursor: null, databaseQueries: 2 }
+    }));
     const callback = vi.fn();
     const subscription = subscribeToAllClubSnapshots(player(), callback);
 
     const firstRefresh = subscription.refresh();
     const secondRefresh = subscription.refresh();
     await Promise.all([firstRefresh, secondRefresh]);
-    expect(firebase.getDocs.mock.calls.filter(([reference]) => referencePath(reference) === 'clubs')).toHaveLength(1);
+    expect(firebase.fetch).toHaveBeenCalledTimes(1);
 
     subscription.startPolling();
     expect(vi.getTimerCount()).toBe(1);

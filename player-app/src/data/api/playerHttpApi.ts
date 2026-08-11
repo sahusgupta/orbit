@@ -1,6 +1,7 @@
 import type { User } from 'firebase/auth';
 import {
   decodeCheckoutResponse,
+  decodeDiscoveryResponse,
   decodeIdentityResponse,
   decodeSnapshotEnvelope,
   readBoundaryError
@@ -8,6 +9,7 @@ import {
 import type { PlayerAccount, PlayerMembershipRequest, PlayerWaitlistRequest } from '../../domain/playerSync';
 import { auth } from '../firebase/firebaseClient';
 import type { SyncResult } from '../playerDataContracts';
+import { requestJson } from './boundedFetch';
 
 export type { PlayerIdentityStatus } from '../../domain/playerIdentity';
 
@@ -25,10 +27,9 @@ async function getOrbitPlayerToken(forceRefresh = false) {
 
 export async function fetchPlayerIdentityStatus(forceTokenRefresh = false) {
   const { token, user } = await getOrbitPlayerToken(forceTokenRefresh);
-  const response = await fetch(`${orbitApiBaseUrl}/player/identity/status`, {
+  const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/identity/status`, {
     headers: { authorization: `Bearer ${token}` }
-  });
-  const payload: unknown = await response.json().catch(() => ({}));
+  }, { dedupeKey: `identity:${user.uid}` });
   const result = decodeIdentityResponse(payload);
   if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Unable to check age-verification status.'));
   if (result.identity.ageVerified) await user.getIdToken(true);
@@ -37,14 +38,13 @@ export async function fetchPlayerIdentityStatus(forceTokenRefresh = false) {
 
 export async function createPlayerIdentityVerificationSession() {
   const { token, user } = await getOrbitPlayerToken();
-  const response = await fetch(`${orbitApiBaseUrl}/player/identity/session`, {
+  const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/identity/session`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${token}`,
       'content-type': 'application/json'
     }
   });
-  const payload: unknown = await response.json().catch(() => ({}));
   const result = decodeIdentityResponse(payload);
   if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Unable to start age verification.'));
   if (result.identity.ageVerified) await user.getIdToken(true);
@@ -53,7 +53,7 @@ export async function createPlayerIdentityVerificationSession() {
 
 export async function createClubMembershipCheckout(input: { clubId: string; product: 'day' | 'monthly' | 'time-5'; playerName: string }) {
   const { token } = await getOrbitPlayerToken();
-  const response = await fetch(`${orbitApiBaseUrl}/player/membership-checkout`, {
+  const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/membership-checkout`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${token}`,
@@ -61,7 +61,6 @@ export async function createClubMembershipCheckout(input: { clubId: string; prod
     },
     body: JSON.stringify(input)
   });
-  const payload: unknown = await response.json().catch(() => ({}));
   const result = decodeCheckoutResponse(payload);
   if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Unable to start the card house checkout.'));
   return result;
@@ -72,10 +71,9 @@ export async function fetchRemoteClubSnapshot(player: Pick<PlayerAccount, 'id' |
   try {
     const { token } = await getOrbitPlayerToken();
     const params = new URLSearchParams({ accountKey, playerName: player.name || '' });
-    const response = await fetch(`${orbitApiBaseUrl}/player/snapshot?${params.toString()}`, {
+    const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/snapshot?${params.toString()}`, {
       headers: { authorization: `Bearer ${token}` }
-    });
-    const payload: unknown = await response.json().catch(() => ({}));
+    }, { dedupeKey: `snapshot:${accountKey}:${player.id}` });
     const result = decodeSnapshotEnvelope(payload);
     if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Orbit API club snapshot is unavailable.'));
     return result;
@@ -84,11 +82,23 @@ export async function fetchRemoteClubSnapshot(player: Pick<PlayerAccount, 'id' |
   }
 }
 
+export async function fetchRemotePlayerDiscovery(cursor = '', limit = 50) {
+  const { token, user } = await getOrbitPlayerToken();
+  const params = new URLSearchParams({ limit: String(Math.min(Math.max(limit, 1), 50)) });
+  if (cursor) params.set('cursor', cursor);
+  const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/discovery?${params.toString()}`, {
+    headers: { authorization: `Bearer ${token}` }
+  }, { dedupeKey: `discovery:${user.uid}:${cursor}:${limit}` });
+  const result = decodeDiscoveryResponse(payload);
+  if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Orbit Player discovery is unavailable.'));
+  return result;
+}
+
 export async function submitRemotePlayerRequest(path: string, request: PlayerMembershipRequest | PlayerWaitlistRequest): Promise<SyncResult> {
   if (!orbitApiBaseUrl) return { ok: false, error: 'Orbit API is not configured.' };
   try {
     const { token } = await getOrbitPlayerToken();
-    const response = await fetch(`${orbitApiBaseUrl}${path}`, {
+    const { response, payload } = await requestJson(`${orbitApiBaseUrl}${path}`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${token}`,
@@ -96,7 +106,6 @@ export async function submitRemotePlayerRequest(path: string, request: PlayerMem
       },
       body: JSON.stringify(request)
     });
-    const payload: unknown = await response.json().catch(() => ({}));
     const result = decodeSnapshotEnvelope(payload);
     if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Orbit API request failed.'));
     return result;
@@ -111,7 +120,7 @@ export async function submitRemoteTournamentMutation(
 ) {
   if (!orbitApiBaseUrl) throw new Error('Orbit API is not configured.');
   const { token } = await getOrbitPlayerToken();
-  const response = await fetch(`${orbitApiBaseUrl}/player/tournament-registrations`, {
+  const { response, payload: body } = await requestJson(`${orbitApiBaseUrl}/player/tournament-registrations`, {
     method,
     headers: {
       authorization: `Bearer ${token}`,
@@ -119,7 +128,6 @@ export async function submitRemoteTournamentMutation(
     },
     body: JSON.stringify(payload)
   });
-  const body: unknown = await response.json().catch(() => ({}));
   if (!response.ok || !body || typeof body !== 'object') {
     throw new Error(readBoundaryError(body, 'Tournament registration could not be saved.'));
   }
@@ -132,11 +140,10 @@ export async function submitRemoteTournamentMutation(
 export async function deleteRemotePlayerAccount(user: User) {
   if (!orbitApiBaseUrl) return;
   const token = await user.getIdToken(true);
-  const response = await fetch(`${orbitApiBaseUrl}/player/account`, {
+  const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/account`, {
     method: 'DELETE',
     headers: { authorization: `Bearer ${token}` }
   });
-  const payload: unknown = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(readBoundaryError(payload, 'Unable to delete the player account.'));
   const retainedCategories = payload && typeof payload === 'object' && Array.isArray(Reflect.get(payload, 'retainedCategories'))
     ? Reflect.get(payload, 'retainedCategories') as unknown[]

@@ -132,7 +132,7 @@ export default function PlayerApp() {
   const [discoveryNotice, setDiscoveryNotice] = useState('');
   const [avatarHovered, setAvatarHovered] = useState(false);
   const mainScrollRef = useRef<ScrollView>(null);
-  const [, setSyncStatus] = useState(
+  const [syncStatus, setSyncStatus] = useState(
     isSyncConfigured() ? 'Connecting to Firebase club sync...' : 'Live club sync is not configured.'
   );
   const {
@@ -195,6 +195,8 @@ export default function PlayerApp() {
     clubs,
     privateGames,
     privateGameStatus,
+    liveDataStatus,
+    retryLiveData,
     selectedClubId,
     setClubMembershipMessage,
     setClubs,
@@ -203,6 +205,7 @@ export default function PlayerApp() {
     setSelectedClubId,
     setTournamentRegistrations,
     tournamentRegistrations,
+    tournamentLoadError,
     tournaments
   } = usePlayerLiveData({
     accountLoaded,
@@ -218,6 +221,7 @@ export default function PlayerApp() {
   });
   const {
     cancelWaitlist,
+    clubActionPending,
     completeClubPayment,
     joinWaitlist,
     openClubPayment,
@@ -252,7 +256,7 @@ export default function PlayerApp() {
     setPrivateGames,
     setPrivateGameStatus
   });
-  const { registerTournament, tournamentMessage, unregisterTournament } = usePlayerTournaments({
+  const { pendingTournamentIds, registerTournament, tournamentMessage, unregisterTournament } = usePlayerTournaments({
     firebaseIdentity,
     player,
     requireVerifiedAge,
@@ -397,6 +401,20 @@ export default function PlayerApp() {
     setDiscoveryNotice('Discovery deck refreshed.');
   };
 
+  if (!accountLoaded) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView accessibilityLabel="Loading Orbit Player" accessibilityRole="progressbar" style={styles.safeArea}>
+          <View style={[styles.content, { gap: 14, paddingTop: 36 }]}>
+            <View style={[styles.emptyState, { minHeight: 94 }]} />
+            <View style={[styles.emptyState, { minHeight: 180 }]} />
+            <Text style={styles.muted}>Restoring your Orbit Player account...</Text>
+          </View>
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
   if (!hasAccount) {
     return (
       <OnboardingScreen
@@ -439,6 +457,30 @@ export default function PlayerApp() {
           ) : null}
 
           <ScrollView ref={mainScrollRef} showsVerticalScrollIndicator={screen === 'tournaments' || screen === 'gameDetails'} contentContainerStyle={styles.content}>
+            {liveDataStatus === 'loading' && !clubs.length ? (
+              <View accessibilityLabel="Loading live card houses" accessibilityRole="progressbar" style={[styles.emptyState, { minHeight: 132 }]}>
+                <Text style={styles.cardTitle}>Loading live card houses...</Text>
+                <Text style={styles.muted}>Your saved account remains available while Orbit reconnects.</Text>
+              </View>
+            ) : null}
+            {liveDataStatus === 'error' ? (
+              <View accessibilityRole="alert" style={styles.emptyState}>
+                <Text style={styles.cardTitle}>Live card-house data is unavailable</Text>
+                <Text style={styles.muted}>{syncStatus}</Text>
+                <Pressable accessibilityRole="button" onPress={retryLiveData} style={styles.compactButton}>
+                  <Text style={styles.compactButtonText}>Retry live data</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            {liveDataStatus !== 'error' && (tournamentLoadError || privateGameStatus) ? (
+              <View accessibilityRole="alert" style={styles.emptyState}>
+                <Text style={styles.cardTitle}>Some live data could not be refreshed</Text>
+                <Text style={styles.muted}>{tournamentLoadError || privateGameStatus}</Text>
+                <Pressable accessibilityRole="button" onPress={retryLiveData} style={styles.compactButton}>
+                  <Text style={styles.compactButtonText}>Retry live data</Text>
+                </Pressable>
+              </View>
+            ) : null}
             {screen === 'gameDetails' && activeDiscoveryOpportunity ? (
               <GameDetailsScreen
                 key={getOpportunityKey(activeDiscoveryOpportunity)}
@@ -584,6 +626,7 @@ export default function PlayerApp() {
                 opportunities={visibleTournaments}
                 hasOrbitAccount={Boolean(firebaseIdentity && firebaseIdentity.uid === player.id)}
                 message={tournamentMessage}
+                pendingTournamentIds={pendingTournamentIds}
                 onSelectClub={(club) => {
                   setSelectedClubId(club.club.id);
                   setScreen('clubs');
@@ -677,6 +720,7 @@ export default function PlayerApp() {
                 prices={getClubMembershipPrices(selectedClub)}
                 message={clubMembershipMessage}
                 player={player}
+                busy={clubActionPending}
                 onBack={() => setScreen('clubs')}
                 onSubmit={(membershipOption) => submitMembershipApplication(selectedClub, membershipOption)}
               />
@@ -689,6 +733,7 @@ export default function PlayerApp() {
                 price={getClubProductLabel(pendingClubProduct, getClubMembershipPrices(selectedClub))}
                 message={clubMembershipMessage}
                 connectedCheckoutEnabled={cardHouseCheckoutEnabled}
+                busy={clubActionPending}
                 onBack={() => setScreen('clubSignup')}
                 onPayInApp={() => completeClubPayment(selectedClub, pendingClubProduct)}
                 onPayInPerson={() => requestInPersonMembership(selectedClub, pendingClubProduct)}
@@ -846,6 +891,7 @@ export default function PlayerApp() {
         <SeatRequestModal
           draft={seatRequestDraft}
           message={seatRequestMessage}
+          busy={clubActionPending}
           onChange={setSeatRequestDraft}
           onClose={() => setSeatRequestDraft(null)}
           onSubmit={submitSeatRequest}

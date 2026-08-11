@@ -122,6 +122,6 @@ describe('Player storage and lifecycle orchestration contract', () => {
       findUseEffectContaining(sources, 'subscribeToPlayerTournaments')
     ]);
 
-    expect(lifecycleDigest).toBe('23eac4ed93c2ae104e8a93077732f8491501917fa514fb71625bf9cca04c6866');
+    expect(lifecycleDigest).toBe('71ad8229cde6ca9f81caf1300c20061b9ae26df03e6452d576fa07d456e67dba');
   });
 });

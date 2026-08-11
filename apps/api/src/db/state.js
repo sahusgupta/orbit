@@ -84,6 +84,56 @@ function mapPublication(row) {
   };
 }
 
+async function bulkUpsertEntities(transaction, accountKey, entities, revision, savedAt) {
+  const chunkSize = 100;
+  for (let offset = 0; offset < entities.length; offset += chunkSize) {
+    const chunk = entities.slice(offset, offset + chunkSize);
+    const params = [];
+    const values = chunk.map((entity) => {
+      const start = params.length + 1;
+      params.push(
+        accountKey,
+        entity.collectionName,
+        entity.entityId,
+        entity.position,
+        entity.contentHash,
+        entity.entityJson,
+        revision,
+        savedAt
+      );
+      return `($${start}, $${start + 1}, $${start + 2}, $${start + 3}, $${start + 4}, $${start + 5}, $${start + 6}, $${start + 7})`;
+    });
+    await transaction.run(`
+      INSERT INTO account_state_entities (
+        account_key, collection_name, entity_id, position, content_hash, entity_json, revision, updated_at
+      ) VALUES ${values.join(', ')}
+      ON CONFLICT(account_key, collection_name, entity_id) DO UPDATE SET
+        position = excluded.position,
+        content_hash = excluded.content_hash,
+        entity_json = excluded.entity_json,
+        revision = excluded.revision,
+        updated_at = excluded.updated_at
+    `, params);
+  }
+}
+
+async function bulkDeleteEntities(transaction, accountKey, entities) {
+  const chunkSize = 200;
+  for (let offset = 0; offset < entities.length; offset += chunkSize) {
+    const chunk = entities.slice(offset, offset + chunkSize);
+    const params = [accountKey];
+    const matches = chunk.map((entity) => {
+      const start = params.length + 1;
+      params.push(entity.collection_name, entity.entity_id);
+      return `(collection_name = $${start} AND entity_id = $${start + 1})`;
+    });
+    await transaction.run(
+      `DELETE FROM account_state_entities WHERE account_key = $1 AND (${matches.join(' OR ')})`,
+      params
+    );
+  }
+}
+
 async function getPublicationStatus(accountKey, revision) {
   const db = await getDatabase();
   const normalized = sanitizeAccountKey(accountKey);
@@ -164,45 +214,23 @@ async function saveState(state, options = {}) {
       entity
     ]));
     const nextKeys = new Set();
-    let changedEntityCount = 0;
+    const changedEntities = [];
 
     for (const entity of serialized.entities) {
       const key = `${entity.collectionName}\u0000${entity.entityId}`;
       nextKeys.add(key);
       const previous = existingByKey.get(key);
       if (previous && previous.content_hash === entity.contentHash && Number(previous.position) === entity.position) continue;
-      await transaction.run(`
-        INSERT INTO account_state_entities (
-          account_key, collection_name, entity_id, position, content_hash, entity_json, revision, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT(account_key, collection_name, entity_id) DO UPDATE SET
-          position = excluded.position,
-          content_hash = excluded.content_hash,
-          entity_json = excluded.entity_json,
-          revision = excluded.revision,
-          updated_at = excluded.updated_at
-      `, [
-        accountKey,
-        entity.collectionName,
-        entity.entityId,
-        entity.position,
-        entity.contentHash,
-        entity.entityJson,
-        revision,
-        savedAt
-      ]);
-      changedEntityCount += 1;
+      changedEntities.push(entity);
     }
 
-    for (const previous of existingEntities) {
+    const deletedEntities = existingEntities.filter((previous) => {
       const key = `${previous.collection_name}\u0000${previous.entity_id}`;
-      if (nextKeys.has(key)) continue;
-      await transaction.run(
-        'DELETE FROM account_state_entities WHERE account_key = $1 AND collection_name = $2 AND entity_id = $3',
-        [accountKey, previous.collection_name, previous.entity_id]
-      );
-      changedEntityCount += 1;
-    }
+      return !nextKeys.has(key);
+    });
+    await bulkUpsertEntities(transaction, accountKey, changedEntities, revision, savedAt);
+    await bulkDeleteEntities(transaction, accountKey, deletedEntities);
+    const changedEntityCount = changedEntities.length + deletedEntities.length;
 
     await transaction.run('DELETE FROM account_profiles WHERE account_key = $1', [accountKey]);
     await transaction.run(`
@@ -276,8 +304,77 @@ async function loadLatestState() {
   return mapStateRow(db, row);
 }
 
-async function listVenues() {
+async function listStatePage(options = {}) {
+  const database = await getDatabase();
+  const limit = Math.min(Math.max(Number(options.limit || 25), 1), 50);
+  const afterAccountKey = sanitizeAccountKey(options.afterAccountKey || '');
+  const params = [];
+  const where = afterAccountKey ? 'WHERE account_state.account_key > $1' : '';
+  if (afterAccountKey) params.push(afterAccountKey);
+  const rows = await database.all(`
+    SELECT
+      account_state.account_key,
+      account_state.venue_name,
+      account_state.schema_version,
+      account_state.saved_at,
+      account_state.state_json,
+      account_state.state_meta_json,
+      account_state.revision,
+      publication_outbox.status,
+      publication_outbox.attempts,
+      publication_outbox.last_error,
+      publication_outbox.published_at,
+      publication_outbox.next_attempt_at
+    FROM account_state
+    LEFT JOIN publication_outbox
+      ON publication_outbox.account_key = account_state.account_key
+      AND publication_outbox.revision = account_state.revision
+    ${where}
+    ORDER BY account_state.account_key ASC
+    LIMIT ${limit + 1}
+  `, params);
+  const pageRows = rows.slice(0, limit);
+  if (!pageRows.length) return { records: [], hasMore: false, nextCursor: null, queryCount: 1 };
+
+  const placeholders = pageRows.map((_, index) => `$${index + 1}`).join(', ');
+  const accountKeys = pageRows.map((row) => row.account_key);
+  const entityRows = await database.all(`
+    SELECT account_key, collection_name, entity_json
+    FROM account_state_entities
+    WHERE account_key IN (${placeholders})
+    ORDER BY account_key ASC, collection_name ASC, position ASC
+  `, accountKeys);
+  const entitiesByAccount = new Map();
+  for (const entity of entityRows) {
+    const entries = entitiesByAccount.get(entity.account_key) || [];
+    entries.push(entity);
+    entitiesByAccount.set(entity.account_key, entries);
+  }
+  return {
+    records: pageRows.map((row) => ({
+      accountKey: row.account_key,
+      venueName: row.venue_name || '',
+      schemaVersion: Number(row.schema_version),
+      savedAt: row.saved_at,
+      revision: Number(row.revision || 0),
+      publication: mapPublication(row.status ? row : null),
+      state: deserializeState(row, entitiesByAccount.get(row.account_key) || [])
+    })),
+    hasMore: rows.length > limit,
+    nextCursor: rows.length > limit ? pageRows.at(-1).account_key : null,
+    queryCount: 2
+  };
+}
+
+async function listVenues(filters = {}) {
   const db = await getDatabase();
+  const params = [];
+  let cursorClause = '';
+  if (filters.beforeSavedAt) {
+    cursorClause = 'WHERE (account_state.saved_at < $1 OR (account_state.saved_at = $2 AND account_state.account_key > $3))';
+    params.push(String(filters.beforeSavedAt), String(filters.beforeSavedAt), String(filters.beforeVenueId || ''));
+  }
+  const limit = Math.min(Math.max(Number(filters.limit || 100), 1), 251);
   const rows = await db.all(`
     SELECT
       account_state.account_key AS venue_id,
@@ -287,9 +384,11 @@ async function listVenues() {
       COUNT(DISTINCT clients.device_id) AS client_count
     FROM account_state
     LEFT JOIN clients ON clients.venue_id = account_state.account_key
+    ${cursorClause}
     GROUP BY account_state.account_key, account_state.venue_name, account_state.saved_at, account_state.revision
-    ORDER BY account_state.saved_at DESC
-  `);
+    ORDER BY account_state.saved_at DESC, account_state.account_key ASC
+    LIMIT ${limit}
+  `, params);
   return rows.map((row) => ({
     venueId: row.venue_id,
     venueName: row.venue_name || '',
@@ -304,6 +403,7 @@ module.exports = {
   deserializeState,
   getPublicationStatus,
   listVenues,
+  listStatePage,
   loadLatestState,
   loadState,
   saveState,

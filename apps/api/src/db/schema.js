@@ -21,6 +21,7 @@ const baseSqliteSchema = `
 
   CREATE INDEX IF NOT EXISTS clients_venue_id_idx ON clients (venue_id);
   CREATE INDEX IF NOT EXISTS clients_last_seen_at_idx ON clients (last_seen_at);
+  CREATE INDEX IF NOT EXISTS clients_venue_last_seen_idx ON clients (venue_id, last_seen_at DESC, device_id ASC);
 
   CREATE TABLE IF NOT EXISTS client_update_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,6 +36,7 @@ const baseSqliteSchema = `
     created_at TEXT NOT NULL,
     FOREIGN KEY (device_id) REFERENCES clients(device_id) ON DELETE CASCADE
   );
+  CREATE INDEX IF NOT EXISTS client_update_events_device_time_idx ON client_update_events (device_id, occurred_at DESC, id DESC);
 
   CREATE TABLE IF NOT EXISTS client_telemetry_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,6 +54,8 @@ const baseSqliteSchema = `
 
   CREATE INDEX IF NOT EXISTS client_telemetry_events_occurred_at_idx ON client_telemetry_events (occurred_at);
   CREATE INDEX IF NOT EXISTS client_telemetry_events_venue_id_idx ON client_telemetry_events (venue_id);
+  CREATE INDEX IF NOT EXISTS client_telemetry_events_venue_time_idx ON client_telemetry_events (venue_id, occurred_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS client_telemetry_events_device_time_idx ON client_telemetry_events (device_id, occurred_at DESC, id DESC);
 
   CREATE TABLE IF NOT EXISTS client_errors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,6 +74,8 @@ const baseSqliteSchema = `
 
   CREATE INDEX IF NOT EXISTS client_errors_occurred_at_idx ON client_errors (occurred_at);
   CREATE INDEX IF NOT EXISTS client_errors_venue_id_idx ON client_errors (venue_id);
+  CREATE INDEX IF NOT EXISTS client_errors_venue_time_idx ON client_errors (venue_id, occurred_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS client_errors_device_time_idx ON client_errors (device_id, occurred_at DESC, id DESC);
 
   CREATE TABLE IF NOT EXISTS account_state (
     account_key TEXT PRIMARY KEY,
@@ -79,6 +85,7 @@ const baseSqliteSchema = `
     state_json TEXT NOT NULL DEFAULT '{}',
     updated_at TEXT NOT NULL
   );
+  CREATE INDEX IF NOT EXISTS account_state_saved_at_idx ON account_state (saved_at DESC, account_key ASC);
 
   CREATE TABLE IF NOT EXISTS account_profiles (
     account_key TEXT NOT NULL,
@@ -157,6 +164,8 @@ const authoritativeSqliteSchema = `
 
   CREATE INDEX IF NOT EXISTS publication_outbox_pending_idx
     ON publication_outbox (status, next_attempt_at, created_at);
+  CREATE INDEX IF NOT EXISTS publication_outbox_created_at_idx
+    ON publication_outbox (created_at DESC, account_key ASC, revision DESC);
 `;
 
 const postgresSchema = `
@@ -178,6 +187,7 @@ const postgresSchema = `
   );
   CREATE INDEX IF NOT EXISTS clients_venue_id_idx ON clients (venue_id);
   CREATE INDEX IF NOT EXISTS clients_last_seen_at_idx ON clients (last_seen_at);
+  CREATE INDEX IF NOT EXISTS clients_venue_last_seen_idx ON clients (venue_id, last_seen_at DESC, device_id ASC);
 
   CREATE TABLE IF NOT EXISTS client_update_events (
     id BIGSERIAL PRIMARY KEY,
@@ -191,6 +201,7 @@ const postgresSchema = `
     occurred_at TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
+  CREATE INDEX IF NOT EXISTS client_update_events_device_time_idx ON client_update_events (device_id, occurred_at DESC, id DESC);
 
   CREATE TABLE IF NOT EXISTS client_telemetry_events (
     id BIGSERIAL PRIMARY KEY,
@@ -207,6 +218,8 @@ const postgresSchema = `
   );
   CREATE INDEX IF NOT EXISTS client_telemetry_events_occurred_at_idx ON client_telemetry_events (occurred_at);
   CREATE INDEX IF NOT EXISTS client_telemetry_events_venue_id_idx ON client_telemetry_events (venue_id);
+  CREATE INDEX IF NOT EXISTS client_telemetry_events_venue_time_idx ON client_telemetry_events (venue_id, occurred_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS client_telemetry_events_device_time_idx ON client_telemetry_events (device_id, occurred_at DESC, id DESC);
 
   CREATE TABLE IF NOT EXISTS client_errors (
     id BIGSERIAL PRIMARY KEY,
@@ -224,6 +237,8 @@ const postgresSchema = `
   );
   CREATE INDEX IF NOT EXISTS client_errors_occurred_at_idx ON client_errors (occurred_at);
   CREATE INDEX IF NOT EXISTS client_errors_venue_id_idx ON client_errors (venue_id);
+  CREATE INDEX IF NOT EXISTS client_errors_venue_time_idx ON client_errors (venue_id, occurred_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS client_errors_device_time_idx ON client_errors (device_id, occurred_at DESC, id DESC);
 
   CREATE TABLE IF NOT EXISTS account_state (
     account_key TEXT PRIMARY KEY,
@@ -235,6 +250,7 @@ const postgresSchema = `
     revision INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
   );
+  CREATE INDEX IF NOT EXISTS account_state_saved_at_idx ON account_state (saved_at DESC, account_key ASC);
 
   CREATE TABLE IF NOT EXISTS account_state_entities (
     account_key TEXT NOT NULL REFERENCES account_state(account_key) ON DELETE CASCADE,
@@ -272,6 +288,7 @@ const postgresSchema = `
     PRIMARY KEY (account_key, revision)
   );
   CREATE INDEX IF NOT EXISTS publication_outbox_pending_idx ON publication_outbox (status, next_attempt_at, created_at);
+  CREATE INDEX IF NOT EXISTS publication_outbox_created_at_idx ON publication_outbox (created_at DESC, account_key ASC, revision DESC);
 
   CREATE TABLE IF NOT EXISTS account_profiles (
     account_key TEXT NOT NULL REFERENCES account_state(account_key) ON DELETE CASCADE,

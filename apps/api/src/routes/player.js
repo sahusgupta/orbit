@@ -1,4 +1,4 @@
-const { loadLatestState, loadState, saveState, schedulePublicationDrain } = require('../database');
+const { listStatePage, loadLatestState, loadState, saveState, schedulePublicationDrain } = require('../database');
 const {
   applyMembershipRequestToState,
   applyWaitlistRequestToState,
@@ -17,6 +17,62 @@ const { logDomainChange } = require('../http/domainEvents');
 const { buildAuthenticatedPlayerRequest, trustedPlayerFromClaims } = require('../playerRequestSecurity');
 const { completePlayerPhoneVerification, startPlayerPhoneVerification } = require('../playerPhoneAuth');
 const { deletePlayerAccount } = require('../accountDeletionService');
+const { buildPlayerTournamentDocs } = require('../firebasePublisher');
+
+function buildPlayerTournamentRegistrations(state, clubId, playerId) {
+  return (state.tournaments || []).flatMap((tournament) => (tournament.players || [])
+    .filter((player) => player.profileId === playerId || player.registrationId === `${tournament.id}:${playerId}`)
+    .map((player) => ({
+      id: player.registrationId || `${tournament.id}:${playerId}`,
+      tournamentId: tournament.id,
+      clubId,
+      playerId,
+      playerName: player.name || '',
+      playerEmail: '',
+      status: player.status === 'Checked In' || player.status === 'Active'
+        ? 'checked-in'
+        : player.status === 'Eliminated'
+          ? 'eliminated'
+          : player.status === 'Finished'
+            ? 'finished'
+            : 'registered',
+      rebuys: Number(player.rebuys || 0),
+      addOns: Number(player.addOns || 0),
+      registeredAt: player.registeredAt || '',
+      updatedAt: state.updatedAt || player.registeredAt || ''
+    })));
+}
+
+function buildPlayerMutationResponse(result, extra = {}) {
+  return {
+    ok: true,
+    accountKey: result.accountKey,
+    savedAt: result.savedAt,
+    revision: result.revision,
+    ...extra
+  };
+}
+
+async function handlePlayerDiscovery(request, response) {
+  const limit = Math.min(Math.max(Number(request.query.limit || 25), 1), 50);
+  const page = await listStatePage({ limit, afterAccountKey: request.query.cursor });
+  const player = trustedPlayerFromClaims(request.orbitPlayer);
+  const clubs = page.records.map((record) => buildPlayerClubSnapshot(record.state, player));
+  const tournaments = page.records.flatMap((record) => buildPlayerTournamentDocs(record.state, record.accountKey, record.savedAt));
+  const registrations = page.records.flatMap((record) => buildPlayerTournamentRegistrations(record.state, record.accountKey, player.id));
+  response.set('cache-control', 'private, no-store');
+  response.json({
+    ok: true,
+    clubs,
+    tournaments,
+    registrations,
+    page: {
+      count: clubs.length,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor
+    }
+  });
+}
 
 async function handlePlayerSnapshot(request, response) {
   const accountKey = sanitizeAccountKey(request.query.accountKey || request.query.venueId || '');
@@ -31,7 +87,6 @@ async function handlePlayerSnapshot(request, response) {
     accountKey: record.accountKey,
     savedAt: record.savedAt,
     revision: record.revision,
-    publication: record.publication,
     snapshot: buildPlayerClubSnapshot(record.state, player)
   });
 }
@@ -63,11 +118,9 @@ async function handlePlayerMembershipRequest(request, response) {
     planName: requestPayload.planName || requestPayload.plan || ''
   });
   void schedulePublicationDrain();
-  response.status(result.duplicate ? 200 : 201).json({
-    ok: true,
-    ...result,
+  response.status(result.duplicate ? 200 : 201).json(buildPlayerMutationResponse(result, {
     snapshot: buildPlayerClubSnapshot(nextState, requestPayload.player)
-  });
+  }));
 }
 
 async function handlePlayerWaitlistRequest(request, response) {
@@ -100,11 +153,9 @@ async function handlePlayerWaitlistRequest(request, response) {
     gameId: requestPayload.gameId
   });
   void schedulePublicationDrain();
-  response.status(result.duplicate ? 200 : 201).json({
-    ok: true,
-    ...result,
+  response.status(result.duplicate ? 200 : 201).json(buildPlayerMutationResponse(result, {
     snapshot: buildPlayerClubSnapshot(nextState, requestPayload.player)
-  });
+  }));
 }
 
 async function handleTournamentRegistration(request, response) {
@@ -169,7 +220,7 @@ async function handleTournamentRegistration(request, response) {
     mutationType: 'player-tournament-register'
   });
   void schedulePublicationDrain();
-  response.status(result.duplicate ? 200 : 201).json({ ok: true, ...result, registration });
+  response.status(result.duplicate ? 200 : 201).json(buildPlayerMutationResponse(result, { registration }));
 }
 
 async function handleTournamentUnregistration(request, response) {
@@ -208,7 +259,7 @@ async function handleTournamentUnregistration(request, response) {
     mutationType: 'player-tournament-unregister'
   });
   void schedulePublicationDrain();
-  response.json({ ok: true, ...result, registrationId });
+  response.json(buildPlayerMutationResponse(result, { registrationId }));
 }
 
 function registerPlayerRoutes(app) {
@@ -220,10 +271,11 @@ function registerPlayerRoutes(app) {
   app.delete('/player/account', requireFirebasePlayer, asyncRoute(deletePlayerAccount));
   app.post('/player/membership-checkout', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(createMembershipCheckout));
   app.get('/player/snapshot', requireFirebasePlayer, asyncRoute(handlePlayerSnapshot));
+  app.get('/player/discovery', requireFirebasePlayer, asyncRoute(handlePlayerDiscovery));
   app.post('/player/membership-requests', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handlePlayerMembershipRequest));
   app.post('/player/waitlist-requests', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handlePlayerWaitlistRequest));
   app.post('/player/tournament-registrations', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handleTournamentRegistration));
   app.delete('/player/tournament-registrations', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handleTournamentUnregistration));
 }
 
-module.exports = { registerPlayerRoutes };
+module.exports = { buildPlayerMutationResponse, registerPlayerRoutes };

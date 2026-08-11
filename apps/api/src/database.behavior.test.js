@@ -17,6 +17,7 @@ const {
   listClients,
   listClientUpdateEvents,
   listTelemetryEvents,
+  listStatePage,
   listVenues,
   loadLatestState,
   loadState,
@@ -204,6 +205,12 @@ describe('API database facade behavior', () => {
       state
     });
     expect(await loadLatestState()).toMatchObject({ accountKey: 'owner-example.com', revision: 1, state });
+    expect(await listStatePage({ limit: 25 })).toMatchObject({
+      records: [expect.objectContaining({ accountKey: 'owner-example.com', revision: 1, state })],
+      hasMore: false,
+      nextCursor: null,
+      queryCount: 2
+    });
     expect(await listVenues()).toEqual([
       expect.objectContaining({
         venueId: 'owner-example.com',

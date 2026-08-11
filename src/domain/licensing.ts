@@ -2,6 +2,7 @@ import branding from '../../branding.config.json';
 import { canonicalPayload } from '../lib/appCore';
 import { nowIso } from './state';
 import type { AppState, PilotAccess } from './types';
+import { isLocalE2EFixtureMode } from '../lib/e2eFixtureMode';
 
 export const managementStorageKey = 'table-manager-state-v1';
 
@@ -39,7 +40,7 @@ const managementSessionIdleMs = 30 * 60 * 1000;
 
 export const hasPersistedSignIn = (state: AppState) => {
   if (!isPilotAccessActive(state.settings.pilotAccess)) return false;
-  if (import.meta.env.MODE === 'test' && localStorage.getItem(getAuthStorageKey(state))) return true;
+  if ((import.meta.env.MODE === 'test' || isLocalE2EFixtureMode()) && localStorage.getItem(getAuthStorageKey(state))) return true;
   const session = managementSessions.get(getAuthStorageKey(state));
   const now = Date.now();
   return Boolean(

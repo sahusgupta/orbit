@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import publisher from './firebasePublisher.js';
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('canonical Firestore club layout', () => {
   const state = {
@@ -136,6 +138,16 @@ describe('canonical Firestore club layout', () => {
       }
     });
     expect(JSON.stringify(write)).not.toContain('state_json');
+  });
+
+  it('publishes projection documents in provider-bounded batches instead of one request per document', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    const writes = Array.from({ length: 501 }, (_value, index) => ({ delete: `documents/${index}` }));
+
+    await expect(publisher.batchWriteDocuments('project-1', 'token', writes)).resolves.toBe(501);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.map((call) => JSON.parse(call[1].body).writes.length)).toEqual([250, 250, 1]);
   });
 
   it('builds a versioned mobile commit marker', () => {

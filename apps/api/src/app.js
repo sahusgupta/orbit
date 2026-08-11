@@ -4,6 +4,7 @@ const { asyncRoute } = require('./http/auth');
 const { createLiveUpdates } = require('./http/liveUpdates');
 const { assignRequestId, handleApiError } = require('./http/middleware');
 const { applySecurityHeaders, createRateLimit, enforceCors, rejectUnexpectedFileUploads } = require('./http/security');
+const { recordRequestTiming, responseCompression } = require('./http/performance');
 const { registerClientRoutes } = require('./routes/client');
 const { registerDashboardRoutes } = require('./routes/dashboard');
 const { registerPlayerRoutes } = require('./routes/player');
@@ -21,6 +22,8 @@ function createApp() {
   if (trustedProxy) app.set('trust proxy', trustedProxy === 'true' ? 1 : trustedProxy);
 
   app.use(assignRequestId);
+  app.use(recordRequestTiming);
+  app.use(responseCompression);
   app.use(applySecurityHeaders);
   app.use(enforceCors);
   app.use(rejectUnexpectedFileUploads);

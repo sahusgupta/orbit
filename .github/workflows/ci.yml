@@ -22,7 +22,7 @@ jobs:
       - run: npm ci --prefix player-app
       - run: npm ci --prefix apps/api
       - run: npm run security:paths
-      - run: npm run lint --if-present
-      - run: npm test --if-present
-      - run: npm run player:typecheck
-      - run: npm run build
+      - run: npm run verify
+      - run: npm run check:renderer-bundle
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e:management

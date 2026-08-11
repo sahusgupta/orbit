@@ -92,12 +92,22 @@ async function recordClientError(payload) {
   return (await listClientErrors({ limit: 1 }))[0];
 }
 
-async function listClientUpdateEvents(deviceId) {
+async function listClientUpdateEvents(deviceId, filters = {}) {
   const database = await getDatabase();
-  const rows = await database.all(
-    'SELECT * FROM client_update_events WHERE device_id = $1 ORDER BY occurred_at DESC LIMIT 100',
-    [String(deviceId || '').trim()]
-  );
+  /** @type {Array<string | number>} */
+  const params = [String(deviceId || '').trim()];
+  let cursor = '';
+  if (filters.beforeOccurredAt) {
+    cursor = 'AND (occurred_at < $2 OR (occurred_at = $3 AND id < $4))';
+    params.push(String(filters.beforeOccurredAt), String(filters.beforeOccurredAt), Number(filters.beforeId || Number.MAX_SAFE_INTEGER));
+  }
+  const limit = Math.min(Math.max(Number(filters.limit || 100), 1), 251);
+  const rows = await database.all(`
+    SELECT * FROM client_update_events
+    WHERE device_id = $1 ${cursor}
+    ORDER BY occurred_at DESC, id DESC
+    LIMIT ${limit}
+  `, params);
   return rows.map((row) => ({
       id: row.id,
       deviceId: row.device_id,
@@ -166,12 +176,17 @@ async function listClientErrors(filters = {}) {
     where.push(`device_id = $${params.length + 1}`);
     params.push(String(filters.deviceId || '').trim());
   }
+  if (filters.beforeOccurredAt) {
+    const start = params.length + 1;
+    where.push(`(occurred_at < $${start} OR (occurred_at = $${start + 1} AND id < $${start + 2}))`);
+    params.push(String(filters.beforeOccurredAt), String(filters.beforeOccurredAt), Number(filters.beforeId || Number.MAX_SAFE_INTEGER));
+  }
   const limit = Math.min(Math.max(Number(filters.limit || 100), 1), 500);
   const database = await getDatabase();
   const rows = await database.all(`
       SELECT * FROM client_errors
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-      ORDER BY occurred_at DESC
+      ORDER BY occurred_at DESC, id DESC
       LIMIT ${limit}
     `, params);
   return rows.map((row) => ({
@@ -193,23 +208,44 @@ async function listClientErrors(filters = {}) {
 async function getTelemetrySummary() {
   const db = await getDatabase();
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const clients = await listClients();
-  const activeClients24h = clients.filter((client) => client.lastSeenAt >= since24h).length;
-  const [eventCountRow, errorCountRow, tableStarts24h] = await Promise.all([
+  const [clientCountRow, activeClientCountRow, eventCountRow, errorCountRow, tableStarts24h] = await Promise.all([
+    db.get('SELECT COUNT(*) AS count FROM clients'),
+    db.get('SELECT COUNT(*) AS count FROM clients WHERE last_seen_at >= $1', [since24h]),
     db.get('SELECT COUNT(*) AS count FROM client_telemetry_events'),
     db.get('SELECT COUNT(*) AS count FROM client_errors'),
     db.get("SELECT COUNT(*) AS count FROM client_telemetry_events WHERE event = 'table-started' AND occurred_at >= $1", [since24h])
   ]);
   return {
-    clients: clients.length,
-    activeClients24h,
+    clients: Number(clientCountRow?.count || 0),
+    activeClients24h: Number(activeClientCountRow?.count || 0),
     events: Number(eventCountRow?.count || 0),
     errors: Number(errorCountRow?.count || 0),
     tableStarts24h: Number(tableStarts24h?.count || 0)
   };
 }
 
+async function getOperationalQueryPlans() {
+  const db = await getDatabase();
+  if (db.engine !== 'sqlite') return null;
+  const venueTelemetry = await db.all(`
+    EXPLAIN QUERY PLAN
+    SELECT * FROM client_telemetry_events
+    WHERE venue_id = $1
+    ORDER BY occurred_at DESC, id DESC
+    LIMIT 100
+  `, ['query-plan-evidence']);
+  const venueClients = await db.all(`
+    EXPLAIN QUERY PLAN
+    SELECT * FROM clients
+    WHERE venue_id = $1
+    ORDER BY last_seen_at DESC, device_id ASC
+    LIMIT 100
+  `, ['query-plan-evidence']);
+  return { venueClients, venueTelemetry };
+}
+
 module.exports = {
+  getOperationalQueryPlans,
   getTelemetrySummary,
   listClientErrors,
   listClientUpdateEvents,

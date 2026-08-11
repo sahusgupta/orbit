@@ -210,7 +210,7 @@ describe('Player onboarding presentation contract', () => {
       '<OnboardingFlow'
     ];
 
-    expect(componentDigest).toBe('f8bc41c1447794ccf0793f394ac72dafddbd27831abfa1631b2c10df9f569adf');
+    expect(componentDigest).toBe('74cfbb0f596c261168d7bac7fbd62ac265da508618511b2176d2498626d68f59');
     orderedShellTokens.forEach((token) => expect(shell).toContain(token));
     for (let index = 1; index < orderedShellTokens.length; index += 1) {
       expect(shell.indexOf(orderedShellTokens[index])).toBeGreaterThan(shell.indexOf(orderedShellTokens[index - 1]));
@@ -301,7 +301,7 @@ describe('Player tournament presentation contract', () => {
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
     const tournamentScreen = findFunction(sources, 'TournamentScreen');
 
-    expect(componentDigest).toBe('94efe4a56e326f60fe9820cc5e19e6212be876eafdcf59f370375e35ef6453f3');
+    expect(componentDigest).toBe('6934283c085b039e9a228f01bb340e6e14b7e75274517b8f70d533b2d937f516');
     ['<TournamentScreen', '<TournamentFilterControls'].forEach((token) => expect(playerApp).toContain(token));
     ['<TournamentCard', '<SearchToolbar'].forEach((token) => expect(tournamentScreen).toContain(token));
   });
@@ -324,7 +324,7 @@ describe('Player clubs and membership presentation contract', () => {
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
     const clubsScreen = findFunction(sources, 'ClubsScreen');
 
-    expect(componentDigest).toBe('73b29f768d581d4a3046a16a6eda62e822a09da3185817bcc4960c049e5037ec');
+    expect(componentDigest).toBe('dc00b555f1fe5b9a131a3a5438ebe6da0384edaff054b913605f49b0e0f4ce51');
     ['<ClubsScreen', '<ClubMembershipPlanScreen', '<ClubAccessCheckoutScreen', '<SeatRequestModal'].forEach((token) => expect(playerApp).toContain(token));
     expect(clubsScreen).toContain('<ClubHubSections');
   });

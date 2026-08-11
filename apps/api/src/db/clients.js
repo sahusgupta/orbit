@@ -99,13 +99,24 @@ async function upsertClient(payload) {
 
 async function listClients(filters = {}) {
   const params = [];
-  let where = '';
+  const conditions = [];
   if (filters.venueId) {
-    where = 'WHERE venue_id = $1';
+    conditions.push(`venue_id = $${params.length + 1}`);
     params.push(sanitizeAccountKey(filters.venueId));
   }
+  if (filters.beforeLastSeenAt) {
+    const index = params.length + 1;
+    conditions.push(`(last_seen_at < $${index} OR (last_seen_at = $${index + 1} AND device_id > $${index + 2}))`);
+    params.push(String(filters.beforeLastSeenAt), String(filters.beforeLastSeenAt), String(filters.beforeDeviceId || ''));
+  }
+  const limit = Math.min(Math.max(Number(filters.limit || 100), 1), 251);
   const database = await getDatabase();
-  const rows = await database.all(`SELECT * FROM clients ${where} ORDER BY last_seen_at DESC`, params);
+  const rows = await database.all(`
+    SELECT * FROM clients
+    ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+    ORDER BY last_seen_at DESC, device_id ASC
+    LIMIT ${limit}
+  `, params);
   return rows.map(mapClientRow);
 }
 

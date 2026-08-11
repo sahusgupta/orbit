@@ -29,7 +29,8 @@ import {
   findUniqueProfileReference,
   hasProfileReference
 } from './lib/profileRelationships';
-import { sendFirebasePasswordResetEmail, signInOrCreateFirebaseEmailAccount, signInToFirebaseWithEmail, signOutOfFirebase } from './lib/firebaseClubSync';
+import { sendFirebasePasswordResetEmail, signInOrCreateFirebaseEmailAccount, signInToFirebaseWithEmail, signOutOfFirebase } from './lib/firebaseAuthFacade';
+import { RecoveryBoundary } from './components/RecoveryBoundary';
 import { getBalancePlans, parseGroupMeMessages, type BalancePlanResult } from './lib/resultBuilders';
 import { validateLocalImport } from './lib/fileImportValidation';
 import {
@@ -236,9 +237,17 @@ const TournamentsView = React.lazy(() => import('./components/TournamentsView'))
 const TournamentTvView = React.lazy(() => import('./components/TournamentTvView'));
 
 const withRouteLoadingBoundary = (content: React.ReactNode) => (
-  <React.Suspense fallback={<main aria-busy="true" aria-label="Loading view" />}>
-    {content}
-  </React.Suspense>
+  <RecoveryBoundary label="This workspace">
+    <React.Suspense fallback={(
+      <main className="route-skeleton" aria-busy="true" aria-label="Loading view">
+        <span className="route-skeleton-title" />
+        <span className="route-skeleton-toolbar" />
+        <span className="route-skeleton-panel" />
+      </main>
+    )}>
+      {content}
+    </React.Suspense>
+  </RecoveryBoundary>
 );
 
 declare global {
@@ -562,6 +571,12 @@ function App() {
     setSetupDraft,
     setStaffDraft
   } = settingsWorkspace;
+  const [accessFieldError, setAccessFieldError] = useState('');
+  const validateAccessField = (event: React.FocusEvent<HTMLInputElement>, matchesValue?: string) => {
+    const input = event.currentTarget;
+    const mismatch = matchesValue !== undefined && input.value !== matchesValue;
+    setAccessFieldError(mismatch ? 'Password and confirmation do not match.' : input.validationMessage);
+  };
   // The undo control was removed before this refactor; keep its write cadence until product scope decides whether to restore or remove it.
   const [, setUndoStack] = useState<AppState[]>([]);
   const tournamentWorkspace = useTournamentWorkspaceState();
@@ -2724,15 +2739,21 @@ function App() {
             </div>
           </div>
           <form className="access-step account-form" onSubmit={createLoginForExistingAccount}>
-            <input value={setupDraft.username} onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })} placeholder="Login email" type="email" />
-            <input value={setupDraft.password} onChange={(event) => setSetupDraft({ ...setupDraft, password: event.target.value })} placeholder="Password or passphrase (12+ characters)" type="password" minLength={12} />
-            <input value={setupDraft.confirmPassword} onChange={(event) => setSetupDraft({ ...setupDraft, confirmPassword: event.target.value })} placeholder="Confirm password" type="password" minLength={12} />
+            <label className="access-field">Login email
+              <input required value={setupDraft.username} onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })} onBlur={validateAccessField} placeholder="name@example.com" type="email" aria-describedby="access-field-error" />
+            </label>
+            <label className="access-field">Password or passphrase
+              <input required value={setupDraft.password} onChange={(event) => setSetupDraft({ ...setupDraft, password: event.target.value })} onBlur={validateAccessField} placeholder="12 or more characters" type="password" minLength={12} aria-describedby="access-field-error" />
+            </label>
+            <label className="access-field">Confirm password
+              <input required value={setupDraft.confirmPassword} onChange={(event) => setSetupDraft({ ...setupDraft, confirmPassword: event.target.value })} onBlur={(event) => validateAccessField(event, setupDraft.password)} placeholder="Repeat password" type="password" minLength={12} aria-describedby="access-field-error" />
+            </label>
             <label className="switch-control">
               <input type="checkbox" checked={setupDraft.staySignedIn} onChange={(event) => setSetupDraft({ ...setupDraft, staySignedIn: event.target.checked })} />
               <span>Stay signed in until key expiration</span>
             </label>
             <button className="primary-button" type="submit">Create Login</button>
-            {pilotKeyError ? <p className="access-error">{pilotKeyError}</p> : null}
+            {pilotKeyError || accessFieldError ? <p id="access-field-error" className="access-error" role="alert">{pilotKeyError || accessFieldError}</p> : null}
           </form>
         </section>
       </main>
@@ -2758,8 +2779,12 @@ function App() {
             </div>
           </div>
           <form className="access-step account-form" onSubmit={passwordRecoveryStage === 'idle' ? signInToAccount : completeAccountPasswordRecovery}>
-            <input value={loginDraft.username} onChange={(event) => setLoginDraft({ ...loginDraft, username: event.target.value })} placeholder="Email" type="email" autoComplete="email" readOnly={passwordRecoveryStage !== 'idle'} />
-            <input value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} placeholder={passwordRecoveryStage === 'sent' ? 'New password or passphrase (12+ characters)' : 'Password'} type="password" minLength={passwordRecoveryStage === 'sent' ? 12 : undefined} autoComplete={passwordRecoveryStage === 'sent' ? 'new-password' : 'current-password'} />
+            <label className="access-field">Email
+              <input required value={loginDraft.username} onChange={(event) => setLoginDraft({ ...loginDraft, username: event.target.value })} onBlur={validateAccessField} placeholder="name@example.com" type="email" autoComplete="email" readOnly={passwordRecoveryStage !== 'idle'} aria-describedby="access-field-error" />
+            </label>
+            <label className="access-field">{passwordRecoveryStage === 'sent' ? 'New password or passphrase' : 'Password'}
+              <input required value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} onBlur={validateAccessField} placeholder={passwordRecoveryStage === 'sent' ? '12 or more characters' : 'Password'} type="password" minLength={passwordRecoveryStage === 'sent' ? 12 : undefined} autoComplete={passwordRecoveryStage === 'sent' ? 'new-password' : 'current-password'} aria-describedby="access-field-error" />
+            </label>
             <label className="switch-control">
               <input type="checkbox" checked={loginDraft.staySignedIn} onChange={(event) => setLoginDraft({ ...loginDraft, staySignedIn: event.target.checked })} />
               <span>Stay signed in until key expiration</span>
@@ -2776,7 +2801,7 @@ function App() {
               <button className="ghost-button" type="button" onClick={resetPasswordRecovery} disabled={passwordRecoveryStage === 'sending' || passwordRecoveryStage === 'verifying'}>Back to sign in</button>
             )}
             <button className="ghost-button" type="button" onClick={() => { resetPasswordRecovery(); setState(seedState); }}>Use a different key</button>
-            {pilotKeyError ? <p className="access-error">{pilotKeyError}</p> : null}
+            {pilotKeyError || accessFieldError ? <p id="access-field-error" className="access-error" role="alert">{pilotKeyError || accessFieldError}</p> : null}
           </form>
         </section>
       </main>
@@ -2828,62 +2853,36 @@ function App() {
                 <Users size={20} />
                 <h2>Club Account</h2>
               </div>
-              <input
-                value={clubDraft.clubName}
-                onChange={(event) => setClubDraft({ ...clubDraft, clubName: event.target.value })}
-                placeholder="Club name"
-              />
-              <input
-                value={clubDraft.accountName}
-                onChange={(event) => setClubDraft({ ...clubDraft, accountName: event.target.value })}
-                placeholder="Account name"
-              />
-              <input
-                value={clubDraft.contactName}
-                onChange={(event) => setClubDraft({ ...clubDraft, contactName: event.target.value })}
-                placeholder="Primary contact"
-              />
-              <input
-                type="email"
-                value={clubDraft.email}
-                onChange={(event) => setClubDraft({ ...clubDraft, email: event.target.value })}
-                placeholder="Email"
-              />
-              <input
-                value={clubDraft.phone}
-                onChange={(event) => setClubDraft({ ...clubDraft, phone: event.target.value })}
-                placeholder="Phone"
-              />
-              <input
-                value={clubDraft.address}
-                onChange={(event) => setClubDraft({ ...clubDraft, address: event.target.value })}
-                placeholder="Club address"
-              />
-              <input
-                value={setupDraft.username}
-                onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })}
-                placeholder="Login email (defaults to club email)"
-                type="email"
-              />
-              <input
-                value={setupDraft.password}
-                onChange={(event) => setSetupDraft({ ...setupDraft, password: event.target.value })}
-                placeholder="Create password or passphrase (12+ characters)"
-                type="password"
-                minLength={12}
-              />
-              <input
-                value={setupDraft.confirmPassword}
-                onChange={(event) => setSetupDraft({ ...setupDraft, confirmPassword: event.target.value })}
-                placeholder="Confirm password"
-                type="password"
-                minLength={12}
-              />
-              <textarea
-                value={setupDraft.initialGames}
-                onChange={(event) => setSetupDraft({ ...setupDraft, initialGames: event.target.value })}
-                placeholder="Games offered, one per line"
-              />
+              <label className="access-field">Club name
+                <input required value={clubDraft.clubName} onChange={(event) => setClubDraft({ ...clubDraft, clubName: event.target.value })} onBlur={validateAccessField} aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Account name
+                <input required value={clubDraft.accountName} onChange={(event) => setClubDraft({ ...clubDraft, accountName: event.target.value })} onBlur={validateAccessField} aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Primary contact
+                <input required value={clubDraft.contactName} onChange={(event) => setClubDraft({ ...clubDraft, contactName: event.target.value })} onBlur={validateAccessField} aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Club email
+                <input required type="email" value={clubDraft.email} onChange={(event) => setClubDraft({ ...clubDraft, email: event.target.value })} onBlur={validateAccessField} placeholder="name@example.com" aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Phone
+                <input value={clubDraft.phone} onChange={(event) => setClubDraft({ ...clubDraft, phone: event.target.value })} placeholder="Optional" />
+              </label>
+              <label className="access-field">Club address
+                <input value={clubDraft.address} onChange={(event) => setClubDraft({ ...clubDraft, address: event.target.value })} placeholder="Street address" />
+              </label>
+              <label className="access-field">Login email
+                <input value={setupDraft.username} onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })} onBlur={validateAccessField} placeholder="Defaults to club email" type="email" aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Create password or passphrase
+                <input required value={setupDraft.password} onChange={(event) => setSetupDraft({ ...setupDraft, password: event.target.value })} onBlur={validateAccessField} placeholder="12 or more characters" type="password" minLength={12} aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Confirm password
+                <input required value={setupDraft.confirmPassword} onChange={(event) => setSetupDraft({ ...setupDraft, confirmPassword: event.target.value })} onBlur={(event) => validateAccessField(event, setupDraft.password)} placeholder="Repeat password" type="password" minLength={12} aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field access-field-wide">Games offered
+                <textarea required value={setupDraft.initialGames} onChange={(event) => setSetupDraft({ ...setupDraft, initialGames: event.target.value })} placeholder="One game per line" />
+              </label>
               <div className="segmented-control">
                 <button
                   type="button"
@@ -2900,20 +2899,12 @@ function App() {
                   Time fees
                 </button>
               </div>
-              <input
-                type="number"
-                min="0"
-                value={setupDraft.defaultHourlyFee}
-                onChange={(event) => setSetupDraft({ ...setupDraft, defaultHourlyFee: Number(event.target.value) })}
-                placeholder="Hourly fee"
-              />
-              <input
-                type="number"
-                min="0"
-                value={setupDraft.defaultEstimatedDropPerSeatHour}
-                onChange={(event) => setSetupDraft({ ...setupDraft, defaultEstimatedDropPerSeatHour: Number(event.target.value) })}
-                placeholder="Drop estimate per occupied seat-hour"
-              />
+              <label className="access-field">Hourly fee
+                <input type="number" min="0" value={setupDraft.defaultHourlyFee} onChange={(event) => setSetupDraft({ ...setupDraft, defaultHourlyFee: Number(event.target.value) })} onBlur={validateAccessField} aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Drop estimate per occupied seat-hour
+                <input type="number" min="0" value={setupDraft.defaultEstimatedDropPerSeatHour} onChange={(event) => setSetupDraft({ ...setupDraft, defaultEstimatedDropPerSeatHour: Number(event.target.value) })} onBlur={validateAccessField} aria-describedby="access-field-error" />
+              </label>
               <label className="switch-control">
                 <input
                   type="checkbox"
@@ -2925,6 +2916,7 @@ function App() {
               <button className="primary-button" type="submit">
                 Unlock Dashboard
               </button>
+              {pilotKeyError || accessFieldError ? <p id="access-field-error" className="access-error" role="alert">{pilotKeyError || accessFieldError}</p> : null}
             </form>
             ) : (
               <section className="access-step">
@@ -3602,6 +3594,8 @@ function App() {
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <RecoveryBoundary label="Orbit">
+      <App />
+    </RecoveryBoundary>
   </React.StrictMode>
 );

@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, query, where, type QueryDocumentSnapshot } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, query, where, type QueryDocumentSnapshot } from 'firebase/firestore';
 import { isPlayerVisibleClubName } from '../../domain/clubVisibility';
 import { normalizePublishedGames } from '../../domain/decoders/playerGameDecoder';
 import { decodeLegacyClubStateRecord, decodePublishedClubRecord } from '../../domain/decoders/playerSnapshotDecoders';
@@ -13,7 +13,7 @@ import {
 } from '../../domain/playerSnapshotTransforms';
 import { hasUncommittedFutureRevision, selectCommittedGames, selectRevisionCompatibleRecords } from '../../domain/syncProtocol';
 import { fetchLocalClubSnapshot } from '../api/localPlayerApi';
-import { fetchRemoteClubSnapshot } from '../api/playerHttpApi';
+import { fetchRemotePlayerDiscovery } from '../api/playerHttpApi';
 import type { SyncResult } from '../playerDataContracts';
 import { db } from './firebaseClient';
 
@@ -34,7 +34,7 @@ export async function fetchClubSnapshot(player: Pick<PlayerAccount, 'id' | 'name
 
 export async function fetchClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>): Promise<SyncResult> {
   try {
-    const snapshots = await getDocs(collection(db, 'clubStates'));
+    const snapshots = await getDocs(query(collection(db, 'clubStates'), limit(50)));
     const clubs = snapshots.docs
       .map((snapshot) => decodeLegacyClubStateRecord(snapshot.data()))
       .filter((record) => record.snapshot)
@@ -52,16 +52,23 @@ export async function fetchClubSnapshots(player: Pick<PlayerAccount, 'id' | 'nam
 }
 
 export async function fetchAllClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>) {
-  const localResult = await fetchLocalClubSnapshot(player);
+  const [localAttempt, discoveryAttempt] = await Promise.allSettled([
+    fetchLocalClubSnapshot(player),
+    fetchRemotePlayerDiscovery()
+  ]);
+  const localResult = localAttempt.status === 'fulfilled' ? localAttempt.value : { ok: false as const, error: 'Local bridge unavailable.' };
   const localClubs = localResult.ok ? [localResult.snapshot] : [];
+  if (discoveryAttempt.status === 'fulfilled') {
+    return {
+      ok: true as const,
+      clubs: mergeSnapshotSources(discoveryAttempt.value.clubs, localClubs),
+      page: discoveryAttempt.value.page
+    };
+  }
   try {
     const publishedClubs = await getPublishedClubSnapshots(player);
-    const remoteResults = await Promise.all(
-      publishedClubs.map((club) => fetchRemoteClubSnapshot(player, club.club.id))
-    );
-    const remoteClubs = remoteResults.flatMap((result) => result.ok ? [result.snapshot] : []);
-    if (publishedClubs.length || remoteClubs.length || localClubs.length) {
-      return { ok: true as const, clubs: mergeSnapshotSources(publishedClubs, remoteClubs, localClubs) };
+    if (publishedClubs.length || localClubs.length) {
+      return { ok: true as const, clubs: mergeSnapshotSources(publishedClubs, localClubs) };
     }
     const clubs = await getLegacyClubSnapshots(player);
     return { ok: true as const, clubs: mergeSnapshotSources(clubs, localClubs) };
@@ -87,18 +94,19 @@ export async function getClubState(accountKey: string) {
 }
 
 export function playerScopedCollection(clubId: string, collectionName: 'memberships' | 'waitlists', playerId?: string) {
-  return query(collection(db, 'clubs', clubId, collectionName), where('playerId', '==', playerId || '__none__'));
+  return query(collection(db, 'clubs', clubId, collectionName), where('playerId', '==', playerId || '__none__'), limit(2));
 }
 
 export function playerNotificationCollection(clubId: string, playerId?: string) {
   return query(
     collection(db, 'clubs', clubId, 'notifications'),
-    where('targetPlayerIds', 'array-contains', playerId || '__none__')
+    where('targetPlayerIds', 'array-contains', playerId || '__none__'),
+    limit(50)
   );
 }
 
 async function getPublishedClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>) {
-  const clubDocs = await getDocs(collection(db, 'clubs'));
+  const clubDocs = await getDocs(query(collection(db, 'clubs'), limit(50)));
   return Promise.all(
     clubDocs.docs
       .filter((clubDoc) => isPlayerVisibleClubName(clubDoc.data()?.name))
@@ -110,7 +118,7 @@ async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: 
   const club = decodePublishedClubRecord(clubDoc.data());
   if (!club || !isPlayerVisibleClubName(club.name)) throw new Error(`Club ${clubDoc.id} is not player-visible.`);
   const [games, memberships, waitlists, notifications] = await Promise.all([
-    getDocs(collection(db, 'clubs', clubDoc.id, 'games')),
+    getDocs(query(collection(db, 'clubs', clubDoc.id, 'games'), limit(100))),
     getDocs(playerScopedCollection(clubDoc.id, 'memberships', player.id)),
     getDocs(playerScopedCollection(clubDoc.id, 'waitlists', player.id)),
     getDocs(playerNotificationCollection(clubDoc.id, player.id))
@@ -153,7 +161,7 @@ async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: 
 }
 
 async function getLegacyClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>) {
-  const snapshots = await getDocs(collection(db, 'clubStates'));
+  const snapshots = await getDocs(query(collection(db, 'clubStates'), limit(50)));
   return snapshots.docs
     .map((snapshot) => decodeLegacyClubStateRecord(snapshot.data()))
     .filter((record) => record.snapshot && isPlayerVisibleClubName(record.snapshot.club?.name))
@@ -161,7 +169,7 @@ async function getLegacyClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>
 }
 
 async function getFirstClubState() {
-  const snapshots = await getDocs(collection(db, 'clubStates'));
+  const snapshots = await getDocs(query(collection(db, 'clubStates'), limit(1)));
   const first = snapshots.docs[0];
   return first ? decodeLegacyClubStateRecord(first.data()) : null;
 }

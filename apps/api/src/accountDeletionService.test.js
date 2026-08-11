@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import deletionService from './accountDeletionService.js';
 
-const { anonymizePlayerState, readDeletionPolicy, retainedCategories } = deletionService;
+const { anonymizePlayerState, readDeletionPolicy, retainedCategories, visitQueryPages } = deletionService;
 
 const policy = {
   financialRecords: 'anonymize',
@@ -54,5 +54,30 @@ describe('classification-aware player account deletion', () => {
       'audit-records:anonymize',
       'external-provider-records:retain'
     ]);
+  });
+
+  it('walks growing Firebase cleanup queries in bounded document-id pages', async () => {
+    const firstPage = Array.from({ length: 200 }, (_value, index) => ({ id: `doc-${index}` }));
+    const finalPage = [{ id: 'doc-200' }];
+    const snapshots = [{ docs: firstPage }, { docs: finalPage }];
+    let pageIndex = 0;
+    const query = {
+      orderBy: vi.fn(() => query),
+      limit: vi.fn(() => query),
+      startAfter: vi.fn(() => query),
+      get: vi.fn(async () => snapshots[pageIndex++])
+    };
+    const pageLengths = [];
+    /** @param {Array<{ id: string }>} documents */
+    async function recordPage(documents) {
+      pageLengths.push(documents.length);
+    }
+    const operation = vi.fn(recordPage);
+    const admin = { firestore: { FieldPath: { documentId: vi.fn(() => '__name__') } } };
+
+    await expect(visitQueryPages(query, admin, operation)).resolves.toBe(201);
+    expect(pageLengths).toEqual([200, 1]);
+    expect(query.limit).toHaveBeenCalledWith(200);
+    expect(query.startAfter).toHaveBeenCalledWith(firstPage.at(-1));
   });
 });

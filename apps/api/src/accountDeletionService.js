@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { getDatabase } = require('./db/connection');
-const { loadState, saveState } = require('./db/state');
+const { listStatePage, saveState } = require('./db/state');
 const { deletePlayerIdentityData } = require('./identityService');
 const { getAdminApp, getAdminSdk } = require('./services/firebaseAdmin');
 
@@ -160,22 +160,24 @@ async function updateJob(database, playerId, subjectId, status, currentStep, ret
 }
 
 async function anonymizeAuthoritativeStates(playerId, subjectId, policy) {
-  const database = await getDatabase();
-  const accounts = await database.all('SELECT account_key FROM account_state ORDER BY account_key ASC');
   let changedAccounts = 0;
-  for (const account of accounts) {
-    const record = await loadState(account.account_key);
-    if (!record?.state) continue;
-    const state = anonymizePlayerState(record.state, playerId, subjectId, policy);
-    const before = JSON.stringify(record.state);
-    if (JSON.stringify(state) === before) continue;
-    await saveState(state, {
-      expectedRevision: record.revision,
-      mutationId: `account-delete:${subjectId}:${record.accountKey}`,
-      mutationType: 'player-account-deletion'
-    });
-    changedAccounts += 1;
-  }
+  let cursor = '';
+  do {
+    const page = await listStatePage({ limit: 25, afterAccountKey: cursor });
+    for (const record of page.records) {
+      if (!record?.state) continue;
+      const state = anonymizePlayerState(record.state, playerId, subjectId, policy);
+      const before = JSON.stringify(record.state);
+      if (JSON.stringify(state) === before) continue;
+      await saveState(state, {
+        expectedRevision: record.revision,
+        mutationId: `account-delete:${subjectId}:${record.accountKey}`,
+        mutationType: 'player-account-deletion'
+      });
+      changedAccounts += 1;
+    }
+    cursor = page.hasMore ? page.nextCursor || '' : '';
+  } while (cursor);
   return changedAccounts;
 }
 
@@ -187,42 +189,56 @@ async function redactTelemetry(database, playerId) {
   await database.run("UPDATE client_errors SET message = 'Redacted player-related error.', stack = '', details_json = '{\"redacted\":true}' WHERE message LIKE $1 OR stack LIKE $1 OR details_json LIKE $1", [pattern]);
 }
 
-async function deleteQuery(query) {
-  const snapshot = await query.get();
-  await Promise.all(snapshot.docs.map((document) => document.ref.delete()));
-  return snapshot.docs.length;
+async function visitQueryPages(query, admin, operation, pageSize = 200) {
+  let cursor = null;
+  let visited = 0;
+  do {
+    let pageQuery = query.orderBy(admin.firestore.FieldPath.documentId()).limit(pageSize);
+    if (cursor) pageQuery = pageQuery.startAfter(cursor);
+    const snapshot = await pageQuery.get();
+    if (!snapshot.docs.length) break;
+    await operation(snapshot.docs);
+    visited += snapshot.docs.length;
+    cursor = snapshot.docs.at(-1);
+    if (snapshot.docs.length < pageSize) break;
+  } while (cursor);
+  return visited;
+}
+
+async function deleteQuery(query, admin) {
+  return visitQueryPages(query, admin, (documents) => Promise.all(documents.map((document) => document.ref.delete())));
 }
 
 async function cleanupFirebasePlayer(playerId, subjectId, policy) {
   const admin = getAdminSdk();
   const database = admin.firestore(getAdminApp());
   let deletedDocuments = 0;
-  const clubs = await database.collection('clubs').get();
-  for (const club of clubs.docs) {
-    const clubReference = club.ref;
-    for (const collectionName of ['membershipRequests', 'waitlistRequests', 'memberships', 'waitlists', 'tournamentRegistrations']) {
-      deletedDocuments += await deleteQuery(clubReference.collection(collectionName).where('playerId', '==', playerId));
+  await visitQueryPages(database.collection('clubs'), admin, async (clubs) => {
+    for (const club of clubs) {
+      const clubReference = club.ref;
+      for (const collectionName of ['membershipRequests', 'waitlistRequests', 'memberships', 'waitlists', 'tournamentRegistrations']) {
+        deletedDocuments += await deleteQuery(clubReference.collection(collectionName).where('playerId', '==', playerId), admin);
+      }
+      deletedDocuments += await deleteQuery(clubReference.collection('notifications').where('targetPlayerIds', 'array-contains', playerId), admin);
+      const transactionQuery = clubReference.collection('transactions').where('playerId', '==', playerId);
+      if (policy.financialRecords === 'delete') {
+        deletedDocuments += await deleteQuery(transactionQuery, admin);
+      } else if (policy.financialRecords === 'anonymize') {
+        await visitQueryPages(transactionQuery, admin, (transactions) => Promise.all(transactions.map((document) => document.ref.set({
+          playerId: subjectId,
+          playerName: 'Deleted player',
+          playerEmail: admin.firestore.FieldValue.delete(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true }))));
+      }
+      await Promise.all([
+        clubReference.collection('memberships').doc(playerId).delete(),
+        clubReference.collection('timeWallets').doc(playerId).delete(),
+        clubReference.collection('players').doc(playerId).delete()
+      ]);
     }
-    deletedDocuments += await deleteQuery(clubReference.collection('notifications').where('targetPlayerIds', 'array-contains', playerId));
-    const transactionQuery = clubReference.collection('transactions').where('playerId', '==', playerId);
-    if (policy.financialRecords === 'delete') {
-      deletedDocuments += await deleteQuery(transactionQuery);
-    } else if (policy.financialRecords === 'anonymize') {
-      const transactions = await transactionQuery.get();
-      await Promise.all(transactions.docs.map((document) => document.ref.set({
-        playerId: subjectId,
-        playerName: 'Deleted player',
-        playerEmail: admin.firestore.FieldValue.delete(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      }, { merge: true })));
-    }
-    await Promise.all([
-      clubReference.collection('memberships').doc(playerId).delete(),
-      clubReference.collection('timeWallets').doc(playerId).delete(),
-      clubReference.collection('players').doc(playerId).delete()
-    ]);
-  }
-  deletedDocuments += await deleteQuery(database.collection('privateGames').where('hostPlayerId', '==', playerId));
+  });
+  deletedDocuments += await deleteQuery(database.collection('privateGames').where('hostPlayerId', '==', playerId), admin);
   const playerReference = database.doc(`players/${playerId}`);
   if (typeof database.recursiveDelete === 'function') await database.recursiveDelete(playerReference);
   else {
@@ -295,5 +311,6 @@ module.exports = {
   deletePlayerAccount,
   matchesPlayer,
   readDeletionPolicy,
-  retainedCategories
+  retainedCategories,
+  visitQueryPages
 };

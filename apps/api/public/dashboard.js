@@ -242,7 +242,13 @@ async function loadEarlierEvents() {
 function connectLive() {
   if (state.source) state.source.close();
   state.source = new EventSource('/dashboard/events');
-  state.source.addEventListener('ready', () => setStatus('Live dashboard connected.', 'live'));
+  state.source.addEventListener('ready', () => {
+    setStatus('Live dashboard connected.', 'live');
+    loadDashboard({ preserveEventHistory: true }).catch(() => undefined);
+  });
+  state.source.addEventListener('replay-reset', () => {
+    loadDashboard({ preserveEventHistory: true }).catch(() => undefined);
+  });
   state.source.addEventListener('telemetry', (message) => {
     const event = JSON.parse(message.data);
     if (!state.events.some((existing) => existing.id === event.id)) {

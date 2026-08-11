@@ -116,10 +116,12 @@ describe('API route composition', () => {
     expect(healthPayload).toMatchObject({ ok: true, service: 'orbit-api' });
     expect(healthPayload).not.toHaveProperty('database');
     expect(healthPayload).not.toHaveProperty('environment');
+    expect(health.headers.get('server-timing')).toMatch(/^orbit-api;dur=/);
 
-    const privacy = await request('/privacy');
+    const privacy = await request('/privacy', { headers: { 'accept-encoding': 'gzip' } });
     expect(privacy.status).toBe(200);
     expect(privacy.headers.get('content-type')).toContain('text/html');
+    expect(privacy.headers.get('content-encoding')).toBe('gzip');
     expect(await privacy.text()).toContain('Orbit Privacy Policy');
   });
 
