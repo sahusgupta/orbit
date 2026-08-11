@@ -79,6 +79,7 @@ beforeAll(async () => {
       ORBIT_DASHBOARD_USER: 'character-admin',
       ORBIT_DASHBOARD_PASSWORD: 'local-dashboard-password',
       ORBIT_DASHBOARD_SESSION_SECRET: 'local-dashboard-session-secret-at-least-32',
+      ORBIT_PUBLIC_ORIGIN: 'https://orbit-public-preview.invalid',
       FIREBASE_SERVICE_ACCOUNT_JSON: '',
       FIREBASE_SERVICE_ACCOUNT_BASE64: '',
       GOOGLE_APPLICATION_CREDENTIALS: '',
@@ -122,6 +123,8 @@ describe('API route composition', () => {
     expect(privacy.status).toBe(200);
     expect(privacy.headers.get('content-type')).toContain('text/html');
     expect(privacy.headers.get('content-encoding')).toBe('gzip');
+    expect(privacy.headers.get('x-robots-tag')).toBe('noindex, follow');
+    expect(privacy.headers.get('link')).toBe('<https://orbit-public-preview.invalid/privacy.html>; rel="canonical"');
     expect(await privacy.text()).toContain('Orbit Privacy Policy');
   });
 

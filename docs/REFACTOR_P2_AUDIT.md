@@ -1509,3 +1509,34 @@ Stage verification on 2026-08-11:
 - `git diff --check`: **passed**.
 - Sensitive-path prevention check: **correctly failed on the same 11 operator-owned paths**. No artifact was opened, changed, or removed; SEC-017 remains a human security action.
 - No production service, hosted endpoint, datastore, Firebase project, alert receiver, deployment, domain, DNS, registrar, certificate, or secret was accessed or changed. The tracked `data/orbit-api.sqlite3` artifact was not opened or modified.
+
+### Stage 5 - Public Architecture, Static Rendering, and SEO
+
+**Repository implementation state:** COMPLETED for the authorized static architecture and SEO scope. Generated public artwork and genuine product captures remain explicit Stage 7 work. Hallmarks remains **Founder Definition Required**. Legal/company attribution and production-domain ownership/cutover remain deferred, non-blocking founder decisions.
+
+| Finding / requirement | Implementation evidence | Verification |
+| --- | --- | --- |
+| SEO-001; 3.5-3.10 | `download-site/public-config.mjs` defines unique page metadata and generates canonical, robots, Open Graph, Twitter-card, and evidence-backed JSON-LD markup from one configured origin. The emitted OG image is the real 512x512 Orbit brand asset; schema uses WebSite, WebPage, or SoftwareApplication facts and does not invent legal Organization ownership, reviews, offers, ratings, customers, or metrics. | `npm run check:public-site` parses all JSON-LD, verifies unique titles/descriptions, exact configured canonicals/OG image URLs, and one H1 on all seven documents. |
+| SEO-002; 3.11, 3.12, 3.14 | The static build emits origin-aware `robots.txt`, `sitemap.xml`, `llms.txt`, and `ai-policy.txt`. Five approved public routes are indexed; error, authenticated, administrative, API, player-private, and venue-private surfaces are excluded from the public-content index. Legitimate general and named AI crawlers are explicitly allowed on the static public surface. | Public-site verification asserts sitemap membership/exclusion, crawler directives, and private-surface policy text. |
+| SEO-003; 3.3, 6.10 | Dedicated static 404 and 500 documents provide materially different explanations and recovery actions, one H1, `noindex,follow`, and the same accessible public navigation. A static host must map these files to true 404/5xx status behavior during a later approved deployment configuration; no production host was changed here. | `download-site/404.html`, `download-site/500.html`; seven-route desktop/mobile render smoke. |
+| SEO-004 | API-hosted privacy, terms, and support aliases now send `X-Robots-Tag: noindex, follow`; when `ORBIT_PUBLIC_ORIGIN` is configured they also send an exact canonical `Link` to the independent static document. The legal text itself remains unchanged. | API route integration test verifies gzip, noindex, and the configured preview canonical header. |
+| SEO-005; 3.21 | The personal-repository release fallback was removed. No social profile is presented because repository evidence does not establish a maintained organization-owned account. A real social link may be added only after ownership verification. | Public build/source verification rejects the former personal repository reference; public architecture record documents the intentional no-social disposition. |
+| SEO-006, ARCH-001; 3.2, 3.18, 3.24, 5.9 | Home, product, support, privacy, terms, 404, and 500 are meaningful immutable HTML independent of API/Firebase availability. Local, provider-preview, explicit-preview, and configured production-origin resolution is centralized and validated. The final production value is intentionally absent. | `docs/architecture/PUBLIC_SITE.md`; `npm run check:public-site`; `npm run e2e:public` passed all seven routes at desktop/mobile widths with no page, console, request, or overflow failures. |
+| DESIGN-014; 3.4 | Unsupported “signed release” wording was removed. The same-origin release manifest contains no personal-repository fallback and keeps the installer unavailable until an approved promotion provides a real URL. Existing legal entity/controller attribution and legal domain/contact text were not changed. | Public smoke verifies the “Available after approved promotion” manifest state; source search and diff review confirm the deferred legal text is preserved. |
+| 3.13, 3.15, 3.16 | Every document declares English and links the canonical SVG plus PNG favicon assets. Logo images remain decorative inside an explicitly labelled Orbit-home link; the real OG image has descriptive metadata. Meaningful future product captures must receive contextual alt text in Stage 7. | Public-site verification asserts the emitted OG/favicon asset and page render coverage. |
+| 3.17, 3.19 | Public source maps are explicitly disabled. The latest production public build emits a 1.75 kB JavaScript entry (0.87 kB gzip); meaningful page content, metadata, and navigation remain static HTML. | Public-site verification rejects any emitted `.map`; build output records the exact entry size. |
+| 3.20 | No visitor, download, customer, review, rating, or popularity metric was added. Release version/status is same-origin operational metadata, not a popularity claim. | Public source and architecture review. |
+| 3.22, 3.23 | No fictional UI or generated product screenshot was introduced. The current real Orbit logo supplies the Stage 5 OG image. Intentional generated atmospheric artwork and current redacted product captures remain Stage 7 requirements and are not falsely marked complete here. | Asset inventory and rendered-page review. |
+| 3.1 / DESIGN-011 | No meaning was invented for Hallmarks and no Hallmarks page, schema, or claim was added. | **Founder Definition Required.** |
+
+Stage verification on 2026-08-11:
+
+- Public static verification: **passed** for seven HTML documents, five indexed routes, local/preview/configured-origin resolution, metadata, schema, discovery files, meaningful source, OG/favicon asset, and no source maps.
+- Isolated public browser smoke: **passed** for seven routes at 1440x900 and 390x844, with clean console/network/page-error results and no horizontal overflow.
+- API legal-alias integration test: **6/6 passed**.
+- Root aggregate TypeScript: **passed** across renderer, tests, Electron, and API.
+- Player strict TypeScript: **passed**.
+- Full Vitest discovery: **528/528 passed across 99 files**.
+- Desktop renderer production build: **passed**, 1,961 modules.
+- `git diff --check`: **passed**.
+- No production site, DNS, registrar, certificate, canonical production hostname, production client link, release, or domain cutover was accessed or changed. Existing legal/company attribution and legal domain/contact text were preserved exactly as required by the founder amendment.

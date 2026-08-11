@@ -1,6 +1,6 @@
 async function readSameOriginManifest(path) {
   const response = await fetch(path, { cache: 'force-cache', credentials: 'same-origin' });
-  if (!response.ok) return null;
+  if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) return null;
   const payload = await response.json();
   return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null;
 }
@@ -23,7 +23,10 @@ async function loadManifest() {
     updatedElement.textContent = updatedAt
       ? new Date(updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
       : release.publishedLabel || 'Available after approved promotion';
-    if (typeof installerUrl === 'string' && installerUrl) installerLink.href = installerUrl;
+    if (typeof installerUrl === 'string' && installerUrl) {
+      installerLink.href = installerUrl;
+      installerLink.textContent = 'Download for Windows';
+    }
   } catch {
     updatedElement.textContent = 'Release metadata unavailable';
   }
