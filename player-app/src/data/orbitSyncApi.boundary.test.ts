@@ -14,6 +14,8 @@ type FakeUser = {
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
+  phoneNumber: string | null;
+  emailVerified: boolean;
   getIdToken: ReturnType<typeof vi.fn>;
 };
 
@@ -56,8 +58,11 @@ const firebase = vi.hoisted(() => ({
   onSnapshot: vi.fn(),
   query: vi.fn(),
   runTransaction: vi.fn(),
+  sendEmailVerification: vi.fn(),
+  sendPasswordResetEmail: vi.fn(),
   serverTimestamp: vi.fn(),
   setDoc: vi.fn(),
+  signInWithCustomToken: vi.fn(),
   signInWithEmailAndPassword: vi.fn(),
   signOut: vi.fn(),
   where: vi.fn()
@@ -72,7 +77,12 @@ vi.mock('firebase/auth', () => ({
   createUserWithEmailAndPassword: firebase.createUserWithEmailAndPassword,
   deleteUser: firebase.deleteUser,
   getAuth: () => firebase.auth,
+  inMemoryPersistence: { type: 'NONE' },
+  initializeAuth: () => firebase.auth,
   onAuthStateChanged: firebase.onAuthStateChanged,
+  sendEmailVerification: firebase.sendEmailVerification,
+  sendPasswordResetEmail: firebase.sendPasswordResetEmail,
+  signInWithCustomToken: firebase.signInWithCustomToken,
   signInWithEmailAndPassword: firebase.signInWithEmailAndPassword,
   signOut: firebase.signOut
 }));
@@ -94,6 +104,7 @@ vi.mock('firebase/firestore', () => ({
 
 import {
   createClubMembershipCheckout,
+  completePlayerPhoneSignIn,
   createPlayerIdentityVerificationSession,
   deleteCurrentPlayerAccount,
   fetchAllClubSnapshots,
@@ -105,10 +116,11 @@ import {
   fetchPrivateGameListings,
   normalizePublishedGames,
   onFirebasePlayerChanged,
+  requestPlayerPasswordReset,
+  startPlayerPhoneSignIn,
   registerForTournament,
   savePlayerProfile,
   signInOrCreatePlayerWithEmail,
-  signInOrCreatePlayerWithPhone,
   signOutCurrentPlayer,
   submitMembershipRequest,
   submitPrivateGameListing,
@@ -179,6 +191,8 @@ function signedInUser(uid = 'player-1') {
     email: 'alex@example.com',
     displayName: 'Alex',
     photoURL: null,
+    phoneNumber: null,
+    emailVerified: true,
     getIdToken: vi.fn().mockResolvedValue('player-token')
   };
   firebase.auth.currentUser = user;
@@ -325,6 +339,8 @@ beforeEach(() => {
   firebase.setDoc.mockResolvedValue(undefined);
   firebase.deleteDoc.mockResolvedValue(undefined);
   firebase.deleteUser.mockResolvedValue(undefined);
+  firebase.sendEmailVerification.mockResolvedValue(undefined);
+  firebase.sendPasswordResetEmail.mockResolvedValue(undefined);
   firebase.signOut.mockResolvedValue(undefined);
   firebase.runTransaction.mockImplementation(async (_database: unknown, operation: (transaction: {
     get: (reference: unknown) => Promise<FakeDocument>;
@@ -423,7 +439,7 @@ describe('authenticated Orbit API boundaries', () => {
     });
   });
 
-  it('stops account deletion when remote identity cleanup fails and otherwise deletes in order', async () => {
+  it('delegates complete account deletion to the trusted API and surfaces retained categories', async () => {
     const user = signedInUser();
     firebase.fetch.mockResolvedValueOnce(jsonResponse({ error: 'Recent login required.' }, false));
 
@@ -431,11 +447,16 @@ describe('authenticated Orbit API boundaries', () => {
     expect(firebase.deleteDoc).not.toHaveBeenCalled();
     expect(firebase.deleteUser).not.toHaveBeenCalled();
 
-    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
-    await expect(deleteCurrentPlayerAccount()).resolves.toBeUndefined();
-    expect(firebase.deleteDoc).toHaveBeenCalledWith(expect.objectContaining({ path: `players/${user.uid}` }));
-    expect(firebase.deleteUser).toHaveBeenCalledWith(user);
-    expect(firebase.deleteDoc.mock.invocationCallOrder[0]).toBeLessThan(firebase.deleteUser.mock.invocationCallOrder[0]);
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, retainedCategories: ['audit-records:anonymize'] }));
+    await expect(deleteCurrentPlayerAccount()).resolves.toEqual({ retainedCategories: ['audit-records:anonymize'] });
+    expect(firebase.fetch).toHaveBeenLastCalledWith('https://orbitapp-one.vercel.app/player/account', {
+      method: 'DELETE',
+      headers: { authorization: 'Bearer player-token' }
+    });
+    expect(user.getIdToken).toHaveBeenLastCalledWith(true);
+    expect(firebase.deleteDoc).not.toHaveBeenCalled();
+    expect(firebase.deleteUser).not.toHaveBeenCalled();
+    expect(firebase.signOut).toHaveBeenCalledWith(firebase.auth);
   });
 });
 
@@ -448,7 +469,9 @@ describe('Firebase authentication boundary', () => {
       uid: 'player-1',
       email: 'alex@example.com',
       name: 'alex',
-      photoUrl: 'https://example.com/avatar.png'
+      photoUrl: 'https://example.com/avatar.png',
+      provider: 'email',
+      verified: true
     });
 
     const unsubscribe = vi.fn();
@@ -463,7 +486,9 @@ describe('Firebase authentication boundary', () => {
       uid: 'player-1',
       email: 'alex@example.com',
       name: 'alex',
-      photoUrl: 'https://example.com/avatar.png'
+      photoUrl: 'https://example.com/avatar.png',
+      provider: 'email',
+      verified: true
     });
     expect(callback).toHaveBeenNthCalledWith(2, null);
   });
@@ -471,29 +496,45 @@ describe('Firebase authentication boundary', () => {
   it('normalizes email sign-in, falls back to account creation, and preserves the original sign-in error for an existing email', async () => {
     const signInUser = signedInUser('signed-in');
     firebase.signInWithEmailAndPassword.mockResolvedValueOnce({ user: signInUser });
-    await expect(signInOrCreatePlayerWithEmail('  ALEX@Example.COM ', 'secret1')).resolves.toMatchObject({ uid: 'signed-in' });
-    expect(firebase.signInWithEmailAndPassword).toHaveBeenCalledWith(firebase.auth, 'alex@example.com', 'secret1');
+    await expect(signInOrCreatePlayerWithEmail('  ALEX@Example.COM ', 'a-secure-passphrase')).resolves.toMatchObject({ uid: 'signed-in' });
+    expect(firebase.signInWithEmailAndPassword).toHaveBeenCalledWith(firebase.auth, 'alex@example.com', 'a-secure-passphrase');
 
     const signInFailure = Object.assign(new Error('wrong password'), { code: 'auth/wrong-password' });
-    const createdUser = { ...signInUser, uid: 'created' };
+    const createdUser = { ...signInUser, uid: 'created', emailVerified: false };
     firebase.signInWithEmailAndPassword.mockRejectedValueOnce(signInFailure);
     firebase.createUserWithEmailAndPassword.mockResolvedValueOnce({ user: createdUser });
-    await expect(signInOrCreatePlayerWithEmail('new@example.com', 'secret2')).resolves.toMatchObject({ uid: 'created' });
+    await expect(signInOrCreatePlayerWithEmail('new@example.com', 'another-secure-passphrase')).rejects.toThrow(
+      'Check your email to verify the account before signing in.'
+    );
+    expect(firebase.sendEmailVerification).toHaveBeenCalledWith(createdUser);
 
     firebase.signInWithEmailAndPassword.mockRejectedValueOnce(signInFailure);
     firebase.createUserWithEmailAndPassword.mockRejectedValueOnce(Object.assign(new Error('exists'), { code: 'auth/email-already-in-use' }));
-    await expect(signInOrCreatePlayerWithEmail('alex@example.com', 'secret3')).rejects.toBe(signInFailure);
+    await expect(signInOrCreatePlayerWithEmail('alex@example.com', 'third-secure-passphrase')).rejects.toBe(signInFailure);
   });
 
-  it('preserves input validation and the Expo-compatible phone-to-email mapping', async () => {
-    await expect(signInOrCreatePlayerWithEmail('', 'secret1')).rejects.toThrow('Enter your email and password.');
-    await expect(signInOrCreatePlayerWithEmail('alex@example.com', 'short')).rejects.toThrow('Password must be at least 6 characters.');
-    await expect(signInOrCreatePlayerWithPhone('555', 'secret1')).rejects.toThrow('Enter a valid phone number.');
+  it('requires verified email or an SMS OTP and offers generic email recovery', async () => {
+    await expect(signInOrCreatePlayerWithEmail('', 'a-secure-passphrase')).rejects.toThrow('Enter your email and password.');
+    await expect(signInOrCreatePlayerWithEmail('alex@example.com', 'short')).rejects.toThrow('at least 12 characters');
+    expect(() => startPlayerPhoneSignIn('555')).toThrow('including country code');
 
-    const user = signedInUser();
-    firebase.signInWithEmailAndPassword.mockResolvedValueOnce({ user });
-    await signInOrCreatePlayerWithPhone('+1 (555) 111-2222', 'secret1');
-    expect(firebase.signInWithEmailAndPassword).toHaveBeenCalledWith(firebase.auth, 'phone-15551112222@players.orbit.local', 'secret1');
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({ ok: true, challenge: 'signed-challenge', expiresAt: '2026-08-09T12:10:00.000Z' }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, firebaseToken: 'custom-token' }));
+    await expect(startPlayerPhoneSignIn('+1 (555) 111-2222')).resolves.toMatchObject({ challenge: 'signed-challenge' });
+
+    const phoneUser = { ...signedInUser(), email: null, emailVerified: false, phoneNumber: '+15551112222' };
+    firebase.signInWithCustomToken.mockResolvedValueOnce({ user: phoneUser });
+    await expect(completePlayerPhoneSignIn('+1 (555) 111-2222', '123456', 'signed-challenge')).resolves.toMatchObject({
+      uid: 'player-1',
+      phone: '+15551112222',
+      provider: 'phone',
+      verified: true
+    });
+    expect(firebase.signInWithCustomToken).toHaveBeenCalledWith(firebase.auth, 'custom-token');
+
+    await expect(requestPlayerPasswordReset('alex@example.com')).resolves.toContain('If that email belongs');
+    expect(firebase.sendPasswordResetEmail).toHaveBeenCalledWith(firebase.auth, 'alex@example.com');
 
     await signOutCurrentPlayer();
     expect(firebase.signOut).toHaveBeenCalledWith(firebase.auth);

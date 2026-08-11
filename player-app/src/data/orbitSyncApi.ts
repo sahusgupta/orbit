@@ -10,10 +10,12 @@ export type { PlayerIdentityStatus } from './api/playerHttpApi';
 
 export {
   ensureSignedInIdentity,
+  completePlayerPhoneSignIn,
   getCurrentFirebasePlayer,
   onFirebasePlayerChanged,
+  requestPlayerPasswordReset,
   signInOrCreatePlayerWithEmail,
-  signInOrCreatePlayerWithPhone
+  startPlayerPhoneSignIn
 } from './firebase/playerAuth';
 export type { FirebasePlayerIdentity } from './firebase/playerAuth';
 

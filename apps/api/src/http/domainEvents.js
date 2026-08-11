@@ -1,15 +1,17 @@
+const { protectedIdentifier, redactDetails } = require('./dataProtection');
+
 function logDomainChange(event, details = {}) {
   console.log(`[orbit-api] ${JSON.stringify({
     timestamp: new Date().toISOString(),
     level: 'info',
     event,
-    ...details
+    ...redactDetails(details)
   })}`);
 }
 
 function logStateChanges(previousState, nextState, accountKey) {
   if (!previousState) {
-    logDomainChange('core-connected', { accountKey });
+    logDomainChange('core-connected', { tenantRef: protectedIdentifier(accountKey) });
     return;
   }
   const previousProfiles = new Map((previousState.profiles || []).map((profile) => [profile.id, profile]));
@@ -19,12 +21,11 @@ function logStateChanges(previousState, nextState, accountKey) {
   for (const profile of nextState.profiles || []) {
     const previous = previousProfiles.get(profile.id);
     if (!previous) {
-      logDomainChange('player-added', { accountKey, playerId: profile.id, playerName: profile.name || 'Player' });
+      logDomainChange('player-added', { tenantRef: protectedIdentifier(accountKey), subjectRef: protectedIdentifier(profile.id) });
     } else if (previous.membershipStatus !== profile.membershipStatus) {
       logDomainChange('membership-status-changed', {
-        accountKey,
-        playerId: profile.id,
-        playerName: profile.name || 'Player',
+        tenantRef: protectedIdentifier(accountKey),
+        subjectRef: protectedIdentifier(profile.id),
         from: previous.membershipStatus || 'None',
         to: profile.membershipStatus || 'None'
       });
@@ -35,18 +36,16 @@ function logStateChanges(previousState, nextState, accountKey) {
     const previous = previousSessions.get(session.id);
     if (!previous) {
       logDomainChange('game-formed', {
-        accountKey,
-        sessionId: session.id,
+        tenantRef: protectedIdentifier(accountKey),
+        sessionRef: protectedIdentifier(session.id),
         gameId: session.gameId,
-        table: session.label || '',
         status: session.status || ''
       });
     } else if (previous.status !== session.status) {
       logDomainChange('game-status-changed', {
-        accountKey,
-        sessionId: session.id,
+        tenantRef: protectedIdentifier(accountKey),
+        sessionRef: protectedIdentifier(session.id),
         gameId: session.gameId,
-        table: session.label || '',
         from: previous.status || '',
         to: session.status || ''
       });
@@ -56,10 +55,9 @@ function logStateChanges(previousState, nextState, accountKey) {
   for (const interest of nextState.interests || []) {
     if (!previousInterests.has(interest.id)) {
       logDomainChange('game-request-added', {
-        accountKey,
-        requestId: interest.id,
-        playerId: interest.profileId || '',
-        playerName: interest.playerName || 'Player',
+        tenantRef: protectedIdentifier(accountKey),
+        requestRef: protectedIdentifier(interest.id),
+        subjectRef: protectedIdentifier(interest.profileId),
         gameId: interest.gameId,
         status: interest.status || ''
       });

@@ -6,7 +6,8 @@ Standalone backend foundation for Orbit desktop, the future mobile app, and a fu
 
 ```powershell
 npm ci --prefix apps/api
-$env:ORBIT_CLIENT_API_KEY="dev-orbit-key"
+$env:ORBIT_MACHINE_CREDENTIALS_JSON='[{"id":"local-desktop","key":"dev-orbit-key","accountKey":"local-club","scopes":["client:write"],"expiresAt":"2099-01-01T00:00:00.000Z"}]'
+$env:ORBIT_OWNER_API_KEY="separate-local-owner-key"
 $env:API_PORT="4629"
 $env:DATABASE_URL="file:./data/orbit-api.sqlite3"
 npm run api:dev
@@ -34,14 +35,18 @@ npm run clubs:cleanup:stress -- --execute --confirm DELETE_STRESS_CLUBS
 
 Execution recursively removes each matched `clubs/{clubId}` document and its subcollections, then removes the matching `clubStates/{clubId}` saved state. Clubs without `stress` in their current root name are never selected, and each name is checked again immediately before deletion. Firebase Admin credentials are required through `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`.
 
-All other endpoints require `x-orbit-api-key`.
+Nonpublic endpoints require an audience-appropriate identity: a scoped machine/pilot credential, an owner credential, a dashboard session, or a verified Firebase Player token. Query-string credentials are rejected.
 
 ## Environment Variables
 
 - `API_PORT`: API port, defaults to `4629`.
-- `ORBIT_CLIENT_API_KEY`: owner/shared service key. Desktop clients may also authenticate with their signed pilot key authorization code.
-- `ORBIT_DASHBOARD_USER`: Basic-auth username for `/dashboard`; defaults to `orbit-admin`.
-- `ORBIT_DASHBOARD_PASSWORD`: password for the protected operations dashboard and its license-management requests. Keep this server-side only.
+- `ORBIT_MACHINE_CREDENTIALS_JSON`: array of machine credential records with `id`, `key`, tenant `accountKey`, `scopes`, and `expiresAt`. Store it only in an approved secret provider.
+- `ORBIT_OWNER_API_KEY`: distinct owner automation credential. It does not authenticate ordinary client or dashboard-session traffic.
+- `ORBIT_DASHBOARD_PASSWORD` and `ORBIT_DASHBOARD_SESSION_SECRET`: create a short-lived HttpOnly/Secure/SameSite=Lax dashboard cookie. The signing secret must contain at least 32 characters.
+- `ORBIT_ALLOWED_ORIGINS` and `ORBIT_TRUST_PROXY`: explicit CORS and proxy policy. Do not enable proxy trust unless the exact deployment proxy is reviewed.
+- `ORBIT_ALLOW_INSECURE_LOOPBACK_AUTH`: explicit local-development bypass. It is rejected in production and Vercel runtimes.
+- `ORBIT_PHONE_CHALLENGE_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID`: server-side SMS OTP verification. No Twilio credential is shipped to Player clients.
+- `ORBIT_ACCOUNT_DELETION_POLICY_JSON` and `ORBIT_DELETION_PSEUDONYM_SECRET`: explicit deletion/anonymization dispositions and stable protected subject identifiers. See `docs/architecture/DATA_CLASSIFICATION.md`; no legal retention policy is inferred.
 - `ORBIT_LICENSE_PUBLIC_KEY_PEM`: optional newline-escaped P-256 public key override used to verify an administrator-provisioned signed pilot-license envelope. The checked-in branding public key is the default.
 - `DATABASE_URL`: use `file:./data/orbit-api.sqlite3` only for isolated local development/tests. Hosted production requires a durable PostgreSQL URL and fails closed when it is unset; ephemeral `/tmp` SQLite is not supported.
 - `DATABASE_POOL_MAX`, `DATABASE_CONNECT_TIMEOUT_MS`, and `DATABASE_IDLE_TIMEOUT_MS`: bounded PostgreSQL connection-pool controls. Defaults are 10, 5 seconds, and 30 seconds.
@@ -69,14 +74,14 @@ Vercel's deployment filesystem is read-only except for `/tmp`, so hosted startup
 The Electron app reads:
 
 - `ORBIT_API_URL`, default `https://orbitapp-one.vercel.app`. Use `http://127.0.0.1:4629` for local API development.
-- `ORBIT_CLIENT_API_KEY`, optional when the installation has an active pilot key
+- an installation-scoped key from `ORBIT_MACHINE_CREDENTIALS_JSON`, optional when the installation has an active managed pilot key
 - `NODE_ENV`
 
 On launch it creates or reuses a stable `deviceId`, then sends `POST /clients/heartbeat`. It repeats the heartbeat every five minutes. API failures are logged quietly and never block app startup.
 
 If `ORBIT_CLIENT_API_KEY` is not packaged with the app, Electron uses the activated card-house pilot `authorizationCode` as the client auth key. The API accepts these `TT-PILOT-...` authorization codes for client write/state/report operations, so existing card houses can connect on the next app launch with the key they already loaded.
 
-Owner/admin read endpoints such as `/clients`, `/venues`, and `/telemetry/*` still require the real `ORBIT_CLIENT_API_KEY`. The dashboard remains protected by `ORBIT_DASHBOARD_USER` and `ORBIT_DASHBOARD_PASSWORD`.
+Owner/admin read endpoints such as `/clients`, `/venues`, and `/telemetry/*` require `ORBIT_OWNER_API_KEY`. The dashboard accepts its password only at `POST /dashboard/session`, then uses a short-lived server-signed cookie; it never stores or transmits a master key in LocalStorage or an SSE URL.
 
 ## Server-Managed Pilot Licenses
 
@@ -121,7 +126,7 @@ Electron update events are sent to `POST /clients/update-event`:
 ## Client Monitoring Endpoints
 
 ```powershell
-$headers = @{ "x-orbit-api-key" = "dev-orbit-key" }
+$headers = @{ "x-orbit-api-key" = "separate-local-owner-key" }
 Invoke-RestMethod http://127.0.0.1:4629/clients -Headers $headers
 Invoke-RestMethod http://127.0.0.1:4629/clients/<deviceId> -Headers $headers
 Invoke-RestMethod http://127.0.0.1:4629/venues/<venueId>/clients -Headers $headers
@@ -163,6 +168,8 @@ http://<your-lan-ip>:4629/clients
 - `GET /player/identity/status`: return the signed-in player's sanitized age-eligibility status.
 - `POST /player/identity/session`: create or resume a hosted Stripe Identity verification session.
 - `DELETE /player/identity`: request Stripe redaction and remove Orbit's eligibility record during account deletion.
+- `POST /player/auth/phone/start` and `/player/auth/phone/complete`: prove phone ownership with a bounded SMS OTP challenge and exchange it for a Firebase custom token.
+- `DELETE /player/account`: run the resumable server-owned deletion/anonymization job after recent reauthentication and return every retained category.
 - `POST /webhooks/stripe`: verify Stripe events and write paid memberships plus immutable revenue transactions to Firestore.
 - `POST /webhooks/revenuecat`: verify the configured bearer token and synchronize Apple Player Premium entitlements to the server-managed Firebase player profile.
 - `POST /analytical-reports`: store an analytical report.

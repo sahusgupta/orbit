@@ -1,5 +1,4 @@
 const state = {
-  apiKey: localStorage.getItem('orbit-dashboard-api-key') || '',
   source: null,
   events: [],
   totalEvents: 0,
@@ -33,8 +32,6 @@ const elements = {
   metricTables: document.querySelector('#metric-tables'),
   metricLicenses: document.querySelector('#metric-licenses')
 };
-
-elements.key.value = state.apiKey;
 
 function setStatus(message, tone = '') {
   elements.status.textContent = message;
@@ -198,11 +195,7 @@ function setSummary(summary) {
 }
 
 async function loadDashboard({ preserveEventHistory = false } = {}) {
-  if (!state.apiKey) {
-    setStatus('Enter the same ORBIT_CLIENT_API_KEY used by the API.');
-    return;
-  }
-  const response = await fetch('/dashboard/data', { headers: { 'x-orbit-api-key': state.apiKey } });
+  const response = await fetch('/dashboard/data', { credentials: 'same-origin' });
   const payload = await response.json();
   if (!response.ok || !payload.ok) throw new Error(payload.error || `API returned ${response.status}`);
   const latestEvents = payload.events || [];
@@ -222,7 +215,7 @@ async function loadDashboard({ preserveEventHistory = false } = {}) {
 }
 
 async function loadEarlierEvents() {
-  if (!state.apiKey || state.eventHistoryLoading || !state.eventHistoryHasMore || !state.events.length) return;
+  if (state.eventHistoryLoading || !state.eventHistoryHasMore || !state.events.length) return;
   state.eventHistoryLoading = true;
   render();
   const oldest = state.events[state.events.length - 1];
@@ -232,9 +225,7 @@ async function loadEarlierEvents() {
       beforeOccurredAt: oldest.occurredAt,
       beforeId: String(oldest.id)
     });
-    const response = await fetch(`/dashboard/history/events?${query}`, {
-      headers: { 'x-orbit-api-key': state.apiKey }
-    });
+    const response = await fetch(`/dashboard/history/events?${query}`, { credentials: 'same-origin' });
     const payload = await response.json();
     if (!response.ok || !payload.ok) throw new Error(payload.error || `API returned ${response.status}`);
     const knownIds = new Set(state.events.map((event) => event.id));
@@ -250,8 +241,7 @@ async function loadEarlierEvents() {
 
 function connectLive() {
   if (state.source) state.source.close();
-  if (!state.apiKey) return;
-  state.source = new EventSource(`/dashboard/events?apiKey=${encodeURIComponent(state.apiKey)}`);
+  state.source = new EventSource('/dashboard/events');
   state.source.addEventListener('ready', () => setStatus('Live dashboard connected.', 'live'));
   state.source.addEventListener('telemetry', (message) => {
     const event = JSON.parse(message.data);
@@ -274,11 +264,18 @@ function connectLive() {
   });
 }
 
-async function connect(apiKey) {
-  state.apiKey = apiKey.trim();
-  localStorage.setItem('orbit-dashboard-api-key', state.apiKey);
-  setStatus('Connecting...');
+async function connect(password) {
+  setStatus('Signing in...');
   try {
+    const sessionResponse = await fetch('/dashboard/session', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const sessionPayload = await sessionResponse.json();
+    if (!sessionResponse.ok || !sessionPayload.ok) throw new Error(sessionPayload.error || 'Dashboard sign-in failed.');
+    elements.key.value = '';
     await loadDashboard();
     connectLive();
     setStatus('Live dashboard connected.', 'live');
@@ -315,7 +312,8 @@ elements.licenses.addEventListener('click', async (event) => {
   try {
     const response = await fetch(`/dashboard/licenses/${encodeURIComponent(id)}/${action === 'revoke' ? 'revoke' : 'renew'}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-orbit-api-key': state.apiKey },
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'x-orbit-csrf': '1' },
       body: JSON.stringify(body)
     });
     const payload = await response.json();
@@ -328,6 +326,9 @@ elements.licenses.addEventListener('click', async (event) => {
   }
 });
 
-if (state.apiKey) {
-  connect(state.apiKey);
-}
+loadDashboard()
+  .then(() => {
+    connectLive();
+    setStatus('Live dashboard connected.', 'live');
+  })
+  .catch(() => setStatus('Sign in to load the dashboard.'));

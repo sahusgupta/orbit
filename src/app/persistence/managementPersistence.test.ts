@@ -59,8 +59,10 @@ describe('management persistence adapter', () => {
       publication: { status: 'pending' },
       cloud: 'server-pending'
     });
-    expect(JSON.parse(values.get('table-manager-state-v1:ref-019-persistence') ?? '{}')).toMatchObject({
-      settings: { pilotAccess: { licenseId: 'ref-019-persistence' } }
+    expect(JSON.parse(values.get('table-manager-state-v1') ?? '{}')).toEqual({
+      schemaVersion: 5,
+      cache: 'memory-only',
+      restrictedDataPersisted: false
     });
     expect(fetchCalls).toEqual([expect.objectContaining({ input: 'http://127.0.0.1:4629/state' })]);
     const requestBody = JSON.parse(String(fetchCalls[0].init?.body));

@@ -71,6 +71,8 @@ describe('Electron IPC and preload composition audit', () => {
       'get-backend-status',
       'validate-pilot-access',
       'submit-analytical-report',
+      'verify-staff-pin',
+      'authorize-staff-action',
       'send-text-messages',
       'record-client-event',
       'record-client-error'
@@ -106,6 +108,8 @@ describe('Electron IPC and preload composition audit', () => {
       'onPrepareForUpdate',
       'getBackendStatus',
       'validatePilotAccess',
+      'verifyStaffPin',
+      'authorizeStaffAction',
       'submitAnalyticalReport',
       'sendTextMessages',
       'recordClientEvent',
@@ -138,14 +142,16 @@ describe('Electron IPC and preload composition audit', () => {
 
   it('normalizes requested routes without widening the reviewed route set', () => {
     const createWindow = vi.fn();
-    const handler = loadIpcHandler<(_event: unknown, route: string, context?: unknown) => void>('open-route-window', {
+    const handler = loadIpcHandler<(route: string, context?: unknown) => void>('open-route-window', {
       createWindow,
+      isRecord: (value: unknown) => typeof value === 'object' && value !== null,
+      trustedIpc: (candidate: unknown) => candidate,
       validRoutes: new Set(['floor', 'table', 'builder', 'profiles', 'signals', 'summary', 'customization', 'kpis', 'tournaments', 'tournament-tv', 'pilot', 'outreach'])
     });
 
-    handler(undefined, 'outreach', { source: 'signals' });
-    handler(undefined, 'table', { sessionId: 'session-1' });
-    handler(undefined, 'unknown', {});
+    handler('outreach', { source: 'signals' });
+    handler('table', { sessionId: 'session-1' });
+    handler('unknown', {});
     expect(createWindow.mock.calls).toEqual([
       ['signals', { source: 'signals' }],
       ['table', { sessionId: 'session-1' }],
@@ -155,21 +161,20 @@ describe('Electron IPC and preload composition audit', () => {
 });
 
 describe('Electron window and navigation composition audit', () => {
-  it('opens only HTTP(S)/mailto externally and ignores malformed or untrusted protocols', () => {
+  it('opens only allowlisted HTTPS/mailto links and ignores malformed or untrusted protocols', () => {
     const openExternal = vi.fn();
     const openTrustedExternal = loadFunction<(url: string) => void>('openTrustedExternal', { URL, shell: { openExternal } });
 
-    for (const url of ['https://example.test/path', 'http://example.test/path', 'mailto:ops@example.test']) {
+    for (const url of ['https://orbitpoker.com/path', 'mailto:ops@orbitpoker.com']) {
       openTrustedExternal(url);
     }
-    for (const url of ['javascript:alert(1)', 'ftp://example.test/file', 'not a url']) {
+    for (const url of ['https://example.test/path', 'http://orbitpoker.com/path', 'mailto:ops@example.test', 'javascript:alert(1)', 'ftp://example.test/file', 'not a url']) {
       openTrustedExternal(url);
     }
 
     expect(openExternal.mock.calls.map((call) => call[0])).toEqual([
-      'https://example.test/path',
-      'http://example.test/path',
-      'mailto:ops@example.test'
+      'https://orbitpoker.com/path',
+      'mailto:ops@orbitpoker.com'
     ]);
   });
 

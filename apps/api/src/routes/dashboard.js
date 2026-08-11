@@ -7,22 +7,45 @@ const {
   listVenues
 } = require('../database');
 const { listPilotLicenses, registerSignedPilotLicense, renewPilotLicense, revokePilotLicense } = require('../licenseService');
-const { asyncRoute, requireDashboardAuth } = require('../http/auth');
+const {
+  asyncRoute,
+  createDashboardSession,
+  getDashboardSessionCookie,
+  getExpiredDashboardSessionCookie,
+  requireDashboardAuth
+} = require('../http/auth');
 const { logDomainChange } = require('../http/domainEvents');
 
 const publicDirectory = path.join(__dirname, '..', '..', 'public');
 
 function registerDashboardRoutes(app, liveUpdates, startedAt) {
-  app.get('/dashboard', requireDashboardAuth, (_request, response) => {
+  app.get('/dashboard', (_request, response) => {
     response.sendFile(path.join(publicDirectory, 'dashboard.html'));
   });
 
-  app.get('/dashboard.js', requireDashboardAuth, (_request, response) => {
+  app.get('/dashboard.js', (_request, response) => {
     response.sendFile(path.join(publicDirectory, 'dashboard.js'));
   });
 
-  app.get('/dashboard.css', requireDashboardAuth, (_request, response) => {
+  app.get('/dashboard.css', (_request, response) => {
     response.sendFile(path.join(publicDirectory, 'dashboard.css'));
+  });
+
+  app.post('/dashboard/session', (request, response) => {
+    const token = createDashboardSession(request.body?.password);
+    if (!token) {
+      response.status(401).json({ ok: false, error: 'Dashboard sign-in failed.' });
+      return;
+    }
+    response.set('set-cookie', getDashboardSessionCookie(token));
+    response.set('cache-control', 'no-store');
+    response.json({ ok: true });
+  });
+
+  app.delete('/dashboard/session', requireDashboardAuth, (request, response) => {
+    response.set('set-cookie', getExpiredDashboardSessionCookie());
+    response.set('cache-control', 'no-store');
+    response.json({ ok: true });
   });
 
   app.get('/dashboard/data', requireDashboardAuth, asyncRoute(async (_request, response) => {

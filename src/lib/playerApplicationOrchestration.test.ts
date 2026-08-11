@@ -1,11 +1,10 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { extname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { extname, join, resolve } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
-const playerSourceRoot = fileURLToPath(new URL('../../player-app/src/', import.meta.url));
+const playerSourceRoot = resolve(process.cwd(), 'player-app/src');
 const orchestrationRoots = [
   playerSourceRoot,
   join(playerSourceRoot, 'app'),
@@ -19,11 +18,13 @@ type ParsedSource = {
   file: ts.SourceFile;
 };
 
-function listDirectSourceFiles(root: string) {
+function listDirectSourceFiles(root: string): string[] {
   if (!existsSync(root)) return [];
-  return readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && ['.ts', '.tsx'].includes(extname(entry.name)))
-    .map((entry) => join(root, entry.name));
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const candidate = join(root, entry.name);
+    if (entry.isDirectory()) return listDirectSourceFiles(candidate);
+    return ['.ts', '.tsx'].includes(extname(entry.name)) ? [candidate] : [];
+  });
 }
 
 function parseSources(): ParsedSource[] {

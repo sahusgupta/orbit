@@ -14,6 +14,10 @@ function getPaymentServiceStatus() {
   };
 }
 
+function isVerifiedPlayerClaims(claims) {
+  return Boolean(claims?.phone_number || (claims?.email && claims?.email_verified === true));
+}
+
 async function requireFirebasePlayer(request, response, next) {
   try {
     const admin = getAdminSdk();
@@ -23,6 +27,14 @@ async function requireFirebasePlayer(request, response, next) {
       return;
     }
     request.orbitPlayer = await admin.auth(getAdminApp()).verifyIdToken(token);
+    if (!isVerifiedPlayerClaims(request.orbitPlayer)) {
+      response.status(403).json({
+        ok: false,
+        code: 'PLAYER_IDENTITY_UNVERIFIED',
+        error: 'Verify your email or phone number before using Orbit Player.'
+      });
+      return;
+    }
     next();
   } catch {
     response.status(401).json({ ok: false, error: 'Invalid or expired Firebase player token.' });
@@ -126,7 +138,7 @@ async function handleStripeWebhook(request, response) {
     await handleStripeIdentityEvent(event);
     response.json({ received: true });
   } catch (error) {
-    response.status(400).json({ ok: false, error: error instanceof Error ? error.message : 'Webhook processing failed.' });
+      response.status(400).json({ ok: false, error: 'Webhook could not be processed.', code: 'WEBHOOK_REJECTED' });
   }
 }
 
@@ -289,6 +301,7 @@ module.exports = {
   applyRevenueCatEvent,
   createMembershipCheckout,
   getPaymentServiceStatus,
+  isVerifiedPlayerClaims,
   handleRevenueCatWebhook,
   handleStripeWebhook,
   recordMembershipPayment,

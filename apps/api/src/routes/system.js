@@ -3,6 +3,7 @@ const { getDatabaseStatus } = require('../database');
 const { getFirebasePublisherStatus } = require('../firebasePublisher');
 const { getIdentityServiceStatus } = require('../identityService');
 const { getPaymentServiceStatus } = require('../paymentService');
+const { requireOwnerApiKey } = require('../http/auth');
 
 const publicDirectory = path.join(__dirname, '..', '..', 'public');
 
@@ -11,7 +12,14 @@ function registerHealthRoute(app, startedAt) {
     response.json({
       ok: true,
       service: 'orbit-api',
-      environment: process.env.NODE_ENV || 'development',
+      startedAt
+    });
+  });
+
+  app.get('/health/details', requireOwnerApiKey, (_request, response) => {
+    response.json({
+      ok: true,
+      service: 'orbit-api',
       database: getDatabaseStatus(),
       firebase: getFirebasePublisherStatus(),
       payments: getPaymentServiceStatus(),

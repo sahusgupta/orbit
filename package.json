@@ -13,6 +13,7 @@
     "build": "vite build",
     "audit:module-graph": "node scripts/audit-module-graph.mjs",
     "measure:renderer-bundle": "node scripts/measure-renderer-bundle.mjs",
+    "security:paths": "node scripts/check-sensitive-paths.cjs",
     "preview": "vite preview --host 127.0.0.1",
     "download:stage": "node scripts/stage-download-site.cjs",
     "download:dev": "npm run download:stage && vite --config download-site/vite.config.mjs --host 127.0.0.1 --port 4174",

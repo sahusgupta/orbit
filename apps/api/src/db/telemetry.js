@@ -1,10 +1,12 @@
 const { sanitizeAccountKey } = require('../orbitCore');
 const { listClients, upsertClient } = require('./clients');
 const { getDatabase } = require('./connection');
+const { protectedIdentifier, redactDetails, redactText } = require('../http/dataProtection');
+const boundedText = (value, maximum) => String(value || '').trim().slice(0, maximum);
 
 async function recordUpdateEvent(payload) {
   const client = await upsertClient(payload);
-  const event = String(payload.updateEvent || payload.event || '').trim();
+  const event = boundedText(payload.updateEvent || payload.event, 100);
   if (!event) throw new Error('updateEvent is required.');
   const now = new Date().toISOString();
   const database = await getDatabase();
@@ -17,10 +19,10 @@ async function recordUpdateEvent(payload) {
     client.deviceId,
     client.venueId,
     event,
-    String(payload.updateStatus || '').trim(),
-    String(payload.appVersion || client.appVersion || '').trim(),
-    payload.details ? JSON.stringify(payload.details) : null,
-    String(payload.lastError || payload.error || '').trim(),
+    boundedText(payload.updateStatus, 80),
+    boundedText(payload.appVersion || client.appVersion, 80),
+    payload.details ? JSON.stringify(redactDetails(payload.details)) : null,
+    redactText(payload.lastError || payload.error, 500),
     payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now,
     now
   ]);
@@ -35,7 +37,7 @@ async function recordUpdateEvent(payload) {
 
 async function recordTelemetryEvent(payload) {
   const client = await upsertClient(payload);
-  const event = String(payload.event || payload.action || '').trim();
+  const event = boundedText(payload.event || payload.action, 100);
   if (!event) throw new Error('event is required.');
   const now = new Date().toISOString();
   const occurredAt = payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now;
@@ -49,11 +51,11 @@ async function recordTelemetryEvent(payload) {
     client.deviceId,
     client.venueId,
     event,
-    String(payload.category || 'usage').trim(),
-    String(payload.route || '').trim(),
-    String(payload.appVersion || client.appVersion || '').trim(),
-    String(payload.platform || client.platform || '').trim(),
-    payload.details ? JSON.stringify(payload.details) : null,
+    boundedText(payload.category || 'usage', 60),
+    boundedText(payload.route, 100),
+    boundedText(payload.appVersion || client.appVersion, 80),
+    boundedText(payload.platform || client.platform, 80),
+    payload.details ? JSON.stringify(redactDetails(payload.details)) : null,
     occurredAt,
     now
   ]);
@@ -62,7 +64,7 @@ async function recordTelemetryEvent(payload) {
 
 async function recordClientError(payload) {
   const client = await upsertClient({ ...payload, lastError: payload.message || payload.error || payload.lastError || '' });
-  const message = String(payload.message || payload.error || payload.lastError || '').trim();
+  const message = redactText(payload.message || payload.error || payload.lastError, 500).trim();
   if (!message) throw new Error('message is required.');
   const now = new Date().toISOString();
   const occurredAt = payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now;
@@ -75,13 +77,15 @@ async function recordClientError(payload) {
   `, [
     client.deviceId,
     client.venueId,
-    message.slice(0, 2000),
-    String(payload.source || '').trim(),
-    String(payload.route || '').trim(),
-    String(payload.stack || '').slice(0, 8000),
-    String(payload.appVersion || client.appVersion || '').trim(),
-    String(payload.platform || client.platform || '').trim(),
-    payload.details ? JSON.stringify(payload.details) : null,
+    message,
+    boundedText(payload.source, 100),
+    boundedText(payload.route, 100),
+    process.env.ORBIT_STORE_ERROR_STACKS === 'true' && process.env.NODE_ENV !== 'production'
+      ? redactText(payload.stack, 4000)
+      : `fingerprint:${protectedIdentifier(payload.stack || message)}`,
+    boundedText(payload.appVersion || client.appVersion, 80),
+    boundedText(payload.platform || client.platform, 80),
+    payload.details ? JSON.stringify(redactDetails(payload.details)) : null,
     occurredAt,
     now
   ]);

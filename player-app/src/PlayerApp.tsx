@@ -146,16 +146,21 @@ export default function PlayerApp() {
     identityReturnScreen,
     identityStatus,
     playerAuthEmail,
+    playerAuthCode,
     playerAuthMethod,
     playerAuthPassword,
     playerAuthPhone,
+    playerPhoneChallenge,
+    recoverPlayerAccount,
     refreshIdentityVerification,
     requireVerifiedAge,
     setPlayerAuthEmail,
+    setPlayerAuthCode,
     setPlayerAuthMethod,
     setPlayerAuthPassword,
     setPlayerAuthPhone,
     showIdentityVerification,
+    restartPlayerPhoneSignIn,
     signOutPlayer,
     startIdentityVerification
   } = usePlayerIdentity({
@@ -700,9 +705,14 @@ export default function PlayerApp() {
                 setPlayerAuthEmail={setPlayerAuthEmail}
                 playerAuthPhone={playerAuthPhone}
                 setPlayerAuthPhone={setPlayerAuthPhone}
+                playerAuthCode={playerAuthCode}
+                setPlayerAuthCode={setPlayerAuthCode}
+                playerPhoneChallenge={playerPhoneChallenge}
                 playerAuthPassword={playerAuthPassword}
                 setPlayerAuthPassword={setPlayerAuthPassword}
                 connectPlayerAccount={connectPlayerAccount}
+                recoverPlayerAccount={recoverPlayerAccount}
+                restartPlayerPhoneSignIn={restartPlayerPhoneSignIn}
                 identityStatus={identityStatus}
                 showIdentityVerification={showIdentityVerification}
                 playerPremiumEnabled={playerPremiumEnabled}

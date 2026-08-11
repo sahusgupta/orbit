@@ -15,12 +15,13 @@
           <p>Client usage, updates, table starts, app opens/closes, and live errors.</p>
         </div>
         <form id="key-form" class="key-form">
-          <input id="api-key" type="password" autocomplete="off" placeholder="API key" />
-          <button type="submit">Connect</button>
+          <label class="sr-only" for="api-key">Dashboard password</label>
+          <input id="api-key" type="password" autocomplete="current-password" placeholder="Dashboard password" required />
+          <button type="submit">Sign in</button>
         </form>
       </header>
 
-      <section id="status" class="status">Waiting for API key.</section>
+      <section id="status" class="status" aria-live="polite">Sign in to load the dashboard.</section>
 
       <section class="metrics" aria-label="Summary metrics">
         <article>

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import paymentService from './paymentService.js';
 
-const { applyRevenueCatEvent, recordMembershipPayment } = paymentService;
+const { applyRevenueCatEvent, isVerifiedPlayerClaims, recordMembershipPayment } = paymentService;
+
+describe('verified player identity claims', () => {
+  it('accepts provider-verified email or phone claims and rejects unverified email', () => {
+    expect(isVerifiedPlayerClaims({ email: 'player@example.com', email_verified: true })).toBe(true);
+    expect(isVerifiedPlayerClaims({ phone_number: '+15551112222' })).toBe(true);
+    expect(isVerifiedPlayerClaims({ email: 'player@example.com', email_verified: false })).toBe(false);
+  });
+});
 
 function createFirestoreHarness(seed = {}) {
   const records = new Map(Object.entries(seed));

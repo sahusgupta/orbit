@@ -15,6 +15,8 @@ const { createMembershipCheckout, requireFirebasePlayer } = require('../paymentS
 const { asyncRoute } = require('../http/auth');
 const { logDomainChange } = require('../http/domainEvents');
 const { buildAuthenticatedPlayerRequest, trustedPlayerFromClaims } = require('../playerRequestSecurity');
+const { completePlayerPhoneVerification, startPlayerPhoneVerification } = require('../playerPhoneAuth');
+const { deletePlayerAccount } = require('../accountDeletionService');
 
 async function handlePlayerSnapshot(request, response) {
   const accountKey = sanitizeAccountKey(request.query.accountKey || request.query.venueId || '');
@@ -210,9 +212,12 @@ async function handleTournamentUnregistration(request, response) {
 }
 
 function registerPlayerRoutes(app) {
+  app.post('/player/auth/phone/start', asyncRoute(startPlayerPhoneVerification));
+  app.post('/player/auth/phone/complete', asyncRoute(completePlayerPhoneVerification));
   app.get('/player/identity/status', requireFirebasePlayer, asyncRoute(getPlayerIdentityStatus));
   app.post('/player/identity/session', requireFirebasePlayer, asyncRoute(createPlayerIdentitySession));
   app.delete('/player/identity', requireFirebasePlayer, asyncRoute(deletePlayerIdentity));
+  app.delete('/player/account', requireFirebasePlayer, asyncRoute(deletePlayerAccount));
   app.post('/player/membership-checkout', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(createMembershipCheckout));
   app.get('/player/snapshot', requireFirebasePlayer, asyncRoute(handlePlayerSnapshot));
   app.post('/player/membership-requests', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handlePlayerMembershipRequest));

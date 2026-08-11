@@ -100,7 +100,7 @@ describe('API database facade behavior', () => {
       updateStatus: 'ready',
       updateEvent: 'update-ready',
       lastError: '',
-      currentUser: { id: 'staff-1', name: 'Grace' }
+      currentUser: null
     });
 
     const updated = await upsertClient({
@@ -183,7 +183,7 @@ describe('API database facade behavior', () => {
       message: 'Renderer failed',
       source: 'renderer',
       route: 'floor',
-      stack: 'example stack',
+      stack: expect.stringMatching(/^fingerprint:[a-f0-9]{16}$/),
       details: { recoverable: true }
     });
     expect(await listClientErrors({ venueId: 'Character Club' })).toEqual([error]);

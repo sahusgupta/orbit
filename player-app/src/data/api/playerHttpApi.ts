@@ -129,13 +129,17 @@ export async function submitRemoteTournamentMutation(
   return body;
 }
 
-export async function deleteRemotePlayerIdentity(user: User) {
+export async function deleteRemotePlayerAccount(user: User) {
   if (!orbitApiBaseUrl) return;
-  const token = await user.getIdToken();
-  const response = await fetch(`${orbitApiBaseUrl}/player/identity`, {
+  const token = await user.getIdToken(true);
+  const response = await fetch(`${orbitApiBaseUrl}/player/account`, {
     method: 'DELETE',
     headers: { authorization: `Bearer ${token}` }
   });
   const payload: unknown = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(readBoundaryError(payload, 'Unable to remove identity-verification data.'));
+  if (!response.ok) throw new Error(readBoundaryError(payload, 'Unable to delete the player account.'));
+  const retainedCategories = payload && typeof payload === 'object' && Array.isArray(Reflect.get(payload, 'retainedCategories'))
+    ? Reflect.get(payload, 'retainedCategories') as unknown[]
+    : [];
+  return { retainedCategories: retainedCategories.filter((value): value is string => typeof value === 'string') };
 }

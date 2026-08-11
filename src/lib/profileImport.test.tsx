@@ -365,8 +365,7 @@ describe('pasted profile import boundary', () => {
       '" Alice, Jr. ",555-0100,1990-02-03,2025-01-02,2027-03-04,PLO,Bob|Carol,"Says ""hello"""',
       'Bob,555-0199,,,,1/2 NLH,,Duplicate should be skipped'
     ].join('\n');
-    const file = new File([], 'profiles.csv', { type: 'text/csv' });
-    Object.defineProperty(file, 'text', { value: async () => csv });
+    const file = new File([csv], 'profiles.csv', { type: 'text/csv' });
 
     await importProfileFile(file);
 
@@ -391,7 +390,7 @@ describe('pasted profile import boundary', () => {
       [undefined, 'First Name', 'Last Name', 'DOB', 'Join Date', 'Expiration Date', 'Lifetime Hours', 'Game', 'Move Tables'],
       [undefined, 'Dora', 'Lane', new Date('1991-02-03T00:00:00.000Z'), 1, 2, 7.5, '1/2 NLH', 'yes']
     ];
-    const file = new File([], 'profiles.xlsx', {
+    const file = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], 'profiles.xlsx', {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     });
     Object.defineProperty(file, 'arrayBuffer', { value: async () => new ArrayBuffer(0) });

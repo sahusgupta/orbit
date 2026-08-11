@@ -25,9 +25,14 @@ export function SettingsScreen({
   setPlayerAuthEmail,
   playerAuthPhone,
   setPlayerAuthPhone,
+  playerAuthCode,
+  setPlayerAuthCode,
+  playerPhoneChallenge,
   playerAuthPassword,
   setPlayerAuthPassword,
   connectPlayerAccount,
+  recoverPlayerAccount,
+  restartPlayerPhoneSignIn,
   identityStatus,
   showIdentityVerification,
   playerPremiumEnabled,
@@ -48,10 +53,15 @@ export function SettingsScreen({
   playerAuthEmail: string;
   setPlayerAuthEmail: Dispatch<SetStateAction<string>>;
   playerAuthPhone: string;
-  setPlayerAuthPhone: Dispatch<SetStateAction<string>>;
+  setPlayerAuthPhone: (phone: string) => void;
+  playerAuthCode: string;
+  setPlayerAuthCode: Dispatch<SetStateAction<string>>;
+  playerPhoneChallenge: boolean;
   playerAuthPassword: string;
   setPlayerAuthPassword: Dispatch<SetStateAction<string>>;
   connectPlayerAccount: () => void;
+  recoverPlayerAccount: () => void;
+  restartPlayerPhoneSignIn: () => void;
   identityStatus: PlayerIdentityStatus;
   showIdentityVerification: (returnScreen: 'settings') => void;
   playerPremiumEnabled: boolean;
@@ -107,21 +117,49 @@ export function SettingsScreen({
               />
             </View>
           )}
-          <View style={styles.searchInputRow}>
-            <Ionicons name="lock-closed-outline" size={18} color={colors.muted} />
-            <TextInput
-              value={playerAuthPassword}
-              onChangeText={setPlayerAuthPassword}
-              autoCapitalize="none"
-              secureTextEntry
-              placeholder="Password (6+ characters)"
-              placeholderTextColor={colors.muted}
-              style={styles.searchInput}
-            />
-          </View>
+          {playerAuthMethod === 'email' ? (
+            <View style={styles.searchInputRow}>
+              <Ionicons name="lock-closed-outline" size={18} color={colors.muted} />
+              <TextInput
+                value={playerAuthPassword}
+                onChangeText={setPlayerAuthPassword}
+                autoCapitalize="none"
+                secureTextEntry
+                placeholder="Password or passphrase (12+ characters)"
+                placeholderTextColor={colors.muted}
+                style={styles.searchInput}
+              />
+            </View>
+          ) : playerPhoneChallenge ? (
+            <View style={styles.searchInputRow}>
+              <Ionicons name="keypad-outline" size={18} color={colors.muted} />
+              <TextInput
+                value={playerAuthCode}
+                onChangeText={setPlayerAuthCode}
+                keyboardType="number-pad"
+                autoComplete="sms-otp"
+                placeholder="One-time SMS code"
+                placeholderTextColor={colors.muted}
+                style={styles.searchInput}
+              />
+            </View>
+          ) : null}
           <Pressable style={styles.compactButton} onPress={connectPlayerAccount}>
-            <Text style={styles.compactButtonText}>Sign in or create account</Text>
+            <Text style={styles.compactButtonText}>
+              {playerAuthMethod === 'phone'
+                ? playerPhoneChallenge ? 'Verify code and sign in' : 'Send verification code'
+                : 'Sign in or create account'}
+            </Text>
           </Pressable>
+          {playerAuthMethod === 'email' ? (
+            <Pressable style={styles.secondaryActionButton} onPress={recoverPlayerAccount}>
+              <Text style={styles.secondaryActionText}>Forgot password</Text>
+            </Pressable>
+          ) : playerPhoneChallenge ? (
+            <Pressable style={styles.secondaryActionButton} onPress={restartPlayerPhoneSignIn}>
+              <Text style={styles.secondaryActionText}>Send a new code</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : (
         <View style={styles.googleAuthPanel}>

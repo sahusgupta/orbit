@@ -40,7 +40,8 @@ const createStorage = (entries: Array<[string, string]> = []) => {
     getItem: (key) => values.get(key) ?? null,
     setItem: (key, value) => {
       values.set(key, value);
-    }
+    },
+    removeItem: (key) => { values.delete(key); }
   };
   return { storage, values };
 };
@@ -69,10 +70,15 @@ describe('browser management state repository', () => {
     const accountKey = saveBrowserManagementState(state, storage);
 
     expect(accountKey).toBe('table-manager-state-v1:ref-019-repository');
-    expect(values.get(lastAccountStorageKey)).toBe(accountKey);
-    expect(JSON.parse(values.get(accountKey) ?? '{}')).toMatchObject({ games: [{ name: 'saved' }] });
+    expect(values.has(lastAccountStorageKey)).toBe(false);
+    expect(values.has(accountKey)).toBe(false);
+    expect(JSON.parse(values.get('table-manager-state-v1') ?? '{}')).toEqual({
+      schemaVersion: 5,
+      cache: 'memory-only',
+      restrictedDataPersisted: false
+    });
     expect(loadBrowserManagementStateForAccount(access, storage)?.state).toMatchObject({ games: [{ name: 'saved' }] });
-    expect(isManagementStateStorageEvent({ key: accountKey }, storage)).toBe(true);
+    expect(isManagementStateStorageEvent({ key: accountKey }, storage)).toBe(false);
     expect(isManagementStateStorageEvent({ key: 'table-manager-state-v1' }, storage)).toBe(true);
     expect(isManagementStateStorageEvent({ key: 'unrelated' }, storage)).toBe(false);
   });

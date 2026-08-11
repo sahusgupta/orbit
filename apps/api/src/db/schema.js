@@ -98,6 +98,19 @@ const baseSqliteSchema = `
     delivery_status TEXT NOT NULL DEFAULT 'stored',
     delivery_error TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS account_deletion_jobs (
+    player_id TEXT PRIMARY KEY,
+    subject_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    current_step TEXT NOT NULL,
+    retained_categories_json TEXT NOT NULL DEFAULT '[]',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT
+  );
 `;
 
 const authoritativeSqliteSchema = `
@@ -276,6 +289,19 @@ const postgresSchema = `
     report_json TEXT NOT NULL,
     delivery_status TEXT NOT NULL DEFAULT 'stored',
     delivery_error TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS account_deletion_jobs (
+    player_id TEXT PRIMARY KEY,
+    subject_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    current_step TEXT NOT NULL,
+    retained_categories_json TEXT NOT NULL DEFAULT '[]',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT
   );
 `;
 

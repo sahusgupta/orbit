@@ -1,28 +1,31 @@
 const { sanitizeAccountKey } = require('../orbitCore');
 const { getDatabase } = require('./connection');
+const { redactText } = require('../http/dataProtection');
+
+const boundedText = (value, maximum) => String(value || '').trim().slice(0, maximum);
 
 function normalizeClientPayload(payload) {
   const now = new Date().toISOString();
-  const deviceId = String(payload.deviceId || '').trim();
+  const deviceId = boundedText(payload.deviceId, 180);
   const venueId = sanitizeAccountKey(payload.venueId || payload.venueName || 'unassigned');
-  const appVersion = String(payload.appVersion || '').trim();
-  const platform = String(payload.platform || '').trim();
+  const appVersion = boundedText(payload.appVersion, 80);
+  const platform = boundedText(payload.platform, 80);
   if (!deviceId) throw new Error('deviceId is required.');
   if (!appVersion) throw new Error('appVersion is required.');
   if (!platform) throw new Error('platform is required.');
   return {
     venueId,
-    venueName: String(payload.venueName || '').trim(),
+    venueName: boundedText(payload.venueName, 160),
     deviceId,
-    deviceName: String(payload.deviceName || '').trim(),
+    deviceName: boundedText(payload.deviceName, 160),
     appVersion,
     platform,
-    environment: String(payload.environment || process.env.NODE_ENV || 'development').trim(),
-    updateStatus: String(payload.updateStatus || '').trim(),
-    updateEvent: String(payload.updateEvent || '').trim(),
+    environment: boundedText(payload.environment || process.env.NODE_ENV || 'development', 40),
+    updateStatus: boundedText(payload.updateStatus, 80),
+    updateEvent: boundedText(payload.updateEvent, 100),
     lastSeenAt: payload.lastSeenAt ? new Date(payload.lastSeenAt).toISOString() : now,
-    lastError: String(payload.lastError || '').trim(),
-    currentUser: payload.currentUser && typeof payload.currentUser === 'object' ? payload.currentUser : null
+    lastError: redactText(payload.lastError, 500),
+    currentUser: null
   };
 }
 

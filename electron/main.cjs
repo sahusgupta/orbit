@@ -1,13 +1,15 @@
-const { app, autoUpdater: nativeAutoUpdater, BrowserWindow, Menu, ipcMain, shell } = require('electron');
+const { app, autoUpdater: nativeAutoUpdater, BrowserWindow, Menu, ipcMain, safeStorage, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const branding = require('../branding.config.json');
+const { redactDetails } = require('../apps/api/src/http/dataProtection');
 const { createOrbitCore } = require('../apps/api/src/shared/orbitCore.cjs');
 const { createEmbeddedBackend } = require('./embeddedBackend.cjs');
 const { createLocalStore } = require('./localStore.cjs');
 const { createOrbitApiClient } = require('./orbitApiClient.cjs');
+const { createStaffAuthorization } = require('./staffAuthorization.cjs');
 const { createUpdateController } = require('./updateController.cjs');
 const {
   getAccountKeyFromAccess,
@@ -36,7 +38,7 @@ function writeOrbitApiLog(level, event, details = {}) {
     timestamp: new Date().toISOString(),
     level,
     event,
-    ...details
+    ...redactDetails(details)
   };
   const message = `[orbit-api] ${JSON.stringify(entry)}`;
   const logger = level === 'error' ? console.error : level === 'warn' ? console.warn : console.info;
@@ -56,9 +58,12 @@ function writeOrbitApiLog(level, event, details = {}) {
 function openTrustedExternal(url) {
   try {
     const parsed = new URL(url);
-    if (['https:', 'http:', 'mailto:'].includes(parsed.protocol)) {
-      shell.openExternal(url);
-    }
+    const configuredHosts = String(process.env.ORBIT_EXTERNAL_HTTPS_HOSTS || 'orbitpoker.com,www.orbitpoker.com')
+      .split(',').map((host) => host.trim().toLowerCase()).filter(Boolean);
+    const allowed = parsed.protocol === 'https:'
+      ? configuredHosts.includes(parsed.hostname.toLowerCase())
+      : parsed.protocol === 'mailto:' && /@(?:www\.)?orbitpoker\.com$/i.test(parsed.pathname);
+    if (allowed) shell.openExternal(url);
   } catch {
     // Ignore malformed external links.
   }
@@ -113,11 +118,14 @@ async function sendTextMessages(payload) {
   const messages = normalizeTextMessageBatch(payload);
   if (!messages.length) return { ok: true, sent: 0, skipped: 0 };
 
-  const results = await Promise.allSettled(messages.map((message) => sendTwilioTextMessage(config, message)));
+  const results = [];
+  for (let offset = 0; offset < messages.length; offset += 5) {
+    results.push(...await Promise.allSettled(messages.slice(offset, offset + 5).map((message) => sendTwilioTextMessage(config, message))));
+  }
   const sent = results.filter((result) => result.status === 'fulfilled').length;
   const firstFailure = results.find((result) => result.status === 'rejected');
   const error = firstFailure?.status === 'rejected'
-    ? firstFailure.reason?.message || 'One or more Twilio messages failed.'
+    ? 'One or more text messages could not be sent.'
     : undefined;
 
   sendClientEvent('player-outreach-texts', 'outreach', {
@@ -145,6 +153,15 @@ const {
   writeLocalDatabase
 } = createLocalStore({
   app,
+  encodeState: (value) => {
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('OS-backed local cache encryption is unavailable.');
+    return `safe-storage:v1:${safeStorage.encryptString(value).toString('base64')}`;
+  },
+  decodeState: (value) => {
+    if (!value.startsWith('safe-storage:v1:')) return value;
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('OS-backed local cache decryption is unavailable.');
+    return safeStorage.decryptString(Buffer.from(value.slice('safe-storage:v1:'.length), 'base64'));
+  },
   updateBackendReportCount: (reportCount) => embeddedBackend.updateReportCount(reportCount)
 });
 
@@ -203,6 +220,11 @@ const embeddedBackend = createEmbeddedBackend({
   storeAnalyticalReport
 });
 
+const staffAuthorization = createStaffAuthorization({
+  loadStateForAccess: (access) => loadStateApiFirst(getAccountKeyFromAccess(access), access)
+});
+let nextTextBatchAt = 0;
+
 const updateController = createUpdateController({
   app,
   autoUpdater,
@@ -219,38 +241,94 @@ const updateController = createUpdateController({
   writeOrbitApiLog
 });
 
-ipcMain.handle('open-route-window', (_event, route, context = {}) => {
+function isTrustedIpcSender(event) {
+  if (!event.senderFrame || event.senderFrame !== event.sender?.mainFrame) return false;
+  const senderUrl = String(event.senderFrame.url || '');
+  if (isDev) return senderUrl.startsWith('http://127.0.0.1:5173/');
+  try {
+    const parsed = new URL(senderUrl);
+    const expected = path.resolve(__dirname, '..', 'dist', 'index.html').toLowerCase();
+    return parsed.protocol === 'file:' && path.resolve(decodeURIComponent(parsed.pathname.replace(/^\//, ''))).toLowerCase() === expected;
+  } catch {
+    return false;
+  }
+}
+
+function trustedIpc(handler) {
+  return (event, ...args) => {
+    if (!isTrustedIpcSender(event)) throw new Error('Untrusted renderer IPC request rejected.');
+    return handler(...args);
+  };
+}
+
+function boundedPayload(value, maximumBytes = 2_000_000) {
+  if (!value || typeof value !== 'object' || Buffer.byteLength(JSON.stringify(value), 'utf8') > maximumBytes) {
+    throw new Error('IPC payload is invalid or too large.');
+  }
+  return value;
+}
+
+ipcMain.handle('open-route-window', trustedIpc((route, context = {}) => {
   const normalizedRoute = route === 'outreach' ? 'signals' : validRoutes.has(route) ? route : 'floor';
-  createWindow(normalizedRoute, context);
-});
+  createWindow(normalizedRoute, isRecord(context) ? context : {});
+}));
 
-ipcMain.handle('load-state', async () => loadStateApiFirst());
+ipcMain.handle('load-state', trustedIpc(async () => loadStateApiFirst()));
 
-ipcMain.handle('load-state-for-account', async (_event, access) => loadStateApiFirst(getAccountKeyFromAccess(access), access));
+ipcMain.handle('load-state-for-account', trustedIpc(async (access) => loadStateApiFirst(getAccountKeyFromAccess(access), boundedPayload(access, 16_000))));
 
-ipcMain.handle('save-state', async (_event, state) => saveStateApiFirst(state));
+ipcMain.handle('save-state', trustedIpc(async (state) => saveStateApiFirst(boundedPayload(state))));
 
-ipcMain.handle('preserve-state-for-update', async (_event, requestId, state) => updateController.handleRendererStateFlush(requestId, state));
+ipcMain.handle('preserve-state-for-update', trustedIpc(async (requestId, state) => {
+  if (!/^[a-zA-Z0-9._:-]{1,160}$/.test(String(requestId || ''))) throw new Error('Invalid update request ID.');
+  return updateController.handleRendererStateFlush(requestId, boundedPayload(state));
+}));
 
-ipcMain.handle('get-backend-status', async () => {
+ipcMain.handle('get-backend-status', trustedIpc(async () => {
   const remoteStatus = await getRemoteBackendStatus();
   if (remoteStatus) return remoteStatus;
   const localStatus = embeddedBackend.getStatus();
   return { ...localStatus, reportCount: getReportCount(), mode: localStatus.running ? 'legacy-embedded' : 'local-fallback' };
-});
+}));
 
-ipcMain.handle('validate-pilot-access', async (_event, access) => validatePilotAccessApi(access));
+ipcMain.handle('validate-pilot-access', trustedIpc(async (access) => validatePilotAccessApi(boundedPayload(access, 16_000))));
 
-ipcMain.handle('submit-analytical-report', (_event, report) => submitAnalyticalReportApiFirst(report));
+ipcMain.handle('submit-analytical-report', trustedIpc((report) => submitAnalyticalReportApiFirst(boundedPayload(report, 500_000))));
 
-ipcMain.handle('send-text-messages', (_event, payload) => sendTextMessages(payload));
+ipcMain.handle('verify-staff-pin', trustedIpc(async (payload) => {
+  const result = await staffAuthorization.activate(boundedPayload(payload, 20_000));
+  sendClientEvent(result.ok ? 'staff-verification-succeeded' : 'staff-verification-failed', 'security', {
+    staffId: String(payload?.staffId || '').slice(0, 120),
+    result: result.ok ? 'accepted' : 'rejected'
+  });
+  return result;
+}));
 
-ipcMain.handle('record-client-event', (_event, event, category, details, route) => {
-  sendClientEvent(event, category, details, { route });
+ipcMain.handle('authorize-staff-action', trustedIpc((payload) => {
+  const bounded = boundedPayload(payload, 4_000);
+  const result = staffAuthorization.authorize(bounded);
+  sendClientEvent(result.ok ? 'staff-authorization-succeeded' : 'staff-authorization-failed', 'security', {
+    action: String(bounded.action || '').slice(0, 80),
+    result: result.ok ? 'accepted' : 'rejected'
+  });
+  return result;
+}));
+
+ipcMain.handle('send-text-messages', trustedIpc((payload, staffToken) => {
+  const authorization = staffAuthorization.authorize({ token: staffToken, action: 'send-text-messages' });
+  if (!authorization.ok) return { ok: false, sent: 0, error: authorization.error };
+  if (Date.now() < nextTextBatchAt) return { ok: false, sent: 0, error: 'Text messaging is temporarily rate limited.' };
+  nextTextBatchAt = Date.now() + 60_000;
+  return sendTextMessages(boundedPayload(payload, 100_000));
+}));
+
+ipcMain.handle('record-client-event', trustedIpc((event, category, details, route) => {
+  sendClientEvent(String(event || '').slice(0, 100), String(category || '').slice(0, 60), boundedPayload(details || {}, 20_000), { route: String(route || '').slice(0, 80) });
   return { ok: true };
-});
+}));
 
-ipcMain.handle('record-client-error', (_event, payload = {}) => {
+ipcMain.handle('record-client-error', trustedIpc((payload = {}) => {
+  boundedPayload(payload, 30_000);
   sendClientError(new Error(payload.message || 'Renderer error'), payload.source || 'renderer', {
     route: payload.route || '',
     filename: payload.filename || '',
@@ -260,7 +338,7 @@ ipcMain.handle('record-client-error', (_event, payload = {}) => {
     rendererStack: payload.stack || ''
   });
   return { ok: true };
-});
+}));
 
 function loadRoute(window, route, context = {}) {
   const query = route === 'table' && context.sessionId

@@ -218,10 +218,16 @@ async function getPlayerIdentityStatus(request, response) {
   response.json({ ok: true, identity: getPublicIdentityStatus(record) });
 }
 
-async function deletePlayerIdentity(request, response) {
-  response.set('cache-control', 'no-store');
+class IdentityDeletionError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = 'IdentityDeletionError';
+    this.status = status;
+  }
+}
+
+async function deletePlayerIdentityData(playerId) {
   const admin = getAdminSdk();
-  const playerId = request.orbitPlayer.uid;
   const database = admin.firestore(getAdminApp());
   const reference = database.doc(identityDocumentPath(playerId));
   const snapshot = await reference.get();
@@ -234,8 +240,7 @@ async function deletePlayerIdentity(request, response) {
 
   if (providerSessionIds.length) {
     if (!process.env.STRIPE_SECRET_KEY) {
-      response.status(503).json({ ok: false, error: 'Stripe Identity is unavailable, so verification data could not be redacted.' });
-      return;
+      throw new IdentityDeletionError('Stripe Identity is unavailable, so verification data could not be redacted.', 503);
     }
     const sessions = [];
     for (const providerSessionId of providerSessionIds) {
@@ -250,11 +255,7 @@ async function deletePlayerIdentity(request, response) {
       return session.status === 'processing' && !['processing', 'redacted'].includes(redactionStatus);
     });
     if (unfinishedSession) {
-      response.status(409).json({
-        ok: false,
-        error: 'Identity verification is still processing. Try deleting the account again after it finishes.'
-      });
-      return;
+      throw new IdentityDeletionError('Identity verification is still processing. Try deleting the account again after it finishes.', 409);
     }
     for (const session of sessions) {
       const redactionStatus = String(session.redaction?.status || '');
@@ -278,7 +279,20 @@ async function deletePlayerIdentity(request, response) {
     if (error?.code !== 'auth/user-not-found') throw error;
   }
   await reference.delete();
-  response.json({ ok: true, redactionRequested });
+  return { redactionRequested };
+}
+
+async function deletePlayerIdentity(request, response) {
+  response.set('cache-control', 'no-store');
+  try {
+    response.json({ ok: true, ...await deletePlayerIdentityData(request.orbitPlayer.uid) });
+  } catch (error) {
+    if (error instanceof IdentityDeletionError) {
+      response.status(error.status).json({ ok: false, error: error.message });
+      return;
+    }
+    throw error;
+  }
 }
 
 async function createPlayerIdentitySession(request, response) {
@@ -427,6 +441,7 @@ module.exports = {
   calculateAgeFromDate,
   createPlayerIdentitySession,
   deletePlayerIdentity,
+  deletePlayerIdentityData,
   getAgeLevel,
   getIdentityServiceStatus,
   getPlayerIdentityStatus,

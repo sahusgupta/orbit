@@ -18,35 +18,70 @@ const {
   upsertClient
 } = require('../database');
 const { getAccountKeyFromState, sanitizeAccountKey } = require('../orbitCore');
-const { asyncRoute, blockLatestStateForPilotAuth, requireOwnerApiKey } = require('../http/auth');
+const { asyncRoute, blockLatestStateForPilotAuth, requireClientAuth, requireOwnerApiKey } = require('../http/auth');
 const { logStateChanges } = require('../http/domainEvents');
 
 function registerClientRoutes(app, liveUpdates) {
+  app.use([
+    '/license/status',
+    '/clients/heartbeat',
+    '/clients/update-event',
+    '/clients/event',
+    '/clients/error',
+    '/state',
+    '/analytical-reports'
+  ], requireClientAuth);
+
+  const bindTenantPayload = (request, response) => {
+    const payload = request.body && typeof request.body === 'object' ? { ...request.body } : {};
+    const accountKey = request.orbitAuth?.accountKey;
+    if (!accountKey) return payload;
+    const requestedVenue = payload.venueId || payload.venueName;
+    if (requestedVenue && sanitizeAccountKey(requestedVenue) !== accountKey) {
+      response.status(403).json({ ok: false, error: 'Authenticated tenant does not match the requested venue.' });
+      return null;
+    }
+    const rawDeviceId = String(payload.deviceId || '').trim();
+    return {
+      ...payload,
+      venueId: accountKey,
+      deviceId: rawDeviceId ? `${accountKey}:${rawDeviceId.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 120)}` : ''
+    };
+  };
+
   app.get('/license/status', asyncRoute(async (request, response) => {
     response.json({ ok: true, managed: true, active: true, license: request.orbitAuth?.license || null });
   }));
 
   app.post('/clients/heartbeat', asyncRoute(async (request, response) => {
-    const client = await upsertClient(request.body || {});
+    const payload = bindTenantPayload(request, response);
+    if (!payload) return;
+    const client = await upsertClient(payload);
     liveUpdates.broadcast('client', client);
     response.status(202).json({ ok: true, client });
   }));
 
   app.post('/clients/update-event', asyncRoute(async (request, response) => {
-    const client = await recordUpdateEvent(request.body || {});
+    const payload = bindTenantPayload(request, response);
+    if (!payload) return;
+    const client = await recordUpdateEvent(payload);
     const event = (await listTelemetryEvents({ deviceId: client.deviceId, limit: 1 }))[0];
     if (event) liveUpdates.broadcast('telemetry', event);
     response.status(202).json({ ok: true, client });
   }));
 
   app.post('/clients/event', asyncRoute(async (request, response) => {
-    const event = await recordTelemetryEvent(request.body || {});
+    const payload = bindTenantPayload(request, response);
+    if (!payload) return;
+    const event = await recordTelemetryEvent(payload);
     liveUpdates.broadcast('telemetry', event);
     response.status(202).json({ ok: true, event });
   }));
 
   app.post('/clients/error', asyncRoute(async (request, response) => {
-    const error = await recordClientError(request.body || {});
+    const payload = bindTenantPayload(request, response);
+    if (!payload) return;
+    const error = await recordClientError(payload);
     liveUpdates.broadcast('error', error);
     response.status(202).json({ ok: true, error });
   }));
@@ -113,13 +148,13 @@ function registerClientRoutes(app, liveUpdates) {
     const state = request.body?.state;
     const expectedRevision = Number(request.body?.expectedRevision);
     const mutationId = String(request.get('x-orbit-mutation-id') || request.body?.mutationId || '').trim();
-    if (!state || !Number.isInteger(expectedRevision) || expectedRevision < 0 || !mutationId) {
+    if (!state || !Number.isInteger(expectedRevision) || expectedRevision < 0 || !/^[a-zA-Z0-9._:-]{1,180}$/.test(mutationId)) {
       response.status(428).json({ ok: false, error: 'state, expectedRevision, and a stable mutationId are required.' });
       return;
     }
     const accountKey = getAccountKeyFromState(state);
-    if (request.orbitAuth?.type === 'pilot-key' && request.orbitAuth.accountKey !== accountKey) {
-      response.status(403).json({ ok: false, error: 'This pilot license cannot write another venue account.' });
+    if (request.orbitAuth?.accountKey && request.orbitAuth.accountKey !== accountKey) {
+      response.status(403).json({ ok: false, error: 'Authenticated tenant cannot write another venue account.' });
       return;
     }
     const previous = await loadState(accountKey);
@@ -139,8 +174,8 @@ function registerClientRoutes(app, liveUpdates) {
   }));
 
   app.get('/state/:venueId', asyncRoute(async (request, response) => {
-    if (request.orbitAuth?.type === 'pilot-key' && request.orbitAuth.accountKey !== sanitizeAccountKey(request.params.venueId)) {
-      response.status(403).json({ ok: false, error: 'This pilot license cannot read another venue account.' });
+    if (request.orbitAuth?.accountKey && request.orbitAuth.accountKey !== sanitizeAccountKey(request.params.venueId)) {
+      response.status(403).json({ ok: false, error: 'Authenticated tenant cannot read another venue account.' });
       return;
     }
     const record = await loadState(request.params.venueId);
@@ -152,7 +187,16 @@ function registerClientRoutes(app, liveUpdates) {
   }));
 
   app.post('/analytical-reports', asyncRoute(async (request, response) => {
-    response.status(201).json(await storeAnalyticalReport(request.body));
+    const accountKey = request.orbitAuth?.accountKey;
+    const suppliedAccount = request.body?.account?.accountKey || request.body?.account?.licenseId;
+    if (accountKey && suppliedAccount && sanitizeAccountKey(suppliedAccount) !== accountKey) {
+      response.status(403).json({ ok: false, error: 'Authenticated tenant does not match the report account.' });
+      return;
+    }
+    const report = accountKey
+      ? { ...request.body, account: { ...(request.body?.account || {}), accountKey } }
+      : request.body;
+    response.status(201).json(await storeAnalyticalReport(report));
   }));
 }
 

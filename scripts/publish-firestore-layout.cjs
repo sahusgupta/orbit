@@ -6,7 +6,7 @@ function getArg(name) {
 function usage() {
   console.log([
     'Usage:',
-    '  ORBIT_API_URL=<api-origin> ORBIT_CLIENT_API_KEY=<owner-key> node scripts/publish-firestore-layout.cjs [--limit 25]',
+    '  ORBIT_API_URL=<api-origin> ORBIT_OWNER_API_KEY=<owner-key> node scripts/publish-firestore-layout.cjs [--limit 25]',
     '',
     'Requests the authoritative API to drain already-committed publication-outbox work.',
     'It cannot import arbitrary state or publish Firebase directly.'
@@ -20,9 +20,9 @@ async function main() {
   }
 
   const apiOrigin = String(process.env.ORBIT_API_URL || '').trim().replace(/\/$/, '');
-  const ownerKey = String(process.env.ORBIT_CLIENT_API_KEY || '').trim();
+  const ownerKey = String(process.env.ORBIT_OWNER_API_KEY || '').trim();
   if (!apiOrigin || !ownerKey) {
-    throw new Error('ORBIT_API_URL and ORBIT_CLIENT_API_KEY are required. Credentials are sent only in the request header.');
+    throw new Error('ORBIT_API_URL and ORBIT_OWNER_API_KEY are required. Credentials are sent only in the request header.');
   }
 
   const requestedLimit = Number(getArg('--limit') || 25);

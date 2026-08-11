@@ -31,6 +31,7 @@ import {
 } from './lib/profileRelationships';
 import { sendFirebasePasswordResetEmail, signInOrCreateFirebaseEmailAccount, signInToFirebaseWithEmail, signOutOfFirebase } from './lib/firebaseClubSync';
 import { getBalancePlans, parseGroupMeMessages, type BalancePlanResult } from './lib/resultBuilders';
+import { validateLocalImport } from './lib/fileImportValidation';
 import {
   nextYearDate,
   normalizeState,
@@ -176,6 +177,7 @@ import {
   isPilotAccessActive,
   managementStorageKey as storageKey,
   persistSignIn,
+  touchPersistedSignIn,
   safeAccountKeyPart,
   validatePilotKey
 } from './domain/licensing';
@@ -258,6 +260,18 @@ declare global {
         license?: { licenseId?: string; accountKey?: string; issuedTo?: string; expiresAt?: string; status?: string } | null;
         error?: string;
       }>;
+      verifyStaffPin: (payload: { staffId: string; pin: string; access: PilotAccess }) => Promise<{
+        ok: boolean;
+        token?: string;
+        staffId?: string;
+        role?: StaffAccount['role'];
+        expiresAt?: string;
+        error?: string;
+      }>;
+      authorizeStaffAction: (payload: { token: string; action: 'staff-sign' | 'manager-lock' | 'manager-reopen' | 'staff-admin' }) => Promise<{
+        ok: boolean;
+        error?: string;
+      }>;
       submitAnalyticalReport: (report: AnalyticalReportPayload) => Promise<ReportSubmissionResult>;
       recordClientEvent: (
         event: string,
@@ -265,7 +279,7 @@ declare global {
         details?: Record<string, string | number | boolean | null>,
         route?: AppRoute | 'access'
       ) => Promise<{ ok: boolean }>;
-      sendTextMessages: (payload: TextMessageBatch) => Promise<TextMessageBatchResult>;
+      sendTextMessages: (payload: TextMessageBatch, staffToken?: string) => Promise<TextMessageBatchResult>;
       recordClientError: (payload: {
         message: string;
         source?: string;
@@ -401,6 +415,7 @@ const applyBrandTheme = (theme: BrandTheme) => {
 };
 function App() {
   const [state, setState] = useState<AppState>(() => loadManagementState());
+  const [staffSession, setStaffSession] = useState<{ token: string; staffId: string; role: StaffAccount['role']; expiresAt: string } | null>(null);
   const getRouteFromHash = (): AppRoute =>
     window.location.hash.includes('tournament-tv')
       ? 'tournament-tv'
@@ -694,6 +709,29 @@ function App() {
     applyBrandTheme(state.settings.lowLight ? branding.theme.lowLight : branding.theme.default);
     document.title = branding.product.name;
   }, [state.settings.lowLight]);
+
+  useEffect(() => {
+    if (!hasAuthenticated) return;
+    let idleTimer = 0;
+    const expireSession = () => {
+      persistSignIn(state, false);
+      setStaffSession(null);
+      setHasAuthenticated(false);
+    };
+    const refreshIdleSession = () => {
+      touchPersistedSignIn(state);
+      window.clearTimeout(idleTimer);
+      idleTimer = window.setTimeout(expireSession, 30 * 60 * 1000);
+    };
+    refreshIdleSession();
+    window.addEventListener('keydown', refreshIdleSession);
+    window.addEventListener('pointerdown', refreshIdleSession);
+    return () => {
+      window.clearTimeout(idleTimer);
+      window.removeEventListener('keydown', refreshIdleSession);
+      window.removeEventListener('pointerdown', refreshIdleSession);
+    };
+  }, [hasAuthenticated, state.settings.pilotAccess?.licenseId]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
@@ -1794,11 +1832,13 @@ function App() {
     if (!file) return;
     try {
       if (file.name.toLowerCase().endsWith('.csv')) {
+        await validateLocalImport(file, 'profile-csv');
         const rows = parseCsvRows(await file.text());
         commitImportedProfiles(profilesFromImportedRecords(rows, profileImportContext));
         setImportText('');
         return;
       }
+      await validateLocalImport(file, 'profile-xlsx');
       const ExcelJS = await import('exceljs');
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(await file.arrayBuffer());
@@ -1849,7 +1889,22 @@ function App() {
     return result.record;
   };
 
-  const signNightClose = () => {
+  const authorizeStaffAction = async (action: 'staff-sign' | 'manager-lock' | 'manager-reopen' | 'staff-admin') => {
+    if (!staffSession || staffSession.staffId !== state.settings.activeStaffId || !window.tableManagerDesktop?.authorizeStaffAction) {
+      window.alert('Select and verify an active staff account before this action.');
+      return false;
+    }
+    const result = await window.tableManagerDesktop.authorizeStaffAction({ token: staffSession.token, action });
+    if (!result.ok) {
+      setStaffSession(null);
+      window.alert(result.error || 'Staff reauthentication is required.');
+      return false;
+    }
+    return true;
+  };
+
+  const signNightClose = async () => {
+    if (!await authorizeStaffAction('staff-sign')) return;
     const result = signNightCloseInState(
       state,
       { current: currentNightClose, tables: nightCloseTables, warnings: nightCloseWarnings, notes: nightCloseNotes },
@@ -1864,12 +1919,13 @@ function App() {
       { feature: 'Night close', action: 'Staff signed reconciliation', route: 'summary', metadata: { discrepancy: Number(nightCloseTotals.discrepancy.toFixed(2)) } });
   };
 
-  const approveAndLockNightClose = () => {
+  const approveAndLockNightClose = async () => {
     const validationError = getNightCloseLockError(state, currentNightClose);
     if (validationError) {
       window.alert(validationError);
       return;
     }
+    if (!await authorizeStaffAction('manager-lock')) return;
     if (!window.confirm(
       `Lock tonight's reconciliation with a ${nightCloseTotals.discrepancy < 0 ? '-' : '+'}$${Math.abs(nightCloseTotals.discrepancy).toFixed(2)} discrepancy?\n\nThis will close every current table, remove all seated players, and reset Recent Activity.`
     )) return;
@@ -1893,12 +1949,13 @@ function App() {
     });
   };
 
-  const reopenNightClose = () => {
+  const reopenNightClose = async () => {
     const validationError = getNightCloseReopenError(state, currentNightClose);
     if (validationError) {
       window.alert(validationError);
       return;
     }
+    if (!await authorizeStaffAction('manager-reopen')) return;
     const reason = window.prompt('Reason for reopening this locked reconciliation:')?.trim();
     if (!reason || !currentNightClose) return;
     const result = reopenNightCloseInState(state, currentNightClose, reason, { createId: uid, nowIso, todayDate });
@@ -1926,6 +1983,7 @@ function App() {
     setBackupMessage('');
     if (!file) return;
     try {
+      await validateLocalImport(file, 'backup-json');
       const parsed = JSON.parse(await file.text());
       const backup = readBackupEnvelope<PersistedAppState>(parsed);
       const restored = normalizeState(backup.state);
@@ -2130,8 +2188,8 @@ function App() {
   const createAccountLogin = async () => {
     const username = (setupDraft.username || clubDraft.email).trim().toLowerCase();
     const password = setupDraft.password;
-    if (!/^\S+@\S+\.\S+$/.test(username) || password.length < 8) {
-      setPilotKeyError('Enter a valid login email and a password with at least 8 characters.');
+    if (!/^\S+@\S+\.\S+$/.test(username) || password.length < 12) {
+      setPilotKeyError('Enter a valid login email and a password or passphrase with at least 12 characters.');
       return null;
     }
     if (password !== setupDraft.confirmPassword) {
@@ -2324,6 +2382,7 @@ function App() {
     if (!file) return;
     let parsed: unknown;
     try {
+      await validateLocalImport(file, 'pilot-key-json');
       const text = await file.text();
       parsed = JSON.parse(text);
     } catch {
@@ -2398,6 +2457,7 @@ function App() {
     setPilotKeyError('');
     if (!file) return;
     try {
+      await validateLocalImport(file, 'pilot-key-json');
       const text = await file.text();
       const parsed = JSON.parse(text);
       const result = await validatePilotKey(parsed, file.name);
@@ -2438,6 +2498,7 @@ function App() {
 
   const addStaffAccount = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (state.settings.staffAccounts.some((staff) => staff.active) && !await authorizeStaffAction('staff-admin')) return;
     const name = staffDraft.name.trim();
     const pin = staffDraft.pin.trim();
     if (!name || pin.length < 4) {
@@ -2460,14 +2521,29 @@ function App() {
       settings: {
         ...state.settings,
         staffAccounts: [...state.settings.staffAccounts, account],
-        activeStaffId: state.settings.activeStaffId ?? account.id
+        activeStaffId: state.settings.activeStaffId
       }
     }, true, { feature: 'Staff accounts', action: 'Added staff account', metadata: { role: account.role } });
     setStaffDraft({ name: '', role: 'Floor', pin: '' });
     setBackupMessage('Staff account added.');
   };
 
-  const selectActiveStaff = (staffId: string) => {
+  const selectActiveStaff = async (staffId: string) => {
+    if (!staffId) {
+      setStaffSession(null);
+    } else {
+      const pin = window.prompt('Enter this staff member\'s PIN to activate their account:') || '';
+      const access = state.settings.pilotAccess;
+      const result = access && window.tableManagerDesktop?.verifyStaffPin
+        ? await window.tableManagerDesktop.verifyStaffPin({ staffId, pin, access })
+        : { ok: false, error: 'Trusted desktop staff verification is unavailable.' };
+      if (!result.ok || !result.token || !result.staffId || !result.role || !result.expiresAt) {
+        setStaffSession(null);
+        window.alert(result.error || 'Staff verification failed.');
+        return;
+      }
+      setStaffSession({ token: result.token, staffId: result.staffId, role: result.role, expiresAt: result.expiresAt });
+    }
     persist({
       ...state,
       settings: {
@@ -2480,7 +2556,9 @@ function App() {
     }, true, { feature: 'Staff accounts', action: staffId ? 'Selected active staff' : 'Cleared active staff' });
   };
 
-  const deactivateStaffAccount = (staffId: string) => {
+  const deactivateStaffAccount = async (staffId: string) => {
+    if (!await authorizeStaffAction('staff-admin')) return;
+    if (staffSession?.staffId === staffId) setStaffSession(null);
     persist({
       ...state,
       settings: {
@@ -2647,8 +2725,8 @@ function App() {
           </div>
           <form className="access-step account-form" onSubmit={createLoginForExistingAccount}>
             <input value={setupDraft.username} onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })} placeholder="Login email" type="email" />
-            <input value={setupDraft.password} onChange={(event) => setSetupDraft({ ...setupDraft, password: event.target.value })} placeholder="Password" type="password" />
-            <input value={setupDraft.confirmPassword} onChange={(event) => setSetupDraft({ ...setupDraft, confirmPassword: event.target.value })} placeholder="Confirm password" type="password" />
+            <input value={setupDraft.password} onChange={(event) => setSetupDraft({ ...setupDraft, password: event.target.value })} placeholder="Password or passphrase (12+ characters)" type="password" minLength={12} />
+            <input value={setupDraft.confirmPassword} onChange={(event) => setSetupDraft({ ...setupDraft, confirmPassword: event.target.value })} placeholder="Confirm password" type="password" minLength={12} />
             <label className="switch-control">
               <input type="checkbox" checked={setupDraft.staySignedIn} onChange={(event) => setSetupDraft({ ...setupDraft, staySignedIn: event.target.checked })} />
               <span>Stay signed in until key expiration</span>
@@ -2681,7 +2759,7 @@ function App() {
           </div>
           <form className="access-step account-form" onSubmit={passwordRecoveryStage === 'idle' ? signInToAccount : completeAccountPasswordRecovery}>
             <input value={loginDraft.username} onChange={(event) => setLoginDraft({ ...loginDraft, username: event.target.value })} placeholder="Email" type="email" autoComplete="email" readOnly={passwordRecoveryStage !== 'idle'} />
-            <input value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} placeholder={passwordRecoveryStage === 'sent' ? 'New password' : 'Password'} type="password" autoComplete={passwordRecoveryStage === 'sent' ? 'new-password' : 'current-password'} />
+            <input value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} placeholder={passwordRecoveryStage === 'sent' ? 'New password or passphrase (12+ characters)' : 'Password'} type="password" minLength={passwordRecoveryStage === 'sent' ? 12 : undefined} autoComplete={passwordRecoveryStage === 'sent' ? 'new-password' : 'current-password'} />
             <label className="switch-control">
               <input type="checkbox" checked={loginDraft.staySignedIn} onChange={(event) => setLoginDraft({ ...loginDraft, staySignedIn: event.target.checked })} />
               <span>Stay signed in until key expiration</span>
@@ -2790,14 +2868,16 @@ function App() {
               <input
                 value={setupDraft.password}
                 onChange={(event) => setSetupDraft({ ...setupDraft, password: event.target.value })}
-                placeholder="Create password"
+                placeholder="Create password or passphrase (12+ characters)"
                 type="password"
+                minLength={12}
               />
               <input
                 value={setupDraft.confirmPassword}
                 onChange={(event) => setSetupDraft({ ...setupDraft, confirmPassword: event.target.value })}
                 placeholder="Confirm password"
                 type="password"
+                minLength={12}
               />
               <textarea
                 value={setupDraft.initialGames}
