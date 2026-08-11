@@ -630,36 +630,16 @@ describe('request HTTP boundaries', () => {
     expect(firebase.setDoc).not.toHaveBeenCalled();
   });
 
-  it('falls through malformed remote waitlist success to dual Firestore request writes and the existing missing-snapshot error', async () => {
+  it('fails closed on malformed authoritative waitlist responses without direct Firestore writes', async () => {
     signedInUser();
     const request = waitlistRequest();
     firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
 
     await expect(submitWaitlistRequest(request)).resolves.toEqual({
       ok: false,
-      error: 'Seat request was sent, but no published club snapshot was found.'
+      error: 'Orbit API request failed.'
     });
-
-    expect(firebase.setDoc).toHaveBeenCalledTimes(2);
-    expect(firebase.setDoc).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ path: `clubs/club-1/waitlistRequests/${request.id}` }),
-      expect.objectContaining({
-        player: expect.objectContaining({ id: 'player-1' }),
-        status: 'pending',
-        syncProtocolVersion: 2,
-        clientMutationId: request.id,
-        clientCreatedAt: request.requestedAt,
-        createdAt: { __serverTimestamp: true }
-      }),
-      { merge: true }
-    );
-    expect(firebase.setDoc).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ path: `clubStates/club-1/waitlistRequests/${request.id}` }),
-      expect.any(Object),
-      { merge: true }
-    );
+    expect(firebase.setDoc).not.toHaveBeenCalled();
   });
 });
 
@@ -941,6 +921,22 @@ describe('Firestore mutation boundaries', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-09T12:00:00.000Z'));
     signedInUser();
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({
+      ok: true,
+      registration: {
+        id: 'event-1:player-1',
+        tournamentId: 'event-1',
+        clubId: 'club-1',
+        playerId: 'player-1',
+        playerName: 'Alex Player',
+        playerEmail: 'alex@example.com',
+        status: 'registered',
+        rebuys: 0,
+        addOns: 0,
+        registeredAt: '2026-08-09T12:00:00.000Z',
+        updatedAt: '2026-08-09T12:00:00.000Z'
+      }
+    }));
 
     const result = await registerForTournament(tournament(), player());
     expect(result).toEqual(expect.objectContaining({
@@ -952,10 +948,11 @@ describe('Firestore mutation boundaries', () => {
       registeredAt: '2026-08-09T12:00:00.000Z',
       updatedAt: '2026-08-09T12:00:00.000Z'
     }));
-    expect(firebase.setDoc).toHaveBeenCalledWith(
-      expect.objectContaining({ path: 'clubs/club-1/tournamentRegistrations/event-1:player-1' }),
-      expect.objectContaining({ id: 'event-1:player-1', updatedAt: { __serverTimestamp: true } })
+    expect(firebase.fetch).toHaveBeenCalledWith(
+      'https://orbitapp-one.vercel.app/player/tournament-registrations',
+      expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ authorization: 'Bearer player-token' }) })
     );
+    expect(firebase.setDoc).not.toHaveBeenCalled();
 
     await expect(registerForTournament(tournament(), player({ id: 'other' }))).rejects.toThrow('does not match this profile');
     await expect(registerForTournament(tournament({ registrationStatus: 'closed' }), player())).rejects.toThrow('Registration for this tournament is closed.');
@@ -980,8 +977,13 @@ describe('Firestore mutation boundaries', () => {
       updatedAt: '2026-08-09T10:00:00.000Z'
     };
 
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, registrationId: registration.id }));
     await unregisterFromTournament(tournament(), registration);
-    expect(firebase.deleteDoc).toHaveBeenCalledWith(expect.objectContaining({ path: 'clubs/club-1/tournamentRegistrations/event-1:player-1' }));
+    expect(firebase.fetch).toHaveBeenCalledWith(
+      'https://orbitapp-one.vercel.app/player/tournament-registrations',
+      expect.objectContaining({ method: 'DELETE', headers: expect.objectContaining({ authorization: 'Bearer player-token' }) })
+    );
+    expect(firebase.deleteDoc).not.toHaveBeenCalled();
 
     await expect(unregisterFromTournament(tournament(), { ...registration, playerId: 'other' })).rejects.toThrow('only remove your own registration');
     await expect(unregisterFromTournament(tournament({ unregisterAllowed: false }), registration)).rejects.toThrow('Self-unregistration is no longer available');

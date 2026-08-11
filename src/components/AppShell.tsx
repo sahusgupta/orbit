@@ -43,6 +43,13 @@ export default function AppShell({ active, clubName, operator, saveState, onNavi
 
   const navigate = (destination: PrimaryDestination) => { onNavigate(destination); setMobileOpen(false); };
   const defaultCommands: ShellCommand[] = destinations.map((item) => ({ id: `open-${item.id}`, label: `Open ${item.label}`, group: 'Navigation', action: () => navigate(item.id) }));
+  const saveLabel = saveState === 'error'
+    ? 'Sync issue'
+    : saveState === 'saving'
+      ? 'Saving to server'
+      : saveState === 'saved'
+        ? 'Server saved'
+        : 'Not yet saved';
 
   return (
     <div className={cn('orbit-shell', collapsed && 'sidebar-collapsed', mobileOpen && 'mobile-sidebar-open')}>
@@ -55,7 +62,7 @@ export default function AppShell({ active, clubName, operator, saveState, onNavi
         </nav>
         <div className="orbit-sidebar-footer">
           <div className="orbit-account-summary"><CircleUserRound size={20} /><div><strong>{operator || 'No operator'}</strong><span>{clubName}</span></div></div>
-          <div className="orbit-sync-state"><i className={saveState === 'error' ? 'error' : ''} /><span>{saveState === 'error' ? 'Sync issue' : 'Synced'}</span></div>
+          <div className="orbit-sync-state" role="status" aria-live="polite"><i className={saveState === 'error' ? 'error' : ''} /><span>{saveLabel}</span></div>
           <div className="orbit-version" aria-label={`Orbit version ${packageJson.version}`}>Version {packageJson.version}</div>
           <button className="orbit-signout" onClick={onSignOut}>Sign out</button>
         </div>

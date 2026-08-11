@@ -26,22 +26,29 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
   });
 
   app.get('/dashboard/data', requireDashboardAuth, asyncRoute(async (_request, response) => {
-    const eventPage = listTelemetryEvents({ limit: 101 });
+    const [eventPage, summary, clients, venues, errors, licenses] = await Promise.all([
+      listTelemetryEvents({ limit: 101 }),
+      getTelemetrySummary(),
+      listClients(),
+      listVenues(),
+      listClientErrors({ limit: 100 }),
+      listPilotLicenses()
+    ]);
     response.json({
       ok: true,
-      summary: getTelemetrySummary(),
-      clients: listClients(),
-      venues: listVenues(),
+      summary,
+      clients,
+      venues,
       events: eventPage.slice(0, 100),
       eventHistory: { hasMore: eventPage.length > 100 },
-      errors: listClientErrors({ limit: 100 }),
-      licenses: await listPilotLicenses()
+      errors,
+      licenses
     });
   }));
 
-  app.get('/dashboard/history/events', requireDashboardAuth, (request, response) => {
+  app.get('/dashboard/history/events', requireDashboardAuth, asyncRoute(async (request, response) => {
     const limit = Math.min(Math.max(Number(request.query.limit || 100), 1), 250);
-    const events = listTelemetryEvents({
+    const events = await listTelemetryEvents({
       limit: limit + 1,
       beforeOccurredAt: request.query.beforeOccurredAt,
       beforeId: request.query.beforeId
@@ -51,7 +58,7 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
       events: events.slice(0, limit),
       hasMore: events.length > limit
     });
-  });
+  }));
 
   app.post('/dashboard/licenses/:licenseDocumentId/renew', requireDashboardAuth, asyncRoute(async (request, response) => {
     const license = await renewPilotLicense(request.params.licenseDocumentId, request.body || {});

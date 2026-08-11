@@ -181,7 +181,7 @@ describe('Electron embedded backend', () => {
     expect(payload(optionsResponse)).toEqual({});
   });
 
-  it('loads a sanitized snapshot account, persists newly synchronized state, and scopes the player projection', async () => {
+  it('loads a sanitized offline snapshot without mutating or publishing cached state', async () => {
     const state = { id: 'state-1' };
     const syncedState = { id: 'state-1', synced: true };
     const loadStateWithFirebaseFallback = vi.fn().mockResolvedValue({ savedAt: 'saved-time', state });
@@ -199,19 +199,21 @@ describe('Electron embedded backend', () => {
     await invoke(harness.handler, request('GET', '/player/snapshot?accountKey=%20CLUB-ONE%20&playerId=player-1&playerName=Alex'), response);
 
     expect(loadStateWithFirebaseFallback).toHaveBeenCalledWith('club-one');
-    expect(syncStateWithFirebaseRequests).toHaveBeenCalledWith(state);
-    expect(saveStateEverywhere).toHaveBeenCalledWith(syncedState);
-    expect(buildPlayerClubSnapshot).toHaveBeenCalledWith(syncedState, { id: 'player-1', name: 'Alex' });
+    expect(syncStateWithFirebaseRequests).not.toHaveBeenCalled();
+    expect(saveStateEverywhere).not.toHaveBeenCalled();
+    expect(buildPlayerClubSnapshot).toHaveBeenCalledWith(state, { id: 'player-1', name: 'Alex' });
     expect(response.statusCode).toBe(200);
     expect(payload(response)).toEqual({
       ok: true,
       accountKey: 'club-one',
       savedAt: 'saved-time',
-      snapshot: { games: [], playerId: 'player-1' }
+      snapshot: { games: [], playerId: 'player-1' },
+      source: 'offline-cache',
+      authoritative: false
     });
   });
 
-  it('returns the exact missing-state statuses for snapshot, membership, and waitlist requests', async () => {
+  it('returns the exact missing-state status for snapshots and rejects embedded player mutations', async () => {
     const harness = createHarness();
 
     const snapshotResponse = createResponse();
@@ -221,16 +223,16 @@ describe('Electron embedded backend', () => {
 
     const membershipResponse = createResponse();
     await invoke(harness.handler, request('POST', '/player/membership-requests'), membershipResponse, '{"clubId":"club-one"}');
-    expect(membershipResponse.statusCode).toBe(404);
-    expect(payload(membershipResponse)).toEqual({ ok: false, error: 'No matching club database was found for this membership request.' });
+    expect(membershipResponse.statusCode).toBe(503);
+    expect(payload(membershipResponse)).toEqual({ ok: false, error: 'Player mutations require the authoritative Orbit API.' });
 
     const waitlistResponse = createResponse();
     await invoke(harness.handler, request('POST', '/player/waitlist-requests'), waitlistResponse, '{"clubId":"club-one"}');
-    expect(waitlistResponse.statusCode).toBe(404);
-    expect(payload(waitlistResponse)).toEqual({ ok: false, error: 'No matching club database was found for this waitlist request.' });
+    expect(waitlistResponse.statusCode).toBe(503);
+    expect(payload(waitlistResponse)).toEqual({ ok: false, error: 'Player mutations require the authoritative Orbit API.' });
   });
 
-  it('delegates membership and waitlist mutations by payload club and returns the persisted player snapshot', async () => {
+  it('does not delegate membership or waitlist mutations to the offline cache', async () => {
     const membershipPayload = { clubId: 'club-one', player: { id: 'player-1', name: 'Alex' } };
     const waitlistPayload = { clubId: 'club-two', player: { id: 'player-2', name: 'Blair' } };
     const state = { id: 'initial' };
@@ -249,19 +251,18 @@ describe('Electron embedded backend', () => {
 
     const membershipResponse = createResponse();
     await invoke(harness.handler, request('POST', '/player/membership-requests'), membershipResponse, JSON.stringify(membershipPayload));
-    expect(loadStateWithFirebaseFallback).toHaveBeenNthCalledWith(1, 'club-one');
-    expect(applyMembershipRequestToState).toHaveBeenCalledWith(state, membershipPayload);
-    expect(saveStateEverywhere).toHaveBeenNthCalledWith(1, { id: 'membership-state' });
-    expect(membershipResponse.statusCode).toBe(201);
-    expect(payload(membershipResponse)).toMatchObject({ ok: true, snapshot: { stateId: 'membership-state', playerId: 'player-1' } });
+    expect(membershipResponse.statusCode).toBe(503);
+    expect(payload(membershipResponse)).toEqual({ ok: false, error: 'Player mutations require the authoritative Orbit API.' });
 
     const waitlistResponse = createResponse();
     await invoke(harness.handler, request('POST', '/player/waitlist-requests'), waitlistResponse, JSON.stringify(waitlistPayload));
-    expect(loadStateWithFirebaseFallback).toHaveBeenNthCalledWith(2, 'club-two');
-    expect(applyWaitlistRequestToState).toHaveBeenCalledWith(state, waitlistPayload);
-    expect(saveStateEverywhere).toHaveBeenNthCalledWith(2, { id: 'waitlist-state' });
-    expect(waitlistResponse.statusCode).toBe(201);
-    expect(payload(waitlistResponse)).toMatchObject({ ok: true, snapshot: { stateId: 'waitlist-state', playerId: 'player-2' } });
+    expect(waitlistResponse.statusCode).toBe(503);
+    expect(payload(waitlistResponse)).toEqual({ ok: false, error: 'Player mutations require the authoritative Orbit API.' });
+    expect(loadStateWithFirebaseFallback).not.toHaveBeenCalled();
+    expect(applyMembershipRequestToState).not.toHaveBeenCalled();
+    expect(applyWaitlistRequestToState).not.toHaveBeenCalled();
+    expect(saveStateEverywhere).not.toHaveBeenCalled();
+    expect(buildPlayerClubSnapshot).not.toHaveBeenCalled();
   });
 
   it('delegates analytical reports, returns not-found for unknown routes, and maps handler failures to 400', async () => {

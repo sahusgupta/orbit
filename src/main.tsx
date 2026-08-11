@@ -819,7 +819,20 @@ function App() {
     setState(next);
     setSaveStatus({ state: 'saving', message: 'Saving...' });
     saveManagementState(next)
-      .then(() => setSaveStatus({ state: 'saved', message: `Saved ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` }))
+      .then((result) => {
+        if (!result.ok) {
+          setSaveStatus({ state: 'error', message: result.error || 'Saved to cache only; server reconciliation required' });
+          return;
+        }
+        setSaveStatus({
+          state: result.cloud === 'failed' ? 'error' : 'saved',
+          message: result.cloud === 'published'
+            ? `Published ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+            : result.cloud === 'failed'
+              ? 'Server saved; player projection failed and will retry'
+              : 'Server saved; player projection pending'
+        });
+      })
       .catch((error) => {
         setSaveStatus({
           state: 'error',

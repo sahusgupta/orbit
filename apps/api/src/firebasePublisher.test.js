@@ -119,6 +119,25 @@ describe('canonical Firestore club layout', () => {
     expect(notifications[0]).not.toHaveProperty('targetPlayerNames');
   });
 
+  it('builds projection writes without carrying authoritative state JSON', () => {
+    const write = publisher.buildBatchUpdate('project-1', 'clubStates/club-1', {
+      accountKey: 'club-1',
+      schemaVersion: 5,
+      deprecated: true
+    });
+    expect(write).toMatchObject({
+      update: {
+        name: 'projects/project-1/databases/(default)/documents/clubStates/club-1',
+        fields: {
+          accountKey: { stringValue: 'club-1' },
+          schemaVersion: { integerValue: '5' },
+          deprecated: { booleanValue: true }
+        }
+      }
+    });
+    expect(JSON.stringify(write)).not.toContain('state_json');
+  });
+
   it('builds a versioned mobile commit marker', () => {
     const metadata = publisher.buildSyncMetadata(
       '2026-07-25T00:00:00.000Z',

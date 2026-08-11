@@ -1410,3 +1410,32 @@ Stage verification on 2026-08-11:
 - Desktop renderer production build: **passed**, 1,957 modules. The audited ExcelJS `eval` and large-chunk warnings remain for later P2 stages.
 - The API has no build step. A native Player build was not invoked because repository scripts use remote EAS workflows; local Player TypeScript and boundary behavior were verified.
 - No production Firebase, payment provider, identity provider, license store, database, deployment, or secret was accessed.
+
+### Stage 2 - Authoritative State Architecture
+
+**Status:** COMPLETED
+
+| Finding / requirement | Implementation evidence | Verification |
+| --- | --- | --- |
+| REL-001, REL-002, ARCH-001; 5.15 | `apps/api/src/db/connection.js` now selects durable PostgreSQL for hosted production and fails closed instead of using ephemeral `/tmp` SQLite. SQLite remains an explicitly non-authoritative local/test adapter. `apps/api/src/db/schema.js` provides additive, backward-compatible PostgreSQL and SQLite schemas. | Production persistence configuration cases in `apps/api/src/database.behavior.test.js`; API check-JS; legacy SQLite migration test. |
+| REL-003, PERF-006; 5.19 | `apps/api/src/db/state.js` assigns a monotonically increasing tenant revision, requires `expectedRevision` and a stable mutation ID, returns an explicit `STATE_REVISION_CONFLICT`, and records duplicate retries without a second state commit. Top-level state arrays are stored as independently hashed entities; unchanged entities are not rewritten. | Compare-and-swap, idempotent retry, single-entity-change, and exact reconstruction coverage in `apps/api/src/stateArchitecture.test.js`; route-level 428/409 coverage in `apps/api/src/server.routes.test.js`. |
+| PERF-001, PERF-004; 5.2, 5.3, 5.4 | Each accepted state transaction inserts exactly one revision receipt and one durable publication-outbox row. `apps/api/src/db/publicationOutbox.js` publishes in per-account revision order, retries with bounded backoff, and preserves payloads until success. Firebase child projection writes are batched, legacy full private snapshots are no longer published, and the sync-protocol-v2 parent commit marker is written last. | Outbox failure/order/retry tests; Firebase projection/batching tests; `src/lib/syncProtocolPublishers.test.ts`. |
+| REL-002, REL-003; 6.27 | Runtime renderer and Electron call sites no longer publish authoritative Firebase state. Electron/local persistence is labelled `offline-cache` and `authoritative: false`; desktop and browser saves report server commit/conflict/publication status. Player membership, waitlist, and tournament mutations use the authenticated API, and Firestore projection mutation inboxes are backend-only. | `src/lib/stateOwnershipContracts.test.ts`, Electron client/backend tests, management persistence tests, Player boundary tests, and Firestore rule contract tests. |
+| Safe migration and recovery | Legacy revision-zero `state_json` records remain readable and migrate on the first compare-and-swap write. A missing server venue may be initialized once from the characterized local cache at expected revision zero; a conflict leaves the cache non-authoritative. Owner-protected outbox inspection/drain routes and a long-running worker timer provide recovery paths. | `apps/api/src/stateMigration.test.js`; Electron API-first migration/conflict tests; architecture record in `docs/architecture/AUTHORITATIVE_STATE.md`. |
+
+Stage 2 dependency disposition:
+
+- Added exact `pg@8.23.0` for durable PostgreSQL access (MIT, Node 16+, server-only) because the existing API had no durable multi-instance adapter.
+- Added exact `@vercel/functions@3.9.2` for supported background continuation after an accepted serverless request (Apache-2.0, Node 20+, server-only). Long-running deployments use the same outbox through an interval worker.
+- API production dependency audit after installation: **0 vulnerabilities**. Rationale, runtime cost, compatibility, and recovery behavior are recorded in `docs/architecture/AUTHORITATIVE_STATE.md`.
+
+Stage verification on 2026-08-11:
+
+- Focused state, migration, publication, ownership, Electron, management, Player, Firestore, and API route gate: **14 files, 98 tests passed** after contract reconciliation; the two management lifecycle characterization tests also passed independently.
+- Root aggregate TypeScript: **passed** across renderer, tests, Electron, and API.
+- Player strict TypeScript: **passed**.
+- API check-JS: **passed**.
+- Full Vitest discovery: **490 passed, 2 failed**. Both failures remain the audited OneDrive `Dirent.isFile()` discovery defect in `src/lib/playerApplicationOrchestration.test.ts` (REL-012); no Stage 2 behavior test failed. Stage 4 must make this gate platform-independent.
+- Desktop renderer production build: **passed**, 1,957 modules. Main entry output is 742.31 kB (231.03 kB gzip), with a 412.05 kB shared entry and a separately emitted 1,066.53 kB ExcelJS chunk. Bundle warning remediation remains Stage 4 scope; these figures are measurements, not claimed percentage improvements.
+- `git diff --check`: **passed**.
+- No production database, Firebase project, hosted endpoint, deployment, domain, certificate, or secret was accessed or changed. The tracked `data/orbit-api.sqlite3` artifact was not opened or modified.

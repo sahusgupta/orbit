@@ -105,6 +105,30 @@ export async function submitRemotePlayerRequest(path: string, request: PlayerMem
   }
 }
 
+export async function submitRemoteTournamentMutation(
+  method: 'POST' | 'DELETE',
+  payload: { clubId: string; tournamentId: string; mutationId: string }
+) {
+  if (!orbitApiBaseUrl) throw new Error('Orbit API is not configured.');
+  const { token } = await getOrbitPlayerToken();
+  const response = await fetch(`${orbitApiBaseUrl}/player/tournament-registrations`, {
+    method,
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+  const body: unknown = await response.json().catch(() => ({}));
+  if (!response.ok || !body || typeof body !== 'object') {
+    throw new Error(readBoundaryError(body, 'Tournament registration could not be saved.'));
+  }
+  if (Reflect.get(body, 'ok') !== true) {
+    throw new Error(readBoundaryError(body, 'Tournament registration could not be saved.'));
+  }
+  return body;
+}
+
 export async function deleteRemotePlayerIdentity(user: User) {
   if (!orbitApiBaseUrl) return;
   const token = await user.getIdToken();

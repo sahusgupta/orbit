@@ -5,13 +5,6 @@ const fs = require('fs');
 const path = require('path');
 const branding = require('../branding.config.json');
 const { createOrbitCore } = require('../apps/api/src/shared/orbitCore.cjs');
-const {
-  fetchPendingPlayerRequests,
-  isFirebaseConfigured,
-  markPlayerRequestApplied,
-  readStateFromFirebase,
-  writeStateToFirebase
-} = require('./firebaseSync.cjs');
 const { createEmbeddedBackend } = require('./embeddedBackend.cjs');
 const { createLocalStore } = require('./localStore.cjs');
 const { createOrbitApiClient } = require('./orbitApiClient.cjs');
@@ -155,74 +148,24 @@ const {
   updateBackendReportCount: (reportCount) => embeddedBackend.updateReportCount(reportCount)
 });
 
-const {
-  applyMembershipRequestToState,
-  applyWaitlistRequestToState,
-  buildPlayerClubSnapshot
-} = createOrbitCore({
+const { buildPlayerClubSnapshot } = createOrbitCore({
   profile: 'electron',
   validateState: false,
   createId: () => crypto.randomUUID()
 });
 
-async function syncStateWithFirebaseRequests(state) {
-  if (!isFirebaseConfigured()) return state;
-  const accountKey = getAccountKeyFromState(state);
-  let pending;
-  try {
-    pending = await fetchPendingPlayerRequests(accountKey);
-  } catch {
-    return state;
-  }
-  let nextState = state;
-
-  for (const request of pending.membershipRequests) {
-    nextState = applyMembershipRequestToState(nextState, request);
-    await markPlayerRequestApplied(accountKey, 'membership', request.id);
-  }
-
-  for (const request of pending.waitlistRequests) {
-    nextState = applyWaitlistRequestToState(nextState, request);
-    await markPlayerRequestApplied(accountKey, 'waitlist', request.id);
-  }
-
-  return nextState;
-}
-
 async function loadStateWithFirebaseFallback(accountKey) {
-  const localRecord = readLocalDatabase(accountKey);
-  let record = localRecord;
-  if (!record?.state && isFirebaseConfigured()) {
-    try {
-      record = await readStateFromFirebase(sanitizeAccountKey(accountKey));
-    } catch {
-      record = localRecord;
-    }
-  }
-  if (!record?.state) return record;
-  const syncedState = await syncStateWithFirebaseRequests(record.state);
-  if (syncedState === record.state) return record;
-  await saveStateEverywhere(syncedState);
-  return {
-    schemaVersion: record.schemaVersion || 4,
-    savedAt: new Date().toISOString(),
-    state: syncedState
-  };
+  const record = readLocalDatabase(accountKey);
+  return record ? { ...record, source: 'offline-cache', authoritative: false } : null;
 }
 
 async function saveStateEverywhere(state) {
   const localResult = writeLocalDatabase(state);
-  if (!isFirebaseConfigured()) return localResult;
-  const accountKey = getAccountKeyFromState(state);
-  const publicSnapshot = buildPlayerClubSnapshot(state);
-  try {
-    writeStateToFirebase(accountKey, state, publicSnapshot).catch(() => undefined);
-  } catch {
-    // Cloud sync must never block local persistence.
-  }
   return {
     ...localResult,
-    firebase: { ok: true, engine: 'firebase', accountKey, pending: true }
+    authoritative: false,
+    serverCommit: 'pending',
+    publication: { status: 'not-queued' }
   };
 }
 
@@ -241,30 +184,23 @@ const {
   validatePilotAccessApi
 } = createOrbitApiClient({
   app,
-  buildPlayerClubSnapshot,
   getAppStartedAt: () => appStartedAt,
   isDev,
-  isFirebaseConfigured,
   loadStateWithFirebaseFallback,
   migrateLocalAccountToPilotAccess,
   readLocalDatabase,
   saveStateEverywhere,
   storeAnalyticalReport,
   writeLocalDatabase,
-  writeOrbitApiLog,
-  writeStateToFirebase
+  writeOrbitApiLog
 });
 
 const embeddedBackend = createEmbeddedBackend({
-  applyMembershipRequestToState,
-  applyWaitlistRequestToState,
   buildPlayerClubSnapshot,
   getAccountKeyFromState,
   getReportCount,
   loadStateWithFirebaseFallback,
-  saveStateEverywhere,
-  storeAnalyticalReport,
-  syncStateWithFirebaseRequests
+  storeAnalyticalReport
 });
 
 const updateController = createUpdateController({

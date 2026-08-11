@@ -2,7 +2,7 @@ const crypto = require('crypto');
 global.crypto = global.crypto || crypto.webcrypto;
 
 const { createApp } = require('./app');
-const { closeDatabase } = require('./database');
+const { closeDatabase, drainPublicationOutbox } = require('./database');
 
 const app = createApp();
 const port = Number(process.env.API_PORT || 4629);
@@ -12,10 +12,17 @@ const server = app.listen(port, host, () => {
   console.log(`Orbit API listening on http://${host}:${port}`);
 });
 
+const publicationTimer = setInterval(() => {
+  void drainPublicationOutbox({ limit: 25 }).catch((error) => {
+    console.warn('[publication-outbox] scheduled drain failed:', error instanceof Error ? error.message : 'Unknown error');
+  });
+}, 30_000);
+publicationTimer.unref();
+
 function shutdown() {
+  clearInterval(publicationTimer);
   server.close(() => {
-    closeDatabase();
-    process.exit(0);
+    void closeDatabase().finally(() => process.exit(0));
   });
 }
 

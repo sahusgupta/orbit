@@ -1,9 +1,10 @@
-import { collection, deleteDoc, doc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, type Unsubscribe } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot, query, where, type Unsubscribe } from 'firebase/firestore';
 import { isPlayerVisibleClubName } from '../../domain/clubVisibility';
 import { decodeTournamentEvent, decodeTournamentRegistration } from '../../domain/decoders/playerBoundaryDecoders';
 import type { PlayerAccount, PlayerTournament, PlayerTournamentRegistration } from '../../domain/playerSync';
 import { auth, db } from './firebaseClient';
 import { ensureSignedInIdentity } from './playerAuth';
+import { submitRemoteTournamentMutation } from '../api/playerHttpApi';
 
 export async function fetchPlayerTournaments(playerId: string) {
   const clubsSnapshot = await getDocs(collection(db, 'clubs'));
@@ -71,8 +72,12 @@ export async function registerForTournament(tournament: PlayerTournament, player
     registeredAt: now,
     updatedAt: now
   };
-  await setDoc(doc(db, 'clubs', tournament.clubId, 'tournamentRegistrations', registration.id), { ...registration, updatedAt: serverTimestamp() });
-  return registration;
+  const result = await submitRemoteTournamentMutation('POST', {
+    clubId: tournament.clubId,
+    tournamentId: tournament.id,
+    mutationId: `register:${tournament.id}:${uid}:${now}`
+  });
+  return Reflect.get(result, 'registration') as PlayerTournamentRegistration;
 }
 
 export async function unregisterFromTournament(tournament: PlayerTournament, registration: PlayerTournamentRegistration) {
@@ -81,5 +86,9 @@ export async function unregisterFromTournament(tournament: PlayerTournament, reg
   if (!tournament.unregisterAllowed || Date.now() >= Date.parse(tournament.startsAt)) {
     throw new Error('Self-unregistration is no longer available. Contact tournament staff.');
   }
-  await deleteDoc(doc(db, 'clubs', tournament.clubId, 'tournamentRegistrations', registration.id));
+  await submitRemoteTournamentMutation('DELETE', {
+    clubId: tournament.clubId,
+    tournamentId: tournament.id,
+    mutationId: `unregister:${tournament.id}:${uid}:${new Date().toISOString()}`
+  });
 }

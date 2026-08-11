@@ -11,6 +11,7 @@ const {
   closeDatabase,
   getClient,
   getDatabasePath,
+  getDatabaseStatus,
   getTelemetrySummary,
   listClientErrors,
   listClients,
@@ -57,8 +58,8 @@ const clientPayload = {
   currentUser: { id: 'staff-1', name: 'Grace' }
 };
 
-afterAll(() => {
-  closeDatabase();
+afterAll(async () => {
+  await closeDatabase();
   for (const suffix of ['', '-shm', '-wal']) {
     fs.rmSync(`${databasePath}${suffix}`, { force: true });
   }
@@ -69,17 +70,25 @@ afterEach(() => {
 });
 
 describe('API database facade behavior', () => {
-  it('resolves file URLs and rejects the reserved Postgres adapter', () => {
+  it('resolves local file URLs and identifies Postgres as a non-filesystem database', () => {
     expect(getDatabasePath()).toBe(path.resolve(databasePath));
 
     const configured = process.env.DATABASE_URL;
     process.env.DATABASE_URL = 'postgres://database.example/orbit';
-    expect(() => getDatabasePath()).toThrow('Postgres DATABASE_URL is reserved for a future adapter.');
+    expect(getDatabasePath()).toBeNull();
     process.env.DATABASE_URL = configured;
+
+    const nodeEnvironment = process.env.NODE_ENV;
+    delete process.env.DATABASE_URL;
+    process.env.NODE_ENV = 'production';
+    expect(() => getDatabaseStatus()).toThrow('DATABASE_URL must point to durable PostgreSQL storage');
+    process.env.DATABASE_URL = configured;
+    if (nodeEnvironment === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = nodeEnvironment;
   });
 
-  it('upserts and queries complete client records while retaining non-empty update fields', () => {
-    const inserted = upsertClient(clientPayload);
+  it('upserts and queries complete client records while retaining non-empty update fields', async () => {
+    const inserted = await upsertClient(clientPayload);
     expect(inserted).toMatchObject({
       deviceId: 'device-1',
       venueId: 'character-club',
@@ -94,7 +103,7 @@ describe('API database facade behavior', () => {
       currentUser: { id: 'staff-1', name: 'Grace' }
     });
 
-    const updated = upsertClient({
+    const updated = await upsertClient({
       ...clientPayload,
       venueId: 'Second Room',
       venueName: 'Second Room',
@@ -115,21 +124,21 @@ describe('API database facade behavior', () => {
       lastSeenAt: '2026-08-07T13:00:00.000Z'
     });
     expect(updated.firstSeenAt).toBe(inserted.firstSeenAt);
-    expect(getClient('device-1')).toEqual(updated);
-    expect(listClients({ venueId: 'Second Room' })).toEqual([updated]);
+    expect(await getClient('device-1')).toEqual(updated);
+    expect(await listClients({ venueId: 'Second Room' })).toEqual([updated]);
   });
 
-  it('records update, usage, and error history with current filtering and summary behavior', () => {
+  it('records update, usage, and error history with current filtering and summary behavior', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-08T12:00:00.000Z'));
-    const updateClient = recordUpdateEvent({
+    const updateClient = await recordUpdateEvent({
       ...clientPayload,
       updateEvent: 'downloaded',
       updateStatus: 'complete',
       occurredAt: '2026-08-07T14:00:00.000Z',
       details: { version: '1.2.4' }
     });
-    const usageEvent = recordTelemetryEvent({
+    const usageEvent = await recordTelemetryEvent({
       ...clientPayload,
       event: 'table-started',
       category: 'operations',
@@ -137,7 +146,7 @@ describe('API database facade behavior', () => {
       occurredAt: '2026-08-07T15:00:00.000Z',
       details: { tableId: 'table-1' }
     });
-    const error = recordClientError({
+    const error = await recordClientError({
       ...clientPayload,
       message: 'Renderer failed',
       source: 'renderer',
@@ -148,7 +157,7 @@ describe('API database facade behavior', () => {
     });
 
     expect(updateClient.updateStatus).toBe('complete');
-    expect(listClientUpdateEvents('device-1')).toEqual([
+    expect(await listClientUpdateEvents('device-1')).toEqual([
       expect.objectContaining({
         deviceId: 'device-1',
         venueId: 'character-club',
@@ -165,7 +174,7 @@ describe('API database facade behavior', () => {
       route: 'floor',
       details: { tableId: 'table-1' }
     });
-    expect(listTelemetryEvents({ deviceId: 'device-1', limit: 10 }).map((event) => event.event)).toEqual([
+    expect((await listTelemetryEvents({ deviceId: 'device-1', limit: 10 })).map((event) => event.event)).toEqual([
       'table-started',
       'downloaded'
     ]);
@@ -177,34 +186,35 @@ describe('API database facade behavior', () => {
       stack: 'example stack',
       details: { recoverable: true }
     });
-    expect(listClientErrors({ venueId: 'Character Club' })).toEqual([error]);
-    expect(getClient('device-1')?.lastError).toBe('Renderer failed');
-    expect(getTelemetrySummary()).toMatchObject({ clients: 1, events: 2, errors: 1, tableStarts24h: 1 });
+    expect(await listClientErrors({ venueId: 'Character Club' })).toEqual([error]);
+    expect((await getClient('device-1'))?.lastError).toBe('Renderer failed');
+    expect(await getTelemetrySummary()).toMatchObject({ clients: 1, events: 2, errors: 1, tableStarts24h: 1 });
   });
 
-  it('round-trips validated account state, venue joins, reports, and close/reopen persistence', () => {
+  it('round-trips normalized revisioned state, venue joins, reports, and close/reopen persistence', async () => {
     const state = makeState();
-    const saved = saveState(state);
+    const saved = await saveState(state, { expectedRevision: 0, mutationId: 'initial-state' });
 
     expect(saved.accountKey).toBe('owner-example.com');
-    expect(loadState('Owner@Example.com')).toMatchObject({
+    expect(await loadState('Owner@Example.com')).toMatchObject({
       accountKey: 'owner-example.com',
       venueName: 'Character Club',
-      schemaVersion: 1,
+      schemaVersion: 2,
+      revision: 1,
       state
     });
-    expect(loadLatestState()).toMatchObject({ accountKey: 'owner-example.com', state });
-    expect(listVenues()).toEqual([
+    expect(await loadLatestState()).toMatchObject({ accountKey: 'owner-example.com', revision: 1, state });
+    expect(await listVenues()).toEqual([
       expect.objectContaining({
         venueId: 'owner-example.com',
         venueName: 'Character Club',
         clientCount: 0
       })
     ]);
-    expect(() => saveState({ ...state, games: null })).toThrow('State payload is missing games.');
-    expect(loadState('owner-example.com')?.state).toEqual(state);
+    await expect(saveState({ ...state, games: null }, { expectedRevision: 1, mutationId: 'invalid' })).rejects.toThrow('State payload is missing games.');
+    expect((await loadState('owner-example.com'))?.state).toEqual(state);
 
-    const report = storeAnalyticalReport({
+    const report = await storeAnalyticalReport({
       account: { accountKey: 'Owner@Example.com' },
       summary: { tables: 3 }
     });
@@ -215,7 +225,7 @@ describe('API database facade behavior', () => {
     });
     expect(report.id).toMatch(/^[0-9a-f-]{36}$/i);
 
-    closeDatabase();
-    expect(loadState('owner-example.com')?.state).toEqual(state);
+    await closeDatabase();
+    expect((await loadState('owner-example.com'))?.state).toEqual(state);
   });
 });

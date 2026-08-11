@@ -67,6 +67,7 @@ beforeAll(async () => {
       DATABASE_URL: `file:${databasePath}`,
       NODE_ENV: 'production',
       ORBIT_CLIENT_API_KEY: 'local-characterization-key',
+      ORBIT_ALLOW_LOCAL_SQLITE: 'true',
       ORBIT_DASHBOARD_USER: 'character-admin',
       ORBIT_DASHBOARD_PASSWORD: 'local-dashboard-password',
       ORBIT_DASHBOARD_API_KEY: '',
@@ -107,7 +108,7 @@ describe('API route composition', () => {
       ok: true,
       service: 'orbit-api',
       environment: 'production',
-      database: path.resolve(databasePath)
+      database: { engine: 'sqlite', durable: false }
     });
 
     const privacy = await request('/privacy');
@@ -214,5 +215,60 @@ describe('API route composition', () => {
     expect(invalidHeartbeat.status).toBe(400);
     expect(invalidHeartbeat.headers.get('x-orbit-request-id')).toBe('invalid-heartbeat');
     expect(await invalidHeartbeat.json()).toEqual({ ok: false, error: 'deviceId is required.' });
+  });
+
+  it('enforces revision and idempotency contracts on authoritative state writes', async () => {
+    const state = {
+      games: [],
+      sessions: [],
+      playerSessions: [],
+      profiles: [],
+      settings: { clubAccount: { clubName: 'Revision Route', email: 'revision@example.com' } }
+    };
+    const missingPrecondition = await request('/state', {
+      method: 'POST',
+      headers: withClientKey({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ state })
+    });
+    expect(missingPrecondition.status).toBe(428);
+
+    const first = await request('/state', {
+      method: 'POST',
+      headers: withClientKey({ 'content-type': 'application/json', 'x-orbit-mutation-id': 'route-mutation-1' }),
+      body: JSON.stringify({ state, expectedRevision: 0, mutationId: 'route-mutation-1' })
+    });
+    expect(first.status).toBe(201);
+    expect(await first.json()).toMatchObject({
+      ok: true,
+      accountKey: 'revision-example.com',
+      revision: 1,
+      duplicate: false,
+      publication: { status: 'pending' }
+    });
+
+    const duplicate = await request('/state', {
+      method: 'POST',
+      headers: withClientKey({ 'content-type': 'application/json', 'x-orbit-mutation-id': 'route-mutation-1' }),
+      body: JSON.stringify({ state: { ...state, profiles: [{ id: 'ignored', name: 'Ignored' }] }, expectedRevision: 0, mutationId: 'route-mutation-1' })
+    });
+    expect(duplicate.status).toBe(200);
+    expect(await duplicate.json()).toMatchObject({ ok: true, revision: 1, duplicate: true });
+
+    const stale = await request('/state', {
+      method: 'POST',
+      headers: withClientKey({ 'content-type': 'application/json', 'x-orbit-mutation-id': 'route-mutation-stale' }),
+      body: JSON.stringify({ state, expectedRevision: 0, mutationId: 'route-mutation-stale' })
+    });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({
+      ok: false,
+      code: 'STATE_REVISION_CONFLICT',
+      expectedRevision: 0,
+      currentRevision: 1
+    });
+
+    const loaded = await request('/state/revision-example.com', { headers: withClientKey() });
+    expect(loaded.status).toBe(200);
+    expect(await loaded.json()).toMatchObject({ revision: 1, state: { profiles: [] } });
   });
 });

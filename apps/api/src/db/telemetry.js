@@ -2,17 +2,18 @@ const { sanitizeAccountKey } = require('../orbitCore');
 const { listClients, upsertClient } = require('./clients');
 const { getDatabase } = require('./connection');
 
-function recordUpdateEvent(payload) {
-  const client = upsertClient(payload);
+async function recordUpdateEvent(payload) {
+  const client = await upsertClient(payload);
   const event = String(payload.updateEvent || payload.event || '').trim();
   if (!event) throw new Error('updateEvent is required.');
   const now = new Date().toISOString();
-  getDatabase().prepare(`
+  const database = await getDatabase();
+  await database.run(`
     INSERT INTO client_update_events (
       device_id, venue_id, event, status, app_version, details_json, error, occurred_at, created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  `, [
     client.deviceId,
     client.venueId,
     event,
@@ -22,8 +23,8 @@ function recordUpdateEvent(payload) {
     String(payload.lastError || payload.error || '').trim(),
     payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now,
     now
-  );
-  recordTelemetryEvent({
+  ]);
+  await recordTelemetryEvent({
     ...payload,
     event,
     category: 'update',
@@ -32,18 +33,19 @@ function recordUpdateEvent(payload) {
   return client;
 }
 
-function recordTelemetryEvent(payload) {
-  const client = upsertClient(payload);
+async function recordTelemetryEvent(payload) {
+  const client = await upsertClient(payload);
   const event = String(payload.event || payload.action || '').trim();
   if (!event) throw new Error('event is required.');
   const now = new Date().toISOString();
   const occurredAt = payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now;
-  getDatabase().prepare(`
+  const database = await getDatabase();
+  await database.run(`
     INSERT INTO client_telemetry_events (
       device_id, venue_id, event, category, route, app_version, platform, details_json, occurred_at, created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+  `, [
     client.deviceId,
     client.venueId,
     event,
@@ -54,22 +56,23 @@ function recordTelemetryEvent(payload) {
     payload.details ? JSON.stringify(payload.details) : null,
     occurredAt,
     now
-  );
-  return listTelemetryEvents({ limit: 1 })[0];
+  ]);
+  return (await listTelemetryEvents({ limit: 1 }))[0];
 }
 
-function recordClientError(payload) {
-  const client = upsertClient({ ...payload, lastError: payload.message || payload.error || payload.lastError || '' });
+async function recordClientError(payload) {
+  const client = await upsertClient({ ...payload, lastError: payload.message || payload.error || payload.lastError || '' });
   const message = String(payload.message || payload.error || payload.lastError || '').trim();
   if (!message) throw new Error('message is required.');
   const now = new Date().toISOString();
   const occurredAt = payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now;
-  getDatabase().prepare(`
+  const database = await getDatabase();
+  await database.run(`
     INSERT INTO client_errors (
       device_id, venue_id, message, source, route, stack, app_version, platform, details_json, occurred_at, created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+  `, [
     client.deviceId,
     client.venueId,
     message.slice(0, 2000),
@@ -81,15 +84,17 @@ function recordClientError(payload) {
     payload.details ? JSON.stringify(payload.details) : null,
     occurredAt,
     now
-  );
-  return listClientErrors({ limit: 1 })[0];
+  ]);
+  return (await listClientErrors({ limit: 1 }))[0];
 }
 
-function listClientUpdateEvents(deviceId) {
-  return getDatabase()
-    .prepare('SELECT * FROM client_update_events WHERE device_id = ? ORDER BY occurred_at DESC LIMIT 100')
-    .all(String(deviceId || '').trim())
-    .map((row) => ({
+async function listClientUpdateEvents(deviceId) {
+  const database = await getDatabase();
+  const rows = await database.all(
+    'SELECT * FROM client_update_events WHERE device_id = $1 ORDER BY occurred_at DESC LIMIT 100',
+    [String(deviceId || '').trim()]
+  );
+  return rows.map((row) => ({
       id: row.id,
       deviceId: row.device_id,
       venueId: row.venue_id,
@@ -103,19 +108,20 @@ function listClientUpdateEvents(deviceId) {
     }));
 }
 
-function listTelemetryEvents(filters = {}) {
+async function listTelemetryEvents(filters = {}) {
   const params = [];
   const where = [];
   if (filters.venueId) {
-    where.push('venue_id = ?');
+    where.push(`venue_id = $${params.length + 1}`);
     params.push(sanitizeAccountKey(filters.venueId));
   }
   if (filters.deviceId) {
-    where.push('device_id = ?');
+    where.push(`device_id = $${params.length + 1}`);
     params.push(String(filters.deviceId || '').trim());
   }
   if (filters.beforeOccurredAt) {
-    where.push('(occurred_at < ? OR (occurred_at = ? AND id < ?))');
+    const start = params.length + 1;
+    where.push(`(occurred_at < $${start} OR (occurred_at = $${start + 1} AND id < $${start + 2}))`);
     params.push(
       String(filters.beforeOccurredAt),
       String(filters.beforeOccurredAt),
@@ -123,15 +129,14 @@ function listTelemetryEvents(filters = {}) {
     );
   }
   const limit = Math.min(Math.max(Number(filters.limit || 200), 1), 1000);
-  return getDatabase()
-    .prepare(`
+  const database = await getDatabase();
+  const rows = await database.all(`
       SELECT * FROM client_telemetry_events
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY occurred_at DESC, id DESC
       LIMIT ${limit}
-    `)
-    .all(...params)
-    .map((row) => ({
+    `, params);
+  return rows.map((row) => ({
       id: row.id,
       deviceId: row.device_id,
       venueId: row.venue_id,
@@ -146,27 +151,26 @@ function listTelemetryEvents(filters = {}) {
     }));
 }
 
-function listClientErrors(filters = {}) {
+async function listClientErrors(filters = {}) {
   const params = [];
   const where = [];
   if (filters.venueId) {
-    where.push('venue_id = ?');
+    where.push(`venue_id = $${params.length + 1}`);
     params.push(sanitizeAccountKey(filters.venueId));
   }
   if (filters.deviceId) {
-    where.push('device_id = ?');
+    where.push(`device_id = $${params.length + 1}`);
     params.push(String(filters.deviceId || '').trim());
   }
   const limit = Math.min(Math.max(Number(filters.limit || 100), 1), 500);
-  return getDatabase()
-    .prepare(`
+  const database = await getDatabase();
+  const rows = await database.all(`
       SELECT * FROM client_errors
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY occurred_at DESC
       LIMIT ${limit}
-    `)
-    .all(...params)
-    .map((row) => ({
+    `, params);
+  return rows.map((row) => ({
       id: row.id,
       deviceId: row.device_id,
       venueId: row.venue_id,
@@ -182,16 +186,16 @@ function listClientErrors(filters = {}) {
     }));
 }
 
-function getTelemetrySummary() {
-  const db = getDatabase();
+async function getTelemetrySummary() {
+  const db = await getDatabase();
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const clients = listClients();
+  const clients = await listClients();
   const activeClients24h = clients.filter((client) => client.lastSeenAt >= since24h).length;
-  const eventCountRow = db.prepare('SELECT COUNT(*) AS count FROM client_telemetry_events').get();
-  const errorCountRow = db.prepare('SELECT COUNT(*) AS count FROM client_errors').get();
-  const tableStarts24h = db
-    .prepare("SELECT COUNT(*) AS count FROM client_telemetry_events WHERE event = 'table-started' AND occurred_at >= ?")
-    .get(since24h);
+  const [eventCountRow, errorCountRow, tableStarts24h] = await Promise.all([
+    db.get('SELECT COUNT(*) AS count FROM client_telemetry_events'),
+    db.get('SELECT COUNT(*) AS count FROM client_errors'),
+    db.get("SELECT COUNT(*) AS count FROM client_telemetry_events WHERE event = 'table-started' AND occurred_at >= $1", [since24h])
+  ]);
   return {
     clients: clients.length,
     activeClients24h,

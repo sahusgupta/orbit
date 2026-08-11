@@ -46,21 +46,22 @@ function mapClientRow(row) {
   };
 }
 
-function getClient(deviceId) {
-  const row = getDatabase().prepare('SELECT * FROM clients WHERE device_id = ?').get(String(deviceId || '').trim());
+async function getClient(deviceId) {
+  const database = await getDatabase();
+  const row = await database.get('SELECT * FROM clients WHERE device_id = $1', [String(deviceId || '').trim()]);
   return mapClientRow(row);
 }
 
-function upsertClient(payload) {
-  const db = getDatabase();
+async function upsertClient(payload) {
+  const db = await getDatabase();
   const client = normalizeClientPayload(payload);
   const now = new Date().toISOString();
-  db.prepare(`
+  await db.run(`
     INSERT INTO clients (
       device_id, venue_id, venue_name, device_name, app_version, platform, environment,
       update_status, update_event, last_seen_at, last_error, current_user_json, first_seen_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
     ON CONFLICT(device_id) DO UPDATE SET
       venue_id = excluded.venue_id,
       venue_name = excluded.venue_name,
@@ -74,7 +75,7 @@ function upsertClient(payload) {
       last_error = excluded.last_error,
       current_user_json = excluded.current_user_json,
       updated_at = excluded.updated_at
-  `).run(
+  `, [
     client.deviceId,
     client.venueId,
     client.venueName,
@@ -89,21 +90,20 @@ function upsertClient(payload) {
     client.currentUser ? JSON.stringify(client.currentUser) : null,
     now,
     now
-  );
+  ]);
   return getClient(client.deviceId);
 }
 
-function listClients(filters = {}) {
+async function listClients(filters = {}) {
   const params = [];
   let where = '';
   if (filters.venueId) {
-    where = 'WHERE venue_id = ?';
+    where = 'WHERE venue_id = $1';
     params.push(sanitizeAccountKey(filters.venueId));
   }
-  return getDatabase()
-    .prepare(`SELECT * FROM clients ${where} ORDER BY last_seen_at DESC`)
-    .all(...params)
-    .map(mapClientRow);
+  const database = await getDatabase();
+  const rows = await database.all(`SELECT * FROM clients ${where} ORDER BY last_seen_at DESC`, params);
+  return rows.map(mapClientRow);
 }
 
 module.exports = {

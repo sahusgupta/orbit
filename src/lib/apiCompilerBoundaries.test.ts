@@ -140,17 +140,19 @@ describe('API Firebase REST compiler boundaries', () => {
         }),
         text: vi.fn()
       })
-      .mockResolvedValueOnce({ ok: false, status: 404, text: vi.fn() })
       .mockResolvedValueOnce({ ok: true, status: 200, json: vi.fn().mockResolvedValue({}), text: vi.fn() });
+    const batchWriteDocuments = vi.fn().mockResolvedValue(1);
     const deleteLegacyPlayerDocuments = loadFunction<DeleteLegacyPlayerDocuments>(
       firebasePublisherSource,
       'apps/api/src/firebasePublisher.js',
       'deleteLegacyPlayerDocuments',
       {
         encodeURIComponent,
+        batchWriteDocuments,
         fetch,
         getRecordProperty: getFirebaseRecordProperty,
-        restBase: (projectId: string) => `https://firestore.googleapis.test/v1/projects/${projectId}/documents`
+        restBase: (projectId: string) => `https://firestore.googleapis.test/v1/projects/${projectId}/documents`,
+        URL
       }
     );
     const playerDocs = [
@@ -164,18 +166,18 @@ describe('API Firebase REST compiler boundaries', () => {
 
     expect(fetch.mock.calls).toEqual([
       [
-        'https://firestore.googleapis.test/v1/projects/local-project/documents/clubs/club-a/players?pageSize=1000',
+        'https://firestore.googleapis.test/v1/projects/local-project/documents/clubs/club-a/players?pageSize=500',
         { headers: { authorization: 'Bearer local-token' } }
       ],
       [
-        'https://firestore.googleapis.com/v1/projects/local/databases/(default)/documents/clubs/club-a/players/legacy-player',
-        { method: 'DELETE', headers: { authorization: 'Bearer local-token' } }
-      ],
-      [
-        'https://firestore.googleapis.test/v1/projects/local-project/documents/clubs/club-a/players?pageSize=1000',
+        'https://firestore.googleapis.test/v1/projects/local-project/documents/clubs/club-a/players?pageSize=500',
         { headers: { authorization: 'Bearer local-token' } }
       ]
     ]);
+    expect(batchWriteDocuments).toHaveBeenNthCalledWith(1, 'local-project', 'local-token', [
+      { delete: 'projects/local/databases/(default)/documents/clubs/club-a/players/legacy-player' }
+    ]);
+    expect(batchWriteDocuments).toHaveBeenNthCalledWith(2, 'local-project', 'local-token', []);
     expect(playerDocs).toEqual(before);
   });
 

@@ -8,8 +8,12 @@ const { registerClientRoutes } = require('./routes/client');
 const { registerDashboardRoutes } = require('./routes/dashboard');
 const { registerPlayerRoutes } = require('./routes/player');
 const { registerHealthRoute, registerLegalRoutes } = require('./routes/system');
+const { getDatabaseStatus } = require('./database');
 
 function createApp() {
+  // Validate hosted persistence configuration during cold start. Production
+  // must never silently fall back to an ephemeral or instance-local database.
+  getDatabaseStatus();
   const app = express();
   const startedAt = new Date().toISOString();
   const liveUpdates = createLiveUpdates();

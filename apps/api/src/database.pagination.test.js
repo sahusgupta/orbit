@@ -10,9 +10,9 @@ process.env.DATABASE_URL = `file:${databasePath}`;
 const { closeDatabase, listTelemetryEvents, recordTelemetryEvent } = database;
 
 describe('telemetry event history pagination', () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     for (let index = 0; index < 205; index += 1) {
-      recordTelemetryEvent({
+      await recordTelemetryEvent({
         deviceId: 'history-test-device',
         venueId: 'history-test-venue',
         venueName: 'History Test Venue',
@@ -27,21 +27,21 @@ describe('telemetry event history pagination', () => {
     }
   });
 
-  afterAll(() => {
-    closeDatabase();
+  afterAll(async () => {
+    await closeDatabase();
     for (const suffix of ['', '-shm', '-wal']) {
       fs.rmSync(`${databasePath}${suffix}`, { force: true });
     }
   });
 
-  it('walks backward through every event without gaps or duplicates', () => {
+  it('walks backward through every event without gaps or duplicates', async () => {
     const collected = [];
-    let page = listTelemetryEvents({ limit: 100 });
+    let page = await listTelemetryEvents({ limit: 100 });
 
     while (page.length) {
       collected.push(...page);
       const oldest = page[page.length - 1];
-      page = listTelemetryEvents({
+      page = await listTelemetryEvents({
         limit: 100,
         beforeOccurredAt: oldest.occurredAt,
         beforeId: oldest.id

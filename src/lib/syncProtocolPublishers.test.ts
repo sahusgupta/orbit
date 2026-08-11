@@ -2,9 +2,11 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const apiPublisherSource = readFileSync(new URL('../../apps/api/src/firebasePublisher.js', import.meta.url), 'utf8');
-const electronPublisherSource = readFileSync(new URL('../../electron/firebaseSync.cjs', import.meta.url), 'utf8');
 const rendererPublisherSource = readFileSync(new URL('./firebaseClubSync.ts', import.meta.url), 'utf8');
+const electronMainSource = readFileSync(new URL('../../electron/main.cjs', import.meta.url), 'utf8');
+const rendererPersistenceSource = readFileSync(new URL('../app/persistence/managementPersistence.ts', import.meta.url), 'utf8');
 const playerRequestSource = readFileSync(new URL('../../player-app/src/data/firebase/playerRequestRepository.ts', import.meta.url), 'utf8');
+const playerRouteSource = readFileSync(new URL('../../apps/api/src/routes/player.js', import.meta.url), 'utf8');
 const playerProtocolSource = readFileSync(new URL('../../player-app/src/domain/syncProtocol.ts', import.meta.url), 'utf8');
 
 function extractFunctionSource(source: string, file: string, name: string) {
@@ -41,7 +43,7 @@ describe('sync protocol publisher ownership', () => {
       'apps/api/src/firebasePublisher.js',
       'publishStateToFirebase'
     );
-    const lastChildWrite = publish.lastIndexOf('`clubs/${encodeURIComponent(accountKey)}/tournamentRegistrations/');
+    const lastChildWrite = publish.indexOf('const publicationWriteCount = await batchWriteDocuments');
     const parentCommit = publish.indexOf(
       'await patchDocument(projectId, token, `clubs/${encodeURIComponent(accountKey)}`, clubDoc);'
     );
@@ -55,68 +57,17 @@ describe('sync protocol publisher ownership', () => {
     expect(publish).toContain('// The parent club document is the commit marker.');
   });
 
-  it('keeps renderer and Electron public club writes in one atomic Firestore batch', () => {
-    const publishers = [
-      {
-        file: 'src/lib/firebaseClubSync.ts',
-        source: extractFunctionSource(rendererPublisherSource, 'src/lib/firebaseClubSync.ts', 'publishClubSnapshot'),
-        sourceName: "syncSource: 'orbit-desktop'"
-      },
-      {
-        file: 'electron/firebaseSync.cjs',
-        source: extractFunctionSource(electronPublisherSource, 'electron/firebaseSync.cjs', 'publishClubSnapshot'),
-        sourceName: "syncSource: 'orbit-desktop-electron'"
-      }
-    ];
-
-    for (const publisher of publishers) {
-      expect(publisher.source, publisher.file).toContain('const batch = writeBatch(db);');
-      expect(publisher.source.match(/batch\.set\(/g)?.length, publisher.file).toBeGreaterThanOrEqual(5);
-      expect(publisher.source, publisher.file).toContain("doc(db, 'clubs', accountKey)");
-      expect(publisher.source, publisher.file).toContain("doc(db, 'clubs', accountKey, 'games'");
-      expect(publisher.source, publisher.file).toContain("doc(db, 'clubs', accountKey, 'memberships'");
-      expect(publisher.source, publisher.file).toContain("doc(db, 'clubs', accountKey, 'waitlists'");
-      expect(publisher.source, publisher.file).toContain(publisher.sourceName);
-      expect(publisher.source.match(/await batch\.commit\(\)/g), publisher.file).toHaveLength(1);
-      expect(publisher.source, publisher.file).not.toMatch(/await batch\.set\(/);
-    }
+  it('leaves renderer and Electron publishers outside runtime state orchestration', () => {
+    expect(rendererPersistenceSource).not.toContain('saveClubStateToFirebase');
+    expect(electronMainSource).not.toMatch(/(writeStateToFirebase|readStateFromFirebase|fetchPendingPlayerRequests)/);
+    expect(rendererPublisherSource).toContain('export async function saveClubStateToFirebase');
   });
 
-  it('keeps pending request writes, reads, and acknowledgements scoped to both current and legacy club paths', () => {
-    const rendererFetch = extractFunctionSource(
-      rendererPublisherSource,
-      'src/lib/firebaseClubSync.ts',
-      'fetchPendingRequestDocs'
-    );
-    const rendererMark = extractFunctionSource(
-      rendererPublisherSource,
-      'src/lib/firebaseClubSync.ts',
-      'markRequestApplied'
-    );
-    const electronFetch = extractFunctionSource(
-      electronPublisherSource,
-      'electron/firebaseSync.cjs',
-      'fetchPendingPlayerRequests'
-    );
-    const electronMark = extractFunctionSource(
-      electronPublisherSource,
-      'electron/firebaseSync.cjs',
-      'markPlayerRequestApplied'
-    );
-    const playerWrite = extractFunctionSource(
-      playerRequestSource,
-      'player-app/src/data/firebase/playerRequestRepository.ts',
-      'writeRequestToClubPaths'
-    );
-
-    for (const source of [rendererFetch, rendererMark, electronFetch, electronMark]) {
-      expect(source).toContain("'clubs', accountKey");
-      expect(source).toContain("'clubStates', accountKey");
-    }
-    expect(playerWrite).toContain("'clubs', clubId");
-    expect(playerWrite).toContain("'clubStates', clubId");
-    expect(playerWrite).toContain('clientMutationId: requestId');
-    expect(playerWrite).toContain('syncProtocolVersion: orbitSyncProtocolVersion');
+  it('routes pending Player mutations through revisioned API state commits', () => {
+    expect(playerRequestSource).toContain('submitRemotePlayerRequest');
+    expect(playerRequestSource).not.toMatch(/(setDoc|runTransaction|writeRequestToClubPaths)/);
+    expect(playerRouteSource).toContain('expectedRevision: record.revision');
+    expect(playerRouteSource).toContain('schedulePublicationDrain');
   });
 
   it('keeps Player hydration responsible for legacy fallback and incomplete revision rejection', () => {

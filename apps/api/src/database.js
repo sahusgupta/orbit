@@ -1,4 +1,4 @@
-const { closeDatabase, getDatabasePath } = require('./db/connection');
+const { closeDatabase, getDatabasePath, getDatabaseStatus } = require('./db/connection');
 const { getClient, listClients, upsertClient } = require('./db/clients');
 const {
   getTelemetrySummary,
@@ -9,18 +9,23 @@ const {
   recordTelemetryEvent,
   recordUpdateEvent
 } = require('./db/telemetry');
-const { listVenues, loadLatestState, loadState, saveState } = require('./db/state');
+const { getPublicationStatus, listVenues, loadLatestState, loadState, saveState, StateConflictError } = require('./db/state');
+const { drainPublicationOutbox, listPublicationOutbox, schedulePublicationDrain } = require('./db/publicationOutbox');
 const { storeAnalyticalReport } = require('./db/reports');
 
 module.exports = {
   closeDatabase,
+  drainPublicationOutbox,
   getClient,
   getDatabasePath,
+  getDatabaseStatus,
+  getPublicationStatus,
   getTelemetrySummary,
   listClientErrors,
   listClients,
   listClientUpdateEvents,
   listTelemetryEvents,
+  listPublicationOutbox,
   listVenues,
   loadLatestState,
   loadState,
@@ -28,6 +33,8 @@ module.exports = {
   recordTelemetryEvent,
   recordUpdateEvent,
   saveState,
+  schedulePublicationDrain,
+  StateConflictError,
   storeAnalyticalReport,
   upsertClient
 };

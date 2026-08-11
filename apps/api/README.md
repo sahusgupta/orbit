@@ -43,7 +43,8 @@ All other endpoints require `x-orbit-api-key`.
 - `ORBIT_DASHBOARD_USER`: Basic-auth username for `/dashboard`; defaults to `orbit-admin`.
 - `ORBIT_DASHBOARD_PASSWORD`: password for the protected operations dashboard and its license-management requests. Keep this server-side only.
 - `ORBIT_LICENSE_PUBLIC_KEY_PEM`: optional newline-escaped P-256 public key override used to verify an administrator-provisioned signed pilot-license envelope. The checked-in branding public key is the default.
-- `DATABASE_URL`: SQLite path for local development, for example `file:./data/orbit-api.sqlite3`. On Vercel, the API defaults to `file:/tmp/orbit-api.sqlite3` when `DATABASE_URL` is unset.
+- `DATABASE_URL`: use `file:./data/orbit-api.sqlite3` only for isolated local development/tests. Hosted production requires a durable PostgreSQL URL and fails closed when it is unset; ephemeral `/tmp` SQLite is not supported.
+- `DATABASE_POOL_MAX`, `DATABASE_CONNECT_TIMEOUT_MS`, and `DATABASE_IDLE_TIMEOUT_MS`: bounded PostgreSQL connection-pool controls. Defaults are 10, 5 seconds, and 30 seconds.
 - `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`: optional Firebase service account credentials. When configured, API state saves player-safe live game documents at `clubs/{licenseKey}/games/{gameId}`, operational session history at `clubs/{licenseKey}/gameSessions/{sessionId}`, and canonical player documents at `clubs/{licenseKey}/players/{playerId}`. Membership players are documents in the `players` subcollection and are not duplicated as an array on the club document.
 - `NODE_ENV`: `development`, `staging`, or `production`.
 - `STRIPE_SECRET_KEY`: Stripe server secret used only by the API.
@@ -57,11 +58,11 @@ All other endpoints require `x-orbit-api-key`.
 - `ORBIT_DAY_PASS_PRICE_CENTS` and `ORBIT_MONTHLY_MEMBERSHIP_PRICE_CENTS`: authoritative server-side membership prices (defaults: `1000` and `3500`).
 - `ORBIT_PAYMENT_CURRENCY`: three-letter currency code, defaults to `usd`.
 
-`src/database.js` is the stable persistence facade. SQLite connection/schema and focused client, telemetry, state, and report repositories live under `src/db/`, preserving a narrow boundary for a future reviewed adapter.
+`src/database.js` is the stable asynchronous persistence facade. `src/db/connection.js` selects local SQLite or durable PostgreSQL at runtime; the focused client, telemetry, state, report, and publication-outbox repositories use the same adapter boundary.
 
 `src/server.js` owns process listen/shutdown and exports the composed Express app. Non-listening middleware/route composition lives in `src/app.js`, with focused owners under `src/http/` and `src/routes/`.
 
-Vercel's deployment filesystem is read-only except for `/tmp`, so do not set `DATABASE_URL=file:./data/orbit-api.sqlite3` there. `/tmp` prevents startup crashes, but it is ephemeral; use a persistent database provider for production logs.
+Vercel's deployment filesystem is read-only except for `/tmp`, so hosted startup now requires a PostgreSQL `DATABASE_URL`. The API refuses the former ephemeral `/tmp` fallback. Apply the additive schema first, validate connectivity, and import an existing characterized state only through revision-zero migration; see `docs/architecture/AUTHORITATIVE_STATE.md`.
 
 ## Desktop Connection
 
@@ -96,7 +97,8 @@ After that one migration release, ordinary renewals require neither a client upd
 Desktop state/report operations are API-first:
 
 - `load-state` and `load-state-for-account` IPC calls read from the standalone API first.
-- `save-state` writes to the standalone API first, then best-effort mirrors to the local desktop cache and Firestore.
+- `save-state` sends a stable mutation ID and expected revision to the standalone API. A successful server commit is then mirrored to the local desktop cache. If the API is unavailable, the local write is labelled an uncommitted offline cache and never reported as authoritative.
+- Only the API publication outbox writes authoritative club projections to Firebase. Renderer and Electron Firebase state publishers have no runtime call sites.
 - analytical reports are submitted to the standalone API first.
 - if the API is unavailable, the desktop uses the legacy local fallback so current installs keep working during the transition.
 
@@ -149,12 +151,14 @@ http://<your-lan-ip>:4629/clients
 
 ## Current Data Endpoints
 
-- `POST /state`: store an Orbit venue state payload.
+- `POST /state`: compare-and-swap an Orbit venue state using `state`, `expectedRevision`, and a stable `mutationId`. Returns HTTP 409 for a stale revision.
 - `GET /state/latest`: fetch the most recently saved venue state.
 - `GET /state/:venueId`: fetch a stored venue state.
 - `GET /player/snapshot?accountKey=<venueId>`: fetch mobile/player-facing snapshot.
 - `POST /player/membership-requests`: apply a membership request to venue state.
 - `POST /player/waitlist-requests`: apply a waitlist request to venue state.
+- `POST|DELETE /player/tournament-registrations`: apply the signed-in player's tournament registration through authoritative state.
+- `GET /publications` and `POST /publications/drain`: owner-protected inspection/retry controls for the durable Firebase publication outbox.
 - `POST /player/membership-checkout`: create a Stripe Checkout session after verifying the player's Firebase ID token.
 - `GET /player/identity/status`: return the signed-in player's sanitized age-eligibility status.
 - `POST /player/identity/session`: create or resume a hosted Stripe Identity verification session.

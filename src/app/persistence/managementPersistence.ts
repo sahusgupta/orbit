@@ -1,6 +1,6 @@
 import { rendererFirebaseSyncEnabled } from '../../lib/firebaseConfig';
-import { saveClubStateToFirebase } from '../../lib/firebaseClubSync';
 import { normalizeState } from '../../domain/state';
+import { getAccountKeyFromState } from '../../domain/licensing';
 import type { AppState, PersistedStateRecord, PilotAccess } from '../../domain/types';
 import {
   loadBrowserManagementState,
@@ -14,7 +14,15 @@ type DesktopStatePersistence = {
   loadStateForAccount?: (access: PilotAccess) => Promise<PersistedStateRecord | null>;
   onPrepareForUpdate?: (callback: (requestId: string) => void) => () => void;
   preserveStateForUpdate?: (requestId: string, state: AppState) => Promise<{ ok: boolean }>;
-  saveState: (state: AppState) => Promise<{ ok: boolean; path: string; accountKey?: string }>;
+  saveState: (state: AppState) => Promise<{
+    ok: boolean;
+    path: string;
+    accountKey?: string;
+    revision?: number;
+    conflict?: boolean;
+    error?: string;
+    publication?: { status?: string };
+  }>;
   validatePilotAccess?: (access: PilotAccess) => Promise<PilotAccessValidationResult>;
 };
 
@@ -31,7 +39,10 @@ export type ManagementSaveResult = {
   ok: boolean;
   path: string;
   accountKey?: string;
-  cloud: 'firebase-pending';
+  revision?: number;
+  conflict?: boolean;
+  error?: string;
+  cloud: 'server-pending' | 'published' | 'failed' | 'not-committed';
 };
 
 export type PilotAccessValidationResult = {
@@ -56,14 +67,38 @@ export type LocalBridgeStateResult =
 const defaultBridgeBaseUrl = (import.meta.env.VITE_ORBIT_LOCAL_API_URL || 'http://127.0.0.1:4629').replace(/\/$/, '');
 
 export const createManagementPersistence = (dependencies: ManagementPersistenceDependencies) => {
-  // The loopback bridge is an optional browser-development mirror; its failure
-  // must not replace the browser or desktop persistence result.
-  const publishStateToLocalBridge = (state: AppState) =>
-    dependencies.fetchState(`${dependencies.bridgeBaseUrl}/state`, {
+  const bridgeRevisionByAccount = new Map<string, number>();
+
+  const publishStateToLocalBridge = async (state: AppState) => {
+    const accountKey = getAccountKeyFromState(state);
+    const expectedRevision = bridgeRevisionByAccount.get(accountKey) ?? 0;
+    const mutationId = `browser:${accountKey}:${expectedRevision}:${globalThis.crypto.randomUUID()}`;
+    const response = await dependencies.fetchState(`${dependencies.bridgeBaseUrl}/state`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ state })
-    }).catch(() => undefined);
+      headers: { 'content-type': 'application/json', 'x-orbit-mutation-id': mutationId },
+      body: JSON.stringify({ state, expectedRevision, mutationId })
+    });
+    const payload = await response.json().catch(() => ({})) as {
+      ok?: boolean;
+      revision?: number;
+      currentRevision?: number;
+      publication?: { status?: string };
+      error?: string;
+    };
+    if (response.status === 409) {
+      bridgeRevisionByAccount.set(accountKey, Number(payload.currentRevision || expectedRevision));
+      return { ok: false, path: 'orbit-api', accountKey, conflict: true, error: payload.error };
+    }
+    if (!response.ok || !payload.ok) return { ok: false, path: 'orbit-api', accountKey, error: payload.error };
+    bridgeRevisionByAccount.set(accountKey, Number(payload.revision || expectedRevision + 1));
+    return {
+      ok: true,
+      path: 'orbit-api',
+      accountKey,
+      revision: Number(payload.revision || expectedRevision + 1),
+      publication: payload.publication
+    };
+  };
 
   const loadStateFromLocalBridge = async (accountKey: string): Promise<LocalBridgeStateResult> => {
     const response = await dependencies.fetchState(
@@ -71,7 +106,8 @@ export const createManagementPersistence = (dependencies: ManagementPersistenceD
     );
     if (response.status === 404) return { status: 'missing' };
     if (!response.ok) return { status: 'unavailable' };
-    const record = await response.json() as { state?: AppState };
+    const record = await response.json() as { accountKey?: string; revision?: number; state?: AppState };
+    if (record.accountKey) bridgeRevisionByAccount.set(record.accountKey, Number(record.revision || 0));
     return { status: 'available', state: record.state };
   };
 
@@ -104,18 +140,27 @@ export const createManagementPersistence = (dependencies: ManagementPersistenceD
     });
   };
 
-  const saveState = (state: AppState): Promise<ManagementSaveResult> => {
+  const saveState = async (state: AppState): Promise<ManagementSaveResult> => {
     saveBrowserManagementState(state, dependencies.storage);
     const desktop = dependencies.getDesktopPersistence();
-    const localSave = desktop?.saveState(state) ?? Promise.resolve({ ok: true, path: 'browser-local-storage' });
-    if (!desktop) {
-      void publishStateToLocalBridge(state);
-    }
-    if (dependencies.firebaseEnabled) {
-      // Firebase is a best-effort fan-out; the local save remains authoritative.
-      dependencies.saveFirebaseState(state).catch(() => undefined);
-    }
-    return localSave.then((result) => ({ ...result, cloud: 'firebase-pending' as const }));
+    const result: Awaited<ReturnType<DesktopStatePersistence['saveState']>> = desktop
+      ? await desktop.saveState(state)
+      : await publishStateToLocalBridge(state).catch((error) => ({
+          ok: false,
+          path: 'browser-local-storage',
+          error: error instanceof Error ? error.message : 'Authoritative server save failed.'
+        }));
+    const publicationStatus = String(result.publication?.status || '');
+    return {
+      ...result,
+      cloud: !result.ok
+        ? 'not-committed'
+        : publicationStatus === 'published'
+          ? 'published'
+          : publicationStatus === 'failed'
+            ? 'failed'
+            : 'server-pending'
+    };
   };
 
   return {
@@ -142,7 +187,7 @@ const getDefaultManagementPersistence = () => createManagementPersistence({
   fetchState: (...args) => fetch(...args),
   firebaseEnabled: rendererFirebaseSyncEnabled,
   getDesktopPersistence: () => window.tableManagerDesktop,
-  saveFirebaseState: saveClubStateToFirebase,
+  saveFirebaseState: async () => undefined,
   storage: localStorage
 });
 

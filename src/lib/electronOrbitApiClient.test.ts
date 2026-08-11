@@ -205,8 +205,8 @@ describe('Electron Orbit API transport', () => {
 
   it('preserves state/report endpoint options and result projections', async () => {
     const fetch = vi.fn()
-      .mockResolvedValueOnce(response('{"schemaVersion":4,"savedAt":"2026-08-07T12:00:00.000Z","accountKey":"club-one","state":{"games":[]}}'))
-      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","savedAt":"2026-08-07T12:01:00.000Z"}'))
+      .mockResolvedValueOnce(response('{"schemaVersion":4,"savedAt":"2026-08-07T12:00:00.000Z","accountKey":"club-one","revision":7,"publication":{"status":"published"},"state":{"games":[]}}'))
+      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","savedAt":"2026-08-07T12:01:00.000Z","revision":8,"publication":{"status":"pending"}}'))
       .mockResolvedValueOnce(response('{"ok":true,"reportId":"report-1"}'))
       .mockRejectedValueOnce(new Error('health unavailable'));
     const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch }));
@@ -218,14 +218,21 @@ describe('Electron Orbit API transport', () => {
       savedAt: '2026-08-07T12:00:00.000Z',
       state,
       accountKey: 'club-one',
-      source: 'api'
+      source: 'api',
+      authoritative: true,
+      revision: 7,
+      publication: { status: 'published' }
     });
     await expect(client.saveStateToApi(state)).resolves.toEqual({
       ok: true,
       path: 'orbit-api',
       engine: 'api',
       accountKey: 'club-one',
-      savedAt: '2026-08-07T12:01:00.000Z'
+      savedAt: '2026-08-07T12:01:00.000Z',
+      revision: 8,
+      duplicate: false,
+      publication: { status: 'pending' },
+      authoritative: true
     });
     await expect(client.submitAnalyticalReportToApi(report)).resolves.toEqual({
       ok: true,
@@ -240,7 +247,8 @@ describe('Electron Orbit API transport', () => {
       'http://127.0.0.1:4310/health'
     ]);
     expect((fetch.mock.calls[0][1] as RequestInit).headers).toMatchObject({ 'x-orbit-auth-key': 'pilot-code' });
-    expect(fetch.mock.calls[1][1]).toMatchObject({ method: 'POST', body: '{"state":{"games":[]}}' });
+    expect(fetch.mock.calls[1][1]).toMatchObject({ method: 'POST' });
+    expect(JSON.parse(String((fetch.mock.calls[1][1] as RequestInit).body))).toMatchObject({ state, expectedRevision: 0 });
     expect(fetch.mock.calls[2][1]).toMatchObject({ method: 'POST', body: JSON.stringify(report) });
   });
 });
@@ -261,12 +269,17 @@ describe('Electron API-first orchestration', () => {
     });
     expect(loadStateWithFirebaseFallback).not.toHaveBeenCalled();
 
-    await expect(client.loadStateApiFirst('club-one', { authorizationCode: 'pilot-code' })).resolves.toBe(fallbackRecord);
+    await expect(client.loadStateApiFirst('club-one', { authorizationCode: 'pilot-code' })).resolves.toEqual({
+      ...fallbackRecord,
+      accountKey: 'club-one',
+      authoritative: true,
+      publication: { status: 'pending' },
+      revision: 1,
+      source: 'api-cache-migration'
+    });
     expect(loadStateWithFirebaseFallback).toHaveBeenCalledWith('club-one');
-    expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:4310/state', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ state: fallbackRecord.state })
-    }));
+    expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:4310/state', expect.objectContaining({ method: 'POST' }));
+    expect(JSON.parse(String((fetch.mock.calls.at(-1)?.[1] as RequestInit).body))).toMatchObject({ state: fallbackRecord.state, expectedRevision: 0 });
   });
 
   it('migrates a replacement-key local account only after API and ordinary fallback misses', async () => {
@@ -288,22 +301,27 @@ describe('Electron API-first orchestration', () => {
       migrateLocalAccountToPilotAccess
     }));
 
-    await expect(client.loadStateApiFirst('replacement-code', access)).resolves.toBe(migratedRecord);
+    await expect(client.loadStateApiFirst('replacement-code', access)).resolves.toEqual({
+      ...migratedRecord,
+      accountKey: 'replacement-code',
+      authoritative: true,
+      publication: { status: 'pending' },
+      revision: 1,
+      source: 'api-cache-migration'
+    });
     expect(loadStateWithFirebaseFallback).toHaveBeenCalledWith('replacement-code');
     expect(migrateLocalAccountToPilotAccess).toHaveBeenCalledWith(access);
-    expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:4310/state', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ state: migratedRecord.state })
-    }));
+    expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:4310/state', expect.objectContaining({ method: 'POST' }));
+    expect(JSON.parse(String((fetch.mock.calls.at(-1)?.[1] as RequestInit).body))).toMatchObject({ state: migratedRecord.state, expectedRevision: 0 });
   });
 
-  it('keeps accepted API saves authoritative, treats cache/Firebase work as pending, and falls back after an API miss', async () => {
+  it('keeps accepted API saves authoritative and labels fallback writes as uncommitted cache', async () => {
     const state = {
       id: 'state-1',
       settings: { pilotAccess: { licenseId: 'club-one', authorizationCode: 'pilot-code' } }
     };
     const fetch = vi.fn()
-      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one"}'))
+      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","revision":1,"publication":{"status":"pending"}}'))
       .mockResolvedValueOnce(response('{"ok":false}'));
     const writeLocalDatabase = vi.fn(() => {
       throw new Error('cache unavailable');
@@ -323,11 +341,20 @@ describe('Electron API-first orchestration', () => {
       path: 'orbit-api',
       engine: 'api',
       accountKey: 'club-one',
-      firebase: { ok: true, engine: 'firebase', accountKey: 'club-one', pending: true }
+      savedAt: undefined,
+      revision: 1,
+      duplicate: false,
+      publication: { status: 'pending' },
+      authoritative: true
     });
-    expect(writeStateToFirebase).toHaveBeenCalledWith('club-one', state, { games: [] });
+    expect(writeStateToFirebase).not.toHaveBeenCalled();
 
-    await expect(client.saveStateApiFirst(state)).resolves.toEqual({ ok: true, engine: 'sqlite' });
+    await expect(client.saveStateApiFirst(state)).resolves.toMatchObject({
+      ok: false,
+      engine: 'sqlite',
+      conflict: false,
+      error: 'Saved to offline cache; the server commit is still required.'
+    });
     expect(saveStateEverywhere).toHaveBeenCalledWith(state);
   });
 
