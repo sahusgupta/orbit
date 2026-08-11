@@ -43,6 +43,82 @@ describe('canonical Firestore club layout', () => {
     expect(club.activeMembershipCount).toBe(1);
   });
 
+  it('publishes a strict public club projection without credentials or internal contacts', () => {
+    const privateState = {
+      ...state,
+      settings: {
+        ...state.settings,
+        clubAccount: {
+          clubName: 'Orbit Test Club',
+          accountName: 'Private Account',
+          contactName: 'Private Contact',
+          email: 'private@example.com',
+          phone: '+15551112222',
+          address: '100 Public Table Way'
+        },
+        pilotAccess: {
+          authorizationCode: 'TT-PILOT-1234567890ABCDEF12345678',
+          licenseId: '',
+          expiresAt: '2099-01-01'
+        }
+      }
+    };
+    const club = publisher.buildCanonicalClubDoc(
+      privateState,
+      'club-1',
+      { club: { name: 'Orbit Test Club', membershipOptions: [] } },
+      [],
+      '2026-08-11T00:00:00.000Z'
+    );
+
+    expect(club).toMatchObject({ id: 'club-1', name: 'Orbit Test Club', address: '100 Public Table Way' });
+    for (const privateField of [
+      'licenseIdentifier',
+      'accountName',
+      'contactName',
+      'phoneNumber',
+      'emailAddress',
+      'membershipStartedAt',
+      'membershipRenewalDate',
+      'membershipTier',
+      'lastSessionSnapshot',
+      'snapshotDownloadPath'
+    ]) {
+      expect(club).not.toHaveProperty(privateField);
+    }
+    expect(JSON.stringify(club)).not.toContain('TT-PILOT-');
+  });
+
+  it('publishes only ID-targeted notifications and removes player names', () => {
+    const notifications = publisher.buildPrivatePlayerNotificationDocs({
+      notifications: [
+        {
+          id: 'private-1',
+          clubId: 'club-1',
+          title: 'Seat ready',
+          body: 'Your seat is ready.',
+          reason: 'seat-opened',
+          createdAt: '2026-08-11T00:00:00.000Z',
+          targetPlayerIds: ['player-1'],
+          targetPlayerNames: ['Alex Private']
+        },
+        {
+          id: 'name-only',
+          title: 'Private by name',
+          body: 'Should not publish.',
+          targetPlayerNames: ['Alex Private']
+        }
+      ]
+    }, 'club-1');
+
+    expect(notifications).toEqual([expect.objectContaining({
+      id: 'private-1',
+      clubId: 'club-1',
+      targetPlayerIds: ['player-1']
+    })]);
+    expect(notifications[0]).not.toHaveProperty('targetPlayerNames');
+  });
+
   it('builds a versioned mobile commit marker', () => {
     const metadata = publisher.buildSyncMetadata(
       '2026-07-25T00:00:00.000Z',

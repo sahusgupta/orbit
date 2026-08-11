@@ -15,25 +15,12 @@ const {
   upsertClient
 } = require('../database');
 const { getAccountKeyFromState, sanitizeAccountKey } = require('../orbitCore');
-const { registerPilotLicense } = require('../licenseService');
 const { asyncRoute, blockLatestStateForPilotAuth, requireOwnerApiKey } = require('../http/auth');
 const { logStateChanges } = require('../http/domainEvents');
 const { publishStateForResponse } = require('../http/firebasePublication');
 
 function registerClientRoutes(app, liveUpdates) {
   app.get('/license/status', asyncRoute(async (request, response) => {
-    if (request.orbitAuth?.type === 'legacy-pilot-key') {
-      const accountKey = sanitizeAccountKey(request.query.accountKey || '');
-      const record = accountKey ? loadState(accountKey) : null;
-      const access = record?.state?.settings?.pilotAccess;
-      if (access) {
-        const license = await registerPilotLicense(access);
-        response.json({ ok: true, managed: true, active: license.status === 'active', license });
-        return;
-      }
-      response.json({ ok: true, managed: false, active: false, license: null });
-      return;
-    }
     response.json({ ok: true, managed: true, active: true, license: request.orbitAuth?.license || null });
   }));
 
@@ -134,13 +121,6 @@ function registerClientRoutes(app, liveUpdates) {
       return;
     }
     const record = loadState(request.params.venueId);
-    if (
-      request.orbitAuth?.type === 'legacy-pilot-key' &&
-      record?.state?.settings?.pilotAccess?.authorizationCode !== request.orbitAuth.authorizationCode
-    ) {
-      response.status(403).json({ ok: false, error: 'This legacy pilot key cannot read another venue account.' });
-      return;
-    }
     if (!record) {
       response.status(404).json({ ok: false, error: 'Venue state not found.' });
       return;

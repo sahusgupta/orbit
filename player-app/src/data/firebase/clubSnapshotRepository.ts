@@ -90,6 +90,13 @@ export function playerScopedCollection(clubId: string, collectionName: 'membersh
   return query(collection(db, 'clubs', clubId, collectionName), where('playerId', '==', playerId || '__none__'));
 }
 
+export function playerNotificationCollection(clubId: string, playerId?: string) {
+  return query(
+    collection(db, 'clubs', clubId, 'notifications'),
+    where('targetPlayerIds', 'array-contains', playerId || '__none__')
+  );
+}
+
 async function getPublishedClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>) {
   const clubDocs = await getDocs(collection(db, 'clubs'));
   return Promise.all(
@@ -106,7 +113,7 @@ async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: 
     getDocs(collection(db, 'clubs', clubDoc.id, 'games')),
     getDocs(playerScopedCollection(clubDoc.id, 'memberships', player.id)),
     getDocs(playerScopedCollection(clubDoc.id, 'waitlists', player.id)),
-    getDocs(collection(db, 'clubs', clubDoc.id, 'notifications'))
+    getDocs(playerNotificationCollection(clubDoc.id, player.id))
   ]);
   const membershipRecords = memberships.docs.map((membershipDoc) => decodeRevisionedMembership(membershipDoc.data()));
   const waitlistRecords = waitlists.docs.map((waitlistDoc) => decodeRevisionedWaitlist(waitlistDoc.data()));

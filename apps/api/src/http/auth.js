@@ -1,6 +1,5 @@
 const crypto = require('crypto');
-const { authenticatePilotLicense, registerPilotLicense } = require('../licenseService');
-const { requireFirebasePlayer } = require('../paymentService');
+const { authenticatePilotLicense } = require('../licenseService');
 
 function getReceivedApiKey(request) {
   return (
@@ -67,73 +66,49 @@ function requireOwnerApiKey(request, response, next) {
   next();
 }
 
-async function requireClientAuth(request, response, next) {
-  const remoteAddress = request.socket?.remoteAddress || '';
-  const isLoopbackRequest = remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
-  if (process.env.NODE_ENV !== 'production' && isLoopbackRequest) {
-    request.orbitAuth = { type: 'local-development' };
-    next();
-    return;
-  }
-  const configuredKey = process.env.ORBIT_CLIENT_API_KEY;
-  const received = getReceivedApiKey(request);
-  if (configuredKey && received === configuredKey) {
-    request.orbitAuth = { type: 'owner-api-key' };
-    next();
-    return;
-  }
-  if (isPilotAuthorizationCode(received)) {
-    const result = await authenticatePilotLicense(received);
-    if (result.managed) {
-      if (!result.active) {
-        response.status(403).json({ ok: false, error: `Pilot license ${result.license?.status || 'expired'}.`, license: result.license });
-        return;
-      }
-      request.orbitAuth = {
-        type: 'pilot-key',
-        accountKey: result.license.accountKey,
-        license: result.license
-      };
+function createRequireClientAuth(dependencies = {}) {
+  const authenticate = dependencies.authenticatePilotLicense || authenticatePilotLicense;
+  return async function requireClientAuthentication(request, response, next) {
+    const remoteAddress = request.socket?.remoteAddress || '';
+    const isLoopbackRequest = remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
+    if (process.env.NODE_ENV !== 'production' && isLoopbackRequest) {
+      request.orbitAuth = { type: 'local-development' };
       next();
       return;
     }
-
-    const legacyBootstrapEnabled = process.env.ORBIT_LICENSE_ALLOW_LEGACY_BOOTSTRAP !== 'false';
-    const state = request.body?.state || request.body;
-    const access = state?.settings?.pilotAccess;
-    if (legacyBootstrapEnabled && access?.authorizationCode === received) {
-      const license = await registerPilotLicense(access);
-      if (!license || license.status !== 'active') {
-        response.status(403).json({ ok: false, error: 'Pilot license is expired.', license });
-        return;
-      }
-      request.orbitAuth = { type: 'pilot-key', accountKey: license.accountKey, license };
+    const configuredKey = process.env.ORBIT_CLIENT_API_KEY;
+    const received = getReceivedApiKey(request);
+    if (configuredKey && received === configuredKey) {
+      request.orbitAuth = { type: 'owner-api-key' };
       next();
       return;
     }
-    if (!legacyBootstrapEnabled) {
+    if (isPilotAuthorizationCode(received)) {
+      const result = await authenticate(received);
+      if (result.managed) {
+        if (!result.active) {
+          response.status(403).json({ ok: false, error: `Pilot license ${result.license?.status || 'expired'}.`, license: result.license });
+          return;
+        }
+        request.orbitAuth = {
+          type: 'pilot-key',
+          accountKey: result.license.accountKey,
+          license: result.license
+        };
+        next();
+        return;
+      }
       response.status(401).json({ ok: false, error: 'Pilot license is not registered.' });
       return;
     }
-    const isLegacyStatusCheck = request.method === 'GET' && request.path === '/license/status';
-    const isLegacyVenueRead = request.method === 'GET' && request.path.startsWith('/state/');
-    if (!isLegacyStatusCheck && !isLegacyVenueRead) {
-      response.status(401).json({ ok: false, error: 'Pilot license is not registered. Sync the activated desktop installation to complete migration.' });
-      return;
-    }
-    request.orbitAuth = {
-      type: 'legacy-pilot-key',
-      accountKey: '',
-      authorizationCode: received
-    };
-    next();
-    return;
-  }
-  response.status(401).json({ ok: false, error: 'Invalid API key or pilot authorization code.' });
+    response.status(401).json({ ok: false, error: 'Invalid API key or pilot authorization code.' });
+  };
 }
 
+const requireClientAuth = createRequireClientAuth();
+
 function blockLatestStateForPilotAuth(request, response, next) {
-  if (request.orbitAuth?.type === 'pilot-key' || request.orbitAuth?.type === 'legacy-pilot-key') {
+  if (request.orbitAuth?.type === 'pilot-key') {
     response.status(403).json({ ok: false, error: 'Pilot-authenticated clients must request their own venue state.' });
     return;
   }
@@ -144,18 +119,10 @@ function asyncRoute(handler) {
   return (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next);
 }
 
-function optionalFirebasePlayer(request, response, next) {
-  if (!request.get('authorization')) {
-    next();
-    return;
-  }
-  requireFirebasePlayer(request, response, next);
-}
-
 module.exports = {
   asyncRoute,
   blockLatestStateForPilotAuth,
-  optionalFirebasePlayer,
+  createRequireClientAuth,
   requireClientAuth,
   requireDashboardAuth,
   requireOwnerApiKey

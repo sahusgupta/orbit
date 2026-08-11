@@ -139,11 +139,8 @@ describe('API route composition', () => {
       headers: { 'content-type': 'application/json' },
       body: '{}'
     });
-    expect(membershipRequest.status).toBe(400);
-    expect(await membershipRequest.json()).toEqual({
-      ok: false,
-      error: 'A club, request ID, and player identity are required.'
-    });
+    expect(membershipRequest.status).toBe(401);
+    expect(await membershipRequest.json()).toEqual({ ok: false, error: 'Firebase player sign-in is required.' });
 
     const revenueCat = await request('/webhooks/revenuecat', {
       method: 'POST',

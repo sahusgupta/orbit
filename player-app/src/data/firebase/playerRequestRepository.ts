@@ -11,8 +11,8 @@ import { savePlayerProfile } from './playerProfileRepository';
 
 export async function submitMembershipRequest(request: PlayerMembershipRequest): Promise<SyncResult> {
   try {
-    const requestPlayerId = auth.currentUser?.uid || request.player.id || stableLocalPlayerId(request.player.email, request.player.name);
-    const secureRequest = { ...request, player: { ...request.player, id: requestPlayerId } };
+    if (!auth.currentUser) throw new Error('Sign in to your Orbit Player account first.');
+    const secureRequest = { ...request, player: { ...request.player, id: auth.currentUser.uid } };
     const remoteResult = await submitRemotePlayerRequest('/player/membership-requests', secureRequest);
     if (remoteResult.ok) return remoteResult;
     const localResult = await submitLocalPlayerRequest('/player/membership-requests', secureRequest);
@@ -44,8 +44,8 @@ export async function submitMembershipRequest(request: PlayerMembershipRequest):
 
 export async function submitWaitlistRequest(request: PlayerWaitlistRequest): Promise<SyncResult> {
   try {
-    const requestPlayerId = auth.currentUser?.uid || request.player.id || stableLocalPlayerId(request.player.email, request.player.name);
-    const secureRequest = { ...request, player: { ...request.player, id: requestPlayerId } };
+    if (!auth.currentUser) throw new Error('Sign in to your Orbit Player account first.');
+    const secureRequest = { ...request, player: { ...request.player, id: auth.currentUser.uid } };
     const remoteResult = await submitRemotePlayerRequest('/player/waitlist-requests', secureRequest);
     if (remoteResult.ok) return remoteResult;
     const localResult = await submitLocalPlayerRequest('/player/waitlist-requests', secureRequest);
@@ -62,15 +62,6 @@ export async function submitWaitlistRequest(request: PlayerWaitlistRequest): Pro
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Unable to submit waitlist request.' };
   }
-}
-
-function stableLocalPlayerId(email: string | undefined, name: string) {
-  return `local_${(email || name || 'player')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48) || 'player'}`;
 }
 
 async function applyMembershipToLegacySnapshot(secureRequest: PlayerMembershipRequest) {

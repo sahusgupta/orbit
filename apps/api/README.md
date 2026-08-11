@@ -42,7 +42,7 @@ All other endpoints require `x-orbit-api-key`.
 - `ORBIT_CLIENT_API_KEY`: owner/shared service key. Desktop clients may also authenticate with their signed pilot key authorization code.
 - `ORBIT_DASHBOARD_USER`: Basic-auth username for `/dashboard`; defaults to `orbit-admin`.
 - `ORBIT_DASHBOARD_PASSWORD`: password for the protected operations dashboard and its license-management requests. Keep this server-side only.
-- `ORBIT_LICENSE_ALLOW_LEGACY_BOOTSTRAP`: defaults to `true` during migration. It allows an already activated signed pilot key to register itself in the server-managed license collection on its next state sync. Set it to `false` after every active installation appears in the dashboard.
+- `ORBIT_LICENSE_PUBLIC_KEY_PEM`: optional newline-escaped P-256 public key override used to verify an administrator-provisioned signed pilot-license envelope. The checked-in branding public key is the default.
 - `DATABASE_URL`: SQLite path for local development, for example `file:./data/orbit-api.sqlite3`. On Vercel, the API defaults to `file:/tmp/orbit-api.sqlite3` when `DATABASE_URL` is unset.
 - `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`: optional Firebase service account credentials. When configured, API state saves player-safe live game documents at `clubs/{licenseKey}/games/{gameId}`, operational session history at `clubs/{licenseKey}/gameSessions/{sessionId}`, and canonical player documents at `clubs/{licenseKey}/players/{playerId}`. Membership players are documents in the `players` subcollection and are not duplicated as an array on the club document.
 - `NODE_ENV`: `development`, `staging`, or `production`.
@@ -89,13 +89,7 @@ https://orbitapp-one.vercel.app/dashboard
 
 The Pilot licenses section shows active, expired, and revoked keys; the venue; key suffix; last use; and expiration. An administrator can set an exact date, extend by 30 or 90 days, or revoke the license immediately.
 
-Existing signed keys migrate automatically after this desktop/API release:
-
-1. Deploy the API with Firebase Admin credentials and `ORBIT_LICENSE_ALLOW_LEGACY_BOOTSTRAP=true`.
-2. Release the desktop once so clients begin refreshing authorization through the API.
-3. Wait for active installations to sync; their existing codes appear in the dashboard automatically.
-4. Renew or adjust expiration dates in the dashboard as needed.
-5. Set `ORBIT_LICENSE_ALLOW_LEGACY_BOOTSTRAP=false` after all expected licenses appear, closing the legacy format-only compatibility path.
+Self-asserted legacy bootstrap is disabled. A format-valid code and matching state body cannot create a managed license. Before a desktop uses a new signed key, an administrator must submit the complete signed envelope to the authenticated `POST /dashboard/licenses` endpoint. The API verifies its P-256 signature and expiration against the configured public key before storing the one-way authorization-code identifier. Existing already-managed licenses continue to authenticate normally; an unmanaged legacy installation must be provisioned from its original signed key rather than trusted from stored client state.
 
 After that one migration release, ordinary renewals require neither a client update nor a replacement key file. If the API cannot be reached, the desktop retains its last server-confirmed expiration instead of granting a new renewal offline.
 

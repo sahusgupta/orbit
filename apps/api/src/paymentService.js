@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { handleStripeIdentityEvent } = require('./identityService');
 const { getAdminApp, getAdminSdk } = require('./services/firebaseAdmin');
 const { getStripe } = require('./services/stripeClient');
@@ -101,28 +102,18 @@ async function handleRevenueCatWebhook(request, response) {
     response.status(400).json({ ok: false, error: 'RevenueCat event and app user ID are required.' });
     return;
   }
+  if (!revenueCatEventTimeMs(event)) {
+    response.status(400).json({ ok: false, error: 'RevenueCat event timestamp is required.' });
+    return;
+  }
 
-  const entitlementId = process.env.REVENUECAT_PREMIUM_ENTITLEMENT_ID || 'player_premium';
-  const expiresAtMs = Number(event.expiration_at_ms || 0);
-  const expired = event.type === 'EXPIRATION' || (expiresAtMs > 0 && expiresAtMs <= Date.now());
-  const active = entitlementIds.includes(entitlementId) && !expired;
   const database = admin.firestore(getAdminApp());
-  await database.doc(`players/${playerId}`).set({
-    premium: {
-      status: active ? 'active' : 'inactive',
-      provider: 'apple',
-      productId: String(event.product_id || ''),
-      entitlementId,
-      originalTransactionId: String(event.original_transaction_id || ''),
-      expiresAt: expiresAtMs ? new Date(expiresAtMs).toISOString() : null,
-      environment: String(event.environment || ''),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    },
-    subscriptionStatus: active ? 'active' : 'inactive',
-    subscriptionCurrentPeriodEnd: expiresAtMs ? new Date(expiresAtMs).toISOString() : null
-  }, { merge: true });
+  const outcome = await applyRevenueCatEvent(database, admin, event, {
+    entitlementId: process.env.REVENUECAT_PREMIUM_ENTITLEMENT_ID || 'player_premium',
+    entitlementIds
+  });
 
-  response.json({ ok: true });
+  response.json({ ok: true, outcome });
 }
 
 async function handleStripeWebhook(request, response) {
@@ -139,8 +130,8 @@ async function handleStripeWebhook(request, response) {
   }
 }
 
-async function recordMembershipPayment(event) {
-  const admin = getAdminSdk();
+async function recordMembershipPayment(event, dependencies = {}) {
+  const admin = dependencies.admin || getAdminSdk();
   const session = event.data.object;
   const metadata = session.metadata || {};
   const clubId = metadata.clubId;
@@ -152,61 +143,154 @@ async function recordMembershipPayment(event) {
   const joinedAt = occurredAt.slice(0, 10);
   const expires = new Date(`${joinedAt}T12:00:00Z`);
   expires.setUTCDate(expires.getUTCDate() + planDays);
-  const database = admin.firestore(getAdminApp());
-  const batch = database.batch();
+  const database = dependencies.database || admin.firestore(getAdminApp());
+  const eventRef = database.doc(`webhookEvents/${webhookEventDocumentId('stripe', event.id)}`);
   const transactionRef = database.doc(`clubs/${clubId}/transactions/${session.id}`);
   const membershipRef = database.doc(`clubs/${clubId}/memberships/${playerId}`);
-  batch.set(transactionRef, {
-    id: session.id,
-    type: product === 'time-5' ? 'time-package' : 'membership',
-    amountCents: Number(session.amount_total || 0),
-    currency: session.currency || 'usd',
-    occurredAt,
-    paymentStatus: 'paid',
-    source: 'stripe',
-    playerId,
-    playerName: metadata.playerName || '',
-    playerEmail: metadata.playerEmail || session.customer_details?.email || '',
-    membershipPlan: product === 'time-5' ? null : product,
-    accessProduct: product,
-    fulfilledByClubId: clubId,
-    connectedStripeAccountId: event.account || '',
-    stripeEventId: event.id,
-    stripePaymentIntentId: String(session.payment_intent || ''),
-    createdAt: admin.firestore.FieldValue.serverTimestamp()
-  }, { merge: true });
-  if (product === 'time-5') {
-    const timeWalletRef = database.doc(`clubs/${clubId}/timeWallets/${playerId}`);
-    batch.set(timeWalletRef, {
-      id: `${clubId}:${playerId}`,
-      clubId,
+  return database.runTransaction(async (transaction) => {
+    const [eventSnapshot, paymentSnapshot] = await Promise.all([
+      transaction.get(eventRef),
+      transaction.get(transactionRef)
+    ]);
+    if (eventSnapshot.exists) return 'duplicate-event';
+
+    const alreadyFulfilled = paymentSnapshot.exists && paymentSnapshot.data()?.paymentStatus === 'paid';
+    const processedAt = admin.firestore.FieldValue.serverTimestamp();
+    transaction.set(eventRef, {
+      provider: 'stripe',
+      eventIdHash: hashProviderEventId(event.id),
+      eventType: String(event.type || ''),
+      providerCreatedAt: Number(event.created || 0),
+      outcome: alreadyFulfilled ? 'duplicate-payment' : 'applied',
+      processedAt
+    });
+    if (alreadyFulfilled) return 'duplicate-payment';
+
+    transaction.set(transactionRef, {
+      id: session.id,
+      type: product === 'time-5' ? 'time-package' : 'membership',
+      amountCents: Number(session.amount_total || 0),
+      currency: session.currency || 'usd',
+      occurredAt,
+      paymentStatus: 'paid',
+      source: 'stripe',
       playerId,
       playerName: metadata.playerName || '',
-      balanceMinutes: admin.firestore.FieldValue.increment(300),
-      lastPurchaseTransactionId: session.id,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      playerEmail: metadata.playerEmail || session.customer_details?.email || '',
+      membershipPlan: product === 'time-5' ? null : product,
+      accessProduct: product,
+      fulfilledByClubId: clubId,
+      connectedStripeAccountId: event.account || '',
+      stripeEventId: event.id,
+      stripePaymentIntentId: String(session.payment_intent || ''),
+      createdAt: processedAt
     }, { merge: true });
-  } else {
-    batch.set(membershipRef, {
-      id: `${clubId}:${playerId}`,
-      clubId,
-      playerId,
-      playerName: metadata.playerName || '',
-      status: 'Active',
-      plan: product,
-      joinedAt,
-      expiresAt: expires.toISOString().slice(0, 10),
-      paymentTransactionId: session.id,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    if (product === 'time-5') {
+      const timeWalletRef = database.doc(`clubs/${clubId}/timeWallets/${playerId}`);
+      transaction.set(timeWalletRef, {
+        id: `${clubId}:${playerId}`,
+        clubId,
+        playerId,
+        playerName: metadata.playerName || '',
+        balanceMinutes: admin.firestore.FieldValue.increment(300),
+        lastPurchaseTransactionId: session.id,
+        updatedAt: processedAt
+      }, { merge: true });
+    } else {
+      transaction.set(membershipRef, {
+        id: `${clubId}:${playerId}`,
+        clubId,
+        playerId,
+        playerName: metadata.playerName || '',
+        status: 'Active',
+        plan: product,
+        joinedAt,
+        expiresAt: expires.toISOString().slice(0, 10),
+        paymentTransactionId: session.id,
+        updatedAt: processedAt
+      }, { merge: true });
+    }
+    return 'applied';
+  });
+}
+
+function hashProviderEventId(eventId) {
+  return crypto.createHash('sha256').update(String(eventId || '')).digest('hex');
+}
+
+function webhookEventDocumentId(provider, eventId) {
+  return `${provider}_${hashProviderEventId(eventId)}`;
+}
+
+function revenueCatEventTimeMs(event) {
+  const candidates = [
+    event?.event_timestamp_ms,
+    event?.purchased_at_ms,
+    event?.expiration_at_ms
+  ].map(Number);
+  return candidates.find((value) => Number.isFinite(value) && value > 0) || 0;
+}
+
+async function applyRevenueCatEvent(database, admin, event, options) {
+  const playerId = String(event?.app_user_id || '').trim();
+  const eventId = String(event?.id || '').trim();
+  if (!playerId || !eventId) throw new Error('RevenueCat event and app user ID are required.');
+  const entitlementId = options.entitlementId;
+  const entitlementIds = options.entitlementIds;
+  const expiresAtMs = Number(event.expiration_at_ms || 0);
+  const eventAtMs = revenueCatEventTimeMs(event);
+  const expired = event.type === 'EXPIRATION' || (expiresAtMs > 0 && expiresAtMs <= Date.now());
+  const active = entitlementIds.includes(entitlementId) && !expired;
+  const eventRef = database.doc(`webhookEvents/${webhookEventDocumentId('revenuecat', eventId)}`);
+  const playerRef = database.doc(`players/${playerId}`);
+
+  return database.runTransaction(async (transaction) => {
+    const [eventSnapshot, playerSnapshot] = await Promise.all([
+      transaction.get(eventRef),
+      transaction.get(playerRef)
+    ]);
+    if (eventSnapshot.exists) return 'duplicate-event';
+
+    const current = playerSnapshot.exists ? playerSnapshot.data() || {} : {};
+    const currentEventAtMs = Number(current.premium?.lastRevenueCatEventAtMs || 0);
+    const stale = currentEventAtMs > 0 && eventAtMs <= currentEventAtMs;
+    const processedAt = admin.firestore.FieldValue.serverTimestamp();
+    transaction.set(eventRef, {
+      provider: 'revenuecat',
+      eventIdHash: hashProviderEventId(eventId),
+      eventType: String(event.type || ''),
+      providerCreatedAtMs: eventAtMs,
+      outcome: stale ? 'stale' : 'applied',
+      processedAt
+    });
+    if (stale) return 'stale';
+
+    transaction.set(playerRef, {
+      premium: {
+        status: active ? 'active' : 'inactive',
+        provider: 'apple',
+        productId: String(event.product_id || ''),
+        entitlementId,
+        originalTransactionId: String(event.original_transaction_id || ''),
+        expiresAt: expiresAtMs ? new Date(expiresAtMs).toISOString() : null,
+        environment: String(event.environment || ''),
+        lastRevenueCatEventId: eventId,
+        lastRevenueCatEventAtMs: eventAtMs,
+        updatedAt: processedAt
+      },
+      subscriptionStatus: active ? 'active' : 'inactive',
+      subscriptionCurrentPeriodEnd: expiresAtMs ? new Date(expiresAtMs).toISOString() : null
     }, { merge: true });
-  }
-  await batch.commit();
+    return 'applied';
+  });
 }
 
 module.exports = {
+  applyRevenueCatEvent,
   createMembershipCheckout,
   getPaymentServiceStatus,
   handleRevenueCatWebhook,
   handleStripeWebhook,
+  recordMembershipPayment,
   requireFirebasePlayer
 };

@@ -12,9 +12,10 @@ const {
   requireVerifiedPlayerAge
 } = require('../identityService');
 const { createMembershipCheckout, requireFirebasePlayer } = require('../paymentService');
-const { asyncRoute, optionalFirebasePlayer } = require('../http/auth');
+const { asyncRoute } = require('../http/auth');
 const { logDomainChange } = require('../http/domainEvents');
 const { publishStateForResponse } = require('../http/firebasePublication');
+const { buildAuthenticatedPlayerRequest, trustedPlayerFromClaims } = require('../playerRequestSecurity');
 
 async function handlePlayerSnapshot(request, response) {
   const accountKey = sanitizeAccountKey(request.query.accountKey || request.query.venueId || '');
@@ -23,10 +24,7 @@ async function handlePlayerSnapshot(request, response) {
     response.status(404).json({ ok: false, error: 'No Orbit club database is available yet.' });
     return;
   }
-  const player = {
-    id: request.orbitPlayer.uid,
-    name: request.query.playerName || request.orbitPlayer.name || ''
-  };
+  const player = trustedPlayerFromClaims(request.orbitPlayer);
   response.json({
     ok: true,
     accountKey: record.accountKey,
@@ -36,18 +34,12 @@ async function handlePlayerSnapshot(request, response) {
 }
 
 async function handlePlayerMembershipRequest(request, response) {
-  const requestPayload = {
-    ...request.body,
-    player: {
-      ...(request.body?.player || {}),
-      id: request.orbitPlayer?.uid || request.body?.player?.id || request.body?.id,
-      email: request.orbitPlayer?.email || request.body?.player?.email || ''
-    }
-  };
-  if (!requestPayload.clubId || !requestPayload.id || !requestPayload.player.id || !requestPayload.player.name) {
-    response.status(400).json({ ok: false, error: 'A club, request ID, and player identity are required.' });
+  const authenticatedRequest = buildAuthenticatedPlayerRequest(request.body, request.orbitPlayer);
+  if (!authenticatedRequest.ok) {
+    response.status(authenticatedRequest.status).json({ ok: false, error: authenticatedRequest.error });
     return;
   }
+  const requestPayload = authenticatedRequest.value;
   const record = loadState(requestPayload.clubId);
   if (!record?.state) {
     response.status(404).json({ ok: false, error: 'No matching club database was found for this membership request.' });
@@ -73,16 +65,14 @@ async function handlePlayerMembershipRequest(request, response) {
 }
 
 async function handlePlayerWaitlistRequest(request, response) {
-  const requestPayload = {
-    ...request.body,
-    player: {
-      ...(request.body?.player || {}),
-      id: request.orbitPlayer?.uid || request.body?.player?.id || request.body?.id,
-      email: request.orbitPlayer?.email || request.body?.player?.email || ''
-    }
-  };
-  if (!requestPayload.clubId || !requestPayload.id || !requestPayload.gameId || !requestPayload.player.id || !requestPayload.player.name) {
-    response.status(400).json({ ok: false, error: 'A club, game, request ID, and player identity are required.' });
+  const authenticatedRequest = buildAuthenticatedPlayerRequest(request.body, request.orbitPlayer);
+  if (!authenticatedRequest.ok) {
+    response.status(authenticatedRequest.status).json({ ok: false, error: authenticatedRequest.error });
+    return;
+  }
+  const requestPayload = authenticatedRequest.value;
+  if (!requestPayload.gameId) {
+    response.status(400).json({ ok: false, error: 'A game is required.' });
     return;
   }
   const record = loadState(requestPayload.clubId);
@@ -114,8 +104,8 @@ function registerPlayerRoutes(app) {
   app.delete('/player/identity', requireFirebasePlayer, asyncRoute(deletePlayerIdentity));
   app.post('/player/membership-checkout', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(createMembershipCheckout));
   app.get('/player/snapshot', requireFirebasePlayer, asyncRoute(handlePlayerSnapshot));
-  app.post('/player/membership-requests', optionalFirebasePlayer, asyncRoute(handlePlayerMembershipRequest));
-  app.post('/player/waitlist-requests', optionalFirebasePlayer, asyncRoute(handlePlayerWaitlistRequest));
+  app.post('/player/membership-requests', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handlePlayerMembershipRequest));
+  app.post('/player/waitlist-requests', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handlePlayerWaitlistRequest));
 }
 
 module.exports = { registerPlayerRoutes };

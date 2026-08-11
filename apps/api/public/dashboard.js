@@ -112,7 +112,7 @@ function render() {
         </div>
       </article>
     `,
-    'No managed pilot licenses yet. Existing signed keys appear after their next API sync.'
+    'No managed pilot licenses yet. Provision a verified signed key through the protected license endpoint.'
   );
 
   renderList(

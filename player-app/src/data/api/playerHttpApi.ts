@@ -87,11 +87,11 @@ export async function fetchRemoteClubSnapshot(player: Pick<PlayerAccount, 'id' |
 export async function submitRemotePlayerRequest(path: string, request: PlayerMembershipRequest | PlayerWaitlistRequest): Promise<SyncResult> {
   if (!orbitApiBaseUrl) return { ok: false, error: 'Orbit API is not configured.' };
   try {
-    const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+    const { token } = await getOrbitPlayerToken();
     const response = await fetch(`${orbitApiBaseUrl}${path}`, {
       method: 'POST',
       headers: {
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        authorization: `Bearer ${token}`,
         'content-type': 'application/json'
       },
       body: JSON.stringify(request)

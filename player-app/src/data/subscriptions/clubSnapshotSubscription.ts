@@ -10,7 +10,7 @@ import {
   getSnapshotFreshness
 } from '../../domain/playerSnapshotTransforms';
 import { db } from '../firebase/firebaseClient';
-import { fetchAllClubSnapshots, playerScopedCollection } from '../firebase/clubSnapshotRepository';
+import { fetchAllClubSnapshots, playerNotificationCollection, playerScopedCollection } from '../firebase/clubSnapshotRepository';
 
 export const cardHouseGameRefreshIntervalMs = 30_000;
 
@@ -158,7 +158,7 @@ export function subscribeToAllClubSnapshots(
             handlePrivateCollectionError
           ),
           onSnapshot(
-            collection(db, 'clubs', clubDoc.id, 'notifications'),
+            playerNotificationCollection(clubDoc.id, player.id),
             (snapshot) => {
               childState.notifications = snapshot.docs.map((notificationDoc) => decodeRevisionedNotification(notificationDoc.data()));
               childState.updateClub();

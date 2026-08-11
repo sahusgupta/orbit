@@ -631,6 +631,7 @@ describe('request HTTP boundaries', () => {
   });
 
   it('falls through malformed remote waitlist success to dual Firestore request writes and the existing missing-snapshot error', async () => {
+    signedInUser();
     const request = waitlistRequest();
     firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
 
@@ -664,6 +665,7 @@ describe('request HTTP boundaries', () => {
 
 describe('published and legacy club snapshot boundaries', () => {
   it('uses a configured local bridge and falls back from malformed and failed local responses without contacting real services', async () => {
+    signedInUser();
     vi.stubEnv('EXPO_PUBLIC_ORBIT_LOCAL_API_URL', 'http://127.0.0.1:4629');
     vi.resetModules();
     const localAdapter = await import('./orbitSyncApi');
@@ -677,7 +679,8 @@ describe('published and legacy club snapshot boundaries', () => {
 
     await expect(localAdapter.fetchAllClubSnapshots(player())).resolves.toEqual({ ok: true, clubs: [localSnapshot] });
     expect(firebase.fetch).toHaveBeenCalledWith(
-      'http://127.0.0.1:4629/player/snapshot?playerId=player-1&playerName=Alex+Player'
+      'http://127.0.0.1:4629/player/snapshot?playerId=player-1&playerName=Alex+Player',
+      { headers: { authorization: 'Bearer player-token' } }
     );
 
     setPublishedClubGraph();

@@ -6,7 +6,7 @@ const {
   listTelemetryEvents,
   listVenues
 } = require('../database');
-const { listPilotLicenses, renewPilotLicense, revokePilotLicense } = require('../licenseService');
+const { listPilotLicenses, registerSignedPilotLicense, renewPilotLicense, revokePilotLicense } = require('../licenseService');
 const { asyncRoute, requireDashboardAuth } = require('../http/auth');
 const { logDomainChange } = require('../http/domainEvents');
 
@@ -57,6 +57,12 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
     const license = await renewPilotLicense(request.params.licenseDocumentId, request.body || {});
     logDomainChange('pilot-license-renewed', { licenseId: license.licenseId, issuedTo: license.issuedTo, expiresAt: license.expiresAt });
     response.json({ ok: true, license });
+  }));
+
+  app.post('/dashboard/licenses', requireDashboardAuth, asyncRoute(async (request, response) => {
+    const license = await registerSignedPilotLicense(request.body);
+    logDomainChange('pilot-license-registered', { licenseId: license.licenseId, issuedTo: license.issuedTo, expiresAt: license.expiresAt });
+    response.status(201).json({ ok: true, license });
   }));
 
   app.post('/dashboard/licenses/:licenseDocumentId/revoke', requireDashboardAuth, asyncRoute(async (request, response) => {

@@ -342,54 +342,45 @@ function buildCanonicalGameDocs(state, clubId, savedAt) {
   });
 }
 
-function buildLastSessionSnapshot(state, savedAt) {
-  const sorted = [...(state.sessions || [])].sort((left, right) =>
-    String(right.endedAt || right.startedAt || '').localeCompare(String(left.endedAt || left.startedAt || ''))
-  );
-  const session = sorted[0];
-  if (!session) return null;
-  const game = (state.games || []).find((item) => item.id === session.gameId);
-  return {
-    savedAt,
-    sessionId: session.id,
-    gameId: session.gameId,
-    gameName: game?.name || session.gameId,
-    label: session.label || '',
-    status: session.status || '',
-    startedAt: session.startedAt || '',
-    endedAt: session.endedAt || '',
-    playerCount: (state.playerSessions || []).filter((playerSession) => playerSession.tableId === session.id).length,
-    downloadPath: `clubStates/${getAccountKeyFromState(state)}`
-  };
-}
-
 function buildCanonicalClubDoc(state, clubId, snapshot, playerDocs, savedAt) {
   const account = state.settings?.clubAccount || {};
-  const access = state.settings?.pilotAccess || {};
   return {
     id: clubId,
-    licenseIdentifier: access.licenseId || access.authorizationCode || clubId,
     name: account.clubName || snapshot.club.name || 'Local Poker Club',
-    accountName: account.accountName || '',
-    contactName: account.contactName || '',
     address: account.address || '',
-    phoneNumber: account.phone || '',
-    emailAddress: account.email || '',
     gamesOffered: (state.games || []).map((game) => ({
       id: game.id,
       name: game.name,
       maxSeats: game.maxSeats
     })),
     format: getClubFormat(state),
-    membershipStartedAt: access.issuedAt || '',
-    membershipRenewalDate: access.expiresAt || '',
-    membershipTier: access.tier || state.settings?.membershipTier || '',
+    membershipOptions: snapshot.club.membershipOptions || [],
     playerCount: playerDocs.length,
     activeMembershipCount: playerDocs.filter((player) => player.membershipActive).length,
-    lastSessionSnapshot: buildLastSessionSnapshot(state, savedAt),
-    snapshotDownloadPath: `clubStates/${clubId}`,
     updatedAt: savedAt
   };
+}
+
+function buildPrivatePlayerNotificationDocs(snapshot, clubId) {
+  return (snapshot.notifications || []).flatMap((notification) => {
+    const targetPlayerIds = Array.from(new Set(
+      (Array.isArray(notification.targetPlayerIds) ? notification.targetPlayerIds : [])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    ));
+    if (!targetPlayerIds.length) return [];
+    return [{
+      id: firestoreDocumentId(notification.id),
+      clubId,
+      gameId: String(notification.gameId || ''),
+      title: String(notification.title || '').slice(0, 160),
+      body: String(notification.body || '').slice(0, 1000),
+      reason: String(notification.reason || ''),
+      createdAt: String(notification.createdAt || ''),
+      ...(notification.expiresAt ? { expiresAt: String(notification.expiresAt) } : {}),
+      targetPlayerIds
+    }];
+  });
 }
 
 function buildPlayerTournamentDocs(state, clubId, savedAt) {
@@ -499,11 +490,12 @@ async function publishStateToFirebase(state) {
   const gameDocs = buildPlayerGameDocs(snapshot, accountKey);
   const gameSessionDocs = buildCanonicalGameDocs(state, accountKey, savedAt);
   const tournamentDocs = buildPlayerTournamentDocs(state, accountKey, savedAt);
+  const notificationDocs = buildPrivatePlayerNotificationDocs(snapshot, accountKey);
   const syncMetadata = buildSyncMetadata(savedAt, syncRevision, {
     games: gameDocs.length,
     memberships: (snapshot.memberships || []).length,
     waitlists: (snapshot.waitlists || []).length,
-    notifications: (snapshot.notifications || []).length,
+    notifications: notificationDocs.length,
     tournaments: tournamentDocs.length,
     players: playerDocs.length
   });
@@ -577,12 +569,11 @@ async function publishStateToFirebase(state) {
     );
   }
 
-  for (const notification of snapshot.notifications || []) {
-    const notificationId = firestoreDocumentId(notification.id);
+  for (const notification of notificationDocs) {
     await patchDocument(
       projectId,
       token,
-      `clubs/${encodeURIComponent(accountKey)}/notifications/${encodeURIComponent(notificationId)}`,
+      `clubs/${encodeURIComponent(accountKey)}/notifications/${encodeURIComponent(notification.id)}`,
       { ...notification, ...syncMetadata, updatedAt: savedAt }
     );
   }
@@ -637,6 +628,7 @@ module.exports = {
   buildSyncMetadata,
   buildCanonicalClubDoc,
   buildCanonicalPlayerDocs,
+  buildPrivatePlayerNotificationDocs,
   buildPlayerTournamentDocs,
   getFirebasePublisherStatus,
   playerDocumentId,
