@@ -261,6 +261,9 @@ declare global {
       saveState: (state: AppState) => Promise<{ ok: boolean; path: string; accountKey?: string }>;
       preserveStateForUpdate: (requestId: string, state: AppState) => Promise<{ ok: boolean }>;
       onPrepareForUpdate: (callback: (requestId: string) => void) => () => void;
+      getUpdateStatus: () => Promise<{ state: string; version?: string; message?: string; updateReady?: boolean }>;
+      installDownloadedUpdate: () => Promise<{ ok: boolean; error?: string }>;
+      onUpdateStatus: (callback: (status: { state: string; version?: string; message?: string; updateReady?: boolean }) => void) => () => void;
       getBackendStatus: () => Promise<BackendStatus>;
       validatePilotAccess: (access: PilotAccess) => Promise<{
         ok: boolean;

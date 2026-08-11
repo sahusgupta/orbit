@@ -1,7 +1,7 @@
 const { sanitizeAccountKey } = require('../orbitCore');
 const { listClients, upsertClient } = require('./clients');
 const { getDatabase } = require('./connection');
-const { protectedIdentifier, redactDetails, redactText } = require('../http/dataProtection');
+const { protectedIdentifier, redactDetails, redactText } = require('../operations/dataProtection');
 const boundedText = (value, maximum) => String(value || '').trim().slice(0, maximum);
 
 async function recordUpdateEvent(payload) {

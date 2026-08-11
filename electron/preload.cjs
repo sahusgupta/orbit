@@ -8,10 +8,17 @@ contextBridge.exposeInMainWorld('tableManagerDesktop', {
   loadStateForAccount: (access) => ipcRenderer.invoke('load-state-for-account', access),
   saveState: (state) => ipcRenderer.invoke('save-state', state),
   preserveStateForUpdate: (requestId, state) => ipcRenderer.invoke('preserve-state-for-update', requestId, state),
+  getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
+  installDownloadedUpdate: () => ipcRenderer.invoke('install-downloaded-update'),
   onPrepareForUpdate: (callback) => {
     const listener = (_event, requestId) => callback(requestId);
     ipcRenderer.on('prepare-for-update', listener);
     return () => ipcRenderer.removeListener('prepare-for-update', listener);
+  },
+  onUpdateStatus: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on('update-status', listener);
+    return () => ipcRenderer.removeListener('update-status', listener);
   },
   getBackendStatus: () => ipcRenderer.invoke('get-backend-status'),
   validatePilotAccess: (access) => ipcRenderer.invoke('validate-pilot-access', access),

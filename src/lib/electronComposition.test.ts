@@ -68,6 +68,8 @@ describe('Electron IPC and preload composition audit', () => {
       'load-state-for-account',
       'save-state',
       'preserve-state-for-update',
+      'get-update-status',
+      'install-downloaded-update',
       'get-backend-status',
       'validate-pilot-access',
       'submit-analytical-report',
@@ -105,7 +107,10 @@ describe('Electron IPC and preload composition audit', () => {
       'loadStateForAccount',
       'saveState',
       'preserveStateForUpdate',
+      'getUpdateStatus',
+      'installDownloadedUpdate',
       'onPrepareForUpdate',
+      'onUpdateStatus',
       'getBackendStatus',
       'validatePilotAccess',
       'verifyStaffPin',
@@ -120,13 +125,19 @@ describe('Electron IPC and preload composition audit', () => {
 
     const openWindow = bridge.openWindow as (route: string, context: unknown) => Promise<unknown>;
     const preserveStateForUpdate = bridge.preserveStateForUpdate as (requestId: string, state: unknown) => Promise<unknown>;
+    const getUpdateStatus = bridge.getUpdateStatus as () => Promise<unknown>;
+    const installDownloadedUpdate = bridge.installDownloadedUpdate as () => Promise<unknown>;
     const recordClientEvent = bridge.recordClientEvent as (...args: unknown[]) => Promise<unknown>;
     await openWindow('table', { sessionId: 'session-1' });
     await preserveStateForUpdate('flush-1', { games: [] });
+    await getUpdateStatus();
+    await installDownloadedUpdate();
     await recordClientEvent('table-started', 'tables', { tableId: 'table-1' }, 'floor');
     expect(invoke.mock.calls).toEqual([
       ['open-route-window', 'table', { sessionId: 'session-1' }],
       ['preserve-state-for-update', 'flush-1', { games: [] }],
+      ['get-update-status'],
+      ['install-downloaded-update'],
       ['record-client-event', 'table-started', 'tables', { tableId: 'table-1' }, 'floor']
     ]);
 
@@ -138,6 +149,15 @@ describe('Electron IPC and preload composition audit', () => {
     expect(callback).toHaveBeenCalledWith('flush-2');
     dispose();
     expect(removeListener).toHaveBeenCalledWith('prepare-for-update', listener);
+
+    const statusCallback = vi.fn();
+    const disposeStatus = (bridge.onUpdateStatus as (callback: (status: unknown) => void) => () => void)(statusCallback);
+    expect(on).toHaveBeenCalledWith('update-status', expect.any(Function));
+    const statusListener = on.mock.calls[1][1] as (_event: unknown, status: unknown) => void;
+    statusListener(undefined, { state: 'downloaded' });
+    expect(statusCallback).toHaveBeenCalledWith({ state: 'downloaded' });
+    disposeStatus();
+    expect(removeListener).toHaveBeenCalledWith('update-status', statusListener);
   });
 
   it('normalizes requested routes without widening the reviewed route set', () => {

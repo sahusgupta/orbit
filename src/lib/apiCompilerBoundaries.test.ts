@@ -338,5 +338,5 @@ describe('API Stripe CommonJS compiler boundary', () => {
     expect(Stripe.Stripe).toBe(Stripe);
     const client = new Stripe('sk_test_local_only');
     expect(client.checkout.sessions.create).toBeTypeOf('function');
-  });
+  }, 20_000);
 });

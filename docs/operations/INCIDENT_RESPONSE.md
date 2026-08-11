@@ -16,6 +16,7 @@ The production host, DNS/registrar owner, certificate owner, legal entity/contro
 | Authentication-abuse/rate-limit event | Warning | Inspect redacted limiter and identity reference, preserve audit data, and check for a distributed pattern. | Escalate repeated or cross-tenant patterns to the security owner. Never rotate credentials from an unreviewed client. |
 | Publication outbox retry/backlog | Warning, Critical if sustained | Confirm the durable commit remains authoritative, inspect revision/attempt state, and keep the backend as sole publisher. | Escalate to the API/Firebase owner. Do not enable Electron or browser publication as a bypass. |
 | Release verification, signature, or promotion failure | Critical | Do not promote. Retain the immutable artifact and verification logs. | Escalate to the release owner; roll back only through the approved immutable channel. |
+| Release workflow failure or rejected environment approval | Critical | Keep the candidate unpromoted and correlate the exact source SHA, version, workflow run, and failed gate. | Escalate to the protected-environment release owner; never retry through a direct publish command. |
 
 ## Triage
 
@@ -27,7 +28,7 @@ The production host, DNS/registrar owner, certificate owner, legal entity/contro
 
 ## Recovery and closure
 
-- Prefer rollback to a previously verified immutable artifact. Database changes must remain backward-compatible with both versions involved.
+- Use the verified roll-forward rollback procedure in `docs/operations/RELEASE_AND_ROLLBACK.md`: build a new higher version from a known-good source commit. Database changes must remain backward-compatible with both source versions involved.
 - Verify durable revision continuity, outbox drain state, player-safe publication, authentication/session behavior, and critical smoke flows before restoring promotion.
 - Close only after the configured owner acknowledges the alert, affected services are stable, monitoring remains clear for the agreed observation window, and follow-up work has an owner.
 - Run an alert delivery test and a rollback rehearsal only in an explicitly authorized non-production environment. Record the result without embedding destination URLs or credentials.

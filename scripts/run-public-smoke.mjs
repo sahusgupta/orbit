@@ -11,8 +11,12 @@ const run = (command, args, options = {}) => new Promise((resolve, reject) => {
   child.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`${args.join(' ')} exited with ${code}.`)));
 });
 
+const isolatedEnvironment = { ...process.env, ORBIT_PUBLIC_LOCAL_ORIGIN: target };
+await run(nodeExecutable, ['node_modules/vite/bin/vite.js', 'build', '--config', 'download-site/vite.config.mjs'], { env: isolatedEnvironment });
+
 const vite = spawn(nodeExecutable, [
   'node_modules/vite/bin/vite.js',
+  'preview',
   '--config', 'download-site/vite.config.mjs',
   '--host', '127.0.0.1',
   '--port', String(port),
@@ -20,7 +24,7 @@ const vite = spawn(nodeExecutable, [
 ], {
   cwd: workspaceRoot,
   stdio: ['ignore', 'pipe', 'pipe'],
-  env: { ...process.env, ORBIT_PUBLIC_LOCAL_ORIGIN: target }
+  env: isolatedEnvironment
 });
 
 try {

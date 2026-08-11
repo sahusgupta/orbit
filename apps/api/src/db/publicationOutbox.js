@@ -1,7 +1,7 @@
 const { getFirebasePublisherStatus, publishStateToFirebase } = require('../firebasePublisher');
 const { sanitizeAccountKey } = require('../orbitCore');
-const { protectedIdentifier } = require('../http/dataProtection');
-const { sendOperationalAlert } = require('../http/operationalAlerts');
+const { protectedIdentifier } = require('../operations/dataProtection');
+const { sendOperationalAlert } = require('../operations/operationalAlerts');
 const { getDatabase } = require('./connection');
 
 let scheduledDrain;

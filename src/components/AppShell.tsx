@@ -7,6 +7,7 @@ import { cn } from '../lib/utils';
 
 export type PrimaryDestination = 'floor' | 'players' | 'games' | 'tournaments' | 'reports' | 'settings';
 export type ShellCommand = { id: string; label: string; group?: string; keywords?: string; action: () => void };
+type UpdateStatus = { state: string; version?: string; message?: string; updateReady?: boolean };
 
 type AppShellProps = {
   active: PrimaryDestination;
@@ -32,6 +33,7 @@ export default function AppShell({ active, clubName, operator, saveState, onNavi
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle' });
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -40,6 +42,33 @@ export default function AppShell({ active, clubName, operator, saveState, onNavi
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, []);
+
+  useEffect(() => {
+    const desktop = window.tableManagerDesktop;
+    if (!desktop?.getUpdateStatus || !desktop.onUpdateStatus) return;
+    let active = true;
+    const dispose = desktop.onUpdateStatus((status) => {
+      if (active) setUpdateStatus(status);
+    });
+    void desktop.getUpdateStatus().then((status) => {
+      if (active) setUpdateStatus(status);
+    }).catch(() => {
+      if (active) setUpdateStatus({ state: 'error', message: 'Update status is temporarily unavailable.' });
+    });
+    return () => {
+      active = false;
+      dispose();
+    };
+  }, []);
+
+  const requestUpdateInstall = async () => {
+    try {
+      const result = await window.tableManagerDesktop?.installDownloadedUpdate?.();
+      if (result && !result.ok) setUpdateStatus({ state: 'error', message: result.error, updateReady: true });
+    } catch {
+      setUpdateStatus({ state: 'error', message: 'Orbit could not start the update. Try again when the floor can restart safely.', updateReady: true });
+    }
+  };
 
   const navigate = (destination: PrimaryDestination) => { onNavigate(destination); setMobileOpen(false); };
   const defaultCommands: ShellCommand[] = destinations.map((item) => ({ id: `open-${item.id}`, label: `Open ${item.label}`, group: 'Navigation', action: () => navigate(item.id) }));
@@ -69,7 +98,18 @@ export default function AppShell({ active, clubName, operator, saveState, onNavi
         <button className="orbit-mobile-close" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button>
       </aside>
       <div className="orbit-mobile-scrim" onClick={() => setMobileOpen(false)} />
-      <div className="orbit-shell-content">{children}</div>
+      <div className="orbit-shell-content">
+        {['downloaded', 'preserving-state', 'installing', 'error'].includes(updateStatus.state) && (
+          <section className="orbit-update-notice" role={updateStatus.state === 'error' ? 'alert' : 'status'} aria-live="polite">
+            <div>
+              <strong>{updateStatus.state === 'downloaded' ? `Orbit ${updateStatus.version || 'update'} is ready` : updateStatus.state === 'preserving-state' ? 'Preserving workspace' : updateStatus.state === 'installing' ? 'Installing update' : 'Update paused'}</strong>
+              <span>{updateStatus.state === 'downloaded' ? 'Install when the floor can restart safely.' : updateStatus.state === 'preserving-state' ? 'Orbit will restart only after the workspace is saved.' : updateStatus.state === 'installing' ? 'Orbit will restart momentarily.' : updateStatus.message || 'The update was not installed.'}</span>
+            </div>
+            {(updateStatus.state === 'downloaded' || (updateStatus.state === 'error' && updateStatus.updateReady)) && <button type="button" onClick={() => void requestUpdateInstall()}>Install update and restart</button>}
+          </section>
+        )}
+        {children}
+      </div>
       <nav className="orbit-bottom-nav">{destinations.slice(0, 3).map(({ id, label, icon: Icon }) => <button key={id} className={active === id ? 'active' : ''} onClick={() => navigate(id)}><Icon size={20} /><span>{label}</span></button>)}<button onClick={() => setMobileOpen(true)}><Menu size={20} /><span>More</span></button></nav>
 
       <Dialog.Root open={commandOpen} onOpenChange={setCommandOpen}>

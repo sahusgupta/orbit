@@ -1,6 +1,6 @@
 const { sanitizeAccountKey } = require('../orbitCore');
 const { getDatabase } = require('./connection');
-const { redactText } = require('../http/dataProtection');
+const { redactText } = require('../operations/dataProtection');
 
 const boundedText = (value, maximum) => String(value || '').trim().slice(0, maximum);
 

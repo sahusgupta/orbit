@@ -245,7 +245,15 @@ function assert(condition, message) {
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
+const pageErrors = [];
+const consoleErrors = [];
+const failedRequests = [];
 if (screenshotDirectory) mkdirSync(screenshotDirectory, { recursive: true });
+page.on('pageerror', (error) => pageErrors.push(error.message));
+page.on('console', (message) => {
+  if (message.type() === 'error') consoleErrors.push(message.text());
+});
+page.on('requestfailed', (request) => failedRequests.push(`${request.method()} ${request.url()}`));
 page.on('dialog', async (dialog) => {
   throw new Error(`Unexpected dialog: ${dialog.message()}`);
 });
@@ -331,7 +339,11 @@ try {
   assert((finalState.interests || []).some((interest) => interest.playerName === 'Evan Entry' && interest.status === 'Seated'), 'Expected non-checked-in player to be checked in and seated.');
   assert((finalState.profiles || []).some((profile) => profile.name === 'Smoke New Player'), 'New player profile was not persisted.');
 
-  console.log('Management core smoke passed: profile add, table start, seating, and Astryx responsive floor flows are functional.');
+  if (pageErrors.length || consoleErrors.length || failedRequests.length) {
+    throw new Error(JSON.stringify({ pageErrors, consoleErrors, failedRequests }, null, 2));
+  }
+
+  console.log('Management production-bundle smoke passed: profile add, table start, seating, responsive floor, and clean console.');
 } finally {
   await browser.close();
 }

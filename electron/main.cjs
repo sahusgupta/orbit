@@ -284,6 +284,10 @@ ipcMain.handle('preserve-state-for-update', trustedIpc(async (requestId, state) 
   return updateController.handleRendererStateFlush(requestId, boundedPayload(state));
 }));
 
+ipcMain.handle('get-update-status', trustedIpc(() => updateController.getStatus()));
+
+ipcMain.handle('install-downloaded-update', trustedIpc(() => updateController.installDownloadedUpdate()));
+
 ipcMain.handle('get-backend-status', trustedIpc(async () => {
   const remoteStatus = await getRemoteBackendStatus();
   if (remoteStatus) return remoteStatus;

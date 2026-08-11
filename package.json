@@ -22,6 +22,8 @@
     "check:public-site": "node scripts/verify-public-site.mjs",
     "brand:sync": "node scripts/brand-assets.cjs --write",
     "check:brand": "node scripts/brand-assets.cjs",
+    "security:dependencies": "node scripts/audit-production-dependencies.mjs",
+    "check:release-controls": "node scripts/verify-release-controls.mjs",
     "api:install": "npm install --prefix apps/api --no-package-lock",
     "api:dev": "npm run dev --prefix apps/api",
     "api:start": "npm run start --prefix apps/api",
@@ -54,7 +56,7 @@
     "predist": "node scripts/prepare-builder-dist.cjs",
     "dist": "npm run build && electron-builder",
     "dist:win": "node scripts/prepare-builder-dist.cjs && npm run build && electron-builder --win",
-    "dist:win:publish": "node scripts/prepare-builder-dist.cjs && npm run build && electron-builder --win --publish always",
+    "release:win:artifact": "node scripts/prepare-builder-dist.cjs && npm run build && electron-builder --win --publish never",
     "make": "npm run dist:win"
   },
   "dependencies": {
@@ -93,6 +95,7 @@
     "productName": "Orbit",
     "icon": "build/icon.ico",
     "asar": true,
+    "forceCodeSigning": true,
     "directories": {
       "output": "release"
     },
@@ -127,7 +130,7 @@
         }
       ],
       "artifactName": "${productName}-${version}-${arch}.${ext}",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": true
     },
     "nsis": {
       "oneClick": false,
@@ -143,7 +146,9 @@
     }
   },
   "overrides": {
-    "brace-expansion": "5.0.8",
+    "brace-expansion": "5.0.9",
+    "js-yaml": "4.3.1",
+    "nanoid": "3.3.17",
     "uuid": "^11.1.1",
     "vite": {
       "esbuild": "^0.28.1"
