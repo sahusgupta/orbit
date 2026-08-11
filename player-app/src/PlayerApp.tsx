@@ -942,7 +942,7 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
   title: {
     color: colors.ink,
     fontSize: 26,
-    fontWeight: '800',
+    fontWeight: '700',
     letterSpacing: 0,
     lineHeight: 32,
     maxWidth: 285,
@@ -964,7 +964,7 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
   avatarText: {
     color: '#ffffff',
     fontSize: 18,
-    fontWeight: '800'
+    fontWeight: '700'
   },
   content: {
     gap: 10,
@@ -998,7 +998,7 @@ const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
   tabText: {
     color: colors.muted,
     fontSize: 9,
-    fontWeight: '900'
+    fontWeight: '700'
   },
   activeTabText: {
     color: '#6f91ff'

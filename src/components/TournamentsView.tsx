@@ -140,7 +140,7 @@ export default function TournamentsView({
                     <span><strong>{item.name}</strong><small>{item.status} · {getTournamentEntries(item)} entries · ${item.buyIn.toLocaleString()} buy-in</small></span>
                   </button>
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild><button className="icon-button" title="Tournament actions"><MoreHorizontal size={18} /></button></DropdownMenuTrigger>
+                    <DropdownMenuTrigger asChild><button aria-label={`Actions for ${item.name}`} className="icon-button" title="Tournament actions"><MoreHorizontal size={18} /></button></DropdownMenuTrigger>
                     <DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => beginTournamentEdit(item)}>Edit tournament</DropdownMenuItem><DropdownMenuItem onSelect={() => runTournamentAgain(item)}>Run again</DropdownMenuItem></DropdownMenuContent>
                   </DropdownMenu>
                 </article>

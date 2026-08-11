@@ -81,7 +81,7 @@
 
 .tournament-tv-payouts article span {
   color: #7da0ff;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .tournament-tv-payouts article strong {
@@ -104,8 +104,8 @@
   min-height: 540px;
   overflow: hidden;
   color: #f7f9ff;
-  background: radial-gradient(circle at 50% 43%, rgba(77, 124, 254, 0.1), transparent 34%), #070b15;
-  font-family: Bahnschrift, Aptos, "Segoe UI Variable", sans-serif;
+  background: #070b15;
+  font-family: var(--brand-font-family);
   isolation: isolate;
   position: relative;
 }
@@ -113,16 +113,7 @@
 .orbit-tournament-display * { box-sizing: border-box; }
 
 .orbit-tournament-display::before {
-  background:
-    radial-gradient(circle at 18% 28%, rgba(77, 124, 254, .14), transparent 27%),
-    radial-gradient(circle at 82% 68%, rgba(15, 118, 110, .11), transparent 30%);
-  content: '';
-  inset: -18%;
-  opacity: .72;
-  pointer-events: none;
-  position: absolute;
-  transform: translate3d(-2%, -1%, 0) scale(1);
-  z-index: -1;
+  display: none;
 }
 
 .orbit-tournament-display-header {
@@ -170,7 +161,7 @@
   gap: 12px;
   color: var(--tv-blue-soft);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
 }
@@ -185,7 +176,7 @@
   color: #a9bfff;
   background: rgba(77, 124, 254, 0.08);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
@@ -212,7 +203,7 @@
   flex-direction: column;
   justify-content: center;
   border-bottom: 1px solid var(--tv-line);
-  background: radial-gradient(circle at 20% 15%, rgba(77, 124, 254, 0.18), transparent 50%), linear-gradient(145deg, rgba(21, 36, 75, 0.72), rgba(14, 15, 38, 0.75));
+  background: #101a32;
 }
 
 .orbit-tv-prize-pool span,
@@ -220,7 +211,7 @@
 .orbit-tv-next-level > span {
   color: #8090ae;
   font-size: clamp(9px, 0.72vw, 12px);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
 }
@@ -231,7 +222,6 @@
   font-size: clamp(30px, 3.3vw, 56px);
   line-height: 1;
   letter-spacing: -0.045em;
-  text-shadow: 0 0 30px rgba(77, 124, 254, 0.24);
 }
 
 .orbit-tv-prize-pool small,
@@ -272,7 +262,7 @@
 .orbit-tournament-display-clock > header span {
   color: var(--tv-blue-soft);
   font-size: clamp(11px, 0.88vw, 14px);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.2em;
 }
 
@@ -291,17 +281,12 @@
   position: relative;
   width: clamp(225px, 30vw, 390px);
   aspect-ratio: 1;
-  filter: drop-shadow(0 0 35px rgba(77, 124, 254, 0.1));
 }
 
 .orbit-tv-clock-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
 .orbit-tv-clock-ring circle { fill: none; stroke-width: 4; }
 .orbit-tv-clock-track { stroke: rgba(125, 160, 255, 0.1); }
 .orbit-tv-clock-progress { stroke: var(--tv-blue); stroke-linecap: round; transition: stroke-dashoffset 0.8s linear; }
-.orbit-tournament-display-status.status-running,
-.orbit-tv-clock-ring:not(.paused):not(.low-time) {
-  animation: orbit-tv-blue-breathe 4.8s ease-in-out infinite;
-}
 .orbit-tv-clock-ring.low-time .orbit-tv-clock-progress { stroke: #fb7185; }
 .orbit-tv-clock-ring.paused .orbit-tv-clock-progress { stroke: var(--tv-accent); }
 
@@ -317,7 +302,7 @@
 .orbit-tv-clock-ring strong {
   color: #fff;
   font-size: clamp(56px, 7.2vw, 112px);
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1;
   letter-spacing: -0.06em;
   font-variant-numeric: tabular-nums;
@@ -328,7 +313,7 @@
   margin-top: 12px;
   color: #6f7d98;
   font-size: clamp(9px, 0.72vw, 12px);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
 }
@@ -379,22 +364,6 @@
 
 .orbit-tv-next-level strong { margin: 8px 0 5px; color: #f2f5ff; font-size: clamp(20px, 1.8vw, 30px); }
 .orbit-tv-next-level small { color: var(--tv-blue-soft); font-size: clamp(11px, 0.9vw, 15px); }
-
-@keyframes orbit-tv-ambient-shift {
-  0% { opacity: .56; transform: translate3d(-3%, -2%, 0) scale(1); }
-  50% { opacity: .8; transform: translate3d(2%, 1%, 0) scale(1.06); }
-  100% { opacity: .62; transform: translate3d(-1%, 3%, 0) scale(1.02); }
-}
-
-@keyframes orbit-tv-header-flow {
-  0%, 100% { background-position: 100% 50%; opacity: .4; }
-  50% { background-position: 0 50%; opacity: .78; }
-}
-
-@keyframes orbit-tv-blue-breathe {
-  0%, 100% { filter: drop-shadow(0 0 22px rgba(77,124,254,.08)); }
-  50% { filter: drop-shadow(0 0 34px rgba(77,124,254,.2)); }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .orbit-tournament-display::before,

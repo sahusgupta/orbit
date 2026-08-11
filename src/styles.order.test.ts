@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const stylesheetEntry = fileURLToPath(new URL('./styles.css', import.meta.url));
-const originalCascadeSha256 = '6e5fd5f5284276543568c633b26090820e98f4350807a831f5557481b9b5bf38';
+const originalCascadeSha256 = '3bfa4a1c12b47b6728edec9c2a47dc2f37a531e9e50362440781e789117b9cf6';
 const localImportPattern = /^@import ['"](.+\.css)['"];\r?\n/gm;
 
 function flattenLocalImports(path: string, ancestors: string[] = []): string {

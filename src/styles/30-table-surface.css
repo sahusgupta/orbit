@@ -109,7 +109,7 @@
   color: rgba(38, 57, 79, 0.58);
   display: flex;
   font-size: 0.76rem;
-  font-weight: 900;
+  font-weight: 700;
   height: 42px;
   justify-content: center;
   min-height: 42px;
@@ -153,7 +153,7 @@
   box-shadow: 0 8px 20px rgba(38, 57, 79, 0.12);
   color: var(--primary-dark);
   font-size: 0.78rem;
-  font-weight: 900;
+  font-weight: 700;
   left: 50%;
   padding: 7px 13px;
   position: absolute;
@@ -278,7 +278,7 @@
   color: var(--muted);
   display: block;
   font-size: 0.65rem;
-  font-weight: 900;
+  font-weight: 700;
   margin-bottom: 2px;
   text-transform: uppercase;
 }
@@ -301,7 +301,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   font-size: clamp(0.66rem, 1vw, 0.76rem);
-  font-weight: 850;
+  font-weight: 700;
   justify-content: space-between;
   min-width: 0;
   padding: 6px clamp(5px, 0.8vw, 8px);

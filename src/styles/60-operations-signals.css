@@ -33,7 +33,7 @@
 .demand-header {
   color: var(--muted);
   font-size: 0.74rem;
-  font-weight: 850;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
@@ -54,7 +54,7 @@
 }
 
 .demand-line span {
-  font-weight: 850;
+  font-weight: 700;
   text-align: center;
   color: var(--primary-dark);
 }
@@ -68,10 +68,9 @@
   background: #edf2f8;
   color: #42526a;
   font-size: clamp(0.68rem, 1vw, 0.8rem);
-  font-weight: 850;
+  font-weight: 700;
   line-height: 1.15;
   text-align: center;
-  animation: soft-flicker 3.4s ease-in-out infinite;
 }
 
 .health-pill.healthy {
@@ -155,7 +154,7 @@
   color: var(--primary-dark);
   padding: 5px 8px;
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .tag-picker {
@@ -173,7 +172,7 @@
   min-height: 30px;
   padding: 0 9px;
   font-size: 0.76rem;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .tag.active {
@@ -215,7 +214,7 @@
   margin: 0 0 10px;
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .opportunity-card p,

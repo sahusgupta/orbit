@@ -1,6 +1,7 @@
 :root {
   color-scheme: light;
-  font-family: Bahnschrift, Aptos, "Segoe UI Variable", sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
   background: #f6f7f9;
   color: #17202a;
 }
@@ -45,7 +46,7 @@ p {
 
 h1 {
   font-size: 28px;
-  font-weight: 760;
+  font-weight: 700;
 }
 
 h2 {
@@ -161,7 +162,7 @@ button {
   background: #e9f7ef;
   color: #14683d;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 700;
   text-transform: uppercase;
 }
 

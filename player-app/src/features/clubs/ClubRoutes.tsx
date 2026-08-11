@@ -385,7 +385,7 @@ export function MembershipPlanCard({
   onPress: () => void;
 }) {
   return (
-    <Pressable accessibilityState={{ selected }} style={[styles.planCard, selected && styles.planCardFeatured]} onPress={onPress}>
+    <Pressable accessibilityLabel={`${title}, ${price}`} accessibilityRole="button" accessibilityState={{ selected }} style={[styles.planCard, selected && styles.planCardFeatured]} onPress={onPress}>
       <View style={styles.planIcon}>
         <Ionicons name={icon} size={19} color={colors.primary} />
       </View>

@@ -1,9 +1,8 @@
 
 /* Desktop notification toast and action center. */
 .staff-request-notice {
-  animation: orbit-notification-in 180ms ease-out;
-  backdrop-filter: blur(16px);
-  box-shadow: 0 18px 50px rgba(2, 6, 23, .24);
+  animation: orbit-notification-in var(--motion-base) var(--ease-standard);
+  box-shadow: var(--elevation-overlay);
   margin: 0;
   max-width: min(430px, calc(100vw - 32px));
   position: fixed;
@@ -42,7 +41,7 @@
   color: #fff;
   display: flex;
   font-size: .58rem;
-  font-weight: 900;
+  font-weight: 700;
   height: 18px;
   justify-content: center;
   min-width: 18px;
@@ -53,11 +52,11 @@
 }
 
 .staff-notification-panel {
-  animation: orbit-notification-in 160ms ease-out;
+  animation: orbit-notification-in var(--motion-base) var(--ease-standard);
   background: var(--panel-solid);
   border: 1px solid var(--line);
   border-radius: 12px;
-  box-shadow: 0 24px 70px rgba(2, 6, 23, .28);
+  box-shadow: var(--elevation-overlay);
   max-height: min(620px, calc(100vh - 80px));
   overflow: hidden;
   position: absolute;
@@ -93,7 +92,7 @@
   border: 0;
   color: var(--muted);
   font-size: .7rem;
-  font-weight: 800;
+  font-weight: 700;
   padding: 5px;
 }
 

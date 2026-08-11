@@ -14,6 +14,25 @@ export const colors = {
   coral: '#fb7185'
 };
 
+export const typography = {
+  family: 'system',
+  weights: { regular: '400', medium: '500', semibold: '600', bold: '700' },
+  sizes: { meta: 11, label: 12, body: 15, heading: 18, display: 24 },
+  lineHeights: { compact: 16, body: 21, heading: 25 }
+} as const;
+
+export const spacing = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32 } as const;
+export const radii = { none: 0, small: 6, control: 10, panel: 12, overlay: 16, full: 999 } as const;
+export const elevation = {
+  none: { elevation: 0, shadowOpacity: 0 },
+  overlay: { elevation: 12, shadowOpacity: 0.24, shadowRadius: 24 }
+} as const;
+export const motion = { fast: 120, base: 180, slow: 280 } as const;
+export const density = { compactControl: 36, defaultControl: 42, touchTarget: 44 } as const;
+export const iconSizes = { small: 16, medium: 20, large: 24 } as const;
+export const breakpoints = { compact: 680, tablet: 900, wide: 1180 } as const;
+export const layout = { reading: 720, compact: 920, wide: 1360 } as const;
+
 export function applyDarkComponentTheme<T extends Record<string, unknown>>(definitions: T): T {
   const lightSurfaces: Record<string, string> = {
     '#ffffff': '#10192c',

@@ -1,6 +1,9 @@
 import { chromium } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
 
 const baseUrl = process.env.TABLE_MANAGER_URL || 'http://127.0.0.1:5173';
+const screenshotDirectory = process.env.ORBIT_SMOKE_SCREENSHOT_DIR;
 const storageKey = 'table-manager-state-v1';
 
 const now = new Date().toISOString();
@@ -242,6 +245,7 @@ function assert(condition, message) {
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
+if (screenshotDirectory) mkdirSync(screenshotDirectory, { recursive: true });
 page.on('dialog', async (dialog) => {
   throw new Error(`Unexpected dialog: ${dialog.message()}`);
 });
@@ -287,6 +291,28 @@ try {
   assert(await tableCard.locator('.quick-seat-row').count() === 0, 'Legacy quick-seat dropdown row should not render.');
   await seatPicker.getByTitle('Close player picker').click();
 
+  for (const viewport of [
+    { width: 1440, height: 900, expectedColumns: 2 },
+    { width: 1180, height: 800, expectedColumns: 1 },
+    { width: 900, height: 760, expectedColumns: 1 },
+    { width: 680, height: 760, expectedColumns: 1 }
+  ]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    const layout = await page.locator('.minimal-dashboard').evaluate((element) => ({
+      columns: getComputedStyle(element).gridTemplateColumns.split(' ').filter(Boolean).length,
+      columnDefinition: getComputedStyle(element).gridTemplateColumns,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth,
+      compactQuery: window.matchMedia('(max-width: 1180px)').matches
+    }));
+    assert(layout.columns === viewport.expectedColumns, `Expected ${viewport.expectedColumns} floor column(s) at ${viewport.width}px, received ${layout.columns} (${layout.columnDefinition}; inner ${layout.viewportWidth}; compact ${layout.compactQuery}).`);
+    assert(layout.documentWidth <= layout.viewportWidth, `Management shell overflowed horizontally at ${viewport.width}px.`);
+    if (screenshotDirectory && (viewport.width === 1440 || viewport.width === 1180)) {
+      await page.screenshot({ fullPage: true, path: path.join(screenshotDirectory, `floor-${viewport.width}.png`) });
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+
   await page.getByRole('button', { name: 'Players' }).click();
   const addPlayerButton = page.locator('button.player-tool-icon[aria-label="Add player"]');
   await addPlayerButton.focus();
@@ -305,7 +331,7 @@ try {
   assert((finalState.interests || []).some((interest) => interest.playerName === 'Evan Entry' && interest.status === 'Seated'), 'Expected non-checked-in player to be checked in and seated.');
   assert((finalState.profiles || []).some((profile) => profile.name === 'Smoke New Player'), 'New player profile was not persisted.');
 
-  console.log('Management core smoke passed: profile add, table start, and seating flows are functional.');
+  console.log('Management core smoke passed: profile add, table start, seating, and Astryx responsive floor flows are functional.');
 } finally {
   await browser.close();
 }

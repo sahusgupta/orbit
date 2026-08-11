@@ -9,14 +9,10 @@
 .metric-card,
 .panel,
 .history-card {
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), var(--panel));
-  border: 1px solid rgba(255, 255, 255, 0.68);
-  border-radius: 22px;
-  box-shadow:
-    0 24px 60px rgba(38, 57, 79, 0.14),
-    0 4px 14px rgba(38, 57, 79, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(12px);
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--elevation-none);
 }
 
 body.low-light .metric-card,
@@ -24,12 +20,9 @@ body.low-light .panel,
 body.low-light .history-card,
 body.low-light .access-card,
 body.low-light .access-step {
-  background: linear-gradient(180deg, rgba(27, 37, 58, 0.98), var(--panel));
-  border-color: rgba(94, 111, 146, 0.42);
-  box-shadow:
-    0 26px 70px rgba(0, 0, 0, 0.28),
-    0 4px 14px rgba(0, 0, 0, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: var(--panel-solid);
+  border-color: var(--line);
+  box-shadow: var(--elevation-none);
 }
 
 .metric-card {
@@ -54,7 +47,7 @@ body.low-light .access-step {
   display: block;
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .metric-card strong {
@@ -71,7 +64,7 @@ body.low-light .access-step {
 
 .minimal-dashboard {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(320px, 0.86fr);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
   gap: clamp(12px, 1.25vw, 18px);
   align-items: start;
   grid-auto-flow: row;
@@ -190,8 +183,7 @@ body.low-light .access-step {
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.82);
   padding: 10px;
-  box-shadow: 0 8px 18px rgba(42, 55, 91, 0.05);
-  animation: panel-rise 260ms ease both;
+  box-shadow: none;
 }
 
 .live-feed-dot {
@@ -239,7 +231,7 @@ body.low-light .access-step {
 
 .live-feed-head span {
   flex: 0 0 auto;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .live-feed-item p {
@@ -256,15 +248,13 @@ body.low-light .access-step {
   border: 1px solid rgba(207, 218, 234, 0.72);
   border-radius: 18px;
   background: rgba(251, 253, 255, 0.84);
-  box-shadow: 0 10px 24px rgba(42, 55, 91, 0.06);
+  box-shadow: none;
   padding: 13px;
   min-width: 0;
-  animation: panel-rise 420ms ease both;
   transition:
-    transform 180ms ease,
-    box-shadow 180ms ease,
-    border-color 180ms ease,
-    background 180ms ease;
+    transform var(--motion-base) var(--ease-standard),
+    border-color var(--motion-base) var(--ease-standard),
+    background var(--motion-base) var(--ease-standard);
 }
 
 .active-game-card:hover,
@@ -272,8 +262,8 @@ body.low-light .access-step {
 .waitlist-card:hover,
 .action-needed-card:hover {
   border-color: rgba(155, 168, 238, 0.68);
-  box-shadow: 0 16px 34px rgba(42, 55, 91, 0.12);
-  transform: translateY(-2px);
+  background: var(--state-hover);
+  transform: translateY(-1px);
 }
 
 .active-game-card h3,
@@ -305,28 +295,14 @@ body.low-light .access-step {
   border: 1px solid rgba(207, 218, 234, 0.72);
   border-radius: 18px;
   background: rgba(251, 253, 255, 0.84);
-  box-shadow: 0 10px 24px rgba(42, 55, 91, 0.06);
+  box-shadow: none;
   padding: 13px;
   display: grid;
   gap: 9px;
-  animation: panel-rise 420ms ease both;
   transition:
-    transform 180ms ease,
-    box-shadow 180ms ease,
-    border-color 180ms ease,
-    background 180ms ease;
-}
-
-.forming-card:nth-child(2),
-.waitlist-card:nth-child(2),
-.active-game-card:nth-child(2) {
-  animation-delay: 55ms;
-}
-
-.forming-card:nth-child(3),
-.waitlist-card:nth-child(3),
-.active-game-card:nth-child(3) {
-  animation-delay: 110ms;
+    transform var(--motion-base) var(--ease-standard),
+    border-color var(--motion-base) var(--ease-standard),
+    background var(--motion-base) var(--ease-standard);
 }
 
 .forming-card > div:first-child {
@@ -432,7 +408,7 @@ body.low-light .timestamp-grid {
   cursor: pointer;
   display: inline-flex;
   font-size: 0.78rem;
-  font-weight: 850;
+  font-weight: 700;
   list-style: none;
   user-select: none;
 }
@@ -475,7 +451,7 @@ body.low-light .timestamp-grid {
 
 .seat-help-row span {
   font-size: 0.82rem;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .topbar-logo {

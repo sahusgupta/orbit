@@ -75,7 +75,7 @@
 .poker-seat-menu-header span {
   color: var(--muted);
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 700;
   margin-top: 2px;
 }
 
@@ -90,7 +90,7 @@
   grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
   color: var(--muted);
   font-size: 0.78rem;
-  font-weight: 850;
+  font-weight: 700;
   line-height: 1.25;
 }
 
@@ -117,7 +117,7 @@
 .seat-number-row label {
   color: var(--muted);
   font-size: 0.78rem;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .move-player-row select,
@@ -141,7 +141,7 @@
   border-radius: 999px;
   color: var(--primary-dark);
   font-size: 0.74rem;
-  font-weight: 850;
+  font-weight: 700;
   max-width: 100%;
   overflow-wrap: anywhere;
   padding: 5px 8px;
@@ -161,7 +161,7 @@
 }
 
 .table-collapsed-note span {
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .table-overview-content,
@@ -184,11 +184,14 @@
 .overview-player-row span {
   color: var(--muted);
   font-size: 0.78rem;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .overview-player-row strong {
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .overview-player-row .time-left-pill {
@@ -196,14 +199,23 @@
 }
 
 .overview-player-row.all-time-row {
-  grid-template-columns: 78px minmax(0, 1fr) minmax(70px, auto) auto;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
 }
 
 .overview-player-row small {
   color: var(--muted);
   font-size: 0.72rem;
-  font-weight: 850;
-  overflow-wrap: anywhere;
+  font-weight: 700;
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-player-row.all-time-row .time-left-pill {
+  grid-column: 3;
+  grid-row: 1 / span 2;
 }
 
 .table-player-actions {

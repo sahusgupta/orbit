@@ -1,10 +1,19 @@
-import React, { useRef, useState } from 'react';
-import { Animated, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { AccessibilityInfo, Animated, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import type { DistanceFilter } from '../domain/playerTypes';
 import { sharedStyles as styles } from '../styles/sharedStyles';
 import { colors } from '../styles/playerTheme';
+
+function useReducedMotionSetting() {
+  const [reducedMotion, setReducedMotion] = useState(false);
+  useEffect(() => {
+    void AccessibilityInfo.isReduceMotionEnabled().then(setReducedMotion);
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReducedMotion);
+    return () => subscription.remove();
+  }, []);
+  return reducedMotion;
+}
 
 export function SearchToolbar({
   value,
@@ -24,6 +33,7 @@ export function SearchToolbar({
       <View style={styles.plainSearchBar}>
         <Ionicons name="search-outline" size={18} color={colors.muted} />
         <TextInput
+          accessibilityLabel={placeholder}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
@@ -31,7 +41,7 @@ export function SearchToolbar({
           style={styles.searchInput}
         />
       </View>
-      <Pressable accessibilityLabel={`Show ${filterLabel} filters`} onPress={onOpenFilters} style={styles.plainFiltersButton}>
+      <Pressable accessibilityLabel={`Show ${filterLabel} filters`} accessibilityRole="button" onPress={onOpenFilters} style={styles.plainFiltersButton}>
         <Ionicons name="options-outline" size={18} color={colors.ink} />
         <Text style={styles.plainFiltersText}>Filters</Text>
       </Pressable>
@@ -55,15 +65,15 @@ export function FiltersBottomSheet({
   return (
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.filterSheetBackdrop}>
-        <Pressable accessibilityLabel={`Dismiss ${title.toLowerCase()}`} onPress={onClose} style={styles.filterSheetDismiss} />
-        <View style={styles.filterSheetCard}>
+        <Pressable accessibilityLabel={`Dismiss ${title.toLowerCase()}`} accessibilityRole="button" onPress={onClose} style={styles.filterSheetDismiss} />
+        <View accessibilityViewIsModal style={styles.filterSheetCard}>
           <View style={styles.filterSheetHandle} />
           <View style={styles.filterSheetHeader}>
-            <Pressable accessibilityLabel={`Reset ${title.toLowerCase()}`} onPress={onReset} style={styles.filterSheetHeaderAction}>
+            <Pressable accessibilityLabel={`Reset ${title.toLowerCase()}`} accessibilityRole="button" onPress={onReset} style={styles.filterSheetHeaderAction}>
               <Text style={styles.filterSheetResetText}>Reset</Text>
             </Pressable>
             <Text style={styles.filterSheetTitle}>{title}</Text>
-            <Pressable accessibilityLabel={`Apply ${title.toLowerCase()}`} onPress={onClose} style={[styles.filterSheetHeaderAction, styles.filterSheetDoneAction]}>
+            <Pressable accessibilityLabel={`Apply ${title.toLowerCase()}`} accessibilityRole="button" onPress={onClose} style={[styles.filterSheetHeaderAction, styles.filterSheetDoneAction]}>
               <Text style={styles.filterSheetDoneText}>Done</Text>
             </Pressable>
           </View>
@@ -92,7 +102,14 @@ export function DistanceFilterControl({ value, onChange }: { value: DistanceFilt
           { value: 20 as const, label: '20 mi' },
           { value: 50 as const, label: '50 mi' }
         ]).map((option) => (
-          <Pressable key={option.value} onPress={() => onChange(option.value)} style={[styles.distanceChip, value === option.value && styles.distanceChipActive]}>
+          <Pressable
+            accessibilityLabel={`${option.label} distance`}
+            accessibilityRole="button"
+            accessibilityState={{ selected: value === option.value }}
+            key={option.value}
+            onPress={() => onChange(option.value)}
+            style={[styles.distanceChip, value === option.value && styles.distanceChipActive]}
+          >
             <Text style={[styles.distanceChipText, value === option.value && styles.distanceChipTextActive]}>{option.label}</Text>
           </Pressable>
         ))}
@@ -118,6 +135,8 @@ export function IconActionButton({
   return (
     <Pressable
       accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled), selected: Boolean(active) }}
       disabled={disabled}
       onPress={onPress}
       onHoverIn={() => setHovered(true)}
@@ -137,8 +156,14 @@ export function IconActionButton({
 export function AnimatedSurface({ children, style }: { children: React.ReactNode; style?: object | object[] }) {
   const scale = useRef(new Animated.Value(1)).current;
   const lift = useRef(new Animated.Value(0)).current;
+  const reducedMotion = useReducedMotionSetting();
 
   const animate = (toScale: number, toLift: number) => {
+    if (reducedMotion) {
+      scale.setValue(1);
+      lift.setValue(0);
+      return;
+    }
     Animated.parallel([
       Animated.spring(scale, { toValue: toScale, friction: 7, tension: 120, useNativeDriver: false }),
       Animated.spring(lift, { toValue: toLift, friction: 8, tension: 90, useNativeDriver: false })
@@ -182,8 +207,14 @@ export function AnimatedButton({
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const glow = useRef(new Animated.Value(0)).current;
+  const reducedMotion = useReducedMotionSetting();
 
   const animate = (toScale: number, toGlow: number) => {
+    if (reducedMotion) {
+      scale.setValue(1);
+      glow.setValue(0);
+      return;
+    }
     Animated.parallel([
       Animated.spring(scale, { toValue: toScale, friction: 5, tension: 160, useNativeDriver: false }),
       Animated.spring(glow, { toValue: toGlow, friction: 7, tension: 90, useNativeDriver: false })
@@ -201,6 +232,8 @@ export function AnimatedButton({
       ]}
     >
       <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ disabled: Boolean(disabled) }}
         disabled={disabled}
         onHoverIn={() => animate(1.025, 1)}
         onHoverOut={() => animate(1, 0)}
@@ -209,13 +242,7 @@ export function AnimatedButton({
         onPressOut={() => animate(1, 0)}
         style={style}
       >
-        {variant === 'primary' ? (
-          <LinearGradient colors={disabled ? ['#94a3b8', '#7f8ea3'] : ['#0B1020', '#4D7CFE']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.buttonGradient}>
-            {children}
-          </LinearGradient>
-        ) : (
-          children
-        )}
+        {variant === 'primary' ? <View style={styles.buttonGradient}>{children}</View> : children}
       </Pressable>
     </Animated.View>
   );
@@ -232,7 +259,7 @@ export function SimpleMenuRow({
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={styles.simpleMenuRow}>
+    <Pressable accessibilityLabel={title} accessibilityRole="button" onPress={onPress} style={styles.simpleMenuRow}>
       <View style={styles.simpleMenuIcon}><Ionicons name={icon} size={20} color={colors.primary} /></View>
       <View style={styles.simpleMenuCopy}>
         <Text style={styles.cardTitle}>{title}</Text>

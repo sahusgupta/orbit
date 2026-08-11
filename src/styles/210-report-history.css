@@ -25,7 +25,7 @@
   border-radius: 9px;
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 800;
+  font-weight: 700;
   min-height: 38px;
   padding: 0 14px;
 }
@@ -84,7 +84,7 @@
 .report-profit-breakdown span {
   color: rgba(255, 255, 255, 0.78);
   font-size: 0.76rem;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -187,7 +187,7 @@ body.low-light .report-period-tabs button.active {
 .report-numerical-grid small {
   color: var(--muted);
   font-size: 0.72rem;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .report-numerical-grid strong {
@@ -221,7 +221,7 @@ body.low-light .report-period-tabs button.active {
 .report-analysis-heading span {
   color: var(--muted);
   font-size: 0.7rem;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -262,7 +262,7 @@ body.low-light .report-period-tabs button.active {
 .report-hour-list time {
   color: var(--ink);
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .report-hour-list article > div,

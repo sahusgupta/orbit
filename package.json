@@ -20,6 +20,8 @@
     "download:dev": "npm run download:stage && vite --config download-site/vite.config.mjs --host 127.0.0.1 --port 4174",
     "download:build": "vite build --config download-site/vite.config.mjs",
     "check:public-site": "node scripts/verify-public-site.mjs",
+    "brand:sync": "node scripts/brand-assets.cjs --write",
+    "check:brand": "node scripts/brand-assets.cjs",
     "api:install": "npm install --prefix apps/api --no-package-lock",
     "api:dev": "npm run dev --prefix apps/api",
     "api:start": "npm run start --prefix apps/api",
