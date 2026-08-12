@@ -113,7 +113,7 @@ describe('Electron local SQLite store', () => {
     expect(store.getDatabase()).toBe(databaseInstance);
     expect(store.getDatabase()).toBe(databaseInstance);
     expect(DatabaseSync).toHaveBeenCalledOnce();
-    expect(DatabaseSync).toHaveBeenCalledWith('C:\\isolated-user-data\\tablemanager.sqlite3');
+    expect(DatabaseSync).toHaveBeenCalledWith(path.join('C:\\isolated-user-data', 'tablemanager.sqlite3'));
     expect(fileSystem.mkdirSync).toHaveBeenCalledWith('C:\\isolated-user-data', { recursive: true });
     const schema = String(exec.mock.calls[0][0]);
     expect(schema).toContain('PRAGMA journal_mode = WAL');
@@ -214,7 +214,7 @@ describe('Electron local SQLite store', () => {
     }));
 
     expect(store.readLocalDatabase()).toEqual(legacyRecord);
-    expect(fileSystem.readFileSync).toHaveBeenCalledWith('C:\\isolated-user-data\\tablemanager-db.json', 'utf8');
+    expect(fileSystem.readFileSync).toHaveBeenCalledWith(path.join('C:\\isolated-user-data', 'tablemanager-db.json'), 'utf8');
     expect(exec.mock.calls.slice(-2).map((call) => call[0])).toEqual(['BEGIN IMMEDIATE', 'COMMIT']);
   });
 
@@ -232,7 +232,7 @@ describe('Electron local SQLite store', () => {
 
     expect(store.writeLocalDatabase(validState)).toEqual({
       ok: true,
-      path: 'C:\\isolated-user-data\\tablemanager.sqlite3',
+      path: path.join('C:\\isolated-user-data', 'tablemanager.sqlite3'),
       engine: 'sqlite',
       accountKey: 'club-one'
     });

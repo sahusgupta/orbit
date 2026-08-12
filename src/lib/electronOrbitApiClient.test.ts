@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
@@ -447,7 +448,7 @@ describe('Electron client telemetry', () => {
     expect(randomUUID).toHaveBeenCalledOnce();
     expect(fileSystem.mkdirSync).toHaveBeenCalledWith('C:\\isolated', { recursive: true });
     expect(fileSystem.writeFileSync).toHaveBeenCalledWith(
-      'C:\\isolated\\orbit-device.json',
+      path.join('C:\\isolated', 'orbit-device.json'),
       '{\n  "deviceId": "generated-device",\n  "createdAt": "2026-08-07T12:00:00.000Z"\n}'
     );
   });
