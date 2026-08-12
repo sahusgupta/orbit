@@ -236,5 +236,11 @@ service cloud.firestore {
         && !request.resource.data.keys().hasAny(['hostPlayerEmail']);
       allow update, delete: if false;
     }
+
+    // Firebase Admin is the only reader/writer for every unmatched collection,
+    // including Orbit's authoritative state, outbox, audit, and telemetry data.
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }

@@ -1,7 +1,8 @@
 const { sanitizeAccountKey } = require('../orbitCore');
-const { getDatabase } = require('./connection');
+const { firestoreDocumentId, getDatabase } = require('./connection');
 const { redactText } = require('../operations/dataProtection');
 
+const clientsCollection = 'orbitClients';
 const boundedText = (value, maximum) => String(value || '').trim().slice(0, maximum);
 
 function normalizeClientPayload(payload) {
@@ -29,98 +30,79 @@ function normalizeClientPayload(payload) {
   };
 }
 
-function mapClientRow(row) {
-  if (!row) return null;
+function clientPath(deviceId) {
+  return `${clientsCollection}/${firestoreDocumentId(deviceId)}`;
+}
+
+function mapClient(record) {
+  if (!record) return null;
   return {
-    deviceId: row.device_id,
-    venueId: row.venue_id,
-    venueName: row.venue_name || '',
-    deviceName: row.device_name || '',
-    appVersion: row.app_version,
-    platform: row.platform,
-    environment: row.environment,
-    updateStatus: row.update_status || '',
-    updateEvent: row.update_event || '',
-    lastSeenAt: row.last_seen_at,
-    lastError: row.last_error || '',
-    currentUser: row.current_user_json ? JSON.parse(row.current_user_json) : null,
-    firstSeenAt: row.first_seen_at,
-    updatedAt: row.updated_at
+    deviceId: record.deviceId,
+    venueId: record.venueId,
+    venueName: record.venueName || '',
+    deviceName: record.deviceName || '',
+    appVersion: record.appVersion,
+    platform: record.platform,
+    environment: record.environment,
+    updateStatus: record.updateStatus || '',
+    updateEvent: record.updateEvent || '',
+    lastSeenAt: record.lastSeenAt,
+    lastError: record.lastError || '',
+    currentUser: record.currentUser || null,
+    firstSeenAt: record.firstSeenAt,
+    updatedAt: record.updatedAt
   };
 }
 
 async function getClient(deviceId) {
   const database = await getDatabase();
-  const row = await database.get('SELECT * FROM clients WHERE device_id = $1', [String(deviceId || '').trim()]);
-  return mapClientRow(row);
+  return mapClient(await database.getDocument(clientPath(String(deviceId || '').trim())));
 }
 
 async function upsertClient(payload) {
-  const db = await getDatabase();
+  const database = await getDatabase();
   const client = normalizeClientPayload(payload);
   const now = new Date().toISOString();
-  await db.run(`
-    INSERT INTO clients (
-      device_id, venue_id, venue_name, device_name, app_version, platform, environment,
-      update_status, update_event, last_seen_at, last_error, current_user_json, first_seen_at, updated_at
-    )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-    ON CONFLICT(device_id) DO UPDATE SET
-      venue_id = excluded.venue_id,
-      venue_name = excluded.venue_name,
-      device_name = excluded.device_name,
-      app_version = excluded.app_version,
-      platform = excluded.platform,
-      environment = excluded.environment,
-      update_status = COALESCE(NULLIF(excluded.update_status, ''), clients.update_status),
-      update_event = COALESCE(NULLIF(excluded.update_event, ''), clients.update_event),
-      last_seen_at = excluded.last_seen_at,
-      last_error = excluded.last_error,
-      current_user_json = excluded.current_user_json,
-      updated_at = excluded.updated_at
-  `, [
-    client.deviceId,
-    client.venueId,
-    client.venueName,
-    client.deviceName,
-    client.appVersion,
-    client.platform,
-    client.environment,
-    client.updateStatus,
-    client.updateEvent,
-    client.lastSeenAt,
-    client.lastError,
-    client.currentUser ? JSON.stringify(client.currentUser) : null,
-    now,
-    now
-  ]);
-  return getClient(client.deviceId);
+  const path = clientPath(client.deviceId);
+  const record = await database.runTransaction(async (transaction) => {
+    const previous = await transaction.getDocument(path);
+    const next = {
+      ...client,
+      updateStatus: client.updateStatus || previous?.updateStatus || '',
+      updateEvent: client.updateEvent || previous?.updateEvent || '',
+      firstSeenAt: previous?.firstSeenAt || now,
+      updatedAt: now
+    };
+    transaction.setDocument(path, next);
+    return next;
+  });
+  return mapClient(record);
 }
 
 async function listClients(filters = {}) {
-  const params = [];
-  const conditions = [];
-  if (filters.venueId) {
-    conditions.push(`venue_id = $${params.length + 1}`);
-    params.push(sanitizeAccountKey(filters.venueId));
-  }
-  if (filters.beforeLastSeenAt) {
-    const index = params.length + 1;
-    conditions.push(`(last_seen_at < $${index} OR (last_seen_at = $${index + 1} AND device_id > $${index + 2}))`);
-    params.push(String(filters.beforeLastSeenAt), String(filters.beforeLastSeenAt), String(filters.beforeDeviceId || ''));
-  }
-  const limit = Math.min(Math.max(Number(filters.limit || 100), 1), 251);
   const database = await getDatabase();
-  const rows = await database.all(`
-    SELECT * FROM clients
-    ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
-    ORDER BY last_seen_at DESC, device_id ASC
-    LIMIT ${limit}
-  `, params);
-  return rows.map(mapClientRow);
+  const queryFilters = filters.venueId
+    ? [{ field: 'venueId', op: '==', value: sanitizeAccountKey(filters.venueId) }]
+    : [];
+  const orders = [
+    { field: 'lastSeenAt', direction: 'desc' },
+    { field: '__name__', direction: 'asc' }
+  ];
+  const startAfter = filters.beforeLastSeenAt
+    ? [String(filters.beforeLastSeenAt), firestoreDocumentId(filters.beforeDeviceId || 'cursor')]
+    : undefined;
+  const limit = Math.min(Math.max(Number(filters.limit || 100), 1), 251);
+  const documents = await database.queryCollection(clientsCollection, {
+    filters: queryFilters,
+    orders,
+    startAfter,
+    limit
+  });
+  return documents.map((document) => mapClient(document.data));
 }
 
 module.exports = {
+  clientsCollection,
   getClient,
   listClients,
   upsertClient

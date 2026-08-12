@@ -12,8 +12,8 @@ const { registerHealthRoute, registerLegalRoutes } = require('./routes/system');
 const { getDatabaseStatus } = require('./database');
 
 function createApp() {
-  // Validate hosted persistence configuration during cold start. Production
-  // must never silently fall back to an ephemeral or instance-local database.
+  // Validate the server-only authoritative Firestore configuration during cold
+  // start. Hosted production must never fall back to an in-memory test store.
   getDatabaseStatus();
   const app = express();
   const startedAt = new Date().toISOString();
@@ -50,4 +50,10 @@ function createApp() {
   return app;
 }
 
-module.exports = { createApp };
+// Vercel's Express adapter requires the detected entry module itself to export
+// the request handler. Keep the factory attached for isolated tests and other
+// callers that need a fresh application instance.
+const app = createApp();
+app.createApp = createApp;
+
+module.exports = app;

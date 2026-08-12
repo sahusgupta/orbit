@@ -9,7 +9,7 @@ npm ci --prefix apps/api
 $env:ORBIT_MACHINE_CREDENTIALS_JSON='[{"id":"local-desktop","key":"dev-orbit-key","accountKey":"local-club","scopes":["client:write"],"expiresAt":"2099-01-01T00:00:00.000Z"}]'
 $env:ORBIT_OWNER_API_KEY="separate-local-owner-key"
 $env:API_PORT="4629"
-$env:DATABASE_URL="file:./data/orbit-api.sqlite3"
+$env:FIRESTORE_EMULATOR_HOST="127.0.0.1:8080"
 npm run api:dev
 ```
 
@@ -48,9 +48,9 @@ Nonpublic endpoints require an audience-appropriate identity: a scoped machine/p
 - `ORBIT_PHONE_CHALLENGE_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID`: server-side SMS OTP verification. No Twilio credential is shipped to Player clients.
 - `ORBIT_ACCOUNT_DELETION_POLICY_JSON` and `ORBIT_DELETION_PSEUDONYM_SECRET`: explicit deletion/anonymization dispositions and stable protected subject identifiers. See `docs/architecture/DATA_CLASSIFICATION.md`; no legal retention policy is inferred.
 - `ORBIT_LICENSE_PUBLIC_KEY_PEM`: optional newline-escaped P-256 public key override used to verify an administrator-provisioned signed pilot-license envelope. The checked-in branding public key is the default.
-- `DATABASE_URL`: use `file:./data/orbit-api.sqlite3` only for isolated local development/tests. Hosted production requires a durable PostgreSQL URL and fails closed when it is unset; ephemeral `/tmp` SQLite is not supported.
-- `DATABASE_POOL_MAX`, `DATABASE_CONNECT_TIMEOUT_MS`, and `DATABASE_IDLE_TIMEOUT_MS`: bounded PostgreSQL connection-pool controls. Defaults are 10, 5 seconds, and 30 seconds.
-- `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`: optional Firebase service account credentials. When configured, API state saves player-safe live game documents at `clubs/{licenseKey}/games/{gameId}`, operational session history at `clubs/{licenseKey}/gameSessions/{sessionId}`, and canonical player documents at `clubs/{licenseKey}/players/{playerId}`. Membership players are documents in the `players` subcollection and are not duplicated as an array on the club document.
+- `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`: one approved Firebase Admin credential source is required by the API. Firestore is Orbit's only server datastore. The API also publishes player-safe live game documents at `clubs/{licenseKey}/games/{gameId}`, operational session history at `clubs/{licenseKey}/gameSessions/{sessionId}`, and canonical player documents at `clubs/{licenseKey}/players/{playerId}`. Membership players are documents in the `players` subcollection and are not duplicated as an array on the club document.
+- `FIRESTORE_EMULATOR_HOST`: optional local-only Firestore emulator address. Never point ordinary development or tests at production.
+- `ORBIT_FIRESTORE_MEMORY`: unit-test-only Firestore fake. Hosted runtimes reject it.
 - `FIREBASE_WEB_API_KEY`: Firebase web-project API key used by the API only to request the configured Firebase password-reset email. It does not grant Admin access. Password changes still require one of the server-only Firebase Admin credential mechanisms above.
 - `NODE_ENV`: `development`, `staging`, or `production`.
 - `STRIPE_SECRET_KEY`: Stripe server secret used only by the API.
@@ -64,11 +64,11 @@ Nonpublic endpoints require an audience-appropriate identity: a scoped machine/p
 - `ORBIT_DAY_PASS_PRICE_CENTS` and `ORBIT_MONTHLY_MEMBERSHIP_PRICE_CENTS`: authoritative server-side membership prices (defaults: `1000` and `3500`).
 - `ORBIT_PAYMENT_CURRENCY`: three-letter currency code, defaults to `usd`.
 
-`src/database.js` is the stable asynchronous persistence facade. `src/db/connection.js` selects local SQLite or durable PostgreSQL at runtime; the focused client, telemetry, state, report, and publication-outbox repositories use the same adapter boundary.
+`src/database.js` is the stable asynchronous persistence facade. `src/db/connection.js` owns the server-only Firebase Admin Firestore boundary; the focused client, telemetry, state, report, recovery, security-audit, and publication-outbox repositories use it. Firestore is the sole server persistence implementation.
 
 `src/server.js` owns process listen/shutdown and exports the composed Express app. Non-listening middleware/route composition lives in `src/app.js`, with focused owners under `src/http/` and `src/routes/`.
 
-Vercel's deployment filesystem is read-only except for `/tmp`, so hosted startup now requires a PostgreSQL `DATABASE_URL`. The API refuses the former ephemeral `/tmp` fallback. Apply the additive schema first, validate connectivity, and import an existing characterized state only through revision-zero migration; see `docs/architecture/AUTHORITATIVE_STATE.md`.
+Hosted startup requires Firebase Admin credentials and fails closed without them. Deploy the reviewed Firestore indexes and rules, validate connectivity, and initialize any venue missing from the authoritative Firestore collection through its revision-zero desktop-cache migration; see `docs/architecture/AUTHORITATIVE_STATE.md`.
 
 ## Desktop Connection
 
@@ -94,16 +94,16 @@ Open the protected dashboard at:
 https://orbitapp-one.vercel.app/dashboard
 ```
 
-The Pilot licenses section shows active, expired, and revoked keys; the venue; key suffix; last use; and expiration. An administrator can set an exact date, extend by 30 or 90 days, or revoke the license immediately.
+The Pilot licenses section shows active, expired, and revoked keys; the venue; key suffix; last use; and expiration. An administrator can set an exact date, extend by 30 or 90 days, or revoke the license immediately. Every active-key card also exposes the matching management account's recovery override, reset-email, and direct password controls when that account has a configured login.
 
 ## Management Account Recovery
 
-The dashboard's **Management account access** section provides two separate recovery paths for card-house management logins. Neither path reveals an existing password.
+The dashboard's **Pilot licenses** and **Management account access** sections provide the same protected recovery controls for card-house management logins. Neither path reveals an existing password.
 
 For a card house that was locked out after its key expired:
 
 1. Renew the managed pilot license first. Recovery never bypasses an expired or revoked license.
-2. In **Management account access**, start a 15-, 30-, or 60-minute owner-assisted recovery override for that venue.
+2. On the active key card or in **Management account access**, start a 15-, 30-, or 60-minute owner-assisted recovery override for that venue.
 3. Tell the card house to load its current signed key (or an approved replacement key mapped to the same account), choose **Use owner-assisted recovery** on the Orbit sign-in screen, and select one new password of 12–128 characters.
 4. The backend binds the request to the account authenticated by that pilot key, replaces the Firebase password, revokes existing Firebase refresh tokens, commits the compatible management hash through the authoritative state revision/outbox path, and consumes the override. The pilot key itself never becomes a management password.
 5. Cancel an unused override from the dashboard. Expired, consumed, and canceled overrides cannot be reused.
@@ -111,11 +111,11 @@ For a card house that was locked out after its key expired:
 The owner can also:
 
 - **Send reset email**: asks Firebase Identity Toolkit to send its configured password-reset email. This requires `FIREBASE_WEB_API_KEY`. An email reset changes Firebase only, so keep an owner-assisted recovery override active until the card house finishes the matching password inside Orbit.
-- **Change password**: directly replaces a selected card house's Firebase and authoritative Orbit management password and revokes existing Firebase sessions. Share a temporary password through a separate secure channel; Orbit never displays it again.
+- **Set password**: directly replaces a selected card house's Firebase and authoritative Orbit management password and revokes existing Firebase sessions. Share a temporary password through a separate secure channel; Orbit never displays it again.
 
 Successful override, reset-email, and password-change actions appear in the dashboard's durable **Security activity** section. Those records include the venue account, protected actor reference, timestamp, revision or expiry metadata, and outcome. They never contain a password, password hash or salt, reset link, email body, raw pilot key, Firebase Admin credential, or dashboard session secret. Firebase acceptance of an email request is distinct from final mailbox delivery; provider-side delivery/activity visibility depends on the Firebase project's logging configuration.
 
-The recovery store is in the authoritative API database. Do not enable this workflow against an ephemeral hosted SQLite database. The feature does not change DNS, registrar settings, certificates, the canonical production hostname, legal/company attribution, or production-domain cutover.
+The recovery store is in the authoritative server-only Firestore collections. The feature does not change DNS, registrar settings, certificates, the canonical production hostname, legal/company attribution, or production-domain cutover.
 
 Self-asserted legacy bootstrap is disabled. A format-valid code and matching state body cannot create a managed license. Before a desktop uses a new signed key, an administrator must submit the complete signed envelope to the authenticated `POST /dashboard/licenses` endpoint. The API verifies its P-256 signature and expiration against the configured public key before storing the one-way authorization-code identifier. Existing already-managed licenses continue to authenticate normally; an unmanaged legacy installation must be provisioned from its original signed key rather than trusted from stored client state.
 
@@ -127,7 +127,7 @@ Desktop state/report operations are API-first:
 - `save-state` sends a stable mutation ID and expected revision to the standalone API. A successful server commit is then mirrored to the local desktop cache. If the API is unavailable, the local write is labelled an uncommitted offline cache and never reported as authoritative.
 - Only the API publication outbox writes authoritative club projections to Firebase. Renderer and Electron Firebase state publishers have no runtime call sites.
 - analytical reports are submitted to the standalone API first.
-- if the API is unavailable, the desktop uses the legacy local fallback so current installs keep working during the transition.
+- if the API is unavailable, the desktop uses an encrypted non-authoritative file cache so current installs can reopen offline; it never reports that cache as a server commit.
 
 Firestore publication uses sync protocol v2. The API tags every child document with a unique `syncRevision` and writes `clubs/{licenseKey}` last as the commit marker. This allows mobile clients to retain the previous complete snapshot while a multi-document API publish is in flight and to ignore stale documents from older revisions.
 

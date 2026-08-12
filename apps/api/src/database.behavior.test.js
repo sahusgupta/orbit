@@ -1,11 +1,5 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import database from './database.js';
-
-const databasePath = path.join(os.tmpdir(), `orbit-database-${process.pid}-${Date.now()}.sqlite3`);
-process.env.DATABASE_URL = `file:${databasePath}`;
 
 const {
   closeDatabase,
@@ -13,7 +7,6 @@ const {
   consumeManagementRecoveryOverride,
   createManagementRecoveryOverride,
   getClient,
-  getDatabasePath,
   getDatabaseStatus,
   getTelemetrySummary,
   getManagementRecoveryOverride,
@@ -70,9 +63,6 @@ const clientPayload = {
 
 afterAll(async () => {
   await closeDatabase();
-  for (const suffix of ['', '-shm', '-wal']) {
-    fs.rmSync(`${databasePath}${suffix}`, { force: true });
-  }
 });
 
 afterEach(() => {
@@ -131,21 +121,13 @@ describe('API database facade behavior', () => {
     expect(await listManagementSecurityEvents({ accountKey: 'Room One' })).toEqual([event]);
   });
 
-  it('resolves local file URLs and identifies Postgres as a non-filesystem database', () => {
-    expect(getDatabasePath()).toBe(path.resolve(databasePath));
-
-    const configured = process.env.DATABASE_URL;
-    process.env.DATABASE_URL = 'postgres://database.example/orbit';
-    expect(getDatabasePath()).toBeNull();
-    process.env.DATABASE_URL = configured;
-
-    const nodeEnvironment = process.env.NODE_ENV;
-    delete process.env.DATABASE_URL;
-    process.env.NODE_ENV = 'production';
-    expect(() => getDatabaseStatus()).toThrow('DATABASE_URL must point to durable PostgreSQL storage');
-    process.env.DATABASE_URL = configured;
-    if (nodeEnvironment === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = nodeEnvironment;
+  it('uses the isolated Firestore implementation in tests without an alternate datastore', () => {
+    expect(getDatabaseStatus()).toEqual({
+      engine: 'firestore',
+      durable: false,
+      authoritative: true,
+      mode: 'memory-test'
+    });
   });
 
   it('upserts and queries complete client records while retaining non-empty update fields', async () => {

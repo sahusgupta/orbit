@@ -26,7 +26,7 @@ Recent movement:
 
 ## Post-V1 Opportunities
 
-1. Move from file-backed JSON to SQLite if pilot durability requirements demand relational querying/migrations.
+1. Continue validating Firestore revision, conflict, and offline-cache recovery behavior with larger pilot datasets.
 2. Add fuller multi-step undo history beyond the current last-action undo and correction log.
 3. Add configurable keyboard shortcuts after observing real floor usage.
 4. Add deeper trend-based owner opportunity details after several real nights of data.

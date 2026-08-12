@@ -16,6 +16,9 @@ describe('management recovery surfaces', () => {
     expect(script).toContain('data-account-action="start-recovery"');
     expect(script).toContain('data-account-action="send-reset-email"');
     expect(script).toContain('data-account-action="change-password"');
+    expect(script).toContain("license.status === 'active'");
+    expect(script).toContain('data-active-license-account-controls');
+    expect(script).toContain('handleManagementAccountAction(event, elements.licenses)');
     expect(script).toContain("'x-orbit-csrf': '1'");
     expect(script).not.toMatch(/localStorage|sessionStorage/);
   });

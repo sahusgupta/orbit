@@ -75,6 +75,59 @@ function renderList(target, items, renderItem, emptyText) {
   target.innerHTML = items.length ? items.map(renderItem).join('') : emptyText;
 }
 
+function renderManagementAccessControls(accountKey, account) {
+  if (!account?.hasManagementLogin) {
+    return '<p class="account-warning">This key has no configured management login. Password and recovery actions are unavailable until the venue creates one.</p>';
+  }
+  const recoveryActive = account.recovery?.status === 'active';
+  const escapedAccountKey = escapeHtml(accountKey);
+  return `
+    <div class="account-controls" data-account-control-scope="${escapedAccountKey}">
+      <section class="account-control-group">
+        <div>
+          <strong>Owner-assisted recovery</strong>
+          <p>Lets this venue use its current pilot key to establish one new password before the window expires.</p>
+        </div>
+        <div class="account-action-row">
+          <label>
+            <span>Window</span>
+            <select data-account-duration="${escapedAccountKey}">
+              <option value="15">15 minutes</option>
+              <option value="30" selected>30 minutes</option>
+              <option value="60">60 minutes</option>
+            </select>
+          </label>
+          <label class="reason-field">
+            <span>Support note (optional)</span>
+            <input data-account-reason="${escapedAccountKey}" maxlength="200" placeholder="Why recovery was approved" />
+          </label>
+          ${recoveryActive
+            ? `<button type="button" class="danger" data-account-action="cancel-recovery" data-account-key="${escapedAccountKey}">Cancel override</button>`
+            : `<button type="button" data-account-action="start-recovery" data-account-key="${escapedAccountKey}">Start override</button>`}
+          <button type="button" class="secondary" data-account-action="send-reset-email" data-account-key="${escapedAccountKey}">Send reset email</button>
+        </div>
+      </section>
+      <section class="account-control-group">
+        <div>
+          <strong>Set a new password</strong>
+          <p>Immediately replaces the Firebase and authoritative Orbit management password and revokes existing Firebase sessions. Share a temporary password through a separate secure channel.</p>
+        </div>
+        <div class="account-action-row">
+          <label>
+            <span>New password</span>
+            <input data-account-password="${escapedAccountKey}" type="password" minlength="12" maxlength="128" autocomplete="new-password" placeholder="12-128 characters" />
+          </label>
+          <label>
+            <span>Confirm password</span>
+            <input data-account-password-confirm="${escapedAccountKey}" type="password" minlength="12" maxlength="128" autocomplete="new-password" placeholder="Repeat password" />
+          </label>
+          <button type="button" class="danger-solid" data-account-action="change-password" data-account-key="${escapedAccountKey}">Set password</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function render() {
   elements.eventCount.textContent = state.totalEvents > state.events.length
     ? `${state.events.length} / ${state.totalEvents}`
@@ -96,31 +149,43 @@ function render() {
   renderList(
     elements.licenses,
     state.licenses,
-    (license) => `
-      <article class="license-row ${escapeHtml(license.status)}">
-        <div class="license-main">
-          <div>
-            <strong>${escapeHtml(license.issuedTo || license.licenseId)}</strong>
-            <div class="meta">
-              <span>${escapeHtml(license.licenseId)}</span>
-              <span>key ending ${escapeHtml(license.codeLast4 || '----')}</span>
-              <span>last used ${escapeHtml(formatTime(license.lastAuthenticatedAt) || 'never')}</span>
+    (license) => {
+      const account = state.managementAccounts.find((candidate) => candidate.accountKey === license.accountKey);
+      return `
+        <article class="license-row ${escapeHtml(license.status)}">
+          <div class="license-main">
+            <div>
+              <strong>${escapeHtml(license.issuedTo || license.licenseId)}</strong>
+              <div class="meta">
+                <span>${escapeHtml(license.licenseId)}</span>
+                <span>key ending ${escapeHtml(license.codeLast4 || '----')}</span>
+                <span>last used ${escapeHtml(formatTime(license.lastAuthenticatedAt) || 'never')}</span>
+              </div>
             </div>
+            <span class="license-status ${escapeHtml(license.status)}">${escapeHtml(license.status)}</span>
           </div>
-          <span class="license-status ${escapeHtml(license.status)}">${escapeHtml(license.status)}</span>
-        </div>
-        <div class="license-renewal">
-          <label>
-            <span>Valid through</span>
-            <input data-license-expiration="${escapeHtml(license.id)}" type="date" value="${escapeHtml(String(license.expiresAt || '').slice(0, 10))}" />
-          </label>
-          <button type="button" data-license-action="renew-date" data-license-id="${escapeHtml(license.id)}">Save date</button>
-          <button type="button" class="secondary" data-license-action="extend" data-license-days="30" data-license-id="${escapeHtml(license.id)}">+30 days</button>
-          <button type="button" class="secondary" data-license-action="extend" data-license-days="90" data-license-id="${escapeHtml(license.id)}">+90 days</button>
-          ${license.status !== 'revoked' ? `<button type="button" class="danger" data-license-action="revoke" data-license-id="${escapeHtml(license.id)}">Revoke</button>` : ''}
-        </div>
-      </article>
-    `,
+          <div class="license-renewal">
+            <label>
+              <span>Valid through</span>
+              <input data-license-expiration="${escapeHtml(license.id)}" type="date" value="${escapeHtml(String(license.expiresAt || '').slice(0, 10))}" />
+            </label>
+            <button type="button" data-license-action="renew-date" data-license-id="${escapeHtml(license.id)}">Save date</button>
+            <button type="button" class="secondary" data-license-action="extend" data-license-days="30" data-license-id="${escapeHtml(license.id)}">+30 days</button>
+            <button type="button" class="secondary" data-license-action="extend" data-license-days="90" data-license-id="${escapeHtml(license.id)}">+90 days</button>
+            ${license.status !== 'revoked' ? `<button type="button" class="danger" data-license-action="revoke" data-license-id="${escapeHtml(license.id)}">Revoke</button>` : ''}
+          </div>
+          ${license.status === 'active' ? `
+            <section class="license-account-access" data-active-license-account-controls="${escapeHtml(license.accountKey)}">
+              <div>
+                <strong>Management access for this active key</strong>
+                <p>${account?.username ? escapeHtml(account.username) : 'No management login is linked to this key yet.'}</p>
+              </div>
+              ${renderManagementAccessControls(license.accountKey, account)}
+            </section>
+          ` : ''}
+        </article>
+      `;
+    },
     'No managed pilot licenses yet. Provision a verified signed key through the protected license endpoint.'
   );
 
@@ -132,51 +197,7 @@ function render() {
       const license = state.licenses.find((candidate) => candidate.accountKey === account.accountKey);
       const recovery = account.recovery;
       const recoveryActive = recovery?.status === 'active';
-      const loginActions = account.hasManagementLogin ? `
-        <div class="account-controls">
-          <section class="account-control-group">
-            <div>
-              <strong>Owner-assisted recovery</strong>
-              <p>Lets this venue use its current pilot key to establish one new password before the window expires.</p>
-            </div>
-            <div class="account-action-row">
-              <label>
-                <span>Window</span>
-                <select data-account-duration="${escapeHtml(account.accountKey)}">
-                  <option value="15">15 minutes</option>
-                  <option value="30" selected>30 minutes</option>
-                  <option value="60">60 minutes</option>
-                </select>
-              </label>
-              <label class="reason-field">
-                <span>Support note (optional)</span>
-                <input data-account-reason="${escapeHtml(account.accountKey)}" maxlength="200" placeholder="Why recovery was approved" />
-              </label>
-              ${recoveryActive
-                ? `<button type="button" class="danger" data-account-action="cancel-recovery" data-account-key="${escapeHtml(account.accountKey)}">Cancel override</button>`
-                : `<button type="button" data-account-action="start-recovery" data-account-key="${escapeHtml(account.accountKey)}">Start override</button>`}
-              <button type="button" class="secondary" data-account-action="send-reset-email" data-account-key="${escapeHtml(account.accountKey)}">Send reset email</button>
-            </div>
-          </section>
-          <section class="account-control-group">
-            <div>
-              <strong>Set a new password</strong>
-              <p>Immediately replaces the Firebase and authoritative Orbit management password and revokes existing Firebase sessions. Share a temporary password through a separate secure channel.</p>
-            </div>
-            <div class="account-action-row">
-              <label>
-                <span>New password</span>
-                <input data-account-password="${escapeHtml(account.accountKey)}" type="password" minlength="12" maxlength="128" autocomplete="new-password" placeholder="12–128 characters" />
-              </label>
-              <label>
-                <span>Confirm password</span>
-                <input data-account-password-confirm="${escapeHtml(account.accountKey)}" type="password" minlength="12" maxlength="128" autocomplete="new-password" placeholder="Repeat password" />
-              </label>
-              <button type="button" class="danger-solid" data-account-action="change-password" data-account-key="${escapeHtml(account.accountKey)}">Change password</button>
-            </div>
-          </section>
-        </div>
-      ` : '<p class="account-warning">This venue has no configured management login. Password actions are unavailable.</p>';
+      const loginActions = renderManagementAccessControls(account.accountKey, account);
       return `
         <article class="management-account-row">
           <div class="account-heading">
@@ -445,17 +466,18 @@ elements.licenses.addEventListener('click', async (event) => {
   }
 });
 
-elements.managementAccounts.addEventListener('click', async (event) => {
+async function handleManagementAccountAction(event, container) {
   const button = event.target.closest('[data-account-action]');
   if (!button) return;
   const accountKey = button.dataset.accountKey;
   const action = button.dataset.accountAction;
   if (!accountKey || !action) return;
 
-  const passwordInput = elements.managementAccounts.querySelector(`[data-account-password="${CSS.escape(accountKey)}"]`);
-  const confirmationInput = elements.managementAccounts.querySelector(`[data-account-password-confirm="${CSS.escape(accountKey)}"]`);
-  const durationInput = elements.managementAccounts.querySelector(`[data-account-duration="${CSS.escape(accountKey)}"]`);
-  const reasonInput = elements.managementAccounts.querySelector(`[data-account-reason="${CSS.escape(accountKey)}"]`);
+  const controlScope = button.closest('[data-account-control-scope]') || container;
+  const passwordInput = controlScope.querySelector('[data-account-password]');
+  const confirmationInput = controlScope.querySelector('[data-account-password-confirm]');
+  const durationInput = controlScope.querySelector('[data-account-duration]');
+  const reasonInput = controlScope.querySelector('[data-account-reason]');
   let method = 'POST';
   let pathname = `/dashboard/management-accounts/${encodeURIComponent(accountKey)}`;
   let body = {};
@@ -521,6 +543,14 @@ elements.managementAccounts.addEventListener('click', async (event) => {
     setStatus(error instanceof Error ? error.message : 'Management account action failed.', 'error');
     button.disabled = false;
   }
+}
+
+elements.managementAccounts.addEventListener('click', (event) => {
+  void handleManagementAccountAction(event, elements.managementAccounts);
+});
+
+elements.licenses.addEventListener('click', (event) => {
+  void handleManagementAccountAction(event, elements.licenses);
 });
 
 loadDashboard()

@@ -6,14 +6,16 @@ Fresh audit date: 2026-08-10
 
 Terminal audit date: 2026-08-10
 
+Datastore amendment date: 2026-08-12
+
 ## Runtime boundaries
 
 | Surface | Entrypoint | Current ownership | Verification |
 | --- | --- | --- | --- |
 | Management renderer | `src/main.tsx`, `src/components/`, `src/app/persistence/`, and `src/application/management/` | React/Vite composition and UI state, typed routes, pure commands, explicit persistence adapters, and synchronization hooks | `tsconfig.renderer.json`, root Vitest, Vite build |
 | Renderer tests | `src/**/*.test.ts(x)` | jsdom/Node-assisted characterization and pure unit tests | `tsconfig.test.json`, root Vitest |
-| Electron | `electron/main.cjs`, extracted process modules, and API-owned `apps/api/src/shared/orbitCore.cjs` | desktop windowing, IPC, local SQLite, hosted/local API fallback, telemetry, reports, updates, explicit server-sync compatibility profile | dedicated non-DOM `tsconfig.electron.json`, tests, renderer build |
-| API | `apps/api/src/server.js` → `apps/api/src/app.js`, `apps/api/src/routes/`, `apps/api/src/http/`, `apps/api/src/database.js`, `apps/api/src/db/`, and `apps/api/src/services/` | process startup, non-listening Express composition, focused route/middleware owners, stable SQLite facade/repositories, shared privileged-client providers, and shared server-side player transforms | dedicated non-DOM `apps/api/tsconfig.json` check-JS plus API localhost characterization and root Vitest |
+| Electron | `electron/main.cjs`, extracted process modules, and API-owned `apps/api/src/shared/orbitCore.cjs` | desktop windowing, IPC, encrypted non-authoritative file cache, hosted/local API fallback, telemetry, reports, updates, explicit server-sync compatibility profile | dedicated non-DOM `tsconfig.electron.json`, tests, renderer build |
+| API | `apps/api/src/server.js` → `apps/api/src/app.js`, `apps/api/src/routes/`, `apps/api/src/http/`, `apps/api/src/database.js`, `apps/api/src/db/`, and `apps/api/src/services/` | process startup, non-listening Express composition, focused route/middleware owners, server-only authoritative Firestore repositories, shared privileged-client providers, and shared server-side player transforms | dedicated non-DOM `apps/api/tsconfig.json` check-JS plus API localhost characterization and root Vitest |
 | Player | `player-app/App.tsx` → `player-app/src/PlayerApp.tsx`, `app/`, `application/`, `features/`, `components/`, `styles/`, `domain/`, and focused `data/` adapters | Expo navigation/composition, native platform adapter, focused application/storage hooks, feature-owned React Native presentation, pure Player rules/decoders, and separate API/Firebase/subscription owners | Player TypeScript plus root Vitest |
 
 ## Current concentration
@@ -22,7 +24,7 @@ Terminal audit date: 2026-08-10
 | --- | ---: | --- |
 | `src/main.tsx` | 3,514 | Management application state/effects, command invocation, dialogs, persistence calls, and typed route composition remain here; feature-local drafts/view models, domain transitions, and persistence/synchronization policy have focused owners. |
 | `src/styles.css` and `src/styles/*.css` | 35-line entrypoint; 8,840 owned lines | The unchanged ordered cascade now has 35 feature/layer owners. Only the documented dark-theme compatibility pass exceeds 500 lines (649) because equal-specificity historical ordering is cohesive behavior. |
-| `electron/main.cjs` | 505 | Wires the shared server-sync compatibility profile, windows, IPC, Firebase request polling, outreach transport/logging, and application lifecycle. Extracted modules own updates, embedded backend, local SQLite/reports, API transport/telemetry, and pure runtime helpers. |
+| `electron/main.cjs` | 505 | Wires the shared server-sync compatibility profile, windows, IPC, Firebase request polling, outreach transport/logging, and application lifecycle. Extracted modules own updates, embedded backend, encrypted offline cache/reports, API transport/telemetry, and pure runtime helpers. |
 | `src/lib/playerSync.ts` | 847 | Canonical renderer publication/merge logic; protected by focused tests and protocol-v2 invariants. |
 | `apps/api/src/shared/orbitCore.cjs` | 471 | Pure API/Electron server-side snapshot and request transformations with explicit validation/compatibility profiles. |
 | `apps/api/src/server.js` and `apps/api/src/app.js` | 25 and 35 | Process listen/shutdown/export and non-listening HTTP composition are separate; focused HTTP/route modules are at most 162 lines. |
@@ -46,7 +48,7 @@ REF-007 replaced the 8,840-line stylesheet entrypoint with 35 ordered imports un
 
 REF-008 extracted Electron transport, persistence, embedded-backend, updater, and utility modules behind characterized process-local interfaces. REF-009 then moved the duplicated API/Electron player snapshot and request transformations into the API-contained `apps/api/src/shared/orbitCore.cjs`; the API keeps its public wrapper and validation defaults while Electron selects an explicit compatibility profile. Renderer management transforms remain intentionally separate because their account-key, membership-note, and full-table behaviors are observably different. Player remains the protocol consumer and revision-selection owner.
 
-REF-010 preserved the API's CommonJS start/export and database facade while separating schema/connection, four persistence repositories, non-listening app composition, authentication/error/publication/SSE middleware, and system/Player/dashboard/client route groups. Its isolated localhost characterization uses a unique temporary SQLite file and disabled external credentials; all 38 method/path registrations remain present.
+REF-010 preserved the API's CommonJS start/export and persistence facade while separating connection/repository ownership, non-listening app composition, authentication/error/publication/SSE middleware, and system/Player/dashboard/client route groups. Refactor P2 later replaced the characterized relational adapters with the sole server-only Firestore datastore and a test-only in-memory fake; route coverage keeps external credentials disabled.
 
 ## Remaining large-file ownership
 

@@ -1,5 +1,3 @@
-import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
@@ -7,7 +5,6 @@ import { once } from 'node:events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const host = '127.0.0.1';
-const databasePath = path.join(os.tmpdir(), `orbit-api-routes-${process.pid}-${Date.now()}.sqlite3`);
 const serverEntrypoint = path.join(__dirname, 'server.js');
 
 /** @type {import('node:child_process').ChildProcessWithoutNullStreams | undefined} */
@@ -64,7 +61,6 @@ beforeAll(async () => {
       ...process.env,
       API_HOST: host,
       API_PORT: String(port),
-      DATABASE_URL: `file:${databasePath}`,
       NODE_ENV: 'production',
       ORBIT_CLIENT_API_KEY: 'local-characterization-key',
       ORBIT_MACHINE_CREDENTIALS_JSON: JSON.stringify([{
@@ -75,7 +71,7 @@ beforeAll(async () => {
         expiresAt: '2099-01-01T00:00:00.000Z'
       }]),
       ORBIT_OWNER_API_KEY: 'local-owner-key',
-      ORBIT_ALLOW_LOCAL_SQLITE: 'true',
+      ORBIT_FIRESTORE_MEMORY: 'true',
       ORBIT_DASHBOARD_USER: 'character-admin',
       ORBIT_DASHBOARD_PASSWORD: 'local-dashboard-password',
       ORBIT_DASHBOARD_SESSION_SECRET: 'local-dashboard-session-secret-at-least-32',
@@ -102,9 +98,6 @@ afterAll(async () => {
       new Promise((resolve) => setTimeout(resolve, 5_000))
     ]);
     if (childProcess.exitCode === null) childProcess.kill('SIGKILL');
-  }
-  for (const suffix of ['', '-shm', '-wal']) {
-    fs.rmSync(`${databasePath}${suffix}`, { force: true });
   }
 });
 

@@ -21,12 +21,14 @@ blob-report/
 .eslintcache
 .vite/
 
-# Logs and local databases
+# Logs and local cache artifacts
 *.log
 *.sqlite-shm
 *.sqlite-wal
 *.sqlite3-shm
 *.sqlite3-wal
+tablemanager-cache.json
+tablemanager-db.json
 
 # Credentials and local service state
 .pilot-license-private-key.pem

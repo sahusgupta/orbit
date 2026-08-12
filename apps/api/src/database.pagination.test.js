@@ -1,11 +1,5 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import database from './database.js';
-
-const databasePath = path.join(os.tmpdir(), `orbit-history-${process.pid}-${Date.now()}.sqlite3`);
-process.env.DATABASE_URL = `file:${databasePath}`;
 
 const {
   closeDatabase,
@@ -61,18 +55,6 @@ describe('telemetry event history pagination', () => {
 
   afterAll(async () => {
     await closeDatabase();
-    for (const suffix of ['', '-shm', '-wal']) {
-      const target = `${databasePath}${suffix}`;
-      for (let attempt = 0; attempt < 4; attempt += 1) {
-        try {
-          fs.rmSync(target, { force: true });
-          break;
-        } catch (error) {
-          if (error?.code !== 'EBUSY' || attempt === 3) throw error;
-          await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
-        }
-      }
-    }
   });
 
   it('walks backward through every event without gaps or duplicates', async () => {
@@ -127,9 +109,10 @@ describe('telemetry event history pagination', () => {
     expect(new Set(errors.map((error) => error.id)).size).toBe(15);
   });
 
-  it('uses the matching composite index for venue telemetry history', async () => {
+  it('declares the matching Firestore composite indexes for operational history', async () => {
     const plans = await getOperationalQueryPlans();
-    expect(plans.venueTelemetry.map((row) => row.detail).join(' ')).toContain('client_telemetry_events_venue_time_idx');
-    expect(plans.venueClients.map((row) => row.detail).join(' ')).toContain('clients_venue_last_seen_idx');
+    expect(plans).toMatchObject({ engine: 'firestore' });
+    expect(plans.indexes.join(' ')).toContain('orbitTelemetryEvents');
+    expect(plans.indexes.join(' ')).toContain('orbitClients');
   });
 });

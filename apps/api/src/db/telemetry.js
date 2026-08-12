@@ -1,31 +1,52 @@
+const crypto = require('crypto');
 const { sanitizeAccountKey } = require('../orbitCore');
 const { listClients, upsertClient } = require('./clients');
-const { getDatabase } = require('./connection');
+const { firestoreDocumentId, getDatabase } = require('./connection');
 const { protectedIdentifier, redactDetails, redactText } = require('../operations/dataProtection');
+
+const updateEventsCollection = 'orbitClientUpdateEvents';
+const telemetryCollection = 'orbitTelemetryEvents';
+const errorsCollection = 'orbitClientErrors';
 const boundedText = (value, maximum) => String(value || '').trim().slice(0, maximum);
+
+function eventPath(collection, id) {
+  return `${collection}/${firestoreDocumentId(id)}`;
+}
+
+function cursorOptions(filters, defaultLimit, maximumLimit) {
+  const orders = [
+    { field: 'occurredAt', direction: 'desc' },
+    { field: '__name__', direction: 'desc' }
+  ];
+  return {
+    orders,
+    startAfter: filters.beforeOccurredAt
+      ? [String(filters.beforeOccurredAt), firestoreDocumentId(filters.beforeId || 'cursor')]
+      : undefined,
+    limit: Math.min(Math.max(Number(filters.limit || defaultLimit), 1), maximumLimit)
+  };
+}
 
 async function recordUpdateEvent(payload) {
   const client = await upsertClient(payload);
   const event = boundedText(payload.updateEvent || payload.event, 100);
   if (!event) throw new Error('updateEvent is required.');
   const now = new Date().toISOString();
-  const database = await getDatabase();
-  await database.run(`
-    INSERT INTO client_update_events (
-      device_id, venue_id, event, status, app_version, details_json, error, occurred_at, created_at
-    )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-  `, [
-    client.deviceId,
-    client.venueId,
+  const id = crypto.randomUUID();
+  const record = {
+    id,
+    deviceId: client.deviceId,
+    venueId: client.venueId,
     event,
-    boundedText(payload.updateStatus, 80),
-    boundedText(payload.appVersion || client.appVersion, 80),
-    payload.details ? JSON.stringify(redactDetails(payload.details)) : null,
-    redactText(payload.lastError || payload.error, 500),
-    payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now,
-    now
-  ]);
+    status: boundedText(payload.updateStatus, 80),
+    appVersion: boundedText(payload.appVersion || client.appVersion, 80),
+    details: payload.details ? redactDetails(payload.details) : null,
+    error: redactText(payload.lastError || payload.error, 500),
+    occurredAt: payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now,
+    createdAt: now
+  };
+  const database = await getDatabase();
+  await database.createDocument(eventPath(updateEventsCollection, id), record);
   await recordTelemetryEvent({
     ...payload,
     event,
@@ -40,26 +61,23 @@ async function recordTelemetryEvent(payload) {
   const event = boundedText(payload.event || payload.action, 100);
   if (!event) throw new Error('event is required.');
   const now = new Date().toISOString();
-  const occurredAt = payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now;
-  const database = await getDatabase();
-  await database.run(`
-    INSERT INTO client_telemetry_events (
-      device_id, venue_id, event, category, route, app_version, platform, details_json, occurred_at, created_at
-    )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-  `, [
-    client.deviceId,
-    client.venueId,
+  const id = crypto.randomUUID();
+  const record = {
+    id,
+    deviceId: client.deviceId,
+    venueId: client.venueId,
     event,
-    boundedText(payload.category || 'usage', 60),
-    boundedText(payload.route, 100),
-    boundedText(payload.appVersion || client.appVersion, 80),
-    boundedText(payload.platform || client.platform, 80),
-    payload.details ? JSON.stringify(redactDetails(payload.details)) : null,
-    occurredAt,
-    now
-  ]);
-  return (await listTelemetryEvents({ limit: 1 }))[0];
+    category: boundedText(payload.category || 'usage', 60),
+    route: boundedText(payload.route, 100),
+    appVersion: boundedText(payload.appVersion || client.appVersion, 80),
+    platform: boundedText(payload.platform || client.platform, 80),
+    details: payload.details ? redactDetails(payload.details) : null,
+    occurredAt: payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now,
+    createdAt: now
+  };
+  const database = await getDatabase();
+  await database.createDocument(eventPath(telemetryCollection, id), record);
+  return record;
 }
 
 async function recordClientError(payload) {
@@ -67,184 +85,79 @@ async function recordClientError(payload) {
   const message = redactText(payload.message || payload.error || payload.lastError, 500).trim();
   if (!message) throw new Error('message is required.');
   const now = new Date().toISOString();
-  const occurredAt = payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now;
-  const database = await getDatabase();
-  await database.run(`
-    INSERT INTO client_errors (
-      device_id, venue_id, message, source, route, stack, app_version, platform, details_json, occurred_at, created_at
-    )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-  `, [
-    client.deviceId,
-    client.venueId,
+  const id = crypto.randomUUID();
+  const record = {
+    id,
+    deviceId: client.deviceId,
+    venueId: client.venueId,
     message,
-    boundedText(payload.source, 100),
-    boundedText(payload.route, 100),
-    process.env.ORBIT_STORE_ERROR_STACKS === 'true' && process.env.NODE_ENV !== 'production'
+    source: boundedText(payload.source, 100),
+    route: boundedText(payload.route, 100),
+    stack: process.env.ORBIT_STORE_ERROR_STACKS === 'true' && process.env.NODE_ENV !== 'production'
       ? redactText(payload.stack, 4000)
       : `fingerprint:${protectedIdentifier(payload.stack || message)}`,
-    boundedText(payload.appVersion || client.appVersion, 80),
-    boundedText(payload.platform || client.platform, 80),
-    payload.details ? JSON.stringify(redactDetails(payload.details)) : null,
-    occurredAt,
-    now
-  ]);
-  return (await listClientErrors({ limit: 1 }))[0];
+    appVersion: boundedText(payload.appVersion || client.appVersion, 80),
+    platform: boundedText(payload.platform || client.platform, 80),
+    details: payload.details ? redactDetails(payload.details) : null,
+    occurredAt: payload.occurredAt ? new Date(payload.occurredAt).toISOString() : now,
+    createdAt: now
+  };
+  const database = await getDatabase();
+  await database.createDocument(eventPath(errorsCollection, id), record);
+  return record;
+}
+
+async function queryEvents(collection, filters, defaults) {
+  const database = await getDatabase();
+  const queryFilters = [];
+  if (filters.venueId) queryFilters.push({ field: 'venueId', op: '==', value: sanitizeAccountKey(filters.venueId) });
+  if (filters.deviceId) queryFilters.push({ field: 'deviceId', op: '==', value: String(filters.deviceId || '').trim() });
+  const options = cursorOptions(filters, defaults.defaultLimit, defaults.maximumLimit);
+  const documents = await database.queryCollection(collection, { ...options, filters: queryFilters });
+  return documents.map((document) => document.data);
 }
 
 async function listClientUpdateEvents(deviceId, filters = {}) {
-  const database = await getDatabase();
-  /** @type {Array<string | number>} */
-  const params = [String(deviceId || '').trim()];
-  let cursor = '';
-  if (filters.beforeOccurredAt) {
-    cursor = 'AND (occurred_at < $2 OR (occurred_at = $3 AND id < $4))';
-    params.push(String(filters.beforeOccurredAt), String(filters.beforeOccurredAt), Number(filters.beforeId || Number.MAX_SAFE_INTEGER));
-  }
-  const limit = Math.min(Math.max(Number(filters.limit || 100), 1), 251);
-  const rows = await database.all(`
-    SELECT * FROM client_update_events
-    WHERE device_id = $1 ${cursor}
-    ORDER BY occurred_at DESC, id DESC
-    LIMIT ${limit}
-  `, params);
-  return rows.map((row) => ({
-      id: row.id,
-      deviceId: row.device_id,
-      venueId: row.venue_id,
-      event: row.event,
-      status: row.status || '',
-      appVersion: row.app_version || '',
-      details: row.details_json ? JSON.parse(row.details_json) : null,
-      error: row.error || '',
-      occurredAt: row.occurred_at,
-      createdAt: row.created_at
-    }));
+  return queryEvents(updateEventsCollection, { ...filters, deviceId }, { defaultLimit: 100, maximumLimit: 251 });
 }
 
 async function listTelemetryEvents(filters = {}) {
-  const params = [];
-  const where = [];
-  if (filters.venueId) {
-    where.push(`venue_id = $${params.length + 1}`);
-    params.push(sanitizeAccountKey(filters.venueId));
-  }
-  if (filters.deviceId) {
-    where.push(`device_id = $${params.length + 1}`);
-    params.push(String(filters.deviceId || '').trim());
-  }
-  if (filters.beforeOccurredAt) {
-    const start = params.length + 1;
-    where.push(`(occurred_at < $${start} OR (occurred_at = $${start + 1} AND id < $${start + 2}))`);
-    params.push(
-      String(filters.beforeOccurredAt),
-      String(filters.beforeOccurredAt),
-      Number(filters.beforeId || Number.MAX_SAFE_INTEGER)
-    );
-  }
-  const limit = Math.min(Math.max(Number(filters.limit || 200), 1), 1000);
-  const database = await getDatabase();
-  const rows = await database.all(`
-      SELECT * FROM client_telemetry_events
-      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-      ORDER BY occurred_at DESC, id DESC
-      LIMIT ${limit}
-    `, params);
-  return rows.map((row) => ({
-      id: row.id,
-      deviceId: row.device_id,
-      venueId: row.venue_id,
-      event: row.event,
-      category: row.category,
-      route: row.route || '',
-      appVersion: row.app_version || '',
-      platform: row.platform || '',
-      details: row.details_json ? JSON.parse(row.details_json) : null,
-      occurredAt: row.occurred_at,
-      createdAt: row.created_at
-    }));
+  return queryEvents(telemetryCollection, filters, { defaultLimit: 200, maximumLimit: 1000 });
 }
 
 async function listClientErrors(filters = {}) {
-  const params = [];
-  const where = [];
-  if (filters.venueId) {
-    where.push(`venue_id = $${params.length + 1}`);
-    params.push(sanitizeAccountKey(filters.venueId));
-  }
-  if (filters.deviceId) {
-    where.push(`device_id = $${params.length + 1}`);
-    params.push(String(filters.deviceId || '').trim());
-  }
-  if (filters.beforeOccurredAt) {
-    const start = params.length + 1;
-    where.push(`(occurred_at < $${start} OR (occurred_at = $${start + 1} AND id < $${start + 2}))`);
-    params.push(String(filters.beforeOccurredAt), String(filters.beforeOccurredAt), Number(filters.beforeId || Number.MAX_SAFE_INTEGER));
-  }
-  const limit = Math.min(Math.max(Number(filters.limit || 100), 1), 500);
-  const database = await getDatabase();
-  const rows = await database.all(`
-      SELECT * FROM client_errors
-      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-      ORDER BY occurred_at DESC, id DESC
-      LIMIT ${limit}
-    `, params);
-  return rows.map((row) => ({
-      id: row.id,
-      deviceId: row.device_id,
-      venueId: row.venue_id,
-      message: row.message,
-      source: row.source || '',
-      route: row.route || '',
-      stack: row.stack || '',
-      appVersion: row.app_version || '',
-      platform: row.platform || '',
-      details: row.details_json ? JSON.parse(row.details_json) : null,
-      occurredAt: row.occurred_at,
-      createdAt: row.created_at
-    }));
+  return queryEvents(errorsCollection, filters, { defaultLimit: 100, maximumLimit: 500 });
 }
 
 async function getTelemetrySummary() {
-  const db = await getDatabase();
+  const database = await getDatabase();
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const [clientCountRow, activeClientCountRow, eventCountRow, errorCountRow, tableStarts24h] = await Promise.all([
-    db.get('SELECT COUNT(*) AS count FROM clients'),
-    db.get('SELECT COUNT(*) AS count FROM clients WHERE last_seen_at >= $1', [since24h]),
-    db.get('SELECT COUNT(*) AS count FROM client_telemetry_events'),
-    db.get('SELECT COUNT(*) AS count FROM client_errors'),
-    db.get("SELECT COUNT(*) AS count FROM client_telemetry_events WHERE event = 'table-started' AND occurred_at >= $1", [since24h])
+  const [clients, activeClients24h, events, errors, tableStarts24h] = await Promise.all([
+    database.countCollection('orbitClients'),
+    database.countCollection('orbitClients', [{ field: 'lastSeenAt', op: '>=', value: since24h }]),
+    database.countCollection(telemetryCollection),
+    database.countCollection(errorsCollection),
+    database.countCollection(telemetryCollection, [
+      { field: 'event', op: '==', value: 'table-started' },
+      { field: 'occurredAt', op: '>=', value: since24h }
+    ])
   ]);
-  return {
-    clients: Number(clientCountRow?.count || 0),
-    activeClients24h: Number(activeClientCountRow?.count || 0),
-    events: Number(eventCountRow?.count || 0),
-    errors: Number(errorCountRow?.count || 0),
-    tableStarts24h: Number(tableStarts24h?.count || 0)
-  };
+  return { clients, activeClients24h, events, errors, tableStarts24h };
 }
 
 async function getOperationalQueryPlans() {
-  const db = await getDatabase();
-  if (db.engine !== 'sqlite') return null;
-  const venueTelemetry = await db.all(`
-    EXPLAIN QUERY PLAN
-    SELECT * FROM client_telemetry_events
-    WHERE venue_id = $1
-    ORDER BY occurred_at DESC, id DESC
-    LIMIT 100
-  `, ['query-plan-evidence']);
-  const venueClients = await db.all(`
-    EXPLAIN QUERY PLAN
-    SELECT * FROM clients
-    WHERE venue_id = $1
-    ORDER BY last_seen_at DESC, device_id ASC
-    LIMIT 100
-  `, ['query-plan-evidence']);
-  return { venueClients, venueTelemetry };
+  return {
+    engine: 'firestore',
+    indexes: [
+      'orbitClients: venueId ASC, lastSeenAt DESC, __name__ ASC',
+      'orbitTelemetryEvents: venueId/deviceId ASC, occurredAt DESC, __name__ DESC',
+      'orbitClientErrors: venueId/deviceId ASC, occurredAt DESC, __name__ DESC'
+    ]
+  };
 }
 
 module.exports = {
+  errorsCollection,
   getOperationalQueryPlans,
   getTelemetrySummary,
   listClientErrors,
@@ -252,5 +165,7 @@ module.exports = {
   listTelemetryEvents,
   recordClientError,
   recordTelemetryEvent,
-  recordUpdateEvent
+  recordUpdateEvent,
+  telemetryCollection,
+  updateEventsCollection
 };

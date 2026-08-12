@@ -7,7 +7,7 @@ These instructions apply to the entire repository. A more deeply nested `AGENTS.
 Orbit is a connected poker-room operations platform. Repository evidence shows three primary product surfaces:
 
 - The management desktop application is React 19 and TypeScript under `src/`, built by Vite and hosted by Electron through `electron/main.cjs` and `electron/preload.cjs`.
-- The backend under `apps/api/` is a CommonJS Express application. Its entrypoint is `apps/api/src/server.js`; it uses SQLite locally and can publish player-safe state through Firebase Admin when explicitly configured.
+- The backend under `apps/api/` is a CommonJS Express application. Its entrypoint is `apps/api/src/server.js`; server-only Firebase Admin Firestore is its sole persistent datastore and its sole player-safe state publisher.
 - The player application under `player-app/` is an Expo/React Native application for iOS and Android. Expo loads `player-app/App.tsx`, which exports `player-app/src/PlayerApp.tsx`.
 
 Other important areas are:
@@ -20,7 +20,7 @@ Other important areas are:
 - `download-site/`: a separate Vite-built download site.
 - `docs/`: onboarding, audits, architecture notes, and agent workflow records.
 - `firebase.json` and `player-app/firestore.*`: Firebase rules/index configuration. These are deployment inputs, not permission to deploy.
-- `data/orbit-api.sqlite3`: a tracked database artifact. Treat it as potentially sensitive; do not open, alter, or replace it unless a task explicitly scopes that file and a human confirms the data is safe to handle.
+- Electron uses an OS-encrypted JSON file as a non-authoritative offline cache. It is not a datastore authority and must not be committed.
 
 This is not an npm workspace. The root, `apps/api/`, and `player-app/` each have their own `package-lock.json`. CI uses Node 22; no `engines`, `.nvmrc`, or `.node-version` constraint is currently committed.
 
@@ -54,7 +54,7 @@ Do not use the root `api:install` script for a reproducible verification install
 
 - Keep changes task-local. Do not perform unrelated renames, formatting sweeps, dependency upgrades, or cleanup.
 - Inspect before editing and search all callers before moving or changing shared behavior.
-- Do not change API contracts, Firebase collections/documents, SQLite schemas, persisted management state, player sync payloads, or authentication/authorization without explicit task scope.
+- Do not change API contracts, Firebase collections/documents, persisted management state, player sync payloads, or authentication/authorization without explicit task scope.
 - Do not weaken validation, authorization, Firestore rules, tests, linting, compiler strictness, audit visibility, or error handling to obtain a green check.
 - Do not replace precise types with `any`, broad assertions, ignored diagnostics, or skipped tests as a shortcut.
 - Preserve intentionally separate runtime boundaries: renderer code must use the Electron preload bridge; server-only secrets stay in the API/Electron process; `EXPO_PUBLIC_*` values are client-visible.
@@ -111,12 +111,12 @@ The e2e harnesses are not part of `npm run verify` or CI. `tests/e2e/management-
 - Do not push, open a pull request, tag, or publish a release unless explicitly instructed.
 - Keep commits focused and use an imperative conventional message where practical.
 - Review `git diff` and `git diff --cached` before committing. Stage only intended files.
-- Do not commit generated builds, logs, local databases, credentials, `.env` files, or dependency directories. The already tracked `data/orbit-api.sqlite3` is a legacy exception requiring human review, not a precedent.
+- Do not commit generated builds, logs, local caches, credentials, `.env` files, or dependency directories.
 
 ## Production Safety
 
 - Never deploy without explicit instruction. This includes Firebase rules/indexes, EAS builds/submissions, Vercel, Electron release publishing, and download-site publication.
-- Never access or mutate production Firebase, production SQLite/Postgres data, Stripe, RevenueCat, Twilio, SMTP, or other live services during ordinary engineering work.
+- Never access or mutate production Firebase, Stripe, RevenueCat, Twilio, SMTP, or other live services during ordinary engineering work.
 - Never run `clubs:cleanup:stress -- --execute`, `player:rules:deploy`, `dist:win:publish`, Firebase publication/import scripts, SMS sending, or comparable administrative actions without explicit scope and a reviewed target.
 - Never read, print, copy, modify, or commit secrets. Report sensitive paths only. Use blank/example values and approved local test credentials.
 - Assume `ORBIT_API_URL` defaults to a hosted service and renderer Firebase sync defaults on. Override both for isolated runtime work.

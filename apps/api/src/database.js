@@ -1,4 +1,4 @@
-const { closeDatabase, getDatabasePath, getDatabaseStatus } = require('./db/connection');
+const { closeDatabase, getDatabaseStatus } = require('./db/connection');
 const { getClient, listClients, upsertClient } = require('./db/clients');
 const {
   getOperationalQueryPlans,
@@ -31,7 +31,6 @@ module.exports = {
   createManagementRecoveryOverride,
   drainPublicationOutbox,
   getClient,
-  getDatabasePath,
   getDatabaseStatus,
   getPublicationStatus,
   getOperationalQueryPlans,
