@@ -27,17 +27,19 @@ requireMatch(release.includes('workflow_dispatch:'), 'Desktop releases must be m
 requireMatch(!/^\s*push\s*:/m.test(release), 'A push trigger must never publish or promote a desktop release.');
 requireMatch(includesAll(release, [
   'source_sha:', 'release_version:', 'release_reason:', 'rollback_of:', 'release_channel:', 'promote:',
-  'environment: desktop-release-signing', 'environment: production-release',
+  'environment: production-release',
   'npm run security:dependencies', 'npm run check:release-controls', 'npm run audit:module-graph', 'npm run verify',
   'npm run check:renderer-bundle', 'npm run check:public-site', 'npm run check:brand',
-  'npm run e2e:management', 'npm run e2e:public', 'npm run release:win:artifact',
+  'npm run e2e:management', 'npm run e2e:public',
+  'CSC_IDENTITY_AUTO_DISCOVERY: "false"',
+  'npx --no-install electron-builder --win --publish never --config.forceCodeSigning=false',
   'apps/api/src/stateMigration.test.js', 'apps/api/src/stateArchitecture.test.js', 'electron/accountMigration.test.js',
-  'Get-AuthenticodeSignature', 'actions/attest@v4', 'overwrite: false', '--prerelease'
-]), 'Release workflow is missing an immutable verification, signing, canary, promotion, or rollback control.');
+  'Get-FileHash', 'actions/attest@v4', 'overwrite: false', '--prerelease'
+]), 'Release workflow is missing an immutable verification, packaging, canary, promotion, or rollback control.');
+requireMatch(!release.includes('CSC_LINK') && !release.includes('CSC_KEY_PASSWORD'), 'The release workflow must not require signing credentials.');
+requireMatch(!release.includes('Get-AuthenticodeSignature'), 'Authenticode verification must not gate the release workflow.');
 requireMatch(packageJson.scripts['release:win:artifact']?.includes('--publish never'), 'The artifact command must never publish directly.');
 requireMatch(!packageJson.scripts['dist:win:publish'], 'The legacy direct-publish command must be removed.');
-requireMatch(packageJson.build?.forceCodeSigning === true, 'Desktop packaging must fail closed when code signing is unavailable.');
-requireMatch(packageJson.build?.win?.signAndEditExecutable === true, 'Windows executables must be signed and verified.');
 requireMatch(/sourcemap:\s*false/.test(vite), 'Desktop renderer source maps must be explicitly disabled.');
 
 const downloadedHandler = updater.slice(updater.indexOf("autoUpdater.on('update-downloaded'"), updater.indexOf("nativeAutoUpdater.on('before-quit-for-update'"));
@@ -60,4 +62,4 @@ for (const [name, browserSource] of [['management', managementBrowser], ['public
 requireMatch(fs.existsSync(path.join(root, 'docs', 'operations', 'RELEASE_AND_ROLLBACK.md')), 'Release and rollback operations must be documented.');
 
 if (failures.length) throw new Error(`Release control verification failed:\n- ${failures.join('\n- ')}`);
-console.log('Release controls passed: manual immutable source, full gates, signing, canary/promotion environments, rollback metadata, explicit install, and production smokes.');
+console.log('Release controls passed: manual immutable source, full gates, unsigned packaging, checksums, provenance, promotion environment, rollback metadata, explicit install, and production smokes.');
