@@ -222,7 +222,7 @@ export default function SettingsView({
                         <span>{staff.role} {staff.lastSelectedAt ? `- last selected ${formatClock(staff.lastSelectedAt)}` : ''}</span>
                       </div>
                       {staff.active ? (
-                        <button className="icon-button danger" onClick={() => deactivateStaffAccount(staff.id)} title="Deactivate staff account">
+                        <button aria-label={`Deactivate ${staff.name}`} className="icon-button danger" onClick={() => deactivateStaffAccount(staff.id)} title="Deactivate staff account">
                           <X size={16} />
                         </button>
                       ) : (

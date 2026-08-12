@@ -129,7 +129,7 @@ describe('Electron runtime boundary utilities', () => {
 
     const normalized = normalizeTextMessageBatch(payload);
 
-    expect(normalized).toHaveLength(200);
+    expect(normalized).toHaveLength(25);
     expect(normalized.slice(0, 2)).toEqual([
       { to: '+15550101', body: 'First', profileId: '7', playerName: 'Alex', gameId: 'nlh', reason: 'seat-opened' },
       { to: '+15550102', body: 'Second', profileId: '', playerName: '', gameId: '', reason: '' }

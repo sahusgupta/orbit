@@ -53,11 +53,11 @@
   z-index: 42;
 }
 .table-view-time-overview .table-view-panel-title { min-height: 52px; padding: 0 17px; }
-.table-view-time-overview .table-view-panel-title > span { align-items: center; color: #6f97ff; display: flex; font-size: .7rem; font-weight: 850; gap: 8px; letter-spacing: .13em; text-transform: uppercase; }
+.table-view-time-overview .table-view-panel-title > span { align-items: center; color: #6f97ff; display: flex; font-size: .7rem; font-weight: 700; gap: 8px; letter-spacing: .13em; text-transform: uppercase; }
 .table-view-time-list { max-height: min(308px, calc(100vh - 544px)); overflow-y: auto; padding: 7px 10px; }
 .table-view-time-list article { align-items: center; border-bottom: 1px solid rgba(77,124,254,.09); display: grid; gap: 12px; grid-template-columns: minmax(0,1fr) auto; padding: 14px 9px; }
 .table-view-time-list article > div { display: grid; gap: 3px; min-width: 0; }
-.table-view-time-list article span { color: #64748b; font-size: .61rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.table-view-time-list article span { color: #64748b; font-size: .61rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .table-view-time-list article strong { color: #e2e8f0; font-size: .88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table-view-time-list .time-left-pill { border: 1px solid currentColor; font-size: .75rem; min-width: 82px; padding: 7px 11px; text-align: center; }
 .table-view-time-list .time-left-pill.green { background: rgba(16,185,129,.18); color: #5eead4; }
@@ -136,7 +136,7 @@ body.low-light .table-overview-panel .time-left-pill.red { color: #fb7185; }
   flex: 0 0 auto;
   font-size: .7rem;
   font-style: normal;
-  font-weight: 800;
+  font-weight: 700;
   padding: 4px 8px;
 }
 .table-financial-metrics {
@@ -156,7 +156,7 @@ body.low-light .table-overview-panel .time-left-pill.red { color: #fb7185; }
 .table-financial-metrics span {
   color: var(--muted);
   font-size: .65rem;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: .02em;
   text-transform: uppercase;
 }
@@ -230,7 +230,7 @@ body.low-light .table-financial-metrics .table-profit-metric strong {
 .table-player-financial-metrics span {
   color: var(--muted);
   font-size: .6rem;
-  font-weight: 800;
+  font-weight: 700;
   text-transform: uppercase;
 }
 .table-player-financial-metrics strong {

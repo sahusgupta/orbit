@@ -46,14 +46,27 @@ export function usePlayerLiveData({
   const [privateGameStatus, setPrivateGameStatus] = useState('');
   const [tournaments, setTournaments] = useState<PlayerTournament[]>([]);
   const [tournamentRegistrations, setTournamentRegistrations] = useState<PlayerTournamentRegistration[]>([]);
+  const [tournamentLoadError, setTournamentLoadError] = useState('');
   const [selectedClubId, setSelectedClubId] = useState('');
   const [clubMembershipMessage, setClubMembershipMessage] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
+  const [liveDataStatus, setLiveDataStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const membershipStatusRef = useRef<Record<string, string>>({});
+  const profileHydrationSequence = useRef(0);
 
   useEffect(() => {
-    const timer = setInterval(() => setClockNow(Date.now()), 1000);
-    return () => clearInterval(timer);
+    const updateClock = () => setClockNow(Date.now());
+    const firstDelay = 60_000 - (Date.now() % 60_000);
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const timeout = setTimeout(() => {
+      updateClock();
+      interval = setInterval(updateClock, 60_000);
+    }, firstDelay);
+    return () => {
+      clearTimeout(timeout);
+      if (interval) clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -64,10 +77,12 @@ export function usePlayerLiveData({
 
   useEffect(() => {
     if (!accountLoaded || !hasAccount) return;
+    const sequence = ++profileHydrationSequence.current;
+    let active = true;
     // A failed remote hydrate preserves the locally restored profile.
     fetchPlayerProfile()
       .then((profile) => {
-        if (!profile) return;
+        if (!active || sequence !== profileHydrationSequence.current || !profile) return;
         const nextPlayer = {
           ...player,
           id: profile.uid,
@@ -93,12 +108,20 @@ export function usePlayerLiveData({
           setScreen('findGames');
         }
       })
-      .catch(() => undefined);
-  }, [accountLoaded, firebaseIdentity?.uid, hasAccount]);
+      .catch(() => {
+        if (active && sequence === profileHydrationSequence.current) setSyncStatus('Your saved profile is available offline. Retry when your connection returns.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [accountLoaded, firebaseIdentity?.uid, hasAccount, refreshVersion]);
 
   useEffect(() => {
     if (!accountLoaded || !hasAccount || !isSyncConfigured()) return;
+    let active = true;
+    setLiveDataStatus('loading');
     const handleClubSync = (result: Awaited<ReturnType<typeof fetchAllClubSnapshots>>) => {
+      if (!active) return;
       if (result.ok) {
         const liveClubs = result.clubs;
         setClubs(liveClubs);
@@ -122,14 +145,20 @@ export function usePlayerLiveData({
         membershipStatusRef.current = nextStatuses;
         setSelectedClubId((current) => existingMembershipClub?.club.id ?? liveClubs.find((club) => club.club.id === current)?.club.id ?? liveClubs[0]?.club.id ?? '');
         setSyncStatus(`Showing ${result.clubs.length} live card house${result.clubs.length === 1 ? '' : 's'}.`);
+        setLiveDataStatus('ready');
       } else {
         setSyncStatus(`Unable to load live club data: ${result.error}`);
+        setLiveDataStatus('error');
       }
     };
 
     const liveGameSubscription = subscribeToAllClubSnapshots(player, handleClubSync);
-    return bindPlayerPollingLifecycle(platform, liveGameSubscription);
-  }, [accountLoaded, hasAccount, player.id, player.name]);
+    const unbind = bindPlayerPollingLifecycle(platform, liveGameSubscription);
+    return () => {
+      active = false;
+      unbind();
+    };
+  }, [accountLoaded, hasAccount, player.id, player.name, refreshVersion]);
 
   useEffect(() => {
     if (!accountLoaded || !hasAccount) return;
@@ -143,18 +172,20 @@ export function usePlayerLiveData({
     };
     fetchPrivateGameListings().then(handlePrivateGames);
     return subscribeToPrivateGameListings(handlePrivateGames);
-  }, [accountLoaded, hasAccount]);
+  }, [accountLoaded, hasAccount, refreshVersion]);
 
   useEffect(() => {
     if (!accountLoaded || !hasAccount || !firebaseIdentity) return;
     const handleTournaments = (result: Awaited<ReturnType<typeof fetchPlayerTournaments>>) => {
       setTournaments(result.tournaments);
       setTournamentRegistrations(result.registrations);
+      setTournamentLoadError('');
     };
+    const handleTournamentError = (error: Error) => setTournamentLoadError(error.message || 'Unable to load tournaments.');
     // The live subscription remains active if its initial eager refresh fails.
-    fetchPlayerTournaments(player.id).then(handleTournaments).catch(() => undefined);
-    return subscribeToPlayerTournaments(player.id, handleTournaments);
-  }, [accountLoaded, firebaseIdentity?.uid, hasAccount, player.id]);
+    fetchPlayerTournaments(player.id).then(handleTournaments).catch(handleTournamentError);
+    return subscribeToPlayerTournaments(player.id, handleTournaments, handleTournamentError);
+  }, [accountLoaded, firebaseIdentity?.uid, hasAccount, player.id, refreshVersion]);
 
   return {
     clockNow,
@@ -162,6 +193,8 @@ export function usePlayerLiveData({
     clubs,
     privateGames,
     privateGameStatus,
+    liveDataStatus,
+    retryLiveData: () => setRefreshVersion((current) => current + 1),
     selectedClubId,
     setClubMembershipMessage,
     setClubs,
@@ -170,6 +203,7 @@ export function usePlayerLiveData({
     setSelectedClubId,
     setTournamentRegistrations,
     tournamentRegistrations,
+    tournamentLoadError,
     tournaments
   };
 }

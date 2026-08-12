@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const stylesheetEntry = fileURLToPath(new URL('./styles.css', import.meta.url));
-const originalCascadeSha256 = '9cea2b3f357ba2257fa046838a1a1ce7079ec590f87a5c5ca80db1832f490f37';
+const normalizedCascadeSha256 = 'cc325af70cbdcebd2f68198c3ce7f60e6947b4b426ec876834decd481758307d';
 const localImportPattern = /^@import ['"](.+\.css)['"];\r?\n/gm;
 
 function flattenLocalImports(path: string, ancestors: string[] = []): string {
@@ -13,7 +13,7 @@ function flattenLocalImports(path: string, ancestors: string[] = []): string {
     throw new Error(`Circular stylesheet import: ${[...ancestors, path].join(' -> ')}`);
   }
 
-  const source = readFileSync(path, 'utf8');
+  const source = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
   return source.replace(localImportPattern, (_statement, relativePath: string) =>
     flattenLocalImports(resolve(dirname(path), relativePath), [...ancestors, path])
   );
@@ -24,6 +24,6 @@ describe('management stylesheet cascade', () => {
     const flattened = flattenLocalImports(stylesheetEntry);
     const digest = createHash('sha256').update(flattened).digest('hex');
 
-    expect(digest).toBe(originalCascadeSha256);
+    expect(digest).toBe(normalizedCascadeSha256);
   });
 });

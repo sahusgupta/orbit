@@ -15,12 +15,13 @@
           <p>Client usage, updates, table starts, app opens/closes, and live errors.</p>
         </div>
         <form id="key-form" class="key-form">
-          <input id="api-key" type="password" autocomplete="off" placeholder="API key" />
-          <button type="submit">Connect</button>
+          <label class="sr-only" for="api-key">Dashboard password</label>
+          <input id="api-key" type="password" autocomplete="current-password" placeholder="Dashboard password" required />
+          <button type="submit">Sign in</button>
         </form>
       </header>
 
-      <section id="status" class="status">Waiting for API key.</section>
+      <section id="status" class="status" aria-live="polite">Sign in to load the dashboard.</section>
 
       <section class="metrics" aria-label="Summary metrics">
         <article>
@@ -59,6 +60,31 @@
             <span id="license-count">0</span>
           </div>
           <div id="licenses" class="table-list empty">No managed pilot licenses yet.</div>
+        </article>
+
+        <article class="panel accounts-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Management account access</h2>
+              <p>Owner-only recovery and password controls for card-house management logins.</p>
+            </div>
+            <span id="management-account-count">0</span>
+          </div>
+          <div class="account-safety-note">
+            A recovery override is short-lived and single-use. The card house still needs a current pilot key, and the override never grants access to the management workspace by itself. Sending a reset email changes Firebase only; keep the override active until the card house finishes recovery inside Orbit.
+          </div>
+          <div id="management-accounts" class="table-list empty">No management accounts yet.</div>
+        </article>
+
+        <article class="panel accounts-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Security activity</h2>
+              <p>Durable history of successful management recovery and password actions. Secrets are never recorded.</p>
+            </div>
+            <span id="security-event-count">0</span>
+          </div>
+          <div id="security-events" class="list empty">No management security activity yet.</div>
         </article>
 
         <article class="panel">

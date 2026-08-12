@@ -1,12 +1,23 @@
 :root {
   color-scheme: light;
-  font-family: Bahnschrift, Aptos, "Segoe UI Variable", sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
   background: #f6f7f9;
   color: #17202a;
 }
 
 * {
   box-sizing: border-box;
+}
+
+.sr-only {
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
 
 body {
@@ -35,7 +46,7 @@ p {
 
 h1 {
   font-size: 28px;
-  font-weight: 760;
+  font-weight: 700;
 }
 
 h2 {
@@ -54,6 +65,7 @@ small {
 }
 
 input,
+select,
 button {
   height: 38px;
   border-radius: 6px;
@@ -64,6 +76,12 @@ button {
 input {
   min-width: 240px;
   padding: 0 12px;
+  background: #fff;
+}
+
+select {
+  min-width: 140px;
+  padding: 0 10px;
   background: #fff;
 }
 
@@ -116,6 +134,20 @@ button {
   min-height: 0;
 }
 
+.accounts-panel {
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
+.account-safety-note {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e7ebf0;
+  background: #fffaf0;
+  color: #6d4a13;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .panel-head > div {
   display: grid;
   gap: 3px;
@@ -151,7 +183,7 @@ button {
   background: #e9f7ef;
   color: #14683d;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
@@ -190,6 +222,96 @@ button.danger {
   border-color: #c83c3c;
   background: #fff;
   color: #a02525;
+}
+
+button.danger-solid {
+  border-color: #a02525;
+  background: #a02525;
+}
+
+.management-account-row {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.account-heading,
+.account-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.account-control-group {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e1e6ec;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.account-control-group p {
+  margin-top: 4px;
+  color: #657282;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.account-action-row {
+  align-items: end;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.account-action-row label {
+  display: grid;
+  gap: 4px;
+}
+
+.account-action-row label span {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.account-action-row .reason-field {
+  flex: 1 1 220px;
+}
+
+.account-action-row input {
+  min-width: 210px;
+}
+
+.account-action-row .reason-field input {
+  width: 100%;
+}
+
+.recovery-status {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #eef1f5;
+  color: #536170;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.recovery-status.active {
+  background: #fff0ce;
+  color: #7a4e00;
+}
+
+.account-warning {
+  color: #9f2525;
+  font-size: 13px;
 }
 
 .metrics article {
@@ -275,6 +397,11 @@ button.danger {
   border-left: 4px solid #3d73b9;
 }
 
+.item.security-item {
+  border-left: 4px solid #b7791f;
+  background: #fffdf7;
+}
+
 .meta {
   display: flex;
   flex-wrap: wrap;
@@ -303,7 +430,14 @@ button.danger {
   }
 
   .metrics,
-  .grid {
+  .grid,
+  .account-controls {
     grid-template-columns: 1fr;
+  }
+
+  .account-heading,
+  .account-action-row {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

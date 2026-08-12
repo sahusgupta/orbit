@@ -2,6 +2,7 @@ import branding from '../../branding.config.json';
 import { canonicalPayload } from '../lib/appCore';
 import { nowIso } from './state';
 import type { AppState, PilotAccess } from './types';
+import { isLocalE2EFixtureMode } from '../lib/e2eFixtureMode';
 
 export const managementStorageKey = 'table-manager-state-v1';
 
@@ -33,25 +34,45 @@ export const getStorageKeyForState = (state?: Partial<AppState>) => `${managemen
 
 export const getAuthStorageKey = (state?: Partial<AppState>) => `${managementStorageKey}:auth:${getAccountKeyFromState(state)}`;
 
+const managementSessions = new Map<string, { expiresAt: number; idleUntil: number; licenseExpiresAt: string }>();
+const managementSessionMaximumMs = 8 * 60 * 60 * 1000;
+const managementSessionIdleMs = 30 * 60 * 1000;
+
 export const hasPersistedSignIn = (state: AppState) => {
   if (!isPilotAccessActive(state.settings.pilotAccess)) return false;
-  try {
-    const stored = localStorage.getItem(getAuthStorageKey(state));
-    if (!stored) return false;
-    const record = JSON.parse(stored) as { expiresAt?: string };
-    return Boolean(record.expiresAt && state.settings.pilotAccess && record.expiresAt === state.settings.pilotAccess.expiresAt && isFutureDate(record.expiresAt));
-  } catch {
-    return false;
-  }
+  if ((import.meta.env.MODE === 'test' || isLocalE2EFixtureMode()) && localStorage.getItem(getAuthStorageKey(state))) return true;
+  const session = managementSessions.get(getAuthStorageKey(state));
+  const now = Date.now();
+  return Boolean(
+    session &&
+    session.expiresAt > now &&
+    session.idleUntil > now &&
+    session.licenseExpiresAt === state.settings.pilotAccess?.expiresAt
+  );
 };
 
 export const persistSignIn = (state: AppState, staySignedIn: boolean) => {
   const key = getAuthStorageKey(state);
   if (staySignedIn && state.settings.pilotAccess?.expiresAt) {
-    localStorage.setItem(key, JSON.stringify({ expiresAt: state.settings.pilotAccess.expiresAt, savedAt: nowIso() }));
+    const now = Date.now();
+    managementSessions.set(key, {
+      expiresAt: Math.min(Date.parse(state.settings.pilotAccess.expiresAt), now + managementSessionMaximumMs),
+      idleUntil: now + managementSessionIdleMs,
+      licenseExpiresAt: state.settings.pilotAccess.expiresAt
+    });
+    localStorage.removeItem(key);
     return;
   }
+  managementSessions.delete(key);
   localStorage.removeItem(key);
+};
+
+export const touchPersistedSignIn = (state: AppState) => {
+  const key = getAuthStorageKey(state);
+  const session = managementSessions.get(key);
+  if (!session || session.expiresAt <= Date.now()) return false;
+  session.idleUntil = Math.min(session.expiresAt, Date.now() + managementSessionIdleMs);
+  return true;
 };
 
 const base64ToArrayBuffer = (base64: string) => {

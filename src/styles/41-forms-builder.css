@@ -75,7 +75,7 @@ textarea {
   min-height: 38px;
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 800;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -166,7 +166,7 @@ textarea {
   color: var(--primary-dark);
   font-size: 0.74rem;
   font-style: normal;
-  font-weight: 900;
+  font-weight: 700;
   padding: 5px 9px;
 }
 
@@ -177,7 +177,7 @@ textarea {
   gap: 5px;
   color: #59645f;
   font-size: 0.82rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .demand-row,
@@ -209,15 +209,13 @@ textarea {
   color: var(--amber);
   padding: 6px 10px;
   font-size: clamp(0.7rem, 1vw, 0.8rem);
-  font-weight: 850;
+  font-weight: 700;
   text-align: center;
-  animation: soft-flicker 2.8s ease-in-out infinite;
 }
 
 .status-pill.likely {
   background: var(--teal-soft);
   color: var(--teal);
-  animation: viable-pulse 2.2s ease-in-out infinite;
 }
 
 .status-pill.viable {
@@ -250,7 +248,7 @@ textarea {
   color: var(--primary-dark);
   padding: 4px 8px;
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .builder-controls {
@@ -284,7 +282,7 @@ textarea {
   place-items: center;
   background: var(--primary);
   color: #fff;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .candidate-card p,

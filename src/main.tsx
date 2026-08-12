@@ -29,8 +29,10 @@ import {
   findUniqueProfileReference,
   hasProfileReference
 } from './lib/profileRelationships';
-import { sendFirebasePasswordResetEmail, signInOrCreateFirebaseEmailAccount, signInToFirebaseWithEmail, signOutOfFirebase } from './lib/firebaseClubSync';
+import { sendFirebasePasswordResetEmail, signInOrCreateFirebaseEmailAccount, signInToFirebaseWithEmail, signOutOfFirebase } from './lib/firebaseAuthFacade';
+import { RecoveryBoundary } from './components/RecoveryBoundary';
 import { getBalancePlans, parseGroupMeMessages, type BalancePlanResult } from './lib/resultBuilders';
+import { validateLocalImport } from './lib/fileImportValidation';
 import {
   nextYearDate,
   normalizeState,
@@ -176,6 +178,7 @@ import {
   isPilotAccessActive,
   managementStorageKey as storageKey,
   persistSignIn,
+  touchPersistedSignIn,
   safeAccountKeyPart,
   validatePilotKey
 } from './domain/licensing';
@@ -234,9 +237,17 @@ const TournamentsView = React.lazy(() => import('./components/TournamentsView'))
 const TournamentTvView = React.lazy(() => import('./components/TournamentTvView'));
 
 const withRouteLoadingBoundary = (content: React.ReactNode) => (
-  <React.Suspense fallback={<main aria-busy="true" aria-label="Loading view" />}>
-    {content}
-  </React.Suspense>
+  <RecoveryBoundary label="This workspace">
+    <React.Suspense fallback={(
+      <main className="route-skeleton" aria-busy="true" aria-label="Loading view">
+        <span className="route-skeleton-title" />
+        <span className="route-skeleton-toolbar" />
+        <span className="route-skeleton-panel" />
+      </main>
+    )}>
+      {content}
+    </React.Suspense>
+  </RecoveryBoundary>
 );
 
 declare global {
@@ -250,12 +261,46 @@ declare global {
       saveState: (state: AppState) => Promise<{ ok: boolean; path: string; accountKey?: string }>;
       preserveStateForUpdate: (requestId: string, state: AppState) => Promise<{ ok: boolean }>;
       onPrepareForUpdate: (callback: (requestId: string) => void) => () => void;
+      getUpdateStatus: () => Promise<{ state: string; version?: string; message?: string; updateReady?: boolean }>;
+      installDownloadedUpdate: () => Promise<{ ok: boolean; error?: string }>;
+      onUpdateStatus: (callback: (status: { state: string; version?: string; message?: string; updateReady?: boolean }) => void) => () => void;
       getBackendStatus: () => Promise<BackendStatus>;
       validatePilotAccess: (access: PilotAccess) => Promise<{
         ok: boolean;
         managed: boolean;
         active: boolean;
         license?: { licenseId?: string; accountKey?: string; issuedTo?: string; expiresAt?: string; status?: string } | null;
+        error?: string;
+      }>;
+      getManagementRecoveryStatus: (access: PilotAccess) => Promise<{
+        ok: boolean;
+        active: boolean;
+        expiresAt?: string | null;
+        username?: string;
+        error?: string;
+      }>;
+      completeManagementRecovery: (payload: { access: PilotAccess; password: string }) => Promise<{
+        ok: boolean;
+        accountKey?: string;
+        accountLogin?: {
+          username: string;
+          passwordSalt: string;
+          passwordHash: string;
+          lastLoginAt: string;
+        };
+        revision?: number;
+        error?: string;
+      }>;
+      verifyStaffPin: (payload: { staffId: string; pin: string; access: PilotAccess }) => Promise<{
+        ok: boolean;
+        token?: string;
+        staffId?: string;
+        role?: StaffAccount['role'];
+        expiresAt?: string;
+        error?: string;
+      }>;
+      authorizeStaffAction: (payload: { token: string; action: 'staff-sign' | 'manager-lock' | 'manager-reopen' | 'staff-admin' }) => Promise<{
+        ok: boolean;
         error?: string;
       }>;
       submitAnalyticalReport: (report: AnalyticalReportPayload) => Promise<ReportSubmissionResult>;
@@ -265,7 +310,7 @@ declare global {
         details?: Record<string, string | number | boolean | null>,
         route?: AppRoute | 'access'
       ) => Promise<{ ok: boolean }>;
-      sendTextMessages: (payload: TextMessageBatch) => Promise<TextMessageBatchResult>;
+      sendTextMessages: (payload: TextMessageBatch, staffToken?: string) => Promise<TextMessageBatchResult>;
       recordClientError: (payload: {
         message: string;
         source?: string;
@@ -401,6 +446,7 @@ const applyBrandTheme = (theme: BrandTheme) => {
 };
 function App() {
   const [state, setState] = useState<AppState>(() => loadManagementState());
+  const [staffSession, setStaffSession] = useState<{ token: string; staffId: string; role: StaffAccount['role']; expiresAt: string } | null>(null);
   const getRouteFromHash = (): AppRoute =>
     window.location.hash.includes('tournament-tv')
       ? 'tournament-tv'
@@ -547,6 +593,12 @@ function App() {
     setSetupDraft,
     setStaffDraft
   } = settingsWorkspace;
+  const [accessFieldError, setAccessFieldError] = useState('');
+  const validateAccessField = (event: React.FocusEvent<HTMLInputElement>, matchesValue?: string) => {
+    const input = event.currentTarget;
+    const mismatch = matchesValue !== undefined && input.value !== matchesValue;
+    setAccessFieldError(mismatch ? 'Password and confirmation do not match.' : input.validationMessage);
+  };
   // The undo control was removed before this refactor; keep its write cadence until product scope decides whether to restore or remove it.
   const [, setUndoStack] = useState<AppState[]>([]);
   const tournamentWorkspace = useTournamentWorkspaceState();
@@ -696,6 +748,29 @@ function App() {
   }, [state.settings.lowLight]);
 
   useEffect(() => {
+    if (!hasAuthenticated) return;
+    let idleTimer = 0;
+    const expireSession = () => {
+      persistSignIn(state, false);
+      setStaffSession(null);
+      setHasAuthenticated(false);
+    };
+    const refreshIdleSession = () => {
+      touchPersistedSignIn(state);
+      window.clearTimeout(idleTimer);
+      idleTimer = window.setTimeout(expireSession, 30 * 60 * 1000);
+    };
+    refreshIdleSession();
+    window.addEventListener('keydown', refreshIdleSession);
+    window.addEventListener('pointerdown', refreshIdleSession);
+    return () => {
+      window.clearTimeout(idleTimer);
+      window.removeEventListener('keydown', refreshIdleSession);
+      window.removeEventListener('pointerdown', refreshIdleSession);
+    };
+  }, [hasAuthenticated, state.settings.pilotAccess?.licenseId]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
@@ -819,7 +894,20 @@ function App() {
     setState(next);
     setSaveStatus({ state: 'saving', message: 'Saving...' });
     saveManagementState(next)
-      .then(() => setSaveStatus({ state: 'saved', message: `Saved ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` }))
+      .then((result) => {
+        if (!result.ok) {
+          setSaveStatus({ state: 'error', message: result.error || 'Saved to cache only; server reconciliation required' });
+          return;
+        }
+        setSaveStatus({
+          state: result.cloud === 'failed' ? 'error' : 'saved',
+          message: result.cloud === 'published'
+            ? `Published ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+            : result.cloud === 'failed'
+              ? 'Server saved; player projection failed and will retry'
+              : 'Server saved; player projection pending'
+        });
+      })
       .catch((error) => {
         setSaveStatus({
           state: 'error',
@@ -1781,11 +1869,13 @@ function App() {
     if (!file) return;
     try {
       if (file.name.toLowerCase().endsWith('.csv')) {
+        await validateLocalImport(file, 'profile-csv');
         const rows = parseCsvRows(await file.text());
         commitImportedProfiles(profilesFromImportedRecords(rows, profileImportContext));
         setImportText('');
         return;
       }
+      await validateLocalImport(file, 'profile-xlsx');
       const ExcelJS = await import('exceljs');
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(await file.arrayBuffer());
@@ -1836,7 +1926,22 @@ function App() {
     return result.record;
   };
 
-  const signNightClose = () => {
+  const authorizeStaffAction = async (action: 'staff-sign' | 'manager-lock' | 'manager-reopen' | 'staff-admin') => {
+    if (!staffSession || staffSession.staffId !== state.settings.activeStaffId || !window.tableManagerDesktop?.authorizeStaffAction) {
+      window.alert('Select and verify an active staff account before this action.');
+      return false;
+    }
+    const result = await window.tableManagerDesktop.authorizeStaffAction({ token: staffSession.token, action });
+    if (!result.ok) {
+      setStaffSession(null);
+      window.alert(result.error || 'Staff reauthentication is required.');
+      return false;
+    }
+    return true;
+  };
+
+  const signNightClose = async () => {
+    if (!await authorizeStaffAction('staff-sign')) return;
     const result = signNightCloseInState(
       state,
       { current: currentNightClose, tables: nightCloseTables, warnings: nightCloseWarnings, notes: nightCloseNotes },
@@ -1851,12 +1956,13 @@ function App() {
       { feature: 'Night close', action: 'Staff signed reconciliation', route: 'summary', metadata: { discrepancy: Number(nightCloseTotals.discrepancy.toFixed(2)) } });
   };
 
-  const approveAndLockNightClose = () => {
+  const approveAndLockNightClose = async () => {
     const validationError = getNightCloseLockError(state, currentNightClose);
     if (validationError) {
       window.alert(validationError);
       return;
     }
+    if (!await authorizeStaffAction('manager-lock')) return;
     if (!window.confirm(
       `Lock tonight's reconciliation with a ${nightCloseTotals.discrepancy < 0 ? '-' : '+'}$${Math.abs(nightCloseTotals.discrepancy).toFixed(2)} discrepancy?\n\nThis will close every current table, remove all seated players, and reset Recent Activity.`
     )) return;
@@ -1880,12 +1986,13 @@ function App() {
     });
   };
 
-  const reopenNightClose = () => {
+  const reopenNightClose = async () => {
     const validationError = getNightCloseReopenError(state, currentNightClose);
     if (validationError) {
       window.alert(validationError);
       return;
     }
+    if (!await authorizeStaffAction('manager-reopen')) return;
     const reason = window.prompt('Reason for reopening this locked reconciliation:')?.trim();
     if (!reason || !currentNightClose) return;
     const result = reopenNightCloseInState(state, currentNightClose, reason, { createId: uid, nowIso, todayDate });
@@ -1913,6 +2020,7 @@ function App() {
     setBackupMessage('');
     if (!file) return;
     try {
+      await validateLocalImport(file, 'backup-json');
       const parsed = JSON.parse(await file.text());
       const backup = readBackupEnvelope<PersistedAppState>(parsed);
       const restored = normalizeState(backup.state);
@@ -2117,8 +2225,8 @@ function App() {
   const createAccountLogin = async () => {
     const username = (setupDraft.username || clubDraft.email).trim().toLowerCase();
     const password = setupDraft.password;
-    if (!/^\S+@\S+\.\S+$/.test(username) || password.length < 8) {
-      setPilotKeyError('Enter a valid login email and a password with at least 8 characters.');
+    if (!/^\S+@\S+\.\S+$/.test(username) || password.length < 12) {
+      setPilotKeyError('Enter a valid login email and a password or passphrase with at least 12 characters.');
       return null;
     }
     if (password !== setupDraft.confirmPassword) {
@@ -2200,6 +2308,93 @@ function App() {
     } catch {
       setPasswordRecoveryStage('idle');
       setPilotKeyError('Orbit could not send the password reset email. Confirm the internet connection and contact Orbit support if the problem continues.');
+    }
+  };
+
+  const requestOwnerAssistedRecovery = async () => {
+    const accountLogin = state.settings.accountLogin;
+    const access = state.settings.pilotAccess;
+    const desktop = window.tableManagerDesktop;
+    if (!accountLogin || !access || !isPilotAccessActive(access)) {
+      setPilotKeyError('Load a current pilot key before using owner-assisted recovery.');
+      return;
+    }
+    if (!desktop?.getManagementRecoveryStatus) {
+      setPilotKeyError('Owner-assisted recovery requires the Orbit desktop app and server connectivity.');
+      return;
+    }
+
+    setPasswordRecoveryStage('owner-checking');
+    setPasswordRecoveryNotice('');
+    setPilotKeyError('');
+    try {
+      const result = await desktop.getManagementRecoveryStatus(access);
+      if (!result.ok || !result.active) {
+        setPasswordRecoveryStage('idle');
+        setPilotKeyError(result.error || 'No active owner recovery override was found. Ask Orbit support to start one, then try again.');
+        return;
+      }
+      const username = String(result.username || accountLogin.username).trim().toLowerCase();
+      if (username !== accountLogin.username.trim().toLowerCase()) {
+        setPasswordRecoveryStage('idle');
+        setPilotKeyError('The recovery override does not match this card-house login. Contact Orbit support.');
+        return;
+      }
+      setLoginDraft((current) => ({ ...current, username, password: '' }));
+      setPasswordRecoveryStage('owner-ready');
+      setPasswordRecoveryNotice(`Owner-assisted recovery is active${result.expiresAt ? ` until ${new Date(result.expiresAt).toLocaleString()}` : ''}. Choose one new password now; this override can be used only once.`);
+    } catch {
+      setPasswordRecoveryStage('idle');
+      setPilotKeyError('Orbit could not check the recovery override. Confirm the internet connection and try again.');
+    }
+  };
+
+  const completeOwnerAssistedRecovery = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const accountLogin = state.settings.accountLogin;
+    const access = state.settings.pilotAccess;
+    const desktop = window.tableManagerDesktop;
+    if (!accountLogin || !access || passwordRecoveryStage !== 'owner-ready') return;
+    if (!isPilotAccessActive(access)) {
+      setPilotKeyError('This pilot key has expired. Load a current key to continue.');
+      return;
+    }
+    if (!desktop?.completeManagementRecovery) {
+      setPilotKeyError('Owner-assisted recovery requires the Orbit desktop app and server connectivity.');
+      return;
+    }
+
+    setPasswordRecoveryStage('owner-completing');
+    setPilotKeyError('');
+    try {
+      const result = await desktop.completeManagementRecovery({ access, password: loginDraft.password });
+      if (!result.ok || !result.accountLogin?.passwordHash || !result.accountLogin.passwordSalt) {
+        throw new AccountRecoveryValidationError(result.error || 'Owner-assisted recovery could not be completed.');
+      }
+      const recoveredLogin = {
+        ...accountLogin,
+        ...result.accountLogin,
+        username: result.accountLogin.username.trim().toLowerCase()
+      };
+      const next = {
+        ...state,
+        settings: {
+          ...state.settings,
+          accountLogin: recoveredLogin
+        }
+      };
+      if (canUseRendererFirebaseAuth()) {
+        void signInToFirebaseWithEmail(recoveredLogin.username, loginDraft.password).catch(() => undefined);
+      }
+      persistSignIn(next, loginDraft.staySignedIn);
+      setHasAuthenticated(true);
+      setPasswordRecoveryStage('idle');
+      setPasswordRecoveryNotice('');
+      setPilotKeyError('');
+      persist(next, false, { feature: 'Account', action: 'Completed owner-assisted recovery', route: 'access' });
+    } catch (error) {
+      setPasswordRecoveryStage('owner-ready');
+      setPilotKeyError(error instanceof Error ? error.message : 'Owner-assisted recovery could not be completed.');
     }
   };
 
@@ -2311,6 +2506,7 @@ function App() {
     if (!file) return;
     let parsed: unknown;
     try {
+      await validateLocalImport(file, 'pilot-key-json');
       const text = await file.text();
       parsed = JSON.parse(text);
     } catch {
@@ -2385,6 +2581,7 @@ function App() {
     setPilotKeyError('');
     if (!file) return;
     try {
+      await validateLocalImport(file, 'pilot-key-json');
       const text = await file.text();
       const parsed = JSON.parse(text);
       const result = await validatePilotKey(parsed, file.name);
@@ -2425,6 +2622,7 @@ function App() {
 
   const addStaffAccount = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (state.settings.staffAccounts.some((staff) => staff.active) && !await authorizeStaffAction('staff-admin')) return;
     const name = staffDraft.name.trim();
     const pin = staffDraft.pin.trim();
     if (!name || pin.length < 4) {
@@ -2447,14 +2645,29 @@ function App() {
       settings: {
         ...state.settings,
         staffAccounts: [...state.settings.staffAccounts, account],
-        activeStaffId: state.settings.activeStaffId ?? account.id
+        activeStaffId: state.settings.activeStaffId
       }
     }, true, { feature: 'Staff accounts', action: 'Added staff account', metadata: { role: account.role } });
     setStaffDraft({ name: '', role: 'Floor', pin: '' });
     setBackupMessage('Staff account added.');
   };
 
-  const selectActiveStaff = (staffId: string) => {
+  const selectActiveStaff = async (staffId: string) => {
+    if (!staffId) {
+      setStaffSession(null);
+    } else {
+      const pin = window.prompt('Enter this staff member\'s PIN to activate their account:') || '';
+      const access = state.settings.pilotAccess;
+      const result = access && window.tableManagerDesktop?.verifyStaffPin
+        ? await window.tableManagerDesktop.verifyStaffPin({ staffId, pin, access })
+        : { ok: false, error: 'Trusted desktop staff verification is unavailable.' };
+      if (!result.ok || !result.token || !result.staffId || !result.role || !result.expiresAt) {
+        setStaffSession(null);
+        window.alert(result.error || 'Staff verification failed.');
+        return;
+      }
+      setStaffSession({ token: result.token, staffId: result.staffId, role: result.role, expiresAt: result.expiresAt });
+    }
     persist({
       ...state,
       settings: {
@@ -2467,7 +2680,9 @@ function App() {
     }, true, { feature: 'Staff accounts', action: staffId ? 'Selected active staff' : 'Cleared active staff' });
   };
 
-  const deactivateStaffAccount = (staffId: string) => {
+  const deactivateStaffAccount = async (staffId: string) => {
+    if (!await authorizeStaffAction('staff-admin')) return;
+    if (staffSession?.staffId === staffId) setStaffSession(null);
     persist({
       ...state,
       settings: {
@@ -2633,15 +2848,21 @@ function App() {
             </div>
           </div>
           <form className="access-step account-form" onSubmit={createLoginForExistingAccount}>
-            <input value={setupDraft.username} onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })} placeholder="Login email" type="email" />
-            <input value={setupDraft.password} onChange={(event) => setSetupDraft({ ...setupDraft, password: event.target.value })} placeholder="Password" type="password" />
-            <input value={setupDraft.confirmPassword} onChange={(event) => setSetupDraft({ ...setupDraft, confirmPassword: event.target.value })} placeholder="Confirm password" type="password" />
+            <label className="access-field">Login email
+              <input required value={setupDraft.username} onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })} onBlur={validateAccessField} placeholder="name@example.com" type="email" aria-describedby="access-field-error" />
+            </label>
+            <label className="access-field">Password or passphrase
+              <input required value={setupDraft.password} onChange={(event) => setSetupDraft({ ...setupDraft, password: event.target.value })} onBlur={validateAccessField} placeholder="12 or more characters" type="password" minLength={12} aria-describedby="access-field-error" />
+            </label>
+            <label className="access-field">Confirm password
+              <input required value={setupDraft.confirmPassword} onChange={(event) => setSetupDraft({ ...setupDraft, confirmPassword: event.target.value })} onBlur={(event) => validateAccessField(event, setupDraft.password)} placeholder="Repeat password" type="password" minLength={12} aria-describedby="access-field-error" />
+            </label>
             <label className="switch-control">
               <input type="checkbox" checked={setupDraft.staySignedIn} onChange={(event) => setSetupDraft({ ...setupDraft, staySignedIn: event.target.checked })} />
               <span>Stay signed in until key expiration</span>
             </label>
             <button className="primary-button" type="submit">Create Login</button>
-            {pilotKeyError ? <p className="access-error">{pilotKeyError}</p> : null}
+            {pilotKeyError || accessFieldError ? <p id="access-field-error" className="access-error" role="alert">{pilotKeyError || accessFieldError}</p> : null}
           </form>
         </section>
       </main>
@@ -2649,6 +2870,9 @@ function App() {
   }
 
   if (isPilotAccessActive(state.settings.pilotAccess) && !hasAuthenticated) {
+    const ownerRecovery = passwordRecoveryStage === 'owner-ready' || passwordRecoveryStage === 'owner-completing';
+    const choosingNewPassword = passwordRecoveryStage === 'sent' || passwordRecoveryStage === 'verifying' || ownerRecovery;
+    const recoveryBusy = passwordRecoveryStage === 'sending' || passwordRecoveryStage === 'verifying' || passwordRecoveryStage === 'owner-checking' || passwordRecoveryStage === 'owner-completing';
     return (
       <main className="access-shell">
         <section className="access-card">
@@ -2666,26 +2890,35 @@ function App() {
               <p>Use the login created for this card house. Access remains limited by the pilot key expiration.</p>
             </div>
           </div>
-          <form className="access-step account-form" onSubmit={passwordRecoveryStage === 'idle' ? signInToAccount : completeAccountPasswordRecovery}>
-            <input value={loginDraft.username} onChange={(event) => setLoginDraft({ ...loginDraft, username: event.target.value })} placeholder="Email" type="email" autoComplete="email" readOnly={passwordRecoveryStage !== 'idle'} />
-            <input value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} placeholder={passwordRecoveryStage === 'sent' ? 'New password' : 'Password'} type="password" autoComplete={passwordRecoveryStage === 'sent' ? 'new-password' : 'current-password'} />
+          <form className="access-step account-form" onSubmit={passwordRecoveryStage === 'idle' ? signInToAccount : ownerRecovery ? completeOwnerAssistedRecovery : completeAccountPasswordRecovery}>
+            <label className="access-field">Email
+              <input required value={loginDraft.username} onChange={(event) => setLoginDraft({ ...loginDraft, username: event.target.value })} onBlur={validateAccessField} placeholder="name@example.com" type="email" autoComplete="email" readOnly={passwordRecoveryStage !== 'idle'} aria-describedby="access-field-error" />
+            </label>
+            <label className="access-field">{choosingNewPassword ? 'New password or passphrase' : 'Password'}
+              <input required value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} onBlur={validateAccessField} placeholder={choosingNewPassword ? '12 or more characters' : 'Password'} type="password" minLength={choosingNewPassword ? 12 : undefined} maxLength={choosingNewPassword ? 128 : undefined} autoComplete={choosingNewPassword ? 'new-password' : 'current-password'} aria-describedby="access-field-error" />
+            </label>
             <label className="switch-control">
               <input type="checkbox" checked={loginDraft.staySignedIn} onChange={(event) => setLoginDraft({ ...loginDraft, staySignedIn: event.target.checked })} />
               <span>Stay signed in until key expiration</span>
             </label>
             {passwordRecoveryNotice ? <p className="success-copy" role="status">{passwordRecoveryNotice}</p> : null}
-            <button className="primary-button" type="submit" disabled={passwordRecoveryStage === 'sending' || passwordRecoveryStage === 'verifying'}>
-              {passwordRecoveryStage === 'sent' || passwordRecoveryStage === 'verifying'
+            <button className="primary-button" type="submit" disabled={recoveryBusy}>
+              {ownerRecovery
+                ? passwordRecoveryStage === 'owner-completing' ? 'Saving...' : 'Set New Password'
+                : passwordRecoveryStage === 'sent' || passwordRecoveryStage === 'verifying'
                 ? passwordRecoveryStage === 'verifying' ? 'Verifying...' : 'Finish Password Reset'
                 : 'Sign In'}
             </button>
             {passwordRecoveryStage === 'idle' ? (
-              <button className="ghost-button" type="button" onClick={requestAccountPasswordReset}>Forgot password?</button>
+              <>
+                <button className="ghost-button" type="button" onClick={requestAccountPasswordReset}>Forgot password?</button>
+                <button className="ghost-button" type="button" onClick={requestOwnerAssistedRecovery}>Use owner-assisted recovery</button>
+              </>
             ) : (
-              <button className="ghost-button" type="button" onClick={resetPasswordRecovery} disabled={passwordRecoveryStage === 'sending' || passwordRecoveryStage === 'verifying'}>Back to sign in</button>
+              <button className="ghost-button" type="button" onClick={resetPasswordRecovery} disabled={recoveryBusy}>Back to sign in</button>
             )}
             <button className="ghost-button" type="button" onClick={() => { resetPasswordRecovery(); setState(seedState); }}>Use a different key</button>
-            {pilotKeyError ? <p className="access-error">{pilotKeyError}</p> : null}
+            {pilotKeyError || accessFieldError ? <p id="access-field-error" className="access-error" role="alert">{pilotKeyError || accessFieldError}</p> : null}
           </form>
         </section>
       </main>
@@ -2737,60 +2970,36 @@ function App() {
                 <Users size={20} />
                 <h2>Club Account</h2>
               </div>
-              <input
-                value={clubDraft.clubName}
-                onChange={(event) => setClubDraft({ ...clubDraft, clubName: event.target.value })}
-                placeholder="Club name"
-              />
-              <input
-                value={clubDraft.accountName}
-                onChange={(event) => setClubDraft({ ...clubDraft, accountName: event.target.value })}
-                placeholder="Account name"
-              />
-              <input
-                value={clubDraft.contactName}
-                onChange={(event) => setClubDraft({ ...clubDraft, contactName: event.target.value })}
-                placeholder="Primary contact"
-              />
-              <input
-                type="email"
-                value={clubDraft.email}
-                onChange={(event) => setClubDraft({ ...clubDraft, email: event.target.value })}
-                placeholder="Email"
-              />
-              <input
-                value={clubDraft.phone}
-                onChange={(event) => setClubDraft({ ...clubDraft, phone: event.target.value })}
-                placeholder="Phone"
-              />
-              <input
-                value={clubDraft.address}
-                onChange={(event) => setClubDraft({ ...clubDraft, address: event.target.value })}
-                placeholder="Club address"
-              />
-              <input
-                value={setupDraft.username}
-                onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })}
-                placeholder="Login email (defaults to club email)"
-                type="email"
-              />
-              <input
-                value={setupDraft.password}
-                onChange={(event) => setSetupDraft({ ...setupDraft, password: event.target.value })}
-                placeholder="Create password"
-                type="password"
-              />
-              <input
-                value={setupDraft.confirmPassword}
-                onChange={(event) => setSetupDraft({ ...setupDraft, confirmPassword: event.target.value })}
-                placeholder="Confirm password"
-                type="password"
-              />
-              <textarea
-                value={setupDraft.initialGames}
-                onChange={(event) => setSetupDraft({ ...setupDraft, initialGames: event.target.value })}
-                placeholder="Games offered, one per line"
-              />
+              <label className="access-field">Club name
+                <input required value={clubDraft.clubName} onChange={(event) => setClubDraft({ ...clubDraft, clubName: event.target.value })} onBlur={validateAccessField} aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Account name
+                <input required value={clubDraft.accountName} onChange={(event) => setClubDraft({ ...clubDraft, accountName: event.target.value })} onBlur={validateAccessField} aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Primary contact
+                <input required value={clubDraft.contactName} onChange={(event) => setClubDraft({ ...clubDraft, contactName: event.target.value })} onBlur={validateAccessField} aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Club email
+                <input required type="email" value={clubDraft.email} onChange={(event) => setClubDraft({ ...clubDraft, email: event.target.value })} onBlur={validateAccessField} placeholder="name@example.com" aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Phone
+                <input value={clubDraft.phone} onChange={(event) => setClubDraft({ ...clubDraft, phone: event.target.value })} placeholder="Optional" />
+              </label>
+              <label className="access-field">Club address
+                <input value={clubDraft.address} onChange={(event) => setClubDraft({ ...clubDraft, address: event.target.value })} placeholder="Street address" />
+              </label>
+              <label className="access-field">Login email
+                <input value={setupDraft.username} onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })} onBlur={validateAccessField} placeholder="Defaults to club email" type="email" aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Create password or passphrase
+                <input required value={setupDraft.password} onChange={(event) => setSetupDraft({ ...setupDraft, password: event.target.value })} onBlur={validateAccessField} placeholder="12 or more characters" type="password" minLength={12} aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Confirm password
+                <input required value={setupDraft.confirmPassword} onChange={(event) => setSetupDraft({ ...setupDraft, confirmPassword: event.target.value })} onBlur={(event) => validateAccessField(event, setupDraft.password)} placeholder="Repeat password" type="password" minLength={12} aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field access-field-wide">Games offered
+                <textarea required value={setupDraft.initialGames} onChange={(event) => setSetupDraft({ ...setupDraft, initialGames: event.target.value })} placeholder="One game per line" />
+              </label>
               <div className="segmented-control">
                 <button
                   type="button"
@@ -2807,20 +3016,12 @@ function App() {
                   Time fees
                 </button>
               </div>
-              <input
-                type="number"
-                min="0"
-                value={setupDraft.defaultHourlyFee}
-                onChange={(event) => setSetupDraft({ ...setupDraft, defaultHourlyFee: Number(event.target.value) })}
-                placeholder="Hourly fee"
-              />
-              <input
-                type="number"
-                min="0"
-                value={setupDraft.defaultEstimatedDropPerSeatHour}
-                onChange={(event) => setSetupDraft({ ...setupDraft, defaultEstimatedDropPerSeatHour: Number(event.target.value) })}
-                placeholder="Drop estimate per occupied seat-hour"
-              />
+              <label className="access-field">Hourly fee
+                <input type="number" min="0" value={setupDraft.defaultHourlyFee} onChange={(event) => setSetupDraft({ ...setupDraft, defaultHourlyFee: Number(event.target.value) })} onBlur={validateAccessField} aria-describedby="access-field-error" />
+              </label>
+              <label className="access-field">Drop estimate per occupied seat-hour
+                <input type="number" min="0" value={setupDraft.defaultEstimatedDropPerSeatHour} onChange={(event) => setSetupDraft({ ...setupDraft, defaultEstimatedDropPerSeatHour: Number(event.target.value) })} onBlur={validateAccessField} aria-describedby="access-field-error" />
+              </label>
               <label className="switch-control">
                 <input
                   type="checkbox"
@@ -2832,6 +3033,7 @@ function App() {
               <button className="primary-button" type="submit">
                 Unlock Dashboard
               </button>
+              {pilotKeyError || accessFieldError ? <p id="access-field-error" className="access-error" role="alert">{pilotKeyError || accessFieldError}</p> : null}
             </form>
             ) : (
               <section className="access-step">
@@ -3509,6 +3711,8 @@ function App() {
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <RecoveryBoundary label="Orbit">
+      <App />
+    </RecoveryBoundary>
   </React.StrictMode>
 );

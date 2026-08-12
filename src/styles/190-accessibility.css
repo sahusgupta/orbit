@@ -28,6 +28,23 @@ body.low-light {
   color: var(--ink);
 }
 
+.access-field {
+  display: grid;
+  font-size: 0.78rem;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.access-field :is(input, textarea) {
+  font: inherit;
+  font-weight: 600;
+  width: 100%;
+}
+
+.account-form .access-field-wide {
+  grid-column: 1 / -1;
+}
+
 .primary-button,
 .ui-button-default,
 .player-tool-icon.primary {
@@ -160,4 +177,35 @@ body:not(.low-light) :is(
 body:not(.low-light) select:focus option {
   background: var(--panel-solid);
   color: var(--ink);
+}
+
+.route-skeleton,
+.recovery-state {
+  display: grid;
+  gap: 16px;
+  min-height: 360px;
+  padding: 32px;
+}
+
+.route-skeleton span {
+  animation: orbit-skeleton-pulse 1.4s ease-in-out infinite;
+  background: var(--surface-soft, #e9edf3);
+  border-radius: 8px;
+  display: block;
+}
+
+.route-skeleton-title { height: 34px; max-width: 320px; }
+.route-skeleton-toolbar { height: 48px; max-width: 560px; }
+.route-skeleton-panel { height: 220px; width: 100%; }
+.recovery-state { align-content: center; margin: auto; max-width: 680px; }
+.recovery-state h1, .recovery-state p { margin: 0; }
+.recovery-incident { color: var(--muted); font-family: ui-monospace, monospace; }
+.recovery-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+@keyframes orbit-skeleton-pulse {
+  50% { opacity: .55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-skeleton span { animation: none; }
 }

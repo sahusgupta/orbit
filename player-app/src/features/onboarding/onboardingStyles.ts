@@ -44,7 +44,7 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
   onboardingBrand: {
     color: '#ffffff',
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 1.2
   },
   onboardingBrandSubtle: {
@@ -76,7 +76,7 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
   onboardingNextActionText: {
     color: '#ffffff',
     fontSize: 14,
-    fontWeight: '800'
+    fontWeight: '700'
   },
   onboardingProgressFill: {
     backgroundColor: '#ffffff',

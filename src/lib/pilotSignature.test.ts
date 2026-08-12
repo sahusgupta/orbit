@@ -224,10 +224,7 @@ describe('pilot licensing and staff authentication boundary', () => {
 
     persistSignIn(state, true);
     expect(hasPersistedSignIn(state)).toBe(true);
-    expect(JSON.parse(localStorage.getItem(getAuthStorageKey(state)) ?? '{}')).toEqual({
-      expiresAt: access.expiresAt,
-      savedAt: '2026-08-07T22:00:00.000Z'
-    });
+    expect(localStorage.getItem(getAuthStorageKey(state))).toBeNull();
     expect(hasPersistedSignIn({
       ...state,
       settings: { ...state.settings, pilotAccess: { ...access, expiresAt: '2099-12-30' } }

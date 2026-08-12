@@ -32,16 +32,13 @@ function getClientAuthKeyFromState(state) {
 function createOrbitApiClient(dependencies) {
   const {
     app,
-    buildPlayerClubSnapshot,
     getAppStartedAt,
     isDev,
-    isFirebaseConfigured,
     loadStateWithFirebaseFallback,
     saveStateEverywhere,
     storeAnalyticalReport,
     writeLocalDatabase,
-    writeOrbitApiLog,
-    writeStateToFirebase
+    writeOrbitApiLog
   } = dependencies;
   const clearIntervalImpl = dependencies.clearIntervalImpl || clearInterval;
   const clearTimeoutImpl = dependencies.clearTimeoutImpl || clearTimeout;
@@ -63,6 +60,7 @@ function createOrbitApiClient(dependencies) {
   let clientHeartbeatTimer;
   let lastUpdateStatus = '';
   let lastUpdateEvent = '';
+  const revisionByAccount = new Map();
 
   function getDeviceIdPath() {
     return path.join(userDataPath(), 'orbit-device.json');
@@ -191,7 +189,7 @@ function createOrbitApiClient(dependencies) {
             error: payload?.error || '', responsePreview
           });
         }
-        return null;
+        return options.returnFailurePayload ? { ...payload, httpStatus: response.status } : null;
       }
       return payload;
     } catch (error) {
@@ -276,29 +274,96 @@ function createOrbitApiClient(dependencies) {
     const pathname = resolvedAccountKey ? `/state/${encodeURIComponent(resolvedAccountKey)}` : '/state/latest';
     const payload = await requestOrbitApi(pathname, { authKey: getClientAuthKeyFromAccess(access) || undefined });
     if (!payload?.state) return null;
-    return {
+    const record = {
       schemaVersion: payload.schemaVersion || 1,
       savedAt: payload.savedAt || now().toISOString(),
       state: payload.state,
       accountKey: payload.accountKey,
-      source: 'api'
+      source: 'api',
+      authoritative: true,
+      revision: Number(payload.revision || 0),
+      publication: payload.publication || { status: 'not-queued' }
+    };
+    revisionByAccount.set(record.accountKey, record.revision);
+    return record;
+  }
+
+  async function getManagementRecoveryStatusApi(access) {
+    const authKey = getClientAuthKeyFromAccess(access);
+    if (!authKey) return { ok: false, active: false, error: 'A current pilot license key is required.' };
+    const payload = await requestOrbitApi('/management/recovery/status', {
+      authKey,
+      timeoutMs: 5000,
+      returnFailurePayload: true
+    });
+    return payload?.ok
+      ? { ok: true, active: Boolean(payload.active), expiresAt: payload.expiresAt || null, username: payload.username || '' }
+      : { ok: false, active: false, error: payload?.error || 'Unable to check owner-assisted recovery.' };
+  }
+
+  async function completeManagementRecoveryApi(access, password) {
+    const authKey = getClientAuthKeyFromAccess(access);
+    if (!authKey) return { ok: false, error: 'A current pilot license key is required.' };
+    const payload = await requestOrbitApi('/management/recovery/complete', {
+      method: 'POST',
+      authKey,
+      body: { password: String(password || '') },
+      timeoutMs: 15_000,
+      returnFailurePayload: true
+    });
+    if (!payload?.ok || !payload.accountLogin) {
+      return { ok: false, error: payload?.error || 'Owner-assisted recovery could not be completed.' };
+    }
+    const accountKey = sanitizeAccountKey(payload.accountKey || getAccountKeyFromAccess(access));
+    if (accountKey && Number.isInteger(Number(payload.revision))) {
+      revisionByAccount.set(accountKey, Number(payload.revision));
+    }
+    return {
+      ok: true,
+      accountKey,
+      accountLogin: payload.accountLogin,
+      revision: Number(payload.revision || 0),
+      publication: payload.publication || { status: 'pending' }
     };
   }
 
   async function saveStateToApi(state) {
+    const accountKey = getAccountKeyFromState(state);
+    const expectedRevision = revisionByAccount.get(accountKey) || 0;
+    const stateHash = crypto.createHash('sha256').update(JSON.stringify(state)).digest('hex').slice(0, 32);
+    const mutationId = `desktop:${accountKey}:${expectedRevision}:${stateHash}`;
     const payload = await requestOrbitApi('/state', {
       method: 'POST',
-      body: { state },
+      body: { state, expectedRevision, mutationId },
+      headers: { 'x-orbit-mutation-id': mutationId },
       authKey: getClientAuthKeyFromState(state) || undefined,
-      timeoutMs: 5000
+      timeoutMs: 5000,
+      returnFailurePayload: true
     });
+    if (payload?.code === 'STATE_REVISION_CONFLICT') {
+      revisionByAccount.set(accountKey, Number(payload.currentRevision || 0));
+      return {
+        ok: false,
+        path: 'orbit-api',
+        accountKey,
+        conflict: true,
+        expectedRevision,
+        currentRevision: Number(payload.currentRevision || 0),
+        error: payload.error || 'Venue state changed elsewhere.'
+      };
+    }
     if (!payload?.ok) return null;
+    revisionByAccount.set(accountKey, Number(payload.revision || expectedRevision + 1));
     return {
       ok: true,
       path: 'orbit-api',
       engine: 'api',
       accountKey: payload.accountKey,
-      savedAt: payload.savedAt
+      savedAt: payload.savedAt,
+      revision: Number(payload.revision || expectedRevision + 1),
+      duplicate: Boolean(payload.duplicate),
+      publication: payload.publication || { status: 'pending' },
+      authoritative: true
     };
   }
 
@@ -399,37 +464,42 @@ function createOrbitApiClient(dependencies) {
       fallbackRecord = migrateLocalAccountToPilotAccess(access);
     }
     if (fallbackRecord?.state) {
-      // A new API database may not have this licensed venue yet. Seed it from the
-      // local/Firebase source of truth so player requests have a matching target.
-      await saveStateToApi(fallbackRecord.state).catch(() => null);
+      // A new durable API database may be initialized once from the characterized
+      // local cache. Compare-and-swap revision zero prevents overwriting a venue.
+      const migration = await saveStateToApi(fallbackRecord.state).catch(() => null);
+      if (migration?.ok) {
+        return {
+          ...fallbackRecord,
+          accountKey: migration.accountKey,
+          savedAt: migration.savedAt || fallbackRecord.savedAt,
+          revision: migration.revision,
+          publication: migration.publication,
+          source: 'api-cache-migration',
+          authoritative: true
+        };
+      }
     }
-    return fallbackRecord;
+    return fallbackRecord ? { ...fallbackRecord, source: fallbackRecord.source || 'offline-cache', authoritative: false } : null;
   }
 
   async function saveStateApiFirst(state) {
     const apiResult = await saveStateToApi(state);
-    if (apiResult) {
+    if (apiResult?.ok) {
       try {
         writeLocalDatabase(state);
       } catch {
         // Local cache writes are best-effort once the standalone API has accepted the state.
       }
-      if (isFirebaseConfigured()) {
-        const accountKey = getAccountKeyFromState(state);
-        const publicSnapshot = buildPlayerClubSnapshot(state);
-        try {
-          writeStateToFirebase(accountKey, state, publicSnapshot).catch(() => undefined);
-        } catch {
-          // Firebase sync must never block an accepted API save.
-        }
-        return {
-          ...apiResult,
-          firebase: { ok: true, engine: 'firebase', accountKey, pending: true }
-        };
-      }
       return apiResult;
     }
-    return saveStateEverywhere(state);
+    const cacheResult = await saveStateEverywhere(state);
+    return {
+      ...cacheResult,
+      ok: false,
+      conflict: Boolean(apiResult?.conflict),
+      currentRevision: apiResult?.currentRevision,
+      error: apiResult?.error || 'Saved to offline cache; the server commit is still required.'
+    };
   }
 
   async function submitAnalyticalReportApiFirst(report) {
@@ -438,10 +508,12 @@ function createOrbitApiClient(dependencies) {
 
   return {
     buildClientTelemetryPayload,
+    completeManagementRecoveryApi,
     getApiConfig,
     getClientUpdateState,
     getOrCreateDeviceId,
     getRemoteBackendStatus,
+    getManagementRecoveryStatusApi,
     loadStateApiFirst,
     loadStateFromApi,
     postClientTelemetry,

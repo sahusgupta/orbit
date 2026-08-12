@@ -54,15 +54,15 @@ export const tournamentStyles = StyleSheet.create(applyDarkComponentTheme({
   tournamentMoneyValue: {
     color: colors.ink,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
     lineHeight: 18
   },
   tournamentOpenPill: { backgroundColor: colors.tealSoft },
-  tournamentPrize: { color: colors.primary, fontSize: 12, fontWeight: '900', letterSpacing: 0.8 },
+  tournamentPrize: { color: colors.primary, fontSize: 12, fontWeight: '700', letterSpacing: 0.8 },
   tournamentRule: { color: colors.muted, fontSize: 12, lineHeight: 18 },
   tournamentRules: { gap: 6 },
   tournamentStatLabel: { color: colors.muted, fontSize: 10, fontWeight: '700', marginTop: 2 },
-  tournamentStatValue: { color: colors.ink, fontSize: 16, fontWeight: '900' },
+  tournamentStatValue: { color: colors.ink, fontSize: 16, fontWeight: '700' },
   tournamentStats: { backgroundColor: '#f6f7fb', borderRadius: 14, flexDirection: 'row', justifyContent: 'space-between', padding: 14 },
   tournamentStructure: { gap: 5 },
   tournamentTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 12 }

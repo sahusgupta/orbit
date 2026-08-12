@@ -60,7 +60,9 @@ function readPrivateKey() {
 function resolvePilotKeyOutputPath(outputDirectory, clubName, requestedFileName = '', exists = fs.existsSync) {
   const fileSafeClub = clubName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'pilot-club';
   const outputFileName = requestedFileName || `${fileSafeClub}-pilot-key.json`;
-  if (path.basename(outputFileName) !== outputFileName || !outputFileName.toLowerCase().endsWith('.json')) {
+  const isPlainFileName = path.posix.basename(outputFileName) === outputFileName
+    && path.win32.basename(outputFileName) === outputFileName;
+  if (!isPlainFileName || !outputFileName.toLowerCase().endsWith('.json')) {
     throw new Error('Pilot key output must be a plain JSON filename in the working directory.');
   }
   const outputPath = path.join(outputDirectory, outputFileName);

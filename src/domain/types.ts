@@ -461,4 +461,14 @@ export type PersistedStateRecord = {
   schemaVersion: number;
   savedAt: string;
   state: PersistedAppState;
+  accountKey?: string;
+  revision?: number;
+  authoritative?: boolean;
+  source?: 'api' | 'offline-cache' | 'local-account-migration' | string;
+  publication?: {
+    status?: 'not-queued' | 'pending' | 'publishing' | 'failed' | 'published' | string;
+    attempts?: number;
+    error?: string;
+    publishedAt?: string | null;
+  };
 };

@@ -41,7 +41,7 @@ export function GameDetailsScreen({
   return (
     <View style={styles.gameDetailsPage}>
       <View style={styles.gameDetailsNav}>
-        <Pressable accessibilityLabel="Back to discovery" onPress={onBack} style={styles.gameDetailsBack}>
+        <Pressable accessibilityLabel="Back to discovery" accessibilityRole="button" onPress={onBack} style={styles.gameDetailsBack}>
           <Ionicons name="arrow-back" size={19} color={colors.ink} />
           <Text style={styles.gameDetailsBackText}>Discover</Text>
         </Pressable>
@@ -130,7 +130,7 @@ export function GameDetailsScreen({
       ) : null}
 
       <View style={styles.detailsActionRow}>
-        <Pressable accessibilityLabel={`Directions to ${item.club.club.name}`} onPress={onDirections} style={styles.detailsSecondaryButton}>
+        <Pressable accessibilityLabel={`Directions to ${item.club.club.name}`} accessibilityRole="button" onPress={onDirections} style={styles.detailsSecondaryButton}>
           <Ionicons name="navigate-outline" size={18} color={colors.ink} />
           <Text style={styles.detailsSecondaryText}>Directions</Text>
         </Pressable>
@@ -179,7 +179,7 @@ export function DiscoveryDetailsModal({
                 <Text style={styles.membershipTitle}>{item.game.name}</Text>
                 <Text style={styles.muted}>{item.club.club.name} · {getClubCity(item.club)} · {item.distanceMiles.toFixed(1)} mi</Text>
               </View>
-              <Pressable accessibilityLabel="Close game details" onPress={onClose} style={styles.modalCloseButton}>
+              <Pressable accessibilityLabel="Close game details" accessibilityRole="button" onPress={onClose} style={styles.modalCloseButton}>
                 <Ionicons name="close" size={20} color={colors.ink} />
               </Pressable>
             </View>
@@ -193,7 +193,7 @@ export function DiscoveryDetailsModal({
             </View>
 
             <View style={styles.detailsDisclosureGroup}>
-              <Pressable onPress={() => setExpandedSection((current) => current === 'fit' ? null : 'fit')} style={styles.detailsDisclosureRow}>
+              <Pressable accessibilityLabel="Why this appears" accessibilityRole="button" accessibilityState={{ expanded: expandedSection === 'fit' }} onPress={() => setExpandedSection((current) => current === 'fit' ? null : 'fit')} style={styles.detailsDisclosureRow}>
                 <View style={styles.detailsDisclosureLabel}>
                   <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
                   <Text style={styles.cardTitle}>Why this appears</Text>
@@ -208,7 +208,7 @@ export function DiscoveryDetailsModal({
                   <DetailRow icon="navigate-outline" label="Distance" value={`${item.distanceMiles.toFixed(1)} mi away`} />
                 </View>
               ) : null}
-              <Pressable onPress={() => setExpandedSection((current) => current === 'details' ? null : 'details')} style={styles.detailsDisclosureRow}>
+              <Pressable accessibilityLabel="Game details" accessibilityRole="button" accessibilityState={{ expanded: expandedSection === 'details' }} onPress={() => setExpandedSection((current) => current === 'details' ? null : 'details')} style={styles.detailsDisclosureRow}>
                 <View style={styles.detailsDisclosureLabel}>
                   <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
                   <Text style={styles.cardTitle}>Game details</Text>
@@ -247,7 +247,7 @@ export function DiscoveryDetailsModal({
             ) : null}
 
             <View style={styles.detailsActionRow}>
-              <Pressable accessibilityLabel={`Directions to ${item.club.club.name}`} onPress={onDirections} style={styles.detailsSecondaryButton}>
+              <Pressable accessibilityLabel={`Directions to ${item.club.club.name}`} accessibilityRole="button" onPress={onDirections} style={styles.detailsSecondaryButton}>
                 <Ionicons name="navigate-outline" size={18} color={colors.ink} />
                 <Text style={styles.detailsSecondaryText}>Directions</Text>
               </Pressable>

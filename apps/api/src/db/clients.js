@@ -1,28 +1,31 @@
 const { sanitizeAccountKey } = require('../orbitCore');
 const { getDatabase } = require('./connection');
+const { redactText } = require('../operations/dataProtection');
+
+const boundedText = (value, maximum) => String(value || '').trim().slice(0, maximum);
 
 function normalizeClientPayload(payload) {
   const now = new Date().toISOString();
-  const deviceId = String(payload.deviceId || '').trim();
+  const deviceId = boundedText(payload.deviceId, 180);
   const venueId = sanitizeAccountKey(payload.venueId || payload.venueName || 'unassigned');
-  const appVersion = String(payload.appVersion || '').trim();
-  const platform = String(payload.platform || '').trim();
+  const appVersion = boundedText(payload.appVersion, 80);
+  const platform = boundedText(payload.platform, 80);
   if (!deviceId) throw new Error('deviceId is required.');
   if (!appVersion) throw new Error('appVersion is required.');
   if (!platform) throw new Error('platform is required.');
   return {
     venueId,
-    venueName: String(payload.venueName || '').trim(),
+    venueName: boundedText(payload.venueName, 160),
     deviceId,
-    deviceName: String(payload.deviceName || '').trim(),
+    deviceName: boundedText(payload.deviceName, 160),
     appVersion,
     platform,
-    environment: String(payload.environment || process.env.NODE_ENV || 'development').trim(),
-    updateStatus: String(payload.updateStatus || '').trim(),
-    updateEvent: String(payload.updateEvent || '').trim(),
+    environment: boundedText(payload.environment || process.env.NODE_ENV || 'development', 40),
+    updateStatus: boundedText(payload.updateStatus, 80),
+    updateEvent: boundedText(payload.updateEvent, 100),
     lastSeenAt: payload.lastSeenAt ? new Date(payload.lastSeenAt).toISOString() : now,
-    lastError: String(payload.lastError || '').trim(),
-    currentUser: payload.currentUser && typeof payload.currentUser === 'object' ? payload.currentUser : null
+    lastError: redactText(payload.lastError, 500),
+    currentUser: null
   };
 }
 
@@ -46,21 +49,22 @@ function mapClientRow(row) {
   };
 }
 
-function getClient(deviceId) {
-  const row = getDatabase().prepare('SELECT * FROM clients WHERE device_id = ?').get(String(deviceId || '').trim());
+async function getClient(deviceId) {
+  const database = await getDatabase();
+  const row = await database.get('SELECT * FROM clients WHERE device_id = $1', [String(deviceId || '').trim()]);
   return mapClientRow(row);
 }
 
-function upsertClient(payload) {
-  const db = getDatabase();
+async function upsertClient(payload) {
+  const db = await getDatabase();
   const client = normalizeClientPayload(payload);
   const now = new Date().toISOString();
-  db.prepare(`
+  await db.run(`
     INSERT INTO clients (
       device_id, venue_id, venue_name, device_name, app_version, platform, environment,
       update_status, update_event, last_seen_at, last_error, current_user_json, first_seen_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
     ON CONFLICT(device_id) DO UPDATE SET
       venue_id = excluded.venue_id,
       venue_name = excluded.venue_name,
@@ -74,7 +78,7 @@ function upsertClient(payload) {
       last_error = excluded.last_error,
       current_user_json = excluded.current_user_json,
       updated_at = excluded.updated_at
-  `).run(
+  `, [
     client.deviceId,
     client.venueId,
     client.venueName,
@@ -89,21 +93,31 @@ function upsertClient(payload) {
     client.currentUser ? JSON.stringify(client.currentUser) : null,
     now,
     now
-  );
+  ]);
   return getClient(client.deviceId);
 }
 
-function listClients(filters = {}) {
+async function listClients(filters = {}) {
   const params = [];
-  let where = '';
+  const conditions = [];
   if (filters.venueId) {
-    where = 'WHERE venue_id = ?';
+    conditions.push(`venue_id = $${params.length + 1}`);
     params.push(sanitizeAccountKey(filters.venueId));
   }
-  return getDatabase()
-    .prepare(`SELECT * FROM clients ${where} ORDER BY last_seen_at DESC`)
-    .all(...params)
-    .map(mapClientRow);
+  if (filters.beforeLastSeenAt) {
+    const index = params.length + 1;
+    conditions.push(`(last_seen_at < $${index} OR (last_seen_at = $${index + 1} AND device_id > $${index + 2}))`);
+    params.push(String(filters.beforeLastSeenAt), String(filters.beforeLastSeenAt), String(filters.beforeDeviceId || ''));
+  }
+  const limit = Math.min(Math.max(Number(filters.limit || 100), 1), 251);
+  const database = await getDatabase();
+  const rows = await database.all(`
+    SELECT * FROM clients
+    ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+    ORDER BY last_seen_at DESC, device_id ASC
+    LIMIT ${limit}
+  `, params);
+  return rows.map(mapClientRow);
 }
 
 module.exports = {

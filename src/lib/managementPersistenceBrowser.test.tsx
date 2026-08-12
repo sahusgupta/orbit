@@ -182,7 +182,7 @@ describe('management browser persistence orchestration', () => {
     document.body.innerHTML = '';
   });
 
-  it('pins last-account load precedence, local save fan-out, bridge fallback/retry/merge, notifications, and cleanup', async () => {
+  it('pins last-account cache precedence, API save, bridge retry/merge, notifications, and cleanup', async () => {
     expect(getState().games[0].name).toBe('last-account-wins');
     expect(harness.fetchCalls.some((call) => call.method === 'GET' && call.input.endsWith(`/state/${accountKey}`))).toBe(true);
     expect(harness.fetchCalls.some((call) => call.method === 'POST' && call.input.endsWith('/state'))).toBe(true);
@@ -249,6 +249,6 @@ describe('management browser persistence orchestration', () => {
     act(() => harness.root?.unmount());
     await advance(31_500);
     expect(harness.fetchCalls).toHaveLength(callsBeforeCleanup);
-    expect(harness.unsubscribe).toHaveBeenCalledTimes(2);
+    expect(harness.unsubscribe).not.toHaveBeenCalled();
   });
 });

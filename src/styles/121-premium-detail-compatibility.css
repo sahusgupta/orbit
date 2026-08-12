@@ -1,37 +1,8 @@
 
-/* Premium detail pass: richer components without adding clutter. */
+/* Astryx keeps the application canvas tonal and free of decorative fog or grid overlays. */
 body::before,
 body::after {
-  content: "";
-  inset: auto;
-  pointer-events: none;
-  position: fixed;
-  z-index: 0;
-}
-
-body::before {
-  background:
-    radial-gradient(circle at 24% 22%, rgba(77, 124, 254, 0.16), transparent 0 18rem),
-    radial-gradient(circle at 78% 12%, rgba(75, 103, 132, 0.18), transparent 0 20rem),
-    radial-gradient(circle at 64% 86%, rgba(15, 118, 110, 0.13), transparent 0 22rem);
-  filter: blur(10px);
-  height: 100vh;
-  left: 0;
-  opacity: 0.9;
-  top: 0;
-  width: 100vw;
-}
-
-body::after {
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.055) 0 1px, transparent 1px 34px),
-    linear-gradient(45deg, rgba(77, 124, 254, 0.04) 0 1px, transparent 1px 42px);
-  mask-image: radial-gradient(circle at 50% 18%, black, transparent 72%);
-  opacity: 0.42;
-  height: 100vh;
-  left: 0;
-  top: 0;
-  width: 100vw;
+  display: none;
 }
 
 .app-shell,
@@ -56,10 +27,9 @@ body::after {
 }
 
 .topbar-actions {
-  background: rgba(12, 18, 26, 0.58);
-  border: 1px solid rgba(255, 255, 255, 0.065);
-  border-radius: 12px;
-  padding: 6px;
+  background: transparent;
+  border: 0;
+  padding: 0;
 }
 
 .panel,
@@ -331,7 +301,7 @@ textarea:focus {
 .forming-game-menu > span {
   color: var(--muted);
   font-size: 0.76rem;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -341,7 +311,7 @@ textarea:focus {
   min-height: 46px;
   padding-inline: 14px 42px;
   border-radius: 14px;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .cash-ledger-backdrop,
@@ -369,13 +339,13 @@ textarea:focus {
 }
 
 .cash-out-modal { width: min(470px, 100%); display: grid; gap: 18px; }
-.cash-out-modal label { display: grid; gap: 8px; color: var(--muted); font-size: .78rem; font-weight: 750; }
+.cash-out-modal label { display: grid; gap: 8px; color: var(--muted); font-size: .78rem; font-weight: 700; }
 .cash-out-modal input { min-height: 48px; }
 .cash-out-head,
 .cash-ledger-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
 .cash-out-head { margin-bottom: 0; }
 .cash-out-head span,
-.cash-ledger-head span { color: var(--muted); font-size: .72rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.cash-ledger-head span { color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .cash-out-head h2,
 .cash-ledger-head h2 { margin: 4px 0 0; }
 .cash-out-actions { display: flex; justify-content: flex-end; gap: 10px; }
@@ -383,12 +353,12 @@ textarea:focus {
 .cash-ledger { display: grid; gap: 18px; }
 .cash-ledger-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .cash-ledger-summary article { display: grid; gap: 7px; min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
-.cash-ledger-summary span { color: var(--muted); font-size: .7rem; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+.cash-ledger-summary span { color: var(--muted); font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .cash-ledger-summary strong { font-size: 1.18rem; font-variant-numeric: tabular-nums; }
 .cash-ledger-summary .cash-ledger-balance { color: #fff; border-color: transparent; background: linear-gradient(135deg, #252d49, #394566); }
 .cash-ledger-balance span { color: rgba(255,255,255,.66); }
 .cash-ledger-reconcile { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 14px; border-radius: 12px; background: rgba(91, 105, 135, .07); }
-.cash-ledger-reconcile span { color: var(--muted); font-size: .72rem; font-weight: 750; text-transform: uppercase; }
+.cash-ledger-reconcile span { color: var(--muted); font-size: .72rem; font-weight: 700; text-transform: uppercase; }
 .cash-ledger-reconcile code { color: var(--ink); font-family: inherit; font-size: .8rem; font-variant-numeric: tabular-nums; }
 .cash-ledger-log { position: relative; display: grid; }
 .cash-ledger-entry { display: grid; grid-template-columns: 12px 66px minmax(0,1fr) auto; align-items: center; gap: 12px; min-height: 62px; border-bottom: 1px solid var(--line); }
@@ -400,7 +370,7 @@ textarea:focus {
 .cash-ledger-entry-copy { display: grid; gap: 3px; min-width: 0; }
 .cash-ledger-entry-copy strong { font-size: .83rem; }
 .cash-ledger-entry-copy span { color: var(--muted); font-size: .74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cash-ledger-entry em { color: #6d778a; font-size: .86rem; font-style: normal; font-weight: 800; font-variant-numeric: tabular-nums; }
+.cash-ledger-entry em { color: #6d778a; font-size: .86rem; font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
 .cash-ledger-entry.in em { color: #208260; }
 .cash-ledger-entry.fee em { color: #b36f1e; }
 .cash-ledger-empty { display: grid; justify-items: center; gap: 5px; padding: 44px 16px; color: var(--muted); }

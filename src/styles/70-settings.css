@@ -105,7 +105,7 @@ body.low-light .preference-row {
   color: var(--muted);
   display: inline-flex;
   font-size: 0.82rem;
-  font-weight: 850;
+  font-weight: 700;
   gap: 8px;
   white-space: normal;
 }

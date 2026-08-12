@@ -70,7 +70,7 @@ describe('account password recovery', () => {
       createSalt: () => 'new-salt',
       hashPassword: async () => 'new-hash',
       now: () => '2026-08-06T02:00:00.000Z'
-    })).rejects.toThrow('Choose a stronger password');
+    })).rejects.toThrow('at least 12 characters');
     expect(authenticate).not.toHaveBeenCalled();
   });
 

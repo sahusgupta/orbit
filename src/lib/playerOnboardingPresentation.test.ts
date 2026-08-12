@@ -210,7 +210,7 @@ describe('Player onboarding presentation contract', () => {
       '<OnboardingFlow'
     ];
 
-    expect(componentDigest).toBe('f8bc41c1447794ccf0793f394ac72dafddbd27831abfa1631b2c10df9f569adf');
+    expect(componentDigest).toBe('920e24a63a01df17eff25f95dee4e819bb094658654ffa20e9bd8e8cf8efdf76');
     orderedShellTokens.forEach((token) => expect(shell).toContain(token));
     for (let index = 1; index < orderedShellTokens.length; index += 1) {
       expect(shell.indexOf(orderedShellTokens[index])).toBeGreaterThan(shell.indexOf(orderedShellTokens[index - 1]));
@@ -221,7 +221,7 @@ describe('Player onboarding presentation contract', () => {
     const sources = parseSources([onboardingFeatureRoot]);
     const styleDigest = digest(styleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('75e4608919eddaaa9bca644c541a2443e83adb9161ead4506cd820ed8a5c1865');
+    expect(styleDigest).toBe('865eeb384f0960aedabd5d992f7853842f0278184dd095d530a6af89f82b77d0');
   });
 });
 
@@ -267,7 +267,7 @@ describe('Player discovery presentation contract', () => {
     const componentDigest = digest(discoveryComponentNames.map((name) => findFunction(sources, name)));
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
 
-    expect(componentDigest).toBe('1e255e35f164b1ef89add3c4d035ff8f011d8d08ad72c2900c67e702a5123537');
+    expect(componentDigest).toBe('380244f439c848afaa21ec21f64ca3abd530e7df1b933909044dca5ddc23f45c');
     [
       '<GameDetailsScreen',
       '<MyGamesSection',
@@ -287,7 +287,7 @@ describe('Player discovery presentation contract', () => {
     const sources = parseSources([discoveryFeatureRoot]);
     const styleDigest = digest(discoveryStyleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('731c3f4f775b41faffc89449de922e5fa6b5ff422097f6c36c663061148ac4f7');
+    expect(styleDigest).toBe('05afe4a318ce1f1cd71d7b6529ccba3855370a0093daeaaa476f3bc54da95168');
   });
 });
 
@@ -301,7 +301,7 @@ describe('Player tournament presentation contract', () => {
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
     const tournamentScreen = findFunction(sources, 'TournamentScreen');
 
-    expect(componentDigest).toBe('94efe4a56e326f60fe9820cc5e19e6212be876eafdcf59f370375e35ef6453f3');
+    expect(componentDigest).toBe('6934283c085b039e9a228f01bb340e6e14b7e75274517b8f70d533b2d937f516');
     ['<TournamentScreen', '<TournamentFilterControls'].forEach((token) => expect(playerApp).toContain(token));
     ['<TournamentCard', '<SearchToolbar'].forEach((token) => expect(tournamentScreen).toContain(token));
   });
@@ -310,7 +310,7 @@ describe('Player tournament presentation contract', () => {
     const sources = parseSources([tournamentFeatureRoot]);
     const styleDigest = digest(tournamentStyleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('8277efdefc313544a285bd92ae367ce860afef98e07f845e7722a60291910592');
+    expect(styleDigest).toBe('42b9dc43f1ed214b7ae1aa9effd3c1da09f473f5f9614fa02491351c08e2f6f8');
   });
 });
 
@@ -324,7 +324,7 @@ describe('Player clubs and membership presentation contract', () => {
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
     const clubsScreen = findFunction(sources, 'ClubsScreen');
 
-    expect(componentDigest).toBe('73b29f768d581d4a3046a16a6eda62e822a09da3185817bcc4960c049e5037ec');
+    expect(componentDigest).toBe('1127a7ac230c9fa747f8a9df27a9947edc1c6d621a06785b3b1436b7f488ed65');
     ['<ClubsScreen', '<ClubMembershipPlanScreen', '<ClubAccessCheckoutScreen', '<SeatRequestModal'].forEach((token) => expect(playerApp).toContain(token));
     expect(clubsScreen).toContain('<ClubHubSections');
   });
@@ -333,7 +333,7 @@ describe('Player clubs and membership presentation contract', () => {
     const sources = parseSources([clubsFeatureRoot, tournamentFeatureRoot]);
     const styleDigest = digest(clubStyleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('9d9c74e0b40999cd73583eacd31466df833c1714b8f1764394fcb87fbaaa8b0f');
+    expect(styleDigest).toBe('5ecff9fa0adc610399f875e882be73c31d55c9af7c7f4a2d7a717441bba5a064');
   });
 });
 
@@ -379,14 +379,14 @@ describe('Player identity and settings presentation contract', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const componentDigest = digest(settingsComponentNames.map((name) => findFunction(sources, name)));
 
-    expect(componentDigest).toBe('f180e89e9ec3161b3805bcfa2cf8cdbe9f2b3e6b31607aff8d91f0626f8bd69e');
+    expect(componentDigest).toBe('9734431411a32ce83dea7529a7d5f87a65dcc0e873221a099548252ecc7ce012');
   });
 
   it('preserves every identity/settings-owned and shared style value byte-for-byte', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const styleDigest = digest(settingsStyleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('3dc383f4433ac7a95c4a8ce91e1c8e498d8828301d5400991bb91cdc13df9d5b');
+    expect(styleDigest).toBe('37728a689cf40a072fff128496a9ac574b7b241ea1fffcf66b170c01b3883286');
   });
 });
 

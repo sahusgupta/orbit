@@ -1,9 +1,7 @@
 
 /* Immersive admin Table View */
 .table-view-shell {
-  background:
-    radial-gradient(circle at 48% 45%, rgba(77, 124, 254, 0.075), transparent 36rem),
-    #080d13;
+  background: #080d13;
   color: #f5f8fb;
   min-height: 100vh;
   overflow: hidden;
@@ -36,7 +34,7 @@
 .table-view-topbar h1 {
   color: #f8fafc;
   font-size: clamp(1.6rem, 3vw, 3rem);
-  font-weight: 760;
+  font-weight: var(--font-weight-bold);
   letter-spacing: 0;
   line-height: 1;
   margin: 4px 0 0;
@@ -118,7 +116,7 @@
 .table-view-waitlist-list strong {
   color: #f4f7fb;
   font-size: 0.86rem;
-  font-weight: 720;
+  font-weight: 700;
 }
 
 .table-view-feed span {
