@@ -9,7 +9,7 @@ TableManager is a live poker room operations app. It helps staff manage waitlist
 The product has three major surfaces:
 
 - Desktop management app: React + Vite + Electron.
-- Local/cloud API: Express + SQLite for telemetry, state, reports, and player sync.
+- Local/cloud API: Express + server-only Firebase Admin Firestore for telemetry, state, reports, recovery, and player sync.
 - Player/mobile integration: sync helpers and a tracked Expo application in `player-app/`. The current `orbit.config.json` excludes that directory from assistant indexing, but Git does not ignore it.
 
 ## Start Here
@@ -26,7 +26,7 @@ Read these files first:
 - `electron/main.cjs`: Electron shell, local persistence, telemetry, updates, and embedded backend.
 - `apps/api/src/server.js` → `apps/api/src/app.js`: API process entrypoint and non-listening app composition.
 - `apps/api/src/routes/` and `apps/api/src/http/`: focused route and middleware owners.
-- `apps/api/src/database.js` → `apps/api/src/db/`: stable SQLite facade and focused persistence owners.
+- `apps/api/src/database.js` → `apps/api/src/db/`: stable Firestore facade and focused persistence owners.
 - `src/components/PokerTable.tsx`: visual table component used by the management UI.
 - `docs/refactor/FINAL_REFACTOR_REPORT.md`: terminal architecture, metrics, verification, debt, and Player-web reuse assessment.
 
@@ -190,7 +190,7 @@ Key route areas:
 - membership and waitlist requests
 - analytical reports
 
-`apps/api/src/database.js` preserves the persistence import contract. `apps/api/src/db/connection.js` and `schema.js` own SQLite lifecycle/schema; `clients.js`, `telemetry.js`, `state.js`, and `reports.js` own focused repositories.
+`apps/api/src/database.js` preserves the persistence import contract. `apps/api/src/db/connection.js` owns the Firebase Admin Firestore boundary; the focused repository modules own authoritative state, outbox, client, telemetry, report, recovery, and audit collections. Electron uses an encrypted offline file cache only.
 
 Privileged runtime clients have focused owners under `apps/api/src/services/`: `firebaseAdmin.js` owns lazy Firebase Admin SDK/app initialization and credential-source precedence, while `stripeClient.js` owns lazy Stripe construction and missing-key behavior. Identity, license, and payment services consume those providers. Add provider lifecycle or credential-loading behavior to these owners rather than recreating it in a route or service; tests must use the injected factory seams and placeholder values rather than real credentials or provider calls.
 

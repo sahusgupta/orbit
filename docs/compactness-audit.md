@@ -91,7 +91,7 @@ This file mixes:
 
 - Electron window creation
 - auto-updates
-- local SQLite persistence
+- encrypted non-authoritative local cache persistence
 - telemetry
 - embedded backend HTTP routes
 - analytical report email delivery
@@ -133,14 +133,13 @@ REF-010 replaced the 556-line mixed module with a 33-line stable facade and focu
 ```text
 apps/api/src/db/
   connection.js
-  schema.js
   clients.js
   telemetry.js
   state.js
   reports.js
 ```
 
-`connection.js` owns the one lazy process-local SQLite handle, `schema.js` owns unchanged schema creation, and the remaining modules own client, telemetry, state, and report persistence. The largest is 212 lines.
+`connection.js` owns the one lazy server-only Firebase Admin Firestore boundary and transaction/query adapter. The remaining modules own authoritative state, publication outbox, client, telemetry, recovery, security-event, and report collections. Electron's local file cache is intentionally outside this server datastore.
 
 ### `apps/api/src/server.js`
 

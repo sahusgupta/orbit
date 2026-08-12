@@ -102,13 +102,15 @@ Firestore layout:
 - `clubs/{clubId}/memberships/{playerId}`: player-scoped membership state.
 - `clubs/{clubId}/waitlists/{waitlistId}`: player-scoped interest and seat-request state.
 - `clubs/{clubId}/membershipRequests/{requestId}` and `waitlistRequests/{requestId}`: idempotent mobile mutations and desktop acknowledgements.
-- `clubStates/{accountKey}`: full management state plus player-safe snapshot.
+- `orbitAccountStates/{accountKey}` and its server-only subcollections: authoritative revisioned management state and idempotency receipts.
+- `orbitPublicationOutbox/{publicationId}`: server-only retryable projection checkpoints.
+- `clubStates/{accountKey}`: compatibility/projection metadata; it is not a management-state authority.
 - `clubStates/{accountKey}/membershipRequests/{requestId}`: player join requests.
 - `clubStates/{accountKey}/waitlistRequests/{requestId}`: player waitlist requests.
 - `players/{uid}`: Firebase player profile, preferences, and per-club membership status.
 - `players/{uid}/private/identity`: server-only Stripe session reference and sanitized age-eligibility result.
 
-SQLite remains as a management-app local fallback/cache during the Firebase transition.
+The management desktop keeps only an OS-encrypted, non-authoritative file cache for offline recovery. Firestore is the sole persistent datastore, and only the backend publishes authoritative projections.
 
 ## Live Maps
 

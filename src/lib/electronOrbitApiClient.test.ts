@@ -82,7 +82,7 @@ function baseDependencies(overrides: Record<string, unknown> = {}) {
         }
       }
     }),
-    saveStateEverywhere: vi.fn().mockResolvedValue({ ok: true, engine: 'sqlite' }),
+    saveStateEverywhere: vi.fn().mockResolvedValue({ ok: true, engine: 'file-cache' }),
     setIntervalImpl: vi.fn().mockReturnValue(71),
     setTimeoutImpl: vi.fn().mockReturnValue(41),
     storeAnalyticalReport: vi.fn().mockResolvedValue({ ok: true, reportId: 'local-1' }),
@@ -370,7 +370,7 @@ describe('Electron API-first orchestration', () => {
       throw new Error('cache unavailable');
     });
     const writeStateToFirebase = vi.fn().mockResolvedValue(undefined);
-    const saveStateEverywhere = vi.fn().mockResolvedValue({ ok: true, engine: 'sqlite' });
+    const saveStateEverywhere = vi.fn().mockResolvedValue({ ok: true, engine: 'file-cache' });
     const client = createOrbitApiClient(baseDependencies({
       fetchImpl: fetch,
       isFirebaseConfigured: () => true,
@@ -394,7 +394,7 @@ describe('Electron API-first orchestration', () => {
 
     await expect(client.saveStateApiFirst(state)).resolves.toMatchObject({
       ok: false,
-      engine: 'sqlite',
+      engine: 'file-cache',
       conflict: false,
       error: 'Saved to offline cache; the server commit is still required.'
     });

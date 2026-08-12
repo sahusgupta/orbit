@@ -3,6 +3,9 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const rules = readFileSync(path.resolve(process.cwd(), 'player-app/firestore.rules'), 'utf8');
+const indexConfiguration = JSON.parse(
+  readFileSync(path.resolve(process.cwd(), 'player-app/firestore.indexes.json'), 'utf8')
+) as { indexes: Array<{ collectionGroup: string; fields: Array<{ fieldPath: string }> }> };
 
 describe('Firestore player-facing security contracts', () => {
   it('keeps the club root public while making targeted notifications recipient-scoped', () => {
@@ -23,5 +26,23 @@ describe('Firestore player-facing security contracts', () => {
       .map((match) => rules.slice(match.index, match.index + 240));
     expect(mutationInboxBlocks).toHaveLength(4);
     expect(mutationInboxBlocks.every((block) => block.includes('allow create, update, delete: if false;'))).toBe(true);
+    expect(rules).toMatch(/match \/\{document=\*\*\} \{\s*allow read, write: if false;/);
+  });
+
+  it('declares the composite indexes used by server-only operational queries', () => {
+    const signatures = indexConfiguration.indexes.map((index) =>
+      `${index.collectionGroup}:${index.fields.map((field) => field.fieldPath).join(',')}`
+    );
+    expect(signatures).toEqual(expect.arrayContaining([
+      'orbitClients:venueId,lastSeenAt,__name__',
+      'orbitTelemetryEvents:venueId,occurredAt,__name__',
+      'orbitTelemetryEvents:deviceId,occurredAt,__name__',
+      'orbitClientErrors:venueId,occurredAt,__name__',
+      'orbitClientUpdateEvents:deviceId,occurredAt,__name__',
+      'orbitManagementSecurityEvents:accountKey,occurredAt,__name__',
+      'orbitPublicationOutbox:createdAt,accountKey,revision',
+      'orbitPublicationOutbox:accountKey,createdAt,revision',
+      'orbitAccountStates:savedAt,__name__'
+    ]));
   });
 });

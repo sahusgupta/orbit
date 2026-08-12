@@ -1620,3 +1620,13 @@ Stage verification on 2026-08-11:
 - Dependency policy, brand governance, release-control verification, and module-graph audit: **passed**.
 - Sensitive-path prevention: **correctly failed on the same 11 operator-owned paths**. No listed artifact was opened, changed, removed, staged, or copied. SEC-017 remains a required human credential inventory, rotation, secret-store migration, and safe removal action.
 - No production release/package command, GitHub workflow, alert receiver, hosted service, datastore, Firebase project, domain, DNS, registrar, certificate, canonical production hostname, legal/company attribution, or production cutover was accessed or changed. The tracked `data/orbit-api.sqlite3` artifact was not opened or modified.
+
+## Founder architecture amendment — 2026-08-12
+
+The founder replaced the earlier Stage 0 durable-relational implementation direction with an explicit Firestore-only datastore decision. This amendment changes the implementation disposition; it does not erase the original audit evidence above.
+
+- Firestore is the only persistent datastore. The server-only `orbitAccountStates` hierarchy is authoritative; Electron/browser state is an offline cache; player-readable collections remain projections.
+- The API is the only authoritative publisher. One state mutation uses one Firestore transaction for the state chunks, revision, idempotency receipt, and retryable publication record.
+- SQL runtime adapters, schema code, dependencies, and the tracked database artifact are removed. The artifact was removed without opening or inspecting its contents.
+- Existing accounts initialize an absent authoritative Firestore record only through revision-zero compare-and-swap from their characterized desktop cache. Current absence of a record is not represented as completed migration.
+- Legal/company attribution and production-domain ownership/cutover remain deferred founder decisions and do not block engineering. No legal attribution, DNS, registrar, certificate, canonical production hostname, or cutover change is authorized by this amendment.

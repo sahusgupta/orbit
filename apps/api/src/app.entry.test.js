@@ -14,7 +14,9 @@ describe('Vercel API entrypoint', () => {
       encoding: 'utf8',
       env: {
         ...process.env,
-        DATABASE_URL: 'postgresql://local-verification.invalid/orbit',
+        FIREBASE_SERVICE_ACCOUNT_JSON: JSON.stringify({ project_id: 'local-verification' }),
+        NODE_ENV: 'production',
+        ORBIT_FIRESTORE_MEMORY: 'false',
         VERCEL: '1'
       }
     });

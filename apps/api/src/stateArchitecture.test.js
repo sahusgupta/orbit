@@ -1,16 +1,10 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { DatabaseSync } from 'node:sqlite';
+import { randomBytes } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import database from './database.js';
 import publicationOutbox from './db/publicationOutbox.js';
 
-const databasePath = path.join(os.tmpdir(), `orbit-state-architecture-${process.pid}-${Date.now()}.sqlite3`);
-process.env.DATABASE_URL = `file:${databasePath}`;
-
 const { closeDatabase, listPublicationOutbox, loadState, saveState } = database;
-const { claimNextPublication, publishClaimed } = publicationOutbox;
+const { claimNextPublication, markFailed, publishClaimed } = publicationOutbox;
 
 function state(profileName = 'Ada') {
   return {
@@ -24,11 +18,10 @@ function state(profileName = 'Ada') {
 
 afterAll(async () => {
   await closeDatabase();
-  for (const suffix of ['', '-shm', '-wal']) fs.rmSync(`${databasePath}${suffix}`, { force: true });
 });
 
 describe('authoritative state architecture', () => {
-  it('uses compare-and-swap revisions, idempotent mutations, normalized entities, and one outbox row per commit', async () => {
+  it('uses Firestore compare-and-swap revisions, idempotent mutations, chunked state, and one outbox record per commit', async () => {
     const first = await saveState(state(), { expectedRevision: 0, mutationId: 'mutation-1' });
     expect(first).toMatchObject({ revision: 1, duplicate: false, publication: { status: 'pending' } });
 
@@ -56,16 +49,7 @@ describe('authoritative state architecture', () => {
     expect(queued.map((item) => item.revision).sort()).toEqual([1, 2]);
 
     await closeDatabase();
-    const raw = new DatabaseSync(databasePath, { readOnly: true });
-    try {
-      const account = raw.prepare('SELECT state_json, state_meta_json, revision FROM account_state WHERE account_key = ?').get('revision-example.com');
-      expect(account).toMatchObject({ state_json: '{}', revision: 2 });
-      expect(JSON.parse(String(account.state_meta_json))).toMatchObject({ format: 'entity-v1', arrayKeys: expect.arrayContaining(['profiles', 'games']) });
-      expect(raw.prepare('SELECT COUNT(*) AS count FROM account_profiles').get().count).toBe(0);
-      expect(raw.prepare('SELECT COUNT(*) AS count FROM account_state_entities').get().count).toBe(2);
-    } finally {
-      raw.close();
-    }
+    expect(await loadState('revision-example.com')).toMatchObject({ revision: 2, state: state('Grace') });
   });
 
   it('publishes claimed revisions with stable commit identities and records retryable failure', async () => {
@@ -85,5 +69,28 @@ describe('authoritative state architecture', () => {
       expect.objectContaining({ revision: 2, status: 'pending', attempts: 0 })
     ]));
     expect(await claimNextPublication()).toBeNull();
+
+    const retry = await claimNextPublication(new Date(Date.now() + 20 * 60 * 1000).toISOString());
+    expect(retry).toMatchObject({ accountKey: 'revision-example.com', revision: 1, attempts: 2 });
+    await expect(publishClaimed(retry, {
+      publishStateToFirebase: vi.fn().mockResolvedValue({ ok: true })
+    })).resolves.toMatchObject({ ok: true });
+    await markFailed(first, new Error('late stale worker failure'));
+    expect(await listPublicationOutbox({ accountKey: 'revision-example.com' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ revision: 1, status: 'published', attempts: 2, error: '' })
+    ]));
   });
+
+  it('rejects a state that cannot fit in one bounded Firestore transaction', async () => {
+    const oversized = {
+      ...state(),
+      settings: {
+        ...state().settings,
+        clubAccount: { clubName: 'Oversized Club', email: 'oversized@example.com' },
+        incompressiblePadding: randomBytes(8_100_000).toString('base64')
+      }
+    };
+    await expect(saveState(oversized, { expectedRevision: 0, mutationId: 'oversized-state' }))
+      .rejects.toThrow('The authoritative state exceeds the Firestore transaction size limit.');
+  }, 15_000);
 });

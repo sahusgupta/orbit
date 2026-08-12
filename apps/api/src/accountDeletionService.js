@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { getDatabase } = require('./db/connection');
+const { firestoreDocumentId, getDatabase } = require('./db/connection');
 const { listStatePage, saveState } = require('./db/state');
 const { deletePlayerIdentityData } = require('./identityService');
 const { getAdminApp, getAdminSdk } = require('./services/firebaseAdmin');
@@ -132,31 +132,20 @@ function anonymizePlayerState(state, playerId, subjectId, policy) {
 
 async function updateJob(database, playerId, subjectId, status, currentStep, retained, result = {}, lastError = '') {
   const now = new Date().toISOString();
-  await database.run(`
-    INSERT INTO account_deletion_jobs (
-      player_id, subject_id, status, current_step, retained_categories_json,
-      result_json, last_error, created_at, updated_at, completed_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
-    ON CONFLICT(player_id) DO UPDATE SET
-      subject_id = excluded.subject_id,
-      status = excluded.status,
-      current_step = excluded.current_step,
-      retained_categories_json = excluded.retained_categories_json,
-      result_json = excluded.result_json,
-      last_error = excluded.last_error,
-      updated_at = excluded.updated_at,
-      completed_at = excluded.completed_at
-  `, [
+  const path = `orbitAccountDeletionJobs/${firestoreDocumentId(playerId)}`;
+  const previous = await database.getDocument(path);
+  await database.setDocument(path, {
     playerId,
     subjectId,
     status,
     currentStep,
-    JSON.stringify(retained),
-    JSON.stringify(result),
+    retainedCategories: retained,
+    result,
     lastError,
-    now,
-    status === 'complete' ? now : null
-  ]);
+    createdAt: previous?.createdAt || now,
+    updatedAt: now,
+    completedAt: status === 'complete' ? now : null
+  });
 }
 
 async function anonymizeAuthoritativeStates(playerId, subjectId, policy) {
@@ -182,11 +171,33 @@ async function anonymizeAuthoritativeStates(playerId, subjectId, policy) {
 }
 
 async function redactTelemetry(database, playerId) {
-  const pattern = `%${playerId}%`;
-  await database.run('UPDATE clients SET current_user_json = NULL WHERE current_user_json LIKE $1', [pattern]);
-  await database.run("UPDATE client_update_events SET details_json = '{\"redacted\":true}', error = '' WHERE details_json LIKE $1 OR error LIKE $1", [pattern]);
-  await database.run("UPDATE client_telemetry_events SET details_json = '{\"redacted\":true}' WHERE details_json LIKE $1", [pattern]);
-  await database.run("UPDATE client_errors SET message = 'Redacted player-related error.', stack = '', details_json = '{\"redacted\":true}' WHERE message LIKE $1 OR stack LIKE $1 OR details_json LIKE $1", [pattern]);
+  /** @type {Array<[string, (record: Record<string, unknown>) => Record<string, unknown>]>} */
+  const targets = [
+    ['orbitClients', (record) => ({ ...record, currentUser: null })],
+    ['orbitClientUpdateEvents', (record) => ({ ...record, details: { redacted: true }, error: '' })],
+    ['orbitTelemetryEvents', (record) => ({ ...record, details: { redacted: true } })],
+    ['orbitClientErrors', (record) => ({
+      ...record,
+      message: 'Redacted player-related error.',
+      stack: '',
+      details: { redacted: true }
+    })]
+  ];
+  for (const [collectionName, redact] of targets) {
+    let cursor;
+    do {
+      const documents = await database.queryCollection(collectionName, {
+        orders: [{ field: '__name__', direction: 'asc' }],
+        startAfter: cursor ? [cursor] : undefined,
+        limit: 200
+      });
+      for (const document of documents) {
+        if (!JSON.stringify(document.data).includes(playerId)) continue;
+        await database.setDocument(`${collectionName}/${document.id}`, redact(document.data));
+      }
+      cursor = documents.length === 200 ? documents.at(-1).id : undefined;
+    } while (cursor);
+  }
 }
 
 async function visitQueryPages(query, admin, operation, pageSize = 200) {

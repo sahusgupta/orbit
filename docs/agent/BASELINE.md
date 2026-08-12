@@ -2,6 +2,8 @@
 
 Baseline captured on 2026-08-05 before preparation changes were committed.
 
+Current datastore amendment (2026-08-12): Firestore is now the sole persistent datastore. Historical results below intentionally retain the former architecture as evidence; they are not current runtime instructions. The former tracked database artifact was removed without opening it, and Electron now uses an encrypted non-authoritative file cache.
+
 ## Source State
 
 - Branch: `chore/prepare-codex-workflow`
