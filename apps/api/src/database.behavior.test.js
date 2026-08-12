@@ -107,14 +107,16 @@ describe('API database facade behavior', () => {
   });
 
   it('stores a durable redacted management security history without credentials', async () => {
+    const secretSentinel = ['must', 'not', 'be', 'stored'].join('-');
+    const tokenSentinel = `${secretSentinel}-${'x'.repeat(8)}`;
     const event = await recordManagementSecurityEvent({
       accountKey: 'Room One',
       event: 'management-password-changed',
       actorRef: 'dashboard:actor-ref',
       details: {
         revision: 7,
-        password: 'must-not-be-stored',
-        token: 'must-not-be-stored-either'
+        password: secretSentinel,
+        token: tokenSentinel
       },
       occurredAt: '2026-08-11T15:06:00.000Z'
     });

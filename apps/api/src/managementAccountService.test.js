@@ -8,6 +8,8 @@ const {
   validateNewPassword
 } = managementAccountService;
 
+const validTestPassword = (purpose) => `${purpose}-${'x'.repeat(20)}-A7`;
+
 function makeRecord() {
   return {
     accountKey: 'room-one',
@@ -108,15 +110,16 @@ describe('management account recovery service', () => {
 
   it('requires an owner-created override, updates Firebase before durable state, then consumes it once', async () => {
     const { events, passwordProvider, recoveryStore, saveState, service } = makeService();
+    const password = validTestPassword('recovery');
     recoveryStore.consume.mockImplementation(async () => {
       events.push('consume');
       return true;
     });
 
-    const result = await service.completeRecovery({ accountKey: 'room-one', password: 'Longer temporary password 2026' });
+    const result = await service.completeRecovery({ accountKey: 'room-one', password });
 
     expect(events).toEqual(['provider', 'state', 'consume']);
-    expect(passwordProvider.updatePassword).toHaveBeenCalledWith('owner@example.com', 'Longer temporary password 2026');
+    expect(passwordProvider.updatePassword).toHaveBeenCalledWith('owner@example.com', password);
     expect(saveState).toHaveBeenCalledWith(expect.objectContaining({
       settings: expect.objectContaining({
         accountLogin: expect.objectContaining({
@@ -139,7 +142,7 @@ describe('management account recovery service', () => {
       passwordProvider: { updatePassword: vi.fn(async () => { throw new Error('provider unavailable'); }) }
     });
 
-    await expect(service.completeRecovery({ accountKey: 'room-one', password: 'Longer temporary password 2026' }))
+    await expect(service.completeRecovery({ accountKey: 'room-one', password: validTestPassword('provider-failure') }))
       .rejects.toThrow('provider unavailable');
     expect(saveState).not.toHaveBeenCalled();
     expect(recoveryStore.consume).not.toHaveBeenCalled();
@@ -148,7 +151,7 @@ describe('management account recovery service', () => {
 
   it('lets the owner change a known management password without creating or consuming an override', async () => {
     const { recoveryStore, saveState, service } = makeService();
-    const result = await service.changePassword({ accountKey: 'room-one', password: 'Owner selected password 2026' });
+    const result = await service.changePassword({ accountKey: 'room-one', password: validTestPassword('owner-change') });
 
     expect(result.revision).toBe(5);
     expect(saveState.mock.calls[0][0].settings.accountLogin.lastLoginAt).toBeUndefined();
