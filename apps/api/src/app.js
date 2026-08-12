@@ -29,6 +29,8 @@ function createApp() {
   app.use(rejectUnexpectedFileUploads);
   app.use(createRateLimit({ name: 'api', maximum: 600, windowMs: 60_000 }));
   app.use('/dashboard/session', createRateLimit({ name: 'dashboard-session', maximum: 10, windowMs: 15 * 60_000 }));
+  app.use('/dashboard/management-accounts', createRateLimit({ name: 'management-account-admin', maximum: 30, windowMs: 15 * 60_000 }));
+  app.use('/management/recovery', createRateLimit({ name: 'management-account-recovery', maximum: 10, windowMs: 15 * 60_000 }));
   app.use('/player/auth', createRateLimit({ name: 'player-auth', maximum: 10, windowMs: 15 * 60_000 }));
   app.use('/player/identity', createRateLimit({ name: 'player-identity', maximum: 30, windowMs: 15 * 60_000 }));
   app.use('/player', createRateLimit({ name: 'player-mutation', maximum: 120, windowMs: 60_000 }));

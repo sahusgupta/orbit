@@ -9,21 +9,30 @@ process.env.DATABASE_URL = `file:${databasePath}`;
 
 const {
   closeDatabase,
+  claimManagementRecoveryOverride,
+  consumeManagementRecoveryOverride,
+  createManagementRecoveryOverride,
   getClient,
   getDatabasePath,
   getDatabaseStatus,
   getTelemetrySummary,
+  getManagementRecoveryOverride,
   listClientErrors,
   listClients,
   listClientUpdateEvents,
   listTelemetryEvents,
+  listManagementRecoveryOverrides,
+  listManagementSecurityEvents,
   listStatePage,
   listVenues,
   loadLatestState,
   loadState,
   recordClientError,
   recordTelemetryEvent,
+  recordManagementSecurityEvent,
   recordUpdateEvent,
+  releaseManagementRecoveryClaim,
+  revokeManagementRecoveryOverride,
   saveState,
   storeAnalyticalReport,
   upsertClient
@@ -71,6 +80,54 @@ afterEach(() => {
 });
 
 describe('API database facade behavior', () => {
+  it('keeps recovery overrides durable, expiring, claimable, and single-use', async () => {
+    const now = new Date('2026-08-11T15:00:00.000Z');
+    const created = await createManagementRecoveryOverride({
+      accountKey: 'Room One',
+      durationMinutes: 15,
+      reason: 'Founder-approved support recovery',
+      createdByRef: 'actor-ref',
+      now
+    });
+    expect(created).toMatchObject({ accountKey: 'room-one', status: 'active', reason: 'Founder-approved support recovery' });
+    expect(await getManagementRecoveryOverride('room-one', { activeOnly: true, now })).toMatchObject({ id: created.id });
+
+    const claimed = await claimManagementRecoveryOverride('room-one', { now: new Date('2026-08-11T15:01:00.000Z') });
+    expect(claimed).toMatchObject({ id: created.id, status: 'processing' });
+    expect(await claimManagementRecoveryOverride('room-one', { now: new Date('2026-08-11T15:01:01.000Z') })).toBeNull();
+
+    await releaseManagementRecoveryClaim(created.id, { now: new Date('2026-08-11T15:02:00.000Z') });
+    expect(await claimManagementRecoveryOverride('room-one', { now: new Date('2026-08-11T15:03:00.000Z') })).toMatchObject({ id: created.id });
+    expect(await consumeManagementRecoveryOverride(created.id, { now: new Date('2026-08-11T15:04:00.000Z') })).toBe(true);
+    expect(await getManagementRecoveryOverride('room-one', { activeOnly: true, now: new Date('2026-08-11T15:04:01.000Z') })).toBeNull();
+    expect(await listManagementRecoveryOverrides({ now: new Date('2026-08-11T15:04:01.000Z') })).toEqual([
+      expect.objectContaining({ id: created.id, status: 'consumed' })
+    ]);
+    expect(await revokeManagementRecoveryOverride('room-one', { now: new Date('2026-08-11T15:05:00.000Z') })).toBe(false);
+  });
+
+  it('stores a durable redacted management security history without credentials', async () => {
+    const event = await recordManagementSecurityEvent({
+      accountKey: 'Room One',
+      event: 'management-password-changed',
+      actorRef: 'dashboard:actor-ref',
+      details: {
+        revision: 7,
+        password: 'must-not-be-stored',
+        token: 'must-not-be-stored-either'
+      },
+      occurredAt: '2026-08-11T15:06:00.000Z'
+    });
+    expect(event).toMatchObject({
+      accountKey: 'room-one',
+      event: 'management-password-changed',
+      actorRef: 'dashboard:actor-ref',
+      details: { revision: 7, password: '[redacted]', token: '[redacted]' }
+    });
+    expect(JSON.stringify(event)).not.toContain('must-not-be-stored');
+    expect(await listManagementSecurityEvents({ accountKey: 'Room One' })).toEqual([event]);
+  });
+
   it('resolves local file URLs and identifies Postgres as a non-filesystem database', () => {
     expect(getDatabasePath()).toBe(path.resolve(databasePath));
 

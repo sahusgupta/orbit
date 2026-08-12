@@ -288,6 +288,45 @@ function createOrbitApiClient(dependencies) {
     return record;
   }
 
+  async function getManagementRecoveryStatusApi(access) {
+    const authKey = getClientAuthKeyFromAccess(access);
+    if (!authKey) return { ok: false, active: false, error: 'A current pilot license key is required.' };
+    const payload = await requestOrbitApi('/management/recovery/status', {
+      authKey,
+      timeoutMs: 5000,
+      returnFailurePayload: true
+    });
+    return payload?.ok
+      ? { ok: true, active: Boolean(payload.active), expiresAt: payload.expiresAt || null, username: payload.username || '' }
+      : { ok: false, active: false, error: payload?.error || 'Unable to check owner-assisted recovery.' };
+  }
+
+  async function completeManagementRecoveryApi(access, password) {
+    const authKey = getClientAuthKeyFromAccess(access);
+    if (!authKey) return { ok: false, error: 'A current pilot license key is required.' };
+    const payload = await requestOrbitApi('/management/recovery/complete', {
+      method: 'POST',
+      authKey,
+      body: { password: String(password || '') },
+      timeoutMs: 15_000,
+      returnFailurePayload: true
+    });
+    if (!payload?.ok || !payload.accountLogin) {
+      return { ok: false, error: payload?.error || 'Owner-assisted recovery could not be completed.' };
+    }
+    const accountKey = sanitizeAccountKey(payload.accountKey || getAccountKeyFromAccess(access));
+    if (accountKey && Number.isInteger(Number(payload.revision))) {
+      revisionByAccount.set(accountKey, Number(payload.revision));
+    }
+    return {
+      ok: true,
+      accountKey,
+      accountLogin: payload.accountLogin,
+      revision: Number(payload.revision || 0),
+      publication: payload.publication || { status: 'pending' }
+    };
+  }
+
   async function saveStateToApi(state) {
     const accountKey = getAccountKeyFromState(state);
     const expectedRevision = revisionByAccount.get(accountKey) || 0;
@@ -469,10 +508,12 @@ function createOrbitApiClient(dependencies) {
 
   return {
     buildClientTelemetryPayload,
+    completeManagementRecoveryApi,
     getApiConfig,
     getClientUpdateState,
     getOrCreateDeviceId,
     getRemoteBackendStatus,
+    getManagementRecoveryStatusApi,
     loadStateApiFirst,
     loadStateFromApi,
     postClientTelemetry,

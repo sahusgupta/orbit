@@ -8,6 +8,8 @@ type OrbitApiClient = {
   buildClientTelemetryPayload: (overrides?: Record<string, unknown>) => Record<string, unknown>;
   getApiConfig: () => { apiUrl: string; apiKey: string };
   getClientUpdateState: () => { updateStatus: string; updateEvent: string };
+  getManagementRecoveryStatusApi: (access: unknown) => Promise<Record<string, unknown>>;
+  completeManagementRecoveryApi: (access: unknown, password: string) => Promise<Record<string, unknown>>;
   getOrCreateDeviceId: () => string;
   loadStateApiFirst: (accountKey?: string, access?: unknown) => Promise<unknown>;
   loadStateFromApi: (accountKey?: string, access?: unknown) => Promise<unknown>;
@@ -280,6 +282,46 @@ describe('Electron API-first orchestration', () => {
     expect(loadStateWithFirebaseFallback).toHaveBeenCalledWith('club-one');
     expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:4310/state', expect.objectContaining({ method: 'POST' }));
     expect(JSON.parse(String((fetch.mock.calls.at(-1)?.[1] as RequestInit).body))).toMatchObject({ state: fallbackRecord.state, expectedRevision: 0 });
+  });
+
+  it('checks and completes a tenant-bound recovery override without putting the password in logs', async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response('{"ok":true,"active":true,"expiresAt":"2026-08-07T12:30:00.000Z","username":"owner@example.com"}'))
+      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","revision":12,"accountLogin":{"username":"owner@example.com","passwordSalt":"new-salt","passwordHash":"new-hash","lastLoginAt":"2026-08-07T12:05:00.000Z"},"publication":{"status":"pending"}}'))
+      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","revision":13,"publication":{"status":"pending"}}'));
+    const writeOrbitApiLog = vi.fn();
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, writeOrbitApiLog }));
+    const access = { licenseId: 'club-one', authorizationCode: 'pilot-code' };
+
+    await expect(client.getManagementRecoveryStatusApi(access)).resolves.toEqual({
+      ok: true,
+      active: true,
+      expiresAt: '2026-08-07T12:30:00.000Z',
+      username: 'owner@example.com'
+    });
+    await expect(client.completeManagementRecoveryApi(access, 'Temporary password 2026')).resolves.toMatchObject({
+      ok: true,
+      accountKey: 'club-one',
+      revision: 12,
+      accountLogin: { passwordHash: 'new-hash', passwordSalt: 'new-salt' }
+    });
+    await client.saveStateToApi({
+      games: [],
+      settings: { pilotAccess: access }
+    });
+
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      'http://127.0.0.1:4310/management/recovery/status',
+      'http://127.0.0.1:4310/management/recovery/complete',
+      'http://127.0.0.1:4310/state'
+    ]);
+    expect(fetch.mock.calls[1][1]).toMatchObject({
+      method: 'POST',
+      headers: expect.objectContaining({ 'x-orbit-api-key': 'pilot-code', 'x-orbit-auth-key': 'pilot-code' }),
+      body: JSON.stringify({ password: 'Temporary password 2026' })
+    });
+    expect(JSON.parse(String((fetch.mock.calls[2][1] as RequestInit).body))).toMatchObject({ expectedRevision: 12 });
+    expect(JSON.stringify(writeOrbitApiLog.mock.calls)).not.toContain('Temporary password 2026');
   });
 
   it('migrates a replacement-key local account only after API and ordinary fallback misses', async () => {

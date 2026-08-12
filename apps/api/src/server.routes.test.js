@@ -147,6 +147,29 @@ describe('API route composition', () => {
     expect(cookie).toContain('Secure');
     const data = await request('/dashboard/history/events?limit=1', { headers: { cookie } });
     expect(data.status).toBe(200);
+
+    const managementAccounts = await request('/dashboard/management-accounts', { headers: { cookie } });
+    expect(managementAccounts.status).toBe(200);
+    expect(await managementAccounts.json()).toMatchObject({ managementAccounts: [] });
+    const securityHistory = await request('/dashboard/history/security?limit=10', { headers: { cookie } });
+    expect(securityHistory.status).toBe(200);
+    expect(await securityHistory.json()).toMatchObject({ events: [], hasMore: false });
+
+    const mutationWithoutCsrf = await request('/dashboard/licenses/missing-license/revoke', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: '{}'
+    });
+    expect(mutationWithoutCsrf.status).toBe(403);
+    expect(await mutationWithoutCsrf.json()).toEqual({ ok: false, error: 'Dashboard request verification failed.' });
+
+    const unknownAccount = await request('/dashboard/management-accounts/missing-account/recovery', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json', 'x-orbit-csrf': '1' },
+      body: JSON.stringify({ durationMinutes: 15 })
+    });
+    expect(unknownAccount.status).toBe(404);
+    expect(await unknownAccount.json()).toMatchObject({ ok: false, code: 'MANAGEMENT_ACCOUNT_NOT_FOUND' });
   });
 
   it('keeps Player and webhook routes ahead of client authentication without contacting services', async () => {
@@ -178,6 +201,15 @@ describe('API route composition', () => {
       body: '{}'
     });
     expect(unauthorized.status).toBe(401);
+
+    const unauthorizedRecovery = await request('/management/recovery/status');
+    expect(unauthorizedRecovery.status).toBe(401);
+    const machineCredentialRecovery = await request('/management/recovery/status', { headers: withClientKey() });
+    expect(machineCredentialRecovery.status).toBe(403);
+    expect(await machineCredentialRecovery.json()).toEqual({
+      ok: false,
+      error: 'A current pilot license key is required for account recovery.'
+    });
 
     const heartbeat = await request('/clients/heartbeat', {
       method: 'POST',
@@ -242,7 +274,16 @@ describe('API route composition', () => {
       sessions: [],
       playerSessions: [],
       profiles: [],
-      settings: { clubAccount: { clubName: 'Revision Route', email: 'revision@example.com' }, pilotAccess: { licenseId: 'route-venue' } }
+      settings: {
+        clubAccount: { clubName: 'Revision Route', email: 'revision@example.com' },
+        pilotAccess: { licenseId: 'route-venue' },
+        accountLogin: {
+          username: 'manager@example.com',
+          passwordSalt: 'route-salt',
+          passwordHash: 'pbkdf2-sha256$210000$route-hash',
+          createdAt: '2026-08-11T00:00:00.000Z'
+        }
+      }
     };
     const missingPrecondition = await request('/state', {
       method: 'POST',
@@ -289,5 +330,19 @@ describe('API route composition', () => {
     const loaded = await request('/state/route-venue', { headers: withClientKey() });
     expect(loaded.status).toBe(200);
     expect(await loaded.json()).toMatchObject({ revision: 1, state: { profiles: [] } });
+
+    const signIn = await request('/dashboard/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: 'local-dashboard-password' })
+    });
+    const dashboardData = await request('/dashboard/management-accounts', { headers: { cookie: signIn.headers.get('set-cookie') } });
+    const dashboardPayload = /** @type {{ managementAccounts: Array<Record<string, unknown>> }} */ (await dashboardData.json());
+    expect(dashboardData.status, `${JSON.stringify(dashboardPayload)}\n${output}`).toBe(200);
+    expect(dashboardPayload.managementAccounts).toEqual([
+      expect.objectContaining({ accountKey: 'route-venue', username: 'manager@example.com', hasManagementLogin: true })
+    ]);
+    expect(JSON.stringify(dashboardPayload.managementAccounts)).not.toContain('route-salt');
+    expect(JSON.stringify(dashboardPayload.managementAccounts)).not.toContain('route-hash');
   });
 });

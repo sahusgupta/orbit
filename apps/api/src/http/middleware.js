@@ -10,6 +10,14 @@ function assignRequestId(request, response, next) {
 }
 
 function handleApiError(error, request, response, _next) {
+  if (error?.name === 'ManagementAccountError' && [400, 404, 409, 503].includes(Number(error.status))) {
+    response.status(Number(error.status)).json({
+      ok: false,
+      error: redactText(error.message, 300),
+      code: String(error.code || 'MANAGEMENT_ACCOUNT_ERROR')
+    });
+    return;
+  }
   const errorRef = protectedIdentifier(error?.stack || error?.message || request.orbitRequestId);
   console.error(JSON.stringify({
     timestamp: new Date().toISOString(),

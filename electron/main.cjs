@@ -187,7 +187,9 @@ async function saveStateEverywhere(state) {
 }
 
 const {
+  completeManagementRecoveryApi,
   getClientUpdateState,
+  getManagementRecoveryStatusApi,
   getRemoteBackendStatus,
   loadStateApiFirst,
   saveStateApiFirst,
@@ -296,6 +298,13 @@ ipcMain.handle('get-backend-status', trustedIpc(async () => {
 }));
 
 ipcMain.handle('validate-pilot-access', trustedIpc(async (access) => validatePilotAccessApi(boundedPayload(access, 16_000))));
+
+ipcMain.handle('get-management-recovery-status', trustedIpc(async (access) => getManagementRecoveryStatusApi(boundedPayload(access, 16_000))));
+
+ipcMain.handle('complete-management-recovery', trustedIpc(async (payload) => {
+  const bounded = boundedPayload(payload, 20_000);
+  return completeManagementRecoveryApi(bounded.access, bounded.password);
+}));
 
 ipcMain.handle('submit-analytical-report', trustedIpc((report) => submitAnalyticalReportApiFirst(boundedPayload(report, 500_000))));
 

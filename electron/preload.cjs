@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('tableManagerDesktop', {
   },
   getBackendStatus: () => ipcRenderer.invoke('get-backend-status'),
   validatePilotAccess: (access) => ipcRenderer.invoke('validate-pilot-access', access),
+  getManagementRecoveryStatus: (access) => ipcRenderer.invoke('get-management-recovery-status', access),
+  completeManagementRecovery: (payload) => ipcRenderer.invoke('complete-management-recovery', payload),
   verifyStaffPin: (payload) => ipcRenderer.invoke('verify-staff-pin', payload),
   authorizeStaffAction: (payload) => ipcRenderer.invoke('authorize-staff-action', payload),
   submitAnalyticalReport: (report) => ipcRenderer.invoke('submit-analytical-report', report),

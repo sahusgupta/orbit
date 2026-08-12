@@ -106,6 +106,38 @@ const baseSqliteSchema = `
     delivery_error TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS management_recovery_overrides (
+    id TEXT PRIMARY KEY,
+    account_key TEXT NOT NULL,
+    status TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    created_by_ref TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    processing_at TEXT,
+    consumed_at TEXT,
+    revoked_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS management_recovery_account_time_idx
+    ON management_recovery_overrides (account_key, created_at DESC);
+  CREATE INDEX IF NOT EXISTS management_recovery_status_expiry_idx
+    ON management_recovery_overrides (status, expires_at);
+
+  CREATE TABLE IF NOT EXISTS management_security_events (
+    id TEXT PRIMARY KEY,
+    account_key TEXT NOT NULL,
+    event TEXT NOT NULL,
+    actor_ref TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    occurred_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS management_security_events_time_idx
+    ON management_security_events (occurred_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS management_security_events_account_time_idx
+    ON management_security_events (account_key, occurred_at DESC, id DESC);
+
   CREATE TABLE IF NOT EXISTS account_deletion_jobs (
     player_id TEXT PRIMARY KEY,
     subject_id TEXT NOT NULL,
@@ -307,6 +339,38 @@ const postgresSchema = `
     delivery_status TEXT NOT NULL DEFAULT 'stored',
     delivery_error TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS management_recovery_overrides (
+    id TEXT PRIMARY KEY,
+    account_key TEXT NOT NULL,
+    status TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    created_by_ref TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    processing_at TEXT,
+    consumed_at TEXT,
+    revoked_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS management_recovery_account_time_idx
+    ON management_recovery_overrides (account_key, created_at DESC);
+  CREATE INDEX IF NOT EXISTS management_recovery_status_expiry_idx
+    ON management_recovery_overrides (status, expires_at);
+
+  CREATE TABLE IF NOT EXISTS management_security_events (
+    id TEXT PRIMARY KEY,
+    account_key TEXT NOT NULL,
+    event TEXT NOT NULL,
+    actor_ref TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    occurred_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS management_security_events_time_idx
+    ON management_security_events (occurred_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS management_security_events_account_time_idx
+    ON management_security_events (account_key, occurred_at DESC, id DESC);
 
   CREATE TABLE IF NOT EXISTS account_deletion_jobs (
     player_id TEXT PRIMARY KEY,

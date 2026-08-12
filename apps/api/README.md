@@ -51,6 +51,7 @@ Nonpublic endpoints require an audience-appropriate identity: a scoped machine/p
 - `DATABASE_URL`: use `file:./data/orbit-api.sqlite3` only for isolated local development/tests. Hosted production requires a durable PostgreSQL URL and fails closed when it is unset; ephemeral `/tmp` SQLite is not supported.
 - `DATABASE_POOL_MAX`, `DATABASE_CONNECT_TIMEOUT_MS`, and `DATABASE_IDLE_TIMEOUT_MS`: bounded PostgreSQL connection-pool controls. Defaults are 10, 5 seconds, and 30 seconds.
 - `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`: optional Firebase service account credentials. When configured, API state saves player-safe live game documents at `clubs/{licenseKey}/games/{gameId}`, operational session history at `clubs/{licenseKey}/gameSessions/{sessionId}`, and canonical player documents at `clubs/{licenseKey}/players/{playerId}`. Membership players are documents in the `players` subcollection and are not duplicated as an array on the club document.
+- `FIREBASE_WEB_API_KEY`: Firebase web-project API key used by the API only to request the configured Firebase password-reset email. It does not grant Admin access. Password changes still require one of the server-only Firebase Admin credential mechanisms above.
 - `NODE_ENV`: `development`, `staging`, or `production`.
 - `STRIPE_SECRET_KEY`: Stripe server secret used only by the API.
 - `STRIPE_WEBHOOK_SECRET`: signing secret for `POST /webhooks/stripe`.
@@ -94,6 +95,27 @@ https://orbitapp-one.vercel.app/dashboard
 ```
 
 The Pilot licenses section shows active, expired, and revoked keys; the venue; key suffix; last use; and expiration. An administrator can set an exact date, extend by 30 or 90 days, or revoke the license immediately.
+
+## Management Account Recovery
+
+The dashboard's **Management account access** section provides two separate recovery paths for card-house management logins. Neither path reveals an existing password.
+
+For a card house that was locked out after its key expired:
+
+1. Renew the managed pilot license first. Recovery never bypasses an expired or revoked license.
+2. In **Management account access**, start a 15-, 30-, or 60-minute owner-assisted recovery override for that venue.
+3. Tell the card house to load its current signed key (or an approved replacement key mapped to the same account), choose **Use owner-assisted recovery** on the Orbit sign-in screen, and select one new password of 12–128 characters.
+4. The backend binds the request to the account authenticated by that pilot key, replaces the Firebase password, revokes existing Firebase refresh tokens, commits the compatible management hash through the authoritative state revision/outbox path, and consumes the override. The pilot key itself never becomes a management password.
+5. Cancel an unused override from the dashboard. Expired, consumed, and canceled overrides cannot be reused.
+
+The owner can also:
+
+- **Send reset email**: asks Firebase Identity Toolkit to send its configured password-reset email. This requires `FIREBASE_WEB_API_KEY`. An email reset changes Firebase only, so keep an owner-assisted recovery override active until the card house finishes the matching password inside Orbit.
+- **Change password**: directly replaces a selected card house's Firebase and authoritative Orbit management password and revokes existing Firebase sessions. Share a temporary password through a separate secure channel; Orbit never displays it again.
+
+Successful override, reset-email, and password-change actions appear in the dashboard's durable **Security activity** section. Those records include the venue account, protected actor reference, timestamp, revision or expiry metadata, and outcome. They never contain a password, password hash or salt, reset link, email body, raw pilot key, Firebase Admin credential, or dashboard session secret. Firebase acceptance of an email request is distinct from final mailbox delivery; provider-side delivery/activity visibility depends on the Firebase project's logging configuration.
+
+The recovery store is in the authoritative API database. Do not enable this workflow against an ephemeral hosted SQLite database. The feature does not change DNS, registrar settings, certificates, the canonical production hostname, legal/company attribution, or production-domain cutover.
 
 Self-asserted legacy bootstrap is disabled. A format-valid code and matching state body cannot create a managed license. Before a desktop uses a new signed key, an administrator must submit the complete signed envelope to the authenticated `POST /dashboard/licenses` endpoint. The API verifies its P-256 signature and expiration against the configured public key before storing the one-way authorization-code identifier. Existing already-managed licenses continue to authenticate normally; an unmanaged legacy installation must be provisioned from its original signed key rather than trusted from stored client state.
 

@@ -72,6 +72,8 @@ describe('Electron IPC and preload composition audit', () => {
       'install-downloaded-update',
       'get-backend-status',
       'validate-pilot-access',
+      'get-management-recovery-status',
+      'complete-management-recovery',
       'submit-analytical-report',
       'verify-staff-pin',
       'authorize-staff-action',
@@ -113,6 +115,8 @@ describe('Electron IPC and preload composition audit', () => {
       'onUpdateStatus',
       'getBackendStatus',
       'validatePilotAccess',
+      'getManagementRecoveryStatus',
+      'completeManagementRecovery',
       'verifyStaffPin',
       'authorizeStaffAction',
       'submitAnalyticalReport',
@@ -127,17 +131,23 @@ describe('Electron IPC and preload composition audit', () => {
     const preserveStateForUpdate = bridge.preserveStateForUpdate as (requestId: string, state: unknown) => Promise<unknown>;
     const getUpdateStatus = bridge.getUpdateStatus as () => Promise<unknown>;
     const installDownloadedUpdate = bridge.installDownloadedUpdate as () => Promise<unknown>;
+    const getManagementRecoveryStatus = bridge.getManagementRecoveryStatus as (access: unknown) => Promise<unknown>;
+    const completeManagementRecovery = bridge.completeManagementRecovery as (payload: unknown) => Promise<unknown>;
     const recordClientEvent = bridge.recordClientEvent as (...args: unknown[]) => Promise<unknown>;
     await openWindow('table', { sessionId: 'session-1' });
     await preserveStateForUpdate('flush-1', { games: [] });
     await getUpdateStatus();
     await installDownloadedUpdate();
+    await getManagementRecoveryStatus({ authorizationCode: 'pilot-code' });
+    await completeManagementRecovery({ access: { authorizationCode: 'pilot-code' }, password: 'new-password' });
     await recordClientEvent('table-started', 'tables', { tableId: 'table-1' }, 'floor');
     expect(invoke.mock.calls).toEqual([
       ['open-route-window', 'table', { sessionId: 'session-1' }],
       ['preserve-state-for-update', 'flush-1', { games: [] }],
       ['get-update-status'],
       ['install-downloaded-update'],
+      ['get-management-recovery-status', { authorizationCode: 'pilot-code' }],
+      ['complete-management-recovery', { access: { authorizationCode: 'pilot-code' }, password: 'new-password' }],
       ['record-client-event', 'table-started', 'tables', { tableId: 'table-1' }, 'floor']
     ]);
 

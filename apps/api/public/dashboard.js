@@ -7,7 +7,9 @@ const state = {
   errors: [],
   clients: [],
   venues: [],
-  licenses: []
+  licenses: [],
+  managementAccounts: [],
+  securityEvents: []
 };
 
 const elements = {
@@ -19,12 +21,16 @@ const elements = {
   clients: document.querySelector('#clients'),
   venues: document.querySelector('#venues'),
   licenses: document.querySelector('#licenses'),
+  managementAccounts: document.querySelector('#management-accounts'),
+  securityEvents: document.querySelector('#security-events'),
   eventCount: document.querySelector('#event-count'),
   eventHistoryStatus: document.querySelector('#event-history-status'),
   errorCount: document.querySelector('#error-count'),
   clientCount: document.querySelector('#client-count'),
   venueCount: document.querySelector('#venue-count'),
   licenseCount: document.querySelector('#license-count'),
+  managementAccountCount: document.querySelector('#management-account-count'),
+  securityEventCount: document.querySelector('#security-event-count'),
   metricClients: document.querySelector('#metric-clients'),
   metricActive: document.querySelector('#metric-active'),
   metricEvents: document.querySelector('#metric-events'),
@@ -32,6 +38,10 @@ const elements = {
   metricTables: document.querySelector('#metric-tables'),
   metricLicenses: document.querySelector('#metric-licenses')
 };
+
+let renderedManagementAccounts = null;
+let renderedManagementLicenses = null;
+let renderedSecurityEvents = null;
 
 function setStatus(message, tone = '') {
   elements.status.textContent = message;
@@ -79,6 +89,8 @@ function render() {
   elements.clientCount.textContent = String(state.clients.length);
   elements.venueCount.textContent = String(state.venues.length);
   elements.licenseCount.textContent = String(state.licenses.length);
+  elements.managementAccountCount.textContent = String(state.managementAccounts.length);
+  elements.securityEventCount.textContent = String(state.securityEvents.length);
   elements.metricLicenses.textContent = String(state.licenses.filter((license) => license.status === 'active').length);
 
   renderList(
@@ -111,6 +123,105 @@ function render() {
     `,
     'No managed pilot licenses yet. Provision a verified signed key through the protected license endpoint.'
   );
+
+  if (renderedManagementAccounts !== state.managementAccounts || renderedManagementLicenses !== state.licenses) {
+    renderList(
+      elements.managementAccounts,
+      state.managementAccounts,
+    (account) => {
+      const license = state.licenses.find((candidate) => candidate.accountKey === account.accountKey);
+      const recovery = account.recovery;
+      const recoveryActive = recovery?.status === 'active';
+      const loginActions = account.hasManagementLogin ? `
+        <div class="account-controls">
+          <section class="account-control-group">
+            <div>
+              <strong>Owner-assisted recovery</strong>
+              <p>Lets this venue use its current pilot key to establish one new password before the window expires.</p>
+            </div>
+            <div class="account-action-row">
+              <label>
+                <span>Window</span>
+                <select data-account-duration="${escapeHtml(account.accountKey)}">
+                  <option value="15">15 minutes</option>
+                  <option value="30" selected>30 minutes</option>
+                  <option value="60">60 minutes</option>
+                </select>
+              </label>
+              <label class="reason-field">
+                <span>Support note (optional)</span>
+                <input data-account-reason="${escapeHtml(account.accountKey)}" maxlength="200" placeholder="Why recovery was approved" />
+              </label>
+              ${recoveryActive
+                ? `<button type="button" class="danger" data-account-action="cancel-recovery" data-account-key="${escapeHtml(account.accountKey)}">Cancel override</button>`
+                : `<button type="button" data-account-action="start-recovery" data-account-key="${escapeHtml(account.accountKey)}">Start override</button>`}
+              <button type="button" class="secondary" data-account-action="send-reset-email" data-account-key="${escapeHtml(account.accountKey)}">Send reset email</button>
+            </div>
+          </section>
+          <section class="account-control-group">
+            <div>
+              <strong>Set a new password</strong>
+              <p>Immediately replaces the Firebase and authoritative Orbit management password and revokes existing Firebase sessions. Share a temporary password through a separate secure channel.</p>
+            </div>
+            <div class="account-action-row">
+              <label>
+                <span>New password</span>
+                <input data-account-password="${escapeHtml(account.accountKey)}" type="password" minlength="12" maxlength="128" autocomplete="new-password" placeholder="12–128 characters" />
+              </label>
+              <label>
+                <span>Confirm password</span>
+                <input data-account-password-confirm="${escapeHtml(account.accountKey)}" type="password" minlength="12" maxlength="128" autocomplete="new-password" placeholder="Repeat password" />
+              </label>
+              <button type="button" class="danger-solid" data-account-action="change-password" data-account-key="${escapeHtml(account.accountKey)}">Change password</button>
+            </div>
+          </section>
+        </div>
+      ` : '<p class="account-warning">This venue has no configured management login. Password actions are unavailable.</p>';
+      return `
+        <article class="management-account-row">
+          <div class="account-heading">
+            <div>
+              <strong>${escapeHtml(account.venueName || account.accountKey)}</strong>
+              <div class="meta">
+                <span>${escapeHtml(account.username || 'No management email')}</span>
+                <span>${escapeHtml(account.accountKey)}</span>
+                <span>state revision ${escapeHtml(account.revision)}</span>
+                <span>${license ? `pilot key ${escapeHtml(license.status)}` : 'no managed pilot key found'}</span>
+              </div>
+            </div>
+            <span class="recovery-status ${recoveryActive ? 'active' : ''}">
+              ${recoveryActive ? `recovery until ${escapeHtml(formatTime(recovery.expiresAt))}` : escapeHtml(recovery?.status || 'no recovery override')}
+            </span>
+          </div>
+          ${loginActions}
+        </article>
+      `;
+    },
+      'No management accounts have been committed to the authoritative datastore.'
+    );
+    renderedManagementAccounts = state.managementAccounts;
+    renderedManagementLicenses = state.licenses;
+  }
+
+  if (renderedSecurityEvents !== state.securityEvents) {
+    renderList(
+      elements.securityEvents,
+      state.securityEvents,
+    (securityEvent) => `
+      <article class="item security-item">
+        <strong>${escapeHtml(securityEvent.event)}</strong>
+        <div class="meta">
+          <span>${escapeHtml(formatTime(securityEvent.occurredAt))}</span>
+          <span>${escapeHtml(securityEvent.accountKey)}</span>
+          <span>${escapeHtml(securityEvent.actorRef)}</span>
+        </div>
+        ${securityEvent.details ? `<pre class="details">${safeDetails(securityEvent.details)}</pre>` : ''}
+      </article>
+    `,
+      'No management security activity has been recorded.'
+    );
+    renderedSecurityEvents = state.securityEvents;
+  }
 
   renderList(
     elements.errors,
@@ -210,6 +321,8 @@ async function loadDashboard({ preserveEventHistory = false } = {}) {
   state.clients = payload.clients || [];
   state.venues = payload.venues || [];
   state.licenses = payload.licenses || [];
+  state.managementAccounts = payload.managementAccounts || [];
+  state.securityEvents = payload.securityEvents || [];
   setSummary(payload.summary || {});
   render();
 }
@@ -328,6 +441,84 @@ elements.licenses.addEventListener('click', async (event) => {
     setStatus(action === 'revoke' ? 'Pilot license revoked.' : 'Pilot license renewed. Clients will refresh automatically.', 'live');
   } catch (error) {
     setStatus(error instanceof Error ? error.message : 'License update failed.', 'error');
+    button.disabled = false;
+  }
+});
+
+elements.managementAccounts.addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-account-action]');
+  if (!button) return;
+  const accountKey = button.dataset.accountKey;
+  const action = button.dataset.accountAction;
+  if (!accountKey || !action) return;
+
+  const passwordInput = elements.managementAccounts.querySelector(`[data-account-password="${CSS.escape(accountKey)}"]`);
+  const confirmationInput = elements.managementAccounts.querySelector(`[data-account-password-confirm="${CSS.escape(accountKey)}"]`);
+  const durationInput = elements.managementAccounts.querySelector(`[data-account-duration="${CSS.escape(accountKey)}"]`);
+  const reasonInput = elements.managementAccounts.querySelector(`[data-account-reason="${CSS.escape(accountKey)}"]`);
+  let method = 'POST';
+  let pathname = `/dashboard/management-accounts/${encodeURIComponent(accountKey)}`;
+  let body = {};
+  let pendingMessage = '';
+  let successMessage = '';
+
+  if (action === 'start-recovery') {
+    if (!window.confirm('Open a single-use recovery window? Anyone holding this venue’s current pilot key can establish one new management password until the window expires.')) return;
+    pathname += '/recovery';
+    body = { durationMinutes: Number(durationInput?.value || 30), reason: reasonInput?.value || '' };
+    pendingMessage = 'Starting owner-assisted recovery...';
+    successMessage = 'Recovery override started. Tell the card house to load its current key and choose Owner-assisted recovery.';
+  } else if (action === 'cancel-recovery') {
+    if (!window.confirm('Cancel this recovery override immediately?')) return;
+    pathname += '/recovery';
+    method = 'DELETE';
+    pendingMessage = 'Canceling recovery override...';
+    successMessage = 'Recovery override canceled.';
+  } else if (action === 'send-reset-email') {
+    if (!window.confirm('Send a Firebase password-reset email to this management login? Keep a recovery override active so the card house can update Orbit after using the email.')) return;
+    pathname += '/password-reset-email';
+    pendingMessage = 'Requesting Firebase password-reset email...';
+    successMessage = 'Firebase accepted the password-reset email request. Orbit recorded the request; final delivery remains provider-managed.';
+  } else if (action === 'change-password') {
+    const password = passwordInput?.value || '';
+    if (password.length < 12 || password.length > 128) {
+      setStatus('The new management password must be between 12 and 128 characters.', 'error');
+      passwordInput?.focus();
+      return;
+    }
+    if (password !== confirmationInput?.value) {
+      setStatus('The new password and confirmation do not match.', 'error');
+      confirmationInput?.focus();
+      return;
+    }
+    if (!window.confirm('Change this card house management password now? Existing Firebase sessions will be revoked. This cannot reveal or restore the old password.')) return;
+    pathname += '/password';
+    body = { password };
+    passwordInput.value = '';
+    confirmationInput.value = '';
+    pendingMessage = 'Changing management password...';
+    successMessage = 'Management password changed in Firebase and the authoritative Orbit state. Share it through a separate secure channel.';
+  } else {
+    return;
+  }
+
+  button.disabled = true;
+  setStatus(pendingMessage);
+  try {
+    const response = await fetch(pathname, {
+      method,
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'x-orbit-csrf': '1' },
+      body: method === 'DELETE' ? undefined : JSON.stringify(body)
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `API returned ${response.status}`);
+    if (passwordInput) passwordInput.value = '';
+    if (confirmationInput) confirmationInput.value = '';
+    await loadDashboard();
+    setStatus(successMessage, 'live');
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : 'Management account action failed.', 'error');
     button.disabled = false;
   }
 });

@@ -10,6 +10,7 @@ const {
   loadLatestState,
   loadState,
   recordClientError,
+  recordManagementSecurityEvent,
   recordTelemetryEvent,
   recordUpdateEvent,
   schedulePublicationDrain,
@@ -19,9 +20,22 @@ const {
 } = require('../database');
 const { getAccountKeyFromState, sanitizeAccountKey } = require('../orbitCore');
 const { asyncRoute, blockLatestStateForPilotAuth, requireClientAuth, requireOwnerApiKey } = require('../http/auth');
-const { logStateChanges } = require('../http/domainEvents');
+const { logDomainChange, logStateChanges } = require('../http/domainEvents');
+const { protectedIdentifier } = require('../http/dataProtection');
+const { getManagementAccountService } = require('../managementAccountService');
 
 function registerClientRoutes(app, liveUpdates) {
+  const managementAccounts = getManagementAccountService();
+  const recordSecurityActivity = async (payload) => {
+    try {
+      await recordManagementSecurityEvent(payload);
+    } catch {
+      logDomainChange('management-security-audit-write-failed', {
+        tenantRef: protectedIdentifier(payload.accountKey),
+        event: payload.event
+      });
+    }
+  };
   app.use([
     '/license/status',
     '/clients/heartbeat',
@@ -29,7 +43,8 @@ function registerClientRoutes(app, liveUpdates) {
     '/clients/event',
     '/clients/error',
     '/state',
-    '/analytical-reports'
+    '/analytical-reports',
+    '/management/recovery'
   ], requireClientAuth);
 
   const bindTenantPayload = (request, response) => {
@@ -94,6 +109,49 @@ function registerClientRoutes(app, liveUpdates) {
       beforeDeviceId: request.query.beforeDeviceId
     });
     response.json({ ok: true, clients: clients.slice(0, limit), hasMore: clients.length > limit });
+  }));
+
+  const requirePilotRecoveryAuth = (request, response, next) => {
+    if (request.orbitAuth?.type !== 'pilot-key' || !request.orbitAuth.accountKey) {
+      response.status(403).json({ ok: false, error: 'A current pilot license key is required for account recovery.' });
+      return;
+    }
+    next();
+  };
+
+  app.get('/management/recovery/status', requirePilotRecoveryAuth, asyncRoute(async (request, response) => {
+    const status = await managementAccounts.getRecoveryStatus({ accountKey: request.orbitAuth.accountKey });
+    response.json({ ok: true, ...status });
+  }));
+
+  app.post('/management/recovery/complete', requirePilotRecoveryAuth, asyncRoute(async (request, response) => {
+    const result = await managementAccounts.completeRecovery({
+      accountKey: request.orbitAuth.accountKey,
+      password: request.body?.password
+    });
+    logDomainChange('management-recovery-override-consumed', {
+      tenantRef: protectedIdentifier(result.accountKey),
+      accountRef: protectedIdentifier(result.username),
+      revision: result.revision
+    });
+    await recordSecurityActivity({
+      accountKey: result.accountKey,
+      event: 'recovery-override-completed',
+      actorRef: `pilot:${protectedIdentifier(request.orbitAuth.license?.id || request.orbitAuth.accountKey)}`,
+      details: { revision: result.revision, providerSessionsRevoked: true }
+    });
+    response.json({
+      ok: true,
+      accountKey: result.accountKey,
+      accountLogin: {
+        username: result.username,
+        passwordSalt: result.passwordSalt,
+        passwordHash: result.passwordHash,
+        lastLoginAt: result.lastLoginAt
+      },
+      revision: result.revision,
+      publication: result.publication
+    });
   }));
 
   app.get('/clients/:deviceId', requireOwnerApiKey, asyncRoute(async (request, response) => {

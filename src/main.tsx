@@ -272,6 +272,25 @@ declare global {
         license?: { licenseId?: string; accountKey?: string; issuedTo?: string; expiresAt?: string; status?: string } | null;
         error?: string;
       }>;
+      getManagementRecoveryStatus: (access: PilotAccess) => Promise<{
+        ok: boolean;
+        active: boolean;
+        expiresAt?: string | null;
+        username?: string;
+        error?: string;
+      }>;
+      completeManagementRecovery: (payload: { access: PilotAccess; password: string }) => Promise<{
+        ok: boolean;
+        accountKey?: string;
+        accountLogin?: {
+          username: string;
+          passwordSalt: string;
+          passwordHash: string;
+          lastLoginAt: string;
+        };
+        revision?: number;
+        error?: string;
+      }>;
       verifyStaffPin: (payload: { staffId: string; pin: string; access: PilotAccess }) => Promise<{
         ok: boolean;
         token?: string;
@@ -2292,6 +2311,93 @@ function App() {
     }
   };
 
+  const requestOwnerAssistedRecovery = async () => {
+    const accountLogin = state.settings.accountLogin;
+    const access = state.settings.pilotAccess;
+    const desktop = window.tableManagerDesktop;
+    if (!accountLogin || !access || !isPilotAccessActive(access)) {
+      setPilotKeyError('Load a current pilot key before using owner-assisted recovery.');
+      return;
+    }
+    if (!desktop?.getManagementRecoveryStatus) {
+      setPilotKeyError('Owner-assisted recovery requires the Orbit desktop app and server connectivity.');
+      return;
+    }
+
+    setPasswordRecoveryStage('owner-checking');
+    setPasswordRecoveryNotice('');
+    setPilotKeyError('');
+    try {
+      const result = await desktop.getManagementRecoveryStatus(access);
+      if (!result.ok || !result.active) {
+        setPasswordRecoveryStage('idle');
+        setPilotKeyError(result.error || 'No active owner recovery override was found. Ask Orbit support to start one, then try again.');
+        return;
+      }
+      const username = String(result.username || accountLogin.username).trim().toLowerCase();
+      if (username !== accountLogin.username.trim().toLowerCase()) {
+        setPasswordRecoveryStage('idle');
+        setPilotKeyError('The recovery override does not match this card-house login. Contact Orbit support.');
+        return;
+      }
+      setLoginDraft((current) => ({ ...current, username, password: '' }));
+      setPasswordRecoveryStage('owner-ready');
+      setPasswordRecoveryNotice(`Owner-assisted recovery is active${result.expiresAt ? ` until ${new Date(result.expiresAt).toLocaleString()}` : ''}. Choose one new password now; this override can be used only once.`);
+    } catch {
+      setPasswordRecoveryStage('idle');
+      setPilotKeyError('Orbit could not check the recovery override. Confirm the internet connection and try again.');
+    }
+  };
+
+  const completeOwnerAssistedRecovery = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const accountLogin = state.settings.accountLogin;
+    const access = state.settings.pilotAccess;
+    const desktop = window.tableManagerDesktop;
+    if (!accountLogin || !access || passwordRecoveryStage !== 'owner-ready') return;
+    if (!isPilotAccessActive(access)) {
+      setPilotKeyError('This pilot key has expired. Load a current key to continue.');
+      return;
+    }
+    if (!desktop?.completeManagementRecovery) {
+      setPilotKeyError('Owner-assisted recovery requires the Orbit desktop app and server connectivity.');
+      return;
+    }
+
+    setPasswordRecoveryStage('owner-completing');
+    setPilotKeyError('');
+    try {
+      const result = await desktop.completeManagementRecovery({ access, password: loginDraft.password });
+      if (!result.ok || !result.accountLogin?.passwordHash || !result.accountLogin.passwordSalt) {
+        throw new AccountRecoveryValidationError(result.error || 'Owner-assisted recovery could not be completed.');
+      }
+      const recoveredLogin = {
+        ...accountLogin,
+        ...result.accountLogin,
+        username: result.accountLogin.username.trim().toLowerCase()
+      };
+      const next = {
+        ...state,
+        settings: {
+          ...state.settings,
+          accountLogin: recoveredLogin
+        }
+      };
+      if (canUseRendererFirebaseAuth()) {
+        void signInToFirebaseWithEmail(recoveredLogin.username, loginDraft.password).catch(() => undefined);
+      }
+      persistSignIn(next, loginDraft.staySignedIn);
+      setHasAuthenticated(true);
+      setPasswordRecoveryStage('idle');
+      setPasswordRecoveryNotice('');
+      setPilotKeyError('');
+      persist(next, false, { feature: 'Account', action: 'Completed owner-assisted recovery', route: 'access' });
+    } catch (error) {
+      setPasswordRecoveryStage('owner-ready');
+      setPilotKeyError(error instanceof Error ? error.message : 'Owner-assisted recovery could not be completed.');
+    }
+  };
+
   const completeAccountPasswordRecovery = async (event: React.FormEvent) => {
     event.preventDefault();
     const accountLogin = state.settings.accountLogin;
@@ -2764,6 +2870,9 @@ function App() {
   }
 
   if (isPilotAccessActive(state.settings.pilotAccess) && !hasAuthenticated) {
+    const ownerRecovery = passwordRecoveryStage === 'owner-ready' || passwordRecoveryStage === 'owner-completing';
+    const choosingNewPassword = passwordRecoveryStage === 'sent' || passwordRecoveryStage === 'verifying' || ownerRecovery;
+    const recoveryBusy = passwordRecoveryStage === 'sending' || passwordRecoveryStage === 'verifying' || passwordRecoveryStage === 'owner-checking' || passwordRecoveryStage === 'owner-completing';
     return (
       <main className="access-shell">
         <section className="access-card">
@@ -2781,27 +2890,32 @@ function App() {
               <p>Use the login created for this card house. Access remains limited by the pilot key expiration.</p>
             </div>
           </div>
-          <form className="access-step account-form" onSubmit={passwordRecoveryStage === 'idle' ? signInToAccount : completeAccountPasswordRecovery}>
+          <form className="access-step account-form" onSubmit={passwordRecoveryStage === 'idle' ? signInToAccount : ownerRecovery ? completeOwnerAssistedRecovery : completeAccountPasswordRecovery}>
             <label className="access-field">Email
               <input required value={loginDraft.username} onChange={(event) => setLoginDraft({ ...loginDraft, username: event.target.value })} onBlur={validateAccessField} placeholder="name@example.com" type="email" autoComplete="email" readOnly={passwordRecoveryStage !== 'idle'} aria-describedby="access-field-error" />
             </label>
-            <label className="access-field">{passwordRecoveryStage === 'sent' ? 'New password or passphrase' : 'Password'}
-              <input required value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} onBlur={validateAccessField} placeholder={passwordRecoveryStage === 'sent' ? '12 or more characters' : 'Password'} type="password" minLength={passwordRecoveryStage === 'sent' ? 12 : undefined} autoComplete={passwordRecoveryStage === 'sent' ? 'new-password' : 'current-password'} aria-describedby="access-field-error" />
+            <label className="access-field">{choosingNewPassword ? 'New password or passphrase' : 'Password'}
+              <input required value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} onBlur={validateAccessField} placeholder={choosingNewPassword ? '12 or more characters' : 'Password'} type="password" minLength={choosingNewPassword ? 12 : undefined} maxLength={choosingNewPassword ? 128 : undefined} autoComplete={choosingNewPassword ? 'new-password' : 'current-password'} aria-describedby="access-field-error" />
             </label>
             <label className="switch-control">
               <input type="checkbox" checked={loginDraft.staySignedIn} onChange={(event) => setLoginDraft({ ...loginDraft, staySignedIn: event.target.checked })} />
               <span>Stay signed in until key expiration</span>
             </label>
             {passwordRecoveryNotice ? <p className="success-copy" role="status">{passwordRecoveryNotice}</p> : null}
-            <button className="primary-button" type="submit" disabled={passwordRecoveryStage === 'sending' || passwordRecoveryStage === 'verifying'}>
-              {passwordRecoveryStage === 'sent' || passwordRecoveryStage === 'verifying'
+            <button className="primary-button" type="submit" disabled={recoveryBusy}>
+              {ownerRecovery
+                ? passwordRecoveryStage === 'owner-completing' ? 'Saving...' : 'Set New Password'
+                : passwordRecoveryStage === 'sent' || passwordRecoveryStage === 'verifying'
                 ? passwordRecoveryStage === 'verifying' ? 'Verifying...' : 'Finish Password Reset'
                 : 'Sign In'}
             </button>
             {passwordRecoveryStage === 'idle' ? (
-              <button className="ghost-button" type="button" onClick={requestAccountPasswordReset}>Forgot password?</button>
+              <>
+                <button className="ghost-button" type="button" onClick={requestAccountPasswordReset}>Forgot password?</button>
+                <button className="ghost-button" type="button" onClick={requestOwnerAssistedRecovery}>Use owner-assisted recovery</button>
+              </>
             ) : (
-              <button className="ghost-button" type="button" onClick={resetPasswordRecovery} disabled={passwordRecoveryStage === 'sending' || passwordRecoveryStage === 'verifying'}>Back to sign in</button>
+              <button className="ghost-button" type="button" onClick={resetPasswordRecovery} disabled={recoveryBusy}>Back to sign in</button>
             )}
             <button className="ghost-button" type="button" onClick={() => { resetPasswordRecovery(); setState(seedState); }}>Use a different key</button>
             {pilotKeyError || accessFieldError ? <p id="access-field-error" className="access-error" role="alert">{pilotKeyError || accessFieldError}</p> : null}
