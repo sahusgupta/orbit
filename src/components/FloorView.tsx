@@ -157,7 +157,7 @@ export default function FloorView(props: FloorViewProps) {
           <Dialog.Content className="waitlist-popup-content">
             <div className="waitlist-popup-header">
               <div><Dialog.Title>Waitlist</Dialog.Title><Dialog.Description>{state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length} players need attention</Dialog.Description></div>
-              <Dialog.Close asChild><button className="icon-button" aria-label="Close waitlist"><X size={18} /></button></Dialog.Close>
+              <Dialog.Close asChild><button className="icon-button" aria-label="Close waitlist" title="Close waitlist"><X size={18} /></button></Dialog.Close>
             </div>
             <div className="waitlist-popup-list">
               {state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length ? state.interests
@@ -291,6 +291,7 @@ export default function FloorView(props: FloorViewProps) {
                     <span className={`health-pill ${health.toLowerCase().replace(/\s+/g, '-')}`}>{health}</span>
                     <div className="seat-control" onClick={(event) => event.stopPropagation()}>
                       <button
+                        aria-label="Add player to an open seat"
                         className="mini-button"
                         onClick={() => {
                           openSeatPicker(session);
@@ -306,6 +307,7 @@ export default function FloorView(props: FloorViewProps) {
                       <button className="ghost-button" onClick={() => openTableView(session.id)}><Eye size={17} /> Open</button>
                       <button className="ghost-button" onClick={() => setTableLedgerSessionId(session.id)}><WalletCards size={17} /> Ledger</button>
                       <button
+                        aria-label={tableExpanded ? 'Hide table' : 'Show table'}
                         className="icon-button"
                         onClick={() => setCollapsedTables((tables) => ({ ...tables, [session.id]: !(tables[session.id] ?? true) }))}
                         title={tableExpanded ? 'Hide table' : 'Show table'}
@@ -313,7 +315,7 @@ export default function FloorView(props: FloorViewProps) {
                         {tableExpanded ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
                       </button>
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild><button className="icon-button" title="Table actions"><MoreHorizontal size={17} /></button></DropdownMenuTrigger>
+                        <DropdownMenuTrigger asChild><button aria-label="Table actions" className="icon-button" title="Table actions"><MoreHorizontal size={17} /></button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           {session.status === 'Running' ? <DropdownMenuItem onSelect={() => updateSession(session.id, { status: 'Paused' })}>Pause table</DropdownMenuItem> : null}
                           <DropdownMenuItem onSelect={() => setCollapsedTables((tables) => ({ ...tables, [session.id]: true }))}>Table settings</DropdownMenuItem>
@@ -634,8 +636,8 @@ export default function FloorView(props: FloorViewProps) {
                             return (
                               <div className="overview-player-row all-time-row" key={playerSession.id}>
                                 <span>{table?.label ?? 'Table'} - Seat {playerSession.seatNumber ?? '-'}</span>
-                                <strong>{playerSession.playerName}</strong>
-                                <small>{state.games.find((game) => game.id === playerSession.gameId)?.name ?? 'Unknown'}</small>
+                                <strong title={playerSession.playerName}>{playerSession.playerName}</strong>
+                                <small title={state.games.find((game) => game.id === playerSession.gameId)?.name ?? 'Unknown'}>{state.games.find((game) => game.id === playerSession.gameId)?.name ?? 'Unknown'}</small>
                                 <em className={`time-left-pill ${timeStatus}`}>
                                   {isTimeCollection ? formatTimeLeft(remainingSeconds) : 'No timer'}
                                 </em>
@@ -651,7 +653,7 @@ export default function FloorView(props: FloorViewProps) {
                           return (
                             <div className="overview-player-row" key={playerSession.id}>
                               <span>Seat {playerSession.seatNumber ?? '-'}</span>
-                              <strong>{playerSession.playerName}</strong>
+                              <strong title={playerSession.playerName}>{playerSession.playerName}</strong>
                               <em className={`time-left-pill ${timeStatus}`}>
                                 {isTimeCollection ? formatTimeLeft(remainingSeconds) : 'No timer'}
                               </em>

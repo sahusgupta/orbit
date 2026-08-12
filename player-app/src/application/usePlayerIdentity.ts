@@ -4,14 +4,16 @@ import type { PlayerAccount } from '../domain/playerSync';
 import type { Screen } from '../domain/playerTypes';
 import {
   createPlayerIdentityVerificationSession,
+  completePlayerPhoneSignIn,
   deleteCurrentPlayerAccount,
   fetchPlayerIdentityStatus,
   getCurrentFirebasePlayer,
   isSyncConfigured,
   onFirebasePlayerChanged,
+  requestPlayerPasswordReset,
   savePlayerProfile,
   signInOrCreatePlayerWithEmail,
-  signInOrCreatePlayerWithPhone,
+  startPlayerPhoneSignIn,
   signOutCurrentPlayer,
   type FirebasePlayerIdentity,
   type PlayerIdentityStatus
@@ -62,6 +64,8 @@ export function usePlayerIdentity({
   const [playerAuthEmail, setPlayerAuthEmail] = useState('');
   const [playerAuthPhone, setPlayerAuthPhone] = useState('');
   const [playerAuthPassword, setPlayerAuthPassword] = useState('');
+  const [playerAuthCode, setPlayerAuthCode] = useState('');
+  const [playerPhoneChallenge, setPlayerPhoneChallenge] = useState('');
 
   useEffect(() => onFirebasePlayerChanged(setFirebaseIdentity), []);
 
@@ -208,13 +212,12 @@ export function usePlayerIdentity({
   };
 
   const finishFirebaseAccountConnection = async (identity: FirebasePlayerIdentity) => {
-    const usesPhoneAlias = identity.email.endsWith('@players.orbit.local');
     const nextPlayer: PlayerAccount = {
       ...player,
       id: identity.uid,
       name: identity.name || player.name,
-      email: usesPhoneAlias ? player.email : identity.email || player.email,
-      phone: playerAuthMethod === 'phone' ? playerAuthPhone.trim() || player.phone : player.phone
+      email: identity.email || player.email,
+      phone: identity.phone || player.phone
     };
     setFirebaseIdentity(identity);
     setDraftPlayer(nextPlayer);
@@ -225,16 +228,45 @@ export function usePlayerIdentity({
   };
 
   const connectPlayerAccount = async () => {
-    setAuthStatus('Signing in to your Orbit Player account...');
     try {
+      if (playerAuthMethod === 'phone' && !playerPhoneChallenge) {
+        setAuthStatus('Sending a one-time SMS code...');
+        const result = await startPlayerPhoneSignIn(playerAuthPhone || player.phone || '');
+        setPlayerPhoneChallenge(result.challenge);
+        setAuthStatus('Enter the one-time code sent to your phone. It expires in 10 minutes.');
+        return;
+      }
+      setAuthStatus('Verifying and signing in...');
       const identity = playerAuthMethod === 'email'
         ? await signInOrCreatePlayerWithEmail(playerAuthEmail, playerAuthPassword)
-        : await signInOrCreatePlayerWithPhone(playerAuthPhone || player.phone || '', playerAuthPassword);
+        : await completePlayerPhoneSignIn(playerAuthPhone || player.phone || '', playerAuthCode, playerPhoneChallenge);
       await finishFirebaseAccountConnection(identity);
       setPlayerAuthPassword('');
+      setPlayerAuthCode('');
+      setPlayerPhoneChallenge('');
     } catch (error) {
       setAuthStatus(error instanceof Error ? error.message : 'Sign-in could not be completed.');
     }
+  };
+
+  const recoverPlayerAccount = async () => {
+    try {
+      setAuthStatus(await requestPlayerPasswordReset(playerAuthEmail));
+    } catch (error) {
+      setAuthStatus(error instanceof Error ? error.message : 'Password recovery could not be started.');
+    }
+  };
+
+  const updatePlayerAuthPhone = (phone: string) => {
+    setPlayerAuthPhone(phone);
+    setPlayerAuthCode('');
+    setPlayerPhoneChallenge('');
+  };
+
+  const restartPlayerPhoneSignIn = () => {
+    setPlayerAuthCode('');
+    setPlayerPhoneChallenge('');
+    setAuthStatus(accountSignInReadyStatus);
   };
 
   const resetLocalAccount = async () => {
@@ -247,7 +279,10 @@ export function usePlayerIdentity({
     platform.confirmAccountDeletion(() => {
       setAuthStatus('Deleting your account...');
       deleteCurrentPlayerAccount()
-        .then(resetLocalAccount)
+        .then(async (result) => {
+          platform.showAccountDeletionResult(result?.retainedCategories ?? []);
+          await resetLocalAccount();
+        })
         .catch((error) => {
           const requiresLogin = (error as { code?: string }).code === 'auth/requires-recent-login';
           setAuthStatus(requiresLogin
@@ -273,16 +308,21 @@ export function usePlayerIdentity({
     identityReturnScreen,
     identityStatus,
     playerAuthEmail,
+    playerAuthCode,
     playerAuthMethod,
     playerAuthPassword,
     playerAuthPhone,
+    playerPhoneChallenge: Boolean(playerPhoneChallenge),
+    recoverPlayerAccount,
     refreshIdentityVerification,
     requireVerifiedAge,
     setPlayerAuthEmail,
+    setPlayerAuthCode,
     setPlayerAuthMethod,
     setPlayerAuthPassword,
-    setPlayerAuthPhone,
+    setPlayerAuthPhone: updatePlayerAuthPhone,
     showIdentityVerification,
+    restartPlayerPhoneSignIn,
     signOutPlayer,
     startIdentityVerification
   };

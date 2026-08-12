@@ -21,6 +21,7 @@ export function TournamentScreen({
   opportunities,
   hasOrbitAccount,
   message,
+  pendingTournamentIds,
   onSelectClub,
   onRegister,
   onUnregister
@@ -31,6 +32,7 @@ export function TournamentScreen({
   opportunities: TournamentOpportunity[];
   hasOrbitAccount: boolean;
   message: string;
+  pendingTournamentIds: string[];
   onSelectClub: (club: PlayerClubSnapshot) => void;
   onRegister: (tournament: PlayerTournament) => void;
   onUnregister: (tournament: PlayerTournament, registration: PlayerTournamentRegistration) => void;
@@ -75,6 +77,7 @@ export function TournamentScreen({
                 registration={registration}
                 hasOrbitAccount={hasOrbitAccount}
                 message={message}
+                busy={pendingTournamentIds.includes(tournament.id)}
                 onRegister={() => onRegister(tournament)}
                 onUnregister={() => registration && onUnregister(tournament, registration)}
               />
@@ -96,6 +99,7 @@ export function TournamentCard({
   registration,
   hasOrbitAccount,
   message,
+  busy,
   onRegister,
   onUnregister
 }: {
@@ -103,6 +107,7 @@ export function TournamentCard({
   registration?: PlayerTournamentRegistration;
   hasOrbitAccount: boolean;
   message: string;
+  busy: boolean;
   onRegister: () => void;
   onUnregister: () => void;
 }) {
@@ -160,10 +165,10 @@ export function TournamentCard({
       {!hasOrbitAccount ? <Text style={styles.tournamentMessage}>Sign in with your email address or phone number under Profile to register.</Text> : null}
       {message ? <Text style={styles.tournamentMessage}>{message}</Text> : null}
       {registration ? (
-        canUnregister ? <Pressable style={styles.secondaryActionButton} onPress={onUnregister}><Text style={styles.secondaryActionText}>Unregister</Text></Pressable> : null
+        canUnregister ? <Pressable disabled={busy} style={[styles.secondaryActionButton, busy && styles.disabledAction]} onPress={onUnregister}><Text style={styles.secondaryActionText}>{busy ? 'Updating...' : 'Unregister'}</Text></Pressable> : null
       ) : (
-        <Pressable disabled={!registrationOpen || !hasOrbitAccount} style={[styles.compactButton, (!registrationOpen || !hasOrbitAccount) && styles.disabledAction]} onPress={onRegister}>
-          <Text style={styles.compactButtonText}>{registrationOpen ? 'Register free' : 'Registration closed'}</Text>
+        <Pressable disabled={busy || !registrationOpen || !hasOrbitAccount} style={[styles.compactButton, (busy || !registrationOpen || !hasOrbitAccount) && styles.disabledAction]} onPress={onRegister}>
+          <Text style={styles.compactButtonText}>{busy ? 'Registering...' : registrationOpen ? 'Register free' : 'Registration closed'}</Text>
         </Pressable>
       )}
     </View>

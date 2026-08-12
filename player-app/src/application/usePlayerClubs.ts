@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type SetStateAction } from 'react';
+import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { PlayerPlatform } from '../app/playerPlatform';
 import { getClubMembershipPrices, getClubProductLabel } from '../domain/clubAccess';
 import { isActivePlayerGame } from '../domain/discovery';
@@ -51,6 +51,20 @@ export function usePlayerClubs({
   const [pendingClubProduct, setPendingClubProduct] = useState<ClubAccessProduct | null>(null);
   const [seatRequestDraft, setSeatRequestDraft] = useState<SeatRequestDraft | null>(null);
   const [seatRequestMessage, setSeatRequestMessage] = useState('');
+  const [clubActionPending, setClubActionPending] = useState(false);
+  const actionInFlight = useRef(false);
+
+  const beginAction = () => {
+    if (actionInFlight.current) return false;
+    actionInFlight.current = true;
+    setClubActionPending(true);
+    return true;
+  };
+
+  const finishAction = () => {
+    actionInFlight.current = false;
+    setClubActionPending(false);
+  };
 
   const replaceSyncedClub = (snapshot: PlayerClubSnapshot) => {
     setClubs((current) => {
@@ -70,32 +84,37 @@ export function usePlayerClubs({
     paymentMethod: ClubMembershipPaymentMethod = 'app',
     membershipOption?: PlayerMembershipOption
   ) => {
+    if (!beginAction()) return;
     setSelectedClubId(club.club.id);
     const prices = getClubMembershipPrices(club);
     const priceLabel = membershipOption?.priceLabel ?? (plan === 'day' ? prices.day : prices.monthly);
     const request = buildJoinRequest(player, club.club.id, plan, paymentMethod, priceLabel, membershipOption);
-    if (isSyncConfigured()) {
-      setSyncStatus(paymentMethod === 'in-person' ? 'Sending pay-in-person membership request...' : 'Activating membership...');
-      const result = await submitMembershipRequest(request);
-      if (result.ok) {
-        replaceSyncedClub(result.snapshot);
+    try {
+      if (isSyncConfigured()) {
+        setSyncStatus(paymentMethod === 'in-person' ? 'Sending pay-in-person membership request...' : 'Activating membership...');
+        const result = await submitMembershipRequest(request);
+        if (result.ok) {
+          replaceSyncedClub(result.snapshot);
+          setScreen('clubs');
+          setClubMembershipMessage(paymentMethod === 'in-person'
+            ? `Application sent. ${result.snapshot.club.name} will review it, then you can show ID and pay at the door.`
+            : `${plan === 'day' ? 'Day pass' : 'Monthly membership'} activated.`);
+          setSyncStatus(`Membership updated with ${result.snapshot.club.name}`);
+          return;
+        }
+        setSyncStatus(`Membership request failed - ${result.error}`);
+        setClubMembershipMessage(`Could not send your application. ${result.error}`);
         setScreen('clubs');
-        setClubMembershipMessage(paymentMethod === 'in-person'
-          ? `Application sent. ${result.snapshot.club.name} will review it, then you can show ID and pay at the door.`
-          : `${plan === 'day' ? 'Day pass' : 'Monthly membership'} activated.`);
-        setSyncStatus(`Membership updated with ${result.snapshot.club.name}`);
         return;
       }
-      setSyncStatus(`Membership request failed - ${result.error}`);
-      setClubMembershipMessage(`Could not send your application. ${result.error}`);
+      updateClubSnapshot(club, (snapshot) => applyMembershipRequest(snapshot, request));
       setScreen('clubs');
-      return;
+      setClubMembershipMessage(paymentMethod === 'in-person'
+        ? `Application saved on this device. Connect to ${club.club.name} to send it.`
+        : `${plan === 'day' ? 'Day pass' : 'Monthly membership'} saved on this device.`);
+    } finally {
+      finishAction();
     }
-    updateClubSnapshot(club, (snapshot) => applyMembershipRequest(snapshot, request));
-    setScreen('clubs');
-    setClubMembershipMessage(paymentMethod === 'in-person'
-      ? `Application sent. ${club.club.name} will review it, then you can show ID and pay at the door.`
-      : `${plan === 'day' ? 'Day pass' : 'Monthly membership'} activated.`);
   };
 
   const openClubSignup = (club: PlayerClubSnapshot) => {
@@ -126,6 +145,7 @@ export function usePlayerClubs({
       setClubMembershipMessage('Sign in before purchasing from this card house.');
       return;
     }
+    if (!beginAction()) return;
     try {
       setClubMembershipMessage(`Opening ${club.club.name}'s secure checkout for ${planLabel}...`);
       const checkout = await createClubMembershipCheckout({ clubId: club.club.id, product, playerName: player.name });
@@ -138,6 +158,8 @@ export function usePlayerClubs({
       setPendingClubProduct(null);
     } catch (error) {
       setClubMembershipMessage(error instanceof Error ? error.message : 'Unable to start the card house checkout.');
+    } finally {
+      finishAction();
     }
   };
 
@@ -186,6 +208,7 @@ export function usePlayerClubs({
       setSeatRequestMessage('Enter the time or start of the time range you would come.');
       return;
     }
+    if (!beginAction()) return;
     const request = buildWaitRequest(
       player,
       club.club.id,
@@ -197,35 +220,54 @@ export function usePlayerClubs({
       availabilityStartTime.trim() || undefined,
       availabilityEndTime.trim() || undefined
     );
-    if (isSyncConfigured()) {
-      setSyncStatus('Sending seat request...');
-      const result = await submitWaitlistRequest(request);
-      if (result.ok) {
-        replaceSyncedClub(result.snapshot);
-        setSeatRequestDraft(null);
-        setSyncStatus(`Seat request synced with ${result.snapshot.club.name}`);
+    try {
+      if (isSyncConfigured()) {
+        updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
+        setSyncStatus('Sending seat request...');
+        const result = await submitWaitlistRequest(request);
+        if (result.ok) {
+          replaceSyncedClub(result.snapshot);
+          setSeatRequestDraft(null);
+          setSyncStatus(`Seat request synced with ${result.snapshot.club.name}`);
+          return;
+        }
+        replaceSyncedClub(club);
+        setSyncStatus(`Seat request was not saved - ${result.error}`);
         return;
       }
-      setSyncStatus(`Saved locally - ${result.error}`);
+      updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
+      setSeatRequestDraft(null);
+      setSyncStatus('Seat request saved on this device. Connect to the club to send it.');
+    } finally {
+      finishAction();
     }
-    updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
   };
 
   const cancelWaitlist = async (club: PlayerClubSnapshot, game: PlayerSyncGame, entry: PlayerWaitlistEntry) => {
+    if (!beginAction()) return;
     setSelectedClubId(club.club.id);
     const request = buildWaitRequest(player, club.club.id, game.id, entry.tableId, 'cancel');
-    if (isSyncConfigured()) {
-      setSyncStatus('Cancelling seat request...');
-      const result = await submitWaitlistRequest(request);
-      if (result.ok) {
-        replaceSyncedClub(result.snapshot);
-        setSyncStatus(`Seat request cancelled with ${result.snapshot.club.name}`);
+    try {
+      if (isSyncConfigured()) {
+        updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
+        setSyncStatus('Cancelling seat request...');
+        const result = await submitWaitlistRequest(request);
+        if (result.ok) {
+          replaceSyncedClub(result.snapshot);
+          setSeatRequestDraft(null);
+          setSyncStatus(`Seat request cancelled with ${result.snapshot.club.name}`);
+          return;
+        }
+        replaceSyncedClub(club);
+        setSyncStatus(`Cancellation was not saved - ${result.error}`);
         return;
       }
-      setSyncStatus(`Cancellation saved locally - ${result.error}`);
+      updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
+      setSeatRequestDraft(null);
+      setSyncStatus('Cancellation saved on this device. Connect to the club to send it.');
+    } finally {
+      finishAction();
     }
-    updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
-    setSeatRequestDraft(null);
   };
 
   const openDirections = (club: PlayerClubSnapshot) => {
@@ -243,6 +285,7 @@ export function usePlayerClubs({
 
   return {
     cancelWaitlist,
+    clubActionPending,
     completeClubPayment,
     joinWaitlist,
     openClubPayment,

@@ -1,0 +1,26 @@
+{
+  "reviewBy": "2026-09-30",
+  "scopes": {
+    "root": {
+      "allowed": []
+    },
+    "api": {
+      "allowed": []
+    },
+    "player": {
+      "allowed": [
+        "@expo/cli",
+        "@expo/metro",
+        "@expo/metro-config",
+        "@react-native/community-cli-plugin",
+        "expo",
+        "image-size",
+        "metro",
+        "metro-config",
+        "metro-transform-worker",
+        "react-native",
+        "react-native-purchases"
+      ]
+    }
+  }
+}

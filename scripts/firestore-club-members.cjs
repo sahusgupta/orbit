@@ -8,9 +8,7 @@ const {
   getDoc,
   getDocs,
   getFirestore,
-  initializeFirestore,
-  serverTimestamp,
-  setDoc
+  initializeFirestore
 } = require('firebase/firestore');
 
 const firebaseConfig = {
@@ -29,10 +27,6 @@ function getArg(name) {
   return process.argv[index + 1] || '';
 }
 
-function hasFlag(name) {
-  return process.argv.includes(name);
-}
-
 function base64Url(value) {
   return Buffer.from(value)
     .toString('base64')
@@ -45,14 +39,12 @@ function usage() {
   console.log([
     'Usage:',
     '  node scripts/firestore-club-members.cjs --club <clubId>',
-    '  node scripts/firestore-club-members.cjs --club <clubId> --ensure-club [--name "Club Name"]',
     '',
     'Examples:',
     '  node scripts/firestore-club-members.cjs --club lic_d7edb60440043bdb',
-    '  node scripts/firestore-club-members.cjs --club lic_d7edb60440043bdb --ensure-club --name "Pilot Club"',
     '',
-    'For writes blocked by Firestore rules, set GOOGLE_APPLICATION_CREDENTIALS to a Firebase service-account JSON file,',
-    'or set FIREBASE_SERVICE_ACCOUNT_JSON to the JSON contents.'
+    'This diagnostic is read-only. Set GOOGLE_APPLICATION_CREDENTIALS or',
+    'FIREBASE_SERVICE_ACCOUNT_JSON only when an approved non-production target requires server reads.'
   ].join('\n'));
 }
 
@@ -127,20 +119,6 @@ function firestoreFieldsToJs(fields) {
   return Object.fromEntries(Object.entries(fields || {}).map(([key, value]) => [key, firestoreValueToJs(value)]));
 }
 
-function jsToFirestoreValue(value) {
-  if (value === null || value === undefined) return { nullValue: null };
-  if (typeof value === 'string') return { stringValue: value };
-  if (typeof value === 'number') return Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value };
-  if (typeof value === 'boolean') return { booleanValue: value };
-  if (Array.isArray(value)) return { arrayValue: { values: value.map(jsToFirestoreValue) } };
-  if (typeof value === 'object') return { mapValue: { fields: jsToFirestoreFields(value) } };
-  return { stringValue: String(value) };
-}
-
-function jsToFirestoreFields(record) {
-  return Object.fromEntries(Object.entries(record).map(([key, value]) => [key, jsToFirestoreValue(value)]));
-}
-
 function restBase(projectId) {
   return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
 }
@@ -157,24 +135,6 @@ async function restFetchJson(url, token, options = {}) {
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`Firestore REST request failed: ${response.status} ${await response.text()}`);
   return response.json();
-}
-
-async function ensureClubWithRest(projectId, token, clubId, clubName) {
-  const now = new Date().toISOString();
-  const url = `${restBase(projectId)}/clubs/${encodeURIComponent(clubId)}`;
-  await restFetchJson(url, token, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      fields: jsToFirestoreFields({
-        id: clubId,
-        licenseId: clubId,
-        name: clubName || `Club ${clubId}`,
-        savedAt: now,
-        generatedAt: now,
-        updatedAt: now
-      })
-    })
-  });
 }
 
 async function readMembershipNamesWithRest(projectId, token, clubId) {
@@ -197,22 +157,6 @@ async function readMembershipNamesWithRest(projectId, token, clubId) {
     ...snapshotMemberships.map((membership) => membership.playerName || membership.name || membership.playerId),
     ...stateProfiles.map((profile) => profile.name || profile.playerName || profile.id)
   ]);
-}
-
-async function ensureClub(db, clubId, clubName) {
-  const now = new Date().toISOString();
-  await setDoc(
-    doc(db, 'clubs', clubId),
-    {
-      id: clubId,
-      licenseId: clubId,
-      name: clubName || `Club ${clubId}`,
-      savedAt: now,
-      generatedAt: now,
-      updatedAt: serverTimestamp()
-    },
-    { merge: true }
-  );
 }
 
 async function readMembershipNames(db, clubId) {
@@ -238,8 +182,6 @@ async function readMembershipNames(db, clubId) {
 
 async function main() {
   const clubId = getArg('--club') || process.argv[2];
-  const shouldEnsureClub = hasFlag('--ensure-club');
-  const clubName = getArg('--name');
 
   if (!clubId || clubId.startsWith('--')) {
     usage();
@@ -252,10 +194,6 @@ async function main() {
   if (serviceAccount) {
     const projectId = serviceAccount.project_id || firebaseConfig.projectId;
     const token = await getServiceAccountToken(serviceAccount);
-    if (shouldEnsureClub) {
-      await ensureClubWithRest(projectId, token, clubId, clubName);
-      console.log(`Ensured club record: clubs/${clubId}`);
-    }
     const names = await readMembershipNamesWithRest(projectId, token, clubId);
     if (!names.length) {
       console.log(`No members found for club ${clubId}.`);
@@ -268,11 +206,6 @@ async function main() {
   }
 
   const db = getDb();
-  if (shouldEnsureClub) {
-    await ensureClub(db, clubId, clubName);
-    console.log(`Ensured club record: clubs/${clubId}`);
-  }
-
   const names = await readMembershipNames(db, clubId);
   if (!names.length) {
     console.log(`No members found for club ${clubId}.`);

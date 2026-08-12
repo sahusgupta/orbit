@@ -30,15 +30,11 @@ function readRequestBody(request) {
 
 function createEmbeddedBackend(dependencies) {
   const {
-    applyMembershipRequestToState,
-    applyWaitlistRequestToState,
     buildPlayerClubSnapshot,
     getAccountKeyFromState,
     getReportCount,
     loadStateWithFirebaseFallback,
-    saveStateEverywhere,
-    storeAnalyticalReport,
-    syncStateWithFirebaseRequests
+    storeAnalyticalReport
   } = dependencies;
   const environment = dependencies.environment || process.env;
   const httpServer = dependencies.http || http;
@@ -87,54 +83,28 @@ function createEmbeddedBackend(dependencies) {
             sendJson(response, 404, { ok: false, error: 'No Orbit club database is available yet.' });
             return;
           }
-          const syncedState = await syncStateWithFirebaseRequests(record.state);
-          if (syncedState !== record.state) {
-            await saveStateEverywhere(syncedState);
-          }
           const player = {
             id: requestUrl.searchParams.get('playerId') || '',
             name: requestUrl.searchParams.get('playerName') || ''
           };
           sendJson(response, 200, {
             ok: true,
-            accountKey: getAccountKeyFromState(syncedState),
+            accountKey: getAccountKeyFromState(record.state),
             savedAt: record.savedAt,
-            snapshot: buildPlayerClubSnapshot(syncedState, player)
+            snapshot: buildPlayerClubSnapshot(record.state, player),
+            source: 'offline-cache',
+            authoritative: false
           });
           return;
         }
 
         if (request.method === 'POST' && requestUrl.pathname === '/player/membership-requests') {
-          const requestPayload = JSON.parse(await readRequestBody(request));
-          const record = await loadStateWithFirebaseFallback(requestPayload.clubId);
-          if (!record?.state) {
-            sendJson(response, 404, { ok: false, error: 'No matching club database was found for this membership request.' });
-            return;
-          }
-          const nextState = applyMembershipRequestToState(record.state, requestPayload);
-          await saveStateEverywhere(nextState);
-          sendJson(response, 201, {
-            ok: true,
-            accountKey: getAccountKeyFromState(nextState),
-            snapshot: buildPlayerClubSnapshot(nextState, requestPayload.player)
-          });
+          sendJson(response, 503, { ok: false, error: 'Player mutations require the authoritative Orbit API.' });
           return;
         }
 
         if (request.method === 'POST' && requestUrl.pathname === '/player/waitlist-requests') {
-          const requestPayload = JSON.parse(await readRequestBody(request));
-          const record = await loadStateWithFirebaseFallback(requestPayload.clubId);
-          if (!record?.state) {
-            sendJson(response, 404, { ok: false, error: 'No matching club database was found for this waitlist request.' });
-            return;
-          }
-          const nextState = applyWaitlistRequestToState(record.state, requestPayload);
-          await saveStateEverywhere(nextState);
-          sendJson(response, 201, {
-            ok: true,
-            accountKey: getAccountKeyFromState(nextState),
-            snapshot: buildPlayerClubSnapshot(nextState, requestPayload.player)
-          });
+          sendJson(response, 503, { ok: false, error: 'Player mutations require the authoritative Orbit API.' });
           return;
         }
 

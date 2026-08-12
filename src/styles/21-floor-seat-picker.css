@@ -38,7 +38,7 @@
   color: var(--muted);
   display: block;
   font-size: 0.78rem;
-  font-weight: 850;
+  font-weight: 700;
   margin-bottom: 3px;
 }
 
@@ -75,7 +75,7 @@
   color: #aab4c3;
   display: grid;
   font-size: 0.76rem;
-  font-weight: 900;
+  font-weight: 700;
   gap: 5px;
 }
 
@@ -96,7 +96,7 @@
   border-radius: 12px;
   color: #ef6f79;
   font-size: 0.84rem;
-  font-weight: 850;
+  font-weight: 700;
   padding: 9px 11px;
 }
 
@@ -141,7 +141,7 @@
   border-radius: 10px;
   color: #7da0ff;
   display: flex;
-  font-weight: 950;
+  font-weight: 700;
   height: 44px;
   justify-content: center;
   width: 44px;
@@ -167,7 +167,7 @@
   color: #b8c2cf;
   font-size: 0.76rem;
   font-style: normal;
-  font-weight: 900;
+  font-weight: 700;
   padding: 6px 9px;
 }
 
@@ -203,7 +203,7 @@
 .quick-seat-error {
   color: var(--rose);
   font-size: 0.8rem;
-  font-weight: 850;
+  font-weight: 700;
   grid-column: 1 / -1;
 }
 
@@ -231,7 +231,7 @@
 .start-table-head span {
   color: var(--muted);
   font-size: 0.78rem;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .start-table-picker {
@@ -277,7 +277,7 @@ body.low-light .start-table-panel {
   color: var(--muted);
   display: inline-flex;
   font-size: 0.82rem;
-  font-weight: 850;
+  font-weight: 700;
   gap: 8px;
 }
 

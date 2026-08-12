@@ -1,13 +1,9 @@
-import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { normalizeState } from '../../../domain/state';
-import { getAccountKeyFromState, hasPersistedSignIn } from '../../../domain/licensing';
+import { hasPersistedSignIn } from '../../../domain/licensing';
 import type { AppState } from '../../../domain/types';
-import { loadClubStateFromFirebase, saveClubStateToFirebase } from '../../../lib/firebaseClubSync';
 import { saveBrowserManagementState } from '../../../app/persistence/browserStateRepository';
-import {
-  canUseRendererFirebaseAuth,
-  loadDesktopManagementState
-} from '../../../app/persistence/managementPersistence';
+import { loadDesktopManagementState } from '../../../app/persistence/managementPersistence';
 
 type ManagementSaveStatus =
   | { state: 'idle'; message: string }
@@ -30,12 +26,11 @@ export const useManagementStartupSync = ({
   setSaveStatus,
   setState,
   setUndoStack,
-  state
+  state: _state
 }: ManagementStartupSyncOptions) => {
-  const hasPublishedStartupSnapshot = useRef(false);
-
   useEffect(() => {
-    // Browser state initialized the app before this optional desktop hydration.
+    // Browser state initializes the shell while the trusted desktop boundary
+    // loads authoritative server state or its explicitly labelled offline cache.
     loadDesktopManagementState()?.then((record) => {
       if (record?.state) {
         const next = normalizeState(record.state);
@@ -43,37 +38,10 @@ export const useManagementStartupSync = ({
         setState(next);
         setHasAuthenticated(hasPersistedSignIn(next));
         saveBrowserManagementState(next);
-        if (canUseRendererFirebaseAuth()) {
-          // Cloud bootstrap is best-effort after a usable desktop snapshot has loaded.
-          loadClubStateFromFirebase(getAccountKeyFromState(next))
-            .then((cloudRecord) => {
-              if (!cloudRecord?.state) {
-                saveClubStateToFirebase(next).catch(() => undefined);
-                return;
-              }
-              if (cloudRecord.savedAt && record.savedAt && cloudRecord.savedAt <= record.savedAt) return;
-              const cloudState = normalizeState(cloudRecord.state);
-              setUndoStack([]);
-              setState(cloudState);
-              setHasAuthenticated(hasPersistedSignIn(cloudState));
-              saveBrowserManagementState(cloudState);
-              setSaveStatus({ state: 'saved', message: 'Synced from Firebase' });
-            })
-            .catch(() => undefined);
-        }
+        setSaveStatus(record.authoritative === false
+          ? { state: 'error', message: 'Offline cache loaded; server reconciliation required' }
+          : { state: 'saved', message: 'Authoritative state loaded' });
       }
     }).catch(() => undefined);
   }, []);
-
-  useEffect(() => {
-    if (!hasAuthenticated || !canUseRendererFirebaseAuth()) {
-      hasPublishedStartupSnapshot.current = false;
-      return;
-    }
-    if (hasPublishedStartupSnapshot.current) return;
-    hasPublishedStartupSnapshot.current = true;
-    saveClubStateToFirebase(state).catch(() => {
-      hasPublishedStartupSnapshot.current = false;
-    });
-  }, [hasAuthenticated, state]);
 };

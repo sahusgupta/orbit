@@ -148,7 +148,7 @@ export default function ProfilesView({
                         : 'Recent check-ins and transactions.'}
                   </Dialog.Description>
                 </div>
-                <Dialog.Close asChild><button className="icon-button" aria-label="Close"><X size={18} /></button></Dialog.Close>
+                <Dialog.Close asChild><button className="icon-button" aria-label="Close player form" title="Close player form"><X size={18} /></button></Dialog.Close>
               </div>
               {playerPopup === 'add' ? (
                 <form className="player-popup-form" onSubmit={(event) => { addProfile(event); setPlayerPopup(null); }}>
@@ -410,7 +410,7 @@ export default function ProfilesView({
                       <button className="secondary-button" onClick={() => (inClub ? removeProfileFromClub(profile) : addProfileToClub(profile))}>
                         {inClub ? 'Remove' : 'Check in'}
                       </button>
-                      <button className="icon-button danger" onClick={() => deleteProfile(profile.id)} title="Remove profile">
+                      <button aria-label={`Remove ${profile.name}`} className="icon-button danger" onClick={() => deleteProfile(profile.id)} title="Remove profile">
                         <Trash2 size={17} />
                       </button>
                     </div>

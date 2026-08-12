@@ -52,6 +52,26 @@ export function decodeSnapshotEnvelope(value: unknown) {
   };
 }
 
+export function decodeDiscoveryResponse(value: unknown) {
+  const record = asRecord(value);
+  const page = record && asRecord(record.page);
+  if (!record || !page || !Array.isArray(record.clubs) || !Array.isArray(record.tournaments) || !Array.isArray(record.registrations)) return null;
+  const clubs = record.clubs.map(decodePlayerClubSnapshot);
+  if (clubs.some((club) => !club)) return null;
+  return {
+    ok: true as const,
+    clubs: clubs as PlayerClubSnapshot[],
+    tournaments: record.tournaments as PlayerTournament[],
+    registrations: record.registrations as PlayerTournamentRegistration[],
+    page: {
+      count: typeof page.count === 'number' ? page.count : clubs.length,
+      hasMore: page.hasMore === true,
+      nextCursor: typeof page.nextCursor === 'string' ? page.nextCursor : null,
+      databaseQueries: typeof page.databaseQueries === 'number' ? page.databaseQueries : undefined
+    }
+  };
+}
+
 export function decodePrivateGameRecord(value: unknown): PlayerPrivateGameListing {
   return requireRecord(value, 'Private game') as PlayerPrivateGameListing;
 }

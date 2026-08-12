@@ -20,11 +20,17 @@ function createLocalStore(dependencies) {
   const fileSystem = dependencies.fileSystem || fs;
   const mailer = dependencies.mailer || nodemailer;
   const now = dependencies.now || (() => new Date());
+  const encodeState = dependencies.encodeState || ((value) => value);
+  const decodeState = dependencies.decodeState || ((value) => value);
   const randomUUID = dependencies.randomUUID || (() => crypto.randomUUID());
   const updateBackendReportCount = dependencies.updateBackendReportCount;
   const userDataPath = dependencies.userDataPath || (() => app.getPath('userData'));
 
   let database;
+
+  function parseState(value) {
+    return JSON.parse(decodeState(String(value || '')));
+  }
 
   function getLegacyDataPath() {
     return path.join(userDataPath(), 'tablemanager-db.json');
@@ -140,10 +146,14 @@ function createLocalStore(dependencies) {
       ? db.prepare('SELECT schema_version, saved_at, state_json FROM account_state WHERE account_key = ?').get(normalizedAccountKey)
       : db.prepare('SELECT schema_version, saved_at, state_json FROM account_state WHERE is_last_opened = 1 ORDER BY saved_at DESC LIMIT 1').get();
     if (row) {
+      const state = parseState(row.state_json);
+      if (dependencies.encodeState && !String(row.state_json).startsWith('safe-storage:v1:')) {
+        writeLocalDatabase(state);
+      }
       return {
         schemaVersion: row.schema_version,
         savedAt: row.saved_at,
-        state: JSON.parse(row.state_json)
+        state
       };
     }
 
@@ -151,8 +161,9 @@ function createLocalStore(dependencies) {
 
     const legacySqliteRow = db.prepare('SELECT schema_version, saved_at, state_json FROM app_state WHERE id = 1').get();
     if (legacySqliteRow) {
-      const state = JSON.parse(legacySqliteRow.state_json);
+      const state = parseState(legacySqliteRow.state_json);
       writeLocalDatabase(state);
+      db.exec('DELETE FROM app_state WHERE id = 1');
       return {
         schemaVersion: legacySqliteRow.schema_version,
         savedAt: legacySqliteRow.saved_at,
@@ -163,6 +174,11 @@ function createLocalStore(dependencies) {
     const legacyRecord = readLegacyLocalDatabase();
     if (legacyRecord?.state) {
       writeLocalDatabase(legacyRecord.state);
+      try {
+        fileSystem.unlinkSync(getLegacyDataPath());
+      } catch {
+        // The verified encrypted database copy remains usable if legacy cleanup is unavailable.
+      }
       return legacyRecord;
     }
 
@@ -186,7 +202,7 @@ function createLocalStore(dependencies) {
             accountKey: row.account_key,
             schemaVersion: row.schema_version,
             savedAt: row.saved_at,
-            state: JSON.parse(row.state_json)
+            state: parseState(row.state_json)
           }];
         } catch {
           return [];
@@ -211,7 +227,7 @@ function createLocalStore(dependencies) {
     validateStatePayload(state);
     const db = getDatabase();
     const savedAt = now().toISOString();
-    const stateJson = JSON.stringify(state);
+    const stateJson = encodeState(JSON.stringify(state));
     const accountKey = getAccountKeyFromState(state);
     const clearLastOpened = db.prepare('UPDATE account_state SET is_last_opened = 0');
     const saveState = db.prepare(`
@@ -223,68 +239,18 @@ function createLocalStore(dependencies) {
         state_json = excluded.state_json,
         is_last_opened = 1
     `);
-    const upsertProfile = db.prepare(`
-      INSERT INTO account_profiles (
-        account_key,
-        id,
-        name,
-        birthday,
-        membership_start_date,
-        membership_expiration_date,
-        total_time_played_hours,
-        last_session_time_played_hours,
-        preferred_game_id,
-        preferred_stakes,
-        notes,
-        raw_json,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(account_key, id) DO UPDATE SET
-        name = excluded.name,
-        birthday = excluded.birthday,
-        membership_start_date = excluded.membership_start_date,
-        membership_expiration_date = excluded.membership_expiration_date,
-        total_time_played_hours = excluded.total_time_played_hours,
-        last_session_time_played_hours = excluded.last_session_time_played_hours,
-        preferred_game_id = excluded.preferred_game_id,
-        preferred_stakes = excluded.preferred_stakes,
-        notes = excluded.notes,
-        raw_json = excluded.raw_json,
-        updated_at = excluded.updated_at
-    `);
-    const deleteProfiles = db.prepare('DELETE FROM account_profiles WHERE account_key = ?');
-    const insertCompanion = db.prepare('INSERT OR IGNORE INTO account_profile_companions (account_key, profile_id, companion_profile_id) VALUES (?, ?, ?)');
-    const validProfileIds = new Set((state.profiles ?? []).map((profile) => profile.id));
+    const clearAccountProfileCompanions = db.prepare('DELETE FROM account_profile_companions');
+    const clearAccountProfiles = db.prepare('DELETE FROM account_profiles');
+    const clearLegacyProfileCompanions = db.prepare('DELETE FROM profile_companions');
+    const clearLegacyProfiles = db.prepare('DELETE FROM profiles');
     db.exec('BEGIN IMMEDIATE');
     try {
       clearLastOpened.run();
       saveState.run(accountKey, savedAt, stateJson);
-      deleteProfiles.run(accountKey);
-      for (const profile of state.profiles ?? []) {
-        upsertProfile.run(
-          accountKey,
-          profile.id,
-          profile.name,
-          profile.birthday ?? '',
-          profile.membershipStartDate ?? '',
-          profile.membershipExpirationDate ?? '',
-          Number(profile.totalTimePlayedHours ?? 0),
-          Number(profile.lastSessionTimePlayedHours ?? 0),
-          profile.preferredGameId ?? profile.preferredGameIds?.[0] ?? '',
-          profile.preferredStakes ?? '',
-          profile.notes ?? '',
-          JSON.stringify(profile),
-          savedAt
-        );
-      }
-      for (const profile of state.profiles ?? []) {
-        for (const companionId of profile.commonlyPlaysWithProfileIds ?? []) {
-          if (validProfileIds.has(companionId)) {
-            insertCompanion.run(accountKey, profile.id, companionId);
-          }
-        }
-      }
+      clearAccountProfileCompanions.run();
+      clearAccountProfiles.run();
+      clearLegacyProfileCompanions.run();
+      clearLegacyProfiles.run();
       db.exec('COMMIT');
     } catch (error) {
       db.exec('ROLLBACK');

@@ -30,13 +30,16 @@ const createStorage = () => {
 };
 
 describe('management persistence adapter', () => {
-  it('fans browser saves out to local storage and the optional localhost bridge', async () => {
+  it('treats browser storage as cache and commits through the revisioned localhost API', async () => {
     const state = buildState();
     const { storage, values } = createStorage();
     const fetchCalls: Array<{ input: string; init?: RequestInit }> = [];
     const fetchState: typeof fetch = async (input, init) => {
       fetchCalls.push({ input: String(input), init });
-      return new Response(null, { status: 200 });
+      return new Response(JSON.stringify({ ok: true, revision: 1, publication: { status: 'pending' } }), {
+        status: 201,
+        headers: { 'content-type': 'application/json' }
+      });
     };
     const saveFirebaseState = vi.fn(async () => undefined);
     const persistence = createManagementPersistence({
@@ -50,18 +53,28 @@ describe('management persistence adapter', () => {
 
     await expect(persistence.saveState(state)).resolves.toEqual({
       ok: true,
-      path: 'browser-local-storage',
-      cloud: 'firebase-pending'
+      path: 'orbit-api',
+      accountKey: 'ref-019-persistence',
+      revision: 1,
+      publication: { status: 'pending' },
+      cloud: 'server-pending'
     });
-    expect(JSON.parse(values.get('table-manager-state-v1:ref-019-persistence') ?? '{}')).toMatchObject({
-      settings: { pilotAccess: { licenseId: 'ref-019-persistence' } }
+    expect(JSON.parse(values.get('table-manager-state-v1') ?? '{}')).toEqual({
+      schemaVersion: 5,
+      cache: 'memory-only',
+      restrictedDataPersisted: false
     });
     expect(fetchCalls).toEqual([expect.objectContaining({ input: 'http://127.0.0.1:4629/state' })]);
-    expect(JSON.parse(String(fetchCalls[0].init?.body))).toEqual({ state });
+    const requestBody = JSON.parse(String(fetchCalls[0].init?.body));
+    expect(requestBody).toMatchObject({
+      expectedRevision: 0,
+      state: { settings: { pilotAccess: { licenseId: 'ref-019-persistence' } } }
+    });
+    expect(requestBody.mutationId).toMatch(/^browser:ref-019-persistence:0:/);
     expect(saveFirebaseState).not.toHaveBeenCalled();
   });
 
-  it('selects desktop persistence, skips the localhost bridge, and leaves Firebase completion pending', async () => {
+  it('selects desktop persistence, skips the localhost bridge and renderer Firebase publication', async () => {
     const state = buildState();
     const { storage } = createStorage();
     const fetchState = vi.fn<typeof fetch>();
@@ -82,11 +95,11 @@ describe('management persistence adapter', () => {
       ok: true,
       path: 'desktop',
       accountKey: 'ref-019-persistence',
-      cloud: 'firebase-pending'
+      cloud: 'server-pending'
     });
     expect(desktopSave).toHaveBeenCalledWith(state);
     expect(fetchState).not.toHaveBeenCalled();
-    expect(saveFirebaseState).toHaveBeenCalledWith(state);
+    expect(saveFirebaseState).not.toHaveBeenCalled();
   });
 
   it('preserves the selected local persistence failure as the visible save result', async () => {

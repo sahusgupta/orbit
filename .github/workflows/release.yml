@@ -1,27 +1,72 @@
-name: Build and Publish Desktop Update
+name: Verify and Promote Desktop Release
 
 on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - RELEASE_LOG.md
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-character commit SHA to build
+        required: true
+        type: string
+      release_version:
+        description: New immutable semver (for example 1.4.2)
+        required: true
+        type: string
+      release_reason:
+        description: Standard release or roll-forward rollback
+        required: true
+        default: standard
+        type: choice
+        options:
+          - standard
+          - rollback
+      release_channel:
+        description: Canary is promoted as a prerelease; stable is the normal channel
+        required: true
+        default: canary
+        type: choice
+        options:
+          - canary
+          - stable
+      rollback_of:
+        description: Version being superseded; required for rollback
+        required: false
+        type: string
+      promote:
+        description: Promote the verified artifact through the protected production-release environment
+        required: true
+        default: false
+        type: boolean
 
 permissions:
-  contents: write
+  contents: read
+  id-token: write
+  attestations: write
 
 jobs:
-  windows-release:
-    name: Windows release
+  verify-and-sign:
+    name: Verify and sign Windows artifact
     runs-on: windows-2025
+    environment: desktop-release-signing
+    outputs:
+      artifact-name: ${{ steps.artifact.outputs.name }}
     env:
-      GH_TOKEN: ${{ github.token }}
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     steps:
-      - name: Check out repository
+      - name: Check out the exact requested source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+
+      - name: Validate immutable release inputs
+        shell: pwsh
+        run: |
+          if ('${{ inputs.source_sha }}' -notmatch '^[0-9a-fA-F]{40}$') { throw 'source_sha must be an exact 40-character commit SHA.' }
+          if ((git rev-parse HEAD).Trim() -ne '${{ inputs.source_sha }}') { throw 'Checked-out source does not match source_sha.' }
+          if ('${{ inputs.release_version }}' -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'release_version must be an exact stable semver.' }
+          if ('${{ inputs.release_reason }}' -eq 'rollback' -and '${{ inputs.rollback_of }}'.Length -eq 0) { throw 'rollback_of is required for a rollback release.' }
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -33,58 +78,129 @@ jobs:
             player-app/package-lock.json
             apps/api/package-lock.json
 
-      - name: Install desktop dependencies
-        run: npm ci
-
-      - name: Install player app dependencies
-        run: npm ci --prefix player-app
-
-      - name: Install API dependencies
-        run: npm ci --prefix apps/api
-
-      - name: Use a unique update version
-        shell: bash
+      - name: Install locked dependencies
         run: |
-          RELEASE_VERSION="$(node -e 'const pkg=require("./package.json"); const [major, minor, patch]=pkg.version.split(".").map(Number); console.log([major, minor, patch + Number(process.env.GITHUB_RUN_NUMBER)].join("."));')"
-          npm version "$RELEASE_VERSION" --no-git-tag-version
-          node -p "require('./package.json').version" > release-version.txt
-          echo "RELEASE_VERSION=$(cat release-version.txt)" >> "$GITHUB_ENV"
+          npm ci
+          npm ci --prefix player-app
+          npm ci --prefix apps/api
 
-      - name: Run tests
-        run: npm test
+      - name: Apply the approved release version without a Git mutation
+        run: npm version "${{ inputs.release_version }}" --no-git-tag-version
 
-      - name: Build and publish GitHub release
-        run: npm run dist:win:publish
-
-      - name: Record release in repository log
-        shell: bash
+      - name: Run security, dependency, and release control gates
         run: |
-          DATE_UTC="$(date -u +'%Y-%m-%d %H:%M:%S')"
-          SHORT_SHA="${GITHUB_SHA::7}"
-          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          COMMIT_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
-          ARTIFACTS="$(node -e "const fs=require('fs'); const files=fs.readdirSync('release').filter((name)=>/\\.(exe|zip|yml|blockmap)$/.test(name)); console.log(files.join(', '));")"
-          echo "| ${DATE_UTC} | ${RELEASE_VERSION} | [${SHORT_SHA}](${COMMIT_URL}) | [run ${GITHUB_RUN_NUMBER}](${RUN_URL}) | ${ARTIFACTS} |" >> RELEASE_LOG.md
+          npm run security:paths
+          npm run security:dependencies
+          npm run check:release-controls
+          npm run audit:module-graph
 
-      - name: Commit release log
-        shell: bash
+      - name: Run complete verification and production bundle budgets
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add RELEASE_LOG.md
-          if git diff --cached --quiet; then
-            echo "No release log changes to commit."
-          else
-            git commit -m "chore: record desktop release ${RELEASE_VERSION}"
-            git push
-          fi
+          npm run verify
+          npm run check:renderer-bundle
+          npm run check:public-site
+          npm run check:brand
 
-      - name: Upload release artifacts to workflow
+      - name: Rehearse backward-compatible state and revision migrations
+        run: npx vitest run apps/api/src/stateMigration.test.js apps/api/src/stateArchitecture.test.js electron/accountMigration.test.js
+
+      - name: Install isolated browser runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Run critical production-bundle smoke paths
+        run: |
+          npm run e2e:management
+          npm run e2e:public
+
+      - name: Build signed Windows artifacts without publishing
+        run: npm run release:win:artifact
+
+      - name: Verify signatures and create release evidence
+        shell: pwsh
+        run: |
+          $releaseFiles = Get-ChildItem release -File | Where-Object { $_.Extension -in '.exe', '.zip', '.yml', '.blockmap' }
+          $executables = $releaseFiles | Where-Object { $_.Extension -eq '.exe' }
+          if (-not $executables) { throw 'No Windows executable was produced.' }
+          foreach ($file in $executables) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+            if ($signature.Status -ne 'Valid') { throw "Invalid Authenticode signature for $($file.Name): $($signature.Status)" }
+          }
+          $releaseFiles | ForEach-Object { "$(Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName | Select-Object -ExpandProperty Hash)  $($_.Name)" } | Set-Content release/SHA256SUMS.txt
+          @{
+            sourceSha = '${{ inputs.source_sha }}'
+            version = '${{ inputs.release_version }}'
+            reason = '${{ inputs.release_reason }}'
+            channel = '${{ inputs.release_channel }}'
+            rollbackOf = '${{ inputs.rollback_of }}'
+            workflowRun = '${{ github.run_id }}'
+            workflowAttempt = '${{ github.run_attempt }}'
+          } | ConvertTo-Json | Set-Content release/release-metadata.json
+
+      - name: Attest signed executables and archives
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            release/*.exe
+            release/*.zip
+
+      - name: Name immutable workflow artifact
+        id: artifact
+        shell: pwsh
+        run: "Add-Content -Path $env:GITHUB_OUTPUT -Value 'name=Orbit-${{ inputs.release_version }}-${{ inputs.source_sha }}-${{ github.run_attempt }}'"
+
+      - name: Upload verified release candidate
         uses: actions/upload-artifact@v4
         with:
-          name: TableTalk-Windows-${{ github.run_number }}
+          name: ${{ steps.artifact.outputs.name }}
+          if-no-files-found: error
+          overwrite: false
           path: |
             release/*.exe
             release/*.zip
             release/*.yml
             release/*.blockmap
+            release/SHA256SUMS.txt
+            release/release-metadata.json
+
+  promote:
+    name: Explicitly promote verified artifact
+    if: ${{ inputs.promote }}
+    needs: verify-and-sign
+    runs-on: windows-2025
+    environment: production-release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - name: Download the exact verified artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.verify-and-sign.outputs.artifact-name }}
+          path: release-candidate
+
+      - name: Reverify checksums and executable signatures
+        shell: pwsh
+        run: |
+          Push-Location release-candidate
+          foreach ($line in Get-Content SHA256SUMS.txt) {
+            if ($line -notmatch '^([0-9A-F]{64})  (.+)$') { throw "Malformed checksum line: $line" }
+            if ((Get-FileHash -Algorithm SHA256 -LiteralPath $Matches[2]).Hash -ne $Matches[1]) { throw "Checksum mismatch for $($Matches[2])." }
+          }
+          foreach ($file in Get-ChildItem -File -Filter '*.exe') {
+            if ((Get-AuthenticodeSignature -LiteralPath $file.FullName).Status -ne 'Valid') { throw "Signature verification failed for $($file.Name)." }
+          }
+          Pop-Location
+
+      - name: Promote as an immutable GitHub release
+        shell: pwsh
+        run: |
+          $notes = "Verified promotion from ${{ inputs.source_sha }}. Channel: ${{ inputs.release_channel }}. Reason: ${{ inputs.release_reason }}. Rollback of: ${{ inputs.rollback_of }}."
+          $assets = Get-ChildItem release-candidate -File | Select-Object -ExpandProperty FullName
+          if (-not $assets) { throw 'The verified release candidate is empty.' }
+          $arguments = @('release', 'create', "v${{ inputs.release_version }}") + $assets + @('--repo', '${{ github.repository }}', '--target', '${{ inputs.source_sha }}', '--title', "Orbit ${{ inputs.release_version }}", '--notes', $notes)
+          if ('${{ inputs.release_channel }}' -eq 'canary') { $arguments += '--prerelease' }
+          gh @arguments

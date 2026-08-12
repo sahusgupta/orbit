@@ -76,6 +76,25 @@ const validState = {
 };
 
 describe('Electron local SQLite store', () => {
+  it('decodes an OS-protected account cache without exposing a cleartext profile projection', () => {
+    const encrypted = 'safe-storage:v1:local-test-ciphertext';
+    const decodeState = vi.fn(() => JSON.stringify(validState));
+    const prepare = vi.fn((sql: string) => ({
+      get: vi.fn().mockReturnValue(sql.includes('is_last_opened = 1')
+        ? { schema_version: 2, saved_at: '2026-08-07T13:00:00.000Z', state_json: encrypted }
+        : undefined),
+      run: vi.fn()
+    }));
+    const store = createLocalStore(baseDependencies({
+      DatabaseSync: vi.fn(function DatabaseConstructor() { return { close: vi.fn(), exec: vi.fn(), prepare }; }),
+      decodeState
+    }));
+
+    expect(store.readLocalDatabase()).toMatchObject({ state: validState });
+    expect(decodeState).toHaveBeenCalledWith(encrypted);
+    expect(prepare.mock.calls.some(([sql]) => sql.includes('INSERT INTO account_profiles'))).toBe(false);
+  });
+
   it('resolves the legacy JSON and SQLite paths under Electron userData', () => {
     const store = createLocalStore(baseDependencies());
 
@@ -167,7 +186,11 @@ describe('Electron local SQLite store', () => {
       'SELECT schema_version, saved_at, state_json FROM account_state WHERE is_last_opened = 1 ORDER BY saved_at DESC LIMIT 1',
       'SELECT schema_version, saved_at, state_json FROM app_state WHERE id = 1'
     ]);
-    expect(exec.mock.calls.slice(-2).map((call) => call[0])).toEqual(['BEGIN IMMEDIATE', 'COMMIT']);
+    expect(exec.mock.calls.slice(-3).map((call) => call[0])).toEqual([
+      'BEGIN IMMEDIATE',
+      'COMMIT',
+      'DELETE FROM app_state WHERE id = 1'
+    ]);
   });
 
   it('falls back to and migrates the legacy JSON record when both SQLite lookups miss', () => {
@@ -195,7 +218,7 @@ describe('Electron local SQLite store', () => {
     expect(exec.mock.calls.slice(-2).map((call) => call[0])).toEqual(['BEGIN IMMEDIATE', 'COMMIT']);
   });
 
-  it('writes account state and profile projections transactionally while filtering invalid companions', () => {
+  it('writes one cache envelope and removes duplicate plaintext profile projections', () => {
     const runs = new Map<string, ReturnType<typeof vi.fn>>();
     const prepare = vi.fn((sql: string) => {
       const run = vi.fn();
@@ -222,20 +245,12 @@ describe('Electron local SQLite store', () => {
       '2026-08-07T13:00:00.000Z',
       JSON.stringify(validState)
     ]);
-    expect(statement('DELETE FROM account_profiles')?.mock.calls[0]).toEqual(['club-one']);
-    expect(statement('INSERT INTO account_profiles')?.mock.calls).toEqual([
-      [
-        'club-one', 'player-1', 'Alex', '1990-01-01', '2026-01-01', '2026-12-31', 42, 3.5,
-        'nlh', '1/2', 'Regular', JSON.stringify(validState.profiles[0]), '2026-08-07T13:00:00.000Z'
-      ],
-      [
-        'club-one', 'player-2', 'Blair', '', '', '', 0, 0,
-        '', '', '', JSON.stringify(validState.profiles[1]), '2026-08-07T13:00:00.000Z'
-      ]
-    ]);
-    expect(statement('INSERT OR IGNORE INTO account_profile_companions')?.mock.calls).toEqual([
-      ['club-one', 'player-1', 'player-2']
-    ]);
+    expect(statement('DELETE FROM account_profile_companions')?.mock.calls[0]).toEqual([]);
+    expect(statement('DELETE FROM account_profiles')?.mock.calls[0]).toEqual([]);
+    expect(statement('DELETE FROM profile_companions')?.mock.calls[0]).toEqual([]);
+    expect(statement('DELETE FROM profiles')?.mock.calls[0]).toEqual([]);
+    expect(statement('INSERT INTO account_profiles')).toBeUndefined();
+    expect(statement('INSERT OR IGNORE INTO account_profile_companions')).toBeUndefined();
   });
 
   it('rolls back and rethrows a failed transactional state projection', () => {

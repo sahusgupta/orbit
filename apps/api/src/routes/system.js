@@ -1,18 +1,47 @@
 const path = require('path');
-const { getDatabasePath } = require('../database');
+const { getDatabaseStatus } = require('../database');
 const { getFirebasePublisherStatus } = require('../firebasePublisher');
 const { getIdentityServiceStatus } = require('../identityService');
 const { getPaymentServiceStatus } = require('../paymentService');
+const { requireOwnerApiKey } = require('../http/auth');
 
 const publicDirectory = path.join(__dirname, '..', '..', 'public');
+
+function publicCanonicalUrl(pathname) {
+  const configured = String(process.env.ORBIT_PUBLIC_ORIGIN || '').trim();
+  if (!configured) return '';
+  try {
+    const parsed = new URL(configured);
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+      return '';
+    }
+    return new URL(pathname, parsed.origin).href;
+  } catch {
+    return '';
+  }
+}
+
+function sendPublicAlias(response, fileName, canonicalPath) {
+  response.set('x-robots-tag', 'noindex, follow');
+  const canonical = publicCanonicalUrl(canonicalPath);
+  if (canonical) response.set('link', `<${canonical}>; rel="canonical"`);
+  response.sendFile(path.join(publicDirectory, fileName));
+}
 
 function registerHealthRoute(app, startedAt) {
   app.get('/health', (_request, response) => {
     response.json({
       ok: true,
       service: 'orbit-api',
-      environment: process.env.NODE_ENV || 'development',
-      database: getDatabasePath(),
+      startedAt
+    });
+  });
+
+  app.get('/health/details', requireOwnerApiKey, (_request, response) => {
+    response.json({
+      ok: true,
+      service: 'orbit-api',
+      database: getDatabaseStatus(),
       firebase: getFirebasePublisherStatus(),
       payments: getPaymentServiceStatus(),
       identity: getIdentityServiceStatus(),
@@ -23,15 +52,15 @@ function registerHealthRoute(app, startedAt) {
 
 function registerLegalRoutes(app) {
   app.get(['/privacy', '/privacy.html'], (_request, response) => {
-    response.sendFile(path.join(publicDirectory, 'privacy.html'));
+    sendPublicAlias(response, 'privacy.html', '/privacy.html');
   });
 
   app.get(['/terms', '/terms.html'], (_request, response) => {
-    response.sendFile(path.join(publicDirectory, 'terms.html'));
+    sendPublicAlias(response, 'terms.html', '/terms.html');
   });
 
   app.get(['/support', '/support.html'], (_request, response) => {
-    response.sendFile(path.join(publicDirectory, 'support.html'));
+    sendPublicAlias(response, 'support.html', '/support.html');
   });
 
   app.get('/legal.css', (_request, response) => {
@@ -44,6 +73,7 @@ function registerLegalRoutes(app) {
 }
 
 module.exports = {
+  publicCanonicalUrl,
   registerHealthRoute,
   registerLegalRoutes
 };

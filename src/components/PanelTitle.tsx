@@ -19,7 +19,7 @@ export default function PanelTitle({
         <h2>{title}</h2>
       </div>
       {onToggle ? (
-        <button className="icon-button panel-toggle-button" onClick={onToggle} title={collapsed ? `Open ${title}` : `Close ${title}`}>
+        <button aria-expanded={!collapsed} aria-label={collapsed ? `Open ${title}` : `Close ${title}`} className="icon-button panel-toggle-button" onClick={onToggle} title={collapsed ? `Open ${title}` : `Close ${title}`}>
           {collapsed ? <ChevronDown size={17} /> : <ChevronUp size={17} />}
         </button>
       ) : null}

@@ -47,6 +47,15 @@ export const playerPlatform = {
         { text: 'Delete account', style: 'destructive', onPress: onConfirm }
       ]
     );
+  },
+
+  showAccountDeletionResult(retainedCategories: string[]) {
+    Alert.alert(
+      'Orbit account deleted',
+      retainedCategories.length
+        ? `Your profile and sign-in were deleted. These categories remain without your direct identity: ${retainedCategories.join(', ')}.`
+        : 'Your profile and sign-in were deleted. The configured policy retained no Orbit record categories.'
+    );
   }
 };
 

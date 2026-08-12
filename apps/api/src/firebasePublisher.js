@@ -342,54 +342,45 @@ function buildCanonicalGameDocs(state, clubId, savedAt) {
   });
 }
 
-function buildLastSessionSnapshot(state, savedAt) {
-  const sorted = [...(state.sessions || [])].sort((left, right) =>
-    String(right.endedAt || right.startedAt || '').localeCompare(String(left.endedAt || left.startedAt || ''))
-  );
-  const session = sorted[0];
-  if (!session) return null;
-  const game = (state.games || []).find((item) => item.id === session.gameId);
-  return {
-    savedAt,
-    sessionId: session.id,
-    gameId: session.gameId,
-    gameName: game?.name || session.gameId,
-    label: session.label || '',
-    status: session.status || '',
-    startedAt: session.startedAt || '',
-    endedAt: session.endedAt || '',
-    playerCount: (state.playerSessions || []).filter((playerSession) => playerSession.tableId === session.id).length,
-    downloadPath: `clubStates/${getAccountKeyFromState(state)}`
-  };
-}
-
 function buildCanonicalClubDoc(state, clubId, snapshot, playerDocs, savedAt) {
   const account = state.settings?.clubAccount || {};
-  const access = state.settings?.pilotAccess || {};
   return {
     id: clubId,
-    licenseIdentifier: access.licenseId || access.authorizationCode || clubId,
     name: account.clubName || snapshot.club.name || 'Local Poker Club',
-    accountName: account.accountName || '',
-    contactName: account.contactName || '',
     address: account.address || '',
-    phoneNumber: account.phone || '',
-    emailAddress: account.email || '',
     gamesOffered: (state.games || []).map((game) => ({
       id: game.id,
       name: game.name,
       maxSeats: game.maxSeats
     })),
     format: getClubFormat(state),
-    membershipStartedAt: access.issuedAt || '',
-    membershipRenewalDate: access.expiresAt || '',
-    membershipTier: access.tier || state.settings?.membershipTier || '',
+    membershipOptions: snapshot.club.membershipOptions || [],
     playerCount: playerDocs.length,
     activeMembershipCount: playerDocs.filter((player) => player.membershipActive).length,
-    lastSessionSnapshot: buildLastSessionSnapshot(state, savedAt),
-    snapshotDownloadPath: `clubStates/${clubId}`,
     updatedAt: savedAt
   };
+}
+
+function buildPrivatePlayerNotificationDocs(snapshot, clubId) {
+  return (snapshot.notifications || []).flatMap((notification) => {
+    const targetPlayerIds = Array.from(new Set(
+      (Array.isArray(notification.targetPlayerIds) ? notification.targetPlayerIds : [])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    ));
+    if (!targetPlayerIds.length) return [];
+    return [{
+      id: firestoreDocumentId(notification.id),
+      clubId,
+      gameId: String(notification.gameId || ''),
+      title: String(notification.title || '').slice(0, 160),
+      body: String(notification.body || '').slice(0, 1000),
+      reason: String(notification.reason || ''),
+      createdAt: String(notification.createdAt || ''),
+      ...(notification.expiresAt ? { expiresAt: String(notification.expiresAt) } : {}),
+      targetPlayerIds
+    }];
+  });
 }
 
 function buildPlayerTournamentDocs(state, clubId, savedAt) {
@@ -433,6 +424,37 @@ function restBase(projectId) {
   return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
 }
 
+function firestoreResourceName(projectId, documentPath) {
+  return `projects/${projectId}/databases/(default)/documents/${documentPath}`;
+}
+
+function buildBatchUpdate(projectId, documentPath, record) {
+  return {
+    update: {
+      name: firestoreResourceName(projectId, documentPath),
+      fields: jsToFirestoreFields(record)
+    }
+  };
+}
+
+async function batchWriteDocuments(projectId, token, writes, chunkSize = 250) {
+  for (let offset = 0; offset < writes.length; offset += chunkSize) {
+    const response = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:batchWrite`,
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ writes: writes.slice(offset, offset + chunkSize) })
+      }
+    );
+    if (!response.ok) throw new Error(`Firestore batch write failed: ${response.status} ${await response.text()}`);
+  }
+  return writes.length;
+}
+
 async function patchDocument(projectId, token, path, record) {
   const response = await fetch(`${restBase(projectId)}/${path}`, {
     method: 'PATCH',
@@ -451,41 +473,40 @@ async function deleteLegacyPlayerDocuments(projectId, token, clubId, playerDocs)
   );
   if (!expectedIdsByProfile.size) return 0;
 
-  const endpoint = `${restBase(projectId)}/clubs/${encodeURIComponent(clubId)}/players?pageSize=1000`;
-  const response = await fetch(endpoint, { headers: { authorization: `Bearer ${token}` } });
-  if (!response.ok) throw new Error(`Firestore player listing failed for ${clubId}: ${response.status} ${await response.text()}`);
-  const payload = await response.json();
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error(`Firestore player listing returned an invalid payload for ${clubId}.`);
-  }
-  const listedDocuments = getRecordProperty(payload, 'documents');
-  if (listedDocuments !== undefined && !Array.isArray(listedDocuments)) {
-    throw new Error(`Firestore player listing returned an invalid document list for ${clubId}.`);
-  }
-  const documents = Array.isArray(listedDocuments) ? listedDocuments : [];
-  const stalePaths = documents.flatMap((document) => {
-    const documentName = getRecordProperty(document, 'name');
-    const documentId = String(documentName || '').split('/').pop() || '';
-    const fields = getRecordProperty(document, 'fields');
-    const sourceProfile = getRecordProperty(fields, 'sourceProfileId');
-    const sourceProfileId = getRecordProperty(sourceProfile, 'stringValue');
-    const expectedId = expectedIdsByProfile.get(sourceProfileId);
-    return expectedId && expectedId !== documentId && typeof documentName === 'string' ? [documentName] : [];
-  });
-
-  for (const documentName of stalePaths) {
-    const response = await fetch(`https://firestore.googleapis.com/v1/${documentName}`, {
-      method: 'DELETE',
-      headers: { authorization: `Bearer ${token}` }
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error(`Firestore legacy player cleanup failed: ${response.status} ${await response.text()}`);
+  const stalePaths = [];
+  let pageToken = '';
+  do {
+    const endpoint = new URL(`${restBase(projectId)}/clubs/${encodeURIComponent(clubId)}/players`);
+    endpoint.searchParams.set('pageSize', '500');
+    if (pageToken) endpoint.searchParams.set('pageToken', pageToken);
+    const response = await fetch(endpoint.toString(), { headers: { authorization: `Bearer ${token}` } });
+    if (!response.ok) throw new Error(`Firestore player listing failed for ${clubId}: ${response.status} ${await response.text()}`);
+    const payload = await response.json();
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new Error(`Firestore player listing returned an invalid payload for ${clubId}.`);
     }
-  }
+    const listedDocuments = getRecordProperty(payload, 'documents');
+    if (listedDocuments !== undefined && !Array.isArray(listedDocuments)) {
+      throw new Error(`Firestore player listing returned an invalid document list for ${clubId}.`);
+    }
+    const documents = Array.isArray(listedDocuments) ? listedDocuments : [];
+    stalePaths.push(...documents.flatMap((document) => {
+      const documentName = getRecordProperty(document, 'name');
+      const documentId = String(documentName || '').split('/').pop() || '';
+      const fields = getRecordProperty(document, 'fields');
+      const sourceProfile = getRecordProperty(fields, 'sourceProfileId');
+      const sourceProfileId = getRecordProperty(sourceProfile, 'stringValue');
+      const expectedId = expectedIdsByProfile.get(sourceProfileId);
+      return expectedId && expectedId !== documentId && typeof documentName === 'string' ? [documentName] : [];
+    }));
+    pageToken = String(getRecordProperty(payload, 'nextPageToken') || '');
+  } while (pageToken);
+
+  await batchWriteDocuments(projectId, token, stalePaths.map((documentName) => ({ delete: documentName })));
   return stalePaths.length;
 }
 
-async function publishStateToFirebase(state) {
+async function publishStateToFirebase(state, options = {}) {
   const serviceAccount = loadServiceAccount();
   if (!serviceAccount) return { ok: false, skipped: true, reason: 'missing-service-account' };
 
@@ -493,17 +514,18 @@ async function publishStateToFirebase(state) {
   const token = await getServiceAccountToken(serviceAccount);
   const accountKey = getAccountKeyFromState(state);
   const snapshot = buildPlayerClubSnapshot(state);
-  const savedAt = new Date().toISOString();
-  const syncRevision = `${savedAt}:${crypto.randomUUID()}`;
+  const savedAt = String(options.savedAt || new Date().toISOString());
+  const syncRevision = String(options.syncRevision || `${savedAt}:${crypto.randomUUID()}`);
   const playerDocs = buildCanonicalPlayerDocs(state, accountKey, savedAt);
   const gameDocs = buildPlayerGameDocs(snapshot, accountKey);
   const gameSessionDocs = buildCanonicalGameDocs(state, accountKey, savedAt);
   const tournamentDocs = buildPlayerTournamentDocs(state, accountKey, savedAt);
+  const notificationDocs = buildPrivatePlayerNotificationDocs(snapshot, accountKey);
   const syncMetadata = buildSyncMetadata(savedAt, syncRevision, {
     games: gameDocs.length,
     memberships: (snapshot.memberships || []).length,
     waitlists: (snapshot.waitlists || []).length,
-    notifications: (snapshot.notifications || []).length,
+    notifications: notificationDocs.length,
     tournaments: tournamentDocs.length,
     players: playerDocs.length
   });
@@ -515,87 +537,51 @@ async function publishStateToFirebase(state) {
     ...syncMetadata
   };
 
-  await patchDocument(projectId, token, `clubStates/${encodeURIComponent(accountKey)}`, {
+  const writes = [buildBatchUpdate(projectId, `clubStates/${accountKey}`, {
     accountKey,
-    schemaVersion: 4,
+    schemaVersion: 5,
     savedAt,
     syncProtocolVersion: orbitSyncProtocolVersion,
     syncRevision,
     syncSource: 'orbit-api',
-    state,
-    snapshot,
+    deprecated: true,
     updatedAt: savedAt
-  });
-
-  for (const player of playerDocs) {
-    await patchDocument(
-      projectId,
-      token,
-      `clubs/${encodeURIComponent(accountKey)}/players/${encodeURIComponent(player.id)}`,
-      { ...player, ...syncMetadata }
-    );
-  }
-
-  const legacyPlayersRemoved = await deleteLegacyPlayerDocuments(projectId, token, accountKey, playerDocs);
-
-  for (const game of gameDocs) {
-    const gameDocumentId = firestoreDocumentId(game.id);
-    await patchDocument(
-      projectId,
-      token,
-      `clubs/${encodeURIComponent(accountKey)}/games/${encodeURIComponent(gameDocumentId)}`,
-      { ...game, ...syncMetadata, updatedAt: savedAt }
-    );
-  }
-
-  for (const gameSession of gameSessionDocs) {
-    await patchDocument(
-      projectId,
-      token,
-      `clubs/${encodeURIComponent(accountKey)}/gameSessions/${encodeURIComponent(gameSession.id)}`,
-      { ...gameSession, ...syncMetadata }
-    );
-  }
-
-  for (const membership of snapshot.memberships || []) {
-    const membershipId = firestoreDocumentId(membership.playerId || membership.id);
-    await patchDocument(
-      projectId,
-      token,
-      `clubs/${encodeURIComponent(accountKey)}/memberships/${encodeURIComponent(membershipId)}`,
-      { ...membership, ...syncMetadata, updatedAt: savedAt }
-    );
-  }
-
-  for (const waitlist of snapshot.waitlists || []) {
-    const waitlistId = firestoreDocumentId(waitlist.id);
-    await patchDocument(
-      projectId,
-      token,
-      `clubs/${encodeURIComponent(accountKey)}/waitlists/${encodeURIComponent(waitlistId)}`,
-      { ...waitlist, ...syncMetadata, updatedAt: savedAt }
-    );
-  }
-
-  for (const notification of snapshot.notifications || []) {
-    const notificationId = firestoreDocumentId(notification.id);
-    await patchDocument(
-      projectId,
-      token,
-      `clubs/${encodeURIComponent(accountKey)}/notifications/${encodeURIComponent(notificationId)}`,
-      { ...notification, ...syncMetadata, updatedAt: savedAt }
-    );
-  }
-
-  for (const tournament of tournamentDocs) {
-    await patchDocument(
-      projectId,
-      token,
-      `clubs/${encodeURIComponent(accountKey)}/tournaments/${encodeURIComponent(tournament.id)}`,
-      { ...tournament, ...syncMetadata }
-    );
-  }
-
+  })];
+  writes.push(...playerDocs.map((player) => buildBatchUpdate(
+    projectId,
+    `clubs/${accountKey}/players/${firestoreDocumentId(player.id)}`,
+    { ...player, ...syncMetadata }
+  )));
+  writes.push(...gameDocs.map((game) => buildBatchUpdate(
+    projectId,
+    `clubs/${accountKey}/games/${firestoreDocumentId(game.id)}`,
+    { ...game, ...syncMetadata, updatedAt: savedAt }
+  )));
+  writes.push(...gameSessionDocs.map((gameSession) => buildBatchUpdate(
+    projectId,
+    `clubs/${accountKey}/gameSessions/${firestoreDocumentId(gameSession.id)}`,
+    { ...gameSession, ...syncMetadata }
+  )));
+  writes.push(...(snapshot.memberships || []).map((membership) => buildBatchUpdate(
+    projectId,
+    `clubs/${accountKey}/memberships/${firestoreDocumentId(membership.playerId || membership.id)}`,
+    { ...membership, ...syncMetadata, updatedAt: savedAt }
+  )));
+  writes.push(...(snapshot.waitlists || []).map((waitlist) => buildBatchUpdate(
+    projectId,
+    `clubs/${accountKey}/waitlists/${firestoreDocumentId(waitlist.id)}`,
+    { ...waitlist, ...syncMetadata, updatedAt: savedAt }
+  )));
+  writes.push(...notificationDocs.map((notification) => buildBatchUpdate(
+    projectId,
+    `clubs/${accountKey}/notifications/${firestoreDocumentId(notification.id)}`,
+    { ...notification, ...syncMetadata, updatedAt: savedAt }
+  )));
+  writes.push(...tournamentDocs.map((tournament) => buildBatchUpdate(
+    projectId,
+    `clubs/${accountKey}/tournaments/${firestoreDocumentId(tournament.id)}`,
+    { ...tournament, ...syncMetadata }
+  )));
   for (const tournament of state.tournaments || []) {
     for (const player of tournament.players || []) {
       if (!player.registrationId) continue;
@@ -606,14 +592,30 @@ async function publishStateToFirebase(state) {
           : player.status === 'Finished'
             ? 'finished'
             : 'registered';
-      await patchDocument(
+      writes.push(buildBatchUpdate(
         projectId,
-        token,
-        `clubs/${encodeURIComponent(accountKey)}/tournamentRegistrations/${encodeURIComponent(player.registrationId)}`,
-        { status, rebuys: Number(player.rebuys || 0), addOns: Number(player.addOns || 0), ...syncMetadata, updatedAt: savedAt }
-      );
+        `clubs/${accountKey}/tournamentRegistrations/${firestoreDocumentId(player.registrationId)}`,
+        {
+          id: player.registrationId,
+          tournamentId: tournament.id,
+          clubId: accountKey,
+          playerId: player.profileId || '',
+          playerName: player.name || '',
+          playerEmail: player.email || '',
+          status,
+          rebuys: Number(player.rebuys || 0),
+          addOns: Number(player.addOns || 0),
+          registeredAt: player.registeredAt || savedAt,
+          unregisterAllowed: tournament.status === 'Draft',
+          ...syncMetadata,
+          updatedAt: savedAt
+        }
+      ));
     }
   }
+
+  const publicationWriteCount = await batchWriteDocuments(projectId, token, writes);
+  const legacyPlayersRemoved = await deleteLegacyPlayerDocuments(projectId, token, accountKey, playerDocs);
 
   // The parent club document is the commit marker. Publishing it last prevents
   // mobile clients from promoting a partially written child revision.
@@ -628,15 +630,19 @@ async function publishStateToFirebase(state) {
     games: gameDocs.length,
     gameSessions: gameSessionDocs.length,
     tournaments: tournamentDocs.length,
+    publicationWriteCount: publicationWriteCount + 1 + legacyPlayersRemoved,
     legacyPlayersRemoved
   };
 }
 
 module.exports = {
+  batchWriteDocuments,
+  buildBatchUpdate,
   buildPlayerGameDocs,
   buildSyncMetadata,
   buildCanonicalClubDoc,
   buildCanonicalPlayerDocs,
+  buildPrivatePlayerNotificationDocs,
   buildPlayerTournamentDocs,
   getFirebasePublisherStatus,
   playerDocumentId,

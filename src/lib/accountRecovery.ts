@@ -38,8 +38,8 @@ export async function recoverAccountLogin<TLogin extends RecoverableAccountLogin
   if (!normalizedUsername || normalizedUsername !== normalizeAccountUsername(accountLogin.username)) {
     throw new AccountRecoveryValidationError('Use the login email assigned to this card house.');
   }
-  if (password.length < 8 || blockedPasswords.has(password.trim().toLowerCase())) {
-    throw new AccountRecoveryValidationError('Choose a stronger password with at least 8 characters.');
+  if (password.length < 12 || blockedPasswords.has(password.trim().toLowerCase())) {
+    throw new AccountRecoveryValidationError('Choose a password or passphrase with at least 12 characters.');
   }
 
   await authenticate(normalizedUsername, password);

@@ -21,7 +21,14 @@ jobs:
       - run: npm ci
       - run: npm ci --prefix player-app
       - run: npm ci --prefix apps/api
-      - run: npm run lint --if-present
-      - run: npm test --if-present
-      - run: npm run player:typecheck
-      - run: npm run build
+      - run: npm run security:paths
+      - run: npm run security:dependencies
+      - run: npm run check:release-controls
+      - run: npm run audit:module-graph
+      - run: npm run verify
+      - run: npm run check:renderer-bundle
+      - run: npm run check:public-site
+      - run: npm run check:brand
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e:management
+      - run: npm run e2e:public

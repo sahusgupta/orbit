@@ -3,15 +3,10 @@ import type { AppState } from '../../../domain/types';
 import { normalizeState } from '../../../domain/state';
 import { mergeSyncedList } from '../../../lib/syncedList';
 import {
-  subscribeToPlayerRequestUpdates,
-  syncPlayerUpdatesToClubState
-} from '../../../lib/firebaseClubSync';
-import {
   hasManagementDesktopPersistence,
   loadDesktopManagementStateForAccount,
   loadManagementStateFromLocalBridge,
-  publishStateToLocalOrbitBridge,
-  saveManagementState
+  publishStateToLocalOrbitBridge
 } from '../../../app/persistence/managementPersistence';
 import { saveBrowserManagementState } from '../../../app/persistence/browserStateRepository';
 
@@ -38,7 +33,7 @@ export const useManagementPlayerUpdateSync = ({
   hasAuthenticated,
   setSaveStatus,
   setState,
-  setUndoStack,
+  setUndoStack: _setUndoStack,
   state,
   stateRef
 }: ManagementPlayerUpdateSyncOptions) => {
@@ -114,7 +109,7 @@ export const useManagementPlayerUpdateSync = ({
         setState(mergedState);
         setSaveStatus({ state: 'saved', message: 'Player app updates synced' });
       } catch {
-        // The existing Firebase listener remains available if the API is offline.
+        // The next authoritative API poll retries without accepting cache data as a commit.
       } finally {
         syncInFlight = false;
       }
@@ -127,64 +122,4 @@ export const useManagementPlayerUpdateSync = ({
       window.clearInterval(timer);
     };
   }, [activeAccountKey, hasAuthenticated, state.settings.pilotAccess?.licenseId]);
-
-  useEffect(() => {
-    if (!activeAccountKey) return;
-    let cancelled = false;
-    let syncInFlight = false;
-    let syncQueued = false;
-
-    const syncPlayerUpdates = async () => {
-      if (syncInFlight) {
-        syncQueued = true;
-        return;
-      }
-      syncInFlight = true;
-      try {
-        const nextState = await syncPlayerUpdatesToClubState<AppState>(stateRef.current);
-        if (cancelled) return;
-        const latestState = stateRef.current;
-        announceIncomingPlayerRequest(latestState, nextState);
-        const sameProfiles = JSON.stringify(nextState.profiles) === JSON.stringify(latestState.profiles);
-        const sameInterests = JSON.stringify(nextState.interests) === JSON.stringify(latestState.interests);
-        const sameTournaments = JSON.stringify(nextState.tournaments) === JSON.stringify(latestState.tournaments);
-        const sameRevenue = JSON.stringify(nextState.revenueTransactions) === JSON.stringify(latestState.revenueTransactions);
-        if (sameProfiles && sameInterests && sameTournaments && sameRevenue) return;
-
-        const mergedState: AppState = {
-          ...latestState,
-          profiles: mergeSyncedList(latestState.profiles, nextState.profiles),
-          interests: mergeSyncedList(latestState.interests, nextState.interests),
-          tournaments: mergeSyncedList(latestState.tournaments, nextState.tournaments),
-          revenueTransactions: mergeSyncedList(latestState.revenueTransactions, nextState.revenueTransactions)
-        };
-        stateRef.current = mergedState;
-        setUndoStack((current) => [latestState, ...current].slice(0, 20));
-        setState(mergedState);
-        setSaveStatus({ state: 'saving', message: 'Syncing player updates...' });
-        try {
-          await saveManagementState(mergedState);
-          if (!cancelled) setSaveStatus({ state: 'saved', message: 'Player updates synced' });
-        } catch {
-          if (!cancelled) setSaveStatus({ state: 'error', message: 'Player update sync failed' });
-        }
-      } catch {
-        // Firestore listeners and the periodic reconciliation pass will retry.
-      } finally {
-        syncInFlight = false;
-        if (syncQueued && !cancelled) {
-          syncQueued = false;
-          void syncPlayerUpdates();
-        }
-      }
-    };
-
-    const unsubscribe = subscribeToPlayerRequestUpdates(activeAccountKey, () => void syncPlayerUpdates());
-    const reconciliationTimer = window.setInterval(() => void syncPlayerUpdates(), 30_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(reconciliationTimer);
-      unsubscribe();
-    };
-  }, [activeAccountKey]);
 };

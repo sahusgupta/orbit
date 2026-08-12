@@ -12,7 +12,7 @@
 .eyebrow {
   color: var(--primary);
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -56,7 +56,7 @@ h1 {
   color: var(--muted);
   display: inline-flex;
   font-size: 0.76rem;
-  font-weight: 850;
+  font-weight: 700;
   min-height: 34px;
   max-width: 220px;
   padding: 0 12px;
@@ -93,23 +93,22 @@ h1 {
 .ghost-button,
 .icon-button {
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-control);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   min-height: 38px;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.15;
   min-width: 0;
   max-width: 100%;
   overflow-wrap: anywhere;
   text-align: center;
   transition:
-    transform 150ms ease,
-    box-shadow 150ms ease,
-    border-color 150ms ease,
-    background 150ms ease;
+    transform var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
 }
 
 .primary-button svg,
@@ -121,10 +120,9 @@ h1 {
 }
 
 .primary-button {
-  background: linear-gradient(180deg, var(--primary) 0%, var(--primary-dark) 100%);
+  background: var(--primary);
   color: #fff;
   padding: 0 18px;
-  box-shadow: 0 10px 22px rgba(51, 70, 168, 0.22);
 }
 
 .secondary-button {
@@ -136,11 +134,10 @@ h1 {
 }
 
 .ghost-button {
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--panel-solid);
   border-color: var(--line);
   color: #344054;
   padding: 0 14px;
-  box-shadow: 0 8px 18px rgba(42, 55, 91, 0.07);
   white-space: normal;
 }
 
@@ -165,7 +162,7 @@ body.low-light .ghost-button.active {
 .icon-button:hover,
 .mini-button:hover {
   transform: translateY(-1px);
-  box-shadow: 0 12px 24px rgba(42, 55, 91, 0.12);
+  border-color: color-mix(in srgb, var(--primary) 58%, var(--line));
 }
 
 .icon-button,
@@ -182,7 +179,7 @@ body.low-light .ghost-button.active {
   min-height: 34px;
   border: 1px solid var(--line);
   border-radius: 11px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .icon-button.danger {

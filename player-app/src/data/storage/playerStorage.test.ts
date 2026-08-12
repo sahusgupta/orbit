@@ -6,7 +6,7 @@ import {
   legacyPlayerStorageKeys,
   playerStorageKey,
   type PlayerStoragePort
-} from './playerStorage';
+} from './playerStorageCore';
 
 const emptyPlayer: PlayerAccount = {
   id: '',

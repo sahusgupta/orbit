@@ -30,13 +30,13 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
   iconTooltipText: {
     color: '#ffffff',
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '700',
     textAlign: 'center'
   },
   sectionTitle: {
     color: colors.ink,
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
     letterSpacing: 0
   },
   mapCard: {
@@ -70,7 +70,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
   cardTitle: {
     color: colors.ink,
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '700',
     letterSpacing: 0
   },
   muted: {
@@ -156,7 +156,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
   agentKicker: {
     color: colors.teal,
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     textTransform: 'uppercase'
   },
@@ -187,7 +187,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
   clubAvatarText: {
     color: colors.primary,
     fontSize: 15,
-    fontWeight: '800'
+    fontWeight: '700'
   },
   clubCard: {
     alignItems: 'center',
@@ -225,7 +225,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
   distanceChipText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: '800'
+    fontWeight: '700'
   },
   distanceChipTextActive: {
     color: '#ffffff'
@@ -280,7 +280,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
   filterSheetDoneText: {
     color: '#ffffff',
     fontSize: 12,
-    fontWeight: '900'
+    fontWeight: '700'
   },
   filterSheetHandle: {
     alignSelf: 'center',
@@ -309,12 +309,12 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
   filterSheetResetText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: '800'
+    fontWeight: '700'
   },
   filterSheetTitle: {
     color: colors.ink,
     fontSize: 16,
-    fontWeight: '900'
+    fontWeight: '700'
   },
   fullWidthButton: {
     alignSelf: 'stretch'
@@ -353,12 +353,12 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
   inlineBackText: {
     color: colors.primary,
     fontSize: 14,
-    fontWeight: '800'
+    fontWeight: '700'
   },
   membershipTitle: {
     color: colors.ink,
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0
   },
   modalBackdrop: {
@@ -384,7 +384,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
   plainFiltersText: {
     color: colors.ink,
     fontSize: 12,
-    fontWeight: '900'
+    fontWeight: '700'
   },
   plainSearchBar: {
     alignItems: 'center',
@@ -412,7 +412,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
   primaryButtonText: {
     color: '#ffffff',
     fontSize: 15,
-    fontWeight: '800'
+    fontWeight: '700'
   },
   privateGameStatus: {
     color: colors.muted,
@@ -464,7 +464,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
   statusText: {
     color: colors.ink,
     fontSize: 12,
-    fontWeight: '800'
+    fontWeight: '700'
   },
   compactButton: {
     backgroundColor: colors.panel,
@@ -476,14 +476,14 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
   },
   compactButtonText: {
     color: colors.ink,
-    fontWeight: '800'
+    fontWeight: '700'
   },
   disabledAction: { opacity: 0.45 },
   secondaryActionButton: { alignItems: 'center', borderColor: colors.line, borderRadius: 10, borderWidth: 1, minHeight: 42, justifyContent: 'center' },
   secondaryActionText: {
     color: colors.ink,
     fontSize: 15,
-    fontWeight: '800'
+    fontWeight: '700'
   },
   accountCard: {
     backgroundColor: colors.panel,

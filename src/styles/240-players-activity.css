@@ -92,7 +92,7 @@
 .today-player-summary span {
   color: var(--muted);
   font-size: 0.7rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .today-player-summary strong {
@@ -111,7 +111,7 @@
 .today-player-table-head {
   color: var(--muted);
   font-size: 0.67rem;
-  font-weight: 850;
+  font-weight: 700;
   letter-spacing: 0.05em;
   padding: 0 13px;
   text-transform: uppercase;
@@ -163,7 +163,7 @@
   border-radius: 999px;
   color: color-mix(in srgb, var(--today-status-color) 78%, var(--ink));
   font-size: 0.68rem;
-  font-weight: 850;
+  font-weight: 700;
   justify-self: start;
   max-width: 100%;
   overflow: hidden;
@@ -184,7 +184,7 @@
 .today-membership {
   color: var(--muted);
   font-size: 0.7rem;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .today-membership.active {
@@ -198,7 +198,7 @@ body.low-light .today-membership.active {
 .today-player-row time {
   color: var(--muted);
   font-size: 0.7rem;
-  font-weight: 750;
+  font-weight: 700;
   text-align: right;
 }
 

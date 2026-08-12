@@ -1,6 +1,8 @@
 const crypto = require('crypto');
-const { authenticatePilotLicense, registerPilotLicense } = require('../licenseService');
-const { requireFirebasePlayer } = require('../paymentService');
+const { authenticatePilotLicense } = require('../licenseService');
+
+const productionDashboardCookieName = '__Host-orbit_dashboard';
+const developmentDashboardCookieName = 'orbit_dashboard_dev';
 
 function getReceivedApiKey(request) {
   return (
@@ -8,7 +10,7 @@ function getReceivedApiKey(request) {
     request.get('x-orbit-auth-key') ||
     request.get('x-orbit-client-key') ||
     request.get('authorization')?.replace(/^Bearer\s+/i, '') ||
-    request.query.apiKey
+    ''
   );
 }
 
@@ -18,123 +20,193 @@ function safeEqual(left, right) {
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }
 
+function parseCookies(request) {
+  return Object.fromEntries(String(request.get('cookie') || '').split(';').map((part) => {
+    const separator = part.indexOf('=');
+    if (separator < 0) return ['', ''];
+    return [part.slice(0, separator).trim(), decodeURIComponent(part.slice(separator + 1).trim())];
+  }).filter(([name]) => name));
+}
+
+function dashboardSessionSecret() {
+  return String(process.env.ORBIT_DASHBOARD_SESSION_SECRET || '').trim();
+}
+
+function encodeDashboardSession(payload) {
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto.createHmac('sha256', dashboardSessionSecret()).update(body).digest('base64url');
+  return `${body}.${signature}`;
+}
+
+function decodeDashboardSession(token, nowMs = Date.now()) {
+  const [body, signature] = String(token || '').split('.', 2);
+  const secret = dashboardSessionSecret();
+  if (!body || !signature || !secret) return null;
+  const expected = crypto.createHmac('sha256', secret).update(body).digest('base64url');
+  if (!safeEqual(signature, expected)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    if (payload.aud !== 'orbit-dashboard' || !Number.isFinite(payload.exp) || payload.exp <= nowMs) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function createDashboardSession(password, nowMs = Date.now()) {
+  const configuredPassword = String(process.env.ORBIT_DASHBOARD_PASSWORD || '');
+  const secret = dashboardSessionSecret();
+  if (!configuredPassword || secret.length < 32 || !safeEqual(password, configuredPassword)) return null;
+  const maximumMinutes = Math.min(Math.max(Number(process.env.ORBIT_DASHBOARD_SESSION_MINUTES || 30), 5), 120);
+  return encodeDashboardSession({
+    aud: 'orbit-dashboard',
+    iat: nowMs,
+    exp: nowMs + maximumMinutes * 60 * 1000,
+    jti: crypto.randomUUID()
+  });
+}
+
+function getDashboardSessionCookie(token, options = {}) {
+  const secure = options.secure ?? process.env.NODE_ENV === 'production';
+  return [
+    `${secure ? productionDashboardCookieName : developmentDashboardCookieName}=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    secure ? 'Secure' : '',
+    `Max-Age=${Math.min(Math.max(Number(process.env.ORBIT_DASHBOARD_SESSION_MINUTES || 30), 5), 120) * 60}`
+  ].filter(Boolean).join('; ');
+}
+
+function getExpiredDashboardSessionCookie(options = {}) {
+  const secure = options.secure ?? process.env.NODE_ENV === 'production';
+  return [
+    `${secure ? productionDashboardCookieName : developmentDashboardCookieName}=`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    secure ? 'Secure' : '',
+    'Max-Age=0'
+  ].filter(Boolean).join('; ');
+}
+
 function requireDashboardAuth(request, response, next) {
-  const configuredPassword = process.env.ORBIT_DASHBOARD_PASSWORD || process.env.ORBIT_DASHBOARD_API_KEY || process.env.ORBIT_CLIENT_API_KEY;
-  const configuredUser = process.env.ORBIT_DASHBOARD_USER || 'orbit-admin';
-  if (!configuredPassword) {
-    response.status(500).send('Dashboard auth is not configured.');
+  const cookies = parseCookies(request);
+  const session = decodeDashboardSession(cookies[productionDashboardCookieName] || cookies[developmentDashboardCookieName]);
+  if (!session) {
+    response.status(401).json({ ok: false, error: 'Dashboard session required.' });
     return;
   }
-
-  const header = request.get('authorization') || '';
-  const dashboardKey = request.get('x-orbit-api-key') || request.query.apiKey || '';
-  if (dashboardKey && safeEqual(dashboardKey, configuredPassword)) {
-    next();
+  if (!['GET', 'HEAD'].includes(request.method) && request.get('x-orbit-csrf') !== '1') {
+    response.status(403).json({ ok: false, error: 'Dashboard request verification failed.' });
     return;
   }
-  const [scheme, credentials] = header.split(/\s+/, 2);
-  if (scheme?.toLowerCase() === 'basic' && credentials) {
-    const decoded = Buffer.from(credentials, 'base64').toString('utf8');
-    const separator = decoded.indexOf(':');
-    const username = separator >= 0 ? decoded.slice(0, separator) : '';
-    const password = separator >= 0 ? decoded.slice(separator + 1) : '';
-    if (safeEqual(username, configuredUser) && safeEqual(password, configuredPassword)) {
-      next();
-      return;
-    }
-  }
-
-  response.set('www-authenticate', 'Basic realm="Orbit Dashboard", charset="UTF-8"');
-  response.status(401).send('Authentication required.');
+  request.orbitAuth = { type: 'dashboard-session', sessionId: session.jti };
+  next();
 }
 
 function isPilotAuthorizationCode(value) {
   return /^TT-PILOT-[A-F0-9]{24}$/i.test(String(value || '').trim());
 }
 
+function parseMachineCredentials() {
+  const configured = String(process.env.ORBIT_MACHINE_CREDENTIALS_JSON || '').trim();
+  if (!configured) {
+    if (process.env.ORBIT_ALLOW_LEGACY_CLIENT_KEY === 'true' && process.env.ORBIT_CLIENT_API_KEY) {
+      return [{
+        id: 'legacy-local-client',
+        key: process.env.ORBIT_CLIENT_API_KEY,
+        accountKey: String(process.env.ORBIT_CLIENT_ACCOUNT_KEY || '').trim(),
+        scopes: ['client:write'],
+        expiresAt: ''
+      }];
+    }
+    return [];
+  }
+  try {
+    const records = JSON.parse(configured);
+    return Array.isArray(records) ? records : [];
+  } catch {
+    return [];
+  }
+}
+
+function authenticateMachineCredential(received, nowMs = Date.now()) {
+  for (const credential of parseMachineCredentials()) {
+    if (!credential || !safeEqual(received, credential.key)) continue;
+    if (credential.expiresAt && Date.parse(credential.expiresAt) <= nowMs) return null;
+    const scopes = Array.isArray(credential.scopes) ? credential.scopes.filter((scope) => typeof scope === 'string') : [];
+    if (!credential.id || !credential.accountKey || !scopes.length) return null;
+    return {
+      type: 'machine-key',
+      credentialId: String(credential.id),
+      accountKey: String(credential.accountKey).trim().toLowerCase(),
+      scopes
+    };
+  }
+  return null;
+}
+
 function requireOwnerApiKey(request, response, next) {
-  const configuredKey = process.env.ORBIT_CLIENT_API_KEY;
+  const configuredKey = String(process.env.ORBIT_OWNER_API_KEY || '').trim();
   if (!configuredKey) {
-    response.status(500).json({ ok: false, error: 'ORBIT_CLIENT_API_KEY is not configured.' });
+    response.status(503).json({ ok: false, error: 'Owner API access is not configured.' });
     return;
   }
-  const received = getReceivedApiKey(request);
-  if (received !== configuredKey) {
-    response.status(401).json({ ok: false, error: 'Invalid API key.' });
+  if (!safeEqual(getReceivedApiKey(request), configuredKey)) {
+    response.status(401).json({ ok: false, error: 'Owner authentication failed.' });
     return;
   }
-  request.orbitAuth = { type: 'owner-api-key' };
+  request.orbitAuth = { type: 'owner-api-key', scopes: ['owner:*'] };
   next();
 }
 
-async function requireClientAuth(request, response, next) {
-  const remoteAddress = request.socket?.remoteAddress || '';
-  const isLoopbackRequest = remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
-  if (process.env.NODE_ENV !== 'production' && isLoopbackRequest) {
-    request.orbitAuth = { type: 'local-development' };
-    next();
-    return;
-  }
-  const configuredKey = process.env.ORBIT_CLIENT_API_KEY;
-  const received = getReceivedApiKey(request);
-  if (configuredKey && received === configuredKey) {
-    request.orbitAuth = { type: 'owner-api-key' };
-    next();
-    return;
-  }
-  if (isPilotAuthorizationCode(received)) {
-    const result = await authenticatePilotLicense(received);
-    if (result.managed) {
-      if (!result.active) {
-        response.status(403).json({ ok: false, error: `Pilot license ${result.license?.status || 'expired'}.`, license: result.license });
-        return;
-      }
-      request.orbitAuth = {
-        type: 'pilot-key',
-        accountKey: result.license.accountKey,
-        license: result.license
-      };
+function createRequireClientAuth(dependencies = {}) {
+  const authenticate = dependencies.authenticatePilotLicense || authenticatePilotLicense;
+  return async function requireClientAuthentication(request, response, next) {
+    const remoteAddress = request.socket?.remoteAddress || '';
+    const isLoopbackRequest = remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
+    const explicitLocalBypass = process.env.ORBIT_ALLOW_INSECURE_LOOPBACK_AUTH === 'true';
+    if (explicitLocalBypass && isLoopbackRequest && process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+      request.orbitAuth = { type: 'local-development', scopes: ['client:write'] };
       next();
       return;
     }
-
-    const legacyBootstrapEnabled = process.env.ORBIT_LICENSE_ALLOW_LEGACY_BOOTSTRAP !== 'false';
-    const state = request.body?.state || request.body;
-    const access = state?.settings?.pilotAccess;
-    if (legacyBootstrapEnabled && access?.authorizationCode === received) {
-      const license = await registerPilotLicense(access);
-      if (!license || license.status !== 'active') {
-        response.status(403).json({ ok: false, error: 'Pilot license is expired.', license });
-        return;
-      }
-      request.orbitAuth = { type: 'pilot-key', accountKey: license.accountKey, license };
+    const received = getReceivedApiKey(request);
+    const machine = authenticateMachineCredential(received);
+    if (machine) {
+      request.orbitAuth = machine;
       next();
       return;
     }
-    if (!legacyBootstrapEnabled) {
+    if (isPilotAuthorizationCode(received)) {
+      const result = await authenticate(received);
+      if (result.managed) {
+        if (!result.active) {
+          response.status(403).json({ ok: false, error: 'Pilot license is inactive.', code: 'PILOT_LICENSE_INACTIVE' });
+          return;
+        }
+        request.orbitAuth = {
+          type: 'pilot-key',
+          accountKey: result.license.accountKey,
+          scopes: ['client:write'],
+          license: result.license
+        };
+        next();
+        return;
+      }
       response.status(401).json({ ok: false, error: 'Pilot license is not registered.' });
       return;
     }
-    const isLegacyStatusCheck = request.method === 'GET' && request.path === '/license/status';
-    const isLegacyVenueRead = request.method === 'GET' && request.path.startsWith('/state/');
-    if (!isLegacyStatusCheck && !isLegacyVenueRead) {
-      response.status(401).json({ ok: false, error: 'Pilot license is not registered. Sync the activated desktop installation to complete migration.' });
-      return;
-    }
-    request.orbitAuth = {
-      type: 'legacy-pilot-key',
-      accountKey: '',
-      authorizationCode: received
-    };
-    next();
-    return;
-  }
-  response.status(401).json({ ok: false, error: 'Invalid API key or pilot authorization code.' });
+    response.status(401).json({ ok: false, error: 'Client authentication failed.' });
+  };
 }
 
+const requireClientAuth = createRequireClientAuth();
+
 function blockLatestStateForPilotAuth(request, response, next) {
-  if (request.orbitAuth?.type === 'pilot-key' || request.orbitAuth?.type === 'legacy-pilot-key') {
-    response.status(403).json({ ok: false, error: 'Pilot-authenticated clients must request their own venue state.' });
+  if (request.orbitAuth?.accountKey) {
+    response.status(403).json({ ok: false, error: 'Tenant-scoped clients must request their own venue state.' });
     return;
   }
   next();
@@ -144,19 +216,18 @@ function asyncRoute(handler) {
   return (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next);
 }
 
-function optionalFirebasePlayer(request, response, next) {
-  if (!request.get('authorization')) {
-    next();
-    return;
-  }
-  requireFirebasePlayer(request, response, next);
-}
-
 module.exports = {
   asyncRoute,
+  authenticateMachineCredential,
   blockLatestStateForPilotAuth,
-  optionalFirebasePlayer,
+  createDashboardSession,
+  createRequireClientAuth,
+  decodeDashboardSession,
+  getDashboardSessionCookie,
+  getExpiredDashboardSessionCookie,
+  getReceivedApiKey,
   requireClientAuth,
   requireDashboardAuth,
-  requireOwnerApiKey
+  requireOwnerApiKey,
+  safeEqual
 };
