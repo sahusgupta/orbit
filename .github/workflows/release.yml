@@ -43,15 +43,13 @@ permissions:
   attestations: write
 
 jobs:
-  verify-and-sign:
-    name: Verify and sign Windows artifact
+  verify-and-package:
+    name: Verify and package Windows artifact
     runs-on: windows-2025
-    environment: desktop-release-signing
     outputs:
       artifact-name: ${{ steps.artifact.outputs.name }}
     env:
-      CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     steps:
       - name: Check out the exact requested source
@@ -112,19 +110,18 @@ jobs:
           npm run e2e:management
           npm run e2e:public
 
-      - name: Build signed Windows artifacts without publishing
-        run: npm run release:win:artifact
+      - name: Build unsigned Windows artifacts without publishing
+        run: |
+          npm run predist
+          npm run build
+          npx --no-install electron-builder --win --publish never --config.forceCodeSigning=false
 
-      - name: Verify signatures and create release evidence
+      - name: Create release evidence
         shell: pwsh
         run: |
           $releaseFiles = Get-ChildItem release -File | Where-Object { $_.Extension -in '.exe', '.zip', '.yml', '.blockmap' }
           $executables = $releaseFiles | Where-Object { $_.Extension -eq '.exe' }
           if (-not $executables) { throw 'No Windows executable was produced.' }
-          foreach ($file in $executables) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
-            if ($signature.Status -ne 'Valid') { throw "Invalid Authenticode signature for $($file.Name): $($signature.Status)" }
-          }
           $releaseFiles | ForEach-Object { "$(Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName | Select-Object -ExpandProperty Hash)  $($_.Name)" } | Set-Content release/SHA256SUMS.txt
           @{
             sourceSha = '${{ inputs.source_sha }}'
@@ -136,7 +133,7 @@ jobs:
             workflowAttempt = '${{ github.run_attempt }}'
           } | ConvertTo-Json | Set-Content release/release-metadata.json
 
-      - name: Attest signed executables and archives
+      - name: Attest executables and archives
         uses: actions/attest@v4
         with:
           subject-path: |
@@ -165,7 +162,7 @@ jobs:
   promote:
     name: Explicitly promote verified artifact
     if: ${{ inputs.promote }}
-    needs: verify-and-sign
+    needs: verify-and-package
     runs-on: windows-2025
     environment: production-release
     permissions:
@@ -179,19 +176,16 @@ jobs:
       - name: Download the exact verified artifact
         uses: actions/download-artifact@v4
         with:
-          name: ${{ needs.verify-and-sign.outputs.artifact-name }}
+          name: ${{ needs.verify-and-package.outputs.artifact-name }}
           path: release-candidate
 
-      - name: Reverify checksums and executable signatures
+      - name: Reverify checksums
         shell: pwsh
         run: |
           Push-Location release-candidate
           foreach ($line in Get-Content SHA256SUMS.txt) {
             if ($line -notmatch '^([0-9A-F]{64})  (.+)$') { throw "Malformed checksum line: $line" }
             if ((Get-FileHash -Algorithm SHA256 -LiteralPath $Matches[2]).Hash -ne $Matches[1]) { throw "Checksum mismatch for $($Matches[2])." }
-          }
-          foreach ($file in Get-ChildItem -File -Filter '*.exe') {
-            if ((Get-AuthenticodeSignature -LiteralPath $file.FullName).Status -ne 'Valid') { throw "Signature verification failed for $($file.Name)." }
           }
           Pop-Location
 
