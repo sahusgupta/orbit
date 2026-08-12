@@ -50,4 +50,10 @@ function createApp() {
   return app;
 }
 
-module.exports = { createApp };
+// Vercel's Express adapter requires the detected entry module itself to export
+// the request handler. Keep the factory attached for isolated tests and other
+// callers that need a fresh application instance.
+const app = createApp();
+app.createApp = createApp;
+
+module.exports = app;

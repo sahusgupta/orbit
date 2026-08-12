@@ -1,12 +1,11 @@
 const crypto = require('crypto');
 global.crypto = global.crypto || crypto.webcrypto;
 
-const { createApp } = require('./app');
+const app = require('./app');
 const { closeDatabase, drainPublicationOutbox } = require('./database');
 const { protectedIdentifier } = require('./http/dataProtection');
 const { sendOperationalAlert } = require('./http/operationalAlerts');
 
-const app = createApp();
 const port = Number(process.env.API_PORT || 4629);
 const host = process.env.API_HOST || '127.0.0.1';
 

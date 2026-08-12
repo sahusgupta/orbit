@@ -212,6 +212,19 @@ button {
   min-width: 160px;
 }
 
+.license-account-access {
+  display: grid;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid #e1e6ec;
+}
+
+.license-account-access > div:first-child p {
+  margin-top: 4px;
+  color: #657282;
+  font-size: 12px;
+}
+
 button.secondary {
   border-color: #ccd3dc;
   background: #fff;

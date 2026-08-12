@@ -94,16 +94,16 @@ Open the protected dashboard at:
 https://orbitapp-one.vercel.app/dashboard
 ```
 
-The Pilot licenses section shows active, expired, and revoked keys; the venue; key suffix; last use; and expiration. An administrator can set an exact date, extend by 30 or 90 days, or revoke the license immediately.
+The Pilot licenses section shows active, expired, and revoked keys; the venue; key suffix; last use; and expiration. An administrator can set an exact date, extend by 30 or 90 days, or revoke the license immediately. Every active-key card also exposes the matching management account's recovery override, reset-email, and direct password controls when that account has a configured login.
 
 ## Management Account Recovery
 
-The dashboard's **Management account access** section provides two separate recovery paths for card-house management logins. Neither path reveals an existing password.
+The dashboard's **Pilot licenses** and **Management account access** sections provide the same protected recovery controls for card-house management logins. Neither path reveals an existing password.
 
 For a card house that was locked out after its key expired:
 
 1. Renew the managed pilot license first. Recovery never bypasses an expired or revoked license.
-2. In **Management account access**, start a 15-, 30-, or 60-minute owner-assisted recovery override for that venue.
+2. On the active key card or in **Management account access**, start a 15-, 30-, or 60-minute owner-assisted recovery override for that venue.
 3. Tell the card house to load its current signed key (or an approved replacement key mapped to the same account), choose **Use owner-assisted recovery** on the Orbit sign-in screen, and select one new password of 12–128 characters.
 4. The backend binds the request to the account authenticated by that pilot key, replaces the Firebase password, revokes existing Firebase refresh tokens, commits the compatible management hash through the authoritative state revision/outbox path, and consumes the override. The pilot key itself never becomes a management password.
 5. Cancel an unused override from the dashboard. Expired, consumed, and canceled overrides cannot be reused.
@@ -111,7 +111,7 @@ For a card house that was locked out after its key expired:
 The owner can also:
 
 - **Send reset email**: asks Firebase Identity Toolkit to send its configured password-reset email. This requires `FIREBASE_WEB_API_KEY`. An email reset changes Firebase only, so keep an owner-assisted recovery override active until the card house finishes the matching password inside Orbit.
-- **Change password**: directly replaces a selected card house's Firebase and authoritative Orbit management password and revokes existing Firebase sessions. Share a temporary password through a separate secure channel; Orbit never displays it again.
+- **Set password**: directly replaces a selected card house's Firebase and authoritative Orbit management password and revokes existing Firebase sessions. Share a temporary password through a separate secure channel; Orbit never displays it again.
 
 Successful override, reset-email, and password-change actions appear in the dashboard's durable **Security activity** section. Those records include the venue account, protected actor reference, timestamp, revision or expiry metadata, and outcome. They never contain a password, password hash or salt, reset link, email body, raw pilot key, Firebase Admin credential, or dashboard session secret. Firebase acceptance of an email request is distinct from final mailbox delivery; provider-side delivery/activity visibility depends on the Firebase project's logging configuration.
 
