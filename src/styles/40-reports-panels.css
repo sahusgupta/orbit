@@ -20,7 +20,7 @@
   display: block;
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .kpi-strip strong {
@@ -46,7 +46,7 @@
 .owner-metric span {
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .owner-metric strong {
@@ -109,7 +109,7 @@
   gap: 6px;
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .candidate-edit-grid {
@@ -146,7 +146,7 @@
 .profile-search-row span {
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 850;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -188,7 +188,7 @@
 
 .move-row span {
   color: var(--ink);
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .move-row select {
@@ -243,7 +243,7 @@ body.low-light .poker-seat-menu-summary strong {
 
 .panel-title h2 {
   font-size: clamp(0.94rem, 1.3vw, 1.02rem);
-  font-weight: 850;
+  font-weight: 700;
   overflow-wrap: anywhere;
   min-width: 0;
 }

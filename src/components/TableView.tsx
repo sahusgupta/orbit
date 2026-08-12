@@ -70,7 +70,7 @@ export default function TableView({
   return (
       <main className="table-view-shell">
         <header className="table-view-topbar">
-          <button className="icon-button" onClick={closeRoute} title="Back to floor">
+          <button aria-label="Back to floor" className="icon-button" onClick={closeRoute} title="Back to floor">
             <X size={18} />
           </button>
           <div>
@@ -105,7 +105,7 @@ export default function TableView({
         </button> : null}
         {tableSession && tableEventLogSessionId === tableSession.id ? <div className="modal-backdrop table-event-log-backdrop" role="dialog" aria-modal="true" aria-label={`${tableSession.label} event log`}>
           <section className="table-event-log-modal">
-            <div className="table-event-log-head"><div><span>Table event log</span><h2>{tableSession.label}</h2></div><button className="icon-button" onClick={() => setTableEventLogSessionId(null)}><X size={18} /></button></div>
+            <div className="table-event-log-head"><div><span>Table event log</span><h2>{tableSession.label}</h2></div><button aria-label="Close table event log" className="icon-button" onClick={() => setTableEventLogSessionId(null)} title="Close table event log"><X size={18} /></button></div>
             <div className="table-event-log-list">{tableActivity.length ? tableActivity.map((entry) => <article key={entry.id}><i className={entry.type.toLowerCase().replace(/\s+/g, '-')} /><div><strong>{entry.type}</strong><span>{entry.text}</span></div><time>{formatClock(entry.timestamp)}</time></article>) : <p className="muted-copy">No table activity recorded yet.</p>}</div>
           </section>
         </div> : null}

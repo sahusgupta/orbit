@@ -375,13 +375,13 @@ export function MyGamesSection({
               </View>
               <View style={styles.myGameActions}>
                 {sellsTime ? (
-                  <Pressable accessibilityLabel={`Buy more time from ${club.club.name}`} onPress={() => onBuyTime(club)} style={styles.myGamePrimaryAction}>
+                  <Pressable accessibilityLabel={`Buy more time from ${club.club.name}`} accessibilityRole="button" onPress={() => onBuyTime(club)} style={styles.myGamePrimaryAction}>
                     <Ionicons name="timer-outline" size={16} color="#ffffff" />
                     <Text style={styles.myGamePrimaryActionText}>Buy more time</Text>
                   </Pressable>
                 ) : null}
                 {canCancel ? (
-                  <Pressable accessibilityLabel={`Cancel request for ${game.name}`} onPress={() => onCancel(club, game, entry)} style={styles.myGameSecondaryAction}>
+                  <Pressable accessibilityLabel={`Cancel request for ${game.name}`} accessibilityRole="button" onPress={() => onCancel(club, game, entry)} style={styles.myGameSecondaryAction}>
                     <Text style={styles.myGameSecondaryActionText}>Cancel</Text>
                   </Pressable>
                 ) : null}

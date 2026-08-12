@@ -82,7 +82,7 @@ body.low-light .access-step {
 .panel-title strong {
   color: #f8fafc;
   font-size: 0.84rem;
-  font-weight: 720;
+  font-weight: 700;
   letter-spacing: 0;
 }
 
@@ -97,7 +97,7 @@ body.low-light .access-step {
 }
 
 .minimal-dashboard {
-  grid-template-columns: minmax(0, 2fr) minmax(340px, 0.82fr);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
   gap: 12px;
 }
 
@@ -115,7 +115,7 @@ body.low-light .icon-button {
   border-radius: 8px;
   box-shadow: none;
   color: #e5ebf2;
-  font-weight: 680;
+  font-weight: 600;
   min-height: 34px;
   transition:
     background 150ms ease,
@@ -189,7 +189,7 @@ textarea::placeholder {
   box-shadow: none;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 0.72rem;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .save-status.saved,
@@ -294,7 +294,7 @@ textarea::placeholder {
 .active-game-card > strong,
 .seat-control strong {
   color: #f8fafc;
-  font-weight: 720;
+  font-weight: 700;
 }
 
 .seat-control {
@@ -376,7 +376,7 @@ textarea::placeholder {
   color: #d8e2ec;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 0.75rem;
-  font-weight: 680;
+  font-weight: 600;
   height: 36px;
   min-height: 36px;
   width: 36px;
@@ -408,7 +408,7 @@ textarea::placeholder {
   color: #dbe5ee;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 0.68rem;
-  font-weight: 680;
+  font-weight: 600;
   letter-spacing: 0.08em;
   padding: 6px 10px;
   text-transform: uppercase;
@@ -452,21 +452,21 @@ body.low-light .poker-seat-header {
   color: var(--primary-dark);
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 0.72rem;
-  font-weight: 720;
+  font-weight: 700;
 }
 
 .poker-seat-name h3,
 body.low-light .poker-seat-name h3 {
   color: #f8fafc;
   font-size: clamp(0.75rem, 1.05vw, 0.86rem);
-  font-weight: 720;
+  font-weight: 700;
 }
 
 .poker-seat-name span {
   color: #7f8b9d;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 0.62rem;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .poker-seat-stat,
@@ -475,7 +475,7 @@ body.low-light .poker-seat-stat {
   border: 1px solid #293442;
   border-radius: 7px;
   color: #c7d0db;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .poker-seat-stat svg {
@@ -582,7 +582,7 @@ body.low-light .poker-seat-log span {
 .live-feed-head strong {
   color: #eef3f8;
   font-size: 0.82rem;
-  font-weight: 680;
+  font-weight: 600;
 }
 
 .live-feed-head span {

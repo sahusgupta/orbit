@@ -126,7 +126,7 @@ export function Marker({ coordinate, title, description, pinColor = '#38506d', o
             borderRadius: 8,
             color: '#181716',
             fontSize: 11,
-            fontWeight: '800',
+            fontWeight: '700',
             marginTop: 5,
             maxWidth: 132,
             paddingHorizontal: 7,
@@ -358,7 +358,7 @@ export default function MapView({ children, style, onPress, initialRegion }: Map
             width: 34
           }}
         >
-          <Text style={{ color: '#181716', fontSize: 20, fontWeight: '800', lineHeight: 22 }}>+</Text>
+          <Text style={{ color: '#181716', fontSize: 20, fontWeight: '700', lineHeight: 22 }}>+</Text>
         </Pressable>
         <Pressable
           accessibilityLabel="Zoom out"
@@ -378,7 +378,7 @@ export default function MapView({ children, style, onPress, initialRegion }: Map
             width: 34
           }}
         >
-          <Text style={{ color: '#181716', fontSize: 22, fontWeight: '800', lineHeight: 22 }}>-</Text>
+          <Text style={{ color: '#181716', fontSize: 22, fontWeight: '700', lineHeight: 22 }}>-</Text>
         </Pressable>
       </View>
       <MapRegionContext.Provider value={projection}>{children}</MapRegionContext.Provider>

@@ -38,14 +38,14 @@ function normalizeTextMessageBatch(payload) {
   return messages
     .map((message) => ({
       to: String(message?.to || '').trim(),
-      body: String(message?.body || '').trim(),
+      body: String(message?.body || '').trim().slice(0, 480),
       profileId: message?.profileId ? String(message.profileId) : '',
       playerName: message?.playerName ? String(message.playerName) : '',
       gameId: message?.gameId ? String(message.gameId) : '',
       reason: message?.reason ? String(message.reason) : ''
     }))
-    .filter((message) => message.to && message.body)
-    .slice(0, 200);
+    .filter((message) => /^\+[1-9]\d{7,14}$/.test(message.to) && message.body)
+    .slice(0, 25);
 }
 
 function sanitizeAccountKey(value) {

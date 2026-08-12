@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import publisher from './firebasePublisher.js';
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('canonical Firestore club layout', () => {
   const state = {
@@ -41,6 +43,111 @@ describe('canonical Firestore club layout', () => {
     expect(club).not.toHaveProperty('playersWithMemberships');
     expect(club.playerCount).toBe(1);
     expect(club.activeMembershipCount).toBe(1);
+  });
+
+  it('publishes a strict public club projection without credentials or internal contacts', () => {
+    const privateState = {
+      ...state,
+      settings: {
+        ...state.settings,
+        clubAccount: {
+          clubName: 'Orbit Test Club',
+          accountName: 'Private Account',
+          contactName: 'Private Contact',
+          email: 'private@example.com',
+          phone: '+15551112222',
+          address: '100 Public Table Way'
+        },
+        pilotAccess: {
+          authorizationCode: 'TT-PILOT-1234567890ABCDEF12345678',
+          licenseId: '',
+          expiresAt: '2099-01-01'
+        }
+      }
+    };
+    const club = publisher.buildCanonicalClubDoc(
+      privateState,
+      'club-1',
+      { club: { name: 'Orbit Test Club', membershipOptions: [] } },
+      [],
+      '2026-08-11T00:00:00.000Z'
+    );
+
+    expect(club).toMatchObject({ id: 'club-1', name: 'Orbit Test Club', address: '100 Public Table Way' });
+    for (const privateField of [
+      'licenseIdentifier',
+      'accountName',
+      'contactName',
+      'phoneNumber',
+      'emailAddress',
+      'membershipStartedAt',
+      'membershipRenewalDate',
+      'membershipTier',
+      'lastSessionSnapshot',
+      'snapshotDownloadPath'
+    ]) {
+      expect(club).not.toHaveProperty(privateField);
+    }
+    expect(JSON.stringify(club)).not.toContain('TT-PILOT-');
+  });
+
+  it('publishes only ID-targeted notifications and removes player names', () => {
+    const notifications = publisher.buildPrivatePlayerNotificationDocs({
+      notifications: [
+        {
+          id: 'private-1',
+          clubId: 'club-1',
+          title: 'Seat ready',
+          body: 'Your seat is ready.',
+          reason: 'seat-opened',
+          createdAt: '2026-08-11T00:00:00.000Z',
+          targetPlayerIds: ['player-1'],
+          targetPlayerNames: ['Alex Private']
+        },
+        {
+          id: 'name-only',
+          title: 'Private by name',
+          body: 'Should not publish.',
+          targetPlayerNames: ['Alex Private']
+        }
+      ]
+    }, 'club-1');
+
+    expect(notifications).toEqual([expect.objectContaining({
+      id: 'private-1',
+      clubId: 'club-1',
+      targetPlayerIds: ['player-1']
+    })]);
+    expect(notifications[0]).not.toHaveProperty('targetPlayerNames');
+  });
+
+  it('builds projection writes without carrying authoritative state JSON', () => {
+    const write = publisher.buildBatchUpdate('project-1', 'clubStates/club-1', {
+      accountKey: 'club-1',
+      schemaVersion: 5,
+      deprecated: true
+    });
+    expect(write).toMatchObject({
+      update: {
+        name: 'projects/project-1/databases/(default)/documents/clubStates/club-1',
+        fields: {
+          accountKey: { stringValue: 'club-1' },
+          schemaVersion: { integerValue: '5' },
+          deprecated: { booleanValue: true }
+        }
+      }
+    });
+    expect(JSON.stringify(write)).not.toContain('state_json');
+  });
+
+  it('publishes projection documents in provider-bounded batches instead of one request per document', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    const writes = Array.from({ length: 501 }, (_value, index) => ({ delete: `documents/${index}` }));
+
+    await expect(publisher.batchWriteDocuments('project-1', 'token', writes)).resolves.toBe(501);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.map((call) => JSON.parse(call[1].body).writes.length)).toEqual([250, 250, 1]);
   });
 
   it('builds a versioned mobile commit marker', () => {

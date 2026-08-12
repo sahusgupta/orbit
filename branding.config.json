@@ -22,12 +22,12 @@
     }
   },
   "theme": {
-    "fontFamily": "Bahnschrift, Aptos, \"Segoe UI Variable\", sans-serif",
+    "fontFamily": "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
     "default": {
       "ink": "#0B1020",
       "muted": "#64748B",
       "canvas": "#F9FAFB",
-      "panel": "rgba(255, 255, 255, 0.94)",
+      "panel": "#ffffff",
       "panelSolid": "#ffffff",
       "line": "#E2E8F0",
       "lineStrong": "#CBD5E1",
@@ -48,7 +48,7 @@
       "ink": "#e7ecf8",
       "muted": "#aab4ca",
       "canvas": "#101727",
-      "panel": "rgba(20, 28, 45, 0.96)",
+      "panel": "#151f33",
       "panelSolid": "#151f33",
       "line": "#2b3853",
       "lineStrong": "#3d4b68",

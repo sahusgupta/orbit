@@ -9,19 +9,30 @@ process.env.DATABASE_URL = `file:${databasePath}`;
 
 const {
   closeDatabase,
+  claimManagementRecoveryOverride,
+  consumeManagementRecoveryOverride,
+  createManagementRecoveryOverride,
   getClient,
   getDatabasePath,
+  getDatabaseStatus,
   getTelemetrySummary,
+  getManagementRecoveryOverride,
   listClientErrors,
   listClients,
   listClientUpdateEvents,
   listTelemetryEvents,
+  listManagementRecoveryOverrides,
+  listManagementSecurityEvents,
+  listStatePage,
   listVenues,
   loadLatestState,
   loadState,
   recordClientError,
   recordTelemetryEvent,
+  recordManagementSecurityEvent,
   recordUpdateEvent,
+  releaseManagementRecoveryClaim,
+  revokeManagementRecoveryOverride,
   saveState,
   storeAnalyticalReport,
   upsertClient
@@ -57,8 +68,8 @@ const clientPayload = {
   currentUser: { id: 'staff-1', name: 'Grace' }
 };
 
-afterAll(() => {
-  closeDatabase();
+afterAll(async () => {
+  await closeDatabase();
   for (const suffix of ['', '-shm', '-wal']) {
     fs.rmSync(`${databasePath}${suffix}`, { force: true });
   }
@@ -69,17 +80,76 @@ afterEach(() => {
 });
 
 describe('API database facade behavior', () => {
-  it('resolves file URLs and rejects the reserved Postgres adapter', () => {
+  it('keeps recovery overrides durable, expiring, claimable, and single-use', async () => {
+    const now = new Date('2026-08-11T15:00:00.000Z');
+    const created = await createManagementRecoveryOverride({
+      accountKey: 'Room One',
+      durationMinutes: 15,
+      reason: 'Founder-approved support recovery',
+      createdByRef: 'actor-ref',
+      now
+    });
+    expect(created).toMatchObject({ accountKey: 'room-one', status: 'active', reason: 'Founder-approved support recovery' });
+    expect(await getManagementRecoveryOverride('room-one', { activeOnly: true, now })).toMatchObject({ id: created.id });
+
+    const claimed = await claimManagementRecoveryOverride('room-one', { now: new Date('2026-08-11T15:01:00.000Z') });
+    expect(claimed).toMatchObject({ id: created.id, status: 'processing' });
+    expect(await claimManagementRecoveryOverride('room-one', { now: new Date('2026-08-11T15:01:01.000Z') })).toBeNull();
+
+    await releaseManagementRecoveryClaim(created.id, { now: new Date('2026-08-11T15:02:00.000Z') });
+    expect(await claimManagementRecoveryOverride('room-one', { now: new Date('2026-08-11T15:03:00.000Z') })).toMatchObject({ id: created.id });
+    expect(await consumeManagementRecoveryOverride(created.id, { now: new Date('2026-08-11T15:04:00.000Z') })).toBe(true);
+    expect(await getManagementRecoveryOverride('room-one', { activeOnly: true, now: new Date('2026-08-11T15:04:01.000Z') })).toBeNull();
+    expect(await listManagementRecoveryOverrides({ now: new Date('2026-08-11T15:04:01.000Z') })).toEqual([
+      expect.objectContaining({ id: created.id, status: 'consumed' })
+    ]);
+    expect(await revokeManagementRecoveryOverride('room-one', { now: new Date('2026-08-11T15:05:00.000Z') })).toBe(false);
+  });
+
+  it('stores a durable redacted management security history without credentials', async () => {
+    const secretSentinel = ['must', 'not', 'be', 'stored'].join('-');
+    const tokenSentinel = `${secretSentinel}-${'x'.repeat(8)}`;
+    const event = await recordManagementSecurityEvent({
+      accountKey: 'Room One',
+      event: 'management-password-changed',
+      actorRef: 'dashboard:actor-ref',
+      details: {
+        revision: 7,
+        password: secretSentinel,
+        token: tokenSentinel
+      },
+      occurredAt: '2026-08-11T15:06:00.000Z'
+    });
+    expect(event).toMatchObject({
+      accountKey: 'room-one',
+      event: 'management-password-changed',
+      actorRef: 'dashboard:actor-ref',
+      details: { revision: 7, password: '[redacted]', token: '[redacted]' }
+    });
+    expect(JSON.stringify(event)).not.toContain(secretSentinel);
+    expect(JSON.stringify(event)).not.toContain(tokenSentinel);
+    expect(await listManagementSecurityEvents({ accountKey: 'Room One' })).toEqual([event]);
+  });
+
+  it('resolves local file URLs and identifies Postgres as a non-filesystem database', () => {
     expect(getDatabasePath()).toBe(path.resolve(databasePath));
 
     const configured = process.env.DATABASE_URL;
     process.env.DATABASE_URL = 'postgres://database.example/orbit';
-    expect(() => getDatabasePath()).toThrow('Postgres DATABASE_URL is reserved for a future adapter.');
+    expect(getDatabasePath()).toBeNull();
     process.env.DATABASE_URL = configured;
+
+    const nodeEnvironment = process.env.NODE_ENV;
+    delete process.env.DATABASE_URL;
+    process.env.NODE_ENV = 'production';
+    expect(() => getDatabaseStatus()).toThrow('DATABASE_URL must point to durable PostgreSQL storage');
+    process.env.DATABASE_URL = configured;
+    if (nodeEnvironment === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = nodeEnvironment;
   });
 
-  it('upserts and queries complete client records while retaining non-empty update fields', () => {
-    const inserted = upsertClient(clientPayload);
+  it('upserts and queries complete client records while retaining non-empty update fields', async () => {
+    const inserted = await upsertClient(clientPayload);
     expect(inserted).toMatchObject({
       deviceId: 'device-1',
       venueId: 'character-club',
@@ -91,10 +161,10 @@ describe('API database facade behavior', () => {
       updateStatus: 'ready',
       updateEvent: 'update-ready',
       lastError: '',
-      currentUser: { id: 'staff-1', name: 'Grace' }
+      currentUser: null
     });
 
-    const updated = upsertClient({
+    const updated = await upsertClient({
       ...clientPayload,
       venueId: 'Second Room',
       venueName: 'Second Room',
@@ -115,21 +185,21 @@ describe('API database facade behavior', () => {
       lastSeenAt: '2026-08-07T13:00:00.000Z'
     });
     expect(updated.firstSeenAt).toBe(inserted.firstSeenAt);
-    expect(getClient('device-1')).toEqual(updated);
-    expect(listClients({ venueId: 'Second Room' })).toEqual([updated]);
+    expect(await getClient('device-1')).toEqual(updated);
+    expect(await listClients({ venueId: 'Second Room' })).toEqual([updated]);
   });
 
-  it('records update, usage, and error history with current filtering and summary behavior', () => {
+  it('records update, usage, and error history with current filtering and summary behavior', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-08T12:00:00.000Z'));
-    const updateClient = recordUpdateEvent({
+    const updateClient = await recordUpdateEvent({
       ...clientPayload,
       updateEvent: 'downloaded',
       updateStatus: 'complete',
       occurredAt: '2026-08-07T14:00:00.000Z',
       details: { version: '1.2.4' }
     });
-    const usageEvent = recordTelemetryEvent({
+    const usageEvent = await recordTelemetryEvent({
       ...clientPayload,
       event: 'table-started',
       category: 'operations',
@@ -137,7 +207,7 @@ describe('API database facade behavior', () => {
       occurredAt: '2026-08-07T15:00:00.000Z',
       details: { tableId: 'table-1' }
     });
-    const error = recordClientError({
+    const error = await recordClientError({
       ...clientPayload,
       message: 'Renderer failed',
       source: 'renderer',
@@ -148,7 +218,7 @@ describe('API database facade behavior', () => {
     });
 
     expect(updateClient.updateStatus).toBe('complete');
-    expect(listClientUpdateEvents('device-1')).toEqual([
+    expect(await listClientUpdateEvents('device-1')).toEqual([
       expect.objectContaining({
         deviceId: 'device-1',
         venueId: 'character-club',
@@ -165,7 +235,7 @@ describe('API database facade behavior', () => {
       route: 'floor',
       details: { tableId: 'table-1' }
     });
-    expect(listTelemetryEvents({ deviceId: 'device-1', limit: 10 }).map((event) => event.event)).toEqual([
+    expect((await listTelemetryEvents({ deviceId: 'device-1', limit: 10 })).map((event) => event.event)).toEqual([
       'table-started',
       'downloaded'
     ]);
@@ -174,37 +244,44 @@ describe('API database facade behavior', () => {
       message: 'Renderer failed',
       source: 'renderer',
       route: 'floor',
-      stack: 'example stack',
+      stack: expect.stringMatching(/^fingerprint:[a-f0-9]{16}$/),
       details: { recoverable: true }
     });
-    expect(listClientErrors({ venueId: 'Character Club' })).toEqual([error]);
-    expect(getClient('device-1')?.lastError).toBe('Renderer failed');
-    expect(getTelemetrySummary()).toMatchObject({ clients: 1, events: 2, errors: 1, tableStarts24h: 1 });
+    expect(await listClientErrors({ venueId: 'Character Club' })).toEqual([error]);
+    expect((await getClient('device-1'))?.lastError).toBe('Renderer failed');
+    expect(await getTelemetrySummary()).toMatchObject({ clients: 1, events: 2, errors: 1, tableStarts24h: 1 });
   });
 
-  it('round-trips validated account state, venue joins, reports, and close/reopen persistence', () => {
+  it('round-trips normalized revisioned state, venue joins, reports, and close/reopen persistence', async () => {
     const state = makeState();
-    const saved = saveState(state);
+    const saved = await saveState(state, { expectedRevision: 0, mutationId: 'initial-state' });
 
     expect(saved.accountKey).toBe('owner-example.com');
-    expect(loadState('Owner@Example.com')).toMatchObject({
+    expect(await loadState('Owner@Example.com')).toMatchObject({
       accountKey: 'owner-example.com',
       venueName: 'Character Club',
-      schemaVersion: 1,
+      schemaVersion: 2,
+      revision: 1,
       state
     });
-    expect(loadLatestState()).toMatchObject({ accountKey: 'owner-example.com', state });
-    expect(listVenues()).toEqual([
+    expect(await loadLatestState()).toMatchObject({ accountKey: 'owner-example.com', revision: 1, state });
+    expect(await listStatePage({ limit: 25 })).toMatchObject({
+      records: [expect.objectContaining({ accountKey: 'owner-example.com', revision: 1, state })],
+      hasMore: false,
+      nextCursor: null,
+      queryCount: 2
+    });
+    expect(await listVenues()).toEqual([
       expect.objectContaining({
         venueId: 'owner-example.com',
         venueName: 'Character Club',
         clientCount: 0
       })
     ]);
-    expect(() => saveState({ ...state, games: null })).toThrow('State payload is missing games.');
-    expect(loadState('owner-example.com')?.state).toEqual(state);
+    await expect(saveState({ ...state, games: null }, { expectedRevision: 1, mutationId: 'invalid' })).rejects.toThrow('State payload is missing games.');
+    expect((await loadState('owner-example.com'))?.state).toEqual(state);
 
-    const report = storeAnalyticalReport({
+    const report = await storeAnalyticalReport({
       account: { accountKey: 'Owner@Example.com' },
       summary: { tables: 3 }
     });
@@ -215,7 +292,7 @@ describe('API database facade behavior', () => {
     });
     expect(report.id).toMatch(/^[0-9a-f-]{36}$/i);
 
-    closeDatabase();
-    expect(loadState('owner-example.com')?.state).toEqual(state);
+    await closeDatabase();
+    expect((await loadState('owner-example.com'))?.state).toEqual(state);
   });
 });

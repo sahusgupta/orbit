@@ -80,7 +80,7 @@ vi.mock('react-dom/client', async (importOriginal) => {
         while (pending.length) {
           const child = pending.pop();
           if (typeof child !== 'object' || child === null) continue;
-          if ('type' in child && typeof child.type === 'function') {
+          if ('type' in child && typeof child.type === 'function' && child.type.name === 'App') {
             harness.appComponent = child.type;
             break;
           }

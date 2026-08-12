@@ -1,4 +1,4 @@
-import type React from 'react';
+import { useState, type ComponentProps } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { sharedStyles as styles } from '../styles/sharedStyles';
 import { colors } from '../styles/playerTheme';
@@ -17,17 +17,20 @@ export function Field({
   value: string;
   onChangeText: (value: string) => void;
   tone?: 'light';
-  keyboardType?: React.ComponentProps<typeof TextInput>['keyboardType'];
+  keyboardType?: ComponentProps<typeof TextInput>['keyboardType'];
   onSubmit?: () => void;
   error?: string;
   placeholder?: string;
 }) {
+  const [touched, setTouched] = useState(false);
+  const visibleError = touched ? error : '';
   return (
     <View style={styles.field}>
       <Text style={[styles.fieldLabel, tone === 'light' && styles.fieldLabelLight]}>{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
+        onBlur={() => setTouched(true)}
         onKeyPress={(event) => {
           if (event.nativeEvent.key === 'Enter') onSubmit?.();
         }}
@@ -36,15 +39,25 @@ export function Field({
         placeholderTextColor={tone === 'light' ? 'rgba(255,255,255,0.56)' : colors.muted}
         returnKeyType={onSubmit ? 'next' : 'done'}
         keyboardType={keyboardType}
-        style={[styles.input, tone === 'light' && styles.inputLight, Boolean(error) && styles.inputError]}
+        accessibilityLabel={label}
+        accessibilityHint={visibleError || undefined}
+        style={[styles.input, tone === 'light' && styles.inputLight, Boolean(visibleError) && styles.inputError]}
       />
-      {error ? <Text style={[styles.fieldError, tone === 'light' && styles.fieldErrorLight]}>{error}</Text> : null}
+      {visibleError ? (
+        <Text accessibilityLiveRegion="polite" style={[styles.fieldError, tone === 'light' && styles.fieldErrorLight]}>{visibleError}</Text>
+      ) : null}
     </View>
   );
 }
 export function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      style={[styles.chip, active && styles.chipActive]}
+    >
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
     </Pressable>
   );

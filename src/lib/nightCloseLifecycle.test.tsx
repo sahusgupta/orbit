@@ -62,6 +62,14 @@ vi.mock('./firebaseClubSync', () => ({
   subscribeToPlayerRequestUpdates: vi.fn(() => () => undefined),
   syncPlayerUpdatesToClubState: vi.fn(async <T,>(state: T) => state)
 }));
+vi.mock('../domain/licensing', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../domain/licensing')>();
+  return {
+    ...actual,
+    hasPersistedSignIn: vi.fn(() => true),
+    touchPersistedSignIn: vi.fn(() => true)
+  };
+});
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const now = '2026-08-08T22:00:00.000Z';
@@ -148,6 +156,20 @@ describe('night-close mutation orchestration', () => {
 
   it('saves, signs, locks, closes operational state, and reopens with canonical audit order', async () => {
     await resetState();
+    Reflect.set(window, 'tableManagerDesktop', {
+      verifyStaffPin: vi.fn(async () => ({
+        ok: true,
+        token: 'staff-session-token',
+        staffId: 'staff-manager',
+        role: 'Manager',
+        expiresAt: '2099-01-01T00:00:00.000Z'
+      })),
+      authorizeStaffAction: vi.fn(async () => ({ ok: true })),
+      recordClientEvent: vi.fn(async () => ({ ok: true })),
+      saveState: vi.fn(async () => ({ ok: true, path: 'test', publication: { status: 'pending' } }))
+    });
+    await invoke('selectActiveStaff', 'staff-manager');
+    vi.mocked(globalThis.prompt).mockClear();
     await invoke('setNightCloseActuals', { 'table-close': '20' });
     await invoke('setNightCloseNotes', 'Counted at cage');
     await invoke('saveNightClose');
@@ -190,5 +212,6 @@ describe('night-close mutation orchestration', () => {
     expect(close).toMatchObject({ status: 'Draft', lockedAt: undefined, managerSignOff: undefined, updatedAt: now });
     expect(close.audit.map((entry) => entry.action)).toEqual(['Created', 'Staff Signed', 'Manager Approved', 'Reopened']);
     expect(close.audit.at(-1)).toMatchObject({ note: 'Recounted cash', staffId: 'staff-manager' });
+    Reflect.deleteProperty(window, 'tableManagerDesktop');
   });
 });

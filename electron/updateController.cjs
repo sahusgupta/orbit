@@ -30,8 +30,10 @@ function createUpdateController(dependencies) {
   let installPending = false;
   let installStarted = false;
   let lastProgressBucket = -1;
+  let currentStatus = { state: 'idle' };
 
   function broadcastStatus(status) {
+    currentStatus = { ...status };
     for (const window of getAllWindows()) {
       if (!window.isDestroyed()) {
         window.webContents.send('update-status', status);
@@ -42,9 +44,12 @@ function createUpdateController(dependencies) {
   async function preserveRendererState() {
     const availableWindows = getAllWindows().filter((window) => !window.isDestroyed());
     const authoritativeWindow = getFloorWindow() || getFocusedWindow() || availableWindows[0];
-    if (!authoritativeWindow || authoritativeWindow.isDestroyed()) return;
+    if (!authoritativeWindow || authoritativeWindow.isDestroyed()) {
+      writeOrbitApiLog('error', 'update-state-flush-unavailable', {});
+      return false;
+    }
 
-    await new Promise((resolve) => {
+    return new Promise((resolve) => {
       const requestId = randomUUID();
       const timeout = setTimeoutImpl(() => {
         pendingStateFlushes.delete(requestId);
@@ -61,22 +66,32 @@ function createUpdateController(dependencies) {
   }
 
   async function installDownloadedUpdate() {
-    if (!installPending || installStarted) return;
+    if (!installPending) return { ok: false, error: 'No downloaded update is ready to install.' };
+    if (installStarted) return { ok: false, error: 'Update installation is already in progress.' };
     installStarted = true;
-    sendClientUpdateEvent('update-preserving-state', 'downloaded');
+    sendClientUpdateEvent('update-install-requested', 'downloaded');
     broadcastStatus({ state: 'preserving-state' });
-    await preserveRendererState();
+    const preserved = await preserveRendererState();
+    if (!preserved) {
+      installStarted = false;
+      const message = 'Orbit could not preserve the current workspace. The update was not installed.';
+      writeOrbitApiLog('error', 'update-install-blocked-state-not-preserved', {});
+      sendClientUpdateEvent('update-install-blocked', 'error', { message });
+      broadcastStatus({ state: 'error', message, updateReady: true });
+      return { ok: false, error: message };
+    }
     installPending = false;
-    sendClientUpdateEvent('update-installing-automatically', 'installing');
+    sendClientUpdateEvent('update-install-approved', 'installing');
     broadcastStatus({ state: 'installing' });
     setTimeoutImpl(() => autoUpdater.quitAndInstall(false, true), 3000);
+    return { ok: true };
   }
 
   function start() {
     if (isDev || !app.isPackaged) return;
 
     autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.autoRunAppAfterInstall = true;
     autoUpdater.allowPrerelease = false;
 
@@ -102,10 +117,10 @@ function createUpdateController(dependencies) {
     });
     autoUpdater.on('update-downloaded', (info) => {
       lastProgressBucket = -1;
-      sendClientUpdateEvent('update-downloaded', 'downloaded', { version: info.version });
-      broadcastStatus({ state: 'downloaded', version: info.version });
+      if (installStarted) return;
+      if (!installPending) sendClientUpdateEvent('update-downloaded', 'downloaded', { version: info.version });
       installPending = true;
-      void installDownloadedUpdate();
+      broadcastStatus({ state: 'downloaded', version: info.version, requiresUserApproval: true });
     });
     nativeAutoUpdater.on('before-quit-for-update', () => {
       sendClientEvent('update-installing', 'update', getClientUpdateState());
@@ -153,7 +168,9 @@ function createUpdateController(dependencies) {
 
   return {
     broadcastStatus,
+    getStatus: () => ({ ...currentStatus }),
     handleRendererStateFlush,
+    installDownloadedUpdate,
     preserveRendererState,
     start,
     stop

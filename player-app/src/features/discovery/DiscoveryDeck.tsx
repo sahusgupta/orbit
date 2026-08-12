@@ -106,7 +106,7 @@ export function DiscoveryDeck({
         </View>
         <Text style={styles.discoveryEmptyTitle}>You’ve reviewed every available game</Text>
         <Text style={styles.muted}>{savedCount ? `${savedCount} saved game${savedCount === 1 ? '' : 's'} are waiting below.` : 'Refresh the deck or loosen your filters to see more games.'}</Text>
-        <Pressable accessibilityLabel="Refresh discovery deck" onPress={onReset} style={styles.discoveryResetButton}>
+        <Pressable accessibilityLabel="Refresh discovery deck" accessibilityRole="button" onPress={onReset} style={styles.discoveryResetButton}>
           <Ionicons name="refresh-outline" size={17} color="#ffffff" />
           <Text style={styles.discoveryResetText}>Start over</Text>
         </Pressable>
@@ -212,13 +212,13 @@ export function DiscoveryCardContent({
           </View>
           {onDetails ? (
             <View style={styles.cardSelectionRow}>
-              <Pressable accessibilityLabel={`Pass on ${item.game.name}`} onPress={onPass} style={[styles.cardCornerAction, styles.cardRejectAction]}>
+              <Pressable accessibilityLabel={`Pass on ${item.game.name}`} accessibilityRole="button" onPress={onPass} style={[styles.cardCornerAction, styles.cardRejectAction]}>
                 <Ionicons name="close" size={29} color="#dc2626" />
               </Pressable>
-              <Pressable accessibilityLabel={`Save ${item.game.name}`} onPress={onPick} style={[styles.cardCornerAction, styles.cardPickAction]}>
+              <Pressable accessibilityLabel={`Save ${item.game.name}`} accessibilityRole="button" onPress={onPick} style={[styles.cardCornerAction, styles.cardPickAction]}>
                 <Ionicons name="heart" size={29} color="#ffffff" />
               </Pressable>
-              <Pressable accessibilityLabel={`See full details for ${item.game.name}`} onPress={onDetails} style={[styles.cardCornerAction, styles.cardDetailsAction]}>
+              <Pressable accessibilityLabel={`See full details for ${item.game.name}`} accessibilityRole="button" onPress={onDetails} style={[styles.cardCornerAction, styles.cardDetailsAction]}>
                 <Ionicons name="location" size={24} color="#6f91ff" />
               </Pressable>
             </View>
@@ -250,7 +250,7 @@ export function SavedGamesStrip({ opportunities, onOpen }: { opportunities: Game
   const [expanded, setExpanded] = useState(false);
   return (
     <View style={styles.savedGamesSection}>
-      <Pressable onPress={() => setExpanded((current) => !current)} style={styles.savedGamesHeader}>
+      <Pressable accessibilityLabel="Saved games" accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded((current) => !current)} style={styles.savedGamesHeader}>
         <View>
           <Text style={styles.sectionTitle}>Saved games</Text>
           <Text style={styles.muted}>{opportunities.length} saved</Text>

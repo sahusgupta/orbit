@@ -3,6 +3,7 @@ import { firebaseConfig } from './firebaseConfig';
 export {
   createClubMembershipCheckout,
   createPlayerIdentityVerificationSession,
+  fetchRemotePlayerDiscovery,
   fetchPlayerIdentityStatus,
   orbitApiBaseUrl
 } from './api/playerHttpApi';
@@ -10,10 +11,12 @@ export type { PlayerIdentityStatus } from './api/playerHttpApi';
 
 export {
   ensureSignedInIdentity,
+  completePlayerPhoneSignIn,
   getCurrentFirebasePlayer,
   onFirebasePlayerChanged,
+  requestPlayerPasswordReset,
   signInOrCreatePlayerWithEmail,
-  signInOrCreatePlayerWithPhone
+  startPlayerPhoneSignIn
 } from './firebase/playerAuth';
 export type { FirebasePlayerIdentity } from './firebase/playerAuth';
 

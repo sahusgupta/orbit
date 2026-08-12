@@ -23,7 +23,7 @@ export function InAppNotificationPopup({
           <Text style={styles.alertPopupTitle}>{notification.title}</Text>
           <Text style={styles.alertPopupBody}>{notification.body}</Text>
         </View>
-        <Pressable accessibilityLabel="Dismiss notification" style={styles.alertPopupClose} onPress={onDismiss}>
+        <Pressable accessibilityLabel="Dismiss notification" accessibilityRole="button" style={styles.alertPopupClose} onPress={onDismiss}>
           <Ionicons name="close" size={18} color={colors.muted} />
         </Pressable>
       </View>

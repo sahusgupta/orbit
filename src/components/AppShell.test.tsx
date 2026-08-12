@@ -35,4 +35,36 @@ describe('AppShell', () => {
     act(() => root.unmount());
     container.remove();
   });
+
+  it('requires the operator to approve a downloaded desktop update', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const installDownloadedUpdate = vi.fn().mockResolvedValue({ ok: true });
+    let statusListener: ((status: { state: string; version?: string }) => void) | undefined;
+    window.tableManagerDesktop = {
+      getUpdateStatus: vi.fn().mockResolvedValue({ state: 'idle' }),
+      installDownloadedUpdate,
+      onUpdateStatus: vi.fn((callback) => { statusListener = callback; return vi.fn(); })
+    } as unknown as NonNullable<Window['tableManagerDesktop']>;
+
+    await act(async () => {
+      root.render(
+        <AppShell active="floor" clubName="Example Club" onNavigate={vi.fn()} onSignOut={vi.fn()}>
+          <main>Floor</main>
+        </AppShell>
+      );
+    });
+    await act(async () => statusListener?.({ state: 'downloaded', version: '2.0.0' }));
+
+    const button = Array.from(container.querySelectorAll('button')).find((candidate) => candidate.textContent === 'Install update and restart');
+    expect(container.textContent).toContain('Orbit 2.0.0 is ready');
+    expect(button).toBeTruthy();
+    await act(async () => button?.click());
+    expect(installDownloadedUpdate).toHaveBeenCalledOnce();
+
+    act(() => root.unmount());
+    delete window.tableManagerDesktop;
+    container.remove();
+  });
 });

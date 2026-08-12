@@ -1,6 +1,9 @@
 import { chromium } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
 
 const baseUrl = process.env.TABLE_MANAGER_URL || 'http://127.0.0.1:5173';
+const screenshotDirectory = process.env.ORBIT_SMOKE_SCREENSHOT_DIR;
 const storageKey = 'table-manager-state-v1';
 
 const now = new Date().toISOString();
@@ -242,6 +245,15 @@ function assert(condition, message) {
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
+const pageErrors = [];
+const consoleErrors = [];
+const failedRequests = [];
+if (screenshotDirectory) mkdirSync(screenshotDirectory, { recursive: true });
+page.on('pageerror', (error) => pageErrors.push(error.message));
+page.on('console', (message) => {
+  if (message.type() === 'error') consoleErrors.push(message.text());
+});
+page.on('requestfailed', (request) => failedRequests.push(`${request.method()} ${request.url()}`));
 page.on('dialog', async (dialog) => {
   throw new Error(`Unexpected dialog: ${dialog.message()}`);
 });
@@ -258,25 +270,28 @@ try {
   await page.getByText('Current Tables').waitFor({ timeout: 15000 });
 
   const tableCard = page.locator('.active-game-card').filter({ hasText: 'Main Table' });
-  await tableCard.locator('.start-table-panel').waitFor({ timeout: 10000 });
-  assert(await tableCard.locator('.player-pick-row').count() >= 2, 'Start table picker did not show available players.');
-
-  await tableCard.locator('.player-pick-row').filter({ hasText: 'Alex Seat' }).locator('input[type="checkbox"]').check();
-  await tableCard.locator('.player-pick-row').filter({ hasText: 'Bailey Button' }).locator('input[type="checkbox"]').check();
-  await tableCard.getByRole('button', { name: 'Start with selected' }).click();
+  await tableCard.getByRole('button', { name: 'Start Table' }).click();
   await tableCard.getByText('Main Table - Running - Drop').waitFor({ timeout: 10000 });
-  await tableCard.getByText('Alex Seat').waitFor({ timeout: 10000 });
-  await tableCard.getByText('Bailey Button').waitFor({ timeout: 10000 });
 
   await tableCard.getByTitle('Add player to an open seat').click();
   let seatPicker = page.locator('.seat-picker-modal');
-  await seatPicker.getByRole('button', { name: /Casey Call/ }).click();
-  await tableCard.getByText('Casey Call').waitFor({ timeout: 10000 });
+  await seatPicker.getByRole('button', { name: /Alex Seat/ }).click();
+  await tableCard.getByText('1/10', { exact: true }).waitFor({ timeout: 10000 });
 
-  await tableCard.getByTitle('Add player to seat 10').click();
+  await tableCard.getByTitle('Add player to an open seat').click();
+  seatPicker = page.locator('.seat-picker-modal');
+  await seatPicker.getByRole('button', { name: /Bailey Button/ }).click();
+  await tableCard.getByText('2/10', { exact: true }).waitFor({ timeout: 10000 });
+
+  await tableCard.getByTitle('Add player to an open seat').click();
+  seatPicker = page.locator('.seat-picker-modal');
+  await seatPicker.getByRole('button', { name: /Casey Call/ }).click();
+  await tableCard.getByText('3/10', { exact: true }).waitFor({ timeout: 10000 });
+
+  await tableCard.getByTitle('Add player to an open seat').click();
   seatPicker = page.locator('.seat-picker-modal');
   await seatPicker.getByRole('button', { name: /Evan Entry/ }).click();
-  await tableCard.getByText('Evan Entry').waitFor({ timeout: 10000 });
+  await tableCard.getByText('4/10', { exact: true }).waitFor({ timeout: 10000 });
 
   await tableCard.getByTitle('Add player to an open seat').click();
   seatPicker = page.locator('.seat-picker-modal');
@@ -284,10 +299,35 @@ try {
   assert(await tableCard.locator('.quick-seat-row').count() === 0, 'Legacy quick-seat dropdown row should not render.');
   await seatPicker.getByTitle('Close player picker').click();
 
-  await page.getByRole('button', { name: 'Profiles' }).click();
-  await page.locator('input.profile-form-name').fill('Smoke New Player');
-  await page.locator('form.profile-form button.primary-button').click();
-  await page.getByText('Smoke New Player profile added.').waitFor({ timeout: 10000 });
+  for (const viewport of [
+    { width: 1440, height: 900, expectedColumns: 2 },
+    { width: 1180, height: 800, expectedColumns: 1 },
+    { width: 900, height: 760, expectedColumns: 1 },
+    { width: 680, height: 760, expectedColumns: 1 }
+  ]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    const layout = await page.locator('.minimal-dashboard').evaluate((element) => ({
+      columns: getComputedStyle(element).gridTemplateColumns.split(' ').filter(Boolean).length,
+      columnDefinition: getComputedStyle(element).gridTemplateColumns,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth,
+      compactQuery: window.matchMedia('(max-width: 1180px)').matches
+    }));
+    assert(layout.columns === viewport.expectedColumns, `Expected ${viewport.expectedColumns} floor column(s) at ${viewport.width}px, received ${layout.columns} (${layout.columnDefinition}; inner ${layout.viewportWidth}; compact ${layout.compactQuery}).`);
+    assert(layout.documentWidth <= layout.viewportWidth, `Management shell overflowed horizontally at ${viewport.width}px.`);
+    if (screenshotDirectory && (viewport.width === 1440 || viewport.width === 1180)) {
+      await page.screenshot({ fullPage: true, path: path.join(screenshotDirectory, `floor-${viewport.width}.png`) });
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  await page.getByRole('button', { name: 'Players' }).click();
+  const addPlayerButton = page.locator('button.player-tool-icon[aria-label="Add player"]');
+  await addPlayerButton.focus();
+  await page.keyboard.press('Enter');
+  const addPlayerDialog = page.getByRole('dialog', { name: 'Add member' });
+  await addPlayerDialog.getByRole('textbox', { name: 'Player name' }).fill('Smoke New Player');
+  await addPlayerDialog.getByRole('button', { name: 'Add active member' }).click();
   await page.locator('.profile-card').filter({ hasText: 'Smoke New Player' }).waitFor({ timeout: 10000 });
 
   const finalState = await page.evaluate((accountStorageKey) => JSON.parse(window.localStorage.getItem(accountStorageKey) || '{}'), accountStorageKey);
@@ -295,11 +335,15 @@ try {
   const activePlayerSessions = (finalState.playerSessions || []).filter((session) => !session.leftAt);
   assert(activePlayerSessions.length === 4, 'Expected four seated players after smoke flow.');
   assert(finalState.sessions?.[0]?.seatsFilled === activePlayerSessions.length, 'Expected table count to match active seated players.');
-  assert(activePlayerSessions.some((session) => session.playerName === 'Evan Entry' && session.seatNumber === 10), 'Expected database player to be seated at seat 10.');
+  assert(activePlayerSessions.some((session) => session.playerName === 'Evan Entry' && session.seatNumber > 0), 'Expected database player to be assigned an open seat.');
   assert((finalState.interests || []).some((interest) => interest.playerName === 'Evan Entry' && interest.status === 'Seated'), 'Expected non-checked-in player to be checked in and seated.');
   assert((finalState.profiles || []).some((profile) => profile.name === 'Smoke New Player'), 'New player profile was not persisted.');
 
-  console.log('Management core smoke passed: profile add, start table selection, and seating flows are functional.');
+  if (pageErrors.length || consoleErrors.length || failedRequests.length) {
+    throw new Error(JSON.stringify({ pageErrors, consoleErrors, failedRequests }, null, 2));
+  }
+
+  console.log('Management production-bundle smoke passed: profile add, table start, seating, responsive floor, and clean console.');
 } finally {
   await browser.close();
 }

@@ -25,11 +25,11 @@ export function DiscoverySearchModal({
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.discoverySearchBackdrop}>
-        <Pressable accessibilityLabel="Close game search" onPress={onClose} style={styles.filterSheetDismiss} />
+        <Pressable accessibilityLabel="Close game search" accessibilityRole="button" onPress={onClose} style={styles.filterSheetDismiss} />
         <View style={styles.discoverySearchPopup}>
           <View style={styles.discoverySearchHeader}>
             <Text style={styles.discoverySearchTitle}>Search games</Text>
-            <Pressable accessibilityLabel="Close game search" onPress={onClose} style={styles.discoverySearchClose}>
+            <Pressable accessibilityLabel="Close game search" accessibilityRole="button" onPress={onClose} style={styles.discoverySearchClose}>
               <Ionicons name="close" size={21} color="#9aabd0" />
             </Pressable>
           </View>
@@ -47,12 +47,12 @@ export function DiscoverySearchModal({
               style={styles.discoverySearchInput}
             />
             {value ? (
-              <Pressable accessibilityLabel="Clear game search" onPress={() => onChangeText('')} style={styles.discoverySearchClose}>
+              <Pressable accessibilityLabel="Clear game search" accessibilityRole="button" onPress={() => onChangeText('')} style={styles.discoverySearchClose}>
                 <Ionicons name="close-circle" size={20} color="#7184aa" />
               </Pressable>
             ) : null}
           </View>
-          <Pressable accessibilityLabel="Apply game search" onPress={onClose} style={styles.discoverySearchDone}>
+          <Pressable accessibilityLabel="Apply game search" accessibilityRole="button" onPress={onClose} style={styles.discoverySearchDone}>
             <Text style={styles.discoverySearchDoneText}>Show results</Text>
           </Pressable>
         </View>

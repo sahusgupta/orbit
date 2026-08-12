@@ -98,7 +98,7 @@ export function ClubHubSections({
   const requestableGames = games.filter((game) => !isActivePlayerGame(game));
   return (
     <View style={styles.clubHub}>
-      <Pressable onPress={() => toggle('games')} style={styles.clubHubRow}>
+      <Pressable accessibilityLabel="Games" accessibilityRole="button" accessibilityState={{ expanded: openSection === 'games' }} onPress={() => toggle('games')} style={styles.clubHubRow}>
         <View style={styles.clubHubIcon}><Ionicons name="layers-outline" size={19} color={colors.primary} /></View>
         <View style={styles.clubHubCopy}>
           <Text style={styles.cardTitle}>Games</Text>
@@ -152,7 +152,7 @@ export function ClubHubSections({
         </View>
       ) : null}
 
-      <Pressable onPress={() => toggle('membership')} style={styles.clubHubRow}>
+      <Pressable accessibilityLabel="Membership" accessibilityRole="button" accessibilityState={{ expanded: openSection === 'membership' }} onPress={() => toggle('membership')} style={styles.clubHubRow}>
         <View style={styles.clubHubIcon}><Ionicons name="card-outline" size={19} color={colors.primary} /></View>
         <View style={styles.clubHubCopy}>
           <Text style={styles.cardTitle}>Membership</Text>
@@ -173,7 +173,7 @@ export function ClubHubSections({
         </View>
       ) : null}
 
-      <Pressable onPress={() => toggle('events')} style={styles.clubHubRow}>
+      <Pressable accessibilityLabel="Events" accessibilityRole="button" accessibilityState={{ expanded: openSection === 'events' }} onPress={() => toggle('events')} style={styles.clubHubRow}>
         <View style={styles.clubHubIcon}><Ionicons name="trophy-outline" size={19} color={colors.primary} /></View>
         <View style={styles.clubHubCopy}>
           <Text style={styles.cardTitle}>Events</Text>

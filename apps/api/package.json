@@ -9,9 +9,12 @@
     "typecheck": "node ../../node_modules/typescript/bin/tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@vercel/functions": "3.9.2",
+    "compression": "1.8.1",
     "cors": "^2.8.5",
     "express": "^5.2.1",
     "firebase-admin": "^13.4.0",
+    "pg": "8.23.0",
     "stripe": "^18.5.0"
   },
   "overrides": {

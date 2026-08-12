@@ -5,8 +5,10 @@ const require = createRequire(import.meta.url);
 
 type UpdateController = {
   broadcastStatus: (status: unknown) => void;
+  getStatus: () => unknown;
   handleRendererStateFlush: (requestId: string, state: unknown) => Promise<{ ok: boolean }>;
-  preserveRendererState: () => Promise<void>;
+  installDownloadedUpdate: () => Promise<{ ok: boolean; error?: string }>;
+  preserveRendererState: () => Promise<boolean>;
   start: () => void;
   stop: () => void;
 };
@@ -31,7 +33,7 @@ function baseDependencies(overrides: Record<string, unknown> = {}) {
     clearIntervalImpl: vi.fn(),
     clearTimeoutImpl: vi.fn(),
     getAllWindows: () => [],
-    getClientUpdateState: () => ({ updateStatus: 'installing', updateEvent: 'update-installing-automatically' }),
+    getClientUpdateState: () => ({ updateStatus: 'installing', updateEvent: 'update-install-approved' }),
     getFloorWindow: () => undefined,
     getFocusedWindow: () => undefined,
     isDev: false,
@@ -90,7 +92,7 @@ describe('Electron update controller', () => {
     expect(setTimeoutImpl).toHaveBeenCalledWith(expect.any(Function), 15_000);
 
     await expect(controller.handleRendererStateFlush('flush-001', state)).resolves.toEqual({ ok: true });
-    await expect(result).resolves.toBeUndefined();
+    await expect(result).resolves.toBe(true);
     expect(writeLocalDatabase).toHaveBeenCalledWith(state);
     expect(saveStateToApi).toHaveBeenCalledWith(state);
     expect(clearTimeoutImpl).toHaveBeenCalledWith(81);
@@ -110,14 +112,14 @@ describe('Electron update controller', () => {
     }));
     const result = controller.preserveRendererState();
     timeoutCallback?.();
-    await expect(result).resolves.toBeUndefined();
+    await expect(result).resolves.toBe(false);
     expect(writeOrbitApiLog).toHaveBeenCalledWith('warn', 'update-state-flush-timed-out', { requestId: 'flush-001' });
 
     const noWindow = createUpdateController(baseDependencies({ randomUUID: vi.fn() }));
-    await expect(noWindow.preserveRendererState()).resolves.toBeUndefined();
+    await expect(noWindow.preserveRendererState()).resolves.toBe(false);
   });
 
-  it('installs duplicate downloaded notifications once, after preservation and the three-second delay', async () => {
+  it('requires an explicit install request, preserves state, and then uses the three-second restart delay', async () => {
     const order: string[] = [];
     let installCallback: (() => void) | undefined;
     const floorSend = vi.fn();
@@ -142,16 +144,40 @@ describe('Electron update controller', () => {
 
     autoUpdater.listeners.get('update-downloaded')?.({ version: '2.0.0' });
     autoUpdater.listeners.get('update-downloaded')?.({ version: '2.0.0' });
+    expect(floorSend).not.toHaveBeenCalled();
+    expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+    expect(controller.getStatus()).toEqual({ state: 'downloaded', version: '2.0.0', requiresUserApproval: true });
+
+    const install = controller.installDownloadedUpdate();
     expect(floorSend).toHaveBeenCalledTimes(1);
-    expect(sendClientUpdateEvent.mock.calls.filter((call) => call[0] === 'update-preserving-state')).toHaveLength(1);
+    expect(sendClientUpdateEvent.mock.calls.filter((call) => call[0] === 'update-install-requested')).toHaveLength(1);
 
     await controller.handleRendererStateFlush('flush-001', { games: [], sessions: [], playerSessions: [], settings: {} });
-    await Promise.resolve();
-    expect(sendClientUpdateEvent.mock.calls.filter((call) => call[0] === 'update-installing-automatically')).toHaveLength(1);
+    await expect(install).resolves.toEqual({ ok: true });
+    expect(sendClientUpdateEvent.mock.calls.filter((call) => call[0] === 'update-install-approved')).toHaveLength(1);
     expect(order).toContain('status:installing');
     installCallback?.();
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
     expect(order.at(-1)).toBe('quit-and-install');
+  });
+
+  it('blocks installation when the renderer cannot preserve authoritative workspace state', async () => {
+    const autoUpdater = Object.assign(createEmitter(), {
+      checkForUpdatesAndNotify: vi.fn().mockResolvedValue(undefined),
+      quitAndInstall: vi.fn()
+    });
+    const writeOrbitApiLog = vi.fn();
+    const controller = createUpdateController(baseDependencies({ autoUpdater, writeOrbitApiLog }));
+    controller.start();
+    autoUpdater.listeners.get('update-downloaded')?.({ version: '2.0.0' });
+
+    await expect(controller.installDownloadedUpdate()).resolves.toEqual({
+      ok: false,
+      error: 'Orbit could not preserve the current workspace. The update was not installed.'
+    });
+    expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+    expect(controller.getStatus()).toEqual(expect.objectContaining({ state: 'error', updateReady: true }));
+    expect(writeOrbitApiLog).toHaveBeenCalledWith('error', 'update-install-blocked-state-not-preserved', {});
   });
 
   it('does not configure update checks in development or an unpackaged application', () => {
@@ -195,7 +221,7 @@ describe('Electron update controller', () => {
     controller.start();
     expect(autoUpdater).toMatchObject({
       autoDownload: true,
-      autoInstallOnAppQuit: true,
+      autoInstallOnAppQuit: false,
       autoRunAppAfterInstall: true,
       allowPrerelease: false
     });
@@ -229,7 +255,7 @@ describe('Electron update controller', () => {
     expect(sendClientEvent.mock.calls).toEqual([
       ['update-download-progress', 'update', { percent: 1 }],
       ['update-download-progress', 'update', { percent: 26 }],
-      ['update-installing', 'update', { updateStatus: 'installing', updateEvent: 'update-installing-automatically' }]
+      ['update-installing', 'update', { updateStatus: 'installing', updateEvent: 'update-install-approved' }]
     ]);
     expect(statuses).toEqual([
       { state: 'checking' },

@@ -31,9 +31,7 @@ body.low-light {
 }
 
 body.low-light {
-  background:
-    radial-gradient(circle at 22% 0%, rgba(15, 118, 110, 0.08), transparent 28rem),
-    linear-gradient(180deg, #111720 0%, #0f141b 100%);
+  background: var(--canvas);
   position: relative;
 }
 
@@ -57,6 +55,6 @@ body.low-light {
 
 h1 {
   color: inherit;
-  font-weight: 760;
+  font-weight: var(--font-weight-bold);
   letter-spacing: -0.02em;
 }

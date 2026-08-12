@@ -70,7 +70,7 @@ vi.mock('react-dom/client', async (importOriginal) => {
         while (pending.length) {
           const child = pending.pop();
           if (typeof child !== 'object' || child === null) continue;
-          if ('type' in child && typeof child.type === 'function') {
+          if ('type' in child && typeof child.type === 'function' && child.type.name === 'App') {
             harness.appComponent = child.type;
             break;
           }
@@ -212,7 +212,7 @@ const invokeFloor = async (name: string, ...args: unknown[]) => {
   });
 };
 
-describe('management desktop and Firebase persistence orchestration', () => {
+describe('management desktop authoritative API persistence orchestration', () => {
   beforeAll(async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(now));
@@ -280,9 +280,9 @@ describe('management desktop and Firebase persistence orchestration', () => {
     document.body.innerHTML = '';
   });
 
-  it('pins startup timestamp precedence, save fan-out, polling/reconciliation retry, preservation, notifications, and cleanup', async () => {
-    expect(getState().games[0].name).toBe('cloud-newer');
-    expect(JSON.parse(localStorage.getItem(accountStorageKey) ?? '{}')).toMatchObject({ games: [{ name: 'cloud-newer' }] });
+  it('pins API/cache startup, server save, authoritative polling, preservation, notifications, and cleanup', async () => {
+    expect(getState().games[0].name).toBe('initial-local');
+    expect(harness.loadCloudCalls).toEqual([]);
 
     harness.desktopLoadResult = record('desktop-newer', '2026-08-08T21:30:00.000Z');
     harness.desktopPollResult = harness.desktopLoadResult;
@@ -312,7 +312,7 @@ describe('management desktop and Firebase persistence orchestration', () => {
     await invokeFloor('deleteInterest', 'interest-delete');
     expect(JSON.parse(localStorage.getItem(accountStorageKey) ?? '{}')).toMatchObject({ interests: [] });
     expect(harness.desktopSaveStates.at(-1)?.interests).toEqual([]);
-    expect(harness.saveCloudStates.some((candidate) => candidate.interests.length === 0)).toBe(true);
+    expect(harness.saveCloudStates).toEqual([]);
     expect(harness.fetchCalls).toEqual([]);
 
     const stateAtPrepare = getState();
@@ -346,41 +346,10 @@ describe('management desktop and Firebase persistence orchestration', () => {
     harness.desktopPollError = false;
     harness.desktopPollResult = { schemaVersion: 4, savedAt: now, state: afterDesktopMerge };
 
-    harness.syncQueue.push({ error: true });
-    harness.subscriptionCallback?.();
-    await flush();
-    expect(getState()).toBe(afterDesktopMerge);
-
-    const reconciliationUpdate: AppState = {
-      ...afterDesktopMerge,
-      tournaments: [{
-        id: 'tournament-sync', name: 'Synced Tournament', status: 'Draft', createdAt: now, currentLevelIndex: 0,
-        buyIn: 100, startingStack: 20_000, rebuyPrizePercent: 100, tableSize: 9, levels: [], players: [], payouts: []
-      }],
-      revenueTransactions: [{
-        id: 'revenue-sync', type: 'membership', amountCents: 5000, occurredAt: now, paymentStatus: 'paid', source: 'stripe', playerId: 'profile-desktop-new'
-      }]
-    };
-    harness.desktopSaveError = true;
-    harness.syncQueue.push({ state: reconciliationUpdate });
     await advance(30_000);
-    expect(getState().tournaments.map((item) => item.id)).toEqual(['orbit-launch-championship-2026', 'tournament-sync']);
-    expect(getState().revenueTransactions.map((item) => item.id)).toEqual(['revenue-sync']);
-    expect(Reflect.get(harness.shellProps as object, 'saveState')).toBe('error');
-
-    harness.desktopSaveError = false;
-    const secondUpdate = {
-      ...getState(),
-      revenueTransactions: [
-        ...getState().revenueTransactions,
-        { id: 'revenue-sync-two', type: 'membership' as const, amountCents: 2500, occurredAt: now, paymentStatus: 'paid' as const, source: 'stripe' as const }
-      ]
-    };
-    harness.syncQueue.push({ state: secondUpdate });
-    harness.subscriptionCallback?.();
-    await flush();
-    expect(getState().revenueTransactions.map((item) => item.id)).toEqual(['revenue-sync', 'revenue-sync-two']);
-    expect(Reflect.get(harness.shellProps as object, 'saveState')).toBe('saved');
+    expect(getState()).toBe(afterDesktopMerge);
+    expect(harness.syncCalls).toEqual([]);
+    expect(harness.subscriptionCallback).toBeUndefined();
 
     const pollsBeforeCleanup = harness.loadForAccountCalls.length;
     const syncsBeforeCleanup = harness.syncCalls.length;
@@ -390,7 +359,7 @@ describe('management desktop and Firebase persistence orchestration', () => {
     await advance(30_000);
     expect(harness.loadForAccountCalls).toHaveLength(pollsBeforeCleanup);
     expect(harness.syncCalls).toHaveLength(syncsBeforeCleanup);
-    expect(harness.unsubscribe).toHaveBeenCalledTimes(unsubscribeBeforeCleanup + 1);
+    expect(harness.unsubscribe).toHaveBeenCalledTimes(unsubscribeBeforeCleanup);
     expect(harness.prepareCleanup).toHaveBeenCalledTimes(prepareCleanupBefore + 1);
   });
 });

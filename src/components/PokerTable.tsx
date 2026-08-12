@@ -179,7 +179,7 @@ function PlayerCard({
             </div>
             <div className="poker-seat-menu-header-actions">
               <strong>${(player.buyInTotal ?? 0).toLocaleString()}</strong>
-              <button className="icon-button" type="button" onClick={onToggle} title="Close player details">
+              <button aria-label="Close player details" className="icon-button" type="button" onClick={onToggle} title="Close player details">
                 <X size={15} />
               </button>
             </div>

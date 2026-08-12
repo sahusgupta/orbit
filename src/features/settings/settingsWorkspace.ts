@@ -11,7 +11,14 @@ export type SaveStatus =
   | { state: 'saved'; message: string }
   | { state: 'error'; message: string };
 export type LoginDraft = { username: string; password: string; staySignedIn: boolean };
-export type PasswordRecoveryStage = 'idle' | 'sending' | 'sent' | 'verifying';
+export type PasswordRecoveryStage =
+  | 'idle'
+  | 'sending'
+  | 'sent'
+  | 'verifying'
+  | 'owner-checking'
+  | 'owner-ready'
+  | 'owner-completing';
 export type SetupDraft = {
   username: string;
   password: string;

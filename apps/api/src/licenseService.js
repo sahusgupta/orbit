@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const branding = require('../../../branding.config.json');
 const { sanitizeAccountKey } = require('./orbitCore');
 const { getAdminApp, getAdminSdk } = require('./services/firebaseAdmin');
 
@@ -9,6 +10,71 @@ function getLicenseCollection() {
 
 function hashAuthorizationCode(value) {
   return crypto.createHash('sha256').update(String(value || '').trim()).digest('hex');
+}
+
+function canonicalPayload(payload) {
+  return JSON.stringify(
+    Object.keys(payload)
+      .sort()
+      .reduce((record, key) => {
+        record[key] = payload[key];
+        return record;
+      }, {})
+  );
+}
+
+function verifySignedPilotLicense(envelope, options = {}) {
+  const payload = envelope?.payload;
+  const signature = String(envelope?.signature || '').trim();
+  const publicKeyPem = String(
+    options.publicKeyPem ||
+    process.env.ORBIT_LICENSE_PUBLIC_KEY_PEM?.replace(/\\n/g, '\n') ||
+    branding.license?.publicKeyPem ||
+    ''
+  ).trim();
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !signature) {
+    return { ok: false, error: 'A signed pilot license envelope is required.' };
+  }
+  if (envelope.algorithm && envelope.algorithm !== 'ECDSA-P256-SHA256') {
+    return { ok: false, error: 'The pilot license signature algorithm is not supported.' };
+  }
+  if (!publicKeyPem) return { ok: false, error: 'Pilot license verification is not configured.' };
+  const authorizationCode = String(payload.authorizationCode || payload.code || '').trim();
+  if (!/^TT-PILOT-[A-F0-9]{24}$/i.test(authorizationCode)) {
+    return { ok: false, error: 'A valid pilot authorization code is required.' };
+  }
+  let expiresAt;
+  try {
+    expiresAt = normalizeExpiration(payload.expiresAt || payload.expirationDate || payload.validUntil);
+  } catch {
+    return { ok: false, error: 'A valid expiration date is required.' };
+  }
+  if (Date.parse(expiresAt) < Number(options.nowMs || Date.now())) {
+    return { ok: false, error: 'The signed pilot license is expired.' };
+  }
+  try {
+    const signatureBytes = Buffer.from(signature, 'base64');
+    if (signatureBytes.length !== 64) return { ok: false, error: 'The pilot license signature is invalid.' };
+    const verified = crypto.verify(
+      'sha256',
+      Buffer.from(canonicalPayload(payload)),
+      { key: publicKeyPem, dsaEncoding: 'ieee-p1363' },
+      signatureBytes
+    );
+    if (!verified) return { ok: false, error: 'The pilot license signature is invalid.' };
+  } catch {
+    return { ok: false, error: 'The pilot license signature is invalid.' };
+  }
+  return {
+    ok: true,
+    access: {
+      authorizationCode,
+      expiresAt,
+      issuedTo: String(payload.issuedTo || '').trim(),
+      issuedAt: String(payload.issuedAt || '').trim(),
+      licenseId: String(payload.licenseId || '').trim()
+    }
+  };
 }
 
 function normalizeExpiration(value) {
@@ -83,8 +149,24 @@ async function registerPilotLicense(access) {
   return publicLicense({ id, ...record });
 }
 
-async function listPilotLicenses() {
-  const snapshot = await getLicenseCollection().orderBy('expiresAt', 'asc').get();
+async function registerSignedPilotLicense(envelope) {
+  const verification = verifySignedPilotLicense(envelope);
+  if (!verification.ok) {
+    throw new Error(verification.error);
+  }
+  return registerPilotLicense(verification.access);
+}
+
+async function listPilotLicenses(options = {}) {
+  const limit = Math.min(Math.max(Number(options.limit || 100), 1), 251);
+  const admin = getAdminSdk();
+  let query = getLicenseCollection()
+    .orderBy('expiresAt', 'asc')
+    .orderBy(admin.firestore.FieldPath.documentId(), 'asc');
+  if (options.afterExpiresAt && options.afterId) {
+    query = query.startAfter(String(options.afterExpiresAt), String(options.afterId));
+  }
+  const snapshot = await query.limit(limit).get();
   return snapshot.docs.map((document) => publicLicense({ id: document.id, ...document.data() }));
 }
 
@@ -123,11 +205,13 @@ async function revokePilotLicense(id) {
 
 module.exports = {
   authenticatePilotLicense,
+  canonicalPayload,
   hashAuthorizationCode,
   isLicenseActive,
   listPilotLicenses,
   normalizeExpiration,
-  registerPilotLicense,
+  registerSignedPilotLicense,
   renewPilotLicense,
-  revokePilotLicense
+  revokePilotLicense,
+  verifySignedPilotLicense
 };

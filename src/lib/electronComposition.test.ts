@@ -68,9 +68,15 @@ describe('Electron IPC and preload composition audit', () => {
       'load-state-for-account',
       'save-state',
       'preserve-state-for-update',
+      'get-update-status',
+      'install-downloaded-update',
       'get-backend-status',
       'validate-pilot-access',
+      'get-management-recovery-status',
+      'complete-management-recovery',
       'submit-analytical-report',
+      'verify-staff-pin',
+      'authorize-staff-action',
       'send-text-messages',
       'record-client-event',
       'record-client-error'
@@ -103,9 +109,16 @@ describe('Electron IPC and preload composition audit', () => {
       'loadStateForAccount',
       'saveState',
       'preserveStateForUpdate',
+      'getUpdateStatus',
+      'installDownloadedUpdate',
       'onPrepareForUpdate',
+      'onUpdateStatus',
       'getBackendStatus',
       'validatePilotAccess',
+      'getManagementRecoveryStatus',
+      'completeManagementRecovery',
+      'verifyStaffPin',
+      'authorizeStaffAction',
       'submitAnalyticalReport',
       'sendTextMessages',
       'recordClientEvent',
@@ -116,13 +129,25 @@ describe('Electron IPC and preload composition audit', () => {
 
     const openWindow = bridge.openWindow as (route: string, context: unknown) => Promise<unknown>;
     const preserveStateForUpdate = bridge.preserveStateForUpdate as (requestId: string, state: unknown) => Promise<unknown>;
+    const getUpdateStatus = bridge.getUpdateStatus as () => Promise<unknown>;
+    const installDownloadedUpdate = bridge.installDownloadedUpdate as () => Promise<unknown>;
+    const getManagementRecoveryStatus = bridge.getManagementRecoveryStatus as (access: unknown) => Promise<unknown>;
+    const completeManagementRecovery = bridge.completeManagementRecovery as (payload: unknown) => Promise<unknown>;
     const recordClientEvent = bridge.recordClientEvent as (...args: unknown[]) => Promise<unknown>;
     await openWindow('table', { sessionId: 'session-1' });
     await preserveStateForUpdate('flush-1', { games: [] });
+    await getUpdateStatus();
+    await installDownloadedUpdate();
+    await getManagementRecoveryStatus({ authorizationCode: 'pilot-code' });
+    await completeManagementRecovery({ access: { authorizationCode: 'pilot-code' }, password: 'new-password' });
     await recordClientEvent('table-started', 'tables', { tableId: 'table-1' }, 'floor');
     expect(invoke.mock.calls).toEqual([
       ['open-route-window', 'table', { sessionId: 'session-1' }],
       ['preserve-state-for-update', 'flush-1', { games: [] }],
+      ['get-update-status'],
+      ['install-downloaded-update'],
+      ['get-management-recovery-status', { authorizationCode: 'pilot-code' }],
+      ['complete-management-recovery', { access: { authorizationCode: 'pilot-code' }, password: 'new-password' }],
       ['record-client-event', 'table-started', 'tables', { tableId: 'table-1' }, 'floor']
     ]);
 
@@ -134,18 +159,29 @@ describe('Electron IPC and preload composition audit', () => {
     expect(callback).toHaveBeenCalledWith('flush-2');
     dispose();
     expect(removeListener).toHaveBeenCalledWith('prepare-for-update', listener);
+
+    const statusCallback = vi.fn();
+    const disposeStatus = (bridge.onUpdateStatus as (callback: (status: unknown) => void) => () => void)(statusCallback);
+    expect(on).toHaveBeenCalledWith('update-status', expect.any(Function));
+    const statusListener = on.mock.calls[1][1] as (_event: unknown, status: unknown) => void;
+    statusListener(undefined, { state: 'downloaded' });
+    expect(statusCallback).toHaveBeenCalledWith({ state: 'downloaded' });
+    disposeStatus();
+    expect(removeListener).toHaveBeenCalledWith('update-status', statusListener);
   });
 
   it('normalizes requested routes without widening the reviewed route set', () => {
     const createWindow = vi.fn();
-    const handler = loadIpcHandler<(_event: unknown, route: string, context?: unknown) => void>('open-route-window', {
+    const handler = loadIpcHandler<(route: string, context?: unknown) => void>('open-route-window', {
       createWindow,
+      isRecord: (value: unknown) => typeof value === 'object' && value !== null,
+      trustedIpc: (candidate: unknown) => candidate,
       validRoutes: new Set(['floor', 'table', 'builder', 'profiles', 'signals', 'summary', 'customization', 'kpis', 'tournaments', 'tournament-tv', 'pilot', 'outreach'])
     });
 
-    handler(undefined, 'outreach', { source: 'signals' });
-    handler(undefined, 'table', { sessionId: 'session-1' });
-    handler(undefined, 'unknown', {});
+    handler('outreach', { source: 'signals' });
+    handler('table', { sessionId: 'session-1' });
+    handler('unknown', {});
     expect(createWindow.mock.calls).toEqual([
       ['signals', { source: 'signals' }],
       ['table', { sessionId: 'session-1' }],
@@ -155,21 +191,20 @@ describe('Electron IPC and preload composition audit', () => {
 });
 
 describe('Electron window and navigation composition audit', () => {
-  it('opens only HTTP(S)/mailto externally and ignores malformed or untrusted protocols', () => {
+  it('opens only allowlisted HTTPS/mailto links and ignores malformed or untrusted protocols', () => {
     const openExternal = vi.fn();
     const openTrustedExternal = loadFunction<(url: string) => void>('openTrustedExternal', { URL, shell: { openExternal } });
 
-    for (const url of ['https://example.test/path', 'http://example.test/path', 'mailto:ops@example.test']) {
+    for (const url of ['https://orbitpoker.com/path', 'mailto:ops@orbitpoker.com']) {
       openTrustedExternal(url);
     }
-    for (const url of ['javascript:alert(1)', 'ftp://example.test/file', 'not a url']) {
+    for (const url of ['https://example.test/path', 'http://orbitpoker.com/path', 'mailto:ops@example.test', 'javascript:alert(1)', 'ftp://example.test/file', 'not a url']) {
       openTrustedExternal(url);
     }
 
     expect(openExternal.mock.calls.map((call) => call[0])).toEqual([
-      'https://example.test/path',
-      'http://example.test/path',
-      'mailto:ops@example.test'
+      'https://orbitpoker.com/path',
+      'mailto:ops@orbitpoker.com'
     ]);
   });
 

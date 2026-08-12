@@ -23,7 +23,7 @@
   background: rgba(237, 242, 248, 0.78);
   color: var(--muted);
   font-size: 0.72rem;
-  font-weight: 900;
+  font-weight: 700;
   padding: 8px 10px;
   text-transform: uppercase;
 }
@@ -101,7 +101,7 @@ body.low-light .player-pick-row {
 .time-left-pill {
   border-radius: 999px;
   font-size: 0.8rem;
-  font-weight: 900;
+  font-weight: 700;
   padding: 6px 10px;
   white-space: nowrap;
 }
@@ -119,7 +119,6 @@ body.low-light .player-pick-row {
 .time-left-pill.red {
   background: var(--rose-soft);
   color: var(--rose);
-  animation: viable-pulse 1.8s ease-in-out infinite;
 }
 
 .time-left-pill.off {
@@ -139,7 +138,7 @@ body.low-light .player-pick-row {
   border-radius: 12px;
   color: var(--muted);
   font-size: 0.75rem;
-  font-weight: 800;
+  font-weight: 700;
   padding: 7px;
 }
 
@@ -187,7 +186,7 @@ body.low-light .player-pick-row {
   gap: 4px;
   color: var(--muted);
   font-size: 0.72rem;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .timestamp-grid input,
@@ -219,7 +218,7 @@ body.low-light .player-pick-row {
   padding: 2px 6px;
   font-size: 0.68rem;
   font-style: normal;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 button:disabled {
