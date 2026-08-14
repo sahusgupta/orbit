@@ -54,4 +54,11 @@ if (!nextConfig.includes('const repositoryRoot = process.cwd();')) {
 }
 writeFileSync(nextConfigPath, nextConfig);
 
+writeFileSync(path.join(outputRoot, 'vercel.json'), `${JSON.stringify({
+  $schema: 'https://openapi.vercel.sh/vercel.json',
+  framework: 'nextjs',
+  installCommand: 'npm ci',
+  buildCommand: 'npm run build'
+}, null, 2)}\n`);
+
 console.log(`Staged Player Web deployment at ${outputRoot}`);
