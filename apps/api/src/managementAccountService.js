@@ -15,6 +15,8 @@ const {
 } = require('./database');
 const { protectedIdentifier } = require('./http/dataProtection');
 const { sendOperationalAlert } = require('./http/operationalAlerts');
+const { getPilotLicense } = require('./licenseService');
+const { getAccountKeyFromState } = require('./orbitCore');
 const { getAdminApp, getAdminSdk } = require('./services/firebaseAdmin');
 
 const blockedPasswords = new Set(['12345678', 'password', 'password1', 'qwerty123']);
@@ -30,6 +32,16 @@ class ManagementAccountError extends Error {
 
 function normalizeUsername(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function validateUsername(value) {
+  const username = normalizeUsername(value);
+  if (username.length > 254 || !/^\S+@\S+\.\S+$/.test(username)) {
+    throw new ManagementAccountError('Enter a valid management login email.', {
+      code: 'INVALID_MANAGEMENT_USERNAME'
+    });
+  }
+  return username;
 }
 
 function validateNewPassword(value) {
@@ -74,6 +86,28 @@ function createFirebasePasswordProvider() {
   const admin = getAdminSdk();
   const auth = admin.auth(getAdminApp());
   return {
+    async createUser(username, password) {
+      try {
+        const user = await auth.createUser({ email: username, password });
+        return { userId: user.uid, userRef: protectedIdentifier(user.uid) };
+      } catch (error) {
+        if (error?.code === 'auth/email-already-exists') {
+          throw new ManagementAccountError('That email is already assigned to a Firebase account.', {
+            code: 'MANAGEMENT_FIREBASE_EMAIL_IN_USE',
+            status: 409
+          });
+        }
+        if (['auth/invalid-email', 'auth/invalid-password'].includes(error?.code)) {
+          throw new ManagementAccountError('Firebase rejected the management login credentials.', {
+            code: 'INVALID_MANAGEMENT_CREDENTIALS'
+          });
+        }
+        throw error;
+      }
+    },
+    async deleteUser(userId) {
+      await auth.deleteUser(userId);
+    },
     async updatePassword(username, password) {
       let user;
       try {
@@ -136,9 +170,16 @@ function createManagementAccountService(dependencies = {}) {
   };
   const listStatePageImpl = dependencies.listStatePage || listStatePage;
   const loadStateImpl = dependencies.loadState || loadState;
+  const loadPilotLicenseImpl = dependencies.loadPilotLicense || getPilotLicense;
   const saveStateImpl = dependencies.saveState || saveState;
   const schedulePublication = dependencies.schedulePublicationDrain || schedulePublicationDrain;
   const passwordProvider = dependencies.passwordProvider || {
+    createUser(username, password) {
+      return createFirebasePasswordProvider().createUser(username, password);
+    },
+    deleteUser(userId) {
+      return createFirebasePasswordProvider().deleteUser(userId);
+    },
     updatePassword(username, password) {
       return createFirebasePasswordProvider().updatePassword(username, password);
     }
@@ -190,6 +231,111 @@ function createManagementAccountService(dependencies = {}) {
         recovery: publicRecovery(recoveryByAccount.get(record.accountKey), { includeInternal: true })
       };
     });
+  }
+
+  async function provisionAccount({ licenseDocumentId, username, password }) {
+    const normalizedUsername = validateUsername(username);
+    const newPassword = validateNewPassword(password);
+    const license = await loadPilotLicenseImpl(licenseDocumentId);
+    if (!license) {
+      throw new ManagementAccountError('Pilot license not found.', {
+        code: 'MANAGEMENT_LICENSE_NOT_FOUND',
+        status: 404
+      });
+    }
+    if (license.status !== 'active') {
+      throw new ManagementAccountError('A management login can be created only for an active pilot license.', {
+        code: 'MANAGEMENT_LICENSE_INACTIVE',
+        status: 409
+      });
+    }
+
+    let record = await loadStateImpl(license.accountKey);
+    if (!record) {
+      throw new ManagementAccountError('This active license has no authoritative club data yet. Load and sync the club before creating its management login.', {
+        code: 'MANAGEMENT_STATE_NOT_FOUND',
+        status: 409
+      });
+    }
+    if (record.accountKey !== license.accountKey || getAccountKeyFromState(record.state) !== license.accountKey) {
+      throw new ManagementAccountError('The saved club data is not bound to this pilot license. Resolve the account mapping before creating credentials.', {
+        code: 'MANAGEMENT_STATE_LICENSE_MISMATCH',
+        status: 409
+      });
+    }
+    if (getAccountLogin(record)) {
+      throw new ManagementAccountError('This venue already has a management login. Use the password controls instead.', {
+        code: 'MANAGEMENT_LOGIN_ALREADY_CONFIGURED',
+        status: 409
+      });
+    }
+
+    const passwordSalt = createSalt();
+    const passwordHash = await hashPassword(newPassword, passwordSalt);
+    const createdAt = now().toISOString();
+    const operationId = randomUUID();
+    const providerResult = await passwordProvider.createUser(normalizedUsername, newPassword);
+    let saved;
+
+    try {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (getAccountLogin(record)) {
+          throw new ManagementAccountError('This venue already has a management login. Use the password controls instead.', {
+            code: 'MANAGEMENT_LOGIN_ALREADY_CONFIGURED',
+            status: 409
+          });
+        }
+        const nextState = {
+          ...record.state,
+          settings: {
+            ...record.state.settings,
+            accountLogin: {
+              username: normalizedUsername,
+              passwordSalt,
+              passwordHash,
+              createdAt
+            }
+          }
+        };
+        try {
+          saved = await saveStateImpl(nextState, {
+            expectedRevision: Number(record.revision || 0),
+            mutationId: `management-account-provision:${operationId}`,
+            mutationType: 'management-account-provision'
+          });
+          break;
+        } catch (error) {
+          if (!(error instanceof StateConflictError) && error?.code !== 'STATE_REVISION_CONFLICT') throw error;
+          const latest = await loadStateImpl(license.accountKey);
+          if (!latest) throw error;
+          record = latest;
+        }
+      }
+      if (!saved) throw new Error('Management account could not be committed after revision retries.');
+    } catch (error) {
+      let rollbackFailed = false;
+      try {
+        await passwordProvider.deleteUser(providerResult.userId);
+      } catch {
+        rollbackFailed = true;
+      }
+      void operationalAlert('management-account-provision-failed', 'critical', {
+        tenantRef: protectedIdentifier(license.accountKey),
+        providerUserRef: providerResult.userRef || '',
+        operationRef: protectedIdentifier(operationId),
+        rollbackFailed
+      });
+      throw error;
+    }
+
+    void schedulePublication();
+    return {
+      accountKey: saved.accountKey,
+      licenseId: license.licenseId,
+      username: normalizedUsername,
+      revision: saved.revision,
+      publication: saved.publication
+    };
   }
 
   async function startRecovery({ accountKey, durationMinutes, reason, actorRef }) {
@@ -321,6 +467,7 @@ function createManagementAccountService(dependencies = {}) {
     completeRecovery,
     getRecoveryStatus,
     listAccounts,
+    provisionAccount,
     revokeRecovery,
     sendResetEmail,
     startRecovery
@@ -339,5 +486,6 @@ module.exports = {
   getManagementAccountService,
   hashManagementPassword,
   sendFirebasePasswordResetEmail,
+  validateUsername,
   validateNewPassword
 };

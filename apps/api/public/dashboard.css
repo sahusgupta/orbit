@@ -263,6 +263,10 @@ button.danger-solid {
   gap: 12px;
 }
 
+.account-controls.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .account-control-group {
   display: grid;
   gap: 12px;

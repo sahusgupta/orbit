@@ -112,6 +112,11 @@ async function findLicenseByAuthorizationCode(authorizationCode) {
   return snapshot.exists ? { id: snapshot.id, ...snapshot.data() } : null;
 }
 
+async function getPilotLicense(id) {
+  const snapshot = await getLicenseCollection().doc(String(id || '')).get();
+  return snapshot.exists ? publicLicense({ id: snapshot.id, ...snapshot.data() }) : null;
+}
+
 async function authenticatePilotLicense(authorizationCode) {
   const record = await findLicenseByAuthorizationCode(authorizationCode);
   if (!record) return { managed: false, active: false, license: null };
@@ -206,6 +211,7 @@ async function revokePilotLicense(id) {
 module.exports = {
   authenticatePilotLicense,
   canonicalPayload,
+  getPilotLicense,
   hashAuthorizationCode,
   isLicenseActive,
   listPilotLicenses,

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { seedState } from '../../domain/state';
-import type { AppState } from '../../domain/types';
+import type { AppState, PlayerProfile } from '../../domain/types';
 import type { BrowserStorage } from './browserStateRepository';
 import { createManagementPersistence } from './managementPersistence';
 
@@ -16,6 +16,30 @@ const buildState = (): AppState => ({
       licenseId: 'ref-019-persistence'
     }
   }
+});
+
+const profile = (id: string, name: string): PlayerProfile => ({
+  id,
+  name,
+  phone: '',
+  birthday: '',
+  membershipStartDate: '',
+  membershipExpirationDate: '',
+  totalTimePlayedHours: 0,
+  lastSessionTimePlayedHours: 0,
+  commonlyPlaysWithProfileIds: [],
+  preferredGameId: 'desktop',
+  preferredGameIds: ['desktop'],
+  gamePlayCounts: {},
+  mostPlayedGameId: 'desktop',
+  preferredStakes: '',
+  typicalBuyInMin: 100,
+  typicalBuyInMax: 300,
+  willingnessToMove: true,
+  typicalAvailability: '',
+  usualCompanions: [],
+  preferredTags: [],
+  notes: ''
 });
 
 const createStorage = () => {
@@ -153,6 +177,13 @@ describe('management persistence adapter', () => {
   it('restores desktop state first and falls back locally while replacing pilot access', async () => {
     const desktopState = buildState();
     desktopState.games = [{ id: 'desktop', name: 'Desktop', maxSeats: 8, minInRoomForLikely: 2, minFlexibleForLikely: 3, minTotalForViable: 6 }];
+    desktopState.profiles = [profile('lucky-regular', 'Lucky Lodge Regular')];
+    desktopState.settings.accountLogin = {
+      username: 'manager@luckylodge.example',
+      passwordSalt: 'provisioned-salt',
+      passwordHash: 'provisioned-hash',
+      createdAt: '2026-08-11T15:00:00.000Z'
+    };
     const localState = buildState();
     localState.games = [{ id: 'local', name: 'Local', maxSeats: 8, minInRoomForLikely: 2, minFlexibleForLikely: 3, minTotalForViable: 6 }];
     const replacementAccess = {
@@ -180,7 +211,11 @@ describe('management persistence adapter', () => {
 
     await expect(desktopPersistence.loadExistingStateForAccount(replacementAccess)).resolves.toMatchObject({
       games: [{ name: 'Desktop' }],
-      settings: { pilotAccess: replacementAccess }
+      profiles: [{ name: 'Lucky Lodge Regular' }],
+      settings: {
+        pilotAccess: replacementAccess,
+        accountLogin: { username: 'manager@luckylodge.example' }
+      }
     });
     expect(desktopLoad).toHaveBeenCalledWith(replacementAccess);
 

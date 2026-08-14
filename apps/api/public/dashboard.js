@@ -75,12 +75,40 @@ function renderList(target, items, renderItem, emptyText) {
   target.innerHTML = items.length ? items.map(renderItem).join('') : emptyText;
 }
 
-function renderManagementAccessControls(accountKey, account) {
+function renderManagementAccessControls(accountKey, account, license) {
+  const escapedAccountKey = escapeHtml(accountKey);
   if (!account?.hasManagementLogin) {
-    return '<p class="account-warning">This key has no configured management login. Password and recovery actions are unavailable until the venue creates one.</p>';
+    if (!license || license.status !== 'active') {
+      return '<p class="account-warning">A management login can be created only while the linked pilot key is active.</p>';
+    }
+    const escapedLicenseId = escapeHtml(license.id);
+    return `
+      <div class="account-controls single" data-account-control-scope="${escapedAccountKey}">
+        <section class="account-control-group">
+          <div>
+            <strong>Create management login</strong>
+            <p>Add credentials to this active key's existing authoritative club account. Games, players, sessions, and settings stay attached to the same account key.</p>
+          </div>
+          <div class="account-action-row">
+            <label>
+              <span>Login email</span>
+              <input data-account-username="${escapedAccountKey}" type="email" maxlength="254" autocomplete="off" placeholder="manager@example.com" />
+            </label>
+            <label>
+              <span>Temporary password</span>
+              <input data-account-password="${escapedAccountKey}" type="password" minlength="12" maxlength="128" autocomplete="new-password" placeholder="12-128 characters" />
+            </label>
+            <label>
+              <span>Confirm password</span>
+              <input data-account-password-confirm="${escapedAccountKey}" type="password" minlength="12" maxlength="128" autocomplete="new-password" placeholder="Repeat password" />
+            </label>
+            <button type="button" data-account-action="create-login" data-account-key="${escapedAccountKey}" data-license-id="${escapedLicenseId}">Create login</button>
+          </div>
+        </section>
+      </div>
+    `;
   }
   const recoveryActive = account.recovery?.status === 'active';
-  const escapedAccountKey = escapeHtml(accountKey);
   return `
     <div class="account-controls" data-account-control-scope="${escapedAccountKey}">
       <section class="account-control-group">
@@ -180,7 +208,7 @@ function render() {
                 <strong>Management access for this active key</strong>
                 <p>${account?.username ? escapeHtml(account.username) : 'No management login is linked to this key yet.'}</p>
               </div>
-              ${renderManagementAccessControls(license.accountKey, account)}
+              ${renderManagementAccessControls(license.accountKey, account, license)}
             </section>
           ` : ''}
         </article>
@@ -197,7 +225,7 @@ function render() {
       const license = state.licenses.find((candidate) => candidate.accountKey === account.accountKey);
       const recovery = account.recovery;
       const recoveryActive = recovery?.status === 'active';
-      const loginActions = renderManagementAccessControls(account.accountKey, account);
+      const loginActions = renderManagementAccessControls(account.accountKey, account, license);
       return `
         <article class="management-account-row">
           <div class="account-heading">
@@ -474,6 +502,7 @@ async function handleManagementAccountAction(event, container) {
   if (!accountKey || !action) return;
 
   const controlScope = button.closest('[data-account-control-scope]') || container;
+  const usernameInput = controlScope.querySelector('[data-account-username]');
   const passwordInput = controlScope.querySelector('[data-account-password]');
   const confirmationInput = controlScope.querySelector('[data-account-password-confirm]');
   const durationInput = controlScope.querySelector('[data-account-duration]');
@@ -484,7 +513,32 @@ async function handleManagementAccountAction(event, container) {
   let pendingMessage = '';
   let successMessage = '';
 
-  if (action === 'start-recovery') {
+  if (action === 'create-login') {
+    const licenseId = button.dataset.licenseId;
+    const username = usernameInput?.value.trim().toLowerCase() || '';
+    const password = passwordInput?.value || '';
+    if (!licenseId) return;
+    if (!/^\S+@\S+\.\S+$/.test(username)) {
+      setStatus('Enter a valid management login email.', 'error');
+      usernameInput?.focus();
+      return;
+    }
+    if (password.length < 12 || password.length > 128) {
+      setStatus('The temporary password must be between 12 and 128 characters.', 'error');
+      passwordInput?.focus();
+      return;
+    }
+    if (password !== confirmationInput?.value) {
+      setStatus('The password and confirmation do not match.', 'error');
+      confirmationInput?.focus();
+      return;
+    }
+    if (!window.confirm('Create this management login for the active pilot key? Existing club data will remain attached to the same account.')) return;
+    pathname = `/dashboard/licenses/${encodeURIComponent(licenseId)}/management-account`;
+    body = { username, password };
+    pendingMessage = 'Creating management login...';
+    successMessage = 'Management login created without replacing the club data. Share the credentials and pilot key through separate secure channels.';
+  } else if (action === 'start-recovery') {
     if (!window.confirm('Open a single-use recovery window? Anyone holding this venue’s current pilot key can establish one new management password until the window expires.')) return;
     pathname += '/recovery';
     body = { durationMinutes: Number(durationInput?.value || 30), reason: reasonInput?.value || '' };
@@ -535,6 +589,7 @@ async function handleManagementAccountAction(event, container) {
     });
     const payload = await response.json();
     if (!response.ok || !payload.ok) throw new Error(payload.error || `API returned ${response.status}`);
+    if (usernameInput) usernameInput.value = '';
     if (passwordInput) passwordInput.value = '';
     if (confirmationInput) confirmationInput.value = '';
     await loadDashboard();

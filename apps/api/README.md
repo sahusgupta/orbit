@@ -84,6 +84,8 @@ If `ORBIT_CLIENT_API_KEY` is not packaged with the app, Electron uses the activa
 
 Owner/admin read endpoints such as `/clients`, `/venues`, and `/telemetry/*` require `ORBIT_OWNER_API_KEY`. The dashboard accepts its password only at `POST /dashboard/session`, then uses a short-lived server-signed cookie; it never stores or transmits a master key in LocalStorage or an SSE URL.
 
+For an active managed pilot license, the dashboard can create the venue's first management login through `POST /dashboard/licenses/:licenseDocumentId/management-account`. Provisioning requires an existing authoritative state whose account key already matches the license; it adds only the hashed management login record, preserves the club's games, players, sessions, and settings, and creates the corresponding Firebase email/password user. It fails closed for inactive licenses, missing or mismatched state, existing management logins, and Firebase emails already in use. If the authoritative state commit fails after Firebase user creation, the API attempts to remove that new Firebase user and raises an operational alert.
+
 ## Server-Managed Pilot Licenses
 
 Pilot authorization codes are stable credentials. Their operational expiration is stored by the API in the server-only Firestore `pilotLicenses` collection, using a SHA-256 authorization-code identifier rather than storing the raw key. The desktop checks `GET /license/status` at startup and every five minutes. Changing a license expiration in the dashboard therefore updates connected installations without issuing another key file or changing the venue account identifier.
@@ -98,7 +100,7 @@ The Pilot licenses section shows active, expired, and revoked keys; the venue; k
 
 ## Management Account Recovery
 
-The dashboard's **Pilot licenses** and **Management account access** sections provide the same protected recovery controls for card-house management logins. Neither path reveals an existing password.
+The dashboard's **Pilot licenses** and **Management account access** sections can create the first login for an active key and provide protected recovery controls for existing card-house management logins. Neither path reveals an existing password. After provisioning, the card house loads its existing pilot key and signs in with the new credentials; the desktop loads the authoritative state for that key before authentication, so the saved club data remains in place.
 
 For a card house that was locked out after its key expired:
 

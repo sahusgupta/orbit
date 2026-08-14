@@ -143,6 +143,36 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
     response.status(201).json({ ok: true, license });
   }));
 
+  app.post('/dashboard/licenses/:licenseDocumentId/management-account', requireDashboardAuth, asyncRoute(async (request, response) => {
+    const result = await managementAccounts.provisionAccount({
+      licenseDocumentId: request.params.licenseDocumentId,
+      username: request.body?.username,
+      password: request.body?.password
+    });
+    logDomainChange('management-account-provisioned-by-owner', {
+      tenantRef: protectedIdentifier(result.accountKey),
+      accountRef: protectedIdentifier(result.username),
+      licenseId: result.licenseId,
+      revision: result.revision
+    });
+    await recordSecurityActivity({
+      accountKey: result.accountKey,
+      event: 'management-account-provisioned',
+      actorRef: dashboardActorRef(request),
+      details: {
+        licenseId: result.licenseId,
+        revision: result.revision,
+        provider: 'firebase',
+        existingStatePreserved: true
+      }
+    });
+    response.status(201).json({
+      ok: true,
+      account: { accountKey: result.accountKey, username: result.username, revision: result.revision },
+      publication: result.publication
+    });
+  }));
+
   app.post('/dashboard/licenses/:licenseDocumentId/revoke', requireDashboardAuth, asyncRoute(async (request, response) => {
     const license = await revokePilotLicense(request.params.licenseDocumentId);
     logDomainChange('pilot-license-revoked', { licenseId: license.licenseId, issuedTo: license.issuedTo });

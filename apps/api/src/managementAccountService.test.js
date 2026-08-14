@@ -16,7 +16,7 @@ const updatedSalt = testCredential('updated-salt', 's');
 const updatedHash = testCredential('updated-hash', 'h');
 const firebaseWebApiKey = testCredential('firebase-web-key', 'k');
 
-function makeRecord() {
+function makeRecord({ withLogin = true } = {}) {
   return {
     accountKey: 'room-one',
     venueName: 'Room One',
@@ -29,12 +29,13 @@ function makeRecord() {
       profiles: [],
       settings: {
         clubAccount: { clubName: 'Room One' },
-        accountLogin: {
+        pilotAccess: { licenseId: 'room-one', expiresAt: '2099-01-01T00:00:00.000Z' },
+        ...(withLogin ? { accountLogin: {
           username: 'Owner@Example.com',
           passwordSalt: priorSalt,
           passwordHash: priorHash,
           createdAt: '2026-01-01T00:00:00.000Z'
-        }
+        } } : {})
       }
     }
   };
@@ -63,10 +64,17 @@ function makeRecoveryStore(overrides = {}) {
 }
 
 function makeService(overrides = {}) {
-  const record = makeRecord();
+  const record = overrides.record || makeRecord();
   const recoveryStore = overrides.recoveryStore || makeRecoveryStore();
   const events = [];
   const passwordProvider = overrides.passwordProvider || {
+    createUser: vi.fn(async () => {
+      events.push('provider-create');
+      return { userId: 'firebase-user-1', userRef: 'user-ref' };
+    }),
+    deleteUser: vi.fn(async () => {
+      events.push('provider-delete');
+    }),
     updatePassword: vi.fn(async () => {
       events.push('provider');
       return { userRef: 'user-ref' };
@@ -84,6 +92,14 @@ function makeService(overrides = {}) {
     service: createManagementAccountService({
       listStatePage: async () => ({ records: [record], hasMore: false, nextCursor: null }),
       loadState: async () => record,
+      loadPilotLicense: overrides.loadPilotLicense || vi.fn(async () => ({
+        id: 'license-document-1',
+        licenseId: 'room-one',
+        accountKey: 'room-one',
+        issuedTo: 'Room One',
+        status: 'active',
+        expiresAt: '2099-01-01T00:00:00.000Z'
+      })),
       saveState,
       recoveryStore,
       passwordProvider,
@@ -99,6 +115,86 @@ function makeService(overrides = {}) {
 }
 
 describe('management account recovery service', () => {
+  it('provisions credentials only onto an active license state while preserving all existing club data', async () => {
+    const record = makeRecord({ withLogin: false });
+    record.state.games = [{ id: 'holdem', name: '1/2 NLH' }];
+    record.state.profiles = [{ id: 'player-1', name: 'Lucky Lodge Regular' }];
+    const { passwordProvider, saveState, service } = makeService({ record });
+    const password = validTestPassword('new-management-login');
+
+    const result = await service.provisionAccount({
+      licenseDocumentId: 'license-document-1',
+      username: 'Manager@LuckyLodge.example',
+      password
+    });
+
+    expect(passwordProvider.createUser).toHaveBeenCalledWith('manager@luckylodge.example', password);
+    expect(saveState).toHaveBeenCalledWith({
+      ...record.state,
+      settings: {
+        ...record.state.settings,
+        accountLogin: {
+          username: 'manager@luckylodge.example',
+          passwordSalt: updatedSalt,
+          passwordHash: updatedHash,
+          createdAt: '2026-08-11T15:00:00.000Z'
+        }
+      }
+    }, expect.objectContaining({
+      expectedRevision: 4,
+      mutationId: 'management-account-provision:operation-1',
+      mutationType: 'management-account-provision'
+    }));
+    expect(result).toMatchObject({
+      accountKey: 'room-one',
+      username: 'manager@luckylodge.example',
+      revision: 5
+    });
+    expect(passwordProvider.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it('rejects provisioning for inactive licenses or accounts that already have a login', async () => {
+    const inactive = makeService({
+      record: makeRecord({ withLogin: false }),
+      loadPilotLicense: vi.fn(async () => ({
+        id: 'license-document-1',
+        accountKey: 'room-one',
+        status: 'expired'
+      }))
+    });
+    await expect(inactive.service.provisionAccount({
+      licenseDocumentId: 'license-document-1',
+      username: 'manager@example.com',
+      password: validTestPassword('inactive-license')
+    })).rejects.toMatchObject({ code: 'MANAGEMENT_LICENSE_INACTIVE', status: 409 });
+    expect(inactive.passwordProvider.createUser).not.toHaveBeenCalled();
+
+    const configured = makeService();
+    await expect(configured.service.provisionAccount({
+      licenseDocumentId: 'license-document-1',
+      username: 'replacement@example.com',
+      password: validTestPassword('existing-login')
+    })).rejects.toMatchObject({ code: 'MANAGEMENT_LOGIN_ALREADY_CONFIGURED', status: 409 });
+    expect(configured.passwordProvider.createUser).not.toHaveBeenCalled();
+  });
+
+  it('removes a newly created Firebase user when authoritative state provisioning fails', async () => {
+    const saveState = vi.fn(async () => {
+      throw new Error('state unavailable');
+    });
+    const { passwordProvider, service } = makeService({
+      record: makeRecord({ withLogin: false }),
+      saveState
+    });
+
+    await expect(service.provisionAccount({
+      licenseDocumentId: 'license-document-1',
+      username: 'manager@example.com',
+      password: validTestPassword('rollback')
+    })).rejects.toThrow('state unavailable');
+    expect(passwordProvider.deleteUser).toHaveBeenCalledWith('firebase-user-1');
+  });
+
   it('lists management accounts without exposing password hashes or salts', async () => {
     const { service } = makeService();
     const accounts = await service.listAccounts();
