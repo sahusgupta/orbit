@@ -9,6 +9,7 @@ const state = {
   venues: [],
   licenses: [],
   managementAccounts: [],
+  legacyAccounts: [],
   securityEvents: []
 };
 
@@ -41,6 +42,7 @@ const elements = {
 
 let renderedManagementAccounts = null;
 let renderedManagementLicenses = null;
+let renderedLegacyAccounts = null;
 let renderedSecurityEvents = null;
 
 function setStatus(message, tone = '') {
@@ -75,30 +77,41 @@ function renderList(target, items, renderItem, emptyText) {
   target.innerHTML = items.length ? items.map(renderItem).join('') : emptyText;
 }
 
-function renderManagementAccessControls(accountKey, account, license, managementAccounts = []) {
+function renderManagementAccessControls(accountKey, account, license, managementAccounts = [], legacyAccounts = [], licenses = []) {
   const escapedAccountKey = escapeHtml(accountKey);
   if (!account?.hasManagementLogin) {
     if (!license || license.status !== 'active') {
       return '<p class="account-warning">A management login can be created only while the linked pilot key is active.</p>';
     }
     const escapedLicenseId = escapeHtml(license.id);
-    const sourceCandidates = managementAccounts
+    const targetLegacyAccount = legacyAccounts.find((candidate) => candidate.accountKey === accountKey);
+    const sourceCandidates = [...managementAccounts, ...legacyAccounts.filter((legacy) =>
+      !managementAccounts.some((candidate) => candidate.accountKey === legacy.accountKey)
+    )]
       .filter((candidate) => candidate.accountKey && candidate.accountKey !== accountKey)
       .sort((left, right) => String(left.venueName || left.accountKey).localeCompare(String(right.venueName || right.accountKey)));
-    if (!account && !sourceCandidates.length) {
-      return '<p class="account-warning">This key has no authoritative state, and no prior club account is available to copy. Load and sync the club before creating its login.</p>';
+    if (!account && !targetLegacyAccount && !sourceCandidates.length) {
+      return '<p class="account-warning">No server-side club state was found for this key or its other license records. Load the key on the original Orbit computer to recover its encrypted local data before creating a login.</p>';
     }
-    const sourceSelector = !account ? `
+    const sourceSelector = !account && !targetLegacyAccount ? `
       <label class="source-account-field">
         <span>Existing club data</span>
         <select data-account-source="${escapedAccountKey}">
           <option value="">Select the prior club account</option>
-          ${sourceCandidates.map((candidate) => `
-            <option value="${escapeHtml(candidate.accountKey)}">${escapeHtml(candidate.venueName || candidate.accountKey)} — ${escapeHtml(candidate.accountKey)} — revision ${escapeHtml(candidate.revision)}</option>
-          `).join('')}
+          ${sourceCandidates.map((candidate) => {
+            const candidateLicense = licenses.find((item) => item.accountKey === candidate.accountKey);
+            const sourceIsActive = candidateLicense?.status === 'active';
+            const sourceLabel = candidate.stateSource === 'legacy-firebase'
+              ? `legacy recovery saved ${formatTime(candidate.savedAt) || 'previously'}`
+              : `revision ${candidate.revision}`;
+            const activeLabel = sourceIsActive ? ` — revoke key ending ${candidateLicense.codeLast4 || '----'} first` : '';
+            return `<option value="${escapeHtml(candidate.accountKey)}" ${sourceIsActive ? 'disabled' : ''}>${escapeHtml(candidate.venueName || candidate.accountKey)} — ${escapeHtml(sourceLabel)}${escapeHtml(activeLabel)}</option>`;
+          }).join('')}
         </select>
       </label>
-    ` : '';
+    ` : targetLegacyAccount
+      ? `<input data-account-source="${escapedAccountKey}" type="hidden" value="${escapedAccountKey}" />`
+      : '';
     return `
       <div class="account-controls single" data-account-control-scope="${escapedAccountKey}">
         <section class="account-control-group">
@@ -106,7 +119,9 @@ function renderManagementAccessControls(accountKey, account, license, management
             <strong>Create management login</strong>
             <p>${account
               ? 'Add credentials to this active key’s existing authoritative club account.'
-              : 'Choose the prior club account to copy onto this active key. The prior record remains unchanged as a recovery copy.'} Games, players, sessions, and settings are preserved.</p>
+              : targetLegacyAccount
+                ? 'Recovered legacy club data was found for this key and will be imported into the authoritative store.'
+                : 'Choose the prior club account to copy onto this active key. A prior active key must be revoked before it can be selected.'} Games, players, sessions, and settings are preserved.</p>
           </div>
           <div class="account-action-row">
             ${sourceSelector}
@@ -228,7 +243,7 @@ function render() {
                 <strong>Management access for this active key</strong>
                 <p>${account?.username ? escapeHtml(account.username) : 'No management login is linked to this key yet.'}</p>
               </div>
-              ${renderManagementAccessControls(license.accountKey, account, license, state.managementAccounts)}
+              ${renderManagementAccessControls(license.accountKey, account, license, state.managementAccounts, state.legacyAccounts, state.licenses)}
             </section>
           ` : ''}
         </article>
@@ -237,7 +252,7 @@ function render() {
     'No managed pilot licenses yet. Provision a verified signed key through the protected license endpoint.'
   );
 
-  if (renderedManagementAccounts !== state.managementAccounts || renderedManagementLicenses !== state.licenses) {
+  if (renderedManagementAccounts !== state.managementAccounts || renderedManagementLicenses !== state.licenses || renderedLegacyAccounts !== state.legacyAccounts) {
     renderList(
       elements.managementAccounts,
       state.managementAccounts,
@@ -245,7 +260,7 @@ function render() {
       const license = state.licenses.find((candidate) => candidate.accountKey === account.accountKey);
       const recovery = account.recovery;
       const recoveryActive = recovery?.status === 'active';
-      const loginActions = renderManagementAccessControls(account.accountKey, account, license, state.managementAccounts);
+      const loginActions = renderManagementAccessControls(account.accountKey, account, license, state.managementAccounts, state.legacyAccounts, state.licenses);
       return `
         <article class="management-account-row">
           <div class="account-heading">
@@ -270,6 +285,7 @@ function render() {
     );
     renderedManagementAccounts = state.managementAccounts;
     renderedManagementLicenses = state.licenses;
+    renderedLegacyAccounts = state.legacyAccounts;
   }
 
   if (renderedSecurityEvents !== state.securityEvents) {
@@ -391,6 +407,7 @@ async function loadDashboard({ preserveEventHistory = false } = {}) {
   state.venues = payload.venues || [];
   state.licenses = payload.licenses || [];
   state.managementAccounts = payload.managementAccounts || [];
+  state.legacyAccounts = payload.legacyAccounts || [];
   state.securityEvents = payload.securityEvents || [];
   setSummary(payload.summary || {});
   render();

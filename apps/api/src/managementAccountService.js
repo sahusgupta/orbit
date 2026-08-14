@@ -4,8 +4,10 @@ const {
   consumeManagementRecoveryOverride,
   createManagementRecoveryOverride,
   getManagementRecoveryOverride,
+  listLegacyStates,
   listManagementRecoveryOverrides,
   listStatePage,
+  loadLegacyState,
   loadState,
   releaseManagementRecoveryClaim,
   revokeManagementRecoveryOverride,
@@ -206,7 +208,9 @@ function createManagementAccountService(dependencies = {}) {
     release: releaseManagementRecoveryClaim,
     revoke: revokeManagementRecoveryOverride
   };
+  const listLegacyStatesImpl = dependencies.listLegacyStates || listLegacyStates;
   const listStatePageImpl = dependencies.listStatePage || listStatePage;
+  const loadLegacyStateImpl = dependencies.loadLegacyState || loadLegacyState;
   const loadStateImpl = dependencies.loadState || loadState;
   const loadPilotLicenseImpl = dependencies.loadPilotLicense || getPilotLicense;
   const listPilotLicensesForAccountImpl = dependencies.listPilotLicensesForAccount || listPilotLicensesForAccount;
@@ -272,6 +276,16 @@ function createManagementAccountService(dependencies = {}) {
     });
   }
 
+  async function listLegacyAccounts(accountKeys) {
+    const records = await listLegacyStatesImpl(accountKeys);
+    return records.map((record) => ({
+      accountKey: record.accountKey,
+      venueName: record.venueName || record.accountKey,
+      savedAt: record.savedAt,
+      stateSource: 'legacy-firebase'
+    }));
+  }
+
   async function provisionAccount({ licenseDocumentId, sourceAccountKey = '', username, password }) {
     const normalizedUsername = validateUsername(username);
     const newPassword = validateNewPassword(password);
@@ -290,16 +304,21 @@ function createManagementAccountService(dependencies = {}) {
     }
 
     let migratedFromAccountKey = '';
+    let migratedFromLegacy = false;
     let record = await loadStateImpl(license.accountKey);
     if (!record) {
       const normalizedSourceAccountKey = sanitizeAccountKey(sourceAccountKey);
-      if (!normalizedSourceAccountKey || normalizedSourceAccountKey === license.accountKey) {
+      if (!normalizedSourceAccountKey) {
         throw new ManagementAccountError('This active license has no authoritative club data yet. Select the prior club account to preserve its data.', {
           code: 'MANAGEMENT_STATE_NOT_FOUND',
           status: 409
         });
       }
-      const sourceRecord = await loadStateImpl(normalizedSourceAccountKey);
+      let sourceRecord = await loadStateImpl(normalizedSourceAccountKey);
+      if (!sourceRecord) {
+        sourceRecord = await loadLegacyStateImpl(normalizedSourceAccountKey);
+        migratedFromLegacy = Boolean(sourceRecord);
+      }
       if (!sourceRecord || sourceRecord.accountKey !== normalizedSourceAccountKey) {
         throw new ManagementAccountError('The selected prior club data was not found.', {
           code: 'MANAGEMENT_SOURCE_STATE_NOT_FOUND',
@@ -313,7 +332,9 @@ function createManagementAccountService(dependencies = {}) {
           status: 409
         });
       }
-      const sourceLicenses = await listPilotLicensesForAccountImpl(normalizedSourceAccountKey);
+      const sourceLicenses = normalizedSourceAccountKey === license.accountKey
+        ? []
+        : await listPilotLicensesForAccountImpl(normalizedSourceAccountKey);
       if (sourceLicenses.some((candidate) => candidate.id !== license.id && candidate.status === 'active')) {
         throw new ManagementAccountError('The selected club data is still bound to another active pilot license. Revoke that license before copying the state.', {
           code: 'MANAGEMENT_SOURCE_LICENSE_ACTIVE',
@@ -381,6 +402,7 @@ function createManagementAccountService(dependencies = {}) {
           if (!latest) throw error;
           record = latest;
           migratedFromAccountKey = '';
+          migratedFromLegacy = false;
         }
       }
       if (!saved) throw new Error('Management account could not be committed after revision retries.');
@@ -405,6 +427,7 @@ function createManagementAccountService(dependencies = {}) {
       accountKey: saved.accountKey,
       licenseId: license.licenseId,
       migratedFromAccountKey,
+      migratedFromLegacy,
       username: normalizedUsername,
       revision: saved.revision,
       publication: saved.publication
@@ -540,6 +563,7 @@ function createManagementAccountService(dependencies = {}) {
     completeRecovery,
     getRecoveryStatus,
     listAccounts,
+    listLegacyAccounts,
     provisionAccount,
     revokeRecovery,
     sendResetEmail,

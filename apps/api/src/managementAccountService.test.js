@@ -91,7 +91,9 @@ function makeService(overrides = {}) {
     recoveryStore,
     saveState,
     service: createManagementAccountService({
+      listLegacyStates: overrides.listLegacyStates || vi.fn(async () => []),
       listStatePage: async () => ({ records: [record], hasMore: false, nextCursor: null }),
+      loadLegacyState: overrides.loadLegacyState || vi.fn(async () => null),
       loadState: overrides.loadState || (async () => record),
       loadPilotLicense: overrides.loadPilotLicense || vi.fn(async () => ({
         id: 'license-document-1',
@@ -252,6 +254,72 @@ describe('management account recovery service', () => {
     });
     expect(saveOptions).toMatchObject({ expectedRevision: 0, mutationType: 'management-account-provision' });
     expect(result).toMatchObject({ accountKey: 'room-one', migratedFromAccountKey: 'prior-room-one', revision: 5 });
+  });
+
+  it('imports matching legacy Firebase state without exposing or deleting the recovery copy', async () => {
+    const legacyRecord = makeRecord();
+    legacyRecord.accountKey = 'prior-room-one';
+    legacyRecord.state.games = [{ id: 'holdem', name: '1/2 NLH' }];
+    legacyRecord.state.profiles = [{ id: 'player-1', name: 'Lucky Lodge Regular' }];
+    legacyRecord.state.settings.clubAccount.clubName = 'Lucky Lodge';
+    legacyRecord.state.settings.pilotAccess = {
+      licenseId: 'prior-room-one',
+      issuedTo: 'Lucky Lodge',
+      expiresAt: '2026-08-01T00:00:00.000Z'
+    };
+    const loadLegacyState = vi.fn(async (accountKey) => accountKey === 'prior-room-one' ? legacyRecord : null);
+    const { saveState, service } = makeService({
+      loadState: vi.fn(async () => null),
+      loadLegacyState,
+      loadPilotLicense: vi.fn(async () => ({
+        id: 'license-document-1',
+        licenseId: 'room-one',
+        accountKey: 'room-one',
+        issuedTo: 'The Lucky Lodge',
+        status: 'active',
+        expiresAt: '2099-01-01T00:00:00.000Z'
+      }))
+    });
+
+    const result = await service.provisionAccount({
+      licenseDocumentId: 'license-document-1',
+      sourceAccountKey: 'prior-room-one',
+      username: 'manager@luckylodge.example',
+      password: validTestPassword('legacy-state-login')
+    });
+
+    expect(loadLegacyState).toHaveBeenCalledWith('prior-room-one');
+    expect(saveState).toHaveBeenCalledWith(expect.objectContaining({
+      games: legacyRecord.state.games,
+      profiles: legacyRecord.state.profiles,
+      settings: expect.objectContaining({
+        clubAccount: legacyRecord.state.settings.clubAccount,
+        pilotAccess: expect.objectContaining({ licenseId: 'room-one', issuedTo: 'The Lucky Lodge' })
+      })
+    }), expect.objectContaining({ expectedRevision: 0 }));
+    expect(result).toMatchObject({
+      accountKey: 'room-one',
+      migratedFromAccountKey: 'prior-room-one',
+      migratedFromLegacy: true
+    });
+  });
+
+  it('lists only recovery metadata for legacy license states', async () => {
+    const { service } = makeService({
+      listLegacyStates: vi.fn(async () => [{
+        accountKey: 'prior-room-one',
+        venueName: 'Lucky Lodge',
+        savedAt: '2026-08-05T21:00:00.000Z',
+        state: { private: 'must-not-leak' }
+      }])
+    });
+
+    await expect(service.listLegacyAccounts(['prior-room-one'])).resolves.toEqual([{
+      accountKey: 'prior-room-one',
+      venueName: 'Lucky Lodge',
+      savedAt: '2026-08-05T21:00:00.000Z',
+      stateSource: 'legacy-firebase'
+    }]);
   });
 
   it('rejects a selected source with a different venue identity or another active license', async () => {

@@ -23,6 +23,7 @@ const {
   revokeManagementRecoveryOverride
 } = require('./db/managementRecovery');
 const { listManagementSecurityEvents, recordManagementSecurityEvent } = require('./db/managementSecurityEvents');
+const { listLegacyStates, loadLegacyState } = require('./db/legacyState');
 
 module.exports = {
   closeDatabase,
@@ -43,9 +44,11 @@ module.exports = {
   listPublicationOutbox,
   listManagementRecoveryOverrides,
   listManagementSecurityEvents,
+  listLegacyStates,
   listStatePage,
   listVenues,
   loadLatestState,
+  loadLegacyState,
   loadState,
   recordClientError,
   recordManagementSecurityEvent,
