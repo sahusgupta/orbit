@@ -5,6 +5,8 @@ import ts from 'typescript';
 const workspaceRoot = process.cwd();
 const sourceRoots = ['src', 'electron', 'apps/api/src', 'player-app/src'];
 const sourceExtensions = ['.ts', '.tsx', '.js', '.cjs', '.mjs'];
+const runtimeExtensions = [...sourceExtensions, '.json', '.node'];
+const packageJson = JSON.parse(readFileSync(resolve(workspaceRoot, 'package.json'), 'utf8'));
 const configuredEntrypoints = new Set([
   'src/main.tsx',
   'electron/main.cjs',
@@ -77,6 +79,47 @@ function resolveRelativeImport(importer, specifier) {
   return undefined;
 }
 
+function resolveRuntimeImport(importer, specifier) {
+  const base = resolve(dirname(importer), specifier);
+  const candidates = [base];
+  if (!extname(base)) {
+    runtimeExtensions.forEach((extension) => candidates.push(`${base}${extension}`));
+    runtimeExtensions.forEach((extension) => candidates.push(resolve(base, `index${extension}`)));
+  }
+  return candidates.find((candidate) => existsSync(candidate) && statSync(candidate).isFile());
+}
+
+function findModulePackage(file) {
+  let directory = dirname(file);
+  while (directory.startsWith(workspaceRoot)) {
+    const candidate = resolve(directory, 'package.json');
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+    if (directory === workspaceRoot) break;
+    directory = dirname(directory);
+  }
+  return undefined;
+}
+
+function packagePatternMatches(pattern, file) {
+  const normalizedPattern = pattern.replaceAll('\\', '/').replace(/^\.\//, '');
+  if (normalizedPattern.endsWith('/**/*')) {
+    const prefix = normalizedPattern.slice(0, -5);
+    return file === prefix || file.startsWith(`${prefix}/`);
+  }
+  if (normalizedPattern.endsWith('/**')) {
+    const prefix = normalizedPattern.slice(0, -3);
+    return file === prefix || file.startsWith(`${prefix}/`);
+  }
+  return normalizedPattern === file;
+}
+
+function packageIncludes(file) {
+  const patterns = packageJson.build?.files || [];
+  const included = patterns.some((pattern) => !pattern.startsWith('!') && packagePatternMatches(pattern, file));
+  const excluded = patterns.some((pattern) => pattern.startsWith('!') && packagePatternMatches(pattern.slice(1), file));
+  return included && !excluded;
+}
+
 for (const file of files) {
   for (const specifier of getModuleSpecifiers(file)) {
     if (!specifier.startsWith('.')) {
@@ -93,6 +136,37 @@ for (const file of files) {
     incoming.get(target).add(file);
   }
 }
+
+const packagedRuntimeEntrypoints = ['electron/main.cjs', 'electron/preload.cjs'];
+const packagedRuntimeFiles = new Set();
+const unresolvedPackagedRuntimeImports = [];
+const pendingPackagedRuntimeFiles = packagedRuntimeEntrypoints.map((file) => resolve(workspaceRoot, file));
+
+while (pendingPackagedRuntimeFiles.length) {
+  const file = pendingPackagedRuntimeFiles.pop();
+  if (packagedRuntimeFiles.has(file)) continue;
+  packagedRuntimeFiles.add(file);
+  if (extname(file) === '.js') {
+    const modulePackage = findModulePackage(file);
+    if (modulePackage) pendingPackagedRuntimeFiles.push(modulePackage);
+  }
+  if (!sourceExtensions.includes(extname(file))) continue;
+
+  for (const specifier of getModuleSpecifiers(file)) {
+    if (!specifier.startsWith('.')) continue;
+    const dependency = resolveRuntimeImport(file, specifier);
+    if (!dependency) {
+      unresolvedPackagedRuntimeImports.push({ importer: normalizePath(file), specifier });
+      continue;
+    }
+    pendingPackagedRuntimeFiles.push(dependency);
+  }
+}
+
+const unpackagedRuntimeFiles = Array.from(packagedRuntimeFiles)
+  .map(normalizePath)
+  .filter((file) => !packageIncludes(file))
+  .sort();
 
 let nextIndex = 0;
 const indexes = new Map();
@@ -199,16 +273,30 @@ console.log(JSON.stringify({
     cycles: cycles.length,
     dependencyViolations: dependencyViolations.length,
     unresolvedRelativeImports: unresolvedImports.length,
+    packagedRuntimeFiles: packagedRuntimeFiles.size,
+    unpackagedRuntimeFiles: unpackagedRuntimeFiles.length,
+    unresolvedPackagedRuntimeImports: unresolvedPackagedRuntimeImports.length,
     configuredZeroIncoming: configuredZeroIncoming.length,
     candidateZeroIncoming: candidateZeroIncoming.length
   },
   cycles,
   dependencyViolations,
   unresolvedImports,
+  packagedRuntime: {
+    entrypoints: packagedRuntimeEntrypoints,
+    unpackagedFiles: unpackagedRuntimeFiles,
+    unresolvedImports: unresolvedPackagedRuntimeImports
+  },
   zeroIncoming: {
     configured: configuredZeroIncoming,
     candidates: candidateZeroIncoming
   }
 }, null, 2));
 
-if (cycles.length || dependencyViolations.length || unresolvedImports.length) process.exitCode = 1;
+if (
+  cycles.length ||
+  dependencyViolations.length ||
+  unresolvedImports.length ||
+  unpackagedRuntimeFiles.length ||
+  unresolvedPackagedRuntimeImports.length
+) process.exitCode = 1;
