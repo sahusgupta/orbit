@@ -146,6 +146,7 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
   app.post('/dashboard/licenses/:licenseDocumentId/management-account', requireDashboardAuth, asyncRoute(async (request, response) => {
     const result = await managementAccounts.provisionAccount({
       licenseDocumentId: request.params.licenseDocumentId,
+      sourceAccountKey: request.body?.sourceAccountKey,
       username: request.body?.username,
       password: request.body?.password
     });
@@ -153,6 +154,7 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
       tenantRef: protectedIdentifier(result.accountKey),
       accountRef: protectedIdentifier(result.username),
       licenseId: result.licenseId,
+      migratedFromRef: protectedIdentifier(result.migratedFromAccountKey),
       revision: result.revision
     });
     await recordSecurityActivity({
@@ -161,6 +163,7 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
       actorRef: dashboardActorRef(request),
       details: {
         licenseId: result.licenseId,
+        migratedFromRef: protectedIdentifier(result.migratedFromAccountKey),
         revision: result.revision,
         provider: 'firebase',
         existingStatePreserved: true

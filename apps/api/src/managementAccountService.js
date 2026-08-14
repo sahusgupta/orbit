@@ -15,8 +15,8 @@ const {
 } = require('./database');
 const { protectedIdentifier } = require('./http/dataProtection');
 const { sendOperationalAlert } = require('./http/operationalAlerts');
-const { getPilotLicense } = require('./licenseService');
-const { getAccountKeyFromState } = require('./orbitCore');
+const { getPilotLicense, listPilotLicensesForAccount } = require('./licenseService');
+const { getAccountKeyFromState, sanitizeAccountKey } = require('./orbitCore');
 const { getAdminApp, getAdminSdk } = require('./services/firebaseAdmin');
 
 const blockedPasswords = new Set(['12345678', 'password', 'password1', 'qwerty123']);
@@ -42,6 +42,44 @@ function validateUsername(value) {
     });
   }
   return username;
+}
+
+function normalizeVenueIdentity(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/^the\s+/, '');
+}
+
+function getStateVenueIdentities(state) {
+  return [
+    state?.settings?.pilotAccess?.issuedTo,
+    state?.settings?.clubAccount?.clubName
+  ].map(normalizeVenueIdentity).filter(Boolean);
+}
+
+function bindStateToLicense(state, license, activatedAt) {
+  const { accountLogin: _previousLogin, pilotAccess: _previousAccess, ...preservedSettings } = state.settings || {};
+  return {
+    ...state,
+    settings: {
+      ...preservedSettings,
+      pilotAccess: {
+        authorized: true,
+        authorizationCode: '',
+        licenseId: license.licenseId || license.accountKey,
+        issuedTo: license.issuedTo || '',
+        issuedAt: license.issuedAt || '',
+        expiresAt: license.expiresAt,
+        activatedAt,
+        serverManaged: true
+      }
+    }
+  };
 }
 
 function validateNewPassword(value) {
@@ -171,6 +209,7 @@ function createManagementAccountService(dependencies = {}) {
   const listStatePageImpl = dependencies.listStatePage || listStatePage;
   const loadStateImpl = dependencies.loadState || loadState;
   const loadPilotLicenseImpl = dependencies.loadPilotLicense || getPilotLicense;
+  const listPilotLicensesForAccountImpl = dependencies.listPilotLicensesForAccount || listPilotLicensesForAccount;
   const saveStateImpl = dependencies.saveState || saveState;
   const schedulePublication = dependencies.schedulePublicationDrain || schedulePublicationDrain;
   const passwordProvider = dependencies.passwordProvider || {
@@ -233,7 +272,7 @@ function createManagementAccountService(dependencies = {}) {
     });
   }
 
-  async function provisionAccount({ licenseDocumentId, username, password }) {
+  async function provisionAccount({ licenseDocumentId, sourceAccountKey = '', username, password }) {
     const normalizedUsername = validateUsername(username);
     const newPassword = validateNewPassword(password);
     const license = await loadPilotLicenseImpl(licenseDocumentId);
@@ -250,12 +289,44 @@ function createManagementAccountService(dependencies = {}) {
       });
     }
 
+    let migratedFromAccountKey = '';
     let record = await loadStateImpl(license.accountKey);
     if (!record) {
-      throw new ManagementAccountError('This active license has no authoritative club data yet. Load and sync the club before creating its management login.', {
-        code: 'MANAGEMENT_STATE_NOT_FOUND',
-        status: 409
-      });
+      const normalizedSourceAccountKey = sanitizeAccountKey(sourceAccountKey);
+      if (!normalizedSourceAccountKey || normalizedSourceAccountKey === license.accountKey) {
+        throw new ManagementAccountError('This active license has no authoritative club data yet. Select the prior club account to preserve its data.', {
+          code: 'MANAGEMENT_STATE_NOT_FOUND',
+          status: 409
+        });
+      }
+      const sourceRecord = await loadStateImpl(normalizedSourceAccountKey);
+      if (!sourceRecord || sourceRecord.accountKey !== normalizedSourceAccountKey) {
+        throw new ManagementAccountError('The selected prior club data was not found.', {
+          code: 'MANAGEMENT_SOURCE_STATE_NOT_FOUND',
+          status: 404
+        });
+      }
+      const licenseIdentity = normalizeVenueIdentity(license.issuedTo);
+      if (!licenseIdentity || !getStateVenueIdentities(sourceRecord.state).includes(licenseIdentity)) {
+        throw new ManagementAccountError('The selected club data does not match the venue named by this pilot license.', {
+          code: 'MANAGEMENT_SOURCE_IDENTITY_MISMATCH',
+          status: 409
+        });
+      }
+      const sourceLicenses = await listPilotLicensesForAccountImpl(normalizedSourceAccountKey);
+      if (sourceLicenses.some((candidate) => candidate.id !== license.id && candidate.status === 'active')) {
+        throw new ManagementAccountError('The selected club data is still bound to another active pilot license. Revoke that license before copying the state.', {
+          code: 'MANAGEMENT_SOURCE_LICENSE_ACTIVE',
+          status: 409
+        });
+      }
+      migratedFromAccountKey = normalizedSourceAccountKey;
+      record = {
+        ...sourceRecord,
+        accountKey: license.accountKey,
+        revision: 0,
+        state: bindStateToLicense(sourceRecord.state, license, now().toISOString())
+      };
     }
     if (record.accountKey !== license.accountKey || getAccountKeyFromState(record.state) !== license.accountKey) {
       throw new ManagementAccountError('The saved club data is not bound to this pilot license. Resolve the account mapping before creating credentials.', {
@@ -309,6 +380,7 @@ function createManagementAccountService(dependencies = {}) {
           const latest = await loadStateImpl(license.accountKey);
           if (!latest) throw error;
           record = latest;
+          migratedFromAccountKey = '';
         }
       }
       if (!saved) throw new Error('Management account could not be committed after revision retries.');
@@ -332,6 +404,7 @@ function createManagementAccountService(dependencies = {}) {
     return {
       accountKey: saved.accountKey,
       licenseId: license.licenseId,
+      migratedFromAccountKey,
       username: normalizedUsername,
       revision: saved.revision,
       publication: saved.publication
