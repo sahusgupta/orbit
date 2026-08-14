@@ -1,0 +1,44 @@
+'use client';
+
+import { CircleHelp } from 'lucide-react';
+import { WatermelonFaq } from '@/src/components/vendor/watermelon/faq';
+
+const questions = [
+  {
+    id: 'browse',
+    question: 'Do I need an account to browse?',
+    answer: 'No. Games, clubs, tournament details, status, and location context stay public. Orbit asks you to sign in only when you act or open My Orbit.'
+  },
+  {
+    id: 'source',
+    question: 'Where does the live information come from?',
+    answer: 'Participating rooms publish their current game, table, seat, and tournament state from Orbit Core. When a room changes that state, public routes refresh from the same player-safe publication boundary.'
+  },
+  {
+    id: 'seat',
+    question: 'Does a game request guarantee a seat?',
+    answer: 'No. A request tells the room whether you are there, arriving later, or interested. The room remains authoritative for seating and waitlist order.'
+  },
+  {
+    id: 'location',
+    question: 'Can I use Orbit without sharing my location?',
+    answer: 'Yes. Location improves distance sorting, but discovery remains usable without permission. You can also enter a city or area manually.'
+  },
+  {
+    id: 'payments',
+    question: 'How do memberships and tournament payments work?',
+    answer: 'Orbit shows only options a room has published. A membership request or tournament registration records your intent; payment and activation follow the supported process stated by the room.'
+  }
+] as const;
+
+export function OrbitFaq() {
+  return (
+    <WatermelonFaq
+      eyebrow="Before you go"
+      title="Straight answers for live play."
+      items={questions}
+      icon={CircleHelp}
+      headingId="faq-heading"
+    />
+  );
+}

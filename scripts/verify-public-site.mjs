@@ -74,6 +74,13 @@ assert.match(robots, /User-agent: ClaudeBot/);
 assert.ok(robots.includes(`Sitemap: ${publicOrigin}/sitemap.xml`));
 assert.match(read('llms.txt'), /Authenticated, administrative, API, player-private, and venue-private routes/);
 assert.match(read('ai-policy.txt'), /Automated crawlers may index the public static pages/);
+const privacy = read('privacy.html');
+for (const service of ['Google Firebase and Google Cloud', 'Vercel', 'Stripe', 'Twilio', 'RevenueCat', 'OpenStreetMap Foundation', 'Expo Application Services', 'GitHub']) {
+  assert.match(privacy, new RegExp(service));
+}
+assert.match(privacy, /built with assistance from AI development tools, including OpenAI Codex/);
+assert.match(privacy, /currently has no user-facing generative-AI runtime feature/);
+assert.doesNotMatch(privacy, /Orbit Technologies LLC/);
 assert.ok(fs.existsSync(path.join(outputRoot, 'orbit-icon.png')), 'OG image must be emitted');
 const emittedFiles = fs.readdirSync(outputRoot, { recursive: true }).map(String);
 

@@ -73,19 +73,19 @@ Astryx keeps one web primitive direction: semantic HTML plus the repository's Ra
 
 Evaluated candidates: the [FAQ block](https://ui.watermelon.sh/block/faq-1), [notification block](https://ui.watermelon.sh/block/notification-4), and [Sonner component](https://ui.watermelon.sh/components/sonner). Their disclosure and feedback behaviors are relevant, but installing copied registry code would add a second styling ownership path beside Orbit's existing Radix/ShadCN-compatible layer. The generic FAQ block also does not supply approved Orbit FAQ content or Orbit-specific composition.
 
-Disposition: do not install or copy a Watermelon block. Astryx adopts the useful behavior: native/Radix disclosure semantics, explicit expanded state, bounded live feedback, and one governed state vocabulary. Stage 7's FAQ will use approved factual content in a custom Orbit presentation rather than a registry layout.
+Disposition for Player Web: import an adapted, attributed copy of Watermelon UI's MIT-licensed `faq-1` composition. Orbit replaces the registry's Tailwind/Radix styling path with Astryx CSS and Base UI accordion semantics, uses factual Orbit content, and retains the plus/minus state language without copying the stock visual layout. Other product surfaces continue to use the governed Astryx disclosure vocabulary rather than a second styling owner.
 
 ### Motion Primitives
 
 Evaluated candidates: [In View](https://motion-primitives.com/docs/in-view), [Animated Group](https://motion-primitives.com/docs/animated-group), disclosure/dialog primitives, and the broader [Motion Primitives catalog](https://motion-primitives.com/docs). The package is a Tailwind/Motion-oriented beta library. In View and Animated Group make repeated entrance/stagger effects easy, which conflicts with Orbit's operational scanability and explicit no-default-entrance rule. Adding Motion and Tailwind for behavior already covered by CSS, Radix, and React Native Animated would increase the dependency and styling surface.
 
-Disposition: do not install. Astryx implements bounded duration/easing tokens, state-only transitions, overlay entry, progress updates, and reduced-motion suppression with current platform tools. Text effects, shimmer, glow, tilt, and repeated viewport entrance remain prohibited.
+Disposition for Player Web: import an adapted, attributed copy of Motion Primitives' MIT-licensed `InView` component on the few homepage sections where scroll entrance adds orientation. Orbit supplies Astryx variants and reduced-motion behavior and keeps the component out of repeated operational lists. Text effects, shimmer, glow, tilt, and repeated viewport entrance remain prohibited.
 
 ### Haikei
 
 Evaluated output families at [Haikei](https://haikei.app): blobs, waves, blurry gradients, low-poly fields, grids, symbols, steps, and peaks. Blobs, blurry gradients, and waves would reintroduce the prohibited fog/blob direction; noise and animated grids are also prohibited. The remaining structured outputs do not improve task comprehension enough to justify another decorative asset or export pipeline.
 
-Disposition: reject all Haikei output for P2. Orbit uses solid tonal sections, borders, spacing, canonical brand artwork, and code-native poker/card geometry. Generated Stage 7 atmosphere, required separately by the approved brief, must remain abstract and must never depict product UI, customers, venues, or metrics.
+Disposition for Player Web: use one real Haikei Layered Waves SVG export, adapted to the Astryx palette and rendered through a small wrapper at restrained scroll ratios. It remains low-contrast, non-interactive, and abstract; it does not depict product UI, customers, venues, or metrics. Other Haikei blob, blurry-gradient, noise, and animated-grid treatments remain prohibited.
 
 ## Individually reviewable prohibited-pattern dispositions
 

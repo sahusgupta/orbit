@@ -1,0 +1,53 @@
+'use client';
+
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useMemo } from 'react';
+import { useAuth } from '@/src/auth/auth-context';
+import { usePlayerData } from '@/src/data/player-data-context';
+import { filterTournaments } from '@/src/domain/selectors';
+import type { DiscoveryPayload, TournamentFilters } from '@/src/domain/types';
+import { useLocation } from '@/src/location/location-context';
+import { SearchField, SelectField } from '@/src/components/ui/fields';
+import { Disclosure } from '@/src/components/ui/disclosure';
+import { EmptyState } from '@/src/components/ui/state-panels';
+import { TournamentCard } from './entity-cards';
+import { LocationControl } from './location-control';
+
+export function TournamentsExplorer({ discovery }: { discovery: DiscoveryPayload }) {
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const { user } = useAuth();
+  const playerData = usePlayerData();
+  const { coordinate } = useLocation();
+  const source = user && playerData.status === 'ready' ? playerData : discovery;
+  const filters = useMemo<TournamentFilters>(() => ({
+    query: searchParams.get('q') ?? '',
+    club: searchParams.get('club') ?? 'all',
+    distance: searchParams.get('distance') ?? '0',
+    registration: searchParams.get('registration') ?? 'all'
+  }), [searchParams]);
+  const matches = useMemo(() => filterTournaments(source, filters, user?.uid ?? '', coordinate), [coordinate, filters, source, user?.uid]);
+  const update = (key: string, value: string) => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (!value || value === 'all' || value === '0') next.delete(key); else next.set(key, value);
+    router.replace(`${pathname}${next.size ? `?${next.toString()}` : ''}`, { scroll: false });
+  };
+  return (
+    <div className="stack-xl">
+      <Disclosure title="Refine events">
+        <div className="inline-filter-bar">
+          <SearchField label="Search tournaments" value={filters.query} onChange={(event) => update('q', event.target.value)} placeholder="Event, club, or prize" />
+          <SelectField label="Registration" value={filters.registration} onValueChange={(value) => update('registration', value)} options={[{ value: 'all', label: 'All events' }, { value: 'open', label: 'Registration open' }, { value: 'free', label: 'Freerolls' }, ...(user ? [{ value: 'registered', label: 'My registered events' }] : [])]} />
+          <SelectField label="Club" value={filters.club} onValueChange={(value) => update('club', value)} options={[{ value: 'all', label: 'Any club' }, ...source.clubs.map((club) => ({ value: club.club.id, label: club.club.name }))]} />
+          <SelectField label="Distance" value={filters.distance} onValueChange={(value) => update('distance', value)} options={[{ value: '0', label: 'Any distance' }, { value: '5', label: 'Within 5 mi' }, { value: '10', label: 'Within 10 mi' }, { value: '20', label: 'Within 20 mi' }, { value: '50', label: 'Within 50 mi' }]} />
+        </div>
+        <LocationControl />
+      </Disclosure>
+      <section aria-live="polite">
+        <div className="results-summary"><strong>{matches.length}</strong><span>event{matches.length === 1 ? '' : 's'} matched</span></div>
+        {matches.length ? <div className="tournament-list">{matches.map((listing) => <TournamentCard key={`${listing.tournament.clubId}:${listing.tournament.id}`} listing={listing} />)}</div> : <EmptyState title="No tournaments match those filters" message="Try another club, widen the distance, or include closed registration." />}
+      </section>
+    </div>
+  );
+}

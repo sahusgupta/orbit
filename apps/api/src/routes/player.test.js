@@ -25,4 +25,64 @@ describe('Player response DTOs', () => {
     expect(response).not.toHaveProperty('changedEntityCount');
     expect(response).not.toHaveProperty('publication');
   });
+
+  it('removes player-specific records from public club snapshots', () => {
+    const state = {
+      settings: {
+        accountLogin: { username: 'club@example.com' },
+        clubAccount: { clubName: 'Orbit Card House', address: '100 Main Street' },
+        membershipPlans: []
+      },
+      games: [{ id: 'game-1', name: '1/2 NLH', maxSeats: 9 }],
+      sessions: [],
+      playerSessions: [],
+      profiles: [{ id: 'player-1', name: 'Private Player' }],
+      interests: [{
+        id: 'interest-1',
+        gameId: 'game-1',
+        profileId: 'player-1',
+        playerName: 'Private Player',
+        status: 'Interested',
+        interestedAt: '2026-08-12T12:00:00.000Z'
+      }],
+      inAppNotifications: [{
+        id: 'notice-1',
+        gameId: 'game-1',
+        title: 'Private alert',
+        body: 'A seat opened.',
+        reason: 'seat-opened',
+        createdAt: '2026-08-12T12:00:00.000Z',
+        targetPlayerIds: ['player-1']
+      }]
+    };
+
+    const snapshot = playerRoutes.buildPublicClubSnapshot(state);
+
+    expect(snapshot.memberships).toEqual([]);
+    expect(snapshot.waitlists).toEqual([]);
+    expect(snapshot.notifications).toEqual([]);
+    expect(snapshot.social.knownPlayersInHouse).toBe(0);
+    expect(snapshot.games[0].waitlistCount).toBe(1);
+  });
+
+  it('removes non-public stress games from public club snapshots', () => {
+    const state = {
+      settings: {
+        accountLogin: { username: 'club@example.com' },
+        clubAccount: { clubName: 'Orbit Card House' },
+        membershipPlans: []
+      },
+      games: [
+        { id: 'game-1', name: '1/2 NLH', maxSeats: 9 },
+        { id: 'game-2', name: 'Stress Game', maxSeats: 9 }
+      ],
+      sessions: [],
+      playerSessions: [],
+      profiles: [],
+      interests: [],
+      inAppNotifications: []
+    };
+
+    expect(playerRoutes.buildPublicClubSnapshot(state).games.map((game) => game.name)).toEqual(['1/2 NLH']);
+  });
 });

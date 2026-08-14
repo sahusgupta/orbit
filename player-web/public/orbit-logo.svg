@@ -1,0 +1,6 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Orbit logo">
+  <rect width="1024" height="1024" rx="176" fill="#10212B"/>
+  <path d="M777.5 421.5C755.5 268.5 627.8 165.3 475.2 179.1C309 194.1 181.1 337.2 190.3 506.3C200 686.7 351.2 824.9 530.9 808.3C675.3 794.9 785.5 686.9 798.8 547.9" stroke="#F7F2E8" stroke-width="38" stroke-linecap="round"/>
+  <circle cx="774" cy="433" r="65" fill="#F7F2E8" stroke="#10212B" stroke-width="12"/>
+  <circle cx="774" cy="433" r="36" fill="#C66A2B"/>
+</svg>

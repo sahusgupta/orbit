@@ -118,7 +118,11 @@ describe('API route composition', () => {
     expect(privacy.headers.get('content-encoding')).toBe('gzip');
     expect(privacy.headers.get('x-robots-tag')).toBe('noindex, follow');
     expect(privacy.headers.get('link')).toBe('<https://orbit-public-preview.invalid/privacy.html>; rel="canonical"');
-    expect(await privacy.text()).toContain('Orbit Privacy Policy');
+    const privacyHtml = await privacy.text();
+    expect(privacyHtml).toContain('Orbit Privacy Policy');
+    expect(privacyHtml).toContain('Google Firebase and Google Cloud');
+    expect(privacyHtml).toContain('built with assistance from AI development tools, including OpenAI Codex');
+    expect(privacyHtml).not.toContain('Orbit Technologies LLC');
   });
 
   it('uses an HttpOnly dashboard session without browser-stored or query-string keys', async () => {
@@ -166,6 +170,20 @@ describe('API route composition', () => {
   });
 
   it('keeps Player and webhook routes ahead of client authentication without contacting services', async () => {
+    const publicDiscovery = await request('/player/public/discovery');
+    expect(publicDiscovery.status).toBe(200);
+    expect(await publicDiscovery.json()).toMatchObject({
+      ok: true,
+      clubs: [],
+      tournaments: [],
+      registrations: [],
+      page: { count: 0, hasMore: false }
+    });
+
+    const missingPublicClub = await request('/player/public/clubs/missing-club');
+    expect(missingPublicClub.status).toBe(404);
+    expect(await missingPublicClub.json()).toEqual({ ok: false, error: 'Club not found.' });
+
     const playerSnapshot = await request('/player/snapshot');
     expect(playerSnapshot.status).toBe(401);
     expect(await playerSnapshot.json()).toEqual({ ok: false, error: 'Firebase player sign-in is required.' });

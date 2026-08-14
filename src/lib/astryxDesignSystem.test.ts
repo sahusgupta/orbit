@@ -84,7 +84,12 @@ describe('Astryx design-system contract', () => {
     const pairs = [
       ['public/orbit-logo.svg', 'download-site/orbit-logo.svg'],
       ['public/orbit-logo.svg', 'apps/api/public/orbit-logo.svg'],
+      ['public/orbit-logo.svg', 'player-web/public/orbit-logo.svg'],
       ['public/orbit-icon.png', 'download-site/orbit-icon.png'],
+      ['public/orbit-icon.png', 'player-web/public/orbit-icon.png'],
+      ['public/orbit-icon.png', 'player-web/app/icon.png'],
+      ['public/orbit-icon.png', 'player-web/app/apple-icon.png'],
+      ['build/icon.ico', 'player-web/app/favicon.ico'],
       ['build/icon.png', 'player-app/assets/icon.png'],
       ['build/icon.png', 'player-app/assets/adaptive-icon.png'],
       ['build/icon.png', 'player-app/assets/splash-icon.png']

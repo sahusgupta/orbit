@@ -1,0 +1,128 @@
+@media (max-width: 1180px) {
+  .club-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inline-filter-bar, .disclosure > .disclosure__content > .inline-filter-bar { grid-template-columns: repeat(3, 1fr); }
+  .inline-filter-bar .search-field { grid-column: 1 / -1; }
+  .detail-hero { grid-template-columns: minmax(0, 1fr) 320px; }
+  .profile-layout { grid-template-columns: minmax(0, 1fr) 310px; }
+}
+@media (max-width: 900px) {
+  .home-hero { grid-template-columns: 1fr; min-height: auto; }
+  .home-hero__copy { min-height: 350px; }
+  .home-atmosphere { height: 320px; }
+  .home-atmosphere--interactive { height: 360px; }
+  .home-hero__utility .now-board { margin-top: -72px; }
+  .now-board { width: 100%; }
+  .orbit-loop ol { grid-template-columns: repeat(2, 1fr); row-gap: 30px; }
+  .orbit-loop li:nth-child(3) { padding-left: 0; }
+  .explorer-layout { grid-template-columns: 1fr; }
+  .filter-rail { position: static; }
+  .filter-grid { grid-template-columns: repeat(3, 1fr); }
+  .filter-grid .select-field:first-child, .filter-grid .select-field:nth-child(4), .filter-grid .select-field:last-child { grid-column: auto; }
+  .detail-hero { grid-template-columns: 1fr; }
+  .detail-hero__main { min-height: 280px; }
+  .action-panel { min-height: 260px; }
+  .detail-grid, .detail-grid--club { grid-template-columns: 1fr; }
+  .club-hero { align-items: flex-start; flex-direction: column; }
+  .club-live-strip { width: 100%; }
+  .club-live-strip > div { flex: 1; }
+  .tournament-structure-grid { grid-template-columns: repeat(2, 1fr); }
+  .tournament-structure-grid article:nth-child(3) { border-left: 0; border-top: 1px solid var(--line); }
+  .tournament-structure-grid article:nth-child(4) { border-top: 1px solid var(--line); }
+  .commitment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .profile-layout { grid-template-columns: 1fr; }
+  .faq-section { grid-template-columns: 1fr; }
+  .faq-intro { max-width: 560px; }
+}
+@media (max-width: 720px) {
+  h1 { font-size: clamp(2rem, 11vw, 3.3rem); }
+  .site-header__inner { min-height: 72px; }
+  .site-brand img { height: 40px; width: 40px; }
+  .site-brand strong { font-size: 1.3rem; }
+  .menu-button { display: flex; }
+  .primary-nav { display: none; }
+  .site-footer__inner { align-items: flex-start; flex-direction: column; }
+  .site-footer__links { align-items: flex-start; }
+  .site-footer nav { justify-content: flex-start; }
+  .home-hero__copy { min-height: 320px; }
+  .home-hero__copy h1 { font-size: clamp(2.7rem, 13vw, 4rem); }
+  .home-atmosphere { height: 270px; }
+  .home-atmosphere--interactive { height: 350px; }
+  .home-hero__utility .now-board { margin-top: -48px; width: calc(100% - 20px); }
+  .now-board .entity-row article, .entity-row article { align-items: start; gap: 12px; grid-template-columns: 1fr 20px; }
+  .entity-row__lead { grid-column: 1; }
+  .entity-row__facts { grid-column: 1 / -1; grid-row: 2; }
+  .entity-row__arrow { grid-column: 2; grid-row: 1; }
+  .tournament-listing article { align-items: start; grid-template-columns: 52px minmax(0, 1fr) 20px; }
+  .tournament-listing dl { border-top: 1px solid var(--line); grid-column: 1 / -1; grid-template-columns: repeat(3, 1fr); padding-top: 11px; }
+  .tournament-listing article > svg:last-child { grid-column: 3; grid-row: 1; }
+  .club-grid { grid-template-columns: 1fr; }
+  .club-listing article { min-height: 215px; }
+  .inline-filter-bar, .filter-grid, .disclosure > .disclosure__content > .inline-filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inline-filter-bar .search-field { grid-column: 1 / -1; }
+  .location-control { align-items: stretch; flex-direction: column; }
+  .location-control form { flex-basis: auto; }
+  .section-heading { align-items: flex-start; flex-direction: column; }
+  .orbit-loop ol { grid-template-columns: 1fr; }
+  .orbit-loop li, .orbit-loop li:first-child, .orbit-loop li:nth-child(3) { border-left: 0; border-top: 1px solid var(--line); min-height: auto; padding: 18px 0; }
+  .detail-hero__main h1 { font-size: clamp(2.5rem, 13vw, 4rem); }
+  .club-hero__identity { align-items: flex-start; }
+  .club-monogram--large { font-size: 1.5rem; height: 68px; width: 68px; }
+  .club-live-strip > div { min-width: 0; padding: 8px 9px; }
+  .table-list article { align-items: start; grid-template-columns: 1fr; }
+  .tournament-structure-grid { margin-top: 0; }
+  .definition-list div { gap: 7px; grid-template-columns: 1fr; }
+  .commitment-grid { grid-template-columns: 1fr; }
+  .my-list > a { grid-template-columns: 42px minmax(0, 1fr); }
+  .my-list > a > strong { grid-column: 2; text-align: left; }
+}
+@media (max-width: 560px) {
+  .home-atmosphere--interactive { height: 430px; }
+  .orbit-card-showcase { gap: 0; grid-template-columns: 1fr; grid-template-rows: 230px auto; padding: 18px; }
+  .orbit-card-hand { align-self: end; transform: scale(.92); }
+  .orbit-card-readout { align-self: start; justify-self: center; min-height: 126px; width: min(100%, 310px); }
+}
+@media (max-width: 430px) {
+  .page-shell, .my-orbit-shell { padding-left: 16px; padding-right: 16px; }
+  .site-header__inner { padding-left: 16px; padding-right: 16px; }
+  .home-hero, .home-section { padding-left: 16px; padding-right: 16px; }
+  .hero-actions { align-items: stretch; flex-direction: column; }
+  .hero-actions .button { width: 100%; }
+  .now-board { border-radius: 12px; padding: 13px; }
+  .now-board > header { align-items: flex-start; gap: 8px; }
+  .home-atmosphere { height: 225px; }
+  .home-atmosphere--interactive { height: 430px; }
+  .home-hero__utility .now-board { margin-top: -34px; width: calc(100% - 12px); }
+  .inline-filter-bar, .filter-grid, .disclosure > .disclosure__content > .inline-filter-bar { grid-template-columns: 1fr; }
+  .inline-filter-bar .search-field { grid-column: auto; }
+  .location-control form { flex-direction: column; }
+  .location-control form .button { width: 100%; }
+  .entity-row article { padding-left: 13px; padding-right: 13px; }
+  .entity-row__facts { gap: 8px; }
+  .tournament-listing article { padding: 13px; }
+  .tournament-listing dl { grid-template-columns: 1fr; }
+  .field-pair { grid-template-columns: 1fr; }
+  .action-panel { padding: 20px; }
+  .club-hero { padding: 18px; }
+  .club-hero__identity { flex-direction: column; }
+  .club-live-strip > div { border-left: 0; border-top: 1px solid var(--line); }
+  .club-live-strip { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .tournament-structure-grid { grid-template-columns: 1fr; }
+  .tournament-structure-grid article + article { border-left: 0; border-top: 1px solid var(--line); }
+  .auth-page { padding-left: 15px; padding-right: 15px; }
+  .auth-form { padding: 22px 18px; }
+  .my-orbit-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; }
+  .my-orbit-nav a { align-items: center; display: flex; justify-content: center; min-height: 44px; padding: 7px 4px; text-align: center; white-space: normal; }
+  .form-actions { align-items: stretch; flex-direction: column; }
+  .faq-item { gap: 8px; grid-template-columns: 28px minmax(0, 1fr); }
+  .faq-item__answer { padding-right: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ambient-flow > span { transform: none; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}
+
+@media (max-width: 640px) {
+  .privacy-page { padding: 108px 16px 72px; }
+  .privacy-hero { padding-bottom: 30px; }
+  .privacy-page > section { padding: 30px 0; }
+}

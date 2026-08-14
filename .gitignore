@@ -53,6 +53,8 @@ TableTalk-Releases/
 player-app/.agents/
 player-app/*.log
 player-app/dist-*/
+player-web/.next/
+player-web/out/
 
 # Hosted-tool caches
 .vercel

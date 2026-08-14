@@ -1,0 +1,32 @@
+# Orbit
+
+> Orbit is a connected poker-room player network developed by Caminus Labs, LLC. It lets players inspect current room-published games, clubs, and tournaments on the web before deciding where to play.
+
+Intended public site: https://orbitpoker.com/
+Developer: https://caminuslabs.com/
+Source: https://github.com/sahusgupta/orbit
+
+## Public pages
+
+- `/`: Current live inventory, open tournament registration, participating clubs, and factual product questions.
+- `/games`: Search and filter public game inventory published by participating rooms.
+- `/games/{clubId}--{gameId}`: Details for one published poker game.
+- `/tournaments`: Search and filter scheduled tournaments and registration state.
+- `/tournaments/{clubId}--{tournamentId}`: Details, location, structure, and room-published registration information for one tournament.
+- `/clubs`: Search participating poker rooms and inspect their current inventory.
+- `/clubs/{clubId}`: One room's public profile, games, and tournaments.
+
+## Private pages
+
+- `/sign-in`: Verified player authentication.
+- `/me`: Authenticated player account overview.
+- `/me/games`: Authenticated waitlist and game-request state.
+- `/me/tournaments`: Authenticated tournament-registration state.
+- `/me/clubs`: Authenticated club-membership state.
+- `/me/profile`: Authenticated player profile.
+
+Private account routes are intentionally excluded from search and AI crawler indexing. Joining a game, registering for a tournament, and requesting club membership require verified authentication and are sent to the Orbit API. Public pages only expose the API's sanitized player-safe projections.
+
+## Data interpretation
+
+Room-published state is current operational information, not a guarantee of availability. The site uses explicit empty, unavailable, and reconnecting states when an API projection cannot be loaded. Orbit does not publish fabricated reviews, visitor counters, endorsements, or performance metrics.

@@ -53,6 +53,81 @@ function buildPlayerMutationResponse(result, extra = {}) {
   };
 }
 
+function isPublicClubName(value) {
+  const name = String(value || '').trim();
+  const normalized = name.toLowerCase();
+  return Boolean(name) && normalized !== 'test club' && !normalized.includes('stress');
+}
+
+function isPublicGameName(value) {
+  const name = String(value || '').trim();
+  return Boolean(name) && !name.toLowerCase().includes('stress');
+}
+
+function buildPublicClubSnapshot(state) {
+  const snapshot = buildPlayerClubSnapshot(state, { id: '', name: '' });
+  return {
+    ...snapshot,
+    club: {
+      ...snapshot.club,
+      phone: snapshot.club.phone || undefined
+    },
+    games: snapshot.games
+      .filter((game) => isPublicGameName(game.name))
+      .map((game) => ({
+        ...game,
+        knownPlayersCount: 0,
+        openTables: game.openTables.map((table) => ({
+          ...table,
+          social: { ...table.social, knownPlayersCount: 0 }
+        }))
+      })),
+    memberships: [],
+    waitlists: [],
+    notifications: [],
+    social: { ...snapshot.social, knownPlayersInHouse: 0 }
+  };
+}
+
+async function handlePublicPlayerDiscovery(request, response) {
+  const limit = Math.min(Math.max(Number(request.query.limit || 25), 1), 50);
+  const page = await listStatePage({ limit, afterAccountKey: request.query.cursor });
+  const visibleRecords = page.records.filter((record) => {
+    const clubName = record.state?.settings?.clubAccount?.clubName;
+    return isPublicClubName(clubName);
+  });
+  const clubs = visibleRecords.map((record) => buildPublicClubSnapshot(record.state));
+  const tournaments = visibleRecords.flatMap((record) => buildPlayerTournamentDocs(record.state, record.accountKey, record.savedAt));
+  response.set('cache-control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
+  response.json({
+    ok: true,
+    clubs,
+    tournaments,
+    registrations: [],
+    page: {
+      count: clubs.length,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor
+    }
+  });
+}
+
+async function handlePublicPlayerClub(request, response) {
+  const clubId = sanitizeAccountKey(request.params.clubId || '');
+  const record = clubId ? await loadState(clubId) : null;
+  const clubName = record?.state?.settings?.clubAccount?.clubName;
+  if (!record?.state || !isPublicClubName(clubName)) {
+    response.status(404).json({ ok: false, error: 'Club not found.' });
+    return;
+  }
+  response.set('cache-control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
+  response.json({
+    ok: true,
+    club: buildPublicClubSnapshot(record.state),
+    tournaments: buildPlayerTournamentDocs(record.state, record.accountKey, record.savedAt)
+  });
+}
+
 async function handlePlayerDiscovery(request, response) {
   const limit = Math.min(Math.max(Number(request.query.limit || 25), 1), 50);
   const page = await listStatePage({ limit, afterAccountKey: request.query.cursor });
@@ -265,6 +340,8 @@ async function handleTournamentUnregistration(request, response) {
 function registerPlayerRoutes(app) {
   app.post('/player/auth/phone/start', asyncRoute(startPlayerPhoneVerification));
   app.post('/player/auth/phone/complete', asyncRoute(completePlayerPhoneVerification));
+  app.get('/player/public/discovery', asyncRoute(handlePublicPlayerDiscovery));
+  app.get('/player/public/clubs/:clubId', asyncRoute(handlePublicPlayerClub));
   app.get('/player/identity/status', requireFirebasePlayer, asyncRoute(getPlayerIdentityStatus));
   app.post('/player/identity/session', requireFirebasePlayer, asyncRoute(createPlayerIdentitySession));
   app.delete('/player/identity', requireFirebasePlayer, asyncRoute(deletePlayerIdentity));
@@ -278,4 +355,4 @@ function registerPlayerRoutes(app) {
   app.delete('/player/tournament-registrations', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handleTournamentUnregistration));
 }
 
-module.exports = { buildPlayerMutationResponse, registerPlayerRoutes };
+module.exports = { buildPlayerMutationResponse, buildPublicClubSnapshot, registerPlayerRoutes };

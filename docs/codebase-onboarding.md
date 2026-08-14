@@ -6,17 +6,19 @@ This guide is written for new contributors and for the Orbit assistant to index.
 
 TableManager is a live poker room operations app. It helps staff manage waitlists, active tables, player profiles, table balancing, reporting, pilot licensing, and sync with a player-facing app.
 
-The product has three major surfaces:
+The product has four major surfaces:
 
 - Desktop management app: React + Vite + Electron.
 - Local/cloud API: Express + server-only Firebase Admin Firestore for telemetry, state, reports, recovery, and player sync.
 - Player/mobile integration: sync helpers and a tracked Expo application in `player-app/`. The current `orbit.config.json` excludes that directory from assistant indexing, but Git does not ignore it.
+- Player Web: a Next.js public discovery and verified-player application in `player-web/`; see `docs/player-web/README.md` for routes, ownership, local isolation, and deployment.
 
 ## Start Here
 
 Read these files first:
 
 - `package.json`: available commands and packaging setup.
+- `player-web/app/` and `player-web/src/`: Player Web routes, server/public adapters, authentication, discovery, actions, and My Orbit composition.
 - `src/main.tsx`: management composition root, application-wide state/effects, route wiring, and command invocation.
 - `src/features/`: cohesive management route drafts, view models, typed presentation contracts, and feature-local effects.
 - `src/app/persistence/`: browser/preload/localhost/Firebase persistence adapters and result policy.
@@ -32,12 +34,13 @@ Read these files first:
 
 ## How To Run
 
-Install all three lockfiles without rewriting them:
+Install all four lockfiles without rewriting them:
 
 ```powershell
 npm ci
 npm ci --prefix apps/api
 npm ci --prefix player-app
+npm ci --prefix player-web
 ```
 
 Run the web app:
@@ -50,6 +53,15 @@ Run the Electron desktop app:
 
 ```powershell
 npm run desktop
+```
+
+Run Player Web against an explicitly local API with Firebase sync disabled:
+
+```powershell
+$env:ORBIT_API_URL='http://127.0.0.1:4629'
+$env:NEXT_PUBLIC_ORBIT_API_URL='http://127.0.0.1:4629'
+$env:NEXT_PUBLIC_ENABLE_FIREBASE_SYNC='false'
+npm run web:dev
 ```
 
 Run tests:

@@ -1,0 +1,38 @@
+{
+  "name": "@orbit/player-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1 --port 4175",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1 --port 4175",
+    "qa:api": "node --experimental-strip-types tests/browser/fixture-api.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@base-ui/react": "1.7.0",
+    "firebase": "12.17.1",
+    "lucide-react": "1.31.0",
+    "motion": "13.1.0",
+    "next": "16.3.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.4",
+    "@types/node": "22.18.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "5.0.4",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.0",
+    "jsdom": "29.1.1",
+    "typescript": "5.9.2",
+    "vitest": "4.1.10"
+  }
+}
