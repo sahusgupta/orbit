@@ -14,8 +14,8 @@ The GitHub release workflow currently creates unsigned Windows artifacts and doe
 
 1. Select an exact reviewed 40-character source commit, a new stable semantic version, a canary or stable channel, and the standard or rollback reason. Never reuse a version or tag.
 2. Dispatch with `promote=false` when a separately reviewed candidate is required before promotion.
-3. The workflow installs all three lockfiles and runs sensitive-path, advisory, release-control, module-boundary, full TypeScript/unit/build, bundle/public/brand, and production-bundle browser gates.
-4. It creates an unsigned artifact with publishing disabled, records SHA-256 checksums plus source/version/run metadata, creates a provenance attestation, and uploads a uniquely named immutable workflow artifact.
+3. The workflow installs all three lockfiles and runs sensitive-path, advisory, release-control, module-boundary, packaged-runtime closure, full TypeScript/unit/build, bundle/public/brand, and production-bundle browser gates.
+4. It creates an unsigned artifact with publishing disabled and boots the packaged Electron executable against an isolated loopback renderer with hosted API, Firebase, embedded-backend, and updater activity disabled. It then records SHA-256 checksums plus source/version/run metadata, creates a provenance attestation, and uploads a uniquely named immutable workflow artifact.
 5. Review the run, attestations, checksums, smoke output, change scope, and operational readiness. A canary is promoted as a GitHub prerelease; normal clients have prerelease updates disabled. Validate it only on explicitly selected non-production/canary workstations.
 6. Dispatch the same approved inputs with `promote=true`. The build is reproduced and its checksums are reverified, then the separate `production-release` approval controls GitHub release creation. Promotion failure never falls back to an unverified file.
 7. Observe structured API/desktop signals and the configured owned alert route for the agreed window before broadening exposure. The repository cannot certify that external route until its owner configures and tests it in an authorized environment.
