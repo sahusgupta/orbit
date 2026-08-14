@@ -140,7 +140,7 @@ The authoritative repository gate is `npm run verify`. It runs root and native T
 
 ## Production deployment
 
-Create a Vercel Next.js project with `player-web` as its root directory, `npm ci` as install command, and `npm run build` as build command. Enable inclusion of source files outside the project root because canonical Player domain modules are imported from `../player-app/src/`. Next.js owns the output; do not configure a static output directory. Set every production environment variable above, confirm API CORS and Firebase authorized domains, and deploy from a reviewed commit.
+Use a dedicated Vercel project for Player Web; do not reuse the `orbit_app` project, whose root is the production Express API under `apps/api/`. Run `node scripts/stage-player-web-deploy.mjs <absolute-empty-directory>` to create a self-contained deployment artifact containing Player Web and copies of its canonical shared Player domain modules. Link and deploy that temporary directory to the Player Web project, then remove the artifact after verification. Set every production environment variable above, confirm API CORS and Firebase authorized domains, and deploy from a reviewed commit.
 
 No deployment is performed by repository verification. A successful local production build demonstrates artifact readiness, not hosted credentials, DNS, CORS, or Firebase-console configuration.
 
