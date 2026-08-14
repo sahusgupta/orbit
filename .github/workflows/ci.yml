@@ -17,9 +17,11 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             player-app/package-lock.json
+            player-web/package-lock.json
             apps/api/package-lock.json
       - run: npm ci
       - run: npm ci --prefix player-app
+      - run: npm ci --prefix player-web
       - run: npm ci --prefix apps/api
       - run: npm run security:paths
       - run: npm run security:dependencies

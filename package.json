@@ -47,7 +47,7 @@
     "typecheck:test": "tsc --project tsconfig.test.json --noEmit",
     "typecheck:electron": "tsc --project tsconfig.electron.json --noEmit",
     "typecheck:api": "npm run typecheck --prefix apps/api",
-    "test": "vitest run --exclude player-web/**",
+    "test": "vitest run --exclude \"player-web/**\"",
     "verify": "node scripts/verify.cjs",
     "stress:e2e": "node tests/e2e/stress-electron.mjs",
     "e2e:management": "node scripts/run-management-smoke.mjs",
