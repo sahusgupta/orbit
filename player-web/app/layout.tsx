@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { DM_Mono, Manrope } from 'next/font/google';
 import type { ReactNode } from 'react';
 import { GlobalStructuredData } from '@/src/components/seo/structured-data';
 import { AmbientFlow } from '@/src/components/shell/ambient-flow';
@@ -7,6 +8,20 @@ import { SiteFooter } from '@/src/components/shell/site-footer';
 import { SiteHeader } from '@/src/components/shell/site-header';
 import { siteConfig } from '@/src/seo/site';
 import './globals.css';
+
+const landingSans = Manrope({
+  display: 'swap',
+  subsets: ['latin'],
+  variable: '--font-landing-sans',
+  weight: ['400', '500', '600', '700']
+});
+
+const landingMono = DM_Mono({
+  display: 'swap',
+  subsets: ['latin'],
+  variable: '--font-landing-mono',
+  weight: ['400', '500']
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.origin),
@@ -37,7 +52,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${landingSans.variable} ${landingMono.variable}`}>
       <body>
         <AmbientFlow />
         <GlobalStructuredData />

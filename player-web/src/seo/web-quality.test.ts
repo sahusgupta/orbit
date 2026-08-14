@@ -35,41 +35,43 @@ describe('public web quality contracts', () => {
     expect(llms).toContain('https://github.com/sahusgupta/orbit');
   });
 
-  it('uses the canonical Orbit logo and a real image with descriptive alt text', () => {
-    const home = read('app/page.tsx');
+  it('uses the canonical Orbit logo and favicon throughout the landing shell', () => {
+    const landing = read('src/components/home/player-landing.tsx');
+    const layout = read('app/layout.tsx');
     const header = read('src/components/shell/site-header.tsx');
     const footer = read('src/components/shell/site-footer.tsx');
 
-    expect(home).toContain('src="/orbit-table-rhythm.jpg"');
-    expect(home).toContain('alt="Abstract overhead composition of a poker table, face-down cards, and table markers."');
+    expect(landing.match(/src="\/orbit-logo\.svg"/g)).toHaveLength(2);
+    expect(layout).toContain("icons: { icon: [{ url: '/favicon.ico' }");
     expect(header).toContain('src="/orbit-logo.svg"');
     expect(footer).toContain('src="/orbit-logo.svg"');
   });
 
-  it('turns the homepage hook into an accessible interactive poker hand', () => {
-    const home = read('app/page.tsx');
-    const cards = read('src/components/home/orbit-feature-cards.tsx');
+  it('keeps the supplied orbital, swipe, queue, and reserve interactions intact', () => {
+    const landing = read('src/components/home/player-landing.tsx');
 
-    expect(home).toContain('<OrbitFeatureCards />');
-    expect(cards).toContain("from 'motion/react'");
-    expect(cards).toContain("from '@/src/components/ui/button'");
-    expect(cards).toContain('aria-pressed={active}');
-    expect(cards).toContain('useReducedMotion()');
-    for (const feature of ['Running now', 'Building a table', 'Registration open']) {
-      expect(cards).toContain(feature);
+    expect(landing).toContain('from "motion/react"');
+    expect(landing).toContain('drag="x"');
+    expect(landing).toContain('function Orbital');
+    expect(landing).toContain('function SwipeCard');
+    expect(landing).toContain('function WaitlistContent');
+    expect(landing).toContain('function PackageContent');
+    for (const feature of ['Discover', 'Join', 'Queue', 'Reserve']) {
+      expect(landing).toContain(`label: "${feature}"`);
     }
   });
 
-  it('keeps landing navigation out of the initial viewport and reveals it after scroll', () => {
-    const header = read('src/components/shell/site-header.tsx');
-    const styles = read('styles/components.css');
+  it('rewires every landing destination without changing the product route owners', () => {
+    const landing = read('src/components/home/player-landing.tsx');
+    const styles = read('styles/landing.css');
 
-    expect(header).toContain("window.scrollY > 48");
-    expect(header).toContain("const isHome = pathname === '/'");
-    expect(header).toContain('const visible = !isHome || homeVisible');
-    expect(header).toContain("data-visible={visible}");
-    expect(header).toContain("@base-ui/react/menu");
-    expect(styles).toContain('.site-header[data-home="true"][data-visible="true"]');
+    expect(landing).not.toContain('href="#"');
+    expect(landing).toContain('href="/sign-in"');
+    expect(landing).toContain('href="/sign-in?returnTo=%2Fgames"');
+    expect(landing).toContain('href="#how-it-works"');
+    expect(landing).toContain('href="/privacy"');
+    expect(landing).toContain('href="https://orbitapp-one.vercel.app/terms"');
+    expect(styles).toContain('body:has(.player-landing) .site-header');
   });
 
   it('uses the selected design-system primitives at their interaction boundaries', () => {
@@ -128,18 +130,15 @@ describe('public web quality contracts', () => {
     }
   });
 
-  it('keeps the landing presentation concise and centers only presentation-led content', () => {
+  it('delegates the home route to the supplied interactive landing presentation', () => {
     const home = read('app/page.tsx');
-    const faq = read('src/components/home/orbit-faq.tsx');
-    const routes = read('styles/routes.css');
+    const landing = read('src/components/home/player-landing.tsx');
 
-    expect(home).not.toContain('See what rooms say is running');
-    expect(faq).not.toContain('Orbit shows what rooms have actually published');
-    expect(routes).toContain('.home-hero__copy { align-content: center; align-items: center;');
-    expect(routes).toContain('justify-items: center; text-align: center;');
-    expect(routes).not.toContain('.home-section .section-heading');
-    expect(routes).toContain('.faq-intro { align-content: start;');
-    expect(routes).toContain('.orbit-loop h2 { margin: 10px auto 0; max-width: 680px; text-align: center; }');
+    expect(home).toContain('<PlayerLanding />');
+    expect(landing).toContain('The games are running.');
+    expect(landing).toContain('Find your seat.');
+    expect(landing).toContain('style={{ height: "500vh", position: "relative" }}');
+    expect(landing).toContain('className="sticky top-0 overflow-hidden flex"');
   });
 
   it('uses the footer as the final opaque page boundary', () => {
@@ -159,7 +158,9 @@ describe('public web quality contracts', () => {
       read('styles/base.css'),
       read('styles/components.css'),
       read('styles/routes.css'),
-      read('styles/responsive.css')
+      read('styles/responsive.css'),
+      read('styles/landing.css'),
+      read('src/components/home/player-landing.tsx')
     ].join('\n').toLowerCase();
 
     for (const prohibited of [

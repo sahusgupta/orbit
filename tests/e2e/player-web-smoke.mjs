@@ -110,24 +110,22 @@ const interactionContext = await browser.newContext({ viewport: { width: 430, he
 const page = await interactionContext.newPage();
 
 await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
-const landingHeader = page.locator('.site-header');
-if (await landingHeader.getAttribute('data-visible') !== 'false') failures.push('Navigation is visible at the landing position.');
-await page.evaluate(() => window.scrollTo(0, 120));
-await page.waitForFunction(() => document.querySelector('.site-header')?.getAttribute('data-visible') === 'true');
-await page.getByRole('button', { name: 'Open navigation' }).click();
-const mobileMenu = page.locator('.mobile-menu-popup[role="menu"]');
-await mobileMenu.waitFor({ state: 'visible' });
-if (await mobileMenu.getByRole('menuitem').count() !== 5) {
-  failures.push('Web navigation did not expose four product destinations and the account action.');
+const landing = page.locator('.player-landing');
+if (!(await landing.isVisible())) failures.push('Interactive landing root is not visible.');
+if (!(await page.locator('.player-landing__nav').isVisible())) failures.push('Landing navigation is not visible.');
+if (await page.locator('.site-header').isVisible()) failures.push('Legacy application navigation overlaps the landing navigation.');
+if (await page.getByRole('link', { name: 'Orbit Player home' }).first().getAttribute('href') !== '/') failures.push('Landing brand does not return home.');
+const accessLinks = page.getByRole('link', { name: /Get Access/ });
+if (await accessLinks.count() !== 3) failures.push('Landing does not expose all three access routes.');
+for (const link of await accessLinks.all()) {
+  const href = await link.getAttribute('href');
+  if (href !== '/sign-in' && href !== '/sign-in?returnTo=%2Fgames') failures.push(`Landing access route is invalid: ${href}`);
 }
-await mobileMenu.getByRole('menuitem', { name: 'Clubs', exact: true }).click();
-await page.waitForURL(/\/clubs$/);
-
-await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
-const faqQuestion = page.getByRole('button', { name: 'Where does the live information come from?' });
-await faqQuestion.click();
-if (await faqQuestion.getAttribute('aria-expanded') !== 'true') failures.push('Custom FAQ did not expose its expanded state.');
-if (await page.getByRole('link', { name: 'GitHub' }).getAttribute('href') !== 'https://github.com/sahusgupta/orbit') failures.push('Footer does not link the real Orbit source repository.');
+const howItWorks = page.getByRole('link', { name: 'How It Works' });
+if (await howItWorks.getAttribute('href') !== '#how-it-works') failures.push('How It Works is not connected to the feature experience.');
+if (await page.getByRole('link', { name: 'Privacy', exact: true }).getAttribute('href') !== '/privacy') failures.push('Landing privacy route is invalid.');
+if (await page.getByRole('link', { name: 'Terms', exact: true }).getAttribute('href') !== 'https://orbitapp-one.vercel.app/terms') failures.push('Landing terms route is invalid.');
+if (await page.getByRole('link', { name: 'Orbit Core', exact: true }).getAttribute('href') !== 'https://orbitapp-one.vercel.app/') failures.push('Landing Orbit Core route is invalid.');
 
 await page.goto(`${baseUrl}/games`, { waitUntil: 'networkidle' });
 await page.getByRole('searchbox', { name: 'Search games or clubs' }).fill('PLO');
@@ -172,8 +170,8 @@ if (focusedElement.outlineStyle === 'none' || focusedElement.outlineWidth === '0
 
 const sourceResponse = await fetch(`${baseUrl}/`);
 const source = await sourceResponse.text();
-if (!source.includes('Find your game.')) failures.push('Homepage product content is absent from raw view-source HTML.');
-if (!source.includes('1/2 NLH')) failures.push('Server-rendered live game content is absent from raw view-source HTML.');
+if (!source.includes('The games are running.')) failures.push('Homepage hero content is absent from raw view-source HTML.');
+if (!source.includes('Every game')) failures.push('Interactive feature content is absent from raw view-source HTML.');
 
 const robotsText = await (await fetch(`${baseUrl}/robots.txt`)).text();
 for (const crawler of ['GPTBot', 'ChatGPT-User', 'OAI-SearchBot', 'ClaudeBot', 'PerplexityBot', 'Google-Extended']) {
@@ -192,7 +190,7 @@ for (const llmsPath of ['/llms.txt', '/LLMS.txt']) {
   const response = await fetch(`${baseUrl}${llmsPath}`);
   if (!response.ok || !(await response.text()).includes('Orbit')) failures.push(`${llmsPath} is unavailable or incomplete.`);
 }
-for (const assetPath of ['/favicon.ico', '/orbit-table-rhythm.jpg', '/orbit-layered-waves.svg']) {
+for (const assetPath of ['/favicon.ico', '/orbit-logo.svg', '/orbit-table-rhythm.jpg', '/orbit-layered-waves.svg']) {
   const response = await fetch(`${baseUrl}${assetPath}`);
   const bytes = await response.arrayBuffer();
   if (!response.ok || bytes.byteLength === 0) failures.push(`${assetPath} is unavailable.`);

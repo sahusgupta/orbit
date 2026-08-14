@@ -27,13 +27,13 @@ React Native UI, Expo services, AsyncStorage, native linking/maps, RevenueCat, a
 
 ## Visual and interaction contract
 
-Player Web follows the native Player app without copying a phone shell. Its tokens mirror `player-app/src/styles/playerTheme.ts`: the `#060c1a` canvas, `#10192c` panels, `#4d7cfe` primary action, `#35d3a1` live/success state, OS sans typography, 4-pixel spacing, 44-pixel touch targets, and restrained radii. The landing position is deliberately navbarless. After 48 pixels of scroll, a fixed top navigation reveals with four product destinations and one account action; small screens use a menu, never a fixed bottom icon bar.
+Player Web product routes follow the native Player app without copying a phone shell. The home route mirrors the supplied Interactive Poker Landing Page reference: a full-screen orbital hero leads into a four-stage sticky-scroll experience for discovery, joining, queue position, and reservation. Its original orange presentation accent is replaced by midnight blue (`#191970`), while the fixed landing navigation and footer use real Orbit brand assets and real destinations. Manrope and DM Mono are bundled through Next font loading so the reference typography does not rely on a runtime font request.
 
-The governing web rules remain `docs/architecture/ASTRYX_DESIGN_SYSTEM.md`. Astryx-informed tokens establish the regular/medium/strong type hierarchy, solid tonal layers, explicit borders, semantic Lucide icons, visible focus, and restrained radii. A generated Haikei Layered Waves SVG is owned by a small imported wrapper and creates the low-contrast ambient field at restrained scroll ratios. Only selected homepage sections import an adapted Motion Primitives `InView` component, with reduced-motion suppression. The site uses no glassmorphism, decorative gradients, animated grids, permanent glowing borders, fabricated metrics, testimonials, pricing cards, or fake interface screenshots.
+The governing web rules remain `docs/architecture/ASTRYX_DESIGN_SYSTEM.md` for the established product routes. The landing reference owns its presentation-specific spacing, type, orbital animation, drag interaction, and example labels. Those examples are demonstrative only; authoritative game, room, queue, and tournament state continues to come from the existing API-backed product routes.
 
-The homepage imports an adapted Watermelon UI `faq-1` component with Orbit content, Astryx styling, Lucide state icons, and Base UI accordion semantics. Base UI owns the accessible behavior for buttons, fields, selects, forms, radio groups, dialogs, menus, tooltips, collapsibles, and the FAQ accordion. This keeps one behavior owner while Astryx tokens own appearance. Attribution and upstream sources are recorded in `player-web/THIRD_PARTY_NOTICES.md`. Route headers use concise titles without explanatory subtitle copy; metadata descriptions remain intact for search and sharing.
+The established product routes continue to use Base UI for accessible buttons, fields, selects, forms, radio groups, dialogs, menus, tooltips, and collapsibles, with Astryx tokens owning their appearance. Attribution and upstream sources are recorded in `player-web/THIRD_PARTY_NOTICES.md`. Route headers use concise titles without explanatory subtitle copy; metadata descriptions remain intact for search and sharing.
 
-The home image is the repository-approved `orbit-table-rhythm-v1.jpg` composition exported to `player-web/public/orbit-table-rhythm.jpg`; it is real brand artwork, not an interface mockup. The header and footer depend on the canonical `public/orbit-logo.svg`, and brand governance tests require byte-identical Player Web exports. Standard repository icon assets supply the favicon, app icon, and Apple touch icon.
+The Open Graph image remains the repository-approved `orbit-table-rhythm-v1.jpg` composition exported to `player-web/public/orbit-table-rhythm.jpg`; it is real brand artwork, not an interface mockup. Both landing brand positions and the application shell depend on the canonical `public/orbit-logo.svg`, and brand governance tests require byte-identical Player Web exports. Standard repository icon assets supply the favicon, app icon, and Apple touch icon.
 
 ## Search, crawler, and source contract
 
@@ -67,7 +67,7 @@ Entity routes accept the human-readable route key emitted by listing links and t
 
 ## Auth and data flow
 
-Public pages fetch the sanitized API projection on the server and render honest error or empty states if it is unavailable. Filters operate locally and preserve query parameters. Location is optional: players can grant geolocation, deny it, continue without it, or enter a manual area.
+The landing page is a static, interactive product presentation and routes access requests into the existing sign-in flow. Discovery pages fetch the sanitized API projection on the server and render honest error or empty states if it is unavailable. Filters operate locally and preserve query parameters. Location is optional: players can grant geolocation, deny it, continue without it, or enter a manual area.
 
 Firebase Auth uses browser-local persistence. Email accounts must be verified before they are treated as signed in. A logged-out action records a validated internal return path and action intent in the sign-in URL. Successful sign-in returns to the original game, club, or tournament. My Orbit loads private discovery only after a verified user and profile are available.
 
@@ -136,6 +136,8 @@ npm run web:build
 
 With the isolated fixture API and local web server already running, `npm run web:e2e` checks 15 routes, including the privacy policy and custom 404, at 375 by 812, 430 by 932, 768 by 1024, 1366 by 768, 1440 by 900, and 1920 by 1080. It creates 90 screenshots and performs 28 interaction and web-quality checks covering the five-link web navigation, route-state filters, manual location, auth intent links, protected-route return paths, keyboard reachability, visible focus, raw page source, unique metadata, structured data, crawler artifacts, source-map absence, console cleanliness, and responsive overflow. Screenshots and the JSON report are generated under ignored `test-results/player-web/`.
 
+With both the supplied reference app and the production Player Web build running locally, set `ORBIT_REFERENCE_URL` and `ORBIT_PLAYER_WEB_URL`, then run `npm run web:landing:parity`. The Playwright harness checks matching text and geometry at five scroll checkpoints on mobile and desktop, compares normalized screenshots while allowing only the approved accent-color and font substitutions, verifies every landing destination, rejects the reference orange from source, and confirms the logo and favicon match the canonical repository assets byte for byte.
+
 The authoritative repository gate is `npm run verify`. It runs root and native TypeScript, Player Web TypeScript/lint/tests/build, existing tests, and the desktop renderer build.
 
 ## Production deployment
@@ -146,7 +148,7 @@ No deployment is performed by repository verification. A successful local produc
 
 ## Intentional limitations
 
-- Public discovery is API-projected and refreshed from Firestore publication markers; it does not duplicate private Firestore queries.
+- Landing examples are presentation-only. Public discovery remains API-projected and refreshed from Firestore publication markers; it does not duplicate private Firestore queries.
 - Browser geocoding is deliberately absent. Manual area selection keeps discovery usable but distance ordering requires a known coordinate.
 - Membership payment remains the existing request/pay-in-person flow. No unsupported checkout completion is shown.
 - Email verification delivery, hosted API CORS, Firebase authorized domains, and final hosting configuration require deployment-environment ownership.

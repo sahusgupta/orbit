@@ -1,0 +1,56 @@
+@layer theme, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities) important;
+@source '../src/components/home/player-landing.tsx';
+
+@theme {
+  --font-sans: var(--font-landing-sans), system-ui, sans-serif;
+  --font-mono: var(--font-landing-mono), ui-monospace, monospace;
+}
+
+body:has(.player-landing) {
+  background: #070d16;
+}
+
+body:has(.player-landing) .ambient-flow,
+body:has(.player-landing) .site-header,
+body:has(.player-landing) > .site-footer {
+  display: none;
+}
+
+body:has(.player-landing) main {
+  flex: 1 0 auto;
+  width: 100%;
+}
+
+.player-landing {
+  line-height: 1.5;
+  min-height: 100svh;
+  width: 100%;
+}
+
+.player-landing h1,
+.player-landing h2,
+.player-landing h3 {
+  text-wrap: wrap;
+}
+
+.player-landing a {
+  text-decoration: none;
+}
+
+.player-landing button,
+.player-landing a {
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-landing *,
+  .player-landing *::before,
+  .player-landing *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}

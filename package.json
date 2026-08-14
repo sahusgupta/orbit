@@ -34,6 +34,7 @@
     "web:lint": "npm run lint --prefix player-web",
     "web:build": "npm run build --prefix player-web",
     "web:e2e": "node tests/e2e/player-web-smoke.mjs",
+    "web:landing:parity": "node tests/e2e/player-web-landing-parity.mjs",
     "player:dev": "cd player-app && npm run start",
     "player:ios": "cd player-app && npm run ios",
     "player:android": "cd player-app && npm run android",
