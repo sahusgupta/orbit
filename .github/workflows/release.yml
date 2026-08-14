@@ -116,6 +116,9 @@ jobs:
           npm run build
           npx --no-install electron-builder --win --publish never --config.forceCodeSigning=false
 
+      - name: Boot the packaged Electron runtime against isolated services
+        run: npm run e2e:packaged
+
       - name: Create release evidence
         shell: pwsh
         run: |

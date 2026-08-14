@@ -52,6 +52,7 @@
     "stress:e2e": "node tests/e2e/stress-electron.mjs",
     "e2e:management": "node scripts/run-management-smoke.mjs",
     "e2e:public": "node scripts/run-public-smoke.mjs",
+    "e2e:packaged": "node tests/e2e/packaged-electron-smoke.mjs",
     "capture:public-proof": "node scripts/capture-public-product-proof.mjs",
     "clubs:cleanup:stress": "node apps/api/src/cleanupStressClubs.js",
     "pilot:key": "node scripts/generate-pilot-key.cjs",
@@ -110,6 +111,9 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "apps/api/package.json",
+      "apps/api/src/http/dataProtection.js",
+      "apps/api/src/operations/dataProtection.js",
       "apps/api/src/shared/orbitCore.cjs",
       "build/icon.ico",
       "build/icon.png",
@@ -156,7 +160,7 @@
   "overrides": {
     "brace-expansion": "5.0.9",
     "js-yaml": "4.3.1",
-    "nanoid": "3.3.17",
+    "nanoid": "3.3.18",
     "uuid": "^11.1.1",
     "vite": {
       "esbuild": "^0.28.1"

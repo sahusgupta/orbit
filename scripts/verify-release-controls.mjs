@@ -30,7 +30,7 @@ requireMatch(includesAll(release, [
   'environment: production-release',
   'npm run security:dependencies', 'npm run check:release-controls', 'npm run audit:module-graph', 'npm run verify',
   'npm run check:renderer-bundle', 'npm run check:public-site', 'npm run check:brand',
-  'npm run e2e:management', 'npm run e2e:public',
+  'npm run e2e:management', 'npm run e2e:public', 'npm run e2e:packaged',
   'CSC_IDENTITY_AUTO_DISCOVERY: "false"',
   'npx --no-install electron-builder --win --publish never --config.forceCodeSigning=false',
   'apps/api/src/stateMigration.test.js', 'apps/api/src/stateArchitecture.test.js', 'electron/accountMigration.test.js',
@@ -62,4 +62,4 @@ for (const [name, browserSource] of [['management', managementBrowser], ['public
 requireMatch(fs.existsSync(path.join(root, 'docs', 'operations', 'RELEASE_AND_ROLLBACK.md')), 'Release and rollback operations must be documented.');
 
 if (failures.length) throw new Error(`Release control verification failed:\n- ${failures.join('\n- ')}`);
-console.log('Release controls passed: manual immutable source, full gates, unsigned packaging, checksums, provenance, promotion environment, rollback metadata, explicit install, and production smokes.');
+console.log('Release controls passed: manual immutable source, full gates, unsigned packaging, isolated packaged startup, checksums, provenance, promotion environment, rollback metadata, explicit install, and production smokes.');

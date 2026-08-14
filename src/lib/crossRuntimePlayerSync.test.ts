@@ -200,7 +200,12 @@ describe('API and Electron player-sync boundary', () => {
     expect(electronMainSource).toContain('validateState: false');
     expect(electronMainSource).toContain('createId: () => crypto.randomUUID()');
     expect(electronMainSource).not.toMatch(/function (buildPlayerClubSnapshot|applyMembershipRequestToState|applyWaitlistRequestToState)\(/);
-    expect(rootPackage.build.files).toContain('apps/api/src/shared/orbitCore.cjs');
+    expect(rootPackage.build.files).toEqual(expect.arrayContaining([
+      'apps/api/package.json',
+      'apps/api/src/http/dataProtection.js',
+      'apps/api/src/operations/dataProtection.js',
+      'apps/api/src/shared/orbitCore.cjs'
+    ]));
   });
 
   it('produces identical complete snapshots for their shared canonical case', () => {

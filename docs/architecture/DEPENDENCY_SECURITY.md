@@ -10,7 +10,7 @@ No blanket or forced audit fix was used. The following transitive corrections st
 | --- | --- | --- | --- |
 | `brace-expansion` | 5.0.8 | 5.0.9 | Removes the current unbounded-intermediate-array advisory in root and Player build/package chains; MIT, Node 20 or 22+. |
 | `js-yaml` | 4.3.0 and Player 3.x/4.x paths | 3.15.1 or 4.3.1 by parent range | Removes the current quadratic `!!omap` advisory without forcing 3.x consumers onto the 4.x API. MIT. |
-| `nanoid` | 3.3.16 | 3.3.17 | Removes the zero-size custom-generator advisory within the existing 3.x API. MIT. |
+| `nanoid` | 3.3.17 | 3.3.18 | Removes the updated zero-size custom-generator advisory within the existing 3.x API. MIT. |
 | `fast-uri` | 3.1.4 | 3.1.5 | Removes the Player toolchain host-confusion advisory within the existing 3.x API. BSD-3-Clause. |
 
 After the lockfile-only changes, the root and API production audits report zero vulnerabilities. The Player audit falls from 16 High entries to 11 High entries.
