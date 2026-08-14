@@ -113,7 +113,9 @@ await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
 const landing = page.locator('.player-landing');
 if (!(await landing.isVisible())) failures.push('Interactive landing root is not visible.');
 if (!(await page.locator('.player-landing__nav').isVisible())) failures.push('Landing navigation is not visible.');
-if (await page.locator('.site-header').isVisible()) failures.push('Legacy application navigation overlaps the landing navigation.');
+for (const legacyShellSelector of ['.site-header', '.site-footer', '.ambient-flow']) {
+  if (await page.locator(legacyShellSelector).count()) failures.push(`Landing mounted unnecessary application shell content: ${legacyShellSelector}`);
+}
 if (await page.getByRole('link', { name: 'Orbit Player home' }).first().getAttribute('href') !== '/') failures.push('Landing brand does not return home.');
 const accessLinks = page.getByRole('link', { name: /Get Access/ });
 if (await accessLinks.count() !== 3) failures.push('Landing does not expose all three access routes.');
@@ -128,8 +130,22 @@ if (await page.getByRole('link', { name: 'Terms', exact: true }).getAttribute('h
 if (await page.getByRole('link', { name: 'Orbit Core', exact: true }).getAttribute('href') !== 'https://orbitapp-one.vercel.app/') failures.push('Landing Orbit Core route is invalid.');
 
 await page.goto(`${baseUrl}/games`, { waitUntil: 'networkidle' });
+const filterRouteRequests = [];
+const recordFilterRequest = (request) => {
+  const url = new URL(request.url());
+  if (url.pathname === '/games' && url.searchParams.has('q')) filterRouteRequests.push(request.url());
+};
+page.on('request', recordFilterRequest);
 await page.getByRole('searchbox', { name: 'Search games or clubs' }).fill('PLO');
 await page.waitForURL(/q=PLO/);
+page.off('request', recordFilterRequest);
+if (filterRouteRequests.length) failures.push(`Game search issued ${filterRouteRequests.length} route request(s) while typing.`);
+const locationControlGap = await page.evaluate(() => {
+  const status = document.querySelector('.location-control__status')?.getBoundingClientRect();
+  const action = document.querySelector('.location-control .button')?.getBoundingClientRect();
+  return status && action ? action.top - status.bottom : Number.POSITIVE_INFINITY;
+});
+if (locationControlGap > 40) failures.push(`Mobile location controls contain a ${Math.round(locationControlGap)}px dead gap.`);
 if (await page.getByText('2/5 PLO').count() !== 1) failures.push('Game search did not isolate the PLO listing.');
 await page.getByRole('combobox', { name: 'Status' }).click();
 await page.getByRole('option', { name: 'Running now' }).click();
@@ -190,7 +206,7 @@ for (const llmsPath of ['/llms.txt', '/LLMS.txt']) {
   const response = await fetch(`${baseUrl}${llmsPath}`);
   if (!response.ok || !(await response.text()).includes('Orbit')) failures.push(`${llmsPath} is unavailable or incomplete.`);
 }
-for (const assetPath of ['/favicon.ico', '/orbit-logo.svg', '/orbit-table-rhythm.jpg', '/orbit-layered-waves.svg']) {
+for (const assetPath of ['/favicon.ico', '/orbit-logo.svg', '/orbit-table-rhythm.jpg']) {
   const response = await fetch(`${baseUrl}${assetPath}`);
   const bytes = await response.arrayBuffer();
   if (!response.ok || bytes.byteLength === 0) failures.push(`${assetPath} is unavailable.`);
@@ -216,7 +232,7 @@ const report = {
   routeCount: routes.length,
   viewportCount: viewports.length,
   screenshotCount: routes.length * viewports.length,
-  interactionChecks: 28,
+  interactionChecks: 31,
   failures,
   observations
 };

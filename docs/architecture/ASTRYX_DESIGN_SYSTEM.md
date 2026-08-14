@@ -85,7 +85,7 @@ Disposition for Player Web: import an adapted, attributed copy of Motion Primiti
 
 Evaluated output families at [Haikei](https://haikei.app): blobs, waves, blurry gradients, low-poly fields, grids, symbols, steps, and peaks. Blobs, blurry gradients, and waves would reintroduce the prohibited fog/blob direction; noise and animated grids are also prohibited. The remaining structured outputs do not improve task comprehension enough to justify another decorative asset or export pipeline.
 
-Disposition for Player Web: use one real Haikei Layered Waves SVG export, adapted to the Astryx palette and rendered through a small wrapper at restrained scroll ratios. It remains low-contrast, non-interactive, and abstract; it does not depict product UI, customers, venues, or metrics. Other Haikei blob, blurry-gradient, noise, and animated-grid treatments remain prohibited.
+Disposition for Player Web: the earlier Haikei Layered Waves export was retired when the supplied landing-page theme became the web-wide visual owner. Product routes now use code-native, low-contrast orbital linework that matches the landing page without an additional asset request or scroll listener. Haikei blob, wave, blurry-gradient, noise, and animated-grid treatments remain prohibited.
 
 ## Individually reviewable prohibited-pattern dispositions
 

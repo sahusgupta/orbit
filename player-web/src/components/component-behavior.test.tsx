@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +15,7 @@ import { TournamentsExplorer } from '@/src/components/discovery/tournaments-expl
 import { OrbitFaq } from '@/src/components/home/orbit-faq';
 import { SiteFooter } from '@/src/components/shell/site-footer';
 import { SiteHeader } from '@/src/components/shell/site-header';
+import { RouteShell } from '@/src/components/shell/route-shell';
 import { ButtonLink } from '@/src/components/ui/button';
 import { Dialog } from '@/src/components/ui/dialog';
 import { Disclosure } from '@/src/components/ui/disclosure';
@@ -64,7 +65,7 @@ vi.mock('@/src/data/player-data-context', () => ({ usePlayerData: () => testStat
 afterEach(cleanup);
 
 beforeEach(() => {
-  Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
+  window.history.replaceState(null, '', '/games');
   testState.search = '';
   testState.pathname = '/games';
   testState.replace.mockReset();
@@ -171,30 +172,22 @@ describe('Player Web route and component behavior', () => {
     expect(screen.queryByText('Filter controls')).not.toBeInTheDocument();
   });
 
-  it('reveals the web navigation after leaving the landing position', async () => {
+  it('does not mount the authenticated application shell on the landing route', () => {
     testState.pathname = '/';
-    render(<SiteHeader />);
-    expect(document.querySelector('.site-header')).toHaveAttribute('data-visible', 'false');
+    render(<RouteShell><span>Landing content</span></RouteShell>);
+    expect(screen.getByText('Landing content')).toBeVisible();
+    expect(document.querySelector('.site-header')).not.toBeInTheDocument();
+    expect(document.querySelector('.site-footer')).not.toBeInTheDocument();
+    expect(document.querySelector('.ambient-flow')).not.toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'Primary navigation' })).not.toBeInTheDocument();
-    Object.defineProperty(window, 'scrollY', { configurable: true, value: 72 });
-    fireEvent.scroll(window);
-    await waitFor(() => expect(document.querySelector('.site-header')).toHaveAttribute('data-visible', 'true'));
-    const navigation = screen.getByRole('navigation', { name: 'Primary navigation' });
-    expect(within(navigation).getAllByRole('link')).toHaveLength(5);
-    expect(within(navigation).getByRole('link', { name: 'Games' })).toHaveAttribute('href', '/games');
-    expect(within(navigation).getByRole('link', { name: 'Tournaments' })).toHaveAttribute('href', '/tournaments');
-    expect(within(navigation).getByRole('link', { name: 'Clubs' })).toHaveAttribute('href', '/clubs');
-    expect(within(navigation).getByRole('link', { name: 'My Orbit' })).toHaveAttribute('href', '/me');
-    expect(within(navigation).getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/sign-in');
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content');
   });
 
   it('keeps the web navigation visible at the top of non-home routes', () => {
     testState.pathname = '/games';
     render(<SiteHeader />);
 
-    const header = document.querySelector('.site-header');
-    expect(header).toHaveAttribute('data-home', 'false');
-    expect(header).toHaveAttribute('data-visible', 'true');
+    expect(document.querySelector('.site-header')).toBeVisible();
     expect(screen.getByRole('navigation', { name: 'Primary navigation' })).toBeVisible();
   });
 
@@ -241,14 +234,16 @@ describe('Player Web route and component behavior', () => {
   it('preserves game search in route query state', async () => {
     render(<LocationProvider><GamesExplorer clubs={discovery.clubs} /></LocationProvider>);
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search games or clubs' }), { target: { value: 'PLO' } });
-    expect(testState.replace).toHaveBeenLastCalledWith('/games?q=PLO', { scroll: false });
+    expect(`${window.location.pathname}${window.location.search}`).toBe('/games?q=PLO');
+    expect(testState.replace).not.toHaveBeenCalled();
   });
 
   it('preserves game status filtering in route query state', async () => {
     render(<LocationProvider><GamesExplorer clubs={discovery.clubs} /></LocationProvider>);
     await userEvent.click(screen.getByRole('combobox', { name: 'Status' }));
     await userEvent.click(screen.getByRole('option', { name: 'Forming' }));
-    expect(testState.replace).toHaveBeenCalledWith('/games?status=forming', { scroll: false });
+    expect(`${window.location.pathname}${window.location.search}`).toBe('/games?status=forming');
+    expect(testState.replace).not.toHaveBeenCalled();
   });
 
   it('renders public clubs with activity context', () => {

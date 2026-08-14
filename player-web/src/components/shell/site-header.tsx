@@ -5,7 +5,6 @@ import { Menu as MenuIcon, UserRound } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
 import { useAuth } from '@/src/auth/auth-context';
 
 const destinations = [
@@ -18,25 +17,11 @@ const destinations = [
 export function SiteHeader() {
   const pathname = usePathname();
   const { status } = useAuth();
-  const [homeVisible, setHomeVisible] = useState(false);
-  const isHome = pathname === '/';
-  const visible = !isHome || homeVisible;
   const accountHref = status === 'signed-in' ? '/me/profile' : '/sign-in';
   const accountActive = pathname === '/me/profile' || pathname.startsWith('/sign-in');
 
-  useEffect(() => {
-    if (!isHome) return;
-    const syncVisibility = () => {
-      const nextVisible = window.scrollY > 48;
-      setHomeVisible(nextVisible);
-    };
-    syncVisibility();
-    window.addEventListener('scroll', syncVisibility, { passive: true });
-    return () => window.removeEventListener('scroll', syncVisibility);
-  }, [isHome]);
-
   return (
-    <header className="site-header" data-home={isHome} data-visible={visible} aria-hidden={!visible} inert={visible ? undefined : true}>
+    <header className="site-header">
       <div className="site-header__inner">
         <Link className="site-brand" href="/" aria-label="Orbit home">
           <Image src="/orbit-logo.svg" width={42} height={42} alt="" priority />
@@ -51,7 +36,7 @@ export function SiteHeader() {
             <UserRound aria-hidden="true" size={18} /><span>{status === 'signed-in' ? 'Profile' : 'Sign in'}</span>
           </Link>
         </nav>
-        <MenuPrimitive.Root key={visible ? 'visible' : 'hidden'}>
+        <MenuPrimitive.Root>
           <MenuPrimitive.Trigger className="menu-button" aria-label="Open navigation">
             <MenuIcon aria-hidden="true" size={21} />
           </MenuPrimitive.Trigger>

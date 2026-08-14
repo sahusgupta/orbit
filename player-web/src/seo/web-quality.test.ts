@@ -63,7 +63,8 @@ describe('public web quality contracts', () => {
 
   it('rewires every landing destination without changing the product route owners', () => {
     const landing = read('src/components/home/player-landing.tsx');
-    const styles = read('styles/landing.css');
+    const shell = read('src/components/shell/route-shell.tsx');
+    const layout = read('app/layout.tsx');
 
     expect(landing).not.toContain('href="#"');
     expect(landing).toContain('href="/sign-in"');
@@ -71,7 +72,9 @@ describe('public web quality contracts', () => {
     expect(landing).toContain('href="#how-it-works"');
     expect(landing).toContain('href="/privacy"');
     expect(landing).toContain('href="https://orbitapp-one.vercel.app/terms"');
-    expect(styles).toContain('body:has(.player-landing) .site-header');
+    expect(shell).toContain("if (pathname === '/')");
+    expect(layout).toContain('<RouteShell>{children}</RouteShell>');
+    expect(shell.indexOf("if (pathname === '/')")).toBeLessThan(shell.indexOf('<Providers>'));
   });
 
   it('uses the selected design-system primitives at their interaction boundaries', () => {
@@ -87,7 +90,8 @@ describe('public web quality contracts', () => {
     ].join('\n');
     const motionOwner = read('src/components/ui/scroll-reveal.tsx');
     const motionPrimitive = read('src/components/vendor/motion-primitives/in-view.tsx');
-    const haikei = read('src/components/vendor/haikei/layered-waves.tsx');
+    const ambient = read('src/components/shell/ambient-flow.tsx');
+    const orbitBackground = read('src/components/shell/orbital-background.tsx');
     const background = read('styles/base.css');
 
     for (const primitive of ['@base-ui/react/button', '@base-ui/react/input', '@base-ui/react/select', '@base-ui/react/dialog', '@base-ui/react/form', '@base-ui/react/radio']) {
@@ -97,8 +101,9 @@ describe('public web quality contracts', () => {
     expect(motionOwner).toContain("from '@/src/components/vendor/motion-primitives/in-view'");
     expect(motionPrimitive).toContain("from 'motion/react'");
     expect(motionPrimitive).toContain('data-motion-primitive={primitiveName}');
-    expect(haikei).toContain('data-haikei-generator="layered-waves"');
-    expect(background).toContain("url('/orbit-layered-waves.svg')");
+    expect(orbitBackground).toContain('ambient-flow__orbit--wide');
+    expect(background).toContain('.ambient-flow__orbit');
+    expect(ambient).not.toContain('addEventListener');
   });
 
   it('publishes a code-backed privacy inventory and AI-development disclosure', () => {
@@ -149,7 +154,34 @@ describe('public web quality contracts', () => {
     expect(footer).toContain('className="site-footer__inner"');
     expect(base).toContain('display: flex; flex-direction: column;');
     expect(base).toContain('main { flex: 1 0 auto;');
-    expect(components).toContain('.site-footer { background: var(--canvas);');
+    expect(components).toContain('.site-footer { background: var(--canvas-deep);');
+  });
+
+  it('extends the landing palette and typography to every product route', () => {
+    const tokens = read('styles/tokens.css');
+    const manifest = read('app/manifest.ts');
+
+    expect(tokens).toContain('font-family: var(--font-landing-sans)');
+    expect(tokens).toContain('--font-mono: var(--font-landing-mono)');
+    expect(tokens).toContain('--canvas: #070d16');
+    expect(tokens).toContain('--primary: #191970');
+    expect(tokens).toContain('--accent: #4aa8a0');
+    expect(tokens).toContain('--ink: #f2ede3');
+    expect(manifest.match(/#070d16/g)).toHaveLength(2);
+  });
+
+  it('updates local discovery filters without issuing a Next route request per keystroke', () => {
+    const queryState = read('src/navigation/query-state.ts');
+    const explorers = [
+      read('src/components/discovery/games-explorer.tsx'),
+      read('src/components/discovery/clubs-explorer.tsx'),
+      read('src/components/discovery/tournaments-explorer.tsx')
+    ].join('\n');
+
+    expect(queryState).toContain('window.history.replaceState');
+    expect(explorers).toContain('replaceRouteQuery(pathname, next)');
+    expect(explorers).not.toContain('useRouter');
+    expect(explorers).not.toContain('router.replace');
   });
 
   it('avoids prohibited visual and marketing patterns in production sources', () => {

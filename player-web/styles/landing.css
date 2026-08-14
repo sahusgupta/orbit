@@ -12,12 +12,6 @@ body:has(.player-landing) {
   background: #070d16;
 }
 
-body:has(.player-landing) .ambient-flow,
-body:has(.player-landing) .site-header,
-body:has(.player-landing) > .site-footer {
-  display: none;
-}
-
 body:has(.player-landing) main {
   flex: 1 0 auto;
   width: 100%;

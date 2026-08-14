@@ -102,6 +102,26 @@ afterAll(async () => {
 });
 
 describe('API route composition', () => {
+  it('applies a rate-limit policy before every public, protected, and missing route', async () => {
+    const probes = [
+      ['/health'],
+      ['/privacy'],
+      ['/player/public/discovery'],
+      ['/dashboard'],
+      ['/clients'],
+      ['/missing-orbit-route']
+    ];
+
+    for (const [pathname] of probes) {
+      const response = await request(pathname);
+      const maximum = Number(response.headers.get('x-ratelimit-limit'));
+      const remaining = Number(response.headers.get('x-ratelimit-remaining'));
+      expect(maximum, pathname).toBeGreaterThan(0);
+      expect(remaining, pathname).toBeGreaterThanOrEqual(0);
+      expect(remaining, pathname).toBeLessThan(maximum);
+    }
+  });
+
   it('serves health and legal assets before client authentication', async () => {
     const health = await request('/health', { headers: { 'x-orbit-request-id': 'character-request' } });
     expect(health.status).toBe(200);

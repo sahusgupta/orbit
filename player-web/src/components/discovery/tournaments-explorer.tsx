@@ -1,12 +1,13 @@
 'use client';
 
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useMemo } from 'react';
 import { useAuth } from '@/src/auth/auth-context';
 import { usePlayerData } from '@/src/data/player-data-context';
 import { filterTournaments } from '@/src/domain/selectors';
 import type { DiscoveryPayload, TournamentFilters } from '@/src/domain/types';
 import { useLocation } from '@/src/location/location-context';
+import { replaceRouteQuery } from '@/src/navigation/query-state';
 import { SearchField, SelectField } from '@/src/components/ui/fields';
 import { Disclosure } from '@/src/components/ui/disclosure';
 import { EmptyState } from '@/src/components/ui/state-panels';
@@ -16,7 +17,6 @@ import { LocationControl } from './location-control';
 export function TournamentsExplorer({ discovery }: { discovery: DiscoveryPayload }) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
-  const router = useRouter();
   const { user } = useAuth();
   const playerData = usePlayerData();
   const { coordinate } = useLocation();
@@ -31,7 +31,7 @@ export function TournamentsExplorer({ discovery }: { discovery: DiscoveryPayload
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(searchParams.toString());
     if (!value || value === 'all' || value === '0') next.delete(key); else next.set(key, value);
-    router.replace(`${pathname}${next.size ? `?${next.toString()}` : ''}`, { scroll: false });
+    replaceRouteQuery(pathname, next);
   };
   return (
     <div className="stack-xl">

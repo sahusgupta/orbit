@@ -2,10 +2,7 @@ import type { Metadata } from 'next';
 import { DM_Mono, Manrope } from 'next/font/google';
 import type { ReactNode } from 'react';
 import { GlobalStructuredData } from '@/src/components/seo/structured-data';
-import { AmbientFlow } from '@/src/components/shell/ambient-flow';
-import { Providers } from '@/src/components/shell/providers';
-import { SiteFooter } from '@/src/components/shell/site-footer';
-import { SiteHeader } from '@/src/components/shell/site-header';
+import { RouteShell } from '@/src/components/shell/route-shell';
 import { siteConfig } from '@/src/seo/site';
 import './globals.css';
 
@@ -54,14 +51,8 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   return (
     <html lang="en" className={`${landingSans.variable} ${landingMono.variable}`}>
       <body>
-        <AmbientFlow />
         <GlobalStructuredData />
-        <a className="skip-link" href="#main-content">Skip to main content</a>
-        <Providers>
-          <SiteHeader />
-          <main id="main-content">{children}</main>
-          <SiteFooter />
-        </Providers>
+        <RouteShell>{children}</RouteShell>
       </body>
     </html>
   );

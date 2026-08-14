@@ -29,9 +29,9 @@ React Native UI, Expo services, AsyncStorage, native linking/maps, RevenueCat, a
 
 Player Web product routes follow the native Player app without copying a phone shell. The home route mirrors the supplied Interactive Poker Landing Page reference: a full-screen orbital hero leads into a four-stage sticky-scroll experience for discovery, joining, queue position, and reservation. Its original orange presentation accent is replaced by midnight blue (`#191970`), while the fixed landing navigation and footer use real Orbit brand assets and real destinations. Manrope and DM Mono are bundled through Next font loading so the reference typography does not rely on a runtime font request.
 
-The governing web rules remain `docs/architecture/ASTRYX_DESIGN_SYSTEM.md` for the established product routes. The landing reference owns its presentation-specific spacing, type, orbital animation, drag interaction, and example labels. Those examples are demonstrative only; authoritative game, room, queue, and tournament state continues to come from the existing API-backed product routes.
+The governing web rules remain `docs/architecture/ASTRYX_DESIGN_SYSTEM.md`. The landing reference now also owns the web-wide midnight-blue, teal, cream, Manrope/DM Mono, compact-corner, and orbital-line visual vocabulary. The landing keeps its presentation-specific spacing, animation, drag interaction, and example labels. Those examples are demonstrative only; authoritative game, room, queue, and tournament state continues to come from the existing API-backed product routes.
 
-The established product routes continue to use Base UI for accessible buttons, fields, selects, forms, radio groups, dialogs, menus, tooltips, and collapsibles, with Astryx tokens owning their appearance. Attribution and upstream sources are recorded in `player-web/THIRD_PARTY_NOTICES.md`. Route headers use concise titles without explanatory subtitle copy; metadata descriptions remain intact for search and sharing.
+The established product routes continue to use Base UI for accessible buttons, fields, selects, forms, radio groups, dialogs, menus, tooltips, and collapsibles, with shared tokens owning their landing-aligned appearance. Attribution and upstream sources are recorded in `player-web/THIRD_PARTY_NOTICES.md`. Route headers use concise titles without explanatory subtitle copy; metadata descriptions remain intact for search and sharing. The landing route bypasses the authenticated application providers and legacy shell entirely, so it does not initialize Firebase or background shell behavior it does not use.
 
 The Open Graph image remains the repository-approved `orbit-table-rhythm-v1.jpg` composition exported to `player-web/public/orbit-table-rhythm.jpg`; it is real brand artwork, not an interface mockup. Both landing brand positions and the application shell depend on the canonical `public/orbit-logo.svg`, and brand governance tests require byte-identical Player Web exports. Standard repository icon assets supply the favicon, app icon, and Apple touch icon.
 
@@ -67,7 +67,7 @@ Entity routes accept the human-readable route key emitted by listing links and t
 
 ## Auth and data flow
 
-The landing page is a static, interactive product presentation and routes access requests into the existing sign-in flow. Discovery pages fetch the sanitized API projection on the server and render honest error or empty states if it is unavailable. Filters operate locally and preserve query parameters. Location is optional: players can grant geolocation, deny it, continue without it, or enter a manual area.
+The landing page is a static, interactive product presentation and routes access requests into the existing sign-in flow. Discovery pages fetch the sanitized API projection on the server and render honest error or empty states if it is unavailable. Filters operate locally and preserve query parameters with the browser history API, avoiding a server route request for every search keystroke. Location is optional: players can grant geolocation, deny it, continue without it, or enter a manual area.
 
 Firebase Auth uses browser-local persistence. Email accounts must be verified before they are treated as signed in. A logged-out action records a validated internal return path and action intent in the sign-in URL. Successful sign-in returns to the original game, club, or tournament. My Orbit loads private discovery only after a verified user and profile are available.
 
@@ -123,6 +123,8 @@ Copy variable names from `player-web/.env.example`; do not commit populated envi
 
 The API must allow the deployed Player Web origin in its CORS configuration and must use the same Firebase project accepted by API token verification and publication.
 
+Every Express API request passes through the application-wide API quota before route registration; authentication, identity, player mutation, dashboard administration, recovery, and webhook families also receive stricter quotas. That quota is process-local, so production-wide enforcement requires project-level Vercel WAF rate-limit rules on both the API and Player Web projects. Do not substitute another module-global counter: serverless instances do not share that state. Vercel firewall changes are production configuration and must be reviewed and explicitly authorized before publication.
+
 ## Verification
 
 Focused checks:
@@ -134,7 +136,7 @@ npm run web:test
 npm run web:build
 ```
 
-With the isolated fixture API and local web server already running, `npm run web:e2e` checks 15 routes, including the privacy policy and custom 404, at 375 by 812, 430 by 932, 768 by 1024, 1366 by 768, 1440 by 900, and 1920 by 1080. It creates 90 screenshots and performs 28 interaction and web-quality checks covering the five-link web navigation, route-state filters, manual location, auth intent links, protected-route return paths, keyboard reachability, visible focus, raw page source, unique metadata, structured data, crawler artifacts, source-map absence, console cleanliness, and responsive overflow. Screenshots and the JSON report are generated under ignored `test-results/player-web/`.
+With the isolated fixture API and local web server already running, `npm run web:e2e` checks 15 routes, including the privacy policy and custom 404, at 375 by 812, 430 by 932, 768 by 1024, 1366 by 768, 1440 by 900, and 1920 by 1080. It creates 90 screenshots and performs 31 interaction and web-quality checks covering the five-link web navigation, landing shell isolation, request-free local filtering, mobile control geometry, route-state filters, manual location, auth intent links, protected-route return paths, keyboard reachability, visible focus, raw page source, unique metadata, structured data, crawler artifacts, source-map absence, console cleanliness, and responsive overflow. Screenshots and the JSON report are generated under ignored `test-results/player-web/`.
 
 With both the supplied reference app and the production Player Web build running locally, set `ORBIT_REFERENCE_URL` and `ORBIT_PLAYER_WEB_URL`, then run `npm run web:landing:parity`. The Playwright harness checks matching text and geometry at five scroll checkpoints on mobile and desktop, compares normalized screenshots while allowing only the approved accent-color and font substitutions, verifies every landing destination, rejects the reference orange from source, and confirms the logo and favicon match the canonical repository assets byte for byte.
 

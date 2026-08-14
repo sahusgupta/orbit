@@ -35,9 +35,9 @@
 }
 @media (max-width: 720px) {
   h1 { font-size: clamp(2rem, 11vw, 3.3rem); }
-  .site-header__inner { min-height: 72px; }
-  .site-brand img { height: 40px; width: 40px; }
-  .site-brand strong { font-size: 1.3rem; }
+  .site-header__inner { min-height: 60px; }
+  .site-brand img { height: 36px; width: 36px; }
+  .site-brand strong { font-size: 1.16rem; }
   .menu-button { display: flex; }
   .primary-nav { display: none; }
   .site-footer__inner { align-items: flex-start; flex-direction: column; }
@@ -60,6 +60,7 @@
   .inline-filter-bar, .filter-grid, .disclosure > .disclosure__content > .inline-filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .inline-filter-bar .search-field { grid-column: 1 / -1; }
   .location-control { align-items: stretch; flex-direction: column; }
+  .location-control__status { flex-basis: auto; }
   .location-control form { flex-basis: auto; }
   .section-heading { align-items: flex-start; flex-direction: column; }
   .orbit-loop ol { grid-template-columns: 1fr; }

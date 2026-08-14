@@ -27,20 +27,16 @@ afterEach(() => {
 });
 
 describe('Orbit web motion', () => {
-  it('moves decorative background layers at restrained scroll ratios', () => {
-    setReducedMotion(false);
-    vi.spyOn(window, 'scrollY', 'get').mockReturnValue(480);
+  it('renders landing-aligned orbital background layers as decorative content', () => {
     const { container } = render(<AmbientFlow />);
     const flow = container.querySelector<HTMLElement>('.ambient-flow');
 
     expect(flow).toHaveAttribute('aria-hidden', 'true');
-    expect(flow?.style.getPropertyValue('--flow-near-y')).toBe('-22px');
-    expect(flow?.style.getPropertyValue('--flow-far-y')).toBe('12px');
-    expect(container.querySelectorAll('.ambient-flow > span')).toHaveLength(3);
+    expect(container.querySelectorAll('.ambient-flow__orbit')).toHaveLength(3);
+    expect(container.querySelector('.ambient-flow__node')).toBeInTheDocument();
   });
 
-  it('leaves the ambient field static when reduced motion is requested', () => {
-    setReducedMotion(true);
+  it('keeps the ambient field independent of scroll position', () => {
     vi.spyOn(window, 'scrollY', 'get').mockReturnValue(900);
     const { container } = render(<AmbientFlow />);
     const flow = container.querySelector<HTMLElement>('.ambient-flow');
