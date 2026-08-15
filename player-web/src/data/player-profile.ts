@@ -1,4 +1,4 @@
-import { preserveLegacyPlayerProfile } from '@orbit/player-domain/decoders/playerBoundaryDecoders';
+import { preserveLegacyPlayerProfile, readFirebaseErrorCode } from '@orbit/player-domain/decoders/playerBoundaryDecoders';
 import type { PlayerAccount } from '@/src/domain/types';
 import type { User } from 'firebase/auth';
 import { getFirebaseBrowserClient } from './firebase-client';
@@ -15,9 +15,21 @@ export function fallbackPlayerProfile(user: User): PlayerAccount {
   };
 }
 
+export function isTransientPlayerProfileReadError(error: unknown) {
+  const code = readFirebaseErrorCode(error);
+  if (code === 'unavailable' || code === 'firestore/unavailable') return true;
+  return error instanceof Error && /failed to get document because the client is offline/i.test(error.message);
+}
+
 export async function fetchWebPlayerProfile(user: User): Promise<PlayerAccount> {
   const [{ doc, getDoc }, { db }] = await Promise.all([import('firebase/firestore'), getFirebaseBrowserClient()]);
-  const snapshot = await getDoc(doc(db, 'players', user.uid));
+  let snapshot;
+  try {
+    snapshot = await getDoc(doc(db, 'players', user.uid));
+  } catch (error) {
+    if (isTransientPlayerProfileReadError(error)) return fallbackPlayerProfile(user);
+    throw error;
+  }
   if (!snapshot.exists()) return fallbackPlayerProfile(user);
   const profile = preserveLegacyPlayerProfile(snapshot.data());
   return {
