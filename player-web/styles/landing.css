@@ -12,6 +12,10 @@ body:has(.player-landing) {
   background: #070d16;
 }
 
+html:has(.player-landing) {
+  scroll-behavior: smooth;
+}
+
 body:has(.player-landing) main {
   flex: 1 0 auto;
   width: 100%;
@@ -38,6 +42,12 @@ body:has(.player-landing) main {
   cursor: pointer;
 }
 
+.player-landing__scroll-cue:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid #4aa8a0;
+  outline-offset: 7px;
+}
+
 .player-card-story {
   align-items: center;
   background: #050b13;
@@ -50,6 +60,7 @@ body:has(.player-landing) main {
   max-width: 1440px;
   min-height: 680px;
   padding: clamp(88px, 11vw, 148px) clamp(28px, 7vw, 110px);
+  scroll-margin-top: 68px;
 }
 
 .player-card-story__intro {
@@ -279,6 +290,10 @@ body:has(.player-landing) main {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html:has(.player-landing) {
+    scroll-behavior: auto;
+  }
+
   .player-landing *,
   .player-landing *::before,
   .player-landing *::after {

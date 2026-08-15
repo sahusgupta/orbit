@@ -149,6 +149,21 @@ describe('public web quality contracts', () => {
     expect(landing).toContain('className="sticky top-0 overflow-hidden flex"');
   });
 
+  it('smoothly carries the scroll cue into a viewport-triggered card reveal', () => {
+    const landing = read('src/components/home/player-landing.tsx');
+    const cards = read('src/components/home/orbit-feature-cards.tsx');
+    const styles = read('styles/landing.css');
+
+    expect(landing).toContain('href="#player-card-story"');
+    expect(landing).toContain('aria-label="Scroll to how Orbit Player works"');
+    expect(cards).toContain('id="player-card-story"');
+    expect(cards.match(/whileInView=/g)).toHaveLength(3);
+    expect(cards).toContain('viewport={{ once: true');
+    expect(styles).toContain('html:has(.player-landing)');
+    expect(styles).toContain('scroll-behavior: smooth');
+    expect(styles).toMatch(/prefers-reduced-motion: reduce[\s\S]+scroll-behavior: auto/);
+  });
+
   it('uses the footer as the final opaque page boundary', () => {
     const footer = read('src/components/shell/site-footer.tsx');
     const base = read('styles/base.css');

@@ -120,6 +120,12 @@ if (await page.getByRole('link', { name: 'Orbit Player home' }).first().getAttri
 if (await page.getByRole('link', { name: 'Open My Orbit' }).getAttribute('href') !== '/me') failures.push('Landing My Orbit action is invalid.');
 if (await page.getByRole('link', { name: 'Find games near me' }).getAttribute('href') !== '/games') failures.push('Landing nearby-game action is invalid.');
 if (await page.getByRole('link', { name: 'Manage memberships', exact: true }).first().getAttribute('href') !== '/me/clubs') failures.push('Landing membership action is invalid.');
+const scrollCue = page.getByRole('link', { name: 'Scroll to how Orbit Player works' });
+if (await scrollCue.getAttribute('href') !== '#player-card-story') failures.push('Landing scroll cue does not target the poker-card story.');
+if (await page.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior) !== 'auto') failures.push('Reduced-motion mode does not disable smooth scrolling.');
+await scrollCue.click();
+const reducedMotionCardTop = await page.locator('#player-card-story').evaluate((element) => element.getBoundingClientRect().top);
+if (reducedMotionCardTop < 0 || reducedMotionCardTop > 76) failures.push(`Reduced-motion scroll missed the poker-card story by ${Math.round(reducedMotionCardTop)}px.`);
 const featureCards = page.getByRole('group', { name: 'Choose a poker card to explore Orbit Player' }).getByRole('button');
 if (await featureCards.count() !== 3) failures.push('Landing does not expose the three-card Orbit Player story.');
 await page.getByRole('button', { name: 'Preview my clubs feature' }).click();
@@ -127,6 +133,23 @@ if (await page.getByRole('link', { name: /Manage my memberships/ }).getAttribute
 if (await page.getByRole('link', { name: 'Privacy', exact: true }).getAttribute('href') !== '/privacy') failures.push('Landing privacy route is invalid.');
 if (await page.getByRole('link', { name: 'Terms', exact: true }).getAttribute('href') !== 'https://orbitapp-one.vercel.app/terms') failures.push('Landing terms route is invalid.');
 if (await page.getByRole('link', { name: 'Orbit Core', exact: true }).getAttribute('href') !== 'https://orbitapp-one.vercel.app/') failures.push('Landing Orbit Core route is invalid.');
+
+const motionContext = await browser.newContext({ viewport: { width: 430, height: 932 }, reducedMotion: 'no-preference' });
+const motionPage = await motionContext.newPage();
+await motionPage.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+if (await motionPage.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior) !== 'smooth') failures.push('Landing does not enable smooth scrolling for the scroll cue.');
+await motionPage.getByRole('link', { name: 'Scroll to how Orbit Player works' }).click();
+await motionPage.waitForTimeout(50);
+const intermediateScroll = await motionPage.evaluate(() => window.scrollY);
+await motionPage.waitForFunction(() => {
+  const target = document.querySelector('#player-card-story');
+  if (!target) return false;
+  const top = target.getBoundingClientRect().top;
+  return top >= 0 && top <= 76;
+});
+const completedScroll = await motionPage.evaluate(() => window.scrollY);
+if (intermediateScroll <= 0 || intermediateScroll >= completedScroll) failures.push('Landing smooth scroll did not visibly interpolate toward the poker-card story.');
+await motionContext.close();
 
 await page.goto(`${baseUrl}/games`, { waitUntil: 'networkidle' });
 const filterRouteRequests = [];
@@ -232,7 +255,7 @@ const report = {
   routeCount: routes.length,
   viewportCount: viewports.length,
   screenshotCount: routes.length * viewports.length,
-  interactionChecks: 31,
+  interactionChecks: 36,
   failures,
   observations
 };

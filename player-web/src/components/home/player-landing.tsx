@@ -560,10 +560,12 @@ export default function PlayerLanding() {
         </div>
 
         {/* Scroll cue */}
-        <motion.div
+        <motion.a
+          href="#player-card-story"
+          aria-label="Scroll to how Orbit Player works"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}
           transition={{ duration: 0.6, delay: 1.8 }}
-          className="absolute bottom-7 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5"
+          className="player-landing__scroll-cue absolute bottom-7 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5"
         >
           <motion.div
             animate={{ y: [0, 5, 0] }}
@@ -572,7 +574,7 @@ export default function PlayerLanding() {
             <ChevronDown size={13} className="text-[#F2EDE3]/16" />
           </motion.div>
           <span className="font-mono text-[7px] tracking-[0.2em] text-[#F2EDE3]/10 uppercase">Scroll</span>
-        </motion.div>
+        </motion.a>
       </section>
 
       <OrbitFeatureCards />

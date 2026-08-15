@@ -55,12 +55,19 @@ export function OrbitFeatureCards() {
   const activeFeature = features.find((feature) => feature.id === activeId) ?? features[0];
 
   return (
-    <section className="player-card-story" aria-labelledby="player-card-story-title">
-      <header className="player-card-story__intro">
+    <section id="player-card-story" className="player-card-story" aria-labelledby="player-card-story-title">
+      <motion.header
+        className="player-card-story__intro"
+        initial={reduceMotion ? false : { opacity: 0, y: 28 }}
+        animate={reduceMotion ? { opacity: 1, y: 0 } : undefined}
+        whileInView={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.45 }}
+        transition={{ duration: reduceMotion ? 0 : 0.65, ease: 'easeOut' }}
+      >
         <p>Orbit Player · one player hub</p>
         <h2 id="player-card-story-title">Find a game you&apos;ll like. Keep every membership together.</h2>
         <span>Pick a card to see how Orbit Player takes you from looking for a nearby game to managing the rooms where you play.</span>
-      </header>
+      </motion.header>
 
       <div className="player-card-story__showcase">
         <div className="player-card-story__hand" role="group" aria-label="Choose a poker card to explore Orbit Player">
@@ -70,10 +77,12 @@ export function OrbitFeatureCards() {
               <motion.div
                 className="player-card-story__motion"
                 key={feature.id}
-                initial={reduceMotion ? false : { opacity: 0, x: 0, y: 36, rotate: 0 }}
-                animate={{ opacity: 1, x: feature.x, y: active ? -20 : 0, rotate: feature.rotate, scale: active ? 1.04 : 1 }}
+                initial={reduceMotion ? false : { opacity: 0, x: 0, y: 64, rotate: 0, scale: 0.88 }}
+                animate={reduceMotion ? { opacity: 1, x: feature.x, y: active ? -20 : 0, rotate: feature.rotate, scale: active ? 1.04 : 1 } : undefined}
+                whileInView={reduceMotion ? undefined : { opacity: 1, x: feature.x, y: active ? -20 : 0, rotate: feature.rotate, scale: active ? 1.04 : 1 }}
                 whileHover={reduceMotion ? undefined : { y: active ? -26 : -10 }}
-                transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 280, damping: 24, delay: index * 0.06 }}
+                viewport={{ once: true, amount: 0.35 }}
+                transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 250, damping: 23, delay: 0.1 + index * 0.09 }}
                 style={{ zIndex: active ? 10 : index + 1 }}
               >
                 <button
@@ -95,7 +104,17 @@ export function OrbitFeatureCards() {
           })}
         </div>
 
-        <div className="player-card-story__readout" id="player-card-feature" aria-live="polite" aria-atomic="true">
+        <motion.div
+          className="player-card-story__readout"
+          id="player-card-feature"
+          aria-live="polite"
+          aria-atomic="true"
+          initial={reduceMotion ? false : { opacity: 0, x: 20 }}
+          animate={reduceMotion ? { opacity: 1, x: 0 } : undefined}
+          whileInView={reduceMotion ? undefined : { opacity: 1, x: 0 }}
+          viewport={{ once: true, amount: 0.45 }}
+          transition={{ duration: reduceMotion ? 0 : 0.55, delay: reduceMotion ? 0 : 0.34, ease: 'easeOut' }}
+        >
           <span>{activeFeature.eyebrow}</span>
           <AnimatePresence initial={false} mode="wait">
             <motion.div
@@ -110,7 +129,7 @@ export function OrbitFeatureCards() {
               <Link href={activeFeature.href}>{activeFeature.action}<span aria-hidden="true"> →</span></Link>
             </motion.div>
           </AnimatePresence>
-        </div>
+        </motion.div>
       </div>
     </section>
   );
