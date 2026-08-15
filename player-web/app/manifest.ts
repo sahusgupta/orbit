@@ -2,9 +2,9 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Orbit',
-    short_name: 'Orbit',
-    description: 'Find current live poker games, clubs, and tournaments, then take the next player action through Orbit.',
+    name: 'Orbit Player',
+    short_name: 'Orbit Player',
+    description: 'Find nearby poker games that fit, then manage memberships, waitlists, and registrations in one place.',
     start_url: '/',
     display: 'standalone',
     background_color: '#070d16',

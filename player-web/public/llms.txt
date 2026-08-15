@@ -1,6 +1,6 @@
-# Orbit
+# Orbit Player
 
-> Orbit is a connected poker-room player network developed by Caminus Labs, LLC. It lets players inspect current room-published games, clubs, and tournaments on the web before deciding where to play.
+> Orbit Player is a connected poker-room player network developed by Caminus Labs, LLC. It helps players find nearby room-published games that fit their preferred stakes and format, then manage club memberships, waitlists, and tournament registrations in one place.
 
 Intended public site: https://orbitpoker.com/
 Developer: https://caminuslabs.com/

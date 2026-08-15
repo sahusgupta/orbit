@@ -191,16 +191,20 @@ try {
   assert(response?.status() === 200, `Target landing returned HTTP ${response?.status() || 0}.`);
   const routeContract = await page.evaluate(() => ({
     home: document.querySelector('.player-landing__nav a[aria-label="Orbit Player home"]')?.getAttribute('href'),
-    access: [...document.querySelectorAll('.player-landing a')].filter((link) => link.textContent?.trim() === 'Get Access').map((link) => link.getAttribute('href')),
-    howItWorks: [...document.querySelectorAll('.player-landing a')].find((link) => link.textContent?.trim() === 'How It Works')?.getAttribute('href'),
+    games: [...document.querySelectorAll('.player-landing a')].find((link) => link.textContent?.trim() === 'Find games near me')?.getAttribute('href'),
+    memberships: [...document.querySelectorAll('.player-landing a')].find((link) => link.textContent?.trim() === 'Manage memberships')?.getAttribute('href'),
+    myOrbit: [...document.querySelectorAll('.player-landing a')].find((link) => link.textContent?.trim() === 'Open My Orbit')?.getAttribute('href'),
+    pokerCards: document.querySelectorAll('.player-poker-card').length,
     privacy: [...document.querySelectorAll('.player-landing__footer a')].find((link) => link.textContent?.trim() === 'Privacy')?.getAttribute('href'),
     terms: [...document.querySelectorAll('.player-landing__footer a')].find((link) => link.textContent?.trim() === 'Terms')?.getAttribute('href'),
     core: [...document.querySelectorAll('.player-landing__footer a')].find((link) => link.textContent?.trim() === 'Orbit Core')?.getAttribute('href'),
     logoSources: [...document.querySelectorAll('.player-landing img')].map((image) => image.getAttribute('src'))
   }));
   assert(routeContract.home === '/', 'Landing brand is not wired to home.');
-  assert(routeContract.access.length === 3 && routeContract.access.every((href) => href === '/sign-in' || href === '/sign-in?returnTo=%2Fgames'), 'Landing access actions are not wired to sign-in.');
-  assert(routeContract.howItWorks === '#how-it-works', 'How It Works is not wired to the interactive feature section.');
+  assert(routeContract.games === '/games', 'Landing nearby-game action is not wired to discovery.');
+  assert(routeContract.memberships === '/me/clubs', 'Landing membership action is not wired to My Clubs.');
+  assert(routeContract.myOrbit === '/me', 'Landing My Orbit action is not wired to the player hub.');
+  assert(routeContract.pokerCards === 3, 'Landing does not render the adapted three-card poker hand.');
   assert(routeContract.privacy === '/privacy', 'Landing privacy link is not wired to the privacy route.');
   assert(routeContract.terms === 'https://orbitapp-one.vercel.app/terms', 'Landing terms link is not wired to the published terms route.');
   assert(routeContract.core === 'https://orbitapp-one.vercel.app/', 'Landing Orbit Core link is not wired to the public Orbit site.');

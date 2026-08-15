@@ -3,8 +3,8 @@ import type { Metadata } from 'next';
 const fallbackOrigin = 'http://127.0.0.1:4175';
 
 export const siteConfig = {
-  name: 'Orbit',
-  description: 'Find current live poker games, clubs, and tournaments, then take the next player action through Orbit.',
+  name: 'Orbit Player',
+  description: 'Find poker games near you that match how you like to play, then manage your club memberships, waitlists, and registrations in one place.',
   origin: (process.env.NEXT_PUBLIC_PLAYER_WEB_URL || fallbackOrigin).replace(/\/$/, ''),
   developer: {
     name: 'Caminus Labs, LLC',

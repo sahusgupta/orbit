@@ -22,20 +22,22 @@ afterEach(() => {
 });
 
 describe('Orbit feature cards', () => {
-  it('previews real discovery features through accessible poker-card buttons', async () => {
+  it('connects the poker-card story to nearby games and membership management', async () => {
     render(<OrbitFeatureCards />);
 
-    const live = screen.getByRole('button', { name: 'Preview live feature' });
-    const registration = screen.getByRole('button', { name: 'Preview open feature' });
-    expect(live).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText('Running now')).toBeVisible();
+    const nearby = screen.getByRole('button', { name: 'Preview nearby feature' });
+    const memberships = screen.getByRole('button', { name: 'Preview my clubs feature' });
+    expect(nearby).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Live games near you')).toBeVisible();
+    expect(screen.getByRole('link', { name: /Browse nearby games/ })).toHaveAttribute('href', '/games');
 
-    await userEvent.click(registration);
+    await userEvent.click(memberships);
 
-    expect(live).toHaveAttribute('aria-pressed', 'false');
-    expect(registration).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText('Registration open')).toBeVisible();
-    expect(screen.getByText(/currently accepting entries/i)).toBeVisible();
+    expect(nearby).toHaveAttribute('aria-pressed', 'false');
+    expect(memberships).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Every membership in one place')).toBeVisible();
+    expect(screen.getByText(/active, pending, and expired poker-club memberships/i)).toBeVisible();
+    expect(screen.getByRole('link', { name: /Manage my memberships/ })).toHaveAttribute('href', '/me/clubs');
   });
 
   it('updates the preview when a keyboard user focuses a card', async () => {
@@ -44,7 +46,7 @@ describe('Orbit feature cards', () => {
     await userEvent.tab();
     await userEvent.tab();
 
-    expect(screen.getByRole('button', { name: 'Preview forming feature' })).toHaveFocus();
-    expect(screen.getByText('Building a table')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Preview your fit feature' })).toHaveFocus();
+    expect(screen.getByText('The games you like to play')).toBeVisible();
   });
 });

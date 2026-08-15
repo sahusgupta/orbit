@@ -117,14 +117,13 @@ for (const legacyShellSelector of ['.site-header', '.site-footer', '.ambient-flo
   if (await page.locator(legacyShellSelector).count()) failures.push(`Landing mounted unnecessary application shell content: ${legacyShellSelector}`);
 }
 if (await page.getByRole('link', { name: 'Orbit Player home' }).first().getAttribute('href') !== '/') failures.push('Landing brand does not return home.');
-const accessLinks = page.getByRole('link', { name: /Get Access/ });
-if (await accessLinks.count() !== 3) failures.push('Landing does not expose all three access routes.');
-for (const link of await accessLinks.all()) {
-  const href = await link.getAttribute('href');
-  if (href !== '/sign-in' && href !== '/sign-in?returnTo=%2Fgames') failures.push(`Landing access route is invalid: ${href}`);
-}
-const howItWorks = page.getByRole('link', { name: 'How It Works' });
-if (await howItWorks.getAttribute('href') !== '#how-it-works') failures.push('How It Works is not connected to the feature experience.');
+if (await page.getByRole('link', { name: 'Open My Orbit' }).getAttribute('href') !== '/me') failures.push('Landing My Orbit action is invalid.');
+if (await page.getByRole('link', { name: 'Find games near me' }).getAttribute('href') !== '/games') failures.push('Landing nearby-game action is invalid.');
+if (await page.getByRole('link', { name: 'Manage memberships', exact: true }).first().getAttribute('href') !== '/me/clubs') failures.push('Landing membership action is invalid.');
+const featureCards = page.getByRole('group', { name: 'Choose a poker card to explore Orbit Player' }).getByRole('button');
+if (await featureCards.count() !== 3) failures.push('Landing does not expose the three-card Orbit Player story.');
+await page.getByRole('button', { name: 'Preview my clubs feature' }).click();
+if (await page.getByRole('link', { name: /Manage my memberships/ }).getAttribute('href') !== '/me/clubs') failures.push('Poker-card membership route is invalid.');
 if (await page.getByRole('link', { name: 'Privacy', exact: true }).getAttribute('href') !== '/privacy') failures.push('Landing privacy route is invalid.');
 if (await page.getByRole('link', { name: 'Terms', exact: true }).getAttribute('href') !== 'https://orbitapp-one.vercel.app/terms') failures.push('Landing terms route is invalid.');
 if (await page.getByRole('link', { name: 'Orbit Core', exact: true }).getAttribute('href') !== 'https://orbitapp-one.vercel.app/') failures.push('Landing Orbit Core route is invalid.');
@@ -186,8 +185,9 @@ if (focusedElement.outlineStyle === 'none' || focusedElement.outlineWidth === '0
 
 const sourceResponse = await fetch(`${baseUrl}/`);
 const source = await sourceResponse.text();
-if (!source.includes('The games are running.')) failures.push('Homepage hero content is absent from raw view-source HTML.');
-if (!source.includes('Every game')) failures.push('Interactive feature content is absent from raw view-source HTML.');
+if (!source.includes('Find poker games near you.')) failures.push('Homepage nearby-game message is absent from raw view-source HTML.');
+if (!source.includes('Keep every membership together.')) failures.push('Homepage membership message is absent from raw view-source HTML.');
+if (!source.includes('Find a game you')) failures.push('Poker-card product story is absent from raw view-source HTML.');
 
 const robotsText = await (await fetch(`${baseUrl}/robots.txt`)).text();
 for (const crawler of ['GPTBot', 'ChatGPT-User', 'OAI-SearchBot', 'ClaudeBot', 'PerplexityBot', 'Google-Extended']) {

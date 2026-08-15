@@ -23,9 +23,9 @@ export function SiteHeader() {
   return (
     <header className="site-header">
       <div className="site-header__inner">
-        <Link className="site-brand" href="/" aria-label="Orbit home">
+        <Link className="site-brand" href="/" aria-label="Orbit Player home">
           <Image src="/orbit-logo.svg" width={42} height={42} alt="" priority />
-          <span><strong>Orbit</strong><small>Live player network</small></span>
+          <span><strong>Orbit Player</strong><small>Games &amp; memberships</small></span>
         </Link>
         <nav id="primary-navigation" className="primary-nav" aria-label="Primary navigation">
           {destinations.map((destination) => {

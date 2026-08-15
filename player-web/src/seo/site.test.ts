@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { absoluteUrl, createPageMetadata, serializeJsonLd, siteConfig } from './site';
 
 describe('Orbit web metadata contract', () => {
-  it('uses Orbit as the public product name and the real developer identity', () => {
-    expect(siteConfig.name).toBe('Orbit');
+  it('uses Orbit Player as the public product name and the real developer identity', () => {
+    expect(siteConfig.name).toBe('Orbit Player');
     expect(siteConfig.developer).toEqual({ name: 'Caminus Labs, LLC', url: 'https://caminuslabs.com/' });
   });
 
@@ -16,8 +16,8 @@ describe('Orbit web metadata contract', () => {
     expect(metadata.title).toBe('Current games');
     expect(metadata.description).toBe('Current poker games.');
     expect(metadata.alternates).toEqual({ canonical: '/games' });
-    expect(metadata.openGraph).toMatchObject({ title: 'Current games | Orbit', url: '/games', images: [siteConfig.image] });
-    expect(metadata.twitter).toMatchObject({ card: 'summary_large_image', title: 'Current games | Orbit' });
+    expect(metadata.openGraph).toMatchObject({ title: 'Current games | Orbit Player', url: '/games', images: [siteConfig.image] });
+    expect(metadata.twitter).toMatchObject({ card: 'summary_large_image', title: 'Current games | Orbit Player' });
   });
 
   it('marks private routes as noindex without removing their canonical URL', () => {

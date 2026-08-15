@@ -10,6 +10,7 @@ import {
 import { ArrowRight, ChevronDown } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { OrbitFeatureCards } from "./orbit-feature-cards";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -23,8 +24,8 @@ const DECK = [
 const SECTIONS = [
   {
     num: "01", label: "Discover",
-    headline: "Every game\nnear you, live.",
-    body: "Browse real games at card houses and private rooms. Stakes, seat counts, and waitlists — live from the room, not manually updated.",
+    headline: "Nearby games,\nmatched to you.",
+    body: "Browse real games at card houses and private rooms by distance, stakes, variant, seat counts, and waitlists — live from the room.",
   },
   {
     num: "02", label: "Join",
@@ -37,9 +38,9 @@ const SECTIONS = [
     body: "See your exact waitlist position at all times. When a seat opens, you're notified the moment the room moves you up.",
   },
   {
-    num: "04", label: "Reserve",
-    headline: "Time, bought\nin advance.",
-    body: "Purchase seat time before you arrive. The room confirms it before you walk in — no cash exchange at the table.",
+    num: "04", label: "Memberships",
+    headline: "Every club.\nOne place.",
+    body: "Request access and review active, pending, and expired poker-club memberships from one private My Orbit account.",
   },
 ];
 
@@ -221,7 +222,7 @@ function SwipeCard({
 
         {/* Main content */}
         <div className="px-5 py-5 flex-1 flex flex-col min-h-0">
-          <p className="font-mono text-[8px] tracking-[0.18em] text-[#191970] uppercase mb-3">{game.game}</p>
+          <p className="font-mono text-[8px] tracking-[0.18em] text-[#6868B3] uppercase mb-3">{game.game}</p>
           <div className="mb-4">
             <p className="text-[44px] font-bold tracking-[-0.04em] text-[#F2EDE3] leading-none">
               {game.stakes.split("/")[0].trim()}
@@ -250,7 +251,7 @@ function SwipeCard({
 
             <span className={`font-mono text-[8px] tracking-widest px-2.5 py-1 border rounded-sm uppercase ${
               game.open
-                ? "text-[#191970] border-[#191970]/35 bg-[#191970]/8"
+                ? "text-[#7E7EC3] border-[#191970]/35 bg-[#191970]/8"
                 : "text-[#3D7575] border-[#3D7575]/35 bg-[#3D7575]/8"
             }`}>
               {game.open ? `${game.seats} seat${game.seats !== 1 ? "s" : ""} open` : "Waitlist only"}
@@ -371,7 +372,7 @@ function WaitlistContent() {
       <div className="px-5 py-5">
         <p className="font-mono text-[7px] tracking-[0.2em] text-[#F2EDE3]/20 uppercase mb-2">Your Position</p>
         <div className="flex items-baseline gap-2 mb-5">
-          <span className="text-[56px] font-bold text-[#191970] leading-none tracking-[-0.04em]">#3</span>
+          <span className="text-[56px] font-bold text-[#6868B3] leading-none tracking-[-0.04em]">#3</span>
           <span className="font-mono text-[9px] text-[#F2EDE3]/22">of {total}</span>
         </div>
         <div className="flex items-center gap-2 mb-5">
@@ -402,71 +403,43 @@ function WaitlistContent() {
   );
 }
 
-function PackageContent() {
-  const [sel, setSel] = useState(1);
-  const [done, setDone] = useState(false);
-
-  const pkgs = [
-    { h: "2 hr", price: 40,  rate: 20,    label: "Quick session" },
-    { h: "4 hr", price: 75,  rate: 18.75, label: "Standard", pop: true },
-    { h: "8 hr", price: 130, rate: 16.25, label: "Full day" },
-  ] as const;
-
+function MembershipContent() {
+  const memberships = [
+    { club: "The Commerce Club", detail: "Annual membership", status: "Active", active: true },
+    { club: "Hollywood Park Casino", detail: "Access request", status: "Under review", active: false },
+    { club: "West LA Poker Club", detail: "Day membership", status: "Active", active: true },
+  ];
   return (
-    <div className="w-full max-w-[300px]">
-      <div className="space-y-2 mb-4">
-        {pkgs.map((p, i) => (
-          <motion.button
-            key={i} whileTap={{ scale: 0.98 }}
-            onClick={() => { setSel(i); setDone(false); }}
-            className={`w-full px-4 py-3 border rounded-sm flex items-center justify-between transition-all duration-200 ${
-              sel === i
-                ? "border-[#191970]/50 bg-[#191970]/6"
-                : "border-[#F2EDE3]/8 bg-[#0B1520] hover:border-[#F2EDE3]/14"
-            }`}
+    <div className="w-full max-w-[360px] bg-[#0B1520] border border-[#F2EDE3]/7 rounded-sm overflow-hidden">
+      <div className="h-[3px] bg-[#191970]" />
+      <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-[#F2EDE3]/6">
+        <div>
+          <p className="font-mono text-[7px] tracking-[0.2em] text-[#6868B3] uppercase mb-1">My Orbit</p>
+          <p className="text-[13px] font-semibold text-[#F2EDE3]/70">My memberships</p>
+        </div>
+        <span className="font-mono text-[7px] text-[#F2EDE3]/22">3 clubs</span>
+      </div>
+      <div className="divide-y divide-[#F2EDE3]/6">
+        {memberships.map((membership, index) => (
+          <motion.div
+            key={membership.club}
+            initial={{ opacity: 0, x: 12 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: index * 0.08, duration: 0.35 }}
+            className="px-5 py-3 flex items-center gap-3"
           >
-            <div className="flex items-center gap-3">
-              <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                sel === i ? "border-[#191970]" : "border-[#F2EDE3]/18"
-              }`}>
-                {sel === i && <div className="w-1.5 h-1.5 rounded-full bg-[#191970]" />}
-              </div>
-              <div className="text-left">
-                <div className="flex items-center gap-2">
-                  <span className="text-[13px] font-bold text-[#F2EDE3]/70">{p.h}</span>
-                  {"pop" in p && (
-                    <span className="font-mono text-[7px] tracking-widest px-1.5 py-0.5 bg-[#191970]/12 border border-[#191970]/25 text-[#191970] rounded-sm uppercase">
-                      Popular
-                    </span>
-                  )}
-                </div>
-                <p className="font-mono text-[7px] text-[#F2EDE3]/20 mt-0.5">{p.label}</p>
-              </div>
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${membership.active ? "bg-[#4AA8A0]" : "bg-[#191970]"}`} />
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold text-[#F2EDE3]/65 truncate">{membership.club}</p>
+              <p className="font-mono text-[7px] text-[#F2EDE3]/20 mt-0.5">{membership.detail}</p>
             </div>
-            <div className="text-right">
-              <p className={`text-[13px] font-bold ${sel === i ? "text-[#F2EDE3]" : "text-[#F2EDE3]/40"}`}>
-                ${p.price}
-              </p>
-              <p className="font-mono text-[7px] text-[#F2EDE3]/16">${p.rate}/hr</p>
-            </div>
-          </motion.button>
+            <span className={`font-mono text-[7px] ${membership.active ? "text-[#4AA8A0]" : "text-[#F2EDE3]/30"}`}>{membership.status}</span>
+          </motion.div>
         ))}
       </div>
-
-      <motion.button
-        whileTap={{ scale: 0.97 }}
-        onClick={() => setDone(true)}
-        className={`w-full h-10 rounded-sm text-[12px] font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
-          done
-            ? "bg-[#3D7575]/15 border border-[#3D7575]/35 text-[#4AA8A0]"
-            : "bg-[#191970] text-[#F2EDE3] hover:bg-[#24248F]"
-        }`}
-      >
-        {done
-          ? <span className="font-mono text-[9px] tracking-wider">Reserved · Commerce Club ✓</span>
-          : <>{pkgs[sel].h} · ${pkgs[sel].price} <ArrowRight size={12} /></>
-        }
-      </motion.button>
+      <Link href="/me/clubs" className="h-10 mx-5 my-4 rounded-sm text-[11px] font-semibold bg-[#191970] text-[#F2EDE3] hover:bg-[#24248F] transition-colors duration-200 flex items-center justify-center gap-2">
+        Manage memberships <ArrowRight size={12} />
+      </Link>
     </div>
   );
 }
@@ -525,9 +498,12 @@ export default function PlayerLanding() {
               Orbit <span className="text-[#F2EDE3]/35">Player</span>
             </span>
           </Link>
-          <Link href="/sign-in" className="h-8 px-4 text-[11px] font-semibold tracking-wide rounded-sm bg-[#191970] text-[#F2EDE3] hover:bg-[#24248F] transition-colors duration-200 flex items-center">
-            Get Access
-          </Link>
+          <nav aria-label="Landing navigation" className="flex items-center gap-4">
+            <Link href="/games" className="hidden sm:flex text-[11px] font-medium text-[#F2EDE3]/40 hover:text-[#F2EDE3]/70 transition-colors duration-200">Find games</Link>
+            <Link href="/me" className="h-8 px-4 text-[11px] font-semibold tracking-wide rounded-sm bg-[#191970] text-[#F2EDE3] hover:bg-[#24248F] transition-colors duration-200 flex items-center">
+              Open My Orbit
+            </Link>
+          </nav>
         </div>
       </header>
 
@@ -539,48 +515,47 @@ export default function PlayerLanding() {
           initial={{ opacity: 0, scale: 0.82 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 1.8, ease: [0.16, 1, 0.3, 1] }}
-          className="relative w-[min(560px,86vw)] aspect-square"
+          className="relative w-[min(420px,72vw)] aspect-square"
         >
           <Orbital active={-1} />
         </motion.div>
 
         {/* Text rides below the orbital center */}
-        <div className="relative z-10 text-center px-8 -mt-10 max-w-[680px]">
+        <div className="relative z-10 text-center px-8 -mt-8 max-w-[940px]">
           <motion.p
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             transition={{ duration: 0.8, delay: 0.7 }}
-            className="font-mono text-[9px] tracking-[0.3em] text-[#191970] uppercase mb-5"
+            className="font-mono text-[9px] tracking-[0.3em] text-[#6868B3] uppercase mb-5"
           >
             Orbit Player
           </motion.p>
           <motion.h1
             initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.85, delay: 0.8, ease: [0.22, 0, 0, 1] }}
-            className="text-[48px] md:text-[64px] font-bold tracking-[-0.03em] leading-[1.06] mb-5"
+            className="text-[42px] md:text-[64px] font-bold tracking-[-0.03em] leading-[1.06] mb-5"
           >
-            The games are running.
+            Find poker games near you.
             <br />
-            <span className="text-[#F2EDE3]/25">Find your seat.</span>
+            <span className="text-[#F2EDE3]/45">Keep every membership together.</span>
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.92, ease: [0.22, 0, 0, 1] }}
-            className="text-[#F2EDE3]/36 text-[15px] leading-[1.8] max-w-[380px] mx-auto mb-9"
+            className="text-[#F2EDE3]/48 text-[15px] leading-[1.8] max-w-[600px] mx-auto mb-9"
           >
-            Live poker at card houses and private rooms near you.
-            Browse, swipe to join, and track your spot — from your phone.
+            Orbit Player helps you find live games that match your distance, stakes, and preferred format — then request a seat, track your place, and manage all your poker-club memberships in one place.
           </motion.p>
           <motion.div
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 1.05 }}
             className="flex items-center justify-center gap-3"
           >
-            <Link href="/sign-in?returnTo=%2Fgames" className="h-11 px-7 text-[13px] font-semibold rounded-sm bg-[#191970] text-[#F2EDE3] hover:bg-[#24248F] transition-colors duration-200 flex items-center gap-2">
-              Get Access <ArrowRight size={13} />
+            <Link href="/games" className="h-11 px-7 text-[13px] font-semibold rounded-sm bg-[#191970] text-[#F2EDE3] hover:bg-[#24248F] transition-colors duration-200 flex items-center gap-2">
+              Find games near me <ArrowRight size={13} />
             </Link>
-            <a href="#how-it-works" className="h-11 px-7 text-[13px] font-medium rounded-sm text-[#F2EDE3]/36 border border-[#F2EDE3]/10 hover:text-[#F2EDE3]/60 hover:border-[#F2EDE3]/22 transition-all duration-200 flex items-center">
-              How It Works
-            </a>
+            <Link href="/me/clubs" className="h-11 px-7 text-[13px] font-medium rounded-sm text-[#F2EDE3]/42 border border-[#F2EDE3]/10 hover:text-[#F2EDE3]/70 hover:border-[#F2EDE3]/22 transition-all duration-200 flex items-center">
+              Manage memberships
+            </Link>
           </motion.div>
         </div>
 
@@ -599,6 +574,8 @@ export default function PlayerLanding() {
           <span className="font-mono text-[7px] tracking-[0.2em] text-[#F2EDE3]/10 uppercase">Scroll</span>
         </motion.div>
       </section>
+
+      <OrbitFeatureCards />
 
       {/* ── Sticky scroll experience ─────────────────────────────────────── */}
       {/* 500vh outer container — drives scroll progress 0→1 */}
@@ -624,7 +601,7 @@ export default function PlayerLanding() {
                   <p className="font-mono text-[8px] tracking-[0.22em] text-[#F2EDE3]/14 uppercase">
                     {SECTIONS[activeSection].num}
                   </p>
-                  <p className="font-mono text-[11px] tracking-[0.1em] text-[#191970]/50 uppercase mt-0.5">
+                  <p className="font-mono text-[11px] tracking-[0.1em] text-[#6868B3] uppercase mt-0.5">
                     {SECTIONS[activeSection].label}
                   </p>
                 </motion.div>
@@ -659,7 +636,7 @@ export default function PlayerLanding() {
                 className="px-10 md:px-14 py-10 w-full"
               >
                 {/* Section header */}
-                <p className="font-mono text-[9px] tracking-[0.24em] text-[#191970] uppercase mb-5">
+                <p className="font-mono text-[9px] tracking-[0.24em] text-[#6868B3] uppercase mb-5">
                   {SECTIONS[activeSection].num} — {SECTIONS[activeSection].label}
                 </p>
                 <h2 className="text-[34px] md:text-[44px] font-bold tracking-[-0.025em] leading-[1.08] mb-5 whitespace-pre-line">
@@ -675,7 +652,7 @@ export default function PlayerLanding() {
                   <SwipeContent cardIdx={cardIdx} onSwipe={handleSwipe} confirmed={confirmed} />
                 )}
                 {activeSection === 2 && <WaitlistContent />}
-                {activeSection === 3 && <PackageContent />}
+                {activeSection === 3 && <MembershipContent />}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -690,7 +667,7 @@ export default function PlayerLanding() {
             <motion.p
               initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }} transition={{ duration: 0.6 }}
-              className="font-mono text-[9px] tracking-[0.26em] text-[#191970] uppercase mb-8"
+              className="font-mono text-[9px] tracking-[0.26em] text-[#6868B3] uppercase mb-8"
             >
               Orbit Player
             </motion.p>
@@ -699,25 +676,27 @@ export default function PlayerLanding() {
               viewport={{ once: true }} transition={{ duration: 0.75, delay: 0.06 }}
               className="text-[46px] md:text-[58px] font-bold tracking-[-0.03em] leading-[1.06] mb-6"
             >
-              Ready to find<br />your game?
+              Your next game.<br />Every club. One player hub.
             </motion.h2>
             <motion.p
               initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }} transition={{ duration: 0.65, delay: 0.12 }}
-              className="text-[#F2EDE3]/32 text-[15px] leading-[1.8] mb-10 max-w-[340px]"
+              className="text-[#F2EDE3]/38 text-[15px] leading-[1.8] mb-10 max-w-[430px]"
             >
-              Orbit Player connects you to rooms that run on Orbit. Request access
-              and we will reach out when your area goes live.
+              Orbit Player connects you to participating rooms, helps you choose a nearby game that fits, and keeps your seats, waitlists, tournaments, and memberships together.
             </motion.p>
-            <motion.a
-              href="/sign-in?returnTo=%2Fgames"
+            <motion.div
               initial={{ opacity: 0, y: 8 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }} transition={{ duration: 0.55, delay: 0.18 }}
-              whileTap={{ scale: 0.97 }}
-              className="h-11 px-8 text-[13px] font-semibold rounded-sm bg-[#191970] text-[#F2EDE3] hover:bg-[#24248F] transition-colors duration-200 flex items-center gap-2 w-fit"
+              className="flex flex-wrap gap-3"
             >
-              Get Access <ArrowRight size={13} />
-            </motion.a>
+              <Link href="/games" className="h-11 px-8 text-[13px] font-semibold rounded-sm bg-[#191970] text-[#F2EDE3] hover:bg-[#24248F] transition-colors duration-200 flex items-center gap-2 w-fit">
+                Browse games <ArrowRight size={13} />
+              </Link>
+              <Link href="/sign-in?returnTo=%2Fme%2Fclubs" className="h-11 px-8 text-[13px] font-medium rounded-sm text-[#F2EDE3]/42 border border-[#F2EDE3]/10 hover:text-[#F2EDE3]/70 hover:border-[#F2EDE3]/22 transition-all duration-200 flex items-center w-fit">
+                Sign in to My Orbit
+              </Link>
+            </motion.div>
           </div>
         </div>
       </section>

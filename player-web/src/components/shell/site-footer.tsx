@@ -8,8 +8,8 @@ export function SiteFooter() {
     <footer className="site-footer">
       <div className="site-footer__inner">
         <div className="site-footer__brand">
-          <Link href="/" aria-label="Orbit home"><Image src="/orbit-logo.svg" width={34} height={34} alt="" /></Link>
-          <div><strong>Orbit</strong><span>Developed by <a href={siteConfig.developer.url} rel="noreferrer" target="_blank">Caminus Labs, LLC<ExternalLink aria-hidden="true" size={12} /></a></span></div>
+          <Link href="/" aria-label="Orbit Player home"><Image src="/orbit-logo.svg" width={34} height={34} alt="" /></Link>
+          <div><strong>Orbit Player</strong><span>Developed by <a href={siteConfig.developer.url} rel="noreferrer" target="_blank">Caminus Labs, LLC<ExternalLink aria-hidden="true" size={12} /></a></span></div>
         </div>
         <div className="site-footer__links">
           <nav aria-label="Product navigation">

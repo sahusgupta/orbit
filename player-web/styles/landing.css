@@ -38,6 +38,246 @@ body:has(.player-landing) main {
   cursor: pointer;
 }
 
+.player-card-story {
+  align-items: center;
+  background: #050b13;
+  border-bottom: 1px solid rgba(242, 237, 227, .04);
+  border-top: 1px solid rgba(242, 237, 227, .04);
+  display: grid;
+  gap: clamp(48px, 7vw, 100px);
+  grid-template-columns: minmax(280px, .85fr) minmax(540px, 1.15fr);
+  margin: 0 auto;
+  max-width: 1440px;
+  min-height: 680px;
+  padding: clamp(88px, 11vw, 148px) clamp(28px, 7vw, 110px);
+}
+
+.player-card-story__intro {
+  display: grid;
+  gap: 20px;
+  max-width: 500px;
+}
+
+.player-card-story__intro > p {
+  color: #6868b3;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: .24em;
+  text-transform: uppercase;
+}
+
+.player-card-story__intro h2 {
+  color: #f2ede3;
+  font-size: clamp(2.35rem, 4.2vw, 4rem);
+  letter-spacing: -.035em;
+  line-height: 1.04;
+}
+
+.player-card-story__intro > span {
+  color: rgba(242, 237, 227, .4);
+  font-size: 15px;
+  line-height: 1.8;
+  max-width: 440px;
+}
+
+.player-card-story__showcase {
+  align-items: center;
+  display: grid;
+  gap: clamp(22px, 4vw, 44px);
+  grid-template-columns: minmax(300px, 1fr) minmax(210px, .78fr);
+  min-width: 0;
+}
+
+.player-card-story__hand {
+  height: 260px;
+  justify-self: center;
+  position: relative;
+  width: 306px;
+}
+
+.player-card-story__motion {
+  left: calc(50% - 59px);
+  position: absolute;
+  top: 45px;
+  transform-origin: 50% 125%;
+}
+
+.player-poker-card {
+  background: #f2ede3;
+  border: 1px solid rgba(242, 237, 227, .72);
+  border-radius: 9px;
+  box-shadow: 0 20px 46px rgba(0, 0, 0, .32);
+  color: #070d16;
+  display: block;
+  height: 178px;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+  transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+  width: 118px;
+}
+
+.player-poker-card:hover {
+  background: #fffaf0;
+  border-color: #fffaf0;
+}
+
+.player-poker-card[aria-pressed="true"] {
+  border-color: #6868b3;
+  box-shadow: 0 24px 58px rgba(0, 0, 0, .45), 0 0 0 2px rgba(104, 104, 179, .42);
+}
+
+.player-poker-card:focus-visible {
+  outline: 3px solid #4aa8a0;
+  outline-offset: 4px;
+}
+
+.player-poker-card__corner {
+  align-items: center;
+  display: grid;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: .95rem;
+  justify-items: center;
+  line-height: .9;
+  position: absolute;
+}
+
+.player-poker-card__corner strong {
+  font-family: var(--font-sans);
+  font-size: .8rem;
+}
+
+.player-poker-card__corner--top {
+  left: 10px;
+  top: 10px;
+}
+
+.player-poker-card__corner--bottom {
+  bottom: 10px;
+  right: 10px;
+  transform: rotate(180deg);
+}
+
+.player-poker-card__corner--midnight,
+.player-poker-card__suit--midnight {
+  color: #191970;
+}
+
+.player-poker-card__corner--teal,
+.player-poker-card__suit--teal {
+  color: #286d6b;
+}
+
+.player-poker-card__suit {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 2.7rem;
+  left: 50%;
+  line-height: 1;
+  position: absolute;
+  top: 47%;
+  transform: translate(-50%, -50%);
+}
+
+.player-poker-card__label {
+  bottom: 34px;
+  color: #4c5361;
+  font-family: var(--font-mono);
+  font-size: 7px;
+  font-weight: 500;
+  left: 0;
+  letter-spacing: .12em;
+  position: absolute;
+  right: 0;
+  text-transform: uppercase;
+}
+
+.player-card-story__readout {
+  align-self: center;
+  border-left: 1px solid rgba(242, 237, 227, .1);
+  display: grid;
+  gap: 12px;
+  min-height: 226px;
+  padding: 10px 0 10px 28px;
+}
+
+.player-card-story__readout > span {
+  color: #4aa8a0;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+}
+
+.player-card-story__readout > div {
+  align-content: start;
+  display: grid;
+  gap: 13px;
+}
+
+.player-card-story__readout h3 {
+  color: #f2ede3;
+  font-size: 1.15rem;
+  letter-spacing: -.02em;
+  line-height: 1.2;
+}
+
+.player-card-story__readout p {
+  color: rgba(242, 237, 227, .38);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.player-card-story__readout a {
+  color: #7e7ec3;
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 4px;
+  width: fit-content;
+}
+
+.player-card-story__readout a:hover {
+  color: #a1a1dc;
+}
+
+@media (max-width: 1040px) {
+  .player-card-story {
+    grid-template-columns: 1fr;
+  }
+
+  .player-card-story__intro {
+    max-width: 680px;
+  }
+
+  .player-card-story__showcase {
+    width: 100%;
+  }
+}
+
+@media (max-width: 680px) {
+  .player-card-story {
+    gap: 44px;
+    min-height: 0;
+    padding: 82px 22px 92px;
+  }
+
+  .player-card-story__showcase {
+    gap: 22px;
+    grid-template-columns: 1fr;
+  }
+
+  .player-card-story__hand {
+    height: 235px;
+    transform: scale(.9);
+  }
+
+  .player-card-story__readout {
+    border-left: 0;
+    border-top: 1px solid rgba(242, 237, 227, .1);
+    min-height: 210px;
+    padding: 24px 0 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .player-landing *,
   .player-landing *::before,

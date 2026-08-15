@@ -47,7 +47,7 @@ describe('public web quality contracts', () => {
     expect(footer).toContain('src="/orbit-logo.svg"');
   });
 
-  it('keeps the supplied orbital, swipe, queue, and reserve interactions intact', () => {
+  it('keeps the supplied orbital, swipe, and queue interactions while adding membership management', () => {
     const landing = read('src/components/home/player-landing.tsx');
 
     expect(landing).toContain('from "motion/react"');
@@ -55,8 +55,9 @@ describe('public web quality contracts', () => {
     expect(landing).toContain('function Orbital');
     expect(landing).toContain('function SwipeCard');
     expect(landing).toContain('function WaitlistContent');
-    expect(landing).toContain('function PackageContent');
-    for (const feature of ['Discover', 'Join', 'Queue', 'Reserve']) {
+    expect(landing).toContain('function MembershipContent');
+    expect(landing).toContain('<OrbitFeatureCards />');
+    for (const feature of ['Discover', 'Join', 'Queue', 'Memberships']) {
       expect(landing).toContain(`label: "${feature}"`);
     }
   });
@@ -67,9 +68,10 @@ describe('public web quality contracts', () => {
     const layout = read('app/layout.tsx');
 
     expect(landing).not.toContain('href="#"');
-    expect(landing).toContain('href="/sign-in"');
-    expect(landing).toContain('href="/sign-in?returnTo=%2Fgames"');
-    expect(landing).toContain('href="#how-it-works"');
+    expect(landing).toContain('href="/games"');
+    expect(landing).toContain('href="/me"');
+    expect(landing).toContain('href="/me/clubs"');
+    expect(landing).toContain('href="/sign-in?returnTo=%2Fme%2Fclubs"');
     expect(landing).toContain('href="/privacy"');
     expect(landing).toContain('href="https://orbitapp-one.vercel.app/terms"');
     expect(shell).toContain("if (pathname === '/')");
@@ -140,8 +142,9 @@ describe('public web quality contracts', () => {
     const landing = read('src/components/home/player-landing.tsx');
 
     expect(home).toContain('<PlayerLanding />');
-    expect(landing).toContain('The games are running.');
-    expect(landing).toContain('Find your seat.');
+    expect(landing).toContain('Find poker games near you.');
+    expect(landing).toContain('Keep every membership together.');
+    expect(landing).toContain('manage all your poker-club memberships in one place');
     expect(landing).toContain('style={{ height: "500vh", position: "relative" }}');
     expect(landing).toContain('className="sticky top-0 overflow-hidden flex"');
   });

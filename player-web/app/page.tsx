@@ -4,11 +4,11 @@ import { createPageMetadata } from '@/src/seo/site';
 
 export const metadata: Metadata = {
   ...createPageMetadata({
-    title: 'Find your seat',
-    description: 'Find live poker at card houses and private rooms near you, request a seat, and track your place from Orbit Player.',
+    title: 'Poker games near you',
+    description: 'Use Orbit Player to find nearby poker games that match your stakes and preferred format, then manage every club membership in one place.',
     path: '/'
   }),
-  title: { absolute: 'Find your seat | Orbit' }
+  title: { absolute: 'Find poker games near you | Orbit Player' }
 };
 
 export default function HomePage() {
