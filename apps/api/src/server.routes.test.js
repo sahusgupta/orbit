@@ -149,6 +149,7 @@ describe('API route composition', () => {
     const dashboard = await request('/dashboard');
     expect(dashboard.status).toBe(200);
     expect(dashboard.headers.get('content-type')).toContain('text/html');
+    expect(await dashboard.text()).toContain('placeholder="Dashboard password (not API key)"');
 
     const unauthorized = await request('/dashboard/data');
     expect(unauthorized.status).toBe(401);
