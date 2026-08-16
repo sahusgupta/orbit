@@ -43,7 +43,7 @@ Nonpublic endpoints require an audience-appropriate identity: a scoped machine/p
 - `ORBIT_MACHINE_CREDENTIALS_JSON`: array of machine credential records with `id`, `key`, tenant `accountKey`, `scopes`, and `expiresAt`. Store it only in an approved secret provider.
 - `ORBIT_OWNER_API_KEY`: distinct owner automation credential. It does not authenticate ordinary client or dashboard-session traffic.
 - `ORBIT_DASHBOARD_PASSWORD` and `ORBIT_DASHBOARD_SESSION_SECRET`: create a short-lived HttpOnly/Secure/SameSite=Lax dashboard cookie. The signing secret must contain at least 32 characters.
-- `ORBIT_ALLOWED_ORIGINS` and `ORBIT_TRUST_PROXY`: explicit CORS and proxy policy. Do not enable proxy trust unless the exact deployment proxy is reviewed.
+- `ORBIT_ALLOWED_ORIGINS` and `ORBIT_TRUST_PROXY`: explicit CORS and proxy policy. Vercel's single, header-overwriting proxy hop is trusted automatically so HTTPS same-origin dashboard requests are recognized; other deployments must configure proxy trust only after their exact proxy is reviewed.
 - `ORBIT_ALLOW_INSECURE_LOOPBACK_AUTH`: explicit local-development bypass. It is rejected in production and Vercel runtimes.
 - `ORBIT_PHONE_CHALLENGE_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID`: server-side SMS OTP verification. No Twilio credential is shipped to Player clients.
 - `ORBIT_ACCOUNT_DELETION_POLICY_JSON` and `ORBIT_DELETION_PSEUDONYM_SECRET`: explicit deletion/anonymization dispositions and stable protected subject identifiers. See `docs/architecture/DATA_CLASSIFICATION.md`; no legal retention policy is inferred.
