@@ -18,7 +18,10 @@ function createApp() {
   const app = express();
   const startedAt = new Date().toISOString();
   const liveUpdates = createLiveUpdates();
-  const trustedProxy = String(process.env.ORBIT_TRUST_PROXY || '').trim();
+  // Vercel terminates HTTPS at its edge and overwrites the forwarding headers
+  // before invoking this Express handler. Trust that single platform hop so
+  // request.secure reflects the browser's HTTPS origin during CORS checks.
+  const trustedProxy = String(process.env.ORBIT_TRUST_PROXY || (process.env.VERCEL === '1' ? 'true' : '')).trim();
   if (trustedProxy) app.set('trust proxy', trustedProxy === 'true' ? 1 : trustedProxy);
 
   app.use(assignRequestId);

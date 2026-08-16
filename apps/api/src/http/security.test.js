@@ -59,6 +59,24 @@ describe('API perimeter security', () => {
     });
   });
 
+  it('permits an HTTPS request from the API host when a trusted proxy resolves the public protocol', () => {
+    process.env.NODE_ENV = 'production';
+    const sameOrigin = harness({
+      headers: { origin: 'https://dashboard.example', host: 'dashboard.example' },
+      secure: true
+    });
+    const next = vi.fn();
+
+    enforceCors(sameOrigin.request, sameOrigin.response, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(sameOrigin.result.statusCode).toBe(200);
+    expect(sameOrigin.result.headers).toMatchObject({
+      'access-control-allow-origin': 'https://dashboard.example',
+      'access-control-allow-credentials': 'true'
+    });
+  });
+
   it('adds production response hardening headers', () => {
     process.env.NODE_ENV = 'production';
     const { request, response, result } = harness();

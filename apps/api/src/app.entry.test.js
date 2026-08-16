@@ -8,7 +8,7 @@ describe('Vercel API entrypoint', () => {
   it('exports the Express handler as the CommonJS module default in hosted mode', () => {
     const inspection = execFileSync(process.execPath, [
       '-e',
-      `const app = require(process.argv[1]); process.stdout.write(JSON.stringify({ handler: typeof app, factory: typeof app.createApp }));`,
+      `const app = require(process.argv[1]); process.stdout.write(JSON.stringify({ handler: typeof app, factory: typeof app.createApp, trustProxy: app.get('trust proxy') }));`,
       appEntrypoint
     ], {
       encoding: 'utf8',
@@ -21,6 +21,6 @@ describe('Vercel API entrypoint', () => {
       }
     });
 
-    expect(JSON.parse(inspection)).toEqual({ handler: 'function', factory: 'function' });
+    expect(JSON.parse(inspection)).toEqual({ handler: 'function', factory: 'function', trustProxy: 1 });
   }, 15_000);
 });
