@@ -89,15 +89,44 @@ function buildPublicClubSnapshot(state) {
   };
 }
 
+async function listPublicStatePage(options = {}, dependencies = {}) {
+  const listPage = dependencies.listStatePage || listStatePage;
+  const limit = Math.min(Math.max(Number(options.limit || 25), 1), 50);
+  const visibleRecords = [];
+  const seenCursors = new Set();
+  let afterAccountKey = String(options.afterAccountKey || '');
+  let hasMoreRecords = true;
+
+  while (visibleRecords.length <= limit && hasMoreRecords) {
+    const page = await listPage({ limit: 50, afterAccountKey });
+    for (const record of page.records || []) {
+      const clubName = record.state?.settings?.clubAccount?.clubName;
+      if (isPublicClubName(clubName)) visibleRecords.push(record);
+    }
+    hasMoreRecords = Boolean(page.hasMore);
+    if (!hasMoreRecords || visibleRecords.length > limit) break;
+    const nextCursor = String(page.nextCursor || '');
+    if (!nextCursor || nextCursor === afterAccountKey || seenCursors.has(nextCursor)) {
+      throw new Error('Public club discovery returned an invalid account cursor.');
+    }
+    seenCursors.add(nextCursor);
+    afterAccountKey = nextCursor;
+  }
+
+  const hasMore = visibleRecords.length > limit;
+  const records = visibleRecords.slice(0, limit);
+  return {
+    records,
+    hasMore,
+    nextCursor: hasMore ? records.at(-1)?.accountKey || null : null
+  };
+}
+
 async function handlePublicPlayerDiscovery(request, response) {
   const limit = Math.min(Math.max(Number(request.query.limit || 25), 1), 50);
-  const page = await listStatePage({ limit, afterAccountKey: request.query.cursor });
-  const visibleRecords = page.records.filter((record) => {
-    const clubName = record.state?.settings?.clubAccount?.clubName;
-    return isPublicClubName(clubName);
-  });
-  const clubs = visibleRecords.map((record) => buildPublicClubSnapshot(record.state));
-  const tournaments = visibleRecords.flatMap((record) => buildPlayerTournamentDocs(record.state, record.accountKey, record.savedAt));
+  const page = await listPublicStatePage({ limit, afterAccountKey: request.query.cursor });
+  const clubs = page.records.map((record) => buildPublicClubSnapshot(record.state));
+  const tournaments = page.records.flatMap((record) => buildPlayerTournamentDocs(record.state, record.accountKey, record.savedAt));
   response.set('cache-control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
   response.json({
     ok: true,
@@ -355,4 +384,4 @@ function registerPlayerRoutes(app) {
   app.delete('/player/tournament-registrations', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handleTournamentUnregistration));
 }
 
-module.exports = { buildPlayerMutationResponse, buildPublicClubSnapshot, registerPlayerRoutes };
+module.exports = { buildPlayerMutationResponse, buildPublicClubSnapshot, listPublicStatePage, registerPlayerRoutes };

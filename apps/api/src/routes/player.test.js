@@ -85,4 +85,50 @@ describe('Player response DTOs', () => {
 
     expect(playerRoutes.buildPublicClubSnapshot(state).games.map((game) => game.name)).toEqual(['1/2 NLH']);
   });
+
+  it('fills a public discovery page after skipping non-public account records', async () => {
+    const pages = new Map([
+      ['', {
+        records: [
+          { accountKey: 'stress-one', state: { settings: { clubAccount: { clubName: 'Stress Club' } } } },
+          { accountKey: 'test-one', state: { settings: { clubAccount: { clubName: 'Test Club' } } } }
+        ],
+        hasMore: true,
+        nextCursor: 'test-one'
+      }],
+      ['test-one', {
+        records: [
+          { accountKey: 'aggieland', state: { settings: { clubAccount: { clubName: 'Aggieland Poker Club' } } } },
+          { accountKey: 'river-room', state: { settings: { clubAccount: { clubName: 'River Room' } } } }
+        ],
+        hasMore: false,
+        nextCursor: null
+      }]
+    ]);
+    const listStatePage = async ({ afterAccountKey = '' }) => pages.get(afterAccountKey);
+
+    const page = await playerRoutes.listPublicStatePage({ limit: 1 }, { listStatePage });
+
+    expect(page.records.map((record) => record.accountKey)).toEqual(['aggieland']);
+    expect(page).toMatchObject({ hasMore: true, nextCursor: 'aggieland' });
+  });
+
+  it('does not advertise another public page when only filtered records remain', async () => {
+    const listStatePage = async ({ afterAccountKey = '' }) => afterAccountKey
+      ? {
+          records: [{ accountKey: 'stress-two', state: { settings: { clubAccount: { clubName: 'Stress Fixture' } } } }],
+          hasMore: false,
+          nextCursor: null
+        }
+      : {
+          records: [{ accountKey: 'aggieland', state: { settings: { clubAccount: { clubName: 'Aggieland Poker Club' } } } }],
+          hasMore: true,
+          nextCursor: 'aggieland'
+        };
+
+    const page = await playerRoutes.listPublicStatePage({ limit: 1 }, { listStatePage });
+
+    expect(page.records.map((record) => record.accountKey)).toEqual(['aggieland']);
+    expect(page).toMatchObject({ hasMore: false, nextCursor: null });
+  });
 });

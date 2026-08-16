@@ -1,6 +1,7 @@
 import { preserveLegacyPlayerProfile, readFirebaseErrorCode } from '@orbit/player-domain/decoders/playerBoundaryDecoders';
 import type { PlayerAccount } from '@/src/domain/types';
 import type { User } from 'firebase/auth';
+import { isOperationTimeoutError, withDeadline } from '@/src/auth/deadline';
 import { getFirebaseBrowserClient } from './firebase-client';
 
 export function fallbackPlayerProfile(user: User): PlayerAccount {
@@ -16,16 +17,20 @@ export function fallbackPlayerProfile(user: User): PlayerAccount {
 }
 
 export function isTransientPlayerProfileReadError(error: unknown) {
+  if (isOperationTimeoutError(error)) return true;
   const code = readFirebaseErrorCode(error);
   if (code === 'unavailable' || code === 'firestore/unavailable') return true;
   return error instanceof Error && /failed to get document because the client is offline/i.test(error.message);
 }
 
 export async function fetchWebPlayerProfile(user: User): Promise<PlayerAccount> {
-  const [{ doc, getDoc }, { db }] = await Promise.all([import('firebase/firestore'), getFirebaseBrowserClient()]);
   let snapshot;
   try {
-    snapshot = await getDoc(doc(db, 'players', user.uid));
+    const [{ doc, getDoc }, { db }] = await withDeadline(
+      Promise.all([import('firebase/firestore'), getFirebaseBrowserClient()]),
+      'Your Orbit profile took too long to connect.'
+    );
+    snapshot = await withDeadline(getDoc(doc(db, 'players', user.uid)), 'Your Orbit profile took too long to load.');
   } catch (error) {
     if (isTransientPlayerProfileReadError(error)) return fallbackPlayerProfile(user);
     throw error;
