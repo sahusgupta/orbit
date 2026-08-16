@@ -1,6 +1,7 @@
 import type { FirebaseApp } from 'firebase/app';
 import type { Auth } from 'firebase/auth';
 import type { Firestore } from 'firebase/firestore';
+import { withDeadline } from '@/src/auth/deadline';
 
 type FirebaseBrowserClient = {
   app: FirebaseApp;
@@ -19,7 +20,7 @@ export async function getFirebaseBrowserClient() {
   if (typeof window === 'undefined') throw new Error('Firebase Player services are available only in the browser.');
   if (browserClient) return browserClient;
   if (!browserClientPromise) {
-    browserClientPromise = Promise.all([
+    browserClientPromise = withDeadline(Promise.all([
       import('firebase/app'),
       import('firebase/auth'),
       import('firebase/firestore')
@@ -49,7 +50,7 @@ export async function getFirebaseBrowserClient() {
       }
       browserClient = { app, auth, db };
       return browserClient;
-    }).catch((error) => {
+    }), 'Orbit sign-in services took too long to load. Check your connection and try again.').catch((error) => {
       browserClientPromise = undefined;
       throw error;
     });

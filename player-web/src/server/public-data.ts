@@ -7,15 +7,28 @@ type PublicClubPayload = {
   tournaments: PlayerTournament[];
 };
 
+const PUBLIC_DATA_TIMEOUT_MS = 8_000;
+
 function apiBaseUrl() {
   return (process.env.ORBIT_API_URL || 'http://127.0.0.1:4629').replace(/\/$/, '');
 }
 
-async function fetchJson(path: string): Promise<{ response: Response; payload: unknown }> {
-  const response = await fetch(`${apiBaseUrl()}${path}`, {
-    headers: { accept: 'application/json' },
-    next: { revalidate: 30 }
-  });
+async function fetchJson(path: string, timeoutMs = PUBLIC_DATA_TIMEOUT_MS): Promise<{ response: Response; payload: unknown }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl()}${path}`, {
+      headers: { accept: 'application/json' },
+      next: { revalidate: 30 },
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error('Orbit live data took too long to respond. Try again.');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   let payload: unknown;
   try {
     payload = await response.json();
@@ -27,12 +40,44 @@ async function fetchJson(path: string): Promise<{ response: Response; payload: u
 
 export async function getPublicDiscovery(): Promise<DataResult<DiscoveryPayload>> {
   try {
-    const { response, payload } = await fetchJson('/player/public/discovery?limit=50');
-    const decoded = decodeDiscoveryResponse(payload);
-    if (!response.ok || !decoded) {
-      return { status: 'error', message: readBoundaryError(payload, 'Live Orbit discovery is temporarily unavailable.') };
+    const clubs = new Map<string, PlayerClubSnapshot>();
+    const tournaments = new Map<string, PlayerTournament>();
+    const seenCursors = new Set<string>();
+    const discoveryDeadline = Date.now() + PUBLIC_DATA_TIMEOUT_MS;
+    let cursor: string | null = null;
+    let hasMore = true;
+
+    while (hasMore) {
+      const query = new URLSearchParams({ limit: '50' });
+      if (cursor) query.set('cursor', cursor);
+      const remainingMs = discoveryDeadline - Date.now();
+      if (remainingMs <= 0) throw new Error('Orbit live data took too long to respond. Try again.');
+      const { response, payload } = await fetchJson(`/player/public/discovery?${query.toString()}`, remainingMs);
+      const decoded = decodeDiscoveryResponse(payload);
+      if (!response.ok || !decoded) {
+        return { status: 'error', message: readBoundaryError(payload, 'Live Orbit discovery is temporarily unavailable.') };
+      }
+      decoded.clubs.forEach((club) => clubs.set(club.club.id, club));
+      decoded.tournaments.forEach((tournament) => tournaments.set(`${tournament.clubId}:${tournament.id}`, tournament));
+      hasMore = decoded.page.hasMore;
+      if (!hasMore) break;
+      const nextCursor = decoded.page.nextCursor;
+      if (!nextCursor || seenCursors.has(nextCursor)) {
+        throw new Error('Live Orbit discovery returned an invalid page cursor.');
+      }
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
     }
-    return { status: 'ready', data: decoded };
+
+    return {
+      status: 'ready',
+      data: {
+        clubs: Array.from(clubs.values()),
+        tournaments: Array.from(tournaments.values()),
+        registrations: [],
+        page: { count: clubs.size, hasMore: false, nextCursor: null }
+      }
+    };
   } catch (error) {
     return {
       status: 'error',

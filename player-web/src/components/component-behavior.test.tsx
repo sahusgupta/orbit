@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -62,7 +62,10 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/src/auth/auth-context', () => ({ useAuth: () => testState.auth }));
 vi.mock('@/src/data/player-data-context', () => ({ usePlayerData: () => testState.data }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 beforeEach(() => {
   window.history.replaceState(null, '', '/games');
@@ -360,6 +363,22 @@ describe('Player Web route and component behavior', () => {
     await userEvent.click(screen.getByRole('button', { name: /Sign in or create account/ }));
     expect(screen.getByRole('alert')).toHaveTextContent('Invalid credentials.');
     expect(screen.getByLabelText('Email address')).toHaveValue('avery@example.com');
+  });
+
+  it('shows a deadline error when authentication never responds', async () => {
+    vi.useFakeTimers();
+    testState.auth.signIn.mockImplementationOnce(() => new Promise(() => undefined));
+    render(<SignInForm />);
+    fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'avery@example.com' } });
+    fireEvent.change(screen.getByLabelText(/Password or passphrase/), { target: { value: 'correct-horse-battery' } });
+    fireEvent.click(screen.getByRole('button', { name: /Sign in or create account/ }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_001);
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/took too long/i);
+    expect(screen.getByRole('button', { name: /Sign in or create account/ })).toBeEnabled();
   });
 
   it('uses accessible keyboard interaction for tournament filters', async () => {

@@ -6,6 +6,7 @@ import { readFirebaseErrorCode } from '@orbit/player-domain/decoders/playerBound
 import type { PlayerAccount } from '@/src/domain/types';
 import { getFirebaseBrowserClient, isFirebaseBrowserSyncEnabled } from '@/src/data/firebase-client';
 import { fetchWebPlayerProfile, saveWebPlayerProfile } from '@/src/data/player-profile';
+import { AUTH_ACTION_TIMEOUT_MS, withDeadline } from './deadline';
 import { toPlayerAuthError } from './firebase-auth-errors';
 
 type AuthStatus = 'loading' | 'signed-out' | 'signed-in' | 'error';
@@ -48,9 +49,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!firebaseEnabled) return;
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
-    void Promise.all([import('firebase/auth'), getFirebaseBrowserClient()]).then(([authModule, client]) => {
+    const authStateTimer = setTimeout(() => {
+      if (disposed) return;
+      setError('Orbit sign-in status took too long to load. You can still retry from the sign-in page.');
+      setStatus((current) => current === 'loading' ? 'signed-out' : current);
+    }, AUTH_ACTION_TIMEOUT_MS);
+    void withDeadline(
+      Promise.all([import('firebase/auth'), getFirebaseBrowserClient()]),
+      'Orbit sign-in status took too long to load. You can still retry from the sign-in page.'
+    ).then(([authModule, client]) => {
       if (disposed) return;
       unsubscribe = authModule.onAuthStateChanged(client.auth, (nextUser) => {
+        clearTimeout(authStateTimer);
         const verified = nextUser && Boolean(nextUser.phoneNumber || nextUser.emailVerified);
         if (!verified) {
           setUser(null);
@@ -63,16 +73,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStatus('loading');
         void loadPlayer(nextUser);
       }, (authError) => {
+        clearTimeout(authStateTimer);
         setError(authError.message || 'Orbit sign-in is unavailable.');
         setStatus('error');
       });
     }).catch((loadError) => {
       if (disposed) return;
+      clearTimeout(authStateTimer);
       setError(loadError instanceof Error ? loadError.message : 'Orbit sign-in is unavailable.');
-      setStatus('error');
+      setStatus('signed-out');
     });
     return () => {
       disposed = true;
+      clearTimeout(authStateTimer);
       unsubscribe?.();
     };
   }, [firebaseEnabled, loadPlayer]);
@@ -81,36 +94,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const normalizedEmail = email.trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) throw new Error('Enter a valid email address.');
     if (password.length < 12) throw new Error('Use a password or passphrase with at least 12 characters.');
-    const [authModule, { auth }] = await Promise.all([import('firebase/auth'), getFirebaseBrowserClient()]);
-    await authModule.setPersistence(auth, authModule.browserLocalPersistence);
-    try {
-      const result = await authModule.signInWithEmailAndPassword(auth, normalizedEmail, password);
-      if (!result.user.emailVerified) {
-        await authModule.sendEmailVerification(result.user);
-        await authModule.signOut(auth);
-        throw new Error('Verify your email using the new link we sent, then sign in again.');
-      }
-      setUser(result.user);
-      await loadPlayer(result.user);
-    } catch (signInError) {
-      if (signInError instanceof Error && signInError.message.startsWith('Verify your email')) throw signInError;
-      const code = readFirebaseErrorCode(signInError);
-      if (!['auth/user-not-found', 'auth/invalid-credential', 'auth/wrong-password'].includes(code ?? '')) {
-        throw toPlayerAuthError(signInError);
-      }
+    await withDeadline((async () => {
+      const [authModule, { auth }] = await Promise.all([import('firebase/auth'), getFirebaseBrowserClient()]);
+      await authModule.setPersistence(auth, authModule.browserLocalPersistence);
       try {
-        const result = await authModule.createUserWithEmailAndPassword(auth, normalizedEmail, password);
-        await authModule.sendEmailVerification(result.user);
-        await authModule.signOut(auth);
-        throw new Error('Check your email to verify the new account before signing in.');
-      } catch (createError) {
-        if (createError instanceof Error && createError.message.startsWith('Check your email')) throw createError;
-        if (readFirebaseErrorCode(createError) === 'auth/email-already-in-use') {
+        const result = await authModule.signInWithEmailAndPassword(auth, normalizedEmail, password);
+        if (!result.user.emailVerified) {
+          await authModule.sendEmailVerification(result.user);
+          await authModule.signOut(auth);
+          throw new Error('Verify your email using the new link we sent, then sign in again.');
+        }
+        setUser(result.user);
+        await loadPlayer(result.user);
+      } catch (signInError) {
+        if (signInError instanceof Error && signInError.message.startsWith('Verify your email')) throw signInError;
+        const code = readFirebaseErrorCode(signInError);
+        if (!['auth/user-not-found', 'auth/invalid-credential', 'auth/wrong-password'].includes(code ?? '')) {
           throw toPlayerAuthError(signInError);
         }
-        throw toPlayerAuthError(createError);
+        try {
+          const result = await authModule.createUserWithEmailAndPassword(auth, normalizedEmail, password);
+          await authModule.sendEmailVerification(result.user);
+          await authModule.signOut(auth);
+          throw new Error('Check your email to verify the new account before signing in.');
+        } catch (createError) {
+          if (createError instanceof Error && createError.message.startsWith('Check your email')) throw createError;
+          if (readFirebaseErrorCode(createError) === 'auth/email-already-in-use') {
+            throw toPlayerAuthError(signInError);
+          }
+          throw toPlayerAuthError(createError);
+        }
       }
-    }
+    })(), 'Orbit sign-in took too long. Check your connection and try again.');
   }, [loadPlayer]);
 
   const signOutPlayer = useCallback(async () => {
