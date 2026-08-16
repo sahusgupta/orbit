@@ -117,6 +117,16 @@ async function getPilotLicense(id) {
   return snapshot.exists ? publicLicense({ id: snapshot.id, ...snapshot.data() }) : null;
 }
 
+async function listPilotLicensesForAccount(accountKey) {
+  const normalizedAccountKey = sanitizeAccountKey(accountKey);
+  if (!normalizedAccountKey) return [];
+  const snapshot = await getLicenseCollection()
+    .where('accountKey', '==', normalizedAccountKey)
+    .limit(251)
+    .get();
+  return snapshot.docs.map((document) => publicLicense({ id: document.id, ...document.data() }));
+}
+
 async function authenticatePilotLicense(authorizationCode) {
   const record = await findLicenseByAuthorizationCode(authorizationCode);
   if (!record) return { managed: false, active: false, license: null };
@@ -214,6 +224,7 @@ module.exports = {
   getPilotLicense,
   hashAuthorizationCode,
   isLicenseActive,
+  listPilotLicensesForAccount,
   listPilotLicenses,
   normalizeExpiration,
   registerSignedPilotLicense,

@@ -307,6 +307,11 @@ button.danger-solid {
   min-width: 210px;
 }
 
+.account-action-row .source-account-field,
+.account-action-row .source-account-field select {
+  min-width: min(100%, 360px);
+}
+
 .account-action-row .reason-field input {
   width: 100%;
 }

@@ -30,6 +30,7 @@ function makeRecord({ withLogin = true } = {}) {
       settings: {
         clubAccount: { clubName: 'Room One' },
         pilotAccess: { licenseId: 'room-one', expiresAt: '2099-01-01T00:00:00.000Z' },
+        floorNote: '',
         ...(withLogin ? { accountLogin: {
           username: 'Owner@Example.com',
           passwordSalt: priorSalt,
@@ -90,8 +91,10 @@ function makeService(overrides = {}) {
     recoveryStore,
     saveState,
     service: createManagementAccountService({
+      listLegacyStates: overrides.listLegacyStates || vi.fn(async () => []),
       listStatePage: async () => ({ records: [record], hasMore: false, nextCursor: null }),
-      loadState: async () => record,
+      loadLegacyState: overrides.loadLegacyState || vi.fn(async () => null),
+      loadState: overrides.loadState || (async () => record),
       loadPilotLicense: overrides.loadPilotLicense || vi.fn(async () => ({
         id: 'license-document-1',
         licenseId: 'room-one',
@@ -100,6 +103,7 @@ function makeService(overrides = {}) {
         status: 'active',
         expiresAt: '2099-01-01T00:00:00.000Z'
       })),
+      listPilotLicensesForAccount: overrides.listPilotLicensesForAccount || vi.fn(async () => []),
       saveState,
       recoveryStore,
       passwordProvider,
@@ -176,6 +180,186 @@ describe('management account recovery service', () => {
       password: validTestPassword('existing-login')
     })).rejects.toMatchObject({ code: 'MANAGEMENT_LOGIN_ALREADY_CONFIGURED', status: 409 });
     expect(configured.passwordProvider.createUser).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing target account before creating Firebase credentials', async () => {
+    const missing = makeService({ loadState: vi.fn(async () => null) });
+
+    await expect(missing.service.provisionAccount({
+      licenseDocumentId: 'license-document-1',
+      username: 'manager@example.com',
+      password: validTestPassword('missing-state')
+    })).rejects.toMatchObject({ code: 'MANAGEMENT_STATE_NOT_FOUND', status: 409 });
+    expect(missing.passwordProvider.createUser).not.toHaveBeenCalled();
+  });
+
+  it('copies matching prior club data onto the active license and replaces only access credentials', async () => {
+    const sourceRecord = makeRecord();
+    sourceRecord.accountKey = 'prior-room-one';
+    sourceRecord.revision = 12;
+    sourceRecord.state.games = [{ id: 'holdem', name: '1/2 NLH' }];
+    sourceRecord.state.profiles = [{ id: 'player-1', name: 'Lucky Lodge Regular' }];
+    sourceRecord.state.settings.pilotAccess = {
+      licenseId: 'prior-room-one',
+      authorizationCode: 'prior-authorization-code',
+      issuedTo: 'Lucky Lodge',
+      expiresAt: '2026-08-01T00:00:00.000Z'
+    };
+    sourceRecord.state.settings.clubAccount.clubName = 'Lucky Lodge';
+    sourceRecord.state.settings.floorNote = 'Preserve this setting';
+    const loadState = vi.fn(async (accountKey) => accountKey === 'room-one' ? null : sourceRecord);
+    const { passwordProvider, saveState, service } = makeService({
+      loadState,
+      loadPilotLicense: vi.fn(async () => ({
+        id: 'license-document-1',
+        licenseId: 'room-one',
+        accountKey: 'room-one',
+        issuedTo: 'The Lucky Lodge',
+        status: 'active',
+        expiresAt: '2099-01-01T00:00:00.000Z'
+      }))
+    });
+    const password = validTestPassword('migrated-management-login');
+
+    const result = await service.provisionAccount({
+      licenseDocumentId: 'license-document-1',
+      sourceAccountKey: 'prior-room-one',
+      username: 'Manager@LuckyLodge.example',
+      password
+    });
+
+    expect(loadState).toHaveBeenNthCalledWith(1, 'room-one');
+    expect(loadState).toHaveBeenNthCalledWith(2, 'prior-room-one');
+    expect(passwordProvider.createUser).toHaveBeenCalledWith('manager@luckylodge.example', password);
+    const [migratedState, saveOptions] = saveState.mock.calls[0];
+    expect(migratedState.games).toEqual(sourceRecord.state.games);
+    expect(migratedState.profiles).toEqual(sourceRecord.state.profiles);
+    expect(migratedState.settings.clubAccount).toEqual(sourceRecord.state.settings.clubAccount);
+    expect(migratedState.settings.floorNote).toBe('Preserve this setting');
+    expect(migratedState.settings.pilotAccess).toEqual({
+      authorized: true,
+      authorizationCode: '',
+      licenseId: 'room-one',
+      issuedTo: 'The Lucky Lodge',
+      issuedAt: '',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      activatedAt: '2026-08-11T15:00:00.000Z',
+      serverManaged: true
+    });
+    expect(migratedState.settings.accountLogin).toEqual({
+      username: 'manager@luckylodge.example',
+      passwordSalt: updatedSalt,
+      passwordHash: updatedHash,
+      createdAt: '2026-08-11T15:00:00.000Z'
+    });
+    expect(saveOptions).toMatchObject({ expectedRevision: 0, mutationType: 'management-account-provision' });
+    expect(result).toMatchObject({ accountKey: 'room-one', migratedFromAccountKey: 'prior-room-one', revision: 5 });
+  });
+
+  it('imports matching legacy Firebase state without exposing or deleting the recovery copy', async () => {
+    const legacyRecord = makeRecord();
+    legacyRecord.accountKey = 'prior-room-one';
+    legacyRecord.state.games = [{ id: 'holdem', name: '1/2 NLH' }];
+    legacyRecord.state.profiles = [{ id: 'player-1', name: 'Lucky Lodge Regular' }];
+    legacyRecord.state.settings.clubAccount.clubName = 'Lucky Lodge';
+    legacyRecord.state.settings.pilotAccess = {
+      licenseId: 'prior-room-one',
+      issuedTo: 'Lucky Lodge',
+      expiresAt: '2026-08-01T00:00:00.000Z'
+    };
+    const loadLegacyState = vi.fn(async (accountKey) => accountKey === 'prior-room-one' ? legacyRecord : null);
+    const { saveState, service } = makeService({
+      loadState: vi.fn(async () => null),
+      loadLegacyState,
+      loadPilotLicense: vi.fn(async () => ({
+        id: 'license-document-1',
+        licenseId: 'room-one',
+        accountKey: 'room-one',
+        issuedTo: 'The Lucky Lodge',
+        status: 'active',
+        expiresAt: '2099-01-01T00:00:00.000Z'
+      }))
+    });
+
+    const result = await service.provisionAccount({
+      licenseDocumentId: 'license-document-1',
+      sourceAccountKey: 'prior-room-one',
+      username: 'manager@luckylodge.example',
+      password: validTestPassword('legacy-state-login')
+    });
+
+    expect(loadLegacyState).toHaveBeenCalledWith('prior-room-one');
+    expect(saveState).toHaveBeenCalledWith(expect.objectContaining({
+      games: legacyRecord.state.games,
+      profiles: legacyRecord.state.profiles,
+      settings: expect.objectContaining({
+        clubAccount: legacyRecord.state.settings.clubAccount,
+        pilotAccess: expect.objectContaining({ licenseId: 'room-one', issuedTo: 'The Lucky Lodge' })
+      })
+    }), expect.objectContaining({ expectedRevision: 0 }));
+    expect(result).toMatchObject({
+      accountKey: 'room-one',
+      migratedFromAccountKey: 'prior-room-one',
+      migratedFromLegacy: true
+    });
+  });
+
+  it('lists only recovery metadata for legacy license states', async () => {
+    const { service } = makeService({
+      listLegacyStates: vi.fn(async () => [{
+        accountKey: 'prior-room-one',
+        venueName: 'Lucky Lodge',
+        savedAt: '2026-08-05T21:00:00.000Z',
+        state: { private: 'must-not-leak' }
+      }])
+    });
+
+    await expect(service.listLegacyAccounts(['prior-room-one'])).resolves.toEqual([{
+      accountKey: 'prior-room-one',
+      venueName: 'Lucky Lodge',
+      savedAt: '2026-08-05T21:00:00.000Z',
+      stateSource: 'legacy-firebase'
+    }]);
+  });
+
+  it('rejects a selected source with a different venue identity or another active license', async () => {
+    const mismatchedSource = makeRecord();
+    mismatchedSource.accountKey = 'different-club';
+    mismatchedSource.state.settings.clubAccount.clubName = 'Different Club';
+    mismatchedSource.state.settings.pilotAccess = {
+      licenseId: 'different-club',
+      issuedTo: 'Different Club',
+      expiresAt: '2026-08-01T00:00:00.000Z'
+    };
+    const mismatch = makeService({
+      loadState: vi.fn(async (accountKey) => accountKey === 'room-one' ? null : mismatchedSource)
+    });
+    await expect(mismatch.service.provisionAccount({
+      licenseDocumentId: 'license-document-1',
+      sourceAccountKey: 'different-club',
+      username: 'manager@example.com',
+      password: validTestPassword('identity-mismatch')
+    })).rejects.toMatchObject({ code: 'MANAGEMENT_SOURCE_IDENTITY_MISMATCH', status: 409 });
+    expect(mismatch.passwordProvider.createUser).not.toHaveBeenCalled();
+
+    const sourceRecord = makeRecord();
+    sourceRecord.accountKey = 'prior-room-one';
+    sourceRecord.state.settings.pilotAccess = {
+      licenseId: 'prior-room-one',
+      issuedTo: 'Room One',
+      expiresAt: '2026-08-01T00:00:00.000Z'
+    };
+    const activeSource = makeService({
+      loadState: vi.fn(async (accountKey) => accountKey === 'room-one' ? null : sourceRecord),
+      listPilotLicensesForAccount: vi.fn(async () => [{ id: 'other-license', status: 'active' }])
+    });
+    await expect(activeSource.service.provisionAccount({
+      licenseDocumentId: 'license-document-1',
+      sourceAccountKey: 'prior-room-one',
+      username: 'manager@example.com',
+      password: validTestPassword('active-source')
+    })).rejects.toMatchObject({ code: 'MANAGEMENT_SOURCE_LICENSE_ACTIVE', status: 409 });
+    expect(activeSource.passwordProvider.createUser).not.toHaveBeenCalled();
   });
 
   it('removes a newly created Firebase user when authoritative state provisioning fails', async () => {

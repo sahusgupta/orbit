@@ -18,6 +18,8 @@ describe('management recovery surfaces', () => {
     expect(script).toContain('data-account-action="send-reset-email"');
     expect(script).toContain('data-account-action="change-password"');
     expect(script).toContain('data-account-action="create-login"');
+    expect(script).toContain('data-account-source=');
+    expect(script).toContain('Copy data & create login');
     expect(script).toContain('/management-account`');
     expect(routes).toContain("app.post('/dashboard/licenses/:licenseDocumentId/management-account'");
     expect(routes).toContain("event: 'management-account-provisioned'");

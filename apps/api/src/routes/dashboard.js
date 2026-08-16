@@ -75,6 +75,7 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
       managementAccounts.listAccounts(),
       listManagementSecurityEvents({ limit: 101 })
     ]);
+    const legacyAccounts = await managementAccounts.listLegacyAccounts(licenses.map((license) => license.accountKey));
     response.json({
       ok: true,
       summary,
@@ -88,6 +89,7 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
       licenses: licenses.slice(0, 100),
       licenseHistory: { hasMore: licenses.length > 100 },
       managementAccounts: managementAccountRecords,
+      legacyAccounts,
       securityEvents: securityEvents.slice(0, 100),
       securityEventHistory: { hasMore: securityEvents.length > 100 }
     });
@@ -146,6 +148,7 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
   app.post('/dashboard/licenses/:licenseDocumentId/management-account', requireDashboardAuth, asyncRoute(async (request, response) => {
     const result = await managementAccounts.provisionAccount({
       licenseDocumentId: request.params.licenseDocumentId,
+      sourceAccountKey: request.body?.sourceAccountKey,
       username: request.body?.username,
       password: request.body?.password
     });
@@ -153,6 +156,8 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
       tenantRef: protectedIdentifier(result.accountKey),
       accountRef: protectedIdentifier(result.username),
       licenseId: result.licenseId,
+      migratedFromRef: protectedIdentifier(result.migratedFromAccountKey),
+      migratedFromLegacy: result.migratedFromLegacy,
       revision: result.revision
     });
     await recordSecurityActivity({
@@ -161,6 +166,8 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
       actorRef: dashboardActorRef(request),
       details: {
         licenseId: result.licenseId,
+        migratedFromRef: protectedIdentifier(result.migratedFromAccountKey),
+        migratedFromLegacy: result.migratedFromLegacy,
         revision: result.revision,
         provider: 'firebase',
         existingStatePreserved: true

@@ -9,6 +9,7 @@ const state = {
   venues: [],
   licenses: [],
   managementAccounts: [],
+  legacyAccounts: [],
   securityEvents: []
 };
 
@@ -41,6 +42,7 @@ const elements = {
 
 let renderedManagementAccounts = null;
 let renderedManagementLicenses = null;
+let renderedLegacyAccounts = null;
 let renderedSecurityEvents = null;
 
 function setStatus(message, tone = '') {
@@ -75,21 +77,54 @@ function renderList(target, items, renderItem, emptyText) {
   target.innerHTML = items.length ? items.map(renderItem).join('') : emptyText;
 }
 
-function renderManagementAccessControls(accountKey, account, license) {
+function renderManagementAccessControls(accountKey, account, license, managementAccounts = [], legacyAccounts = [], licenses = []) {
   const escapedAccountKey = escapeHtml(accountKey);
   if (!account?.hasManagementLogin) {
     if (!license || license.status !== 'active') {
       return '<p class="account-warning">A management login can be created only while the linked pilot key is active.</p>';
     }
     const escapedLicenseId = escapeHtml(license.id);
+    const targetLegacyAccount = legacyAccounts.find((candidate) => candidate.accountKey === accountKey);
+    const sourceCandidates = [...managementAccounts, ...legacyAccounts.filter((legacy) =>
+      !managementAccounts.some((candidate) => candidate.accountKey === legacy.accountKey)
+    )]
+      .filter((candidate) => candidate.accountKey && candidate.accountKey !== accountKey)
+      .sort((left, right) => String(left.venueName || left.accountKey).localeCompare(String(right.venueName || right.accountKey)));
+    if (!account && !targetLegacyAccount && !sourceCandidates.length) {
+      return '<p class="account-warning">No server-side club state was found for this key or its other license records. Load the key on the original Orbit computer to recover its encrypted local data before creating a login.</p>';
+    }
+    const sourceSelector = !account && !targetLegacyAccount ? `
+      <label class="source-account-field">
+        <span>Existing club data</span>
+        <select data-account-source="${escapedAccountKey}">
+          <option value="">Select the prior club account</option>
+          ${sourceCandidates.map((candidate) => {
+            const candidateLicense = licenses.find((item) => item.accountKey === candidate.accountKey);
+            const sourceIsActive = candidateLicense?.status === 'active';
+            const sourceLabel = candidate.stateSource === 'legacy-firebase'
+              ? `legacy recovery saved ${formatTime(candidate.savedAt) || 'previously'}`
+              : `revision ${candidate.revision}`;
+            const activeLabel = sourceIsActive ? ` — revoke key ending ${candidateLicense.codeLast4 || '----'} first` : '';
+            return `<option value="${escapeHtml(candidate.accountKey)}" ${sourceIsActive ? 'disabled' : ''}>${escapeHtml(candidate.venueName || candidate.accountKey)} — ${escapeHtml(sourceLabel)}${escapeHtml(activeLabel)}</option>`;
+          }).join('')}
+        </select>
+      </label>
+    ` : targetLegacyAccount
+      ? `<input data-account-source="${escapedAccountKey}" type="hidden" value="${escapedAccountKey}" />`
+      : '';
     return `
       <div class="account-controls single" data-account-control-scope="${escapedAccountKey}">
         <section class="account-control-group">
           <div>
             <strong>Create management login</strong>
-            <p>Add credentials to this active key's existing authoritative club account. Games, players, sessions, and settings stay attached to the same account key.</p>
+            <p>${account
+              ? 'Add credentials to this active key’s existing authoritative club account.'
+              : targetLegacyAccount
+                ? 'Recovered legacy club data was found for this key and will be imported into the authoritative store.'
+                : 'Choose the prior club account to copy onto this active key. A prior active key must be revoked before it can be selected.'} Games, players, sessions, and settings are preserved.</p>
           </div>
           <div class="account-action-row">
+            ${sourceSelector}
             <label>
               <span>Login email</span>
               <input data-account-username="${escapedAccountKey}" type="email" maxlength="254" autocomplete="off" placeholder="manager@example.com" />
@@ -102,7 +137,7 @@ function renderManagementAccessControls(accountKey, account, license) {
               <span>Confirm password</span>
               <input data-account-password-confirm="${escapedAccountKey}" type="password" minlength="12" maxlength="128" autocomplete="new-password" placeholder="Repeat password" />
             </label>
-            <button type="button" data-account-action="create-login" data-account-key="${escapedAccountKey}" data-license-id="${escapedLicenseId}">Create login</button>
+            <button type="button" data-account-action="create-login" data-account-key="${escapedAccountKey}" data-license-id="${escapedLicenseId}">${account ? 'Create login' : 'Copy data & create login'}</button>
           </div>
         </section>
       </div>
@@ -208,7 +243,7 @@ function render() {
                 <strong>Management access for this active key</strong>
                 <p>${account?.username ? escapeHtml(account.username) : 'No management login is linked to this key yet.'}</p>
               </div>
-              ${renderManagementAccessControls(license.accountKey, account, license)}
+              ${renderManagementAccessControls(license.accountKey, account, license, state.managementAccounts, state.legacyAccounts, state.licenses)}
             </section>
           ` : ''}
         </article>
@@ -217,7 +252,7 @@ function render() {
     'No managed pilot licenses yet. Provision a verified signed key through the protected license endpoint.'
   );
 
-  if (renderedManagementAccounts !== state.managementAccounts || renderedManagementLicenses !== state.licenses) {
+  if (renderedManagementAccounts !== state.managementAccounts || renderedManagementLicenses !== state.licenses || renderedLegacyAccounts !== state.legacyAccounts) {
     renderList(
       elements.managementAccounts,
       state.managementAccounts,
@@ -225,7 +260,7 @@ function render() {
       const license = state.licenses.find((candidate) => candidate.accountKey === account.accountKey);
       const recovery = account.recovery;
       const recoveryActive = recovery?.status === 'active';
-      const loginActions = renderManagementAccessControls(account.accountKey, account, license);
+      const loginActions = renderManagementAccessControls(account.accountKey, account, license, state.managementAccounts, state.legacyAccounts, state.licenses);
       return `
         <article class="management-account-row">
           <div class="account-heading">
@@ -250,6 +285,7 @@ function render() {
     );
     renderedManagementAccounts = state.managementAccounts;
     renderedManagementLicenses = state.licenses;
+    renderedLegacyAccounts = state.legacyAccounts;
   }
 
   if (renderedSecurityEvents !== state.securityEvents) {
@@ -371,6 +407,7 @@ async function loadDashboard({ preserveEventHistory = false } = {}) {
   state.venues = payload.venues || [];
   state.licenses = payload.licenses || [];
   state.managementAccounts = payload.managementAccounts || [];
+  state.legacyAccounts = payload.legacyAccounts || [];
   state.securityEvents = payload.securityEvents || [];
   setSummary(payload.summary || {});
   render();
@@ -502,6 +539,7 @@ async function handleManagementAccountAction(event, container) {
   if (!accountKey || !action) return;
 
   const controlScope = button.closest('[data-account-control-scope]') || container;
+  const sourceAccountInput = controlScope.querySelector('[data-account-source]');
   const usernameInput = controlScope.querySelector('[data-account-username]');
   const passwordInput = controlScope.querySelector('[data-account-password]');
   const confirmationInput = controlScope.querySelector('[data-account-password-confirm]');
@@ -515,9 +553,15 @@ async function handleManagementAccountAction(event, container) {
 
   if (action === 'create-login') {
     const licenseId = button.dataset.licenseId;
+    const sourceAccountKey = sourceAccountInput?.value || '';
     const username = usernameInput?.value.trim().toLowerCase() || '';
     const password = passwordInput?.value || '';
     if (!licenseId) return;
+    if (sourceAccountInput && !sourceAccountKey) {
+      setStatus('Select the prior club account whose data should be copied.', 'error');
+      sourceAccountInput.focus();
+      return;
+    }
     if (!/^\S+@\S+\.\S+$/.test(username)) {
       setStatus('Enter a valid management login email.', 'error');
       usernameInput?.focus();
@@ -533,11 +577,15 @@ async function handleManagementAccountAction(event, container) {
       confirmationInput?.focus();
       return;
     }
-    if (!window.confirm('Create this management login for the active pilot key? Existing club data will remain attached to the same account.')) return;
+    if (!window.confirm(sourceAccountKey
+      ? 'Copy the selected club data onto this active pilot key and create its management login? The prior record will remain unchanged.'
+      : 'Create this management login for the active pilot key? Existing club data will remain attached to the same account.')) return;
     pathname = `/dashboard/licenses/${encodeURIComponent(licenseId)}/management-account`;
-    body = { username, password };
-    pendingMessage = 'Creating management login...';
-    successMessage = 'Management login created without replacing the club data. Share the credentials and pilot key through separate secure channels.';
+    body = { username, password, ...(sourceAccountKey ? { sourceAccountKey } : {}) };
+    pendingMessage = sourceAccountKey ? 'Copying club data and creating management login...' : 'Creating management login...';
+    successMessage = sourceAccountKey
+      ? 'Club data copied to the active key and management login created. The prior record remains available as a recovery copy.'
+      : 'Management login created without replacing the club data. Share the credentials and pilot key through separate secure channels.';
   } else if (action === 'start-recovery') {
     if (!window.confirm('Open a single-use recovery window? Anyone holding this venue’s current pilot key can establish one new management password until the window expires.')) return;
     pathname += '/recovery';
