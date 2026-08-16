@@ -7,12 +7,12 @@ const questions = [
   {
     id: 'browse',
     question: 'Do I need an account to browse?',
-    answer: 'No. Games, clubs, tournament details, status, and location context stay public. Orbit asks you to sign in only when you act or open My Orbit.'
+    answer: 'The landing page and its presentation-only examples stay public. Games, clubs, tournaments, and My Orbit require a verified player account.'
   },
   {
     id: 'source',
     question: 'Where does the live information come from?',
-    answer: 'Participating rooms publish their current game, table, seat, and tournament state from Orbit Core. When a room changes that state, public routes refresh from the same player-safe publication boundary.'
+    answer: 'Participating rooms publish their current game, table, seat, and tournament state from Orbit Core. Protected discovery routes refresh from the same player-safe publication boundary.'
   },
   {
     id: 'seat',

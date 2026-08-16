@@ -10,15 +10,15 @@ import { ErrorState, SkeletonList } from '@/src/components/ui/state-panels';
 export function AuthGate({ returnTo, children }: { returnTo: string; children: ReactNode }) {
   const { status, error } = useAuth();
   if (status === 'loading') return <SkeletonList rows={4} />;
-  if (status === 'error') return <ErrorState title="My Orbit could not open" message={error} />;
+  if (status === 'error') return <ErrorState title="Your Orbit account could not open" message={error} />;
   if (status !== 'signed-in') {
     return (
       <section className="auth-required">
         <LockKeyhole aria-hidden="true" size={28} />
-        <p className="eyebrow">Private player space</p>
-        <h2>Sign in to open My Orbit.</h2>
-        <p>Your clubs, game commitments, registrations, and profile are visible only to your verified account.</p>
-        <ButtonLink href={buildSignInHref(returnTo)}>Sign in</ButtonLink>
+        <p className="eyebrow">Verified player access</p>
+        <h2>Create an account or sign in to continue.</h2>
+        <p>Orbit games, clubs, tournaments, commitments, and profile tools require a verified player account.</p>
+        <ButtonLink href={buildSignInHref(returnTo)}>Sign in or create account</ButtonLink>
       </section>
     );
   }

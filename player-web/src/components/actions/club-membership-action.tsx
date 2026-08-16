@@ -34,7 +34,7 @@ export function ClubMembershipAction({ club }: { club: PlayerClubSnapshot }) {
     return (
       <div className="action-panel">
         <p className="eyebrow">Membership</p><h2>Join this club</h2>
-        <p>Browse freely. Sign in only when you are ready to request access.</p>
+        <p>Create an account or sign in to browse club details and request access.</p>
         <ButtonLink href={buildSignInHref(href, 'membership')}>Request membership</ButtonLink>
       </div>
     );

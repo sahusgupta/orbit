@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = createPageMetadata({
   title: 'Games',
   description: 'Browse running, forming, paused, and scheduled poker games by status, stakes, venue, and distance.',
-  path: '/games'
+  path: '/games',
+  noIndex: true
 });
 
 export default async function GamesPage() {

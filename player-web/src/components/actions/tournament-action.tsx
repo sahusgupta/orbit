@@ -26,7 +26,7 @@ export function TournamentAction({ club, tournament }: { club: PlayerClubSnapsho
   const href = `/tournaments/${tournamentRouteKey(club, tournament)}`;
 
   if (!user) {
-    return <div className="action-panel"><p className="eyebrow">Registration</p><h2>{openRegistration ? 'Reserve your entry' : 'Registration is closed'}</h2><p>This event stays public. Sign in only when you are ready to register.</p>{openRegistration ? <ButtonLink href={buildSignInHref(href, 'tournament')}>Register</ButtonLink> : <Button disabled>Registration closed</Button>}</div>;
+    return <div className="action-panel"><p className="eyebrow">Registration</p><h2>{openRegistration ? 'Reserve your entry' : 'Registration is closed'}</h2><p>Create an account or sign in to view this event and manage registration.</p>{openRegistration ? <ButtonLink href={buildSignInHref(href, 'tournament')}>Register</ButtonLink> : <Button disabled>Registration closed</Button>}</div>;
   }
 
   if (registration) {

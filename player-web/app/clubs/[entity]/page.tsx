@@ -18,9 +18,9 @@ export async function generateMetadata({ params }: ClubPageProps): Promise<Metad
   const { entity } = await params;
   const result = await getPublicDiscovery();
   const club = result.status === 'ready' ? findClubByRouteKey(result.data.clubs, entity) : undefined;
-  if (!club) return createPageMetadata({ title: 'Poker club', description: 'Live poker club details from Orbit.', path: `/clubs/${entity}` });
+  if (!club) return createPageMetadata({ title: 'Poker club', description: 'Live poker club details from Orbit.', path: `/clubs/${entity}`, noIndex: true });
   const description = `${club.games.length} games and current activity at ${club.club.name}${club.club.address ? `, ${club.club.address}` : ''}.`;
-  return createPageMetadata({ title: club.club.name, description, path: `/clubs/${clubRouteKey(club)}` });
+  return createPageMetadata({ title: club.club.name, description, path: `/clubs/${clubRouteKey(club)}`, noIndex: true });
 }
 
 export default async function ClubDetailPage({ params }: ClubPageProps) {

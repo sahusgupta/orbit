@@ -4,11 +4,11 @@ Orbit is the public product name for the browser player surface, developed by Ca
 
 ## Framework and boundaries
 
-The web application uses Next.js 16 App Router, React 19, and strict TypeScript. Server rendering provides indexable discovery and direct entity URLs; client components own local filters, location permission, Firebase Authentication, live refresh markers, and player actions. This split avoids hydrating static presentation while keeping action state responsive.
+The web application uses Next.js 16 App Router, React 19, and strict TypeScript. Server rendering provides the public landing and legal surfaces; client components own local filters, location permission, Firebase Authentication, live refresh markers, and player actions. A root Next.js Proxy protects every game, club, tournament, and My Orbit route before rendering.
 
 The API remains the authoritative datastore boundary. `apps/api/src/routes/player.js` publishes sanitized, unauthenticated discovery through `/player/public/discovery` and `/player/public/clubs/:clubId`; those projections remove memberships, waitlists, notifications, known-player counts, and stress records. Authenticated mutations continue through the existing Firebase-token-protected membership, waitlist, tournament, and identity endpoints. Firebase Admin and server credentials never enter Player Web bundles.
 
-Player Web has one browser Firebase client, one auth owner, and one authenticated discovery/subscription owner. Presentation components do not issue arbitrary Firestore reads. Public live refresh listens only for `clubs` publication markers and refreshes the server-rendered route after a debounced change. Firebase is dynamically imported only when live sync, authentication, or a private player action needs it; public discovery does not load the full Firebase SDK eagerly.
+Player Web has one browser Firebase client, one auth owner, and one authenticated discovery/subscription owner. Presentation components do not issue arbitrary Firestore reads. Firebase's token-change callback keeps a short-lived, secure-in-production session cookie current; the Proxy sends that token only to the Orbit API's existing verified-player discovery boundary before rendering protected routes. API mutations still verify their own bearer token independently. Protected discovery refresh listens only for `clubs` publication markers. Firebase is dynamically imported only when live sync, authentication, or a private player action needs it.
 
 ## Shared domain reuse
 
@@ -37,39 +37,39 @@ The Open Graph image remains the repository-approved `orbit-table-rhythm-v1.jpg`
 
 ## Search, crawler, and source contract
 
-Every rendered route has exactly one `h1`, a unique title and description, an absolute canonical URL, an Open Graph image, and JSON-LD. The root layout declares English with `lang="en"`; content images have alt text. Public entity URLs and `/privacy` are included in the dynamic sitemap, while `/me` and `/sign-in` remain `noindex` and are disallowed in crawler rules.
+Every rendered route has exactly one `h1`, a unique title and description, an absolute canonical URL, an Open Graph image, and JSON-LD. The root layout declares English with `lang="en"`; content images have alt text. Only `/` and `/privacy` are included in the sitemap. Product, account, and sign-in routes are `noindex` and disallowed in crawler rules.
 
 `/robots.txt` permits general indexing and explicitly permits GPTBot, ChatGPT-User, OAI-SearchBot, ClaudeBot, PerplexityBot, and Google-Extended on public routes. `/llms.txt` describes the product, route map, ownership, and public/private data boundary; `/LLMS.txt` permanently redirects to that canonical file. The real external links are Caminus Labs, the Orbit GitHub repository, and the published contact email. There is no visitor counter because no authoritative analytics count is exposed.
 
-The page source contains the server-rendered product and live discovery content. Production browser source maps are disabled, console calls are removed except errors, the Lucide import is optimized, and Firebase is deferred behind dynamic imports. The responsive production browser audit checks source content, metadata, schema, crawler files, assets, source-map references, console/page errors, and horizontal overflow.
+The landing page source contains its server-rendered product presentation. Protected product routes render only after the Proxy verifies a current Firebase token through the Orbit API. Production browser source maps are disabled, console calls are removed except errors, the Lucide import is optimized, and Firebase is deferred behind dynamic imports.
 
 ## Routes
 
-Public discovery requires no account:
+Public routes:
 
 - `/` — live product-led home
-- `/games` and `/games/[entity]`
-- `/clubs` and `/clubs/[entity]`
-- `/tournaments` and `/tournaments/[entity]`
 - `/sign-in` — verified email authentication and intent return
 - `/privacy` — code-backed data inventory, provider disclosures, rights, and AI-development disclosure
 - unknown paths — custom 404 response with a current-discovery recovery action
 
 Verified-player routes:
 
+- `/games` and `/games/[entity]`
+- `/clubs` and `/clubs/[entity]`
+- `/tournaments` and `/tournaments/[entity]`
 - `/me` — current commitments overview
 - `/me/clubs`
 - `/me/games`
 - `/me/tournaments`
 - `/me/profile`
 
-Entity routes accept the human-readable route key emitted by listing links and the stable entity ID as a compatibility/deep-link fallback. Public routes have route-specific titles, descriptions, canonical URLs, and Open Graph metadata. My Orbit and sign-in routes are not indexed.
+Entity routes accept the human-readable route key emitted by listing links and the stable entity ID as a compatibility/deep-link fallback. Protected product routes have route-specific titles and canonical URLs but are not indexed.
 
 ## Auth and data flow
 
-The landing page is a static, interactive product presentation and routes access requests into the existing sign-in flow. Discovery pages fetch the sanitized API projection on the server and render honest error or empty states if it is unavailable. Filters operate locally and preserve query parameters with the browser history API, avoiding a server route request for every search keystroke. Location is optional: players can grant geolocation, deny it, continue without it, or enter a manual area.
+The landing page is a static, interactive product presentation and routes access requests into the existing sign-in flow. Protected product routes require the Proxy to verify the Firebase token against the API before their server-rendered discovery is returned. Discovery pages render honest error or empty states if the API is unavailable. Filters operate locally and preserve query parameters with the browser history API, avoiding a server route request for every search keystroke. Location is optional: players can grant geolocation, deny it, continue without it, or enter a manual area.
 
-Firebase Auth uses browser-local persistence. Email accounts must be verified before they are treated as signed in. A logged-out action records a validated internal return path and action intent in the sign-in URL. Successful sign-in returns to the original game, club, or tournament. My Orbit loads private discovery only after a verified user and profile are available.
+Firebase Auth uses browser-local persistence. Email accounts must be verified before they are treated as signed in. Firebase ID-token refresh updates the `orbit-player-session` cookie for server route verification; sign-out, invalid tokens, and disabled Firebase clear it. A logged-out protected request records a validated internal return path in the sign-in URL. Successful sign-in returns to the original game, club, or tournament. My Orbit loads private discovery only after a verified user and profile are available.
 
 Player actions reuse existing API semantics:
 
@@ -113,7 +113,7 @@ Copy variable names from `player-web/.env.example`; do not commit populated envi
 
 | Variable | Purpose |
 | --- | --- |
-| `ORBIT_API_URL` | Server-only base URL for public SSR discovery |
+| `ORBIT_API_URL` | Server-only base URL for protected-route token verification and discovery rendering |
 | `NEXT_PUBLIC_ORBIT_API_URL` | Browser base URL for authenticated actions |
 | `NEXT_PUBLIC_PLAYER_WEB_URL` | Public origin for metadata and sitemap URLs |
 | `NEXT_PUBLIC_FIREBASE_*` | Public Firebase Web configuration used by Auth/Firestore |
@@ -136,7 +136,7 @@ npm run web:test
 npm run web:build
 ```
 
-With the isolated fixture API and local web server already running, `npm run web:e2e` checks 15 routes, including the privacy policy and custom 404, at 375 by 812, 430 by 932, 768 by 1024, 1366 by 768, 1440 by 900, and 1920 by 1080. It creates 90 screenshots and performs 31 interaction and web-quality checks covering the five-link web navigation, landing shell isolation, request-free local filtering, mobile control geometry, route-state filters, manual location, auth intent links, protected-route return paths, keyboard reachability, visible focus, raw page source, unique metadata, structured data, crawler artifacts, source-map absence, console cleanliness, and responsive overflow. Screenshots and the JSON report are generated under ignored `test-results/player-web/`.
+With the isolated fixture API and local web server already running, `npm run web:e2e` checks 15 routes, including the privacy policy and custom 404, at 375 by 812, 430 by 932, 768 by 1024, 1366 by 768, 1440 by 900, and 1920 by 1080. The harness uses a fixture-only token cookie that the local fixture API accepts for protected product routes, and separately verifies that a request without that cookie redirects to account access with its return path. It creates 90 screenshots and checks landing shell isolation, request-free local filtering, mobile control geometry, route-state filters, manual location, auth intent links, protected-route return paths, keyboard reachability, visible focus, raw page source, unique metadata, structured data, crawler artifacts, source-map absence, console cleanliness, and responsive overflow. Screenshots and the JSON report are generated under ignored `test-results/player-web/`.
 
 With both the supplied reference app and the production Player Web build running locally, set `ORBIT_REFERENCE_URL` and `ORBIT_PLAYER_WEB_URL`, then run `npm run web:landing:parity`. The Playwright harness checks matching text and geometry at five scroll checkpoints on mobile and desktop, compares normalized screenshots while allowing only the approved accent-color and font substitutions, verifies every landing destination, rejects the reference orange from source, and confirms the logo and favicon match the canonical repository assets byte for byte.
 
@@ -150,9 +150,9 @@ No deployment is performed by repository verification. A successful local produc
 
 ## Intentional limitations
 
-- Landing examples are presentation-only. Public discovery remains API-projected and refreshed from Firestore publication markers; it does not duplicate private Firestore queries.
+- Landing examples are presentation-only. Full API-projected discovery routes require a verified account and do not duplicate private Firestore queries.
 - Browser geocoding is deliberately absent. Manual area selection keeps discovery usable but distance ordering requires a known coordinate.
 - Membership payment remains the existing request/pay-in-person flow. No unsupported checkout completion is shown.
 - Email verification delivery, hosted API CORS, Firebase authorized domains, and final hosting configuration require deployment-environment ownership.
-- Browser QA uses isolated fixtures and the signed-out protected state. Authenticated action/state boundaries are covered by focused component and transport tests without contacting production services.
+- Browser QA uses isolated fixtures and a fixture-only route token; real Firebase account creation and email delivery are not contacted. Authenticated action/state boundaries are covered by focused component and transport tests without contacting production services.
 - Lighthouse is not installed in any repository lockfile, so no Lighthouse score is claimed. The equivalent local evidence is the optimized production build, server/client route split, zero-error 84-capture responsive matrix, keyboard/focus checks, and manual screenshot review.

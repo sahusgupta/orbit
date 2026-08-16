@@ -2,7 +2,7 @@ import type { MetadataRoute } from 'next';
 import { absoluteUrl } from '@/src/seo/site';
 
 export default function robots(): MetadataRoute.Robots {
-  const privateRoutes = ['/me', '/me/', '/sign-in'];
+  const privateRoutes = ['/games', '/games/', '/clubs', '/clubs/', '/tournaments', '/tournaments/', '/me', '/me/', '/sign-in'];
   return {
     rules: [
       { userAgent: '*', allow: '/', disallow: privateRoutes },

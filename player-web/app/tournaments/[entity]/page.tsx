@@ -19,10 +19,10 @@ export async function generateMetadata({ params }: TournamentPageProps): Promise
   const result = await getPublicDiscovery();
   const tournament = result.status === 'ready' ? findTournamentByRouteKey(result.data, entity) : undefined;
   const club = tournament && result.status === 'ready' ? result.data.clubs.find((candidate) => candidate.club.id === tournament.clubId) : undefined;
-  if (!tournament) return createPageMetadata({ title: 'Poker tournament', description: 'Live poker tournament details from Orbit.', path: `/tournaments/${entity}` });
+  if (!tournament) return createPageMetadata({ title: 'Poker tournament', description: 'Live poker tournament details from Orbit.', path: `/tournaments/${entity}`, noIndex: true });
   const title = `${tournament.name}${club ? ` at ${club.club.name}` : ''}`;
   const description = `${formatEventDate(tournament.startsAt)}. ${formatBuyIn(tournament)}. Registration ${tournament.registrationStatus}.`;
-  return createPageMetadata({ title, description, path: `/tournaments/${tournamentRouteKey(club, tournament)}` });
+  return createPageMetadata({ title, description, path: `/tournaments/${tournamentRouteKey(club, tournament)}`, noIndex: true });
 }
 
 export default async function TournamentDetailPage({ params }: TournamentPageProps) {

@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = createPageMetadata({
   title: 'Tournaments',
   description: 'Browse upcoming poker tournaments by club, buy-in, structure, distance, and registration status.',
-  path: '/tournaments'
+  path: '/tournaments',
+  noIndex: true
 });
 
 export default async function TournamentsPage() {

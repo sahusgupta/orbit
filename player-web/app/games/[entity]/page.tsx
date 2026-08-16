@@ -19,10 +19,10 @@ export async function generateMetadata({ params }: GamePageProps): Promise<Metad
   const { entity } = await params;
   const result = await getPublicDiscovery();
   const listing = result.status === 'ready' ? findGameByRouteKey(result.data.clubs, entity) : undefined;
-  if (!listing) return createPageMetadata({ title: 'Poker game', description: 'Current live poker game details from Orbit.', path: `/games/${entity}` });
+  if (!listing) return createPageMetadata({ title: 'Poker game', description: 'Current live poker game details from Orbit.', path: `/games/${entity}`, noIndex: true });
   const title = `${listing.game.name} at ${listing.club.club.name}`;
   const description = `${getGameStateLabel(getGameState(listing.game))}. ${listing.game.availableSeats} open seats and ${listing.game.waitlistCount} waiting.`;
-  return createPageMetadata({ title, description, path: `/games/${gameRouteKey(listing.club, listing.game)}` });
+  return createPageMetadata({ title, description, path: `/games/${gameRouteKey(listing.club, listing.game)}`, noIndex: true });
 }
 
 export default async function GameDetailPage({ params }: GamePageProps) {

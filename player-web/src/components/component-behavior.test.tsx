@@ -249,7 +249,7 @@ describe('Player Web route and component behavior', () => {
     expect(testState.replace).not.toHaveBeenCalled();
   });
 
-  it('renders public clubs with activity context', () => {
+  it('renders club discovery with activity context', () => {
     testState.pathname = '/clubs';
     render(<LocationProvider><ClubsExplorer clubs={discovery.clubs} /></LocationProvider>);
     expect(screen.getByText('North Loop Poker Club')).toBeVisible();
@@ -263,14 +263,14 @@ describe('Player Web route and component behavior', () => {
     expect(screen.getByText('No clubs match those filters')).toBeVisible();
   });
 
-  it('keeps public tournaments visible while signed out', () => {
+  it('renders tournament discovery results', () => {
     testState.pathname = '/tournaments';
     render(<LocationProvider><TournamentsExplorer discovery={discovery} /></LocationProvider>);
     expect(screen.getByText('Sunday Orbit Major')).toBeVisible();
     expect(screen.getByText('Deep Stack Classic')).toBeVisible();
   });
 
-  it('filters public tournament results to open registration', () => {
+  it('filters tournament results to open registration', () => {
     testState.search = 'registration=open';
     testState.pathname = '/tournaments';
     render(<LocationProvider><TournamentsExplorer discovery={discovery} /></LocationProvider>);
@@ -299,7 +299,7 @@ describe('Player Web route and component behavior', () => {
   it('protects My Orbit while preserving the requested private route', () => {
     render(<AuthGate returnTo="/me/games"><span>Private games</span></AuthGate>);
     expect(screen.queryByText('Private games')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/sign-in?returnTo=%2Fme%2Fgames');
+    expect(screen.getByRole('link', { name: 'Sign in or create account' })).toHaveAttribute('href', '/sign-in?returnTo=%2Fme%2Fgames');
   });
 
   it('preserves logged-out game intent in the sign-in action', () => {

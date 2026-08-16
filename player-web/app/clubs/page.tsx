@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = createPageMetadata({
   title: 'Clubs',
   description: 'Find participating poker clubs by area, current games, forming activity, and upcoming tournaments.',
-  path: '/clubs'
+  path: '/clubs',
+  noIndex: true
 });
 
 export default async function ClubsPage() {

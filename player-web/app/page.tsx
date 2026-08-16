@@ -5,7 +5,7 @@ import { createPageMetadata } from '@/src/seo/site';
 export const metadata: Metadata = {
   ...createPageMetadata({
     title: 'Poker games near you',
-    description: 'Use Orbit Player to find nearby poker games that match your stakes and preferred format, then manage every club membership in one place.',
+    description: 'Use Orbit Player to find nearby poker games that match your stakes and preferred format after verifying your player account.',
     path: '/'
   }),
   title: { absolute: 'Find poker games near you | Orbit Player' }
