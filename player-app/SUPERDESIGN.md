@@ -1,6 +1,6 @@
 # Orbit Player Design Philosophy
 
-Orbit Player is designed as a calm, mobile-first companion for poker players who want to find games, understand club activity, manage memberships, and join waitlists without feeling like they are using a casino dashboard. The visual language should feel clear, local, and trustworthy: closer to a premium coordination tool than a betting product.
+Orbit Player is designed as a calm, mobile-first companion for poker players who want to find games, understand club activity, manage memberships, and join waitlists without feeling like they are using a casino dashboard. The visual language is shared with the Orbit Player web landing page: a deep night-sky canvas, crisp operational panels, electric-blue actions, green live signals, and restrained poker-card imagery used to explain product state.
 
 The app should communicate three things at a glance:
 
@@ -14,7 +14,7 @@ The interface favors practical discovery over spectacle. Screens should be dense
 
 ### Calm Utility
 
-The player app should reduce uncertainty. It uses soft surfaces, clear hierarchy, and restrained status color so players can compare clubs, games, seats, distance, and waitlist state quickly. Avoid casino cliches, dark gambling-room aesthetics, neon, aggressive reds, and anything that implies exploitative play.
+The player app should reduce uncertainty. It uses clear hierarchy, bordered navy surfaces, and restrained status color so players can compare clubs, games, seats, distance, and waitlist state quickly. Poker imagery is informational: playing cards identify live, forming, and registration states. Avoid casino cliches, neon, aggressive reds, gold trim, felt-table styling, and anything that implies exploitative play.
 
 ### Local Presence
 
@@ -34,70 +34,64 @@ The app uses rounded cards, pill buttons, animated press feedback, bottom tabs, 
 
 ## Core Color Scheme
 
-The player app uses a clean Orbit palette built around deep navy, teal, electric blue, amber, white surfaces, and quiet slate neutrals.
+The player app uses the same dark Orbit palette as Player web.
 
 | Role | Color | Use |
 | --- | --- | --- |
-| Ink | `#0B1020` | Primary text, active tab text, important labels. |
-| Muted | `#64748B` | Secondary text, supporting details, placeholders. |
-| Canvas | `#F9FAFB` | Base screen background. |
-| Panel | `#FFFFFF` | Solid card and account surfaces. |
-| Line | `rgba(100,116,139,0.16)` | Borders, input outlines, dividers. |
+| Ink | `#F4F7FF` | Primary text, active tab text, important labels. |
+| Muted | `#8A9ABD` | Secondary text, supporting details, placeholders. |
+| Canvas | `#060C1A` | Base screen background. |
+| Panel | `#10192C` | Solid card and account surfaces. |
+| Line | `rgba(110,145,255,0.18)` | Borders, input outlines, dividers. |
 | Primary | `#4D7CFE` | Main actions, home/club pins, hero surfaces. |
-| Primary Dark | `#0B1020` | Deep text accents, shadows, progress fills. |
-| Primary Soft | `#EEF3FF` | Soft buttons, badges, avatars, sync panels. |
-| Blue | `#2563EB` | Positive/active states, joined clubs, progress, eyebrow labels. |
-| Blue Soft | `#DBEAFE` | Active tabs, preference bands, open/available states. |
-| Teal | `#0F766E` | Selected map pins, joined clubs, and healthy activity. |
-| Teal Soft | `#DFF4EF` | Membership and positive-status backgrounds. |
-| Amber | `#D97706` | Attention states and selected items. |
-| Amber Soft | `#FEF3C7` | Pending and waitlist backgrounds. |
-| Red | `#DC2626` | Destructive or warning accents, used sparingly. |
+| Primary Dark | `#080F1F` | Deep surfaces, overlays, and app chrome. |
+| Primary Soft | `#182746` | Soft buttons, badges, avatars, and selected context. |
+| Live | `#35D3A1` | Live state, successful state, and hero proof. |
+| Live Soft | `#102D2A` | Positive-status backgrounds. |
+| Accent | `#A98BFF` | Secondary atmosphere and attention states. |
+| Accent Soft | `#291D45` | Secondary status backgrounds. |
+| Danger | `#FB7185` | Destructive or error accents, used sparingly. |
 
 ## Backgrounds
 
-The app should remain light by default. Main screens use a flat, quiet canvas:
+Main screens use the deep Orbit canvas:
 
 ```text
-#F9FAFB
+#060C1A
 ```
 
-Onboarding uses a solid navy hero surface:
+Layered blue, violet, and green waves sit behind the product shell. They are non-interactive, low contrast, and code-native so they scale without bitmap artifacts. The Games landing area adds an abstract overhead poker-table composition inside a bordered hero frame.
 
-```text
-#10233A
-```
-
-Color blocks should provide clear hierarchy without becoming decoration. White panels, navy type, teal status cues, and amber attention states carry the interface.
+Color blocks provide hierarchy without becoming spectacle. Navy panels, near-white type, green live cues, and violet attention states carry the interface.
 
 ## Surface Language
 
-Most app content lives on translucent white panels:
+Most app content lives on solid or nearly solid dark panels:
 
-- Search panels: `rgba(255,255,255,0.82)`
-- Club cards: `rgba(255,255,255,0.88)`
-- Game cards: `rgba(255,255,255,0.9)`
-- Onboarding step surfaces: `rgba(255,255,255,0.96)`
-- Inputs and chips: `rgba(255,255,255,0.92)`
+- Primary panels: `#10192C`
+- Deep feature panels: `#0D1525`
+- Selected surfaces: `#1A294B`
+- Soft controls: `#182746`
+- White is reserved for the faces of interactive playing cards and QR-code scan regions.
 
-Borders are usually soft white or `rgba(100,116,139,0.16)`. Shadows are navy-tinted with low opacity, creating elevation without heaviness. Rounded corners are generous on mobile: 18-30px for cards and panels, 999px for pills.
+Borders use translucent electric blue. Elevation is conveyed primarily by border strength and surface color; shadows are reserved for overlays and selected playing cards. Controls use a 10px radius, panels 12px, and entry/hero surfaces 16px.
 
 ## Typography
 
 The app uses system-native sans-serif typography with a strong weight scale. Headings and key statuses are heavy and compact; supporting text is smaller, muted, and still fairly bold for readability on mobile.
 
-- Screen titles are large, dark, and heavy.
-- Eyebrows are Orbit blue, uppercase, and concise.
+- Screen titles are large, near-white, and strong.
+- Eyebrows are live green, uppercase, tracked, and concise.
 - Card titles are bold and direct.
 - Status and pill text uses high font weight to remain legible at small sizes.
-- Letter spacing should remain `0`; the current style depends on weight and color, not tracking.
+- Body and card copy should avoid decorative tracking; compact uppercase eyebrows and brand descriptors may use restrained letter spacing.
 
 ## Interaction Color Rules
 
-Primary actions use solid navy:
+Primary actions use solid electric blue:
 
 ```text
-#0B1020
+#4D7CFE
 ```
 
 Disabled actions use solid slate:
@@ -106,35 +100,44 @@ Disabled actions use solid slate:
 #94A3B8
 ```
 
-Active selections usually use soft blue backgrounds with dark navy text. Pending or waitlist states use soft amber. Warning/destructive cues may use red, but should not dominate the screen.
+Active selections use deep blue backgrounds with light blue text. Live and successful states use green. Pending or attention states use violet. Warning/destructive cues may use coral, but should not dominate the screen.
+
+## Player Web Landing Continuity
+
+The native Games route incorporates every signature landing-page motif while keeping controls connected to app behavior:
+
+- The Orbit brand lockup and “Current live poker starts here” eyebrow introduce the route.
+- “Find your game” is the primary display line, followed by primary and secondary actions.
+- A room-published proof line explains the authority of live data.
+- An abstract table frame contains a tappable fan of Live, Forming, and Open playing cards plus a changing feature readout.
+- “Now on Orbit” lists current games and opens their native detail routes.
+- Registration and current-room spotlights navigate to Tournaments and Clubs.
+- The Discover, Evaluate, Commit, Arrive journey closes the discovery flow.
+- “Straight answers for live play” appears in Profile as an accessible disclosure list.
+- Profile closes with the compact Orbit and Caminus Labs brand footer used on Player web.
+- Ambient layered waves continue behind the authenticated app shell.
 
 ## Components
 
 ### Game Cards
 
-Game cards are the core discovery unit. They should be white, rounded, and lightly elevated. Use value pills for distance, seats, waitlist, joined status, and preferred-game context. The primary button should be visually dominant and anchored near the bottom of the card.
+Game cards are the core discovery unit. They use bordered navy surfaces with value pills for distance, seats, waitlist, joined status, and preferred-game context. The primary button remains visually dominant and anchored near the bottom of the card.
 
 ### Club Cards
 
-Club cards should read as quick comparison rows: club identity, distance or membership state, and an immediate affordance. Selected cards use an amber border accent (`#D97706`) inside the broader navy and teal system.
+Club cards read as quick comparison rows: club identity, distance or membership state, and an immediate affordance. Compact rounded-square monograms echo the web club listings.
 
 ### Map UI
 
-Maps should feel integrated into the app, not embedded as a generic widget. Use rounded map containers, soft radius rings, navy home pins, teal joined-club pins, and amber selected pins.
+Maps should feel integrated into the app, not embedded as a generic widget. Use rounded map containers, soft radius rings, navy home pins, green joined-club pins, and violet selected pins.
 
 ### Onboarding
 
-Onboarding should feel guided and trustworthy. The hero uses a deep solid surface:
-
-```text
-#10233A
-```
-
-The step surface is a soft white card below it. Keep copy short and action-oriented. The progress bar uses navy, reinforcing the sense of steady setup rather than marketing flourish.
+Onboarding should feel guided and trustworthy. It uses the same deep canvas and orbit geometry, short action-oriented copy, a clear progress treatment, and high-contrast fields.
 
 ### Bottom Tabs
 
-The bottom tab bar should remain a translucent white pill anchored above the safe area. Active tabs use `#dff4ef`; inactive labels use muted gray. Icons should be familiar and simple.
+The bottom tab bar remains a deep floating panel anchored above the safe area. Active tabs use the selected blue surface and light-blue foreground; inactive labels use muted blue-gray. Icons remain familiar and simple.
 
 ## Voice And Product Feel
 
@@ -142,8 +145,9 @@ Language should emphasize coordination, visibility, game formation, wait reducti
 
 ## Design Guardrails
 
-- Keep the app light, clean, and practical.
-- Use navy for authority, teal for healthy activity, amber for attention, and coral only for caution.
+- Keep the app dark, clear, and practical.
+- Use navy for authority, green for live activity, violet for attention, and coral only for caution.
+- Use playing-card and table imagery only where it explains navigation or live state.
 - Do not introduce neon, casino red/black, heavy gold, or felt-table green as dominant themes.
 - Preserve rounded native controls and compact, scannable cards.
 - Make maps and local distance context prominent whenever discovery is involved.

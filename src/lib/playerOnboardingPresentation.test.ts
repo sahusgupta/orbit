@@ -204,13 +204,13 @@ describe('Player onboarding presentation contract', () => {
     const orderedShellTokens = [
       '<SafeAreaProvider>',
       '<SafeAreaView style={[styles.safeArea, styles.onboardingSafeArea]}>',
-      '<StatusBar style="dark" />',
+      '<StatusBar style="light" />',
       '<AnimatedGradientBackground />',
       '<ScrollView',
       '<OnboardingFlow'
     ];
 
-    expect(componentDigest).toBe('920e24a63a01df17eff25f95dee4e819bb094658654ffa20e9bd8e8cf8efdf76');
+    expect(componentDigest).toBe('377a8db107faa79761749da3892d72de73f35dfe8f633bdeba89d1765cc502ad');
     orderedShellTokens.forEach((token) => expect(shell).toContain(token));
     for (let index = 1; index < orderedShellTokens.length; index += 1) {
       expect(shell.indexOf(orderedShellTokens[index])).toBeGreaterThan(shell.indexOf(orderedShellTokens[index - 1]));
@@ -221,7 +221,7 @@ describe('Player onboarding presentation contract', () => {
     const sources = parseSources([onboardingFeatureRoot]);
     const styleDigest = digest(styleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('865eeb384f0960aedabd5d992f7853842f0278184dd095d530a6af89f82b77d0');
+    expect(styleDigest).toBe('84c330c07bfb648c1646a74ab6f96a196eed59308df7e626313807e27d6c4c44');
   });
 });
 

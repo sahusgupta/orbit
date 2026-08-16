@@ -11,6 +11,7 @@ import type { PlayerAccount } from '../../domain/playerSync';
 import type { OnboardingStep } from '../../domain/playerTypes';
 import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
+import { PlayerAmbientFlow } from '../home/PlayerLandingExperience';
 import { onboardingStyles } from './onboardingStyles';
 
 const styles = { ...sharedStyles, ...onboardingStyles };
@@ -31,7 +32,7 @@ export function OnboardingScreen({
   return (
     <SafeAreaProvider>
       <SafeAreaView style={[styles.safeArea, styles.onboardingSafeArea]}>
-        <StatusBar style="dark" />
+        <StatusBar style="light" />
         <AnimatedGradientBackground />
         <ScrollView style={styles.onboardingShell} contentContainerStyle={styles.onboardingContent} showsVerticalScrollIndicator={false}>
           <OnboardingFlow
@@ -171,6 +172,7 @@ function OnboardingFlow({
 function AnimatedGradientBackground() {
   return (
     <View style={styles.animatedGradientRoot}>
+      <PlayerAmbientFlow />
       <View style={styles.orbitPattern} pointerEvents="none">
         <View style={styles.orbitHalo}>
           <View style={styles.orbitRing} />

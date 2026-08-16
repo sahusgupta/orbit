@@ -53,6 +53,7 @@ import { TournamentFilterControls, TournamentScreen } from './features/tournamen
 import { tournamentStyles } from './features/tournaments/tournamentStyles';
 import { ClubAccessCheckoutScreen, ClubMembershipPlanScreen, ClubsScreen, SeatRequestModal } from './features/clubs/ClubRoutes';
 import { clubStyles } from './features/clubs/clubStyles';
+import { OrbitJourney, PlayerAmbientFlow, PlayerLandingHero } from './features/home/PlayerLandingExperience';
 import { IdentityVerificationScreen } from './features/settings/IdentityVerificationScreen';
 import { SettingsScreen } from './features/settings/SettingsScreen';
 import { sharedStyles } from './styles/sharedStyles';
@@ -132,6 +133,7 @@ export default function PlayerApp() {
   const [discoveryNotice, setDiscoveryNotice] = useState('');
   const [avatarHovered, setAvatarHovered] = useState(false);
   const mainScrollRef = useRef<ScrollView>(null);
+  const discoveryStartY = useRef(0);
   const [syncStatus, setSyncStatus] = useState(
     isSyncConfigured() ? 'Connecting to Firebase club sync...' : 'Live club sync is not configured.'
   );
@@ -432,12 +434,13 @@ export default function PlayerApp() {
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="light" />
         <LinearGradient colors={['#060c1a', '#0b1020', '#10182b']} style={styles.appBackdrop} />
+        <PlayerAmbientFlow />
         <View style={styles.shell}>
-          {screen !== 'gameDetails' ? (
+          {screen !== 'gameDetails' && screen !== 'findGames' ? (
             <View style={styles.header}>
               <View>
-                <Text style={[styles.eyebrow, styles.darkShellEyebrow]}>{screen === 'findGames' ? 'Poker near you' : screen === 'clubs' ? 'Your memberships' : screen === 'tournaments' ? 'Upcoming games' : screen === 'map' ? 'Browse nearby' : 'Orbit Player'}</Text>
-                <Text style={[styles.title, styles.darkShellTitle]}>{screen === 'clubSignup' || screen === 'clubPayment' ? 'Card House Store' : screen === 'findGames' ? 'Discover' : getScreenTitle(screen)}</Text>
+                <Text style={[styles.eyebrow, styles.darkShellEyebrow]}>{screen === 'clubs' ? 'Your memberships' : screen === 'tournaments' ? 'Upcoming games' : screen === 'map' ? 'Browse nearby' : 'Orbit Player'}</Text>
+                <Text style={[styles.title, styles.darkShellTitle]}>{screen === 'clubSignup' || screen === 'clubPayment' ? 'Card House Store' : getScreenTitle(screen)}</Text>
               </View>
               <Pressable
                 accessibilityLabel="Open settings"
@@ -457,6 +460,17 @@ export default function PlayerApp() {
           ) : null}
 
           <ScrollView ref={mainScrollRef} showsVerticalScrollIndicator={screen === 'tournaments' || screen === 'gameDetails'} contentContainerStyle={styles.content}>
+            {screen === 'findGames' && !showHostScreen ? (
+              <PlayerLandingHero
+                opportunities={displayedOpportunities}
+                openTournamentCount={visibleTournaments.filter(({ tournament }) => tournament.registrationStatus === 'open').length}
+                clubCount={findGameClubs.length}
+                onFindGame={() => mainScrollRef.current?.scrollTo({ y: discoveryStartY.current, animated: true })}
+                onOpenGame={openDiscoveryGame}
+                onBrowseTournaments={() => setScreen('tournaments')}
+                onBrowseClubs={() => setScreen('clubs')}
+              />
+            ) : null}
             {liveDataStatus === 'loading' && !clubs.length ? (
               <View accessibilityLabel="Loading live card houses" accessibilityRole="progressbar" style={[styles.emptyState, { minHeight: 132 }]}>
                 <Text style={styles.cardTitle}>Loading live card houses...</Text>
@@ -509,6 +523,11 @@ export default function PlayerApp() {
             ) : null}
             {screen === 'findGames' && !showHostScreen ? (
               <>
+                <View
+                  onLayout={({ nativeEvent }) => {
+                    discoveryStartY.current = nativeEvent.layout.y;
+                  }}
+                />
                 <MyGamesSection
                   games={activePlayerGames}
                   onBuyTime={(club) => openClubPayment(club, 'time-5')}
@@ -590,6 +609,8 @@ export default function PlayerApp() {
                 {savedOpportunities.length ? (
                   <SavedGamesStrip opportunities={savedOpportunities} onOpen={openDiscoveryGame} />
                 ) : null}
+
+                <OrbitJourney />
 
                 {playerPremiumEnabled ? (
                   <Pressable style={styles.hostPromptCard} onPress={() => setShowHostScreen(true)}>

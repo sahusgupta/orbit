@@ -10,6 +10,7 @@ import type { PlayerAccount } from '../../domain/playerSync';
 import { isValidEmail, isValidPhoneNumber, togglePreferredGame } from '../../domain/discovery';
 import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
+import { OrbitPlayerFaq, OrbitPlayerFooter } from '../home/PlayerLandingExperience';
 import { settingsStyles } from './settingsStyles';
 
 const styles = { ...sharedStyles, ...settingsStyles };
@@ -255,6 +256,8 @@ export function SettingsScreen({
         <SimpleMenuRow icon="shield-checkmark-outline" title="Privacy Policy" subtitle="Legal" onPress={() => Linking.openURL(privacyPolicyUrl)} />
         <SimpleMenuRow icon="document-text-outline" title="Terms of Service" subtitle="Legal" onPress={() => Linking.openURL(termsOfServiceUrl)} />
       </View>
+      <OrbitPlayerFaq />
+      <OrbitPlayerFooter />
       {firebaseIdentity ? (
         <>
           <Pressable style={styles.secondaryActionButton} onPress={signOutPlayer}>
