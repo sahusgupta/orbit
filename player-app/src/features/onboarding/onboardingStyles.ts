@@ -18,7 +18,7 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
   },
   animatedGradientRoot: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#102a34',
+    backgroundColor: colors.canvas,
     overflow: 'hidden'
   },
   arrowAction: {
@@ -33,7 +33,7 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
   },
   gradientShade: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(16,23,39,0.24)'
+    backgroundColor: 'rgba(6,12,26,0.18)'
   },
   onboardingActions: {
     alignItems: 'center',
@@ -131,7 +131,7 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
     textAlign: 'center'
   },
   orbitHalo: {
-    borderColor: 'rgba(255,255,255,0.32)',
+    borderColor: 'rgba(110,145,255,0.28)',
     borderRadius: 999,
     borderWidth: 2,
     height: 260,
@@ -142,7 +142,7 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
     width: 420
   },
   orbitNode: {
-    backgroundColor: 'rgba(255,255,255,0.76)',
+    backgroundColor: '#8ca7ff',
     borderColor: 'rgba(77,124,254,0.32)',
     borderRadius: 999,
     borderWidth: 3,
@@ -171,7 +171,7 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
     opacity: 0.28
   },
   orbitRing: {
-    borderColor: 'rgba(45,212,191,0.34)',
+    borderColor: 'rgba(53,211,161,0.28)',
     borderRadius: 999,
     borderWidth: 14,
     bottom: 28,

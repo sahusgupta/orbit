@@ -44,7 +44,7 @@ export function GameAction({ club, game }: { club: PlayerClubSnapshot; game: Pla
       <div className="action-panel">
         <p className="eyebrow">Player action</p>
         <h2>{getGamePrimaryAction(game)}</h2>
-        <p>Sign in only when you are ready to act. This game stays public.</p>
+        <p>Create an account or sign in to view this game and choose your next action.</p>
         <ButtonLink href={buildSignInHref(href, 'waitlist')}>{getGamePrimaryAction(game)}</ButtonLink>
       </div>
     );

@@ -1,6 +1,6 @@
 # Orbit Player
 
-> Orbit Player is a connected poker-room player network developed by Caminus Labs, LLC. It helps players find nearby room-published games that fit their preferred stakes and format, then manage club memberships, waitlists, and tournament registrations in one place.
+> Orbit Player is a connected poker-room player network developed by Caminus Labs, LLC. Its public landing page explains the service; verified accounts can browse nearby room-published games and manage club memberships, waitlists, and tournament registrations.
 
 Intended public site: https://orbitpoker.com/
 Developer: https://caminuslabs.com/
@@ -8,24 +8,22 @@ Source: https://github.com/sahusgupta/orbit
 
 ## Public pages
 
-- `/`: Current live inventory, open tournament registration, participating clubs, and factual product questions.
-- `/games`: Search and filter public game inventory published by participating rooms.
-- `/games/{clubId}--{gameId}`: Details for one published poker game.
-- `/tournaments`: Search and filter scheduled tournaments and registration state.
-- `/tournaments/{clubId}--{tournamentId}`: Details, location, structure, and room-published registration information for one tournament.
-- `/clubs`: Search participating poker rooms and inspect their current inventory.
-- `/clubs/{clubId}`: One room's public profile, games, and tournaments.
+- `/`: Product information, presentation-only examples, and factual product questions.
+- `/sign-in`: Account creation, email verification, sign-in, and password reset.
+- `/privacy`: Orbit's user-facing privacy disclosure.
 
-## Private pages
+## Verified-account pages
 
-- `/sign-in`: Verified player authentication.
+- `/games` and `/games/{entity}`: Search, filter, and inspect room-published games.
+- `/tournaments` and `/tournaments/{entity}`: Search, filter, and inspect scheduled tournaments.
+- `/clubs` and `/clubs/{entity}`: Search participating poker rooms and inspect their current inventory.
 - `/me`: Authenticated player account overview.
 - `/me/games`: Authenticated waitlist and game-request state.
 - `/me/tournaments`: Authenticated tournament-registration state.
 - `/me/clubs`: Authenticated club-membership state.
 - `/me/profile`: Authenticated player profile.
 
-Private account routes are intentionally excluded from search and AI crawler indexing. Joining a game, registering for a tournament, and requesting club membership require verified authentication and are sent to the Orbit API. Public pages only expose the API's sanitized player-safe projections.
+All product and account routes other than the landing page require verified authentication and are excluded from search and AI crawler indexing. Joining a game, registering for a tournament, and requesting club membership are sent to the Orbit API with an independently verified Firebase token. The landing page contains presentation-only examples and does not expose protected discovery data.
 
 ## Data interpretation
 

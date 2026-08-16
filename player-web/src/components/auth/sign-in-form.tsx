@@ -53,7 +53,7 @@ export function SignInForm() {
         <Button type="submit" disabled={busy}><Mail aria-hidden="true" size={18} />{busy ? 'Connecting…' : 'Sign in or create account'}<ArrowRight aria-hidden="true" size={18} /></Button>
         <Button type="button" tone="quiet" disabled={busy || !email} onClick={() => void reset()}>Send password reset</Button>
       </div>
-      <p className="auth-form__privacy">Public discovery never requires an account. Authentication is requested only when you act or open My Orbit.</p>
+      <p className="auth-form__privacy">The landing page remains public. A verified account is required to browse games, clubs, tournaments, or use My Orbit.</p>
     </Form>
   );
 }

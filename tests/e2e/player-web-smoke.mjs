@@ -4,6 +4,8 @@ import path from 'node:path';
 
 const baseUrl = process.env.ORBIT_PLAYER_WEB_URL || 'http://127.0.0.1:4175';
 const outputDirectory = path.resolve(process.env.ORBIT_PLAYER_WEB_SCREENSHOTS || 'test-results/player-web/screenshots');
+const fixtureSessionToken = 'browser-qa-token';
+const protectedPrefixes = ['/games', '/clubs', '/tournaments', '/me'];
 
 const viewports = [
   { name: 'mobile-375', width: 375, height: 812 },
@@ -37,6 +39,19 @@ const browser = await chromium.launch({ headless: true });
 const failures = [];
 const observations = [];
 const metadataByRoute = new Map();
+
+function isProtectedRoute(routePath) {
+  return protectedPrefixes.some((prefix) => routePath === prefix || routePath.startsWith(`${prefix}/`));
+}
+
+async function authorizeFixtureSession(context) {
+  await context.addCookies([{
+    name: 'orbit-player-session',
+    value: fixtureSessionToken,
+    url: baseUrl,
+    sameSite: 'Lax'
+  }]);
+}
 
 async function assertRoute(page, route, viewport) {
   const consoleErrors = [];
@@ -102,7 +117,10 @@ async function assertRoute(page, route, viewport) {
 await Promise.all(viewports.map(async (viewport) => {
   const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height }, reducedMotion: 'reduce' });
   const page = await context.newPage();
-  for (const route of routes) await assertRoute(page, route, viewport);
+  for (const route of routes) {
+    if (isProtectedRoute(route.path)) await authorizeFixtureSession(context);
+    await assertRoute(page, route, viewport);
+  }
   await context.close();
 }));
 
@@ -151,6 +169,7 @@ const completedScroll = await motionPage.evaluate(() => window.scrollY);
 if (intermediateScroll <= 0 || intermediateScroll >= completedScroll) failures.push('Landing smooth scroll did not visibly interpolate toward the poker-card story.');
 await motionContext.close();
 
+await authorizeFixtureSession(interactionContext);
 await page.goto(`${baseUrl}/games`, { waitUntil: 'networkidle' });
 const filterRouteRequests = [];
 const recordFilterRequest = (request) => {
@@ -174,11 +193,13 @@ await page.getByRole('option', { name: 'Running now' }).click();
 await page.waitForURL(/status=running/);
 if (await page.getByText('No games match those filters').count() !== 1) failures.push('Combined game filters did not show the honest empty state.');
 
+await authorizeFixtureSession(interactionContext);
 await page.goto(`${baseUrl}/clubs`, { waitUntil: 'networkidle' });
 await page.getByLabel('City or area').fill('Dallas');
 await page.getByRole('button', { name: 'Set area' }).click();
 if (await page.getByText('Dallas', { exact: true }).count() === 0) failures.push('Manual location fallback did not retain the selected area.');
 
+await authorizeFixtureSession(interactionContext);
 await page.goto(`${baseUrl}/tournaments`, { waitUntil: 'networkidle' });
 await page.getByRole('combobox', { name: 'Registration' }).click();
 await page.getByRole('option', { name: 'Registration open' }).click();
@@ -186,16 +207,18 @@ await page.waitForURL(/registration=open/);
 if (await page.getByText('Sunday Orbit Major').count() !== 1) failures.push('Open tournament filtering did not retain the available event.');
 if (await page.getByText('Deep Stack Classic').count() !== 0) failures.push('Open tournament filtering retained a closed event.');
 
+await authorizeFixtureSession(interactionContext);
 await page.goto(`${baseUrl}/games/1-2-nlh-north-loop-poker-club--Y2x1Yi1hbHBoYQBnYW1lLXJ1bm5pbmc`, { waitUntil: 'networkidle' });
 await page.getByRole('link', { name: "I'm here" }).click();
 await page.waitForURL(/\/sign-in\?.*intent=waitlist/);
 if (!page.url().includes('returnTo=')) failures.push('Logged-out game action lost its return destination.');
 
+await interactionContext.clearCookies();
 await page.goto(`${baseUrl}/me/profile`, { waitUntil: 'networkidle' });
-const protectedSignIn = page.getByRole('link', { name: 'Sign in', exact: true });
-if (await protectedSignIn.count() !== 1) failures.push('Protected profile route did not present one sign-in action.');
-if (!(await protectedSignIn.getAttribute('href'))?.includes('%2Fme%2Fprofile')) failures.push('Protected profile route lost its return destination.');
+if (!page.url().includes('/sign-in?') || !page.url().includes('returnTo=%2Fme%2Fprofile')) failures.push('Protected profile route did not redirect to account access with its return destination.');
+if (await page.getByRole('heading', { name: 'Sign in' }).count() !== 1) failures.push('Protected profile redirect did not render account access.');
 
+await authorizeFixtureSession(interactionContext);
 await page.goto(`${baseUrl}/games`, { waitUntil: 'networkidle' });
 await page.keyboard.press('Tab');
 const focusedElement = await page.evaluate(() => ({
@@ -217,13 +240,9 @@ for (const crawler of ['GPTBot', 'ChatGPT-User', 'OAI-SearchBot', 'ClaudeBot', '
   if (!robotsText.includes(crawler)) failures.push(`robots.txt does not explicitly allow ${crawler}.`);
 }
 const sitemapText = await (await fetch(`${baseUrl}/sitemap.xml`)).text();
-for (const pathName of [
-  '/privacy',
-  '/games/1-2-nlh-north-loop-poker-club--Y2x1Yi1hbHBoYQBnYW1lLXJ1bm5pbmc',
-  '/clubs/north-loop-poker-club--Y2x1Yi1hbHBoYQBjbHViLWFscGhh',
-  '/tournaments/sunday-orbit-major-north-loop-poker-club--Y2x1Yi1hbHBoYQBldmVudC1vcGVu'
-]) {
-  if (!sitemapText.includes(pathName)) failures.push(`sitemap.xml does not include ${pathName}.`);
+if (!sitemapText.includes('/privacy')) failures.push('sitemap.xml does not include /privacy.');
+for (const pathName of ['/games', '/clubs', '/tournaments', '/me']) {
+  if (sitemapText.includes(pathName)) failures.push(`sitemap.xml exposes protected route ${pathName}.`);
 }
 for (const llmsPath of ['/llms.txt', '/LLMS.txt']) {
   const response = await fetch(`${baseUrl}${llmsPath}`);

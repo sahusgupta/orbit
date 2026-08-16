@@ -65,6 +65,10 @@ const server = createServer(async (request, response) => {
     return;
   }
   if (request.method === 'GET' && url.pathname === '/player/discovery') {
+    if (request.headers.authorization !== 'Bearer browser-qa-token') {
+      send(response, 401, { ok: false, error: 'Fixture player sign-in is required.' });
+      return;
+    }
     send(response, 200, { ok: true, ...authenticatedDiscovery });
     return;
   }

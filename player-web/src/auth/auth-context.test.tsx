@@ -2,7 +2,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('firebase/auth', () => ({
-  onAuthStateChanged: vi.fn(() => vi.fn())
+  onIdTokenChanged: vi.fn(() => vi.fn())
 }));
 
 vi.mock('@/src/data/firebase-client', () => ({
@@ -16,6 +16,7 @@ vi.mock('@/src/data/player-profile', () => ({
 }));
 
 import { AuthProvider, useAuth } from './auth-context';
+import { persistPlayerSessionToken, PLAYER_SESSION_COOKIE } from './session-cookie';
 
 function AuthStateProbe() {
   const { error, status } = useAuth();
@@ -30,6 +31,7 @@ afterEach(() => {
 describe('Player Web authentication startup', () => {
   it('falls back to signed out when Firebase never emits its initial auth state', async () => {
     vi.useFakeTimers();
+    persistPlayerSessionToken('stale-token');
     render(<AuthProvider><AuthStateProbe /></AuthProvider>);
     await act(async () => {
       await Promise.resolve();
@@ -42,5 +44,6 @@ describe('Player Web authentication startup', () => {
 
     expect(screen.getByText('signed-out')).toBeVisible();
     expect(screen.getByRole('alert')).toHaveTextContent(/took too long/i);
+    expect(document.cookie).not.toContain(`${PLAYER_SESSION_COOKIE}=`);
   });
 });

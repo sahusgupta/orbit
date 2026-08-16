@@ -22,6 +22,9 @@ describe('public web quality contracts', () => {
     }
     expect(robots).toContain("'/me/'");
     expect(robots).toContain("'/sign-in'");
+    expect(robots).toContain("'/games/'");
+    expect(robots).toContain("'/clubs/'");
+    expect(robots).toContain("'/tournaments/'");
   });
 
   it('publishes an AI-readable product summary with real ownership and route boundaries', () => {
@@ -32,7 +35,22 @@ describe('public web quality contracts', () => {
     expect(llms).toContain('/tournaments');
     expect(llms).toContain('/clubs');
     expect(llms).toContain('/me');
+    expect(llms).toContain('All product and account routes other than the landing page require verified authentication');
     expect(llms).toContain('https://github.com/sahusgupta/orbit');
+  });
+
+  it('verifies Firebase sessions before rendering product routes', () => {
+    const proxy = read('proxy.ts');
+    const auth = read('src/auth/auth-context.tsx');
+
+    for (const route of ['/games/:path*', '/clubs/:path*', '/tournaments/:path*', '/me/:path*']) {
+      expect(proxy).toContain(route);
+    }
+    expect(proxy).toContain('/player/discovery?limit=1');
+    expect(proxy).toContain('authorization: `Bearer ${token}`');
+    expect(auth).toContain('onIdTokenChanged');
+    expect(auth).toContain('persistPlayerSessionToken');
+    expect(auth).toContain('clearPlayerSessionToken');
   });
 
   it('uses the canonical Orbit logo and favicon throughout the landing shell', () => {
@@ -121,6 +139,8 @@ describe('public web quality contracts', () => {
     expect(privacy.match(/<h1>/g)).toHaveLength(1);
     expect(footer).toContain('<Link href="/privacy">Privacy</Link>');
     expect(sitemap).toContain("absoluteUrl('/privacy')");
+    expect(sitemap).not.toContain("absoluteUrl('/games')");
+    expect(sitemap).not.toContain('getPublicDiscovery');
   });
 
   it('uses concise visible route titles without explanatory tab subtitles', () => {

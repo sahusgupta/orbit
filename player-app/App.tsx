@@ -24,14 +24,14 @@ class PlayerRecoveryBoundary extends React.Component<React.PropsWithChildren, St
   render() {
     if (!this.state.failed) return this.props.children;
     return (
-      <View accessibilityRole="alert" style={{ flex: 1, justifyContent: 'center', padding: 28, gap: 14, backgroundColor: '#f6f7f9' }}>
-        <Text accessibilityRole="header" style={{ color: '#111827', fontSize: 24, fontWeight: '700' }}>Orbit Player needs to recover.</Text>
-        <Text style={{ color: '#4b5563', fontSize: 16 }}>Your account was not deleted. Retry the app view; if this repeats, share the incident reference with support.</Text>
-        <Text style={{ color: '#6b7280', fontFamily: 'monospace' }}>Incident {this.state.incidentId}</Text>
+      <View accessibilityRole="alert" style={{ flex: 1, justifyContent: 'center', padding: 28, gap: 14, backgroundColor: '#060c1a' }}>
+        <Text accessibilityRole="header" style={{ color: '#f4f7ff', fontSize: 24, fontWeight: '700' }}>Orbit Player needs to recover.</Text>
+        <Text style={{ color: '#8a9abd', fontSize: 16 }}>Your account was not deleted. Retry the app view; if this repeats, share the incident reference with support.</Text>
+        <Text style={{ color: '#7082a5', fontFamily: 'monospace' }}>Incident {this.state.incidentId}</Text>
         <Pressable
           accessibilityRole="button"
           onPress={() => this.setState({ failed: false, incidentId: '' })}
-          style={{ alignSelf: 'flex-start', borderRadius: 8, backgroundColor: '#2737d8', paddingHorizontal: 18, paddingVertical: 12 }}
+          style={{ alignSelf: 'flex-start', borderRadius: 10, backgroundColor: '#4d7cfe', paddingHorizontal: 18, paddingVertical: 12 }}
         >
           <Text style={{ color: '#ffffff', fontWeight: '700' }}>Retry view</Text>
         </Pressable>
