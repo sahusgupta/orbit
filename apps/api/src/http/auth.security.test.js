@@ -7,6 +7,7 @@ const {
   createRequireClientAuth,
   decodeDashboardSession,
   getDashboardSessionCookie,
+  getDashboardSessionConfigurationError,
   getReceivedApiKey
 } = auth;
 
@@ -120,5 +121,22 @@ describe('pilot authorization containment', () => {
     expect(decodeDashboardSession(`${token}tampered`, now + 1_000)).toBeNull();
     expect(decodeDashboardSession(token, now + 31 * 60_000)).toBeNull();
     expect(getDashboardSessionCookie(token)).toMatch(/HttpOnly; SameSite=Lax; Secure;/);
+  });
+
+  it('distinguishes missing dashboard password and session-signing configuration', () => {
+    expect(getDashboardSessionConfigurationError()).toEqual({
+      code: 'DASHBOARD_PASSWORD_NOT_CONFIGURED',
+      error: 'Dashboard password authentication is not configured.'
+    });
+
+    process.env.ORBIT_DASHBOARD_PASSWORD = 'configured-dashboard-password';
+    process.env.ORBIT_DASHBOARD_SESSION_SECRET = 'too-short';
+    expect(getDashboardSessionConfigurationError()).toEqual({
+      code: 'DASHBOARD_SESSION_SECRET_NOT_CONFIGURED',
+      error: 'Dashboard session signing is not configured.'
+    });
+
+    process.env.ORBIT_DASHBOARD_SESSION_SECRET = 'dashboard-session-signing-secret';
+    expect(getDashboardSessionConfigurationError()).toBeNull();
   });
 });

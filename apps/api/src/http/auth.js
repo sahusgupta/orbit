@@ -32,6 +32,22 @@ function dashboardSessionSecret() {
   return String(process.env.ORBIT_DASHBOARD_SESSION_SECRET || '').trim();
 }
 
+function getDashboardSessionConfigurationError() {
+  if (!String(process.env.ORBIT_DASHBOARD_PASSWORD || '')) {
+    return {
+      code: 'DASHBOARD_PASSWORD_NOT_CONFIGURED',
+      error: 'Dashboard password authentication is not configured.'
+    };
+  }
+  if (dashboardSessionSecret().length < 32) {
+    return {
+      code: 'DASHBOARD_SESSION_SECRET_NOT_CONFIGURED',
+      error: 'Dashboard session signing is not configured.'
+    };
+  }
+  return null;
+}
+
 function encodeDashboardSession(payload) {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const signature = crypto.createHmac('sha256', dashboardSessionSecret()).update(body).digest('base64url');
@@ -224,6 +240,7 @@ module.exports = {
   createRequireClientAuth,
   decodeDashboardSession,
   getDashboardSessionCookie,
+  getDashboardSessionConfigurationError,
   getExpiredDashboardSessionCookie,
   getReceivedApiKey,
   requireClientAuth,

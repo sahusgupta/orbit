@@ -13,6 +13,7 @@ const {
   asyncRoute,
   createDashboardSession,
   getDashboardSessionCookie,
+  getDashboardSessionConfigurationError,
   getExpiredDashboardSessionCookie,
   requireDashboardAuth
 } = require('../http/auth');
@@ -48,9 +49,18 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
   });
 
   app.post('/dashboard/session', (request, response) => {
+    const configurationError = getDashboardSessionConfigurationError();
+    if (configurationError) {
+      response.status(503).json({ ok: false, ...configurationError });
+      return;
+    }
     const token = createDashboardSession(request.body?.password);
     if (!token) {
-      response.status(401).json({ ok: false, error: 'Dashboard sign-in failed.' });
+      response.status(401).json({
+        ok: false,
+        code: 'DASHBOARD_PASSWORD_INCORRECT',
+        error: 'Dashboard password is incorrect. Use ORBIT_DASHBOARD_PASSWORD, not an API or client key.'
+      });
       return;
     }
     response.set('set-cookie', getDashboardSessionCookie(token));
