@@ -16,6 +16,10 @@ const managementBrowser = read('tests/e2e/management-core-smoke.mjs');
 const publicBrowser = read('tests/e2e/public-site-smoke.mjs');
 const vite = read('vite.config.ts');
 const fixtureBoundary = read('src/lib/e2eFixtureMode.ts');
+const dependencyAudit = read('scripts/audit-production-dependencies.mjs');
+const dependencyPolicy = JSON.parse(read('config/dependency-audit-policy.json'));
+const apiPackage = JSON.parse(read('apps/api/package.json'));
+const playerWebPackage = JSON.parse(read('player-web/package.json'));
 
 const failures = [];
 const requireMatch = (condition, message) => {
@@ -38,9 +42,14 @@ requireMatch(includesAll(release, [
 ]), 'Release workflow is missing an immutable verification, packaging, canary, promotion, or rollback control.');
 requireMatch(!release.includes('CSC_LINK') && !release.includes('CSC_KEY_PASSWORD'), 'The release workflow must not require signing credentials.');
 requireMatch(!release.includes('Get-AuthenticodeSignature'), 'Authenticode verification must not gate the release workflow.');
+requireMatch(includesAll(release, ['player-web/package-lock.json', 'npm ci --prefix player-web']), 'The release workflow must install locked Player Web dependencies before aggregate verification.');
 requireMatch(packageJson.scripts['release:win:artifact']?.includes('--publish never'), 'The artifact command must never publish directly.');
 requireMatch(!packageJson.scripts['dist:win:publish'], 'The legacy direct-publish command must be removed.');
 requireMatch(/sourcemap:\s*false/.test(vite), 'Desktop renderer source maps must be explicitly disabled.');
+requireMatch(dependencyAudit.includes("{ name: 'web', prefix: 'player-web' }"), 'The production dependency audit must cover Player Web.');
+requireMatch(Array.isArray(dependencyPolicy.scopes?.web?.allowed), 'The dependency advisory policy must define a Player Web scope.');
+requireMatch(apiPackage.engines?.node === '22.x', 'The production API runtime must stay aligned with CI Node 22.');
+requireMatch(playerWebPackage.engines?.node === '22.x', 'The production Player Web runtime must stay aligned with CI Node 22.');
 
 const downloadedHandler = updater.slice(updater.indexOf("autoUpdater.on('update-downloaded'"), updater.indexOf("nativeAutoUpdater.on('before-quit-for-update'"));
 requireMatch(updater.includes('autoUpdater.autoInstallOnAppQuit = false'), 'The updater must not install automatically on app quit.');

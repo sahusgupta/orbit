@@ -74,12 +74,14 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             player-app/package-lock.json
+            player-web/package-lock.json
             apps/api/package-lock.json
 
       - name: Install locked dependencies
         run: |
           npm ci
           npm ci --prefix player-app
+          npm ci --prefix player-web
           npm ci --prefix apps/api
 
       - name: Apply the approved release version without a Git mutation

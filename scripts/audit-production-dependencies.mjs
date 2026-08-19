@@ -14,7 +14,8 @@ if (!Number.isFinite(reviewDeadline) || Date.now() > reviewDeadline) {
 const scopes = [
   { name: 'root', prefix: undefined },
   { name: 'api', prefix: 'apps/api' },
-  { name: 'player', prefix: 'player-app' }
+  { name: 'player', prefix: 'player-app' },
+  { name: 'web', prefix: 'player-web' }
 ];
 const failures = [];
 

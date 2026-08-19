@@ -14,7 +14,7 @@ The GitHub release workflow currently creates unsigned Windows artifacts and doe
 
 1. Select an exact reviewed 40-character source commit, a new stable semantic version, a canary or stable channel, and the standard or rollback reason. Never reuse a version or tag.
 2. Dispatch with `promote=false` when a separately reviewed candidate is required before promotion.
-3. The workflow installs all three lockfiles and runs sensitive-path, advisory, release-control, module-boundary, packaged-runtime closure, full TypeScript/unit/build, bundle/public/brand, and production-bundle browser gates.
+3. The workflow installs the root, API, native Player, and Player Web lockfiles and runs sensitive-path, advisory, release-control, module-boundary, packaged-runtime closure, full TypeScript/unit/build, bundle/public/brand, and production-bundle browser gates.
 4. It creates an unsigned artifact with publishing disabled and boots the packaged Electron executable against an isolated loopback renderer with hosted API, Firebase, embedded-backend, and updater activity disabled. It then records SHA-256 checksums plus source/version/run metadata, creates a provenance attestation, and uploads a uniquely named immutable workflow artifact.
 5. Review the run, attestations, checksums, smoke output, change scope, and operational readiness. A canary is promoted as a GitHub prerelease; normal clients have prerelease updates disabled. Validate it only on explicitly selected non-production/canary workstations.
 6. Dispatch the same approved inputs with `promote=true`. The build is reproduced and its checksums are reverified, then the separate `production-release` approval controls GitHub release creation. Promotion failure never falls back to an unverified file.
@@ -37,6 +37,8 @@ The release gate explicitly exercises current legacy-state migration and revisio
 ## Public and API deployments
 
 The static public bundle and API must follow the same exact-source, full-gate, immutable-candidate, protected-promotion, health-observation, and known-good roll-forward model at the selected hosting provider. Provider traffic splitting may be used for canary/blue-green promotion only after an owner supplies authorized non-production and production environments. No provider, final hostname, domain owner, DNS, certificate, or cutover value is inferred here. Repository-side SEO work continues through centralized origin configuration; production-domain ownership and cutover remain founder-deferred.
+
+The API and Player Web package manifests pin Node 22.x so their Vercel builds use the same major runtime as CI. Do not promote a deployment whose build log selects a different Node major without first reproducing the full gates on that runtime.
 
 ## Abort conditions
 
