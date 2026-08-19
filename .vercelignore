@@ -12,6 +12,7 @@ download-site/public/downloads
 player-app/dist
 player-app/.expo
 player-web/.next
+internal-tools
 coverage
 *.log
 *.sqlite

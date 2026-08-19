@@ -6,8 +6,11 @@ const checks = [
   { name: 'Player Web TypeScript', script: 'web:typecheck' },
   { name: 'Player Web lint', script: 'web:lint' },
   { name: 'Player Web focused tests', script: 'web:test' },
+  { name: 'Internal sales map TypeScript', script: 'sales-map:typecheck' },
+  { name: 'Internal sales map tests', script: 'sales-map:test' },
   { name: 'Unit tests', script: 'test' },
   { name: 'Player Web production build', script: 'web:build' },
+  { name: 'Internal sales map build', script: 'sales-map:build' },
   { name: 'Desktop renderer build', script: 'build' }
 ];
 
