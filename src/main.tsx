@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import {
   BadgeCheck,
@@ -3511,7 +3512,7 @@ function App() {
     : undefined;
   const showSeatPickerTypedName = Boolean(seatPickerSession && seatPickerTypedName);
   const seatPickerInitialBuyIn = seatPicker?.initialBuyIn.trim() ? Number(seatPicker.initialBuyIn) : undefined;
-  const seatPickerModal = seatPicker && seatPickerSession ? (
+  const seatPickerModal = seatPicker && seatPickerSession ? createPortal(
     <div className="modal-backdrop seat-picker-backdrop" role="dialog" aria-modal="true" aria-label={`Seat ${seatPicker.seatNumber} player`}>
       <section className="seat-picker-modal">
         <div className="seat-picker-head">
@@ -3621,13 +3622,14 @@ function App() {
           )}
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   ) : null;
 
   const cashOutPlayerSession = cashOutDraft
     ? state.playerSessions.find((playerSession) => playerSession.id === cashOutDraft.playerSessionId)
     : undefined;
-  const cashOutModal = cashOutDraft && cashOutPlayerSession ? (
+  const cashOutModal = cashOutDraft && cashOutPlayerSession ? createPortal(
     <div className="modal-backdrop cash-out-backdrop" role="dialog" aria-modal="true" aria-label={`Cash out ${cashOutPlayerSession.playerName}`}>
       <form
         className="cash-out-modal"
@@ -3647,17 +3649,19 @@ function App() {
         <label>Note<input value={cashOutDraft.note} onChange={(event) => setCashOutDraft({ ...cashOutDraft, note: event.target.value })} placeholder="Optional note" /></label>
         <div className="cash-out-actions"><button className="ghost-button" type="button" onClick={() => setCashOutDraft(null)}>Cancel</button><button className="primary-button" type="submit">Record cash-out</button></div>
       </form>
-    </div>
+    </div>,
+    document.body,
   ) : null;
 
   const ledgerSession = tableLedgerSessionId ? state.sessions.find((session) => session.id === tableLedgerSessionId) : undefined;
-  const tableLedgerModal = ledgerSession ? (
+  const tableLedgerModal = ledgerSession ? createPortal(
     <div className="modal-backdrop cash-ledger-backdrop" role="dialog" aria-modal="true" aria-label={`${ledgerSession.label} buy-in ledger`}>
       <section className="cash-ledger-modal">
         <div className="cash-ledger-head"><div><span>{state.games.find((game) => game.id === ledgerSession.gameId)?.name ?? 'Table'}</span><h2>{ledgerSession.label} ledger</h2></div><button className="icon-button" onClick={() => setTableLedgerSessionId(null)}><X size={18} /></button></div>
         <TableBuyInLedger state={state} session={ledgerSession} formatClock={formatClock} />
       </section>
-    </div>
+    </div>,
+    document.body,
   ) : null;
 
   if (route === 'table') {

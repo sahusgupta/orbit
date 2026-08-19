@@ -689,10 +689,24 @@ body.low-light .orbit-shell .floor-view-shell .topbar-actions button.floor-utili
   }
 }
 
+@media (min-width: 601px) {
+  .orbit-shell .floor-view-shell {
+    padding-bottom: 0;
+  }
+}
+
 @media (min-width: 601px) and (max-width: 900px) {
   .orbit-shell:has(.floor-view-shell) .orbit-shell-content,
   .orbit-shell .floor-view-shell {
     min-height: calc(100dvh - 50px);
+  }
+
+  .orbit-shell .floor-view-shell {
+    height: calc(100dvh - 50px);
+  }
+
+  .floor-room-workspace {
+    min-height: 0;
   }
 }
 

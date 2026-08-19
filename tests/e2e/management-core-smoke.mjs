@@ -377,7 +377,7 @@ try {
   }
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  await page.getByRole('button', { name: 'Players' }).click();
+  await page.getByRole('button', { name: 'Players', exact: true }).click();
   const addPlayerButton = page.locator('button.player-tool-icon[aria-label="Add player"]');
   await addPlayerButton.focus();
   await page.keyboard.press('Enter');

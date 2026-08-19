@@ -272,10 +272,6 @@ export default function FloorView(props: FloorViewProps) {
         </Dialog.Portal>
       </Dialog.Root>
 
-      {seatPickerModal}
-      {cashOutModal}
-      {tableLedgerModal}
-
       <div className="floor-room-workspace">
         <FloorRoomMap
           key={floorLayoutStorageKey}
@@ -321,7 +317,13 @@ export default function FloorView(props: FloorViewProps) {
 
       <section className="minimal-dashboard dashboard-simple">
         <div className="dashboard-main-column">
-        <Dialog.Root open={openPanels.currentTables} onOpenChange={(open) => setFloorWorkspaceOpen('currentTables', open)}>
+        <Dialog.Root
+          open={openPanels.currentTables}
+          onOpenChange={(open) => {
+            if (!open && (seatPicker || cashOutModal || tableLedgerModal)) return;
+            setFloorWorkspaceOpen('currentTables', open);
+          }}
+        >
           <Dialog.Portal>
             <Dialog.Overlay className="floor-workspace-backdrop" />
             <Dialog.Content
@@ -677,6 +679,9 @@ export default function FloorView(props: FloorViewProps) {
               <p className="muted-copy">No active tables.</p>
             )}
           </div> : null}
+          {seatPickerModal}
+          {cashOutModal}
+          {tableLedgerModal}
         </section>
             </Dialog.Content>
           </Dialog.Portal>
