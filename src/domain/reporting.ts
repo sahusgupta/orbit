@@ -5,9 +5,11 @@ import type {
   GameStatus,
   PlayerSession,
   ReportPeriod,
-  RevenueTransaction,
-  TimeFeeLog
+  RevenueTransaction
 } from './types';
+import { getProjectedTimeFeeEntries } from './timeFeeProjection';
+
+export { getProjectedTimeFeeEntries } from './timeFeeProjection';
 
 const toLocalDateValue = (date: Date) => {
   const year = date.getFullYear();
@@ -149,59 +151,6 @@ export function getCollectionProfile(state: AppState, gameId: string): Collectio
       configuredProfile?.estimatedDropPerSeatHour ?? state.settings.defaultEstimatedDropPerSeatHour
   };
 }
-
-export type ProjectedTimeFeeEntry = TimeFeeLog & {
-  source: 'logged' | 'legacy';
-};
-
-type TimeFeeProjectionState = {
-  playerSessions: PlayerSession[];
-  timeFeeLogs: TimeFeeLog[];
-  settings: { defaultHourlyFee: number };
-};
-
-export const getProjectedTimeFeeEntries = (
-  state: TimeFeeProjectionState
-): ProjectedTimeFeeEntry[] => {
-  const loggedEntries = state.timeFeeLogs.map((entry) => ({
-    ...entry,
-    source: 'logged' as const
-  }));
-  const loggedMinutesByPlayerSession = state.timeFeeLogs.reduce<Map<string, number>>(
-    (minutesBySession, entry) => {
-      minutesBySession.set(
-        entry.playerSessionId,
-        (minutesBySession.get(entry.playerSessionId) ?? 0) + Math.max(0, Number(entry.minutes) || 0)
-      );
-      return minutesBySession;
-    },
-    new Map()
-  );
-  const playerSessionsWithLogs = new Set(state.timeFeeLogs.map((entry) => entry.playerSessionId));
-  const legacyEntries = state.playerSessions.flatMap((playerSession): ProjectedTimeFeeEntry[] => {
-    const purchasedMinutes = Math.max(0, Number(playerSession.timePurchasedMinutes) || 0);
-    const unloggedMinutes = Math.max(
-      0,
-      purchasedMinutes - (loggedMinutesByPlayerSession.get(playerSession.id) ?? 0)
-    );
-    if (!unloggedMinutes) return [];
-    return [{
-      id: `legacy-time-${playerSession.id}`,
-      playerSessionId: playerSession.id,
-      tableId: playerSession.tableId,
-      gameId: playerSession.gameId,
-      playerName: playerSession.playerName,
-      minutes: unloggedMinutes,
-      amount: (unloggedMinutes / 60) * state.settings.defaultHourlyFee,
-      timestamp: playerSessionsWithLogs.has(playerSession.id)
-        ? playerSession.seatedAt
-        : playerSession.lastTimeTickAt || playerSession.seatedAt,
-      source: 'legacy'
-    }];
-  });
-
-  return [...loggedEntries, ...legacyEntries];
-};
 
 export const getReportFinancials = (state: AppState, window: ReportWindow) => {
   const recordedDrop = state.dropLogs

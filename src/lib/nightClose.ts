@@ -1,5 +1,4 @@
-import { getProjectedTimeFeeEntries } from '../domain/reporting';
-import type { PlayerSession, TimeFeeLog } from '../domain/types';
+import { getProjectedTimeFeeEntries } from '../domain/timeFeeProjection';
 
 export type NightCloseTable = {
   tableId: string;
@@ -18,10 +17,28 @@ export type NightCloseTable = {
 type NightCloseSource = {
   games: Array<{ id: string; name: string }>;
   sessions: Array<{ id: string; gameId: string; label: string; status: string; collectionMode?: 'Time' | 'Drop'; timeFeeBased?: boolean; startedAt: string }>;
-  playerSessions: PlayerSession[];
+  playerSessions: Array<{
+    id: string;
+    playerName: string;
+    profileId?: string;
+    gameId: string;
+    tableId: string;
+    seatedAt: string;
+    timePurchasedMinutes?: number;
+    lastTimeTickAt?: string;
+  }>;
   buyIns: Array<{ tableId: string; amount: number; timestamp: string }>;
   dropLogs: Array<{ tableId: string; amount: number; timestamp: string }>;
-  timeFeeLogs: TimeFeeLog[];
+  timeFeeLogs: Array<{
+    id: string;
+    playerSessionId: string;
+    tableId: string;
+    gameId: string;
+    playerName: string;
+    minutes: number;
+    amount: number;
+    timestamp: string;
+  }>;
   playerLedger: Array<{ tableId?: string; type: string; profileId?: string; playerName: string; amount?: number; timestamp: string }>;
   nightCloses: Array<{ status: string; lockedAt?: string }>;
   settings: {
