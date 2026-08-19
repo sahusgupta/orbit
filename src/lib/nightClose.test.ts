@@ -5,27 +5,28 @@ const state = {
   games: [{ id: 'game-1', name: '1/2 NLH' }],
   sessions: [{ id: 'table-1', gameId: 'game-1', label: 'Main Table', status: 'Running', collectionMode: 'Time' as const, startedAt: '2026-07-19T01:00:00Z' }],
   playerSessions: [
-    { playerName: 'Alex', profileId: 'alex', tableId: 'table-1', seatedAt: '2026-07-19T01:05:00Z', timePurchasedMinutes: 60 },
-    { playerName: 'Sam', profileId: 'sam', tableId: 'table-1', seatedAt: '2026-07-19T01:10:00Z', timePurchasedMinutes: 0 }
+    { id: 'alex-session', playerName: 'Alex', profileId: 'alex', gameId: 'game-1', tableId: 'table-1', seatedAt: '2026-07-19T01:05:00Z', timePurchasedMinutes: 60 },
+    { id: 'sam-session', playerName: 'Sam', profileId: 'sam', gameId: 'game-1', tableId: 'table-1', seatedAt: '2026-07-19T01:10:00Z', timePurchasedMinutes: 0 }
   ],
   buyIns: [
     { tableId: 'table-1', amount: 500, timestamp: '2026-07-19T01:05:00Z' },
     { tableId: 'table-1', amount: 200, timestamp: '2026-07-19T02:00:00Z' }
   ],
   dropLogs: [{ tableId: 'table-1', amount: 20, timestamp: '2026-07-19T02:30:00Z' }],
+  timeFeeLogs: [],
   playerLedger: [{ tableId: 'table-1', type: 'Cash-Out', profileId: 'alex', playerName: 'Alex', amount: 400, timestamp: '2026-07-19T03:00:00Z' }],
   nightCloses: [],
   settings: { defaultHourlyFee: 10, collectionProfiles: [{ gameId: 'game-1', hourlyFee: 12 }] }
 };
 
 describe('buildNightCloseTables', () => {
-  it('adds separately paid time fees without counting recorded drop twice', () => {
-    const [table] = buildNightCloseTables(state, { 'table-1': '312' });
+  it('uses the flat room time fee without counting recorded drop twice', () => {
+    const [table] = buildNightCloseTables(state, { 'table-1': '310' });
     expect(table.buyIns).toBe(700);
     expect(table.cashOuts).toBe(400);
     expect(table.drop).toBe(20);
-    expect(table.timeFees).toBe(12);
-    expect(table.expectedCash).toBe(312);
+    expect(table.timeFees).toBe(10);
+    expect(table.expectedCash).toBe(310);
     expect(table.discrepancy).toBe(0);
   });
 
@@ -33,8 +34,8 @@ describe('buildNightCloseTables', () => {
     const [table] = buildNightCloseTables({
       ...state,
       playerSessions: [
-        { playerName: 'Winner', profileId: 'winner', tableId: 'table-1', seatedAt: '2026-07-19T01:05:00Z', timePurchasedMinutes: 225 },
-        { playerName: 'Other player', profileId: 'other', tableId: 'table-1', seatedAt: '2026-07-19T01:10:00Z', timePurchasedMinutes: 0 }
+        { id: 'winner-session', playerName: 'Winner', profileId: 'winner', gameId: 'game-1', tableId: 'table-1', seatedAt: '2026-07-19T01:05:00Z', timePurchasedMinutes: 225 },
+        { id: 'other-session', playerName: 'Other player', profileId: 'other', gameId: 'game-1', tableId: 'table-1', seatedAt: '2026-07-19T01:10:00Z', timePurchasedMinutes: 0 }
       ],
       buyIns: [
         { tableId: 'table-1', amount: 500, timestamp: '2026-07-19T01:05:00Z' },
@@ -45,13 +46,30 @@ describe('buildNightCloseTables', () => {
         { tableId: 'table-1', type: 'Cash-Out', profileId: 'winner', playerName: 'Winner', amount: 800, timestamp: '2026-07-19T03:00:00Z' },
         { tableId: 'table-1', type: 'Cash-Out', profileId: 'other', playerName: 'Other player', amount: 0, timestamp: '2026-07-19T03:00:00Z' }
       ]
-    }, { 'table-1': '45' });
+    }, { 'table-1': '37.5' });
 
     expect(table.buyIns).toBe(800);
     expect(table.cashOuts).toBe(800);
-    expect(table.timeFees).toBe(45);
-    expect(table.expectedCash).toBe(45);
+    expect(table.timeFees).toBe(37.5);
+    expect(table.expectedCash).toBe(37.5);
     expect(table.discrepancy).toBe(0);
+  });
+
+  it('preserves logged purchase amounts across rate changes and falls back only for legacy sessions', () => {
+    const [table] = buildNightCloseTables({
+      ...state,
+      playerSessions: [
+        { ...state.playerSessions[0], timePurchasedMinutes: 120 },
+        { ...state.playerSessions[1], timePurchasedMinutes: 60 }
+      ],
+      timeFeeLogs: [
+        { id: 'time-1', playerSessionId: 'alex-session', tableId: 'table-1', gameId: 'game-1', playerName: 'Alex', minutes: 60, amount: 10, timestamp: '2026-07-19T01:30:00Z' },
+        { id: 'time-2', playerSessionId: 'alex-session', tableId: 'table-1', gameId: 'game-1', playerName: 'Alex', minutes: 60, amount: 15, timestamp: '2026-07-19T02:30:00Z' }
+      ],
+      settings: { ...state.settings, defaultHourlyFee: 20 }
+    }, {});
+
+    expect(table.timeFees).toBe(45);
   });
 
   it('uses reduced cash-outs to recognize drop as house cash', () => {

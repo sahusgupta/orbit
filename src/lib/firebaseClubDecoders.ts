@@ -149,6 +149,7 @@ function asRecord(value: unknown): UnknownRecord | null {
 
 const persistedRecordArrayFields = [
   'games',
+  'physicalTables',
   'profiles',
   'tournaments',
   'interests',

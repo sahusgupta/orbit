@@ -421,3 +421,225 @@ body.low-light .tournament-prize-total { background: linear-gradient(120deg, rgb
 .tournament-payout-list input {
   max-width: 90px;
 }
+
+.tournament-payout-editor {
+  background: color-mix(in srgb, var(--canvas) 76%, var(--panel-solid));
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 14px;
+  grid-column: 1 / -1;
+  margin: 0;
+  min-width: 0;
+  padding: 18px;
+}
+
+.tournament-payout-editor legend {
+  color: var(--ink);
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .07em;
+  padding: 0 7px;
+  text-transform: uppercase;
+}
+
+.tournament-payout-editor-head,
+.tournament-payout-editor-footer,
+.tournament-payout-draft-row {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.tournament-payout-editor-head > span {
+  color: var(--muted);
+  font-size: .75rem;
+  font-weight: 700;
+}
+
+.tournament-payout-editor-head > strong,
+.tournament-payout-editor-footer > span {
+  font-size: .76rem;
+}
+
+.tournament-payout-editor .valid { color: #15803d; }
+.tournament-payout-editor .invalid { color: #b91c1c; }
+body.low-light .tournament-payout-editor .valid { color: #86efac; }
+body.low-light .tournament-payout-editor .invalid { color: #fda4af; }
+
+.tournament-payout-draft-list {
+  display: grid;
+  gap: 8px;
+}
+
+.tournament-payout-draft-row {
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  display: grid;
+  grid-template-columns: minmax(56px, 1fr) minmax(112px, 150px) auto;
+  min-height: 50px;
+  padding: 8px 10px 8px 14px;
+}
+
+.tournament-payout-draft-row > strong {
+  color: var(--ink);
+  font-size: .84rem;
+}
+
+.tournament-payout-draft-row label {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  position: relative;
+}
+
+.tournament-payout-draft-row input {
+  background: var(--canvas);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--ink);
+  min-height: 36px;
+  padding: 0 30px 0 10px;
+  width: 100%;
+}
+
+.tournament-payout-draft-row label > span {
+  color: var(--muted);
+  font-size: .78rem;
+  pointer-events: none;
+  position: absolute;
+  right: 10px;
+}
+
+.tournament-payout-draft-row .tournament-payout-remove,
+.tournament-payout-editor-footer > button {
+  grid-column: auto;
+  min-height: 36px;
+  padding: 7px 11px;
+}
+
+.tournament-payout-editor-footer > span {
+  text-align: right;
+}
+
+.tournament-lifecycle-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.tournament-lifecycle-actions button {
+  min-height: 38px;
+  padding: 8px 12px;
+}
+
+.tournament-client-grid {
+  align-items: start;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(300px, .75fr);
+}
+
+.tournament-client-grid > .tournament-panel {
+  margin: 0;
+  max-width: none;
+  padding: clamp(22px, 3vw, 32px);
+  width: 100%;
+}
+
+.tournament-panel-heading {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.tournament-panel-heading .panel-title {
+  margin-bottom: 0;
+}
+
+.tournament-panel-heading > div:last-child {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.tournament-panel-heading > div:last-child > span {
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tournament-panel-heading .ghost-button {
+  min-height: 38px;
+  padding: 8px 11px;
+}
+
+.tournament-player-empty {
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: .82rem;
+  padding: 24px;
+  text-align: center;
+}
+
+.tournament-payout-list article {
+  align-items: center;
+  background: color-mix(in srgb, var(--canvas) 74%, var(--panel-solid));
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr auto;
+  padding: 14px 16px;
+}
+
+.tournament-payout-list article > span {
+  color: var(--muted);
+  font-size: .8rem;
+  font-weight: 700;
+}
+
+.tournament-payout-list article > strong {
+  color: var(--ink);
+  font-size: .88rem;
+}
+
+.tournament-payout-list article > b {
+  color: var(--ink);
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1040px) {
+  .tournament-manager-shell .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .tournament-lifecycle-actions { justify-content: flex-start; }
+  .tournament-client-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 620px) {
+  .tournament-payout-editor-head,
+  .tournament-payout-editor-footer,
+  .tournament-panel-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tournament-payout-editor-footer > span { text-align: left; }
+  .tournament-payout-draft-row { grid-template-columns: 1fr minmax(100px, 1fr); }
+  .tournament-payout-draft-row .tournament-payout-remove { grid-column: 1 / -1; }
+  .tournament-panel-heading > div:last-child { justify-content: space-between; }
+}

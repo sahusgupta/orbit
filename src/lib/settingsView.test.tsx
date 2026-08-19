@@ -8,7 +8,11 @@ declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
 }
 
-const harness = vi.hoisted(() => ({ root: undefined as { unmount: () => void } | undefined }));
+const harness = vi.hoisted(() => ({
+  root: undefined as { unmount: () => void } | undefined,
+  blobs: [] as Array<{ parts: BlobPart[]; type: string }>,
+  downloads: [] as Array<{ fileName: string; href: string }>
+}));
 
 vi.mock('react-dom/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-dom/client')>();
@@ -41,6 +45,16 @@ describe('settings route rendering', () => {
     localStorage.setItem(
       'table-manager-state-v1',
       JSON.stringify({
+        games: [
+          {
+            id: 'nlh-1-2',
+            name: '1/2 NLH',
+            maxSeats: 10,
+            minInRoomForLikely: 6,
+            minFlexibleForLikely: 2,
+            minTotalForViable: 8
+          }
+        ],
         settings: {
           clubAccount: { clubName: 'Settings Fixture Club' },
           pilotAccess: {
@@ -58,6 +72,25 @@ describe('settings route rendering', () => {
     localStorage.setItem('table-manager-state-v1:auth:ref-006g-license', JSON.stringify({ expiresAt }));
     document.body.innerHTML = '<div id="root"></div>';
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
+    class TestBlob {
+      readonly parts: BlobPart[];
+      readonly type: string;
+
+      constructor(parts: BlobPart[], options?: BlobPropertyBag) {
+        this.parts = parts;
+        this.type = options?.type ?? '';
+        harness.blobs.push(this);
+      }
+    }
+    class TestUrl extends URL {
+      static createObjectURL = vi.fn(() => 'blob:settings-export');
+      static revokeObjectURL = vi.fn();
+    }
+    vi.stubGlobal('Blob', TestBlob);
+    vi.stubGlobal('URL', TestUrl);
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      harness.downloads.push({ fileName: this.download, href: this.href });
+    });
     await act(async () => {
       await import('../components/SettingsView');
       await import('../main');
@@ -110,5 +143,65 @@ describe('settings route rendering', () => {
     ]);
     expect(document.querySelector('#settings-club > .preference-list > .account-management-form > button')?.textContent?.trim()).toBe('Save Account');
     expect(document.querySelector('.membership-plan-heading button')?.textContent?.trim()).toBe('Add plan');
+  });
+
+  it('keeps portable room data separate from the restorable backup and downloads the sanitized export', () => {
+    const dataTab = Array.from(document.querySelectorAll('.settings-nav button')).find((button) => button.textContent === 'Data');
+    expect(dataTab).toBeDefined();
+    act(() => dataTab!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+    expect(document.querySelector('.settings-nav button.active')?.textContent).toBe('Data');
+    const dataActions = Array.from(
+      document.querySelectorAll('#settings-data .preference-row button'),
+      (button) => button.textContent?.replace(/\s+/g, ' ').trim()
+    );
+    expect(dataActions.slice(0, 2)).toEqual(['Export Room Data', 'Export Restorable Backup']);
+    expect(document.querySelector('#settings-data')?.textContent).toContain('Passwords, staff PINs, and license key material are excluded.');
+    expect(document.querySelector('#settings-data')?.textContent).toContain('Store this backup securely.');
+
+    const exportButton = Array.from(document.querySelectorAll('#settings-data button')).find(
+      (button) => button.textContent?.includes('Export Room Data')
+    );
+    expect(exportButton).toBeDefined();
+    act(() => exportButton!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+    expect(harness.downloads.at(-1)).toEqual({
+      fileName: expect.stringMatching(/^orbit-room-data-\d{4}-\d{2}-\d{2}\.json$/),
+      href: 'blob:settings-export'
+    });
+    const blob = harness.blobs.at(-1);
+    expect(blob?.type).toBe('application/json;charset=utf-8');
+    const payload = JSON.parse(String(blob?.parts[0])) as {
+      kind?: string;
+      version?: number;
+      state?: { settings?: { accountLogin?: Record<string, unknown> } };
+    };
+    expect(payload).toMatchObject({ kind: 'room-data-export', version: 1 });
+    expect(payload.state?.settings?.accountLogin).toEqual({ username: 'ref-006g@example.test' });
+    expect(payload.state?.settings?.accountLogin).not.toHaveProperty('passwordSalt');
+    expect(payload.state?.settings?.accountLogin).not.toHaveProperty('passwordHash');
+    expect(document.querySelector('#settings-data .success-copy')?.textContent).toBe('Room data exported.');
+    expect(document.querySelector('a[download]')).toBeNull();
+  });
+
+  it('shows one flat room time fee and only a per-game drop setting', () => {
+    const tablesTab = Array.from(document.querySelectorAll('.settings-nav button')).find(
+      (button) => button.textContent === 'Tables & fees'
+    );
+    expect(tablesTab).toBeDefined();
+    act(() => tablesTab!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+    const profile = document.querySelector('.collection-profile-row');
+    expect(document.querySelectorAll('input[aria-label="Flat time fee per player-hour"]')).toHaveLength(1);
+    expect(document.querySelector('#settings-tables')?.textContent).toContain('Set once for the room');
+    expect(profile?.textContent).toContain('1/2 NLH collection profile');
+    expect(
+      Array.from(profile?.querySelectorAll('.collection-profile-field > strong') ?? [], (heading) => heading.textContent)
+    ).toEqual(['Drop / seat-hour']);
+    expect(
+      Array.from(profile?.querySelectorAll('.collection-profile-field') ?? [], (field) =>
+        field.querySelector('input')?.labels?.[0]?.textContent?.trim()
+      )
+    ).toEqual(['Drop / seat-hour']);
   });
 });

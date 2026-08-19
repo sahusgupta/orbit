@@ -84,13 +84,29 @@ body.low-light .preference-row {
 .collection-profile-control {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(2, minmax(82px, 0.5fr)) repeat(2, minmax(86px, 1fr));
+  grid-template-columns: repeat(2, minmax(82px, 0.5fr)) minmax(130px, 1fr);
   width: 100%;
 }
 
 .collection-profile-control input {
   min-width: 0;
   width: 100%;
+}
+
+.collection-profile-control > button {
+  align-self: end;
+}
+
+.collection-profile-field {
+  display: grid;
+  gap: 6px;
+}
+
+.collection-profile-field strong {
+  color: var(--muted);
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
 }
 
 .table-mode-control {

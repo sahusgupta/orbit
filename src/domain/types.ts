@@ -25,6 +25,13 @@ export type TableTag =
   | 'Slow-moving';
 export type TableCap = 6 | 8 | 10;
 
+export type PhysicalTable = {
+  id: string;
+  label: string;
+  maxSeats: TableCap;
+  createdAt: string;
+};
+
 export type GameConfig = {
   id: string;
   name: string;
@@ -88,6 +95,7 @@ export type PlayerProfile = {
 
 export type GameSession = {
   id: string;
+  physicalTableId?: string;
   gameId: string;
   label: string;
   status: GameStatus;
@@ -410,6 +418,7 @@ export type PlayerInAppNotification = {
 
 export type AppState = {
   games: GameConfig[];
+  physicalTables?: PhysicalTable[];
   profiles: PlayerProfile[];
   tournaments: Tournament[];
   interests: Interest[];

@@ -77,7 +77,8 @@ describe('Astryx design-system contract', () => {
     expect(dashboard).toContain('id="status" class="status" aria-live="polite"');
     const floor = read('src/components/FloorView.tsx');
     expect(floor).toContain('aria-label={tableExpanded ? \'Hide table\' : \'Show table\'}');
-    expect(floor).toContain('title={playerSession.playerName}');
+    const floorUtilities = read('src/components/FloorUtilities.tsx');
+    expect(floorUtilities).toContain('title={row.playerSession.playerName}');
   });
 
   it('keeps served brand exports byte-identical to their canonical sources', () => {

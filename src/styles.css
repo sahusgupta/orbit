@@ -33,3 +33,6 @@
 @import './styles/240-players-activity.css';
 @import './styles/250-responsive-density.css';
 @import './styles/260-notifications.css';
+@import './styles/270-floor-room-map.css';
+@import './styles/280-table-view-calm.css';
+@import './styles/290-floor-utilities.css';

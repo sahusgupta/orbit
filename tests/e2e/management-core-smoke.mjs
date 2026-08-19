@@ -23,6 +23,12 @@ const seededState = {
       minTotalForViable: 5
     }
   ],
+  physicalTables: Array.from({ length: 6 }, (_, index) => ({
+    id: `physical-table-${index + 1}`,
+    label: `Table ${index + 1}`,
+    maxSeats: 10,
+    createdAt: now
+  })),
   profiles: [
     {
       id: 'profile-alex',
@@ -174,8 +180,9 @@ const seededState = {
   sessions: [
     {
       id: 'session-main',
+      physicalTableId: 'physical-table-1',
       gameId: 'nlh-1-2',
-      label: 'Main Table',
+      label: 'Table 1',
       status: 'Forming',
       seatsFilled: 0,
       maxSeats: 10,
@@ -267,11 +274,39 @@ try {
   }, { accountStorageKey, authStorageKey, storageKey, seededState, expiresAt });
 
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
-  await page.getByText('Current Tables').waitFor({ timeout: 15000 });
+  const currentTablesDockButton = page.getByRole('button', { name: 'Current tables', exact: true });
+  await currentTablesDockButton.waitFor({ timeout: 15000 });
+  await currentTablesDockButton.click();
+  const currentTablesDialog = page.getByRole('dialog', { name: 'Current tables' });
+  await currentTablesDialog.waitFor();
+  const workspaceDialogLayout = await currentTablesDialog.evaluate((dialog) => {
+    const backdrop = document.querySelector('.floor-workspace-backdrop');
+    const dialogRect = dialog.getBoundingClientRect();
+    const dialogStyle = window.getComputedStyle(dialog);
+    const backdropStyle = backdrop ? window.getComputedStyle(backdrop) : null;
+    const centerTarget = document.elementFromPoint(
+      dialogRect.left + dialogRect.width / 2,
+      dialogRect.top + dialogRect.height / 2
+    );
+    return {
+      backdropZIndex: Number(backdropStyle?.zIndex ?? 0),
+      centerIsDialog: Boolean(centerTarget && (centerTarget === dialog || dialog.contains(centerTarget))),
+      dialogZIndex: Number(dialogStyle.zIndex),
+      height: dialogRect.height,
+      inViewport: dialogRect.left >= 0 && dialogRect.top >= 0 && dialogRect.right <= window.innerWidth && dialogRect.bottom <= window.innerHeight,
+      position: dialogStyle.position,
+      width: dialogRect.width
+    };
+  });
+  assert(workspaceDialogLayout.position === 'fixed', 'Current Tables dialog should be fixed above the room.');
+  assert(workspaceDialogLayout.width > 0 && workspaceDialogLayout.height > 0, 'Current Tables dialog should have visible bounds.');
+  assert(workspaceDialogLayout.inViewport, 'Current Tables dialog should remain inside the viewport.');
+  assert(workspaceDialogLayout.dialogZIndex > workspaceDialogLayout.backdropZIndex, 'Current Tables dialog should be above its backdrop.');
+  assert(workspaceDialogLayout.centerIsDialog, 'Current Tables dialog should be the topmost content at its center.');
 
-  const tableCard = page.locator('.active-game-card').filter({ hasText: 'Main Table' });
+  const tableCard = page.locator('.active-game-card').filter({ hasText: 'Table 1' });
   await tableCard.getByRole('button', { name: 'Start Table' }).click();
-  await tableCard.getByText('Main Table - Running - Drop').waitFor({ timeout: 10000 });
+  await tableCard.getByText('Table 1 - Running - Drop').waitFor({ timeout: 10000 });
 
   await tableCard.getByTitle('Add player to an open seat').click();
   let seatPicker = page.locator('.seat-picker-modal');
@@ -298,23 +333,44 @@ try {
   assert(await seatPicker.locator('.seat-picker-card').count() >= 1, 'Seat picker should show available player cards.');
   assert(await tableCard.locator('.quick-seat-row').count() === 0, 'Legacy quick-seat dropdown row should not render.');
   await seatPicker.getByTitle('Close player picker').click();
+  await page.getByRole('button', { name: 'Close Current Tables' }).click();
+  assert(await page.locator('.floor-map-table').count() === 6, 'Floor map should retain all six permanent tables.');
+  assert(await page.locator('.floor-map-table.is-empty').count() === 5, 'Five permanent tables should remain visible and empty.');
 
   for (const viewport of [
-    { width: 1440, height: 900, expectedColumns: 2 },
-    { width: 1180, height: 800, expectedColumns: 1 },
-    { width: 900, height: 760, expectedColumns: 1 },
-    { width: 680, height: 760, expectedColumns: 1 }
+    { width: 1440, height: 900 },
+    { width: 1180, height: 800 },
+    { width: 900, height: 760 },
+    { width: 680, height: 760 }
   ]) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    const layout = await page.locator('.minimal-dashboard').evaluate((element) => ({
-      columns: getComputedStyle(element).gridTemplateColumns.split(' ').filter(Boolean).length,
-      columnDefinition: getComputedStyle(element).gridTemplateColumns,
-      documentWidth: document.documentElement.scrollWidth,
-      viewportWidth: window.innerWidth,
-      compactQuery: window.matchMedia('(max-width: 1180px)').matches
-    }));
-    assert(layout.columns === viewport.expectedColumns, `Expected ${viewport.expectedColumns} floor column(s) at ${viewport.width}px, received ${layout.columns} (${layout.columnDefinition}; inner ${layout.viewportWidth}; compact ${layout.compactQuery}).`);
+    const layout = await page.locator('.floor-view-shell').evaluate((shell) => {
+      const stage = shell.querySelector('.floor-room-workspace');
+      const map = stage?.querySelector('.floor-room-map');
+      const mapViewport = stage?.querySelector('.floor-room-map-viewport');
+      const dock = stage?.querySelector('.floor-workspace-dock');
+      const shellRect = shell.getBoundingClientRect();
+      const stageRect = stage?.getBoundingClientRect();
+      const mapRect = map?.getBoundingClientRect();
+      const viewportRect = mapViewport?.getBoundingClientRect();
+      const dockRect = dock?.getBoundingClientRect();
+      return {
+        documentHeight: document.documentElement.scrollHeight,
+        documentWidth: document.documentElement.scrollWidth,
+        dockInsideStage: Boolean(stageRect && dockRect && dockRect.left >= stageRect.left && dockRect.right <= stageRect.right && dockRect.bottom <= stageRect.bottom),
+        dockOverMap: Boolean(mapRect && dockRect && dockRect.top < mapRect.bottom && dockRect.bottom <= mapRect.bottom),
+        mapFillsStage: Boolean(stageRect && mapRect && Math.abs(stageRect.width - mapRect.width) <= 1 && Math.abs(stageRect.height - mapRect.height) <= 1),
+        stageFillsShell: Boolean(stageRect && stageRect.bottom >= shellRect.bottom - 1),
+        viewportFillsMap: Boolean(mapRect && viewportRect && viewportRect.bottom >= mapRect.bottom - 1),
+        viewportHeight: window.innerHeight,
+        viewportWidth: window.innerWidth
+      };
+    });
     assert(layout.documentWidth <= layout.viewportWidth, `Management shell overflowed horizontally at ${viewport.width}px.`);
+    assert(layout.documentHeight <= layout.viewportHeight + 1, `Management shell overflowed vertically at ${viewport.width}px.`);
+    assert(layout.mapFillsStage && layout.viewportFillsMap, `Room map did not fill its workspace at ${viewport.width}px.`);
+    assert(layout.dockInsideStage && layout.dockOverMap, `Floor dock was not overlaid within the room at ${viewport.width}px.`);
+    assert(layout.stageFillsShell, `Room workspace did not consume the remaining Floor container at ${viewport.width}px.`);
     if (screenshotDirectory && (viewport.width === 1440 || viewport.width === 1180)) {
       await page.screenshot({ fullPage: true, path: path.join(screenshotDirectory, `floor-${viewport.width}.png`) });
     }
@@ -332,6 +388,8 @@ try {
 
   const finalState = await page.evaluate((accountStorageKey) => JSON.parse(window.localStorage.getItem(accountStorageKey) || '{}'), accountStorageKey);
   assert(finalState.sessions?.[0]?.status === 'Running', 'Seeded table did not remain running.');
+  assert(finalState.sessions?.[0]?.physicalTableId === 'physical-table-1', 'Seeded game did not remain assigned to Table 1.');
+  assert(finalState.physicalTables?.length === 6, 'Permanent physical tables were not preserved.');
   const activePlayerSessions = (finalState.playerSessions || []).filter((session) => !session.leftAt);
   assert(activePlayerSessions.length === 4, 'Expected four seated players after smoke flow.');
   assert(finalState.sessions?.[0]?.seatsFilled === activePlayerSessions.length, 'Expected table count to match active seated players.');

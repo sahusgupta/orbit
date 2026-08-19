@@ -162,7 +162,19 @@ describe('management player-session commands', () => {
 
   it('propagates collection mode and records elapsed-time-aware player time', () => {
     const withoutTick = { ...peerSession, lastTimeTickAt: undefined };
-    const source = state({ playerSessions: [playerSession, withoutTick] });
+    const source = state({
+      playerSessions: [playerSession, withoutTick],
+      settings: {
+        ...structuredClone(seedState.settings),
+        defaultHourlyFee: 12,
+        collectionProfiles: [{
+          gameId: game.id,
+          collectionMode: 'Time',
+          hourlyFee: 99,
+          estimatedDropPerSeatHour: 5
+        }]
+      }
+    });
     const collectionChanged = setTableCollectionMode(source, table.id, 'Drop', dependencies());
     const timeAdded = addPlayerTime(source, playerSession, 30, dependencies());
 

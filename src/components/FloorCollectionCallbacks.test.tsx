@@ -335,29 +335,49 @@ describe('floor collection projections', () => {
     document.body.innerHTML = '';
   });
 
-  it('renders the floor header, summary, panel order, table card, and quick-add entry point', () => {
+  it('renders the compact floor command bar, room map, retained workflows, and quick-add entry point', async () => {
     expect(document.querySelector('h1')?.textContent).toBe('Floor');
-    expect(document.querySelector('.page-subtitle')?.textContent).toBe('Live room operations');
+    expect(document.querySelector('.page-subtitle')).toBeNull();
     expect(document.querySelector('.waitlist-icon-trigger')?.getAttribute('aria-label')).toBe(
       'Open waitlist, 10 waiting'
     );
     expect(document.querySelector('.topbar-actions .primary-button')?.textContent?.trim()).toBe('Add player');
 
-    expect(Array.from(document.querySelectorAll('.floor-summary-bar > span'), (item) => item.textContent?.trim())).toEqual([
+    expect(Array.from(document.querySelectorAll('.floor-header-metrics > span'), (item) => item.textContent?.trim())).toEqual([
       '0 running',
-      '0 seated',
-      '10 waiting',
-      '0 actions needed'
+      '0 seated'
+    ]);
+    expect(document.querySelector<HTMLButtonElement>('.floor-utility-button[aria-label^="Timers"]')?.getAttribute('aria-label')).toBe(
+      'Timers, no seated players'
+    );
+    expect(document.querySelector<HTMLButtonElement>('.floor-utility-button[aria-label^="Activity"]')?.getAttribute('aria-label')).toBe(
+      'Activity, 0 recent events'
+    );
+    expect(document.querySelector('.floor-room-map h2')?.textContent).toBe('Room map');
+    expect(document.body.textContent).not.toContain('Select a table identity to open its live table view.');
+    expect(document.querySelector('.floor-map-table-identity strong')?.textContent).toBe('Main Table');
+    const roomWorkspace = document.querySelector('.floor-room-workspace');
+    expect(roomWorkspace?.querySelector(':scope > .floor-room-map')).not.toBeNull();
+    expect(roomWorkspace?.querySelector(':scope > .floor-workspace-dock')).not.toBeNull();
+    expect(Array.from(document.querySelectorAll('.floor-workspace-dock button'), (button) => button.textContent?.trim())).toEqual([
+      'Current tables',
+      'Table overview',
+      'Forming games'
     ]);
     expect(Array.from(document.querySelectorAll('.panel-title h2'), (heading) => heading.textContent)).toEqual([
-      'Current Tables',
-      'Time Overview',
-      'Table Overview',
-      'Recent Activity',
-      'Forming Games',
-      'Waitlist',
       'Quick Add'
     ]);
+    expect(document.querySelector('.active-game-card')).toBeNull();
+    const dockButtons = document.querySelectorAll<HTMLButtonElement>('.floor-workspace-dock button');
+    expect(Array.from(dockButtons, (button) => button.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'false']);
+
+    act(() => {
+      dockButtons[0]?.click();
+    });
+    const currentTablesDialog = document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby]');
+    expect(currentTablesDialog?.textContent).toContain('Current Tables');
+    expect(currentTablesDialog?.closest('.floor-view-shell')).toBeNull();
+    expect(currentTablesDialog?.contains(document.activeElement)).toBe(true);
     expect(document.querySelector('.active-game-card h3')?.textContent).toBe('Threshold Holdem');
     expect(document.querySelector('.active-game-card > div > span')?.textContent).toBe(
       'Main Table - Forming - Drop'
@@ -372,9 +392,20 @@ describe('floor collection projections', () => {
       'Hide table',
       'Table actions'
     ]);
+    await act(async () => {
+      currentTablesDialog?.querySelector<HTMLButtonElement>('button[aria-label="Close Current Tables"]')?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+      vi.advanceTimersByTime(20);
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(dockButtons[0]);
   });
 
-  it('renders complete game demand and waitlist values in canonical order without mutating state', () => {
+  it('renders complete game demand and waitlist dialog values in canonical order without mutating state', () => {
+    act(() => {
+      document.querySelectorAll<HTMLButtonElement>('.floor-workspace-dock button')[2]?.click();
+    });
     const menu = document.querySelector<HTMLSelectElement>('.forming-game-menu select');
     expect(menu).not.toBeNull();
     expect(Array.from(menu?.options ?? []).map((option) => [option.value, option.textContent])).toEqual([
@@ -390,8 +421,11 @@ describe('floor collection projections', () => {
     expect(initialCard?.querySelector('small')?.textContent).toBe('Enough in-room demand to start');
     expect(getButtonLabels(initialCard!)).toEqual(['Select + Start', 'Failed']);
 
-    const waitlistCards = Array.from(document.querySelectorAll('.waitlist-card'));
-    expect(waitlistCards.map((card) => card.querySelector('strong')?.textContent)).toEqual([
+    const waitlistTrigger = document.querySelector<HTMLButtonElement>('.waitlist-icon-trigger');
+    act(() => waitlistTrigger?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+    const waitlistRows = Array.from(document.querySelectorAll('.waitlist-popup-row'));
+    expect(waitlistRows.map((row) => row.querySelector('strong')?.textContent)).toEqual([
       'Alice Arrived',
       'Bob Interested',
       'Cara Confirmed',
@@ -399,34 +433,36 @@ describe('floor collection projections', () => {
       'Eve Arrived',
       'Frank Confirmed',
       'Grace Interested',
-      'Heidi Interested'
+      'Heidi Interested',
+      'Ivan Capped',
+      'Judy Capped'
     ]);
-    expect(waitlistCards.map((card) => card.querySelector('span')?.textContent)).toEqual([
-      'Threshold Holdem - Arrived',
-      'Threshold Holdem - Interested',
-      'Threshold Holdem - Confirmed Coming',
-      'Overflow Stud - Interested',
-      'Threshold PLO - Arrived',
-      'Overflow Stud - Confirmed Coming',
-      'Overflow Stud - Interested',
-      'Overflow Stud - Interested'
+    expect(waitlistRows.map((row) => row.querySelector('span')?.textContent)).toEqual([
+      'Threshold Holdem \u00b7 Here',
+      'Threshold Holdem \u00b7 Interested',
+      'Threshold Holdem \u00b7 Coming',
+      'Overflow Stud \u00b7 Interested',
+      'Threshold PLO \u00b7 Here',
+      'Overflow Stud \u00b7 Coming',
+      'Overflow Stud \u00b7 Interested',
+      'Overflow Stud \u00b7 Interested',
+      'Overflow Stud \u00b7 Interested',
+      'Overflow Stud \u00b7 Interested'
     ]);
     expect(document.body.textContent).not.toContain('Inactive Removed');
-    expect(document.body.textContent).not.toContain('Ivan Capped');
-    expect(document.body.textContent).not.toContain('Judy Capped');
 
-    const aliceRows = Array.from(waitlistCards[0].querySelectorAll('small')).map((row) =>
+    const aliceRows = Array.from(waitlistRows[0].querySelectorAll('.waitlist-popup-timing')).map((row) =>
       row.textContent?.replaceAll('edited', '').trim()
     );
     expect(aliceRows).toEqual([
-      `Logged ${formatClock('2026-08-07T16:00:00.000Z')} (120m)`,
+      `Joined ${formatClock('2026-08-07T16:00:00.000Z')} (120m)`,
       `Arrived ${formatClock('2026-08-07T17:30:00.000Z')} (30m)`
     ]);
-    expect(waitlistCards[0].querySelectorAll('.edited-marker')).toHaveLength(2);
-    expect(Array.from(waitlistCards[1].querySelectorAll('small')).map((row) => row.textContent?.trim())).toEqual([
-      `Logged ${formatClock('2026-08-07T17:15:00.000Z')} (45m)`
+    expect(waitlistRows[0].querySelectorAll('.edited-marker')).toHaveLength(2);
+    expect(Array.from(waitlistRows[1].querySelectorAll('.waitlist-popup-timing')).map((row) => row.textContent?.trim())).toEqual([
+      `Joined ${formatClock('2026-08-07T17:15:00.000Z')} (45m)`
     ]);
-    expect(waitlistCards[1].querySelectorAll('.edited-marker')).toHaveLength(0);
+    expect(waitlistRows[1].querySelectorAll('.edited-marker')).toHaveLength(0);
 
     act(() => {
       if (!menu) throw new Error('Expected the forming-game menu');
@@ -482,10 +518,10 @@ describe('floor collection projections', () => {
         };
       });
     });
-    const bobCard = Array.from(document.querySelectorAll('.waitlist-card')).find(
+    const bobCard = Array.from(document.querySelectorAll('.waitlist-popup-row')).find(
       (card) => card.querySelector('strong')?.textContent === 'Bob Interested'
     );
-    expect(bobCard?.querySelector('span')?.textContent).toBe('Unknown - Interested');
+    expect(bobCard?.querySelector('span')?.textContent).toBe('Unknown game \u00b7 Interested');
 
     act(() => {
       stateSetter((current: unknown) => {
@@ -493,7 +529,7 @@ describe('floor collection projections', () => {
         return { ...current, interests: [] };
       });
     });
-    expect(document.querySelector('.waitlist-list')?.textContent).toContain('No one is on the waitlist.');
-    expect(document.querySelectorAll('.waitlist-card')).toHaveLength(0);
+    expect(document.querySelector('.waitlist-popup-list')?.textContent).toContain('No one is waiting');
+    expect(document.querySelectorAll('.waitlist-popup-row')).toHaveLength(0);
   });
 });

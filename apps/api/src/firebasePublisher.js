@@ -171,11 +171,18 @@ function hoursBetween(start, end = new Date().toISOString()) {
 }
 
 function getCollectionProfile(state, gameId) {
-  return (state.settings?.collectionProfiles || []).find((profile) => profile.gameId === gameId) || {
+  const collectionProfiles = state.settings?.collectionProfiles || [];
+  const configuredProfile = collectionProfiles.find((profile) => profile.gameId === gameId);
+  const legacyRoomProfile = collectionProfiles.find((profile) => profile.collectionMode === 'Time') || collectionProfiles[0];
+  const roomHourlyFee = Number(state.settings?.defaultHourlyFee ?? legacyRoomProfile?.hourlyFee ?? 0);
+  return {
+    ...(configuredProfile || {}),
     gameId,
-    collectionMode: state.settings?.defaultCollectionMode || 'Drop',
-    hourlyFee: Number(state.settings?.defaultHourlyFee || 0),
-    estimatedDropPerSeatHour: Number(state.settings?.defaultEstimatedDropPerSeatHour || 0)
+    collectionMode: configuredProfile?.collectionMode || state.settings?.defaultCollectionMode || 'Drop',
+    hourlyFee: Number.isFinite(roomHourlyFee) ? roomHourlyFee : 0,
+    estimatedDropPerSeatHour: Number(
+      configuredProfile?.estimatedDropPerSeatHour ?? state.settings?.defaultEstimatedDropPerSeatHour ?? 0
+    )
   };
 }
 
@@ -230,7 +237,21 @@ function getPlayerContribution(state, playerSessions) {
     const profile = getCollectionProfile(state, playerSession.gameId);
     const mode = session.collectionMode || (session.timeFeeBased ? 'Time' : profile.collectionMode);
     if (mode === 'Time') {
-      timeFeeContribution += ((Number(playerSession.timePurchasedMinutes || 0) || 0) / 60) * (Number(profile.hourlyFee || 0) || 0);
+      const timeFeeLogs = (state.timeFeeLogs || []).filter(
+        (entry) => entry.playerSessionId === playerSession.id
+      );
+      const loggedMinutes = timeFeeLogs.reduce(
+        (sum, entry) => sum + Math.max(0, Number(entry.minutes || 0) || 0),
+        0
+      );
+      const unloggedMinutes = Math.max(
+        0,
+        (Number(playerSession.timePurchasedMinutes || 0) || 0) - loggedMinutes
+      );
+      timeFeeContribution += timeFeeLogs.reduce(
+        (sum, entry) => sum + (Number(entry.amount || 0) || 0),
+        0
+      ) + (unloggedMinutes / 60) * (Number(profile.hourlyFee || 0) || 0);
       continue;
     }
 

@@ -244,6 +244,10 @@ describe('Firebase state and Player request input characterization', () => {
   it('returns canonical decoder results, validates state containers, and retains known legacy fallbacks', () => {
     expect(decodeFirebaseClubStateRecord({ state: { profiles: 'not-an-array' } })).toBeNull();
     expect(decodeFirebaseClubStateRecord({ state: { profiles: [], settings: [] } })).toBeNull();
+    expect(decodeFirebaseClubStateRecord({ state: { physicalTables: 'not-an-array' } })).toBeNull();
+    expect(decodeFirebaseClubStateRecord({
+      state: { physicalTables: [{ id: 'physical-1', label: 'Table 1', maxSeats: 8 }] }
+    })?.state.physicalTables).toEqual([{ id: 'physical-1', label: 'Table 1', maxSeats: 8 }]);
     expect(decodeMembershipRequest({
       id: 'membership-decoded',
       clubId,

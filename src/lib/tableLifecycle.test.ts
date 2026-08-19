@@ -512,31 +512,34 @@ describe('table lifecycle transitions', () => {
     document.body.innerHTML = '';
   });
 
-  it('renders the table route header, controls, overlays, and time overview', async () => {
+  it('renders a table-first route with compact, progressively disclosed utilities', async () => {
     await act(async () => {
       window.location.hash = `/table?sessionId=${targetTableWithoutLifecycleFields.id}`;
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     });
 
     expect(document.querySelector('.table-view-topbar [title="Back to floor"]')).toBeTruthy();
-    expect(document.querySelector('.table-view-topbar > div > span')?.textContent).toBe('Lifecycle Holdem');
+    expect(document.querySelector('.table-view-identity > span')?.textContent).toBe('Lifecycle Holdem');
     expect(document.querySelector('.table-view-topbar h1')?.textContent).toBe('Feature Table');
-    expect(Array.from(document.querySelectorAll('.table-view-stats > *'), (item) => item.textContent?.trim())).toEqual([
+    expect(Array.from(document.querySelectorAll('.table-view-meta > span'), (item) => item.textContent?.trim())).toEqual([
       'Forming',
-      '1/8',
-      'Avg $0',
-      'Time',
-      'Ledger'
+      '1/8 seated',
+      'Time'
     ]);
-    expect(document.querySelector('.table-view-stage-head p')?.textContent).toBe(
-      'Click any open seat and choose a player from the club database.'
-    );
-    expect(document.querySelector('.table-view-stage-head button')?.textContent?.trim()).toBe('Next seat');
-    expect(document.querySelector('.table-live-feed-title')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-      'Live feed View full log →'
-    );
-    expect(document.querySelector('.table-buyin-float-title')?.textContent?.trim()).toBe('Buy-in ledger');
-    expect(document.querySelector('.table-view-time-overview')?.getAttribute('aria-label')).toBe('Table time overview');
+    expect(document.querySelector('.table-view-utilities')?.getAttribute('aria-label')).toBe('Table utilities');
+    expect(document.querySelector('.table-view-seat-player-button')?.textContent?.trim()).toBe('Seat player');
+    expect(document.querySelector('button[aria-label="Activity, 1 event"]')).toBeTruthy();
+    expect(document.querySelector('button[aria-label="Ledger, 0 buy-ins"]')).toBeTruthy();
+    expect(document.querySelector('button[aria-label="Timers, 1"]')).toBeTruthy();
+    expect(document.querySelector('.table-live-feed-overlay')).toBeNull();
+    expect(document.querySelector('.table-buyin-float')).toBeNull();
+    expect(document.querySelector('.table-view-time-overview')).toBeNull();
+    const centerControls = document.querySelector('[aria-label="Table revenue and dealer controls"]');
+    expect(centerControls?.textContent).toContain('Time revenue');
+    expect(centerControls?.textContent).toContain('$48.00');
+    expect(centerControls?.textContent).toContain('Current: Open Dealer');
+    expect(centerControls?.querySelector<HTMLInputElement>('input[aria-label="Dealer selection"]')?.value).toBe('Open Dealer');
+    expect(document.querySelector('.table-view-statusbar')?.textContent?.replace(/\s+/g, ' ').trim()).toContain('Average stack $0');
 
     await act(async () => {
       window.location.hash = '/floor';

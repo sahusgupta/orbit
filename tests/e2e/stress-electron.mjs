@@ -93,7 +93,6 @@ async function quickAdd(page, playerName, gameName, status = 'Arrived') {
   await form.locator('select').nth(0).selectOption({ label: gameName });
   await form.locator('select').nth(1).selectOption(status);
   await form.getByRole('button', { name: 'Add' }).click();
-  await expect(page.locator('.waitlist-card').filter({ hasText: playerName })).toContainText(gameName);
 }
 
 async function pickStartPlayer(tableCard, playerName, selectedCount) {
@@ -114,6 +113,7 @@ async function startGame(page, gameName, playerNames) {
   await clickPanel(page, 'Forming Games');
   const gameCard = page.locator('.forming-card').filter({ hasText: gameName });
   await gameCard.getByRole('button', { name: 'Form' }).click();
+  await clickPanel(page, 'Current Tables');
   const tableCard = page.locator('.active-game-card').filter({ hasText: gameName });
   await expect(tableCard.locator('.start-table-panel')).toBeVisible();
   const selectedText = await tableCard.locator('.start-table-head').innerText();
@@ -204,6 +204,17 @@ async function main() {
     await quickAdd(page, 'Brooke Time', '1/2 PLO');
     await quickAdd(page, 'Casey Drop', '1/2 NLH');
     await quickAdd(page, 'Drew Drop', '1/2 NLH');
+    await page.locator('.quick-add-drawer-close').click();
+    await page.locator('.waitlist-icon-trigger').click();
+    for (const [playerName, gameName] of [
+      ['Alex Time', '1/2 PLO'],
+      ['Brooke Time', '1/2 PLO'],
+      ['Casey Drop', '1/2 NLH'],
+      ['Drew Drop', '1/2 NLH']
+    ]) {
+      await expect(page.locator('.waitlist-popup-row').filter({ hasText: playerName })).toContainText(gameName);
+    }
+    await page.getByRole('button', { name: 'Close waitlist' }).click();
     await expect(page.getByText('Unknown')).toHaveCount(0);
 
     const dropTable = await startGame(page, '1/2 NLH', ['Casey Drop', 'Drew Drop']);
@@ -227,11 +238,11 @@ async function main() {
     await timeTable.getByRole('button', { name: '+30' }).click();
     await expect(timeTable.locator('.poker-seat-card').filter({ hasText: 'Alex Time' }).first()).toContainText(/29:|30:/, { timeout: 5000 });
 
-    await page.getByTitle('Open Table Overview').click();
-    await page.locator('.table-overview-content select').selectOption({ label: 'Main Table - 1/2 PLO' });
-    await expect(page.locator('.overview-player-row').filter({ hasText: 'Alex Time' })).toContainText(/29:|30:/);
-    await page.locator('.table-overview-content select').selectOption({ label: 'Main Table - 1/2 NLH' });
-    await expect(page.locator('.overview-player-row').filter({ hasText: 'Casey Drop' })).toContainText('0:00');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: /^Timers,/ }).click();
+    await expect(page.locator('.floor-timer-row').filter({ hasText: 'Alex Time' })).toContainText(/29:|30:/);
+    await expect(page.locator('.floor-timer-row').filter({ hasText: 'Casey Drop' })).toContainText('0:00');
+    await page.getByRole('button', { name: 'Close room timers' }).click();
 
     await page.getByRole('button', { name: 'Profiles' }).click();
     await expect(page.getByRole('heading', { name: 'Profiles' })).toBeVisible();
@@ -259,6 +270,7 @@ async function main() {
     attachErrorListeners(page);
     await expect(page.getByRole('heading', { name: 'Current Tables' })).toBeVisible({ timeout: 15000 });
     await expect(page.getByText('Pilot access')).toHaveCount(0);
+    await clickPanel(page, 'Current Tables');
     const reloadedDropTable = page.locator('.active-game-card').filter({ hasText: '1/2 NLH' });
     const reloadedTimeTable = page.locator('.active-game-card').filter({ hasText: '1/2 PLO' });
     await expect(reloadedDropTable).toContainText('2/10');

@@ -56,16 +56,15 @@ export const useFloorWorkspaceState = (state: AppState) => {
   const [customTimeDrafts, setCustomTimeDrafts] = useState<Record<string, string>>({});
   const [collapsedTables, setCollapsedTables] = useState<Record<string, boolean>>({});
   const [openPanels, setOpenPanels] = useState<OpenPanels>({
-    currentTables: true,
+    currentTables: false,
     waitlist: true,
-    tableOverview: true,
-    tableFinancials: true,
+    tableOverview: false,
+    tableFinancials: false,
     recentActivity: true,
-    formingGames: true,
+    formingGames: false,
     kpis: false,
     quickAdd: false
   });
-  const [overviewTableId, setOverviewTableId] = useState('all-time-overview');
   const [financialOverviewTableId, setFinancialOverviewTableId] = useState('all-table-financials');
   const [waitlistPopupOpen, setWaitlistPopupOpen] = useState(false);
 
@@ -93,7 +92,6 @@ export const useFloorWorkspaceState = (state: AppState) => {
     formingGameId,
     handCountDrafts,
     openPanels,
-    overviewTableId,
     seatPicker,
     startPlayerDrafts,
     tableEventLogSessionId,
@@ -111,7 +109,6 @@ export const useFloorWorkspaceState = (state: AppState) => {
     setFormingGameId,
     setHandCountDrafts,
     setOpenPanels,
-    setOverviewTableId,
     setSeatPicker,
     setStartPlayerDrafts,
     setTableEventLogSessionId,

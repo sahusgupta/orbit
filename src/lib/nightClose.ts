@@ -1,3 +1,6 @@
+import { getProjectedTimeFeeEntries } from '../domain/reporting';
+import type { PlayerSession, TimeFeeLog } from '../domain/types';
+
 export type NightCloseTable = {
   tableId: string;
   tableLabel: string;
@@ -15,14 +18,14 @@ export type NightCloseTable = {
 type NightCloseSource = {
   games: Array<{ id: string; name: string }>;
   sessions: Array<{ id: string; gameId: string; label: string; status: string; collectionMode?: 'Time' | 'Drop'; timeFeeBased?: boolean; startedAt: string }>;
-  playerSessions: Array<{ playerName: string; profileId?: string; tableId: string; seatedAt: string; timePurchasedMinutes?: number }>;
+  playerSessions: PlayerSession[];
   buyIns: Array<{ tableId: string; amount: number; timestamp: string }>;
   dropLogs: Array<{ tableId: string; amount: number; timestamp: string }>;
+  timeFeeLogs: TimeFeeLog[];
   playerLedger: Array<{ tableId?: string; type: string; profileId?: string; playerName: string; amount?: number; timestamp: string }>;
   nightCloses: Array<{ status: string; lockedAt?: string }>;
   settings: {
     defaultHourlyFee: number;
-    collectionProfiles: Array<{ gameId: string; hourlyFee: number }>;
   };
 };
 
@@ -39,9 +42,10 @@ export function buildNightCloseTables(state: NightCloseSource, actuals: Record<s
     const cashOutEntries = state.playerLedger.filter((entry) => entry.tableId === session.id && entry.type === 'Cash-Out' && isCurrentShift(entry.timestamp));
     const cashOuts = cashOutEntries.reduce((sum, entry) => sum + (entry.amount ?? 0), 0);
     const drop = state.dropLogs.filter((entry) => entry.tableId === session.id && isCurrentShift(entry.timestamp)).reduce((sum, entry) => sum + entry.amount, 0);
-    const hourlyFee = state.settings.collectionProfiles.find((profile) => profile.gameId === session.gameId)?.hourlyFee ?? state.settings.defaultHourlyFee;
     const timeFees = session.collectionMode === 'Time' || session.timeFeeBased
-      ? playerSessions.reduce((sum, player) => sum + ((player.timePurchasedMinutes ?? 0) / 60) * hourlyFee, 0)
+      ? getProjectedTimeFeeEntries(state).filter(
+      (entry) => entry.tableId === session.id && isCurrentShift(entry.timestamp)
+      ).reduce((sum, entry) => sum + entry.amount, 0)
       : 0;
     // Time fees are paid separately to the house. Recorded drop is already
     // reflected in reduced player cash-outs, so adding or subtracting it here

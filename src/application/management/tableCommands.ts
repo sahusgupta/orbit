@@ -1,11 +1,14 @@
 import { getCollectionProfile } from '../../domain/reporting';
+import { normalizeTableCap } from '../../domain/state';
 import type {
   AppState,
   GameConfig,
   GameSession,
   Interest,
   InterestStatus,
-  PlayerProfile
+  PhysicalTable,
+  PlayerProfile,
+  TableCap
 } from '../../domain/types';
 import {
   getActivePlayerSessionsForTable,
@@ -51,7 +54,8 @@ const buildFormingTableState = (
   sessionId: string,
   startedAt: string,
   eventId: string,
-  eventTimestamp: string
+  eventTimestamp: string,
+  physicalTable?: PhysicalTable
 ) => {
   const collectionProfile = getCollectionProfile(state, game.id);
   const currentCount = state.sessions.filter(
@@ -64,11 +68,12 @@ const buildFormingTableState = (
         ...state.sessions,
         {
           id: sessionId,
+          physicalTableId: physicalTable?.id,
           gameId: game.id,
-          label: currentCount ? `Table ${currentCount + 1}` : 'Main Table',
+          label: physicalTable?.label ?? (currentCount ? `Table ${currentCount + 1}` : 'Main Table'),
           status: 'Forming' as const,
           seatsFilled: 0,
-          maxSeats: game.maxSeats,
+          maxSeats: Math.min(game.maxSeats, physicalTable?.maxSeats ?? game.maxSeats),
           timeFeeBased: collectionProfile.collectionMode === 'Time',
           collectionMode: collectionProfile.collectionMode,
           tags: [],
@@ -91,13 +96,66 @@ const buildFormingTableState = (
   };
 };
 
+const getAvailablePhysicalTable = (
+  state: AppState,
+  physicalTableId?: string,
+  minimumCapacity = 0
+) => {
+  const physicalTables = state.physicalTables ?? [];
+  if (!physicalTables.length) return undefined;
+  const occupiedIds = new Set(
+    state.sessions
+      .filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start')
+      .flatMap((session) => session.physicalTableId ? [session.physicalTableId] : [])
+  );
+  if (physicalTableId) {
+    const physicalTable = physicalTables.find((table) => table.id === physicalTableId);
+    if (!physicalTable || occupiedIds.has(physicalTableId) || physicalTable.maxSeats < minimumCapacity) {
+      return null;
+    }
+    return physicalTable;
+  }
+  return physicalTables.find(
+    (table) => !occupiedIds.has(table.id) && table.maxSeats >= minimumCapacity
+  ) ?? null;
+};
+
+export function createPhysicalTable(
+  state: AppState,
+  labelInput: string,
+  maxSeats: TableCap,
+  dependencies: TableCommandDependencies
+) {
+  const label = labelInput.trim();
+  if (!label) return null;
+  if ((state.physicalTables ?? []).some(
+    (table) => table.label.trim().toLowerCase() === label.toLowerCase()
+  )) return null;
+  const physicalTable: PhysicalTable = {
+    id: dependencies.createId(),
+    label,
+    maxSeats,
+    createdAt: dependencies.nowIso()
+  };
+  return {
+    physicalTable,
+    state: {
+      ...state,
+      physicalTables: [...(state.physicalTables ?? []), physicalTable]
+    }
+  };
+}
+
 export function createFormingTable(
   state: AppState,
   gameId: string,
-  dependencies: TableCommandDependencies
+  dependencies: TableCommandDependencies,
+  physicalTableId?: string
 ) {
   const game = state.games.find((item) => item.id === gameId);
   if (!game) return null;
+  const physicalTable = getAvailablePhysicalTable(state, physicalTableId);
+  if (physicalTable === null) return null;
   const sessionId = dependencies.createId();
   const result = buildFormingTableState(
     state,
@@ -106,13 +164,14 @@ export function createFormingTable(
     sessionId,
     dependencies.nowIso(),
     dependencies.createId(),
-    dependencies.nowIso()
+    dependencies.nowIso(),
+    physicalTable
   );
   return {
     ...result,
     defaultStartPlayerIds: state.interests
       .filter((interest) => interest.gameId === gameId && !unavailableInterestStatuses.includes(interest.status))
-      .slice(0, game.maxSeats)
+      .slice(0, Math.min(game.maxSeats, physicalTable?.maxSeats ?? game.maxSeats))
       .map((interest) => interest.id)
   };
 }
@@ -121,10 +180,13 @@ export function createDemandFormingTable(
   state: AppState,
   gameId: string,
   note: string,
-  dependencies: TableCommandDependencies
+  dependencies: TableCommandDependencies,
+  physicalTableId?: string
 ) {
   const game = state.games.find((item) => item.id === gameId);
   if (!game) return null;
+  const physicalTable = getAvailablePhysicalTable(state, physicalTableId);
+  if (physicalTable === null) return null;
   const timestamp = dependencies.nowIso();
   return buildFormingTableState(
     state,
@@ -133,7 +195,8 @@ export function createDemandFormingTable(
     dependencies.createId(),
     timestamp,
     dependencies.createId(),
-    timestamp
+    timestamp,
+    physicalTable
   );
 }
 
@@ -148,6 +211,9 @@ export function switchRunningTableGame(
   );
   if (!targetGame || !table) return { state, switchedTableId: undefined };
   const collectionProfile = getCollectionProfile(state, targetGameId);
+  const physicalTable = (state.physicalTables ?? []).find(
+    (candidate) => candidate.id === table.physicalTableId
+  );
   const timestamp = dependencies.nowIso();
   return {
     state: {
@@ -157,7 +223,7 @@ export function switchRunningTableGame(
           ? {
               ...session,
               gameId: targetGameId,
-              maxSeats: targetGame.maxSeats,
+              maxSeats: Math.min(targetGame.maxSeats, physicalTable?.maxSeats ?? targetGame.maxSeats),
               collectionMode: collectionProfile.collectionMode,
               timeFeeBased: collectionProfile.collectionMode === 'Time',
               manualEdits: markManualEdit(session.manualEdits, 'gameId', dependencies.nowIso)
@@ -196,10 +262,13 @@ export function createPlannedTable(
   state: AppState,
   gameId: string,
   participants: PlannedTableParticipant[],
-  dependencies: TableCommandDependencies
+  dependencies: TableCommandDependencies,
+  physicalTableId?: string
 ) {
   const game = state.games.find((item) => item.id === gameId);
   if (!game) return null;
+  const physicalTable = getAvailablePhysicalTable(state, physicalTableId, participants.length);
+  if (physicalTable === null) return null;
   const collectionProfile = getCollectionProfile(state, game.id);
   const currentCount = state.sessions.filter(
     (session) => session.gameId === game.id && session.status !== 'Closed'
@@ -224,11 +293,12 @@ export function createPlannedTable(
         ...state.sessions,
         {
           id: dependencies.createId(),
+          physicalTableId: physicalTable?.id,
           gameId: game.id,
-          label: currentCount ? `Coordinated Table ${currentCount + 1}` : 'Coordinated Table',
+          label: physicalTable?.label ?? (currentCount ? `Coordinated Table ${currentCount + 1}` : 'Coordinated Table'),
           status: 'Forming' as const,
           seatsFilled: 0,
-          maxSeats: game.maxSeats,
+          maxSeats: Math.min(game.maxSeats, physicalTable?.maxSeats ?? game.maxSeats),
           timeFeeBased: collectionProfile.collectionMode === 'Time',
           collectionMode: collectionProfile.collectionMode,
           plannedPlayerIds: [
@@ -263,9 +333,16 @@ const getRequiredMoveInterestId = (candidate: BalancedTablePlan['moveCandidates'
 export function createBalancedTable(
   state: AppState,
   plan: BalancedTablePlan,
-  dependencies: TableCommandDependencies
+  dependencies: TableCommandDependencies,
+  physicalTableId?: string
 ) {
   const movingInterestIds = plan.moveCandidates.map(getRequiredMoveInterestId);
+  const physicalTable = getAvailablePhysicalTable(
+    state,
+    physicalTableId,
+    plan.tableBProjectedSeats
+  );
+  if (physicalTable === null) return null;
   const currentCount = state.sessions.filter(
     (session) => session.gameId === plan.game.id && session.status !== 'Closed'
   ).length;
@@ -285,11 +362,12 @@ export function createBalancedTable(
       ),
       {
         id: dependencies.createId(),
+        physicalTableId: physicalTable?.id,
         gameId: plan.game.id,
-        label: `Balanced Table ${currentCount + 1}`,
+        label: physicalTable?.label ?? `Balanced Table ${currentCount + 1}`,
         status: 'Forming' as const,
         seatsFilled: plan.tableBProjectedSeats,
-        maxSeats: plan.game.maxSeats,
+        maxSeats: Math.min(plan.game.maxSeats, physicalTable?.maxSeats ?? plan.game.maxSeats),
         timeFeeBased: plan.fromTable.timeFeeBased ?? false,
         collectionMode: plan.fromTable.collectionMode ?? (plan.fromTable.timeFeeBased ? 'Time' : 'Drop'),
         plannedPlayerIds: movingInterestIds,
@@ -309,6 +387,23 @@ export function createBalancedTable(
         note: `Table B created from Table A balance option: ${plan.moveCandidates.map((candidate) => candidate.playerName).join(', ')}`
       }
     ]
+  };
+}
+
+export function applyDefaultTableCap(state: AppState, cap: TableCap): AppState {
+  return {
+    ...state,
+    games: state.games.map((game) => ({ ...game, maxSeats: cap })),
+    sessions: state.sessions.map((session) => {
+      const activeSeats = getActivePlayerSessionsForTable(state, session.id).length;
+      const requestedSafeCap = Math.max(cap, normalizeTableCap(activeSeats));
+      const physicalTable = (state.physicalTables ?? []).find(
+        (candidate) => candidate.id === session.physicalTableId
+      );
+      const safeCap = Math.min(requestedSafeCap, physicalTable?.maxSeats ?? requestedSafeCap);
+      return { ...session, maxSeats: safeCap, seatsFilled: Math.min(safeCap, activeSeats) };
+    }),
+    settings: { ...state.settings, defaultTableCap: cap }
   };
 }
 
