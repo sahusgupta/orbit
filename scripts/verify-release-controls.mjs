@@ -19,6 +19,7 @@ const fixtureBoundary = read('src/lib/e2eFixtureMode.ts');
 const dependencyAudit = read('scripts/audit-production-dependencies.mjs');
 const dependencyPolicy = JSON.parse(read('config/dependency-audit-policy.json'));
 const apiPackage = JSON.parse(read('apps/api/package.json'));
+const apiVercel = JSON.parse(read('apps/api/vercel.json'));
 const playerWebPackage = JSON.parse(read('player-web/package.json'));
 
 const failures = [];
@@ -30,7 +31,7 @@ const includesAll = (source, values) => values.every((value) => source.includes(
 requireMatch(release.includes('workflow_dispatch:'), 'Desktop releases must be manually dispatched.');
 requireMatch(!/^\s*push\s*:/m.test(release), 'A push trigger must never publish or promote a desktop release.');
 requireMatch(includesAll(release, [
-  'source_sha:', 'release_version:', 'release_reason:', 'rollback_of:', 'release_channel:', 'promote:',
+  'source_sha:', 'release_version:', 'release_reason:', 'rollback_of:', 'release_channel:', 'promote:', 'promotion_confirmation:',
   'environment: production-release',
   'npm run security:dependencies', 'npm run check:release-controls', 'npm run audit:module-graph', 'npm run verify',
   'npm run check:renderer-bundle', 'npm run check:public-site', 'npm run check:brand',
@@ -40,6 +41,9 @@ requireMatch(includesAll(release, [
   'apps/api/src/stateMigration.test.js', 'apps/api/src/stateArchitecture.test.js', 'electron/accountMigration.test.js',
   'Get-FileHash', 'actions/attest@v4', 'overwrite: false', '--prerelease'
 ]), 'Release workflow is missing an immutable verification, packaging, canary, promotion, or rollback control.');
+requireMatch(includesAll(release, ['group: orbit-desktop-release', 'cancel-in-progress: false']), 'Desktop release runs must be serialized without cancelling in-flight evidence.');
+requireMatch(release.includes("promotion_confirmation must be exactly PROMOTE when promote=true."), 'Solo-maintainer promotion must require an explicit typed confirmation.');
+requireMatch(includesAll(release, ['INPUT_PROMOTION_CONFIRMATION: ${{ inputs.promotion_confirmation }}', '$env:INPUT_PROMOTION_CONFIRMATION']), 'Release confirmation input must cross the workflow boundary through an environment variable.');
 requireMatch(!release.includes('CSC_LINK') && !release.includes('CSC_KEY_PASSWORD'), 'The release workflow must not require signing credentials.');
 requireMatch(!release.includes('Get-AuthenticodeSignature'), 'Authenticode verification must not gate the release workflow.');
 requireMatch(includesAll(release, ['player-web/package-lock.json', 'npm ci --prefix player-web']), 'The release workflow must install locked Player Web dependencies before aggregate verification.');
@@ -49,6 +53,7 @@ requireMatch(/sourcemap:\s*false/.test(vite), 'Desktop renderer source maps must
 requireMatch(dependencyAudit.includes("{ name: 'web', prefix: 'player-web' }"), 'The production dependency audit must cover Player Web.');
 requireMatch(Array.isArray(dependencyPolicy.scopes?.web?.allowed), 'The dependency advisory policy must define a Player Web scope.');
 requireMatch(apiPackage.engines?.node === '22.x', 'The production API runtime must stay aligned with CI Node 22.');
+requireMatch(apiVercel.git?.deploymentEnabled === false, 'API Git auto-deployments must remain disabled so exact-SHA candidates can be tested before promotion.');
 requireMatch(playerWebPackage.engines?.node === '22.x', 'The production Player Web runtime must stay aligned with CI Node 22.');
 
 const downloadedHandler = updater.slice(updater.indexOf("autoUpdater.on('update-downloaded'"), updater.indexOf("nativeAutoUpdater.on('before-quit-for-update'"));
@@ -71,4 +76,4 @@ for (const [name, browserSource] of [['management', managementBrowser], ['public
 requireMatch(fs.existsSync(path.join(root, 'docs', 'operations', 'RELEASE_AND_ROLLBACK.md')), 'Release and rollback operations must be documented.');
 
 if (failures.length) throw new Error(`Release control verification failed:\n- ${failures.join('\n- ')}`);
-console.log('Release controls passed: manual immutable source, full gates, unsigned packaging, isolated packaged startup, checksums, provenance, promotion environment, rollback metadata, explicit install, and production smokes.');
+console.log('Release controls passed: manual immutable source, serialized solo promotion, staged API deployment, full gates, unsigned packaging, isolated packaged startup, checksums, provenance, rollback metadata, explicit install, and production smokes.');

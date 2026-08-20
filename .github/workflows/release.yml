@@ -32,10 +32,18 @@ on:
         required: false
         type: string
       promote:
-        description: Promote the verified artifact through the protected production-release environment
+        description: Promote the verified artifact through the production-release audit environment
         required: true
         default: false
         type: boolean
+      promotion_confirmation:
+        description: Type PROMOTE when promote=true; leave blank for candidate-only verification
+        required: false
+        type: string
+
+concurrency:
+  group: orbit-desktop-release
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -60,11 +68,21 @@ jobs:
 
       - name: Validate immutable release inputs
         shell: pwsh
+        env:
+          INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+          INPUT_RELEASE_VERSION: ${{ inputs.release_version }}
+          INPUT_RELEASE_REASON: ${{ inputs.release_reason }}
+          INPUT_ROLLBACK_OF: ${{ inputs.rollback_of }}
+          INPUT_PROMOTE: ${{ inputs.promote }}
+          INPUT_PROMOTION_CONFIRMATION: ${{ inputs.promotion_confirmation }}
         run: |
-          if ('${{ inputs.source_sha }}' -notmatch '^[0-9a-fA-F]{40}$') { throw 'source_sha must be an exact 40-character commit SHA.' }
-          if ((git rev-parse HEAD).Trim() -ne '${{ inputs.source_sha }}') { throw 'Checked-out source does not match source_sha.' }
-          if ('${{ inputs.release_version }}' -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'release_version must be an exact stable semver.' }
-          if ('${{ inputs.release_reason }}' -eq 'rollback' -and '${{ inputs.rollback_of }}'.Length -eq 0) { throw 'rollback_of is required for a rollback release.' }
+          if ($env:INPUT_SOURCE_SHA -notmatch '^[0-9a-fA-F]{40}$') { throw 'source_sha must be an exact 40-character commit SHA.' }
+          if ((git rev-parse HEAD).Trim() -ne $env:INPUT_SOURCE_SHA) { throw 'Checked-out source does not match source_sha.' }
+          if ($env:INPUT_RELEASE_VERSION -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'release_version must be an exact stable semver.' }
+          if ($env:INPUT_ROLLBACK_OF -and $env:INPUT_ROLLBACK_OF -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'rollback_of must be an exact stable semver when provided.' }
+          if ($env:INPUT_RELEASE_REASON -eq 'rollback' -and $env:INPUT_ROLLBACK_OF.Length -eq 0) { throw 'rollback_of is required for a rollback release.' }
+          if ($env:INPUT_PROMOTE -eq 'true' -and $env:INPUT_PROMOTION_CONFIRMATION -cne 'PROMOTE') { throw 'promotion_confirmation must be exactly PROMOTE when promote=true.' }
+          if ($env:INPUT_PROMOTE -ne 'true' -and $env:INPUT_PROMOTION_CONFIRMATION.Length -ne 0) { throw 'promotion_confirmation must be blank when promote=false.' }
 
       - name: Set up Node
         uses: actions/setup-node@v4

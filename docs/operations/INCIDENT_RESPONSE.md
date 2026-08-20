@@ -4,7 +4,9 @@ This runbook covers repository-supported API availability, server-error, authent
 
 ## Ownership configuration
 
-The operational owner must configure an HTTPS destination in `ORBIT_ALERT_WEBHOOK_URL` and explicitly allowlist its hostname in `ORBIT_ALERT_WEBHOOK_ALLOWED_HOSTS`. The repository deliberately contains no destination or personal contact. Until an owner configures and verifies that route in an authorized environment, external alert delivery remains incomplete; structured events still reach the runtime log.
+The operational owner must configure an HTTPS destination in `ORBIT_ALERT_WEBHOOK_URL` and explicitly allowlist its exact hostname (without scheme or path) in `ORBIT_ALERT_WEBHOOK_ALLOWED_HOSTS`. The endpoint must accept an arbitrary JSON `POST` and return a successful response within the API's three-second delivery window. The repository deliberately contains no destination or personal contact. Until an owner configures and verifies that route in an authorized environment, external alert delivery remains incomplete; structured events still reach the runtime log.
+
+Before promotion, verify the route against an alias-withheld production candidate. Send one controlled malformed-JSON request to a public JSON route with a unique redacted request ID, confirm the candidate returns the expected validation error without a state mutation, and confirm the owner receives the matching `api-error` notification. Record only the UTC time, candidate identifier, event name, and request ID; never record the webhook URL or its secret path.
 
 The production host, DNS/registrar owner, certificate owner, legal entity/controller attribution, and cutover decision remain founder-deferred. Do not infer them from preview or API hosts.
 
@@ -16,7 +18,7 @@ The production host, DNS/registrar owner, certificate owner, legal entity/contro
 | Authentication-abuse/rate-limit event | Warning | Inspect redacted limiter and identity reference, preserve audit data, and check for a distributed pattern. | Escalate repeated or cross-tenant patterns to the security owner. Never rotate credentials from an unreviewed client. |
 | Publication outbox retry/backlog | Warning, Critical if sustained | Confirm the durable commit remains authoritative, inspect revision/attempt state, and keep the backend as sole publisher. | Escalate to the API/Firebase owner. Do not enable Electron or browser publication as a bypass. |
 | Release verification, signature, or promotion failure | Critical | Do not promote. Retain the immutable artifact and verification logs. | Escalate to the release owner; roll back only through the approved immutable channel. |
-| Release workflow failure or rejected environment approval | Critical | Keep the candidate unpromoted and correlate the exact source SHA, version, workflow run, and failed gate. | Escalate to the protected-environment release owner; never retry through a direct publish command. |
+| Release workflow or promotion-control failure | Critical | Keep the candidate unpromoted and correlate the exact source SHA, version, workflow run, and failed gate. | Review the immutable evidence and solo-maintainer confirmation; never retry through a direct publish command. |
 
 ## Triage
 
