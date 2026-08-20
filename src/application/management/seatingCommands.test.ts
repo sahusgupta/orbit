@@ -117,7 +117,10 @@ describe('management seating commands', () => {
       arrivedAt: '2026-08-08T21:30:00.000Z',
       notes: ''
     };
-    const source = state({ interests: [interest] });
+    const source = state({
+      interests: [interest],
+      settings: { ...structuredClone(seedState.settings), defaultHourlyFee: 12 }
+    });
     const snapshot = structuredClone(source);
 
     const result = seatPlayerInState(source, sourceTable.id, {
@@ -147,6 +150,16 @@ describe('management seating commands', () => {
       ['created-3', 'Buy-In'],
       ['created-4', 'Check-In']
     ]);
+    expect(result.state.timeFeeLogs).toEqual([{
+      id: 'created-5',
+      playerSessionId: 'created-1',
+      tableId: sourceTable.id,
+      gameId: game.id,
+      playerName: profile.name,
+      minutes: 45,
+      amount: 9,
+      timestamp: now
+    }]);
     expect(result.state.interests[0]).toMatchObject({ status: 'Seated', seatedAt: now, timestamp: now });
     expect(result.state.sessions[0]).toMatchObject({ status: 'Running', seatsFilled: 2 });
     expect(result.state.profiles[0]).toMatchObject({ gamePlayCounts: { [game.id]: 1 }, preferredGameIds: [game.id] });

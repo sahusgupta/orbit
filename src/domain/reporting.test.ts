@@ -109,6 +109,7 @@ const buildState = (): AppState => ({
   ],
   settings: {
     ...structuredClone(seedState.settings),
+    defaultHourlyFee: 12,
     collectionProfiles: [{ gameId: 'game-one', collectionMode: 'Time', hourlyFee: 12, estimatedDropPerSeatHour: 0 }]
   }
 });
@@ -124,6 +125,23 @@ afterAll(() => {
 });
 
 describe('management reporting projections', () => {
+  it('uses one room-wide hourly fee while preserving per-game mode and drop settings', () => {
+    const state = buildState();
+    state.settings.defaultHourlyFee = 15;
+    state.settings.collectionProfiles[0] = {
+      ...state.settings.collectionProfiles[0],
+      hourlyFee: 99,
+      estimatedDropPerSeatHour: 7
+    };
+
+    expect(reporting.getCollectionProfile(state, 'game-one')).toEqual({
+      gameId: 'game-one',
+      collectionMode: 'Time',
+      hourlyFee: 15,
+      estimatedDropPerSeatHour: 7
+    });
+  });
+
   it('uses half-open report windows and shifts anchors without changing all-history anchors', () => {
     const day = reporting.getReportWindow('day', '2026-08-07');
     const week = reporting.getReportWindow('week', '2026-08-07');
@@ -183,6 +201,39 @@ describe('management reporting projections', () => {
       { startMs: Date.parse('2026-08-07T12:00:00.000Z'), drop: 0, timeFees: 0, otherRevenue: 155, total: 155 }
     ]);
     expect(state).toEqual(snapshot);
+  });
+
+  it('preserves logged mixed-rate purchases and estimates only an unlogged legacy remainder', () => {
+    const state = buildState();
+    state.playerSessions = [{ ...exactPlayer, timePurchasedMinutes: 90 }];
+    state.timeFeeLogs = [{
+      ...state.timeFeeLogs[0],
+      minutes: 60,
+      amount: 10,
+      timestamp: exactPlayer.seatedAt
+    }, {
+      ...state.timeFeeLogs[0],
+      id: 'time-added',
+      minutes: 30,
+      amount: 6,
+      timestamp: '2026-08-07T10:45:00.000Z'
+    }];
+
+    expect(reporting.getReportFinancials(state, reportWindow).timeFees).toBe(16);
+    expect(reporting.getTableFinancialOverview(state, table).totalTimeFees).toBe(16);
+    expect(reporting.getTablePlayerFinancialOverview(state, table, state.playerSessions[0]).totalTimeFees).toBe(16);
+
+    state.timeFeeLogs = [state.timeFeeLogs[1]];
+    expect(reporting.getProjectedTimeFeeEntries(state)).toEqual([
+      expect.objectContaining({ id: 'time-added', source: 'logged', minutes: 30, amount: 6 }),
+      expect.objectContaining({
+        id: `legacy-time-${exactPlayer.id}`,
+        source: 'legacy',
+        minutes: 60,
+        amount: 12,
+        timestamp: exactPlayer.seatedAt
+      })
+    ]);
   });
 
   it('clips overlapping activity, filters timestamped collections, and aggregates dealer performance in order', () => {

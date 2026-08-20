@@ -161,7 +161,12 @@ describe('tournament mutation orchestration', () => {
       startingStack: '500',
       levelMinutes: '2',
       rebuyPrizePercent: '120',
-      tableSize: '99'
+      tableSize: '99',
+      payouts: [
+        { place: 1, percent: '65' },
+        { place: 2, percent: '25' },
+        { place: 3, percent: '10' }
+      ]
     });
     await invoke('createTournament', { preventDefault: vi.fn() });
 
@@ -180,7 +185,11 @@ describe('tournament mutation orchestration', () => {
     });
     expect(created.levels.length).toBeGreaterThan(1);
     expect(created.levels.every((level) => level.durationMinutes === 5)).toBe(true);
-    expect(created.payouts).toEqual(expect.arrayContaining([{ place: 1, percent: expect.any(Number) }]));
+    expect(created.payouts).toEqual([
+      { place: 1, percent: 65 },
+      { place: 2, percent: 25 },
+      { place: 3, percent: 10 }
+    ]);
 
     await invoke('setTournamentDraft', {
       name: '  Edited Tournament  ',
@@ -188,7 +197,11 @@ describe('tournament mutation orchestration', () => {
       startingStack: '25000',
       levelMinutes: '30',
       rebuyPrizePercent: '60',
-      tableSize: '8'
+      tableSize: '8',
+      payouts: [
+        { place: 1, percent: '75' },
+        { place: 2, percent: '25' }
+      ]
     });
     await invoke('saveTournamentSettings', { preventDefault: vi.fn() });
     expect(getState().tournaments[0]).toMatchObject({
@@ -199,6 +212,10 @@ describe('tournament mutation orchestration', () => {
       tableSize: 8
     });
     expect(getState().tournaments[0].levels.every((level) => level.durationMinutes === 30)).toBe(true);
+    expect(getState().tournaments[0].payouts).toEqual([
+      { place: 1, percent: 75 },
+      { place: 2, percent: 25 }
+    ]);
 
     const edited = getState().tournaments[0];
     const completed = { ...edited, status: 'Finished' as const, startedAt: now, completedAt: now, currentLevelIndex: 2, players: tournamentFixture().players };
@@ -275,5 +292,31 @@ describe('tournament mutation orchestration', () => {
     await invoke('eliminateTournamentPlayer', current, 'player-two');
     expect(getState().tournaments[0]).toMatchObject({ status: 'Finished', completedAt: now });
     expect(getState().tournaments[0].players[1]).toMatchObject({ status: 'Eliminated', finishPlace: 2 });
+  });
+
+  it('keeps TV launch explicit and opens the browser TV route in its own window', async () => {
+    const source = tournamentFixture();
+    await resetState([source]);
+    const popup = { opener: window } as unknown as Window;
+    const openWindow = vi.spyOn(window, 'open').mockReturnValue(popup);
+    const originalHash = window.location.hash;
+
+    await invoke('startTournament', source);
+    expect(openWindow).not.toHaveBeenCalled();
+
+    await invoke('openTournamentTv', source.id);
+    expect(openWindow).toHaveBeenCalledWith(
+      expect.stringContaining(`#/tournament-tv?tournamentId=${encodeURIComponent(source.id)}`),
+      `orbit-tournament-tv-${source.id}`,
+      'popup,width=1280,height=720'
+    );
+    expect(popup.opener).toBeNull();
+    expect(window.location.hash).toBe(originalHash);
+
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    openWindow.mockReturnValue(null);
+    await invoke('openTournamentTv', source.id);
+    expect(alert).toHaveBeenCalledWith('TV View could not open. Allow pop-ups for Orbit and try again.');
+    expect(window.location.hash).toBe(originalHash);
   });
 });

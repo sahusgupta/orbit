@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import {
   BadgeCheck,
   Bell,
   ChevronRight,
+  Download,
   KeyRound,
   LockKeyhole,
   Plus,
@@ -11,18 +13,22 @@ import {
   X
 } from 'lucide-react';
 import branding from '../branding.config.json';
-import type { Player as PokerTablePlayer } from './components/PokerTable';
+import type {
+  Player as PokerTablePlayer,
+  PokerTableDealerControl,
+  PokerTableRevenueEstimate
+} from './components/PokerTable';
 import AppShell, { type PrimaryDestination, type ShellCommand } from './components/AppShell';
 import FloorView from './components/FloorView';
 import {
   createBackupEnvelope,
-  filterRecentActivityAfterClose,
   getGameFrequencyRank,
-  getLatestLockedNightCloseAt,
   getTimerStatusFromSeconds,
   readBackupEnvelope,
   resolveGameId
 } from './lib/appCore';
+import { createRoomDataExport, downloadTextFile } from './lib/dataExport';
+import { buildFloorActivityItems } from './features/floor/floorActivity';
 import { AccountRecoveryValidationError, recoverAccountLogin } from './lib/accountRecovery';
 import { validateMembershipQrCheckIn } from './lib/membershipQr';
 import {
@@ -36,7 +42,6 @@ import { validateLocalImport } from './lib/fileImportValidation';
 import {
   nextYearDate,
   normalizeState,
-  normalizeTableCap,
   nowIso,
   seedState,
   todayDate,
@@ -80,9 +85,11 @@ import {
   setTableCollectionMode as setTableCollectionModeInState
 } from './application/management/playerSessionCommands';
 import {
+  applyDefaultTableCap,
   createBalancedTable as createBalancedTableInState,
   createDemandFormingTable,
   createFormingTable,
+  createPhysicalTable as createPhysicalTableInState,
   createPlannedTable,
   startTableWithPlayers,
   switchRunningTableGame
@@ -170,7 +177,8 @@ import {
   saveManagementState
 } from './app/persistence/managementPersistence';
 import {
-  getCollectionProfile
+  getCollectionProfile,
+  getTableFinancialOverview
 } from './domain/reporting';
 import {
   getAccountKeyFromState,
@@ -481,7 +489,6 @@ function App() {
     formingGameId,
     handCountDrafts,
     openPanels,
-    overviewTableId,
     seatPicker,
     startPlayerDrafts,
     tableEventLogSessionId,
@@ -499,7 +506,6 @@ function App() {
     setFormingGameId,
     setHandCountDrafts,
     setOpenPanels,
-    setOverviewTableId,
     setSeatPicker,
     setStartPlayerDrafts,
     setTableEventLogSessionId,
@@ -594,6 +600,7 @@ function App() {
     setStaffDraft
   } = settingsWorkspace;
   const [accessFieldError, setAccessFieldError] = useState('');
+  const [expiredDataExportMessage, setExpiredDataExportMessage] = useState('');
   const validateAccessField = (event: React.FocusEvent<HTMLInputElement>, matchesValue?: string) => {
     const input = event.currentTarget;
     const mismatch = matchesValue !== undefined && input.value !== matchesValue;
@@ -1075,8 +1082,8 @@ function App() {
     setDropDrafts((drafts) => ({ ...drafts, [session.id]: { amount: '', note: '' } }));
   };
 
-  const assignDealer = (session: GameSession) => {
-    const dealerName = dealerDrafts[session.id] ?? '';
+  const assignDealer = (session: GameSession, dealerNameOverride?: string) => {
+    const dealerName = dealerNameOverride ?? dealerDrafts[session.id] ?? '';
     const result = assignTableDealer(state, session, dealerName, { createId: uid, nowIso });
     if (!result.ok) {
       if (result.error) window.alert(result.error);
@@ -1558,11 +1565,38 @@ function App() {
     setCashOutDraft({ playerSessionId: playerSession.id, amount: '', note: '' });
   };
 
-  const addSession = (gameId: string) => {
-    const result = createFormingTable(state, gameId, { createId: uid, nowIso });
-    if (!result) return;
+  const addPhysicalTable = (labelInput: string, maxSeats: TableCap) => {
+    const label = labelInput.trim();
+    if (!label) return;
+    const result = createPhysicalTableInState(state, label, maxSeats, { createId: uid, nowIso });
+    if (!result) {
+      window.alert('A permanent table with this name already exists.');
+      return;
+    }
+    persist(result.state, true, {
+      feature: 'Tables',
+      action: 'Added permanent table',
+      metadata: { label, maxSeats }
+    });
+  };
+
+  const addSession = (gameId: string, physicalTableId?: string) => {
+    const result = createFormingTable(state, gameId, { createId: uid, nowIso }, physicalTableId);
+    if (!result) {
+      if (physicalTableId) window.alert('That physical table is no longer available.');
+      else if ((state.physicalTables ?? []).length) window.alert('No permanent tables are currently available.');
+      return;
+    }
+    const createdSession = result.state.sessions.find((session) => session.id === result.sessionId);
     const notifiedState = withGameFrequencyInAppNotifications(result.state, gameId, 'game-forming');
-    persist(notifiedState, true, { feature: 'Tables', action: 'Created forming table', metadata: { gameId } });
+    persist(notifiedState, true, {
+      feature: 'Tables',
+      action: 'Created forming table',
+      metadata: {
+        gameId,
+        ...(createdSession?.physicalTableId ? { physicalTableId: createdSession.physicalTableId } : {})
+      }
+    });
     if (result.defaultStartPlayerIds.length) {
       setStartPlayerDrafts((drafts) => ({ ...drafts, [result.sessionId]: result.defaultStartPlayerIds }));
     }
@@ -1575,7 +1609,10 @@ function App() {
       participantPool,
       { createId: uid, nowIso }
     );
-    if (!result) return;
+    if (!result) {
+      if ((state.physicalTables ?? []).length) window.alert('No permanent tables are currently available.');
+      return;
+    }
     persist(result.state, true, {
       feature: 'Table builder',
       action: 'Created planned table',
@@ -1584,7 +1621,12 @@ function App() {
   };
 
   const createBalancedTable = (plan: BalancePlan) => {
-    persist(createBalancedTableInState(state, plan, { createId: uid, nowIso }), true, {
+    const nextState = createBalancedTableInState(state, plan, { createId: uid, nowIso });
+    if (!nextState) {
+      if ((state.physicalTables ?? []).length) window.alert('No permanent table has enough open seats for this balance.');
+      return;
+    }
+    persist(nextState, true, {
       feature: 'Table builder',
       action: 'Created balanced table',
       metadata: { gameId: plan.game.id, players: plan.tableBProjectedSeats }
@@ -1751,13 +1793,12 @@ function App() {
       ...report.feedback.map((entry) => [`${entry.role} feedback`, entry.text])
     ];
     const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `table-manager-pilot-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const result = downloadTextFile({
+      content: csv,
+      fileName: `table-manager-pilot-${new Date().toISOString().slice(0, 10)}.csv`,
+      mimeType: 'text/csv'
+    });
+    setReportMessage(result.ok ? 'Pilot report exported.' : `Pilot report export failed: ${result.error}`);
   };
 
   const submitAnalyticalReport = async () => {
@@ -2006,14 +2047,26 @@ function App() {
 
   const exportJson = () => {
     const backup = createBackupEnvelope(state);
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `table-manager-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-    setBackupMessage('Backup exported.');
+    const result = downloadTextFile({
+      content: JSON.stringify(backup, null, 2),
+      fileName: `table-manager-backup-${backup.exportedAt.slice(0, 10)}.json`,
+      mimeType: 'application/json'
+    });
+    setBackupMessage(result.ok ? 'Restorable backup exported.' : `Backup export failed: ${result.error}`);
+  };
+
+  const downloadRoomDataExport = () => {
+    const roomData = createRoomDataExport(state);
+    return downloadTextFile({
+      content: JSON.stringify(roomData, null, 2),
+      fileName: `orbit-room-data-${roomData.exportedAt.slice(0, 10)}.json`,
+      mimeType: 'application/json;charset=utf-8'
+    });
+  };
+
+  const exportRoomData = () => {
+    const result = downloadRoomDataExport();
+    setBackupMessage(result.ok ? 'Room data exported.' : `Room data export failed: ${result.error}`);
   };
 
   const importBackupFile = async (file?: File) => {
@@ -2083,13 +2136,12 @@ function App() {
         .map((event: TableEvent) => [`${event.type} reason`, `${event.reason || 'Unspecified'}${event.note ? ` - ${event.note}` : ''}`])
     ];
     const csv = rows.map((row) => row.map((cell: string) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `table-manager-${reportPeriod}-report-${reportAnchorDate}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const result = downloadTextFile({
+      content: csv,
+      fileName: `table-manager-${reportPeriod}-report-${reportAnchorDate}.csv`,
+      mimeType: 'text/csv'
+    });
+    if (!result.ok) window.alert(`Report export failed: ${result.error}`);
   };
 
   const scanGroupMeText = () => {
@@ -2144,11 +2196,22 @@ function App() {
     const tvRoute = `/tournament-tv?tournamentId=${encodeURIComponent(tournamentId)}`;
     if (window.tableManagerDesktop) {
       window.tableManagerDesktop.openWindow('tournament-tv', { tournamentId }).catch(() => {
-        window.location.hash = tvRoute;
+        window.alert('TV View could not open. Try again or restart Orbit.');
       });
       return;
     }
-    window.location.hash = tvRoute;
+    const tvUrl = new URL(window.location.href);
+    tvUrl.hash = tvRoute;
+    const tvWindow = window.open(
+      tvUrl.toString(),
+      `orbit-tournament-tv-${tournamentId}`,
+      'popup,width=1280,height=720'
+    );
+    if (tvWindow) {
+      tvWindow.opener = null;
+    } else {
+      window.alert('TV View could not open. Allow pop-ups for Orbit and try again.');
+    }
   };
 
   const closeRoute = () => {
@@ -2178,7 +2241,6 @@ function App() {
     ...tournamentWorkspace,
     clockNow,
     onPersist: persistTournamentState,
-    openTournamentTv,
     selectedTournament,
     state
   });
@@ -2192,16 +2254,7 @@ function App() {
   };
 
   const updateDefaultTableCap = (cap: TableCap) => {
-    persist({
-      ...state,
-      games: state.games.map((game) => ({ ...game, maxSeats: cap })),
-      sessions: state.sessions.map((session) => {
-        const activeSeats = getActivePlayerSessionsForTable(state, session.id).length;
-        const safeCap = Math.max(cap, normalizeTableCap(activeSeats));
-        return { ...session, maxSeats: safeCap, seatsFilled: Math.min(safeCap, activeSeats) };
-      }),
-      settings: { ...state.settings, defaultTableCap: cap }
-    }, true, {
+    persist(applyDefaultTableCap(state, cap), true, {
       feature: 'Settings',
       action: 'Updated table cap',
       metadata: { cap }
@@ -2280,6 +2333,50 @@ function App() {
     setHasAuthenticated(true);
     setPilotKeyError('');
     persist(next, false, { feature: 'Account', action: 'Signed in', route: 'access' });
+  };
+
+  const exportRoomDataFromExpiredAccess = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setExpiredDataExportMessage('');
+    const accountLogin = state.settings.accountLogin;
+    if (!accountLogin?.passwordSalt || !accountLogin.passwordHash) {
+      setExpiredDataExportMessage('This installation does not have a local account that can authorize an export.');
+      return;
+    }
+
+    let passwordMatches = false;
+    try {
+      passwordMatches = await verifyStaffSecret(
+        loginDraft.password,
+        accountLogin.passwordSalt,
+        accountLogin.passwordHash
+      );
+    } catch {
+      passwordMatches = false;
+    }
+
+    if (
+      loginDraft.username.trim().toLowerCase() !== accountLogin.username.trim().toLowerCase() ||
+      !passwordMatches
+    ) {
+      setLoginDraft((current) => ({ ...current, password: '' }));
+      setExpiredDataExportMessage('Email or password is incorrect. Room data was not exported.');
+      return;
+    }
+
+    const result = downloadRoomDataExport();
+    setLoginDraft((current) => ({ ...current, password: '' }));
+    setExpiredDataExportMessage(
+      result.ok ? 'Room data exported.' : `Room data export failed: ${result.error}`
+    );
+  };
+
+  const exportLegacyRoomDataFromExpiredAccess = () => {
+    setExpiredDataExportMessage('');
+    const result = downloadRoomDataExport();
+    setExpiredDataExportMessage(
+      result.ok ? 'Room data exported.' : `Room data export failed: ${result.error}`
+    );
   };
 
   const resetPasswordRecovery = () => {
@@ -3044,6 +3141,73 @@ function App() {
                 <p className="muted-copy">Choose a valid pilot key first. Club details and login setup will appear here after the key is verified.</p>
               </section>
             )}
+            {state.settings.accountLogin ? (
+              <form className="access-step account-form" onSubmit={exportRoomDataFromExpiredAccess}>
+                <div className="access-step-title">
+                  <Download size={20} />
+                  <h2>Export room data</h2>
+                </div>
+                <p className="muted-copy">
+                  Verify the existing local account to download room data without renewing or unlocking operations.
+                </p>
+                <label className="access-field">Account email
+                  <input
+                    required
+                    type="email"
+                    autoComplete="email"
+                    value={loginDraft.username}
+                    onChange={(event) => setLoginDraft({ ...loginDraft, username: event.target.value })}
+                    aria-describedby="expired-data-export-message"
+                  />
+                </label>
+                <label className="access-field">Password or passphrase
+                  <input
+                    required
+                    type="password"
+                    autoComplete="current-password"
+                    value={loginDraft.password}
+                    onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })}
+                    aria-describedby="expired-data-export-message"
+                  />
+                </label>
+                <button className="secondary-button" type="submit">
+                  <Download size={16} />
+                  Verify &amp; Export
+                </button>
+                {expiredDataExportMessage ? (
+                  <p
+                    id="expired-data-export-message"
+                    className={expiredDataExportMessage === 'Room data exported.' ? 'success-copy' : 'access-error'}
+                    role={expiredDataExportMessage === 'Room data exported.' ? 'status' : 'alert'}
+                  >
+                    {expiredDataExportMessage}
+                  </p>
+                ) : null}
+              </form>
+            ) : (
+              <section className="access-step account-form">
+                <div className="access-step-title">
+                  <Download size={20} />
+                  <h2>Export room data</h2>
+                </div>
+                <p className="muted-copy">
+                  This legacy room has no local sign-in to verify. Download a sanitized export without unlocking operations.
+                </p>
+                <button className="secondary-button" type="button" onClick={exportLegacyRoomDataFromExpiredAccess}>
+                  <Download size={16} />
+                  Export Room Data
+                </button>
+                {expiredDataExportMessage ? (
+                  <p
+                    id="expired-data-export-message"
+                    className={expiredDataExportMessage === 'Room data exported.' ? 'success-copy' : 'access-error'}
+                    role={expiredDataExportMessage === 'Room data exported.' ? 'status' : 'alert'}
+                  >
+                    {expiredDataExportMessage}
+                  </p>
+                ) : null}
+              </section>
+            )}
           </div>
         </section>
       </main>
@@ -3150,6 +3314,7 @@ function App() {
         addStaffAccount={addStaffAccount}
         formatClock={formatClock}
         deactivateStaffAccount={deactivateStaffAccount}
+        exportRoomData={exportRoomData}
         exportJson={exportJson}
         importBackupFile={importBackupFile}
         submitAnalyticalReport={submitAnalyticalReport}
@@ -3331,45 +3496,7 @@ function App() {
     ));
   }
 
-  const latestLockedNightCloseAt = getLatestLockedNightCloseAt(state.nightCloses);
-  const liveFeedItems = filterRecentActivityAfterClose([
-    ...state.playerLedger.map((entry) => {
-      const game = state.games.find((item) => item.id === entry.gameId);
-      const amount = entry.amount ? ` $${entry.amount.toLocaleString()}` : '';
-      return {
-        id: `ledger-${entry.id}`,
-        timestamp: entry.timestamp,
-        label: entry.type,
-        actor: entry.playerName,
-        detail: `${game?.name ?? 'Floor'}${amount}${entry.note ? ` - ${entry.note}` : ''}`,
-        kind: entry.type.toLowerCase().replace(/\s+/g, '-')
-      };
-    }),
-    ...state.tableEvents.map((event) => {
-      const game = state.games.find((item) => item.id === event.gameId);
-      return {
-        id: `table-${event.id}`,
-        timestamp: event.timestamp,
-        label: event.type,
-        actor: game?.name ?? 'Table',
-        detail: [event.note, event.reason, event.playerCount ? `${event.playerCount} players` : ''].filter(Boolean).join(' - '),
-        kind: 'table'
-      };
-    }),
-    ...state.dropLogs.map((drop) => {
-      const game = state.games.find((item) => item.id === drop.gameId);
-      return {
-        id: `drop-${drop.id}`,
-        timestamp: drop.timestamp,
-        label: 'Drop',
-        actor: game?.name ?? 'Table',
-        detail: `$${drop.amount.toLocaleString()}${drop.note ? ` - ${drop.note}` : ''}`,
-        kind: 'drop'
-      };
-    })
-  ], latestLockedNightCloseAt)
-    .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
-    .slice(0, 18);
+  const floorActivityItems = buildFloorActivityItems(state);
 
   const quickAddOpenSeatSessions = form.status === 'Seated' ? getOpenSeatSessions(form.gameId) : [];
 
@@ -3385,7 +3512,7 @@ function App() {
     : undefined;
   const showSeatPickerTypedName = Boolean(seatPickerSession && seatPickerTypedName);
   const seatPickerInitialBuyIn = seatPicker?.initialBuyIn.trim() ? Number(seatPicker.initialBuyIn) : undefined;
-  const seatPickerModal = seatPicker && seatPickerSession ? (
+  const seatPickerModal = seatPicker && seatPickerSession ? createPortal(
     <div className="modal-backdrop seat-picker-backdrop" role="dialog" aria-modal="true" aria-label={`Seat ${seatPicker.seatNumber} player`}>
       <section className="seat-picker-modal">
         <div className="seat-picker-head">
@@ -3495,13 +3622,14 @@ function App() {
           )}
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   ) : null;
 
   const cashOutPlayerSession = cashOutDraft
     ? state.playerSessions.find((playerSession) => playerSession.id === cashOutDraft.playerSessionId)
     : undefined;
-  const cashOutModal = cashOutDraft && cashOutPlayerSession ? (
+  const cashOutModal = cashOutDraft && cashOutPlayerSession ? createPortal(
     <div className="modal-backdrop cash-out-backdrop" role="dialog" aria-modal="true" aria-label={`Cash out ${cashOutPlayerSession.playerName}`}>
       <form
         className="cash-out-modal"
@@ -3521,17 +3649,19 @@ function App() {
         <label>Note<input value={cashOutDraft.note} onChange={(event) => setCashOutDraft({ ...cashOutDraft, note: event.target.value })} placeholder="Optional note" /></label>
         <div className="cash-out-actions"><button className="ghost-button" type="button" onClick={() => setCashOutDraft(null)}>Cancel</button><button className="primary-button" type="submit">Record cash-out</button></div>
       </form>
-    </div>
+    </div>,
+    document.body,
   ) : null;
 
   const ledgerSession = tableLedgerSessionId ? state.sessions.find((session) => session.id === tableLedgerSessionId) : undefined;
-  const tableLedgerModal = ledgerSession ? (
+  const tableLedgerModal = ledgerSession ? createPortal(
     <div className="modal-backdrop cash-ledger-backdrop" role="dialog" aria-modal="true" aria-label={`${ledgerSession.label} buy-in ledger`}>
       <section className="cash-ledger-modal">
         <div className="cash-ledger-head"><div><span>{state.games.find((game) => game.id === ledgerSession.gameId)?.name ?? 'Table'}</span><h2>{ledgerSession.label} ledger</h2></div><button className="icon-button" onClick={() => setTableLedgerSessionId(null)}><X size={18} /></button></div>
         <TableBuyInLedger state={state} session={ledgerSession} formatClock={formatClock} />
       </section>
-    </div>
+    </div>,
+    document.body,
   ) : null;
 
   if (route === 'table') {
@@ -3585,16 +3715,68 @@ function App() {
       })
       .sort((left, right) => right.entry.timestamp.localeCompare(left.entry.timestamp)) : [];
     const tableTimePlayers = seatedPlayers
-      .map((playerSession) => ({
-        playerSession,
-        remainingSeconds: getTimeRemainingSeconds(playerSession, clockNow),
-        hasTimer: Boolean(isTimeCollection || playerSession.timeFeeEnabled)
-      }))
+      .map((playerSession) => {
+        const seatedAtMs = new Date(playerSession.seatedAt).getTime();
+        return {
+          playerSession,
+          remainingSeconds: getTimeRemainingSeconds(playerSession, clockNow),
+          elapsedSeconds: Number.isFinite(seatedAtMs)
+            ? Math.max(0, Math.floor((clockNow - seatedAtMs) / 1000))
+            : 0,
+          hasTimer: Boolean(isTimeCollection || playerSession.timeFeeEnabled)
+        };
+      })
       .sort((left, right) => {
         if (left.hasTimer !== right.hasTimer) return left.hasTimer ? -1 : 1;
         if (left.hasTimer && right.hasTimer) return left.remainingSeconds - right.remainingSeconds;
         return (left.playerSession.seatNumber ?? 99) - (right.playerSession.seatNumber ?? 99);
       });
+    const tableFinancialOverview = tableSession
+      ? getTableFinancialOverview(state, tableSession)
+      : null;
+    const tableSeatHours = tableSession
+      ? state.playerSessions
+          .filter((playerSession) => playerSession.tableId === tableSession.id)
+          .reduce((sum, playerSession) => {
+            const startedAt = new Date(playerSession.seatedAt).getTime();
+            const endedAt = playerSession.leftAt ? new Date(playerSession.leftAt).getTime() : clockNow;
+            if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt)) return sum;
+            return sum + Math.max(0, endedAt - startedAt) / 36e5;
+          }, 0)
+      : 0;
+    const tableRevenueEstimate: PokerTableRevenueEstimate | undefined = tableSession && tableFinancialOverview
+      ? isTimeCollection
+        ? {
+            label: 'Time revenue',
+            value: `$${tableFinancialOverview.totalTimeFees.toFixed(2)}`
+          }
+        : {
+            label: 'Est. drop revenue',
+            value: `$${(tableSeatHours * getCollectionProfile(state, tableSession.gameId).estimatedDropPerSeatHour).toFixed(2)}`
+          }
+      : undefined;
+    const currentTableDealer = tableSession
+      ? state.dealerAssignments
+          .filter((assignment) => assignment.tableId === tableSession.id && !assignment.endedAt)
+          .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0]
+      : undefined;
+    const tableDealerOptions = Array.from(new Set([
+      ...state.settings.staffAccounts.filter((staff) => staff.active).map((staff) => staff.name.trim()),
+      ...state.dealerAssignments.map((assignment) => assignment.dealerName.trim())
+    ].filter(Boolean))).sort((left, right) => left.localeCompare(right));
+    const tableDealerControl: PokerTableDealerControl | undefined = tableSession
+      ? {
+          currentDealer: currentTableDealer?.dealerName,
+          value: dealerDrafts[tableSession.id] ?? currentTableDealer?.dealerName ?? '',
+          options: tableDealerOptions,
+          onChange: (dealerName) => setDealerDrafts((drafts) => ({ ...drafts, [tableSession.id]: dealerName })),
+          onAssign: () => assignDealer(
+            tableSession,
+            dealerDrafts[tableSession.id] ?? currentTableDealer?.dealerName ?? ''
+          ),
+          onEnd: currentTableDealer ? () => endDealerAssignment(tableSession) : undefined
+        }
+      : undefined;
 
     return <TableView
       tableGame={tableGame}
@@ -3609,6 +3791,8 @@ function App() {
       tableBuyInRows={tableBuyInRows}
       tableTimePlayers={tableTimePlayers}
       pokerTablePlayers={pokerTablePlayers}
+      tableRevenueEstimate={tableRevenueEstimate}
+      tableDealerControl={tableDealerControl}
       tableEventLogSessionId={tableEventLogSessionId}
       seatPicker={seatPicker}
       closeRoute={closeRoute}
@@ -3630,7 +3814,6 @@ function App() {
   return withShell('floor', (
     <FloorView
       state={state}
-      analytics={analytics}
       clockNow={clockNow}
       openPanels={openPanels}
       collapsedTables={collapsedTables}
@@ -3640,14 +3823,13 @@ function App() {
       dealerDrafts={dealerDrafts}
       handCountDrafts={handCountDrafts}
       formingGameId={formingGameId}
-      overviewTableId={overviewTableId}
       financialOverviewTableId={financialOverviewTableId}
       waitlistPopupOpen={waitlistPopupOpen}
       seatPickerModal={seatPickerModal}
       cashOutModal={cashOutModal}
       tableLedgerModal={tableLedgerModal}
       seatPicker={seatPicker}
-      liveFeedItems={liveFeedItems}
+      activityItems={floorActivityItems}
       quickAddOpenSeatSessions={quickAddOpenSeatSessions}
       form={form}
       statuses={statuses}
@@ -3665,7 +3847,6 @@ function App() {
       setDealerDrafts={setDealerDrafts}
       setHandCountDrafts={setHandCountDrafts}
       setFormingGameId={setFormingGameId}
-      setOverviewTableId={setOverviewTableId}
       setFinancialOverviewTableId={setFinancialOverviewTableId}
       setTableLedgerSessionId={setTableLedgerSessionId}
       setForm={setForm}
@@ -3702,6 +3883,7 @@ function App() {
       recordHands={recordHands}
       addTableDrop={addTableDrop}
       failFormingGame={failFormingGame}
+      addPhysicalTable={addPhysicalTable}
       addSession={addSession}
       addInterest={addInterest}
       checkInProfileFromSearch={checkInProfileFromSearch}

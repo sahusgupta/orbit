@@ -1,4 +1,4 @@
-import { getCollectionProfile } from '../../domain/reporting';
+import { getProjectedTimeFeeEntries } from '../../domain/reporting';
 import type { AppState, GameSession } from '../../domain/types';
 
 type TableBuyInLedgerProps = {
@@ -15,16 +15,15 @@ export default function TableBuyInLedger({ state, session, formatClock }: TableB
     .map((entry, recordedOrder) => ({ ...entry, recordedOrder }));
   const cashOuts = state.playerLedger.filter((entry) => entry.tableId === session.id && entry.type === 'Cash-Out');
   const drops = state.dropLogs.filter((entry) => entry.tableId === session.id);
-  const collectionProfile = getCollectionProfile(state, session.gameId);
   const timeFees = (session.collectionMode === 'Time' || session.timeFeeBased)
-    ? state.playerSessions
-        .filter((playerSession) => playerSession.tableId === session.id && (playerSession.timePurchasedMinutes ?? 0) > 0)
-        .map((playerSession) => ({
-          id: `time-${playerSession.id}`,
-          playerName: playerSession.playerName,
-          amount: ((playerSession.timePurchasedMinutes ?? 0) / 60) * collectionProfile.hourlyFee,
-          timestamp: playerSession.lastTimeTickAt || playerSession.seatedAt,
-          note: `${playerSession.timePurchasedMinutes ?? 0} minutes purchased`
+    ? getProjectedTimeFeeEntries(state)
+        .filter((entry) => entry.tableId === session.id)
+        .map((entry) => ({
+          id: entry.id,
+          playerName: entry.playerName,
+          amount: entry.amount,
+          timestamp: entry.timestamp,
+          note: `${entry.minutes} minutes purchased${entry.source === 'legacy' ? ' (legacy estimate)' : ''}`
         }))
     : [];
   const totalBuyIns = buyIns.reduce((sum, entry) => sum + entry.amount, 0);

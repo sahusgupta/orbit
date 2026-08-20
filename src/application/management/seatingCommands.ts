@@ -5,6 +5,7 @@ import type {
   InterestStatus,
   PlayerSession
 } from '../../domain/types';
+import { getCollectionProfile } from '../../domain/reporting';
 
 export type SeatingCommandDependencies = {
   createId: () => string;
@@ -165,6 +166,7 @@ export function seatPlayerInState(
 
   const isTimeCollection = session.timeFeeBased || session.collectionMode === 'Time';
   const timeMinutes = isTimeCollection ? Math.max(0, Number(payload.initialTimeMinutes ?? 0)) : 0;
+  const hasInitialTime = Number.isFinite(timeMinutes) && timeMinutes > 0;
   const initialBuyInAmount = Number(payload.initialBuyIn ?? 0);
   const hasInitialBuyIn = Number.isFinite(initialBuyInAmount) && initialBuyInAmount > 0;
   const matchingInterest = interest ?? state.interests.find(
@@ -184,13 +186,14 @@ export function seatPlayerInState(
         }
       : item
   );
+  const playerSessionId = dependencies.createId();
   const seatedState: AppState = withProfileGameLogged({
     ...state,
     interests,
     playerSessions: [
       ...state.playerSessions,
       {
-        id: dependencies.createId(),
+        id: playerSessionId,
         playerName,
         profileId,
         gameId: session.gameId,
@@ -245,7 +248,22 @@ export function seatPlayerInState(
         note: `${payload.note ?? 'Seated'}: seat ${seatNumber}`
       },
       ...state.playerLedger
-    ]
+    ],
+    timeFeeLogs: hasInitialTime
+      ? [
+          ...state.timeFeeLogs,
+          {
+            id: dependencies.createId(),
+            playerSessionId,
+            tableId: session.id,
+            gameId: session.gameId,
+            playerName,
+            minutes: timeMinutes,
+            amount: (timeMinutes / 60) * getCollectionProfile(state, session.gameId).hourlyFee,
+            timestamp
+          }
+        ]
+      : state.timeFeeLogs
   }, profileId, playerName, session.gameId);
   const nextStatus = session.status === 'Forming' ? 'Running' as GameStatus : session.status;
   return {

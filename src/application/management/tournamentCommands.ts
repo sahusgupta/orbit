@@ -1,5 +1,10 @@
 import { defaultTournamentLevels, defaultTournamentPayouts } from '../../domain/state';
-import type { AppState, Tournament, TournamentPlayer } from '../../domain/types';
+import type { AppState, Tournament, TournamentPayout, TournamentPlayer } from '../../domain/types';
+
+export type TournamentPayoutDraft = {
+  place: number;
+  percent: string;
+};
 
 export type TournamentDraft = {
   name: string;
@@ -8,6 +13,7 @@ export type TournamentDraft = {
   levelMinutes: string;
   rebuyPrizePercent: string;
   tableSize: string;
+  payouts?: TournamentPayoutDraft[];
 };
 
 export type TournamentPlayerDraft = {
@@ -33,6 +39,40 @@ const replaceTournament = (
   )
 });
 
+export const createDefaultTournamentPayoutDrafts = (): TournamentPayoutDraft[] =>
+  defaultTournamentPayouts().map((payout) => ({
+    place: payout.place,
+    percent: String(payout.percent)
+  }));
+
+export const validateTournamentPayoutDrafts = (drafts: TournamentPayoutDraft[]) => {
+  const total = Number(drafts.reduce((sum, draft) => {
+    const percent = Number(draft.percent);
+    return sum + (Number.isFinite(percent) ? percent : 0);
+  }, 0).toFixed(4));
+  const payouts: TournamentPayout[] = drafts.map((draft) => ({
+    place: Number(draft.place),
+    percent: Number(draft.percent)
+  }));
+
+  if (!drafts.length) {
+    return { error: 'Add at least one paid place.', payouts, total, valid: false };
+  }
+  if (drafts.some((draft, index) => !Number.isInteger(draft.place) || draft.place !== index + 1)) {
+    return { error: 'Paid places must be sequential, starting with first place.', payouts, total, valid: false };
+  }
+  if (drafts.some((draft) => draft.percent.trim() === '' || !Number.isFinite(Number(draft.percent)))) {
+    return { error: 'Enter a percentage for every paid place.', payouts, total, valid: false };
+  }
+  if (payouts.some((payout) => payout.percent < 0 || payout.percent > 100)) {
+    return { error: 'Each payout percentage must be between 0% and 100%.', payouts, total, valid: false };
+  }
+  if (Math.abs(total - 100) > 0.0001) {
+    return { error: `Prize allocation must total 100%. It currently totals ${total}%.`, payouts, total, valid: false };
+  }
+  return { error: '', payouts, total, valid: true };
+};
+
 const normalizeTournamentDraft = (draft: TournamentDraft) => ({
   buyIn: Math.max(0, Number(draft.buyIn) || 0),
   startingStack: Math.max(1000, Number(draft.startingStack) || 20_000),
@@ -49,6 +89,10 @@ export function createTournament(
   const name = draft.name.trim();
   if (!name) return null;
   const normalized = normalizeTournamentDraft(draft);
+  const payoutValidation = validateTournamentPayoutDrafts(
+    draft.payouts ?? createDefaultTournamentPayoutDrafts()
+  );
+  if (!payoutValidation.valid) return null;
   const tournament: Tournament = {
     id: dependencies.createId(),
     name,
@@ -61,7 +105,7 @@ export function createTournament(
     tableSize: normalized.tableSize,
     levels: defaultTournamentLevels().map((level) => ({ ...level, durationMinutes: normalized.levelMinutes })),
     players: [],
-    payouts: defaultTournamentPayouts()
+    payouts: payoutValidation.payouts
   };
   return { state: { ...state, tournaments: [tournament, ...state.tournaments] }, tournament };
 }
@@ -70,8 +114,12 @@ export function updateTournamentSettings(
   state: AppState,
   tournamentId: string,
   draft: TournamentDraft
-): AppState {
+): AppState | null {
   const normalized = normalizeTournamentDraft(draft);
+  const payoutValidation = draft.payouts
+    ? validateTournamentPayoutDrafts(draft.payouts)
+    : null;
+  if (payoutValidation && !payoutValidation.valid) return null;
   return replaceTournament(state, tournamentId, (tournament) => ({
     ...tournament,
     name: draft.name.trim() || tournament.name,
@@ -79,7 +127,8 @@ export function updateTournamentSettings(
     startingStack: normalized.startingStack,
     rebuyPrizePercent: normalized.rebuyPrizePercent,
     tableSize: normalized.tableSize,
-    levels: tournament.levels.map((level) => ({ ...level, durationMinutes: normalized.levelMinutes }))
+    levels: tournament.levels.map((level) => ({ ...level, durationMinutes: normalized.levelMinutes })),
+    payouts: payoutValidation?.payouts ?? tournament.payouts
   }));
 }
 
@@ -275,11 +324,14 @@ export function updateTournamentPayout(
   place: number,
   percent: number
 ): AppState {
+  const normalizedPercent = Number.isFinite(percent)
+    ? Math.min(100, Math.max(0, percent))
+    : 0;
   return replaceTournament(state, tournamentId, (tournament) => ({
     ...tournament,
     payouts: [
       ...tournament.payouts.filter((payout) => payout.place !== place),
-      { place, percent: Math.max(0, percent) }
+      { place, percent: normalizedPercent }
     ].sort((left, right) => left.place - right.place)
   }));
 }

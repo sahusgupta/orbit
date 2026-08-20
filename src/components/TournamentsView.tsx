@@ -1,7 +1,9 @@
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
-import { ChevronLeft, Clock, Edit3, Eye, LayoutDashboard, MoreHorizontal, Plus, Target, Users, WalletCards } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
-import PanelTitle from './PanelTitle';
+import { ChevronLeft, Edit3, Eye, MoreHorizontal, Plus, Target, Users, WalletCards } from 'lucide-react';
+import {
+  createDefaultTournamentPayoutDrafts,
+  validateTournamentPayoutDrafts
+} from '../application/management/tournamentCommands';
 import type { AppState, Tournament, TournamentLevel } from '../domain/types';
 import type {
   TournamentDraft,
@@ -9,6 +11,8 @@ import type {
   TournamentSection,
   TournamentView
 } from '../features/tournaments/tournamentWorkspace';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
+import PanelTitle from './PanelTitle';
 
 type TournamentsViewProps = {
   state: AppState;
@@ -50,17 +54,23 @@ type TournamentsViewProps = {
   updateTournamentPayout: (tournament: Tournament, place: number, percent: number) => void;
 };
 
+const formatPlace = (place: number) => {
+  const modulo100 = place % 100;
+  if (modulo100 >= 11 && modulo100 <= 13) return `${place}th`;
+  if (place % 10 === 1) return `${place}st`;
+  if (place % 10 === 2) return `${place}nd`;
+  if (place % 10 === 3) return `${place}rd`;
+  return `${place}th`;
+};
+
 export default function TournamentsView({
   state,
   tournament,
   currentLevel,
-  nextLevel,
   prizePool,
   remaining,
   tournamentDraft,
-  tournamentPayoutDrafts,
   tournamentPlayerDraft,
-  tournamentSection,
   tournamentView,
   addTournamentEntry,
   advanceTournamentLevel,
@@ -71,7 +81,6 @@ export default function TournamentsView({
   eliminateTournamentPlayer,
   formatTournamentTime,
   getTournamentActivePlayers,
-  getTournamentAverageStack,
   getTournamentEntries,
   onBeginCreate,
   openTournamentTv,
@@ -82,177 +91,247 @@ export default function TournamentsView({
   saveTournamentSettings,
   setSelectedTournamentId,
   setTournamentDraft,
-  setTournamentPayoutDrafts,
   setTournamentPlayerDraft,
-  setTournamentSection,
   setTournamentView,
-  startTournament,
-  updateTournamentPayout
+  startTournament
 }: TournamentsViewProps) {
+  const payoutDrafts = tournamentDraft.payouts ?? createDefaultTournamentPayoutDrafts();
+  const payoutValidation = validateTournamentPayoutDrafts(payoutDrafts);
+
+  const setPayoutDrafts = (payouts: NonNullable<TournamentDraft['payouts']>) => {
+    setTournamentDraft({ ...tournamentDraft, payouts });
+  };
+
   const tournamentForm = (mode: 'create' | 'edit') => (
     <form className="tournament-form tournament-focused-form" onSubmit={mode === 'create' ? createTournament : saveTournamentSettings}>
-      <label className="tournament-field tournament-field-wide"><span>Tournament name</span><input value={tournamentDraft.name} onChange={(event) => setTournamentDraft({ ...tournamentDraft, name: event.target.value })} placeholder="Friday Night Main Event" /></label>
-      <label className="tournament-field"><span>Buy-in</span><input value={tournamentDraft.buyIn} onChange={(event) => setTournamentDraft({ ...tournamentDraft, buyIn: event.target.value })} placeholder="$100" type="number" min="0" /></label>
-      <label className="tournament-field"><span>Starting stack</span><input value={tournamentDraft.startingStack} onChange={(event) => setTournamentDraft({ ...tournamentDraft, startingStack: event.target.value })} placeholder="20,000" type="number" min="1000" /></label>
-      <label className="tournament-field tournament-field-wide"><span>Level length <small>Minutes per blind level</small></span><input value={tournamentDraft.levelMinutes} onChange={(event) => setTournamentDraft({ ...tournamentDraft, levelMinutes: event.target.value })} placeholder="20 minutes" type="number" min="5" /></label>
-      <label className="tournament-field"><span>Rebuy to prize pool <small>Percent</small></span><input value={tournamentDraft.rebuyPrizePercent} onChange={(event) => setTournamentDraft({ ...tournamentDraft, rebuyPrizePercent: event.target.value })} type="number" min="0" max="100" /></label>
-      <label className="tournament-field"><span>Players per table</span><input value={tournamentDraft.tableSize} onChange={(event) => setTournamentDraft({ ...tournamentDraft, tableSize: event.target.value })} type="number" min="2" max="10" /></label>
+      <label className="tournament-field tournament-field-wide">
+        <span>Tournament name</span>
+        <input required value={tournamentDraft.name} onChange={(event) => setTournamentDraft({ ...tournamentDraft, name: event.target.value })} placeholder="Friday Night Main Event" />
+      </label>
+      <label className="tournament-field">
+        <span>Buy-in</span>
+        <input value={tournamentDraft.buyIn} onChange={(event) => setTournamentDraft({ ...tournamentDraft, buyIn: event.target.value })} placeholder="$100" type="number" min="0" />
+      </label>
+      <label className="tournament-field">
+        <span>Starting stack</span>
+        <input value={tournamentDraft.startingStack} onChange={(event) => setTournamentDraft({ ...tournamentDraft, startingStack: event.target.value })} placeholder="20,000" type="number" min="1000" />
+      </label>
+      <label className="tournament-field tournament-field-wide">
+        <span>Level length <small>Minutes per blind level</small></span>
+        <input value={tournamentDraft.levelMinutes} onChange={(event) => setTournamentDraft({ ...tournamentDraft, levelMinutes: event.target.value })} placeholder="20 minutes" type="number" min="5" />
+      </label>
+      <label className="tournament-field">
+        <span>Rebuy to prize pool <small>Percent</small></span>
+        <input value={tournamentDraft.rebuyPrizePercent} onChange={(event) => setTournamentDraft({ ...tournamentDraft, rebuyPrizePercent: event.target.value })} type="number" min="0" max="100" />
+      </label>
+      <label className="tournament-field">
+        <span>Players per table</span>
+        <input value={tournamentDraft.tableSize} onChange={(event) => setTournamentDraft({ ...tournamentDraft, tableSize: event.target.value })} type="number" min="2" max="10" />
+      </label>
+
+      <fieldset className="tournament-payout-editor">
+        <legend>Prize pool allocation</legend>
+        <div className="tournament-payout-editor-head">
+          <span>Paid places</span>
+          <strong className={payoutValidation.valid ? 'valid' : 'invalid'}>{payoutValidation.total}% allocated</strong>
+        </div>
+        <div className="tournament-payout-draft-list">
+          {payoutDrafts.map((payout, index) => (
+            <div className="tournament-payout-draft-row" key={payout.place}>
+              <strong>{formatPlace(payout.place)}</strong>
+              <label>
+                <input
+                  aria-label={`${formatPlace(payout.place)} place percent`}
+                  max="100"
+                  min="0"
+                  onChange={(event) => setPayoutDrafts(payoutDrafts.map((item, itemIndex) => (
+                    itemIndex === index ? { ...item, percent: event.target.value } : item
+                  )))}
+                  step="0.01"
+                  type="number"
+                  value={payout.percent}
+                />
+                <span aria-hidden="true">%</span>
+              </label>
+              <button
+                aria-label={`Remove ${formatPlace(payout.place)} payout`}
+                className="ghost-button tournament-payout-remove"
+                disabled={payoutDrafts.length === 1}
+                onClick={() => setPayoutDrafts(
+                  payoutDrafts
+                    .filter((_, itemIndex) => itemIndex !== index)
+                    .map((item, itemIndex) => ({ ...item, place: itemIndex + 1 }))
+                )}
+                type="button"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="tournament-payout-editor-footer">
+          <button
+            className="ghost-button"
+            onClick={() => setPayoutDrafts([
+              ...payoutDrafts,
+              { place: payoutDrafts.length + 1, percent: '0' }
+            ])}
+            type="button"
+          >
+            <Plus size={15} /> Add paid place
+          </button>
+          <span aria-live="polite" className={payoutValidation.valid ? 'valid' : 'invalid'}>
+            {payoutValidation.valid ? 'Allocation complete.' : payoutValidation.error}
+          </span>
+        </div>
+      </fieldset>
+
       <div className="tournament-form-actions">
-        <button className="ghost-button" type="button" onClick={() => setTournamentView('library')}>Cancel</button>
-        <button className="primary-button" type="submit">{mode === 'create' ? 'Create tournament' : 'Save changes'}</button>
+        <button className="ghost-button" type="button" onClick={() => setTournamentView(mode === 'edit' ? 'manage' : 'library')}>Cancel</button>
+        <button className="primary-button" disabled={!payoutValidation.valid || !tournamentDraft.name.trim()} type="submit">
+          {mode === 'create' ? 'Create tournament' : 'Save changes'}
+        </button>
       </div>
     </form>
   );
 
   return (
-      <main className="app-shell compact-shell tournament-manager-shell">
-        <header className={tournamentView === 'library' ? 'topbar tournament-library-header' : 'page-header'}>
-          <div>
-            <h1>{tournamentView === 'library' ? 'Tournaments' : tournamentView === 'create' ? 'Create tournament' : tournamentView === 'edit' ? 'Edit tournament' : tournament?.name}</h1>
-            {tournamentView === 'manage' && tournament ? (
-              <div className="tournament-header-meta">
-                <span className={`tournament-status-dot status-${tournament.status.toLowerCase()}`} />
-                <span>{tournament.status}</span>
-                <span aria-hidden="true">·</span>
-                <span>{getTournamentEntries(tournament)} entries</span>
-                <span aria-hidden="true">·</span>
-                <span>${tournament.buyIn.toLocaleString()} buy-in</span>
+    <main className="app-shell compact-shell tournament-manager-shell">
+      <header className={tournamentView === 'library' ? 'topbar tournament-library-header' : 'page-header'}>
+        <div>
+          <h1>{tournamentView === 'library' ? 'Tournaments' : tournamentView === 'create' ? 'Create tournament' : tournamentView === 'edit' ? 'Edit tournament' : tournament?.name}</h1>
+          {tournamentView === 'manage' && tournament ? (
+            <div className="tournament-header-meta">
+              <span className={`tournament-status-dot status-${tournament.status.toLowerCase()}`} />
+              <span>{tournament.status}</span>
+              <span aria-hidden="true">·</span>
+              <span>{getTournamentEntries(tournament)} entries</span>
+              <span aria-hidden="true">·</span>
+              <span>${tournament.buyIn.toLocaleString()} buy-in</span>
+              <span aria-hidden="true">·</span>
+              <span>Level {currentLevel?.level ?? '-'} / {formatTournamentTime(remaining)}</span>
+            </div>
+          ) : null}
+        </div>
+        <div className="header-actions">
+          {tournamentView === 'library' ? <button className="primary-button" onClick={onBeginCreate}><Plus size={17} /> New tournament</button> : null}
+          {tournamentView === 'manage' && tournament ? (
+            <>
+              <button className="ghost-button tournament-library-back" onClick={() => setTournamentView('library')}><ChevronLeft size={17} /> All tournaments</button>
+              <div className="tournament-lifecycle-actions" aria-label="Tournament controls">
+                {tournament.status === 'Draft' ? <button className="primary-button" onClick={() => startTournament(tournament)}>Start</button> : null}
+                {tournament.status === 'Running' ? <button className="secondary-button" onClick={() => pauseTournament(tournament)}>Pause</button> : null}
+                {tournament.status === 'Paused' ? <button className="primary-button" onClick={() => resumeTournament(tournament)}>Resume</button> : null}
+                {tournament.status !== 'Finished' ? (
+                  <>
+                    <button className="ghost-button" disabled={tournament.currentLevelIndex === 0} onClick={() => advanceTournamentLevel(tournament, -1)}>Prev Level</button>
+                    <button className="ghost-button" disabled={tournament.currentLevelIndex >= tournament.levels.length - 1} onClick={() => advanceTournamentLevel(tournament, 1)}>Next Level</button>
+                  </>
+                ) : null}
+                <button className="secondary-button" onClick={() => openTournamentTv(tournament.id)}><Eye size={17} /> TV View</button>
               </div>
-            ) : null}
-          </div>
-          <div className="header-actions">
-            {tournamentView === 'library' ? <button className="primary-button" onClick={onBeginCreate}><Plus size={17} /> New tournament</button> : null}
-            {tournamentView === 'create' || tournamentView === 'edit' ? <button className="ghost-button" onClick={() => setTournamentView('library')}><ChevronLeft size={17} /> Cancel</button> : null}
-            {tournamentView === 'manage' && tournament && (tournament.status === 'Running' || tournament.status === 'Paused') ? <button className="secondary-button" onClick={() => openTournamentTv(tournament.id)}><Eye size={17} /> TV View</button> : null}
-          </div>
-        </header>
+            </>
+          ) : null}
+        </div>
+      </header>
 
-        {tournamentView === 'library' ? (
-          <section className="tournament-library">
-            <button className="tournament-new-card" onClick={onBeginCreate}>
-              <span><Plus size={28} /></span><strong>Create a new tournament</strong><small>Build a fresh structure from scratch</small>
-            </button>
-            {state.tournaments.length ? <div className="tournament-library-list">
-              {state.tournaments.map((item) => (
-                <article className="tournament-library-card" key={item.id}>
-                  <button className="tournament-library-main" onClick={() => { setSelectedTournamentId(item.id); setTournamentSection('clock'); setTournamentView('manage'); }}>
-                    <span className={`tournament-library-icon tournament-library-icon-${item.status.toLowerCase()}`}><Target size={22} /></span>
-                    <span><strong>{item.name}</strong><small>{item.status} · {getTournamentEntries(item)} entries · ${item.buyIn.toLocaleString()} buy-in</small></span>
-                  </button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild><button aria-label={`Actions for ${item.name}`} className="icon-button" title="Tournament actions"><MoreHorizontal size={18} /></button></DropdownMenuTrigger>
-                    <DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => beginTournamentEdit(item)}>Edit tournament</DropdownMenuItem><DropdownMenuItem onSelect={() => runTournamentAgain(item)}>Run again</DropdownMenuItem></DropdownMenuContent>
-                  </DropdownMenu>
-                </article>
-              ))}
-            </div> : <div className="tournament-empty-library"><Target size={32} /><strong>No tournaments yet</strong><span>Create your first one above.</span></div>}
-          </section>
-        ) : tournamentView === 'create' || tournamentView === 'edit' ? (
-          <section className="panel tournament-panel tournament-form-panel">
-            <PanelTitle icon={tournamentView === 'create' ? <Plus /> : <Edit3 />} title={tournamentView === 'create' ? 'Tournament setup' : 'Tournament details'} />
-            {tournamentForm(tournamentView)}
-          </section>
-        ) : tournament ? (
-          <section className="tournament-workspace">
-            <nav className="tournament-section-nav" aria-label="Tournament sections">
-              <button className={tournamentSection === 'clock' ? 'active' : ''} onClick={() => setTournamentSection('clock')}><Clock size={18} /> Clock & levels</button>
-              <button className={tournamentSection === 'players' ? 'active' : ''} onClick={() => setTournamentSection('players')}><Users size={18} /> Players</button>
-              <button className={tournamentSection === 'tables' ? 'active' : ''} onClick={() => setTournamentSection('tables')}><LayoutDashboard size={18} /> Tables</button>
-              <button className={tournamentSection === 'payouts' ? 'active' : ''} onClick={() => setTournamentSection('payouts')}><WalletCards size={18} /> Payouts</button>
-            </nav>
-
-            {tournamentSection === 'clock' ? <section className="panel tournament-panel tournament-control-panel">
-                <div className="tournament-clock-card">
-                  <span className={`tournament-status tournament-status-${tournament.status.toLowerCase()}`}>{tournament.status}</span>
-                  <strong>{formatTournamentTime(remaining)}</strong>
-                  <small>Level {(tournament.currentLevelIndex + 1).toString()} - {currentLevel ? `${currentLevel.smallBlind}/${currentLevel.bigBlind}${currentLevel.ante ? `/${currentLevel.ante}` : ''}` : '-'}</small>
+      {tournamentView === 'library' ? (
+        <section className="tournament-library">
+          <button className="tournament-new-card" onClick={onBeginCreate}>
+            <span><Plus size={28} /></span><strong>Create a new tournament</strong><small>Build a fresh structure from scratch</small>
+          </button>
+          {state.tournaments.length ? <div className="tournament-library-list">
+            {state.tournaments.map((item) => (
+              <article className="tournament-library-card" key={item.id}>
+                <button className="tournament-library-main" onClick={() => { setSelectedTournamentId(item.id); setTournamentView('manage'); }}>
+                  <span className={`tournament-library-icon tournament-library-icon-${item.status.toLowerCase()}`}><Target size={22} /></span>
+                  <span><strong>{item.name}</strong><small>{item.status} · {getTournamentEntries(item)} entries · ${item.buyIn.toLocaleString()} buy-in</small></span>
+                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild><button aria-label={`Actions for ${item.name}`} className="icon-button" title="Tournament actions"><MoreHorizontal size={18} /></button></DropdownMenuTrigger>
+                  <DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => beginTournamentEdit(item)}>Edit tournament</DropdownMenuItem><DropdownMenuItem onSelect={() => runTournamentAgain(item)}>Run again</DropdownMenuItem></DropdownMenuContent>
+                </DropdownMenu>
+              </article>
+            ))}
+          </div> : <div className="tournament-empty-library"><Target size={32} /><strong>No tournaments yet</strong><span>Create your first one above.</span></div>}
+        </section>
+      ) : tournamentView === 'create' || tournamentView === 'edit' ? (
+        <section className="panel tournament-panel tournament-form-panel">
+          <PanelTitle icon={tournamentView === 'create' ? <Plus /> : <Edit3 />} title={tournamentView === 'create' ? 'Tournament setup' : 'Tournament details'} />
+          {tournamentForm(tournamentView)}
+        </section>
+      ) : tournament ? (
+        <section className="tournament-workspace">
+          <div className="tournament-client-grid">
+            <section className="panel tournament-panel tournament-players-panel">
+              <div className="tournament-panel-heading">
+                <PanelTitle icon={<Users />} title="Players" />
+                <div>
+                  <span>{getTournamentActivePlayers(tournament)} active</span>
+                  <button className="ghost-button" onClick={() => drawTournamentTables(tournament)}>Assign tables</button>
                 </div>
-                <div className="tournament-actions">
-                  {tournament.status === 'Running' ? (
-                    <button className="secondary-button" onClick={() => pauseTournament(tournament)}>Pause</button>
-                  ) : tournament.status === 'Paused' ? (
-                    <button className="primary-button" onClick={() => resumeTournament(tournament)}>Resume</button>
-                  ) : (
-                    <button className="primary-button" onClick={() => startTournament(tournament)}>Start</button>
-                  )}
-                  <button className="ghost-button" onClick={() => advanceTournamentLevel(tournament, -1)}>Prev Level</button>
-                  <button className="ghost-button" onClick={() => advanceTournamentLevel(tournament, 1)}>Next Level</button>
-                </div>
-                <div className="tournament-level-strip">
-                  <article><span>Next</span><strong>{nextLevel ? `${nextLevel.smallBlind}/${nextLevel.bigBlind}` : 'Final'}</strong></article>
-                  <article><span>Entries</span><strong>{getTournamentEntries(tournament)}</strong></article>
-                  <article><span>Remaining</span><strong>{getTournamentActivePlayers(tournament)}</strong></article>
-                  <article><span>Avg stack</span><strong>{getTournamentAverageStack(tournament).toLocaleString()}</strong></article>
-                </div>
-            </section> : null}
-
-            {tournamentSection === 'tables' ? <section className="panel tournament-panel tournament-tables-panel">
-              <div className="tournament-tables-head"><div><h2>Table overview</h2><p>{tournament.players.filter((player) => player.status !== 'Eliminated').length} active participants · {tournament.tableSize} seats per table</p></div><button className="primary-button" onClick={() => drawTournamentTables(tournament)}>Draw all participants</button></div>
-              <div className="tournament-table-grid">
-                {Array.from(new Set(tournament.players.filter((player) => player.tableNumber).map((player) => player.tableNumber!))).sort((a, b) => a - b).map((tableNumber) => <article key={tableNumber}><header><strong>Table {tableNumber}</strong><span>{tournament.players.filter((player) => player.tableNumber === tableNumber && player.status !== 'Eliminated').length}/{tournament.tableSize}</span></header>{tournament.players.filter((player) => player.tableNumber === tableNumber && player.status !== 'Eliminated').sort((a, b) => (a.seatNumber ?? 0) - (b.seatNumber ?? 0)).map((player) => <div key={player.id}><span>Seat {player.seatNumber}</span><strong>{player.name}</strong></div>)}</article>)}
-                {!tournament.players.some((player) => player.tableNumber) ? <div className="tournament-table-empty">Draw participants to create balanced table assignments.</div> : null}
               </div>
-            </section> : null}
+              <form className="tournament-form" onSubmit={registerTournamentPlayer}>
+                <label className="tournament-field tournament-field-wide"><span>Player source <small>Saved profile or someone new</small></span><select value={tournamentPlayerDraft.profileId} onChange={(event) => {
+                  const profile = state.profiles.find((item) => item.id === event.target.value);
+                  setTournamentPlayerDraft({ ...tournamentPlayerDraft, profileId: event.target.value, name: profile?.name ?? tournamentPlayerDraft.name, phone: profile?.phone ?? tournamentPlayerDraft.phone });
+                }}>
+                  <option value="">New / manual player</option>
+                  {state.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+                </select></label>
+                <label className="tournament-field tournament-field-wide"><span>Player name</span><input value={tournamentPlayerDraft.name} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, name: event.target.value })} placeholder="Full name" /></label>
+                <label className="tournament-field"><span>Phone <small>Optional</small></span><input value={tournamentPlayerDraft.phone} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, phone: event.target.value })} placeholder="(555) 555-0123" /></label>
+                <label className="tournament-field"><span>Email <small>Optional</small></span><input value={tournamentPlayerDraft.email} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, email: event.target.value })} placeholder="player@example.com" /></label>
+                <button className="primary-button tournament-submit" type="submit">Register player</button>
+              </form>
+              <div className="tournament-section-label">Registered field</div>
+              <div className="tournament-player-list">
+                {tournament.players.map((player) => (
+                  <article key={player.id}>
+                    <div>
+                      <strong>{player.name}</strong>
+                      <span>{[
+                        player.status,
+                        player.tableNumber ? `Table ${player.tableNumber}${player.seatNumber ? ` / Seat ${player.seatNumber}` : ''}` : '',
+                        `${player.rebuys} rebuys`,
+                        `${player.addOns} add-ons`
+                      ].filter(Boolean).join(' · ')}</span>
+                    </div>
+                    <div className="tournament-player-actions">
+                      {player.status === 'Registered' ? <button className="mini-button" onClick={() => checkInTournamentPlayer(tournament, player.id)}>Check in</button> : null}
+                      <button className="mini-button" onClick={() => addTournamentEntry(tournament, player.id, 'rebuys')}>Rebuy</button>
+                      <button className="mini-button" onClick={() => addTournamentEntry(tournament, player.id, 'addOns')}>Add-on</button>
+                      {player.status !== 'Eliminated' ? <button className="mini-button" onClick={() => eliminateTournamentPlayer(tournament, player.id)}>Out</button> : null}
+                    </div>
+                  </article>
+                ))}
+                {!tournament.players.length ? <div className="tournament-player-empty">No players registered.</div> : null}
+              </div>
+            </section>
 
-            {tournamentSection === 'players' ? <section className="panel tournament-panel tournament-players-panel">
-            <PanelTitle icon={<Users />} title="Register Players" />
-                <form className="tournament-form" onSubmit={registerTournamentPlayer}>
-                  <label className="tournament-field tournament-field-wide"><span>Player source <small>Saved profile or someone new</small></span><select value={tournamentPlayerDraft.profileId} onChange={(event) => {
-                    const profile = state.profiles.find((item) => item.id === event.target.value);
-                    setTournamentPlayerDraft({ ...tournamentPlayerDraft, profileId: event.target.value, name: profile?.name ?? tournamentPlayerDraft.name, phone: profile?.phone ?? tournamentPlayerDraft.phone });
-                  }}>
-                    <option value="">New / manual player</option>
-                    {state.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-                  </select></label>
-                  <label className="tournament-field tournament-field-wide"><span>Player name</span><input value={tournamentPlayerDraft.name} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, name: event.target.value })} placeholder="Full name" /></label>
-                  <label className="tournament-field"><span>Phone <small>Optional</small></span><input value={tournamentPlayerDraft.phone} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, phone: event.target.value })} placeholder="(555) 555-0123" /></label>
-                  <label className="tournament-field"><span>Email <small>Optional</small></span><input value={tournamentPlayerDraft.email} onChange={(event) => setTournamentPlayerDraft({ ...tournamentPlayerDraft, email: event.target.value })} placeholder="player@example.com" /></label>
-                  <button className="primary-button tournament-submit" type="submit">Register player</button>
-                </form>
-                <div className="tournament-section-label">Registered field</div>
-                <div className="tournament-player-list">
-                  {tournament.players.map((player) => (
-                    <article key={player.id}>
-                      <div>
-                        <strong>{player.name}</strong>
-                        <span>{player.status} · {player.rebuys} rebuys · {player.addOns} add-ons</span>
-                      </div>
-                      <div className="tournament-player-actions">
-                        {player.status === 'Registered' ? <button className="mini-button" onClick={() => checkInTournamentPlayer(tournament, player.id)}>Check in</button> : null}
-                        <button className="mini-button" onClick={() => addTournamentEntry(tournament, player.id, 'rebuys')}>Rebuy</button>
-                        <button className="mini-button" onClick={() => addTournamentEntry(tournament, player.id, 'addOns')}>Add-on</button>
-                        {player.status !== 'Eliminated' ? <button className="mini-button" onClick={() => eliminateTournamentPlayer(tournament, player.id)}>Out</button> : null}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-            </section> : null}
-
-            {tournamentSection === 'payouts' ? <section className="panel tournament-panel tournament-prize-panel">
-            <PanelTitle icon={<Target />} title="Prize Pool" />
-                <div className="tournament-prize-total">
-                  <span>Total prize pool</span>
-                  <strong>${prizePool.toLocaleString()}</strong>
-                </div>
-                <div className="tournament-payout-list">
-                  {tournament.payouts.map((payout) => (
-                    <label key={payout.place}>
-                      <span>{payout.place}{payout.place === 1 ? 'st' : payout.place === 2 ? 'nd' : payout.place === 3 ? 'rd' : 'th'}</span>
-                      <input
-                        value={tournamentPayoutDrafts[payout.place] ?? String(payout.percent)}
-                        onChange={(event) => setTournamentPayoutDrafts({ ...tournamentPayoutDrafts, [payout.place]: event.target.value })}
-                        onBlur={(event) => updateTournamentPayout(tournament, payout.place, Number(event.target.value) || 0)}
-                        type="number"
-                        min="0"
-                        max="100"
-                      />
-                      <strong>${Math.round(prizePool * (payout.percent / 100)).toLocaleString()}</strong>
-                    </label>
-                  ))}
-                </div>
-            </section> : null}
-          </section>
-        ) : null}
-      </main>
+            <section className="panel tournament-panel tournament-prize-panel">
+              <div className="tournament-panel-heading">
+                <PanelTitle icon={<WalletCards />} title="Prize Pool" />
+                <button className="ghost-button" onClick={() => beginTournamentEdit(tournament)}><Edit3 size={15} /> Edit allocation</button>
+              </div>
+              <div className="tournament-prize-total">
+                <span>Total prize pool</span>
+                <strong>${prizePool.toLocaleString()}</strong>
+              </div>
+              <div className="tournament-payout-list">
+                {tournament.payouts.map((payout) => (
+                  <article key={payout.place}>
+                    <span>{formatPlace(payout.place)}</span>
+                    <strong>{payout.percent}%</strong>
+                    <b>${Math.round(prizePool * (payout.percent / 100)).toLocaleString()}</b>
+                  </article>
+                ))}
+                {!tournament.payouts.length ? <div className="tournament-player-empty">No payout allocation configured.</div> : null}
+              </div>
+            </section>
+          </div>
+        </section>
+      ) : null}
+    </main>
   );
 }

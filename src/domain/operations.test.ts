@@ -106,6 +106,7 @@ const buildDemandState = (): AppState => ({
   feedback: [],
   settings: {
     ...structuredClone(seedState.settings),
+    defaultHourlyFee: 12,
     collectionProfiles: [{ gameId: game.id, collectionMode: 'Time', hourlyFee: 12, estimatedDropPerSeatHour: 5 }]
   }
 });
@@ -410,5 +411,33 @@ describe('management operational domain projections', () => {
     expect(report.usage.totalEvents).toBe(3);
     expect(report.feedback).toEqual(state.feedback);
     expect(state).toEqual(before);
+  });
+
+  it('keeps analytics on exact mixed-rate time-fee amounts', () => {
+    const state = buildAnalyticsState();
+    state.playerSessions[0] = { ...state.playerSessions[0], timePurchasedMinutes: 90 };
+    state.timeFeeLogs = [{
+      id: 'time-initial',
+      playerSessionId: 'player-current',
+      tableId: runningTable.id,
+      gameId: game.id,
+      playerName: 'Current Player',
+      minutes: 60,
+      amount: 10,
+      timestamp: '2026-08-07T20:00:00.000Z'
+    }, {
+      id: 'time-added',
+      playerSessionId: 'player-current',
+      tableId: runningTable.id,
+      gameId: game.id,
+      playerName: 'Current Player',
+      minutes: 30,
+      amount: 6,
+      timestamp: '2026-08-07T20:45:00.000Z'
+    }];
+
+    const analytics = operations.getAnalytics(state);
+    expect(analytics.estimatedTimeFeeRevenue).toBe(16);
+    expect(analytics.collectionValueByGame[0].timeRevenue).toBe(16);
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { DollarSign, Plus, X } from 'lucide-react';
 import { getTimerStatusFromSeconds } from '../lib/appCore';
 
@@ -19,6 +19,20 @@ export interface Player {
   recentBuyIns?: { id: string; label: string }[];
 }
 
+export type PokerTableRevenueEstimate = {
+  label: string;
+  value: string;
+};
+
+export type PokerTableDealerControl = {
+  currentDealer?: string;
+  value: string;
+  options: readonly string[];
+  onChange: (dealerName: string) => void;
+  onAssign: () => void;
+  onEnd?: () => void;
+};
+
 /**
  * Props for the PokerTable component
  */
@@ -34,6 +48,8 @@ export interface PokerTableProps {
   onChangeSeat?: (playerId: string, seatNumber: number) => void;
   moveTargets?: { id: string; label: string; openSeats: number }[];
   onMovePlayer?: (playerId: string, targetTableId: string) => void;
+  revenueEstimate?: PokerTableRevenueEstimate;
+  dealerControl?: PokerTableDealerControl;
 }
 
 interface PlayerCardProps {
@@ -43,6 +59,7 @@ interface PlayerCardProps {
   showTimeRemaining: boolean;
   isOpen: boolean;
   onToggle: () => void;
+  onClose: () => void;
   isDragging: boolean;
   onDragStart: (playerId: string) => void;
   onDragEnd: () => void;
@@ -65,6 +82,8 @@ const formatDuration = (seconds: number) => {
     : `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
 };
 
+type PlayerAction = 'time' | 'buy-in' | null;
+
 function PlayerCard({
   player,
   position,
@@ -72,6 +91,7 @@ function PlayerCard({
   showTimeRemaining,
   isOpen,
   onToggle,
+  onClose,
   isDragging,
   onDragStart,
   onDragEnd,
@@ -87,12 +107,54 @@ function PlayerCard({
   const [customMinutes, setCustomMinutes] = useState('');
   const [buyInAmount, setBuyInAmount] = useState('');
   const [buyInNote, setBuyInNote] = useState('');
+  const [activeAction, setActiveAction] = useState<PlayerAction>(null);
+  const [actionMessage, setActionMessage] = useState('');
+  const cardRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const suppressClickRef = useRef(false);
+  const menuId = useId();
+  const menuHeadingId = `${menuId}-heading`;
+  const timerDescriptionId = `${menuId}-timer`;
+  const positionHeadingId = `${menuId}-position-heading`;
+  const actionsHeadingId = `${menuId}-actions-heading`;
+  const timePanelId = `${menuId}-time-panel`;
+  const buyInPanelId = `${menuId}-buy-in-panel`;
+  const customMinutesId = `${menuId}-custom-minutes`;
+  const buyInAmountId = `${menuId}-buy-in-amount`;
+  const buyInNoteId = `${menuId}-buy-in-note`;
 
   useEffect(() => {
     const interval = window.setInterval(() => setCurrentTime(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !cardRef.current?.contains(event.target)) onClose();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onClose();
+      triggerRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
+  useEffect(() => {
+    if (isOpen) return;
+    setActiveAction(null);
+    setCustomMinutes('');
+    setBuyInAmount('');
+    setBuyInNote('');
+    setActionMessage('');
+  }, [isOpen]);
 
   const totalSecondsAtTable = Math.max(0, Math.floor((currentTime - player.joinedAt) / 1000));
   const timeAtTableDisplay = formatDuration(totalSecondsAtTable);
@@ -103,6 +165,11 @@ function PlayerCard({
   );
   const timeRemainingDisplay = formatDuration(timeRemainingSeconds);
   const timerStatus = getTimerStatusFromSeconds(timeRemainingSeconds);
+  const timerStatusLabel = timerStatus === 'red'
+    ? 'needs attention'
+    : timerStatus === 'yellow'
+      ? 'approaching'
+      : 'on track';
   const isDense = totalPositions >= 8;
   const seat = getSeatPosition(player.seatNumber ?? position + 1, totalPositions);
   const menuPositionClass = [
@@ -110,39 +177,55 @@ function PlayerCard({
     seat.x < 24 ? 'align-left' : seat.x > 76 ? 'align-right' : 'align-center'
   ].join(' ');
   const seatEdgeClass = seat.y < 34 ? 'edge-top' : seat.y > 66 ? 'edge-bottom' : seat.x < 50 ? 'edge-left' : 'edge-right';
-  const addCustomTime = () => {
-    const minutes = Number(customMinutes);
-    if (!Number.isFinite(minutes) || minutes <= 0) return;
+  const addTime = (minutes: number) => {
     onAddTime?.(player.id, minutes);
     setCustomMinutes('');
+    setActiveAction(null);
+    setActionMessage(`${minutes} minutes added.`);
+  };
+  const addCustomTime = () => {
+    const minutes = Number(customMinutes);
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      setActionMessage('Enter minutes greater than zero.');
+      return;
+    }
+    addTime(minutes);
   };
   const addBuyIn = () => {
     const amount = Number(buyInAmount);
-    if (!Number.isFinite(amount) || amount <= 0) return;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setActionMessage('Enter a buy-in amount greater than zero.');
+      return;
+    }
     onAddBuyIn?.(player.id, amount, buyInNote.trim());
     setBuyInAmount('');
     setBuyInNote('');
+    setActiveAction(null);
+    setActionMessage(`$${amount.toLocaleString()} buy-in recorded.`);
+  };
+  const selectAction = (action: Exclude<PlayerAction, null>) => {
+    setActiveAction(action);
+    setActionMessage('');
+    if (action === 'time') {
+      setBuyInAmount('');
+      setBuyInNote('');
+    } else {
+      setCustomMinutes('');
+    }
   };
 
   return (
-    <div className={`poker-seat-card ${seatEdgeClass} ${isOpen ? 'open' : ''} ${isDense ? 'dense' : ''} ${isDragging ? 'dragging' : ''}`} style={{ left: `${seat.x}%`, top: `${seat.y}%` }}>
+    <div ref={cardRef} className={`poker-seat-card ${seatEdgeClass} ${isOpen ? 'open' : ''} ${isDense ? 'dense' : ''} ${isDragging ? 'dragging' : ''}`} style={{ left: `${seat.x}%`, top: `${seat.y}%` }}>
       <button
-        className="poker-seat-remove-button"
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onRemovePlayer?.(player.id);
-        }}
-        title={`${player.name} left table`}
-      >
-        <X size={13} />
-      </button>
-      <button
+        ref={triggerRef}
         className={`poker-seat-card-inner ${isOpen ? 'open' : ''}`}
         type="button"
         draggable
-        aria-label={`Move ${player.name} from seat ${player.seatNumber ?? position + 1}`}
-        title={`${player.name} · $${(player.buyInTotal ?? 0).toLocaleString()} · ${showTimeRemaining ? `${timeRemainingDisplay} remaining` : `${timeAtTableDisplay} at table`}`}
+        aria-controls={menuId}
+        aria-describedby={timerDescriptionId}
+        aria-expanded={isOpen}
+        aria-label={`Open details for ${player.name} at seat ${player.seatNumber ?? position + 1}`}
+        title={`Open player details for ${player.name}`}
         onClick={() => {
           if (!suppressClickRef.current) onToggle();
         }}
@@ -165,21 +248,39 @@ function PlayerCard({
       >
         <span className="poker-seat-number">{player.seatNumber ?? position + 1}</span>
         <strong className="poker-seat-player-name">{player.name}</strong>
-        <span className="poker-seat-buyin">${(player.buyInTotal ?? 0).toLocaleString()}</span>
         {showTimeRemaining
-          ? <em className={`poker-seat-time ${timerStatus}`}>{timeRemainingDisplay}</em>
-          : <em className="poker-seat-time">{timeAtTableDisplay}</em>}
+          ? <em aria-hidden="true" className={`poker-seat-time ${timerStatus}`}>{timeRemainingDisplay}</em>
+          : <em aria-hidden="true" className="poker-seat-time">{timeAtTableDisplay}</em>}
+        <span className="sr-only" id={timerDescriptionId}>
+          {showTimeRemaining
+            ? `${timeRemainingDisplay} remaining, ${timerStatusLabel}`
+            : `${timeAtTableDisplay} at table`}
+        </span>
       </button>
       {isOpen ? (
-        <div className={`poker-seat-menu ${menuPositionClass}`} onClick={(event) => event.stopPropagation()}>
+        <div
+          aria-labelledby={menuHeadingId}
+          className={`poker-seat-menu ${menuPositionClass}`}
+          id={menuId}
+          onClick={(event) => event.stopPropagation()}
+          role="region"
+        >
           <div className="poker-seat-menu-header">
             <div>
-              <strong>{player.name}</strong>
-              <span>ID: {player.membershipId}</span>
+              <strong id={menuHeadingId}>{player.name}</strong>
             </div>
             <div className="poker-seat-menu-header-actions">
               <strong>${(player.buyInTotal ?? 0).toLocaleString()}</strong>
-              <button aria-label="Close player details" className="icon-button" type="button" onClick={onToggle} title="Close player details">
+              <button
+                aria-label="Close player details"
+                className="icon-button"
+                type="button"
+                onClick={() => {
+                  onClose();
+                  triggerRef.current?.focus();
+                }}
+                title="Close player details"
+              >
                 <X size={15} />
               </button>
             </div>
@@ -190,79 +291,141 @@ function PlayerCard({
             <span>Tonight <strong>{player.tonightHours ?? '0.0h'}</strong></span>
             <span>Total <strong>{player.totalHours ?? '0.0h'}</strong></span>
           </div>
-          <div className="poker-seat-menu-row seat-number-row">
-            <label htmlFor={`change-seat-${player.id}`}>Seat #</label>
-            <select
-              id={`change-seat-${player.id}`}
-              value={player.seatNumber ?? position + 1}
-              onChange={(event) => onChangeSeat?.(player.id, Number(event.target.value))}
-            >
-              {seatOptions.map((seatNumber) => (
-                <option key={seatNumber} value={seatNumber}>
-                  Seat {seatNumber}
-                </option>
-              ))}
-            </select>
-          </div>
-          {showTimeRemaining ? (
-            <div className="poker-seat-menu-row">
-              <button className="mini-button" type="button" onClick={() => onAddTime?.(player.id, 30)}>+30</button>
-              <button className="mini-button" type="button" onClick={() => onAddTime?.(player.id, 60)}>+60</button>
-              <input
-                value={customMinutes}
-                onChange={(event) => setCustomMinutes(event.target.value)}
-                placeholder="Min"
-                type="number"
-              />
-              <button className="secondary-button" type="button" onClick={addCustomTime}>
-                <Plus size={15} />
-                Time
-              </button>
-            </div>
-          ) : null}
-          <div className="poker-seat-menu-row buyin">
-            <input
-              value={buyInAmount}
-              onChange={(event) => setBuyInAmount(event.target.value)}
-              placeholder="Buy-in $"
-              type="number"
-            />
-            <input value={buyInNote} onChange={(event) => setBuyInNote(event.target.value)} placeholder="Note" />
-            <button className="secondary-button" type="button" onClick={addBuyIn}>
-              <DollarSign size={15} />
-              Add
-            </button>
-          </div>
-          {moveTargets.length ? (
-            <div className="poker-seat-menu-row move-player-row">
-              <label htmlFor={`move-player-${player.id}`}>Move to table</label>
+          <section className="poker-seat-menu-section" aria-labelledby={positionHeadingId}>
+            <h4 className="poker-seat-menu-section-title" id={positionHeadingId}>Table position</h4>
+            <div className="poker-seat-menu-row seat-number-row">
+              <label htmlFor={`change-seat-${player.id}`}>Seat</label>
               <select
-                id={`move-player-${player.id}`}
-                defaultValue=""
-                onChange={(event) => {
-                  const targetTableId = event.target.value;
-                  if (!targetTableId) return;
-                  onMovePlayer?.(player.id, targetTableId);
-                  onToggle();
-                }}
+                id={`change-seat-${player.id}`}
+                value={player.seatNumber ?? position + 1}
+                onChange={(event) => onChangeSeat?.(player.id, Number(event.target.value))}
               >
-                <option value="">Choose table...</option>
-                {moveTargets.map((target) => (
-                  <option key={target.id} value={target.id}>
-                    {target.label} ({target.openSeats} open)
+                {seatOptions.map((seatNumber) => (
+                  <option key={seatNumber} value={seatNumber}>
+                    Seat {seatNumber}
                   </option>
                 ))}
               </select>
             </div>
+            {moveTargets.length ? (
+              <div className="poker-seat-menu-row move-player-row">
+                <label htmlFor={`move-player-${player.id}`}>Move to table</label>
+                <select
+                  id={`move-player-${player.id}`}
+                  defaultValue=""
+                  onChange={(event) => {
+                    const targetTableId = event.target.value;
+                    if (!targetTableId) return;
+                    onMovePlayer?.(player.id, targetTableId);
+                    onClose();
+                  }}
+                >
+                  <option value="">Choose table...</option>
+                  {moveTargets.map((target) => (
+                    <option key={target.id} value={target.id}>
+                      {target.label} ({target.openSeats} open)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+          </section>
+          {onAddTime || onAddBuyIn ? (
+            <section className="poker-seat-menu-section poker-seat-actions" aria-labelledby={actionsHeadingId}>
+              <h4 className="poker-seat-menu-section-title" id={actionsHeadingId}>Player actions</h4>
+              <div className="poker-seat-action-picker" role="group" aria-label={`Choose an action for ${player.name}`}>
+                {showTimeRemaining && onAddTime ? (
+                  <button
+                    aria-label={`Show add time controls for ${player.name}`}
+                    aria-controls={timePanelId}
+                    aria-pressed={activeAction === 'time'}
+                    className="poker-seat-action-choice"
+                    onClick={() => selectAction('time')}
+                    type="button"
+                  >
+                    <Plus size={15} /> Add time
+                  </button>
+                ) : null}
+                {onAddBuyIn ? (
+                  <button
+                    aria-label={`Show buy-in form for ${player.name}`}
+                    aria-controls={buyInPanelId}
+                    aria-pressed={activeAction === 'buy-in'}
+                    className="poker-seat-action-choice"
+                    onClick={() => selectAction('buy-in')}
+                    type="button"
+                  >
+                    <DollarSign size={15} /> Record buy-in
+                  </button>
+                ) : null}
+              </div>
+              {actionMessage ? (
+                <p
+                  className="poker-seat-action-feedback"
+                  role={actionMessage.startsWith('Enter ') ? 'alert' : 'status'}
+                >
+                  {actionMessage}
+                </p>
+              ) : null}
+              {activeAction === 'time' && showTimeRemaining && onAddTime ? (
+                <div className="poker-seat-action-panel time-action-panel" id={timePanelId}>
+                  <strong>Add time</strong>
+                  <div className="poker-seat-time-actions">
+                    <button className="mini-button" type="button" onClick={() => addTime(30)}>+30 min</button>
+                    <button className="mini-button" type="button" onClick={() => addTime(60)}>+60 min</button>
+                  </div>
+                  <label className="poker-seat-field" htmlFor={customMinutesId}>
+                    <span>Custom minutes</span>
+                    <input
+                      id={customMinutesId}
+                      value={customMinutes}
+                      onChange={(event) => setCustomMinutes(event.target.value)}
+                      min="1"
+                      placeholder="Minutes"
+                      type="number"
+                    />
+                  </label>
+                  <button className="secondary-button poker-seat-submit-action" type="button" onClick={addCustomTime}>
+                    Add custom time
+                  </button>
+                </div>
+              ) : null}
+              {activeAction === 'buy-in' && onAddBuyIn ? (
+                <div className="poker-seat-action-panel buyin-action-panel" id={buyInPanelId}>
+                  <strong>Record buy-in</strong>
+                  <label className="poker-seat-field" htmlFor={buyInAmountId}>
+                    <span>Amount</span>
+                    <input
+                      id={buyInAmountId}
+                      value={buyInAmount}
+                      onChange={(event) => setBuyInAmount(event.target.value)}
+                      min="1"
+                      placeholder="$0"
+                      type="number"
+                    />
+                  </label>
+                  <label className="poker-seat-field" htmlFor={buyInNoteId}>
+                    <span>Note (optional)</span>
+                    <input id={buyInNoteId} value={buyInNote} onChange={(event) => setBuyInNote(event.target.value)} placeholder="Buy-in note" />
+                  </label>
+                  <button className="secondary-button poker-seat-submit-action" type="button" onClick={addBuyIn}>
+                    Record buy-in
+                  </button>
+                  {player.recentBuyIns?.length ? (
+                    <div className="poker-seat-log" aria-label="Recent buy-ins">
+                      {player.recentBuyIns.slice(0, 4).map((buyIn) => (
+                        <span key={buyIn.id}>{buyIn.label}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
           ) : null}
-          {player.recentBuyIns?.length ? (
-            <div className="poker-seat-log">
-              {player.recentBuyIns.slice(0, 4).map((buyIn) => (
-                <span key={buyIn.id}>{buyIn.label}</span>
-              ))}
-            </div>
-          ) : null}
-          <button className="poker-seat-cashout" type="button" onClick={() => onRemovePlayer?.(player.id)}>
+          <button className="poker-seat-cashout" type="button" onClick={() => {
+            onRemovePlayer?.(player.id);
+            onClose();
+          }}>
             Cash out and leave table
           </button>
         </div>
@@ -294,8 +457,11 @@ export default function PokerTable({
   onRemovePlayer,
   onChangeSeat,
   moveTargets = [],
-  onMovePlayer
+  onMovePlayer,
+  revenueEstimate,
+  dealerControl
 }: PokerTableProps) {
+  const dealerOptionsId = useId();
   const [openPlayerId, setOpenPlayerId] = useState<string | null>(null);
   const [draggedPlayerId, setDraggedPlayerId] = useState<string | null>(null);
   const [dragOverSeatNumber, setDragOverSeatNumber] = useState<number | null>(null);
@@ -306,6 +472,14 @@ export default function PokerTable({
   const orderedPlayers = [...players]
     .filter((player, index) => (player.seatNumber ?? index + 1) <= seatCount)
     .sort((a, b) => (a.seatNumber ?? 99) - (b.seatNumber ?? 99));
+  const dealerOptions = dealerControl
+    ? Array.from(new Set([
+        ...dealerControl.options,
+        dealerControl.currentDealer ?? '',
+        dealerControl.value
+      ].map((name) => name.trim()).filter(Boolean)))
+    : [];
+  const hasCenterControls = Boolean(revenueEstimate || dealerControl);
 
   return (
     <div className={`poker-table-shell ${isDense ? 'dense' : ''} ${draggedPlayerId ? 'is-dragging-player' : ''}`}>
@@ -315,9 +489,53 @@ export default function PokerTable({
             <div className="poker-table-inner-rail">
               <div className="poker-table-surface">
                 <div className="poker-table-border" />
-                <div className="poker-table-center">
+                <div className={`poker-table-center ${hasCenterControls ? 'with-controls' : ''}`}>
                   <img src="./orbit-table-logo.svg" alt="Orbit" />
                   <span>ORBIT</span>
+                  {hasCenterControls ? (
+                    <section className="poker-table-center-controls" aria-label="Table revenue and dealer controls">
+                      {revenueEstimate ? (
+                        <p className="poker-table-revenue-estimate">
+                          <span>{revenueEstimate.label}</span>
+                          <strong>{revenueEstimate.value}</strong>
+                        </p>
+                      ) : null}
+                      {dealerControl ? (
+                        <div className="poker-table-dealer-control">
+                          <label>
+                            <span>Dealer</span>
+                            <input
+                              aria-label="Dealer selection"
+                              autoComplete="off"
+                              list={dealerOptionsId}
+                              placeholder="Type or choose dealer"
+                              value={dealerControl.value}
+                              onChange={(event) => dealerControl.onChange(event.target.value)}
+                            />
+                            <datalist id={dealerOptionsId}>
+                              {dealerOptions.map((dealerName) => (
+                                <option key={dealerName} value={dealerName}>{dealerName}</option>
+                              ))}
+                            </datalist>
+                          </label>
+                          <div>
+                            <button
+                              disabled={
+                                !dealerControl.value.trim() ||
+                                dealerControl.value.trim() === dealerControl.currentDealer?.trim()
+                              }
+                              onClick={dealerControl.onAssign}
+                              type="button"
+                            >Assign dealer</button>
+                            {dealerControl.currentDealer && dealerControl.onEnd ? (
+                              <button onClick={dealerControl.onEnd} type="button">End down</button>
+                            ) : null}
+                          </div>
+                          <small>Current: {dealerControl.currentDealer ?? 'Unassigned'}</small>
+                        </div>
+                      ) : null}
+                    </section>
+                  ) : null}
                 </div>
 
                 {Array.from({ length: seatCount }).map((_, i) => {
@@ -330,6 +548,7 @@ export default function PokerTable({
                       className={`poker-position-marker ${occupied ? 'occupied' : 'open'} ${selectedSeatNumber === seatNumber ? 'selected' : ''} ${draggedPlayerId && !occupied ? 'drop-target' : ''} ${dragOverSeatNumber === seatNumber ? 'drag-over' : ''}`}
                       type="button"
                       disabled={occupied}
+                      aria-label={occupied ? `Seat ${seatNumber} occupied` : `Add player to seat ${seatNumber}`}
                       onClick={() => onSeatClick?.(seatNumber)}
                       onDragEnter={() => {
                         if (draggedPlayerId && !occupied) setDragOverSeatNumber(seatNumber);
@@ -378,6 +597,7 @@ export default function PokerTable({
               showTimeRemaining={showTimeRemaining}
               isOpen={openPlayerId === player.id}
               onToggle={() => setOpenPlayerId((current) => (current === player.id ? null : player.id))}
+              onClose={() => setOpenPlayerId(null)}
               isDragging={draggedPlayerId === player.id}
               onDragStart={(playerId) => {
                 setOpenPlayerId(null);

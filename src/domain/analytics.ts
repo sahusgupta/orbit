@@ -5,7 +5,7 @@ import {
   getTimeRemainingMinutes,
   hoursBetween
 } from './operations';
-import { getCollectionProfile } from './reporting';
+import { getCollectionProfile, getProjectedTimeFeeEntries } from './reporting';
 import { nowIso } from './state';
 import type { AppState, FeedbackEntry, NightRecord, UsageEvent } from './types';
 
@@ -58,12 +58,14 @@ export function getAnalytics(state: AppState) {
       .filter((playerSession) => playerSession.tableId === session.id)
       .reduce((sum, playerSession) => sum + hoursBetween(playerSession.seatedAt, playerSession.leftAt), 0)
   }));
-  const estimatedTimeFeeRevenue = state.playerSessions.reduce((sum, playerSession) => {
-    const session = state.sessions.find((item) => item.id === playerSession.tableId);
-    if (!session || session.collectionMode !== 'Time') return sum;
-    const profile = getCollectionProfile(state, playerSession.gameId);
-    return sum + ((playerSession.timePurchasedMinutes ?? 0) / 60) * profile.hourlyFee;
-  }, 0);
+  const projectedTimeFeeEntries = getProjectedTimeFeeEntries(state).filter((entry) => {
+    const session = state.sessions.find((item) => item.id === entry.tableId);
+    return session?.collectionMode === 'Time' || session?.timeFeeBased;
+  });
+  const estimatedTimeFeeRevenue = projectedTimeFeeEntries.reduce(
+    (sum, entry) => sum + entry.amount,
+    0
+  );
   const expiredTimeFeeSeats = state.playerSessions.filter((playerSession) => {
     const session = state.sessions.find((item) => item.id === playerSession.tableId);
     return session?.collectionMode === 'Time' && !playerSession.leftAt && (playerSession.timePurchasedMinutes ?? 0) > 0 && getTimeRemainingMinutes(playerSession) <= 0;
@@ -74,14 +76,9 @@ export function getAnalytics(state: AppState) {
     return sum + getSessionSeatHours(state, session) * getCollectionProfile(state, session.gameId).estimatedDropPerSeatHour;
   }, 0);
   const collectionValueByGame = state.games.map((game) => {
-    const timeRevenue = state.playerSessions
-      .filter((playerSession) => playerSession.gameId === game.id)
-      .reduce((sum, playerSession) => {
-        const session = state.sessions.find((item) => item.id === playerSession.tableId);
-        return session?.collectionMode === 'Time'
-          ? sum + ((playerSession.timePurchasedMinutes ?? 0) / 60) * getCollectionProfile(state, game.id).hourlyFee
-          : sum;
-      }, 0);
+    const timeRevenue = projectedTimeFeeEntries
+      .filter((entry) => entry.gameId === game.id)
+      .reduce((sum, entry) => sum + entry.amount, 0);
     const recordedDrop = state.dropLogs
       .filter((drop) => drop.gameId === game.id)
       .reduce((sum, drop) => sum + drop.amount, 0);

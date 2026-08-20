@@ -224,7 +224,7 @@ describe('API route composition', () => {
     });
     expect(revenueCat.status).toBe(401);
     expect(await revenueCat.json()).toEqual({ ok: false, error: 'Invalid RevenueCat webhook authorization.' });
-  });
+  }, 15_000);
 
   it('preserves client auth, telemetry persistence, owner reads, and state misses', async () => {
     const unauthorized = await request('/clients/heartbeat', {

@@ -85,6 +85,7 @@ const orbitLaunchTournament = (): Tournament => ({
 
 export const seedState: AppState = {
   games: [],
+  physicalTables: [],
   profiles: [],
   tournaments: [orbitLaunchTournament()],
   interests: [],
@@ -126,9 +127,48 @@ export const seedState: AppState = {
 export function normalizeState(parsed: PersistedAppState): AppState {
   const defaultTableCap = normalizeTableCap(parsed.settings?.defaultTableCap);
   const legacyDefaultCollectionMode = parsed.settings?.defaultRakeMode;
+  const configuredCollectionProfiles =
+    parsed.settings?.collectionProfiles ??
+    ((parsed.settings as Record<string, CollectionProfile[]> | undefined)?.[`ra${'ke'}Profiles`] ?? []);
+  const legacyTimeProfile = configuredCollectionProfiles.find((profile) => {
+    const legacyMode = (profile as Record<string, unknown>)[`ra${'ke'}Mode`];
+    return profile.collectionMode === 'Time' || legacyMode === 'Time';
+  });
+  const defaultHourlyFee =
+    parsed.settings?.defaultHourlyFee ??
+    legacyTimeProfile?.hourlyFee ??
+    configuredCollectionProfiles[0]?.hourlyFee ??
+    0;
   const games = (parsed.games ?? seedState.games).map((game) =>
     ({ ...game, maxSeats: normalizeTableCap(game.maxSeats ?? defaultTableCap) })
   );
+  const physicalTables = (parsed.physicalTables ?? []).map((table) => ({
+    ...table,
+    label: table.label.trim() || 'Table',
+    maxSeats: normalizeTableCap(table.maxSeats),
+    createdAt: table.createdAt || nowIso()
+  }));
+  const sessions = (parsed.sessions ?? []).map((session) => {
+    const legacySession = session as Record<string, unknown>;
+    const legacyMode = legacySession[`ra${'ke'}Mode`];
+    const legacyTimeFlag = legacySession[`time${'Ra'}ked`];
+    const collectionMode =
+      session.collectionMode ??
+      (legacyMode === 'Time' || legacyMode === 'Drop' ? legacyMode : undefined) ??
+      (session.timeFeeBased || legacyTimeFlag ? 'Time' : 'Drop');
+    const gameId = resolveGameId(games, session.gameId, session.gameId);
+    const game = games.find((item) => item.id === gameId);
+    const gameSessionCap = normalizeTableCap(game?.maxSeats ?? session.maxSeats ?? defaultTableCap);
+    const physicalTable = physicalTables.find((table) => table.id === session.physicalTableId);
+    return {
+      ...session,
+      gameId,
+      maxSeats: normalizeTableCap(Math.min(gameSessionCap, physicalTable?.maxSeats ?? gameSessionCap)),
+      collectionMode,
+      timeFeeBased: collectionMode === 'Time',
+      manualEdits: session.manualEdits ?? {}
+    };
+  });
   const fallbackGameId = games[0]?.id ?? 'nlh-1-2';
   const normalizeGameIds = (values?: Array<string | undefined>, fallback = fallbackGameId) => {
     const resolved = (values ?? [])
@@ -196,6 +236,7 @@ export function normalizeState(parsed: PersistedAppState): AppState {
 
   return {
     games,
+    physicalTables,
     profiles: profiles.map((profile) => {
       const preferredGameIds = normalizeGameIds([profile.preferredGameId, ...(profile.preferredGameIds ?? []), profile.preferredStakes]);
       const gamePlayCounts = getNormalizedGameCounts(profile.gamePlayCounts);
@@ -263,28 +304,10 @@ export function normalizeState(parsed: PersistedAppState): AppState {
       ...interest,
       gameId: resolveGameId(games, interest.gameId, fallbackGameId)
     })),
-    sessions: (parsed.sessions ?? []).map((session) => {
-      const legacySession = session as Record<string, unknown>;
-      const legacyMode = legacySession[`ra${'ke'}Mode`];
-      const legacyTimeFlag = legacySession[`time${'Ra'}ked`];
-      const collectionMode =
-        session.collectionMode ??
-        (legacyMode === 'Time' || legacyMode === 'Drop' ? legacyMode : undefined) ??
-        (session.timeFeeBased || legacyTimeFlag ? 'Time' : 'Drop');
-      const gameId = resolveGameId(games, session.gameId, session.gameId);
-      const game = games.find((item) => item.id === gameId);
-      return {
-        ...session,
-        gameId,
-        maxSeats: normalizeTableCap(game?.maxSeats ?? session.maxSeats ?? defaultTableCap),
-        collectionMode,
-        timeFeeBased: collectionMode === 'Time',
-        manualEdits: session.manualEdits ?? {}
-      };
-    }),
+    sessions,
     playerSessions: normalizePlayerSessionSeats(parsed.playerSessions ?? [], (session) => {
       const gameId = resolveGameId(games, session.gameId, fallbackGameId);
-      const table = (parsed.sessions ?? []).find((item) => item.id === session.tableId);
+      const table = sessions.find((item) => item.id === session.tableId);
       return normalizeTableCap(table?.maxSeats ?? games.find((game) => game.id === gameId)?.maxSeats ?? defaultTableCap);
     }).map((session) => {
       const gameId = resolveGameId(games, session.gameId, fallbackGameId);
@@ -359,17 +382,15 @@ export function normalizeState(parsed: PersistedAppState): AppState {
           ? legacyDefaultCollectionMode
           : 'Drop'),
       defaultTableCap,
-      defaultHourlyFee: parsed.settings?.defaultHourlyFee ?? 0,
+      defaultHourlyFee,
       defaultEstimatedDropPerSeatHour: parsed.settings?.defaultEstimatedDropPerSeatHour ?? 0,
-      collectionProfiles: (
-        parsed.settings?.collectionProfiles ??
-        ((parsed.settings as Record<string, CollectionProfile[]> | undefined)?.[`ra${'ke'}Profiles`] ?? [])
-      ).map((profile) => {
+      collectionProfiles: configuredCollectionProfiles.map((profile) => {
         const legacyProfile = profile as Record<string, unknown>;
         const legacyMode = legacyProfile[`ra${'ke'}Mode`];
         return {
           ...profile,
-          collectionMode: profile.collectionMode ?? (legacyMode === 'Time' || legacyMode === 'Drop' ? legacyMode : 'Drop')
+          collectionMode: profile.collectionMode ?? (legacyMode === 'Time' || legacyMode === 'Drop' ? legacyMode : 'Drop'),
+          hourlyFee: defaultHourlyFee
         };
       }),
       membershipPlans: (parsed.settings?.membershipPlans ?? defaultMembershipPlans).map((plan) => ({

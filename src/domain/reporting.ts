@@ -7,6 +7,9 @@ import type {
   ReportPeriod,
   RevenueTransaction
 } from './types';
+import { getProjectedTimeFeeEntries } from './timeFeeProjection';
+
+export { getProjectedTimeFeeEntries } from './timeFeeProjection';
 
 const toLocalDateValue = (date: Date) => {
   const year = date.getFullYear();
@@ -138,11 +141,14 @@ export const getReportState = (state: AppState, window: ReportWindow): AppState 
 };
 
 export function getCollectionProfile(state: AppState, gameId: string): CollectionProfile {
-  return state.settings.collectionProfiles.find((profile) => profile.gameId === gameId) ?? {
+  const configuredProfile = state.settings.collectionProfiles.find((profile) => profile.gameId === gameId);
+  return {
+    ...configuredProfile,
     gameId,
-    collectionMode: state.settings.defaultCollectionMode,
+    collectionMode: configuredProfile?.collectionMode ?? state.settings.defaultCollectionMode,
     hourlyFee: state.settings.defaultHourlyFee,
-    estimatedDropPerSeatHour: state.settings.defaultEstimatedDropPerSeatHour
+    estimatedDropPerSeatHour:
+      configuredProfile?.estimatedDropPerSeatHour ?? state.settings.defaultEstimatedDropPerSeatHour
   };
 }
 
@@ -150,19 +156,19 @@ export const getReportFinancials = (state: AppState, window: ReportWindow) => {
   const recordedDrop = state.dropLogs
     .filter((entry) => timestampInReportWindow(entry.timestamp, window))
     .reduce((sum, entry) => sum + entry.amount, 0);
-  const exactTimeFeeEntries = state.timeFeeLogs
-    .filter((entry) => timestampInReportWindow(entry.timestamp, window))
-    .map((entry) => ({ gameId: entry.gameId, tableId: entry.tableId, amount: entry.amount, timestamp: entry.timestamp }));
-  const loggedPlayerSessionIds = new Set(state.timeFeeLogs.map((entry) => entry.playerSessionId));
-  const legacyTimeFeeEntries = state.playerSessions.flatMap((playerSession) => {
-    if (loggedPlayerSessionIds.has(playerSession.id)) return [];
-    const table = state.sessions.find((session) => session.id === playerSession.tableId);
-    const paidAt = playerSession.lastTimeTickAt || playerSession.seatedAt;
-    if (!table || (table.collectionMode !== 'Time' && !table.timeFeeBased) || !timestampInReportWindow(paidAt, window)) return [];
-    const amount = ((playerSession.timePurchasedMinutes ?? 0) / 60) * getCollectionProfile(state, playerSession.gameId).hourlyFee;
-    return amount > 0 ? [{ gameId: playerSession.gameId, tableId: playerSession.tableId, amount, timestamp: paidAt }] : [];
-  });
-  const timeFeeEntries = [...exactTimeFeeEntries, ...legacyTimeFeeEntries];
+  const timeFeeEntries = getProjectedTimeFeeEntries(state)
+    .filter((entry) => {
+      const table = state.sessions.find((session) => session.id === entry.tableId);
+      return table &&
+        (table.collectionMode === 'Time' || table.timeFeeBased) &&
+        timestampInReportWindow(entry.timestamp, window);
+    })
+    .map((entry) => ({
+      gameId: entry.gameId,
+      tableId: entry.tableId,
+      amount: entry.amount,
+      timestamp: entry.timestamp
+    }));
   const timeFees = timeFeeEntries.reduce((sum, entry) => sum + entry.amount, 0);
   const paidRevenue = state.revenueTransactions.filter((entry) =>
     (entry.paymentStatus === 'paid' || entry.paymentStatus === 'partially_refunded') && timestampInReportWindow(entry.occurredAt, window)
@@ -203,23 +209,11 @@ export const getTableFinancialOverview = (state: AppState, session: GameSession)
   const totalDrop = state.dropLogs
     .filter((entry) => entry.tableId === session.id)
     .reduce((sum, entry) => sum + entry.amount, 0);
-  const tableTimeFeeLogs = state.timeFeeLogs.filter((entry) => entry.tableId === session.id);
-  const loggedPlayerSessionIds = new Set(tableTimeFeeLogs.map((entry) => entry.playerSessionId));
-  const exactTimeFees = tableTimeFeeLogs.reduce((sum, entry) => sum + entry.amount, 0);
-  const legacyTimeFees = session.collectionMode === 'Time' || session.timeFeeBased
-    ? state.playerSessions
-        .filter((playerSession) =>
-          playerSession.tableId === session.id &&
-          !loggedPlayerSessionIds.has(playerSession.id) &&
-          (playerSession.timePurchasedMinutes ?? 0) > 0
-        )
-        .reduce(
-          (sum, playerSession) =>
-            sum + ((playerSession.timePurchasedMinutes ?? 0) / 60) * getCollectionProfile(state, session.gameId).hourlyFee,
-          0
-        )
+  const totalTimeFees = session.collectionMode === 'Time' || session.timeFeeBased
+    ? getProjectedTimeFeeEntries(state)
+        .filter((entry) => entry.tableId === session.id)
+        .reduce((sum, entry) => sum + entry.amount, 0)
     : 0;
-  const totalTimeFees = exactTimeFees + legacyTimeFees;
   const tableProfit = totalDrop + totalTimeFees;
 
   return {
@@ -248,19 +242,16 @@ export const getTablePlayerFinancialOverview = (state: AppState, session: GameSe
       belongsToPlayer(entry.profileId, entry.playerName)
     )
     .reduce((sum, entry) => sum + (entry.amount ?? 0), 0);
-  const exactTimeFeeLogs = state.timeFeeLogs.filter((entry) => entry.playerSessionId === playerSession.id);
-  const exactTimeFees = exactTimeFeeLogs.reduce((sum, entry) => sum + entry.amount, 0);
-  const legacyTimeFees =
-    !exactTimeFeeLogs.length &&
-    (session.collectionMode === 'Time' || session.timeFeeBased) &&
-    (playerSession.timePurchasedMinutes ?? 0) > 0
-      ? ((playerSession.timePurchasedMinutes ?? 0) / 60) * getCollectionProfile(state, session.gameId).hourlyFee
-      : 0;
+  const totalTimeFees = session.collectionMode === 'Time' || session.timeFeeBased
+    ? getProjectedTimeFeeEntries(state)
+        .filter((entry) => entry.playerSessionId === playerSession.id)
+        .reduce((sum, entry) => sum + entry.amount, 0)
+    : 0;
 
   return {
     totalBuyIns,
     totalCashOuts,
-    totalTimeFees: exactTimeFees + legacyTimeFees
+    totalTimeFees
   };
 };
 

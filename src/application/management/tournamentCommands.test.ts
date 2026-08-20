@@ -14,7 +14,8 @@ import {
   resumeTournament,
   startTournament,
   updateTournamentPayout,
-  updateTournamentSettings
+  updateTournamentSettings,
+  validateTournamentPayoutDrafts
 } from './tournamentCommands';
 
 const now = '2026-08-08T22:00:00.000Z';
@@ -57,7 +58,12 @@ const dependencies = () => {
   return { createId: () => `created-${++nextId}`, nowIso: () => now };
 };
 const draft = {
-  name: '  Created Event ', buyIn: '-10', startingStack: '500', levelMinutes: '2', rebuyPrizePercent: '120', tableSize: '99'
+  name: '  Created Event ', buyIn: '-10', startingStack: '500', levelMinutes: '2', rebuyPrizePercent: '120', tableSize: '99',
+  payouts: [
+    { place: 1, percent: '60' },
+    { place: 2, percent: '25' },
+    { place: 3, percent: '15' }
+  ]
 };
 
 describe('management tournament commands', () => {
@@ -71,19 +77,65 @@ describe('management tournament commands', () => {
       id: 'created-1', name: 'Created Event', status: 'Draft', createdAt: now,
       buyIn: 0, startingStack: 1000, rebuyPrizePercent: 100, tableSize: 10
     });
+    expect(created.tournament.payouts).toEqual([
+      { place: 1, percent: 60 },
+      { place: 2, percent: 25 },
+      { place: 3, percent: 15 }
+    ]);
     expect(created.tournament.levels.every((level) => level.durationMinutes === 5)).toBe(true);
     expect(createTournament(source, { ...draft, name: ' ' }, dependencies())).toBeNull();
+    expect(createTournament(source, { ...draft, payouts: undefined }, dependencies())?.tournament.payouts).toEqual([
+      { place: 1, percent: 50 },
+      { place: 2, percent: 30 },
+      { place: 3, percent: 20 }
+    ]);
 
     const updated = updateTournamentSettings(created.state, created.tournament.id, {
-      name: '  Edited ', buyIn: '125', startingStack: '25000', levelMinutes: '30', rebuyPrizePercent: '60', tableSize: '8'
+      name: '  Edited ', buyIn: '125', startingStack: '25000', levelMinutes: '30', rebuyPrizePercent: '60', tableSize: '8',
+      payouts: [{ place: 1, percent: '70' }, { place: 2, percent: '30' }]
     });
+    expect(updated).not.toBeNull();
+    if (!updated) return;
     expect(updated.tournaments[0]).toMatchObject({ name: 'Edited', buyIn: 125, startingStack: 25_000, rebuyPrizePercent: 60, tableSize: 8 });
     expect(updated.tournaments[0].levels.every((level) => level.durationMinutes === 30)).toBe(true);
+    expect(updated.tournaments[0].payouts).toEqual([{ place: 1, percent: 70 }, { place: 2, percent: 30 }]);
+    expect(updateTournamentSettings(updated, created.tournament.id, {
+      ...draft,
+      payouts: undefined
+    })?.tournaments[0].payouts).toEqual(updated.tournaments[0].payouts);
 
     const rerun = rerunTournament(source, tournament({ status: 'Finished', startedAt: now, completedAt: now, currentLevelIndex: 1 }), dependencies());
     expect(rerun.tournament).toMatchObject({ id: 'created-1', status: 'Draft', createdAt: now, currentLevelIndex: 0, players: [] });
     expect(rerun.tournament.startedAt).toBeUndefined();
     expect(rerun.tournament.completedAt).toBeUndefined();
+    expect(source).toEqual(snapshot);
+  });
+
+  it('rejects non-sequential, out-of-range, and incomplete payout allocations atomically', () => {
+    expect(validateTournamentPayoutDrafts([])).toMatchObject({ valid: false, total: 0 });
+    expect(validateTournamentPayoutDrafts([
+      { place: 1, percent: '60' },
+      { place: 3, percent: '40' }
+    ])).toMatchObject({ valid: false, error: expect.stringContaining('sequential') });
+    expect(validateTournamentPayoutDrafts([{ place: 1, percent: '101' }])).toMatchObject({
+      valid: false,
+      error: expect.stringContaining('between 0% and 100%')
+    });
+    expect(validateTournamentPayoutDrafts([
+      { place: 1, percent: '60' },
+      { place: 2, percent: '30' }
+    ])).toMatchObject({ valid: false, total: 90, error: expect.stringContaining('total 100%') });
+
+    const source = state();
+    const snapshot = structuredClone(source);
+    expect(createTournament(source, {
+      ...draft,
+      payouts: [{ place: 1, percent: '90' }]
+    }, dependencies())).toBeNull();
+    expect(updateTournamentSettings(source, 'tournament-one', {
+      ...draft,
+      payouts: [{ place: 1, percent: '90' }]
+    })).toBeNull();
     expect(source).toEqual(snapshot);
   });
 
@@ -137,6 +189,8 @@ describe('management tournament commands', () => {
     expect(result.tournaments[0].players[0]).toMatchObject({ rebuys: 1, addOns: 1 });
     result = updateTournamentPayout(result, 'tournament-one', 2, -10);
     expect(result.tournaments[0].payouts).toEqual([{ place: 1, percent: 100 }, { place: 2, percent: 0 }]);
+    result = updateTournamentPayout(result, 'tournament-one', 2, 150);
+    expect(result.tournaments[0].payouts).toEqual([{ place: 1, percent: 100 }, { place: 2, percent: 100 }]);
 
     result = startTournament(result, 'tournament-one', dependencies());
     result = eliminateTournamentPlayer(result, result.tournaments[0], 'player-one', dependencies());

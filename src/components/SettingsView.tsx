@@ -29,13 +29,17 @@ type SettingsViewProps = {
   addStaffAccount: (event: FormEvent) => Promise<void>;
   formatClock: (iso?: string) => string;
   deactivateStaffAccount: (staffId: string) => void;
+  exportRoomData: () => void;
   exportJson: () => void;
   importBackupFile: (file?: File) => Promise<void>;
   submitAnalyticalReport: () => Promise<void>;
   exportPilotReport: () => void;
   applyDefaultCollectionToActiveTables: () => void;
   updateDefaultTableCap: (cap: TableCap) => void;
-  updateCollectionProfile: (gameId: string, patch: Partial<CollectionProfile>) => void;
+  updateCollectionProfile: (
+    gameId: string,
+    patch: Partial<Pick<CollectionProfile, 'collectionMode' | 'estimatedDropPerSeatHour'>>
+  ) => void;
   setBackendStatus: Dispatch<SetStateAction<BackendStatus | null>>;
   setClubDraft: Dispatch<SetStateAction<ClubAccount>>;
   setSettingsSection: Dispatch<SetStateAction<SettingsSection>>;
@@ -60,6 +64,7 @@ export default function SettingsView({
   addStaffAccount,
   formatClock,
   deactivateStaffAccount,
+  exportRoomData,
   exportJson,
   importBackupFile,
   submitAnalyticalReport,
@@ -242,12 +247,22 @@ export default function SettingsView({
             <div className="preference-list">
               <article className="preference-row">
                 <div>
-                  <strong>Backup room data</strong>
-                  <span>Export a full local backup with tables, profiles, settings, account details, logs, and history.</span>
+                  <strong>Export room data</strong>
+                  <span>Download a portable copy of room operations and customer data. Passwords, staff PINs, and license key material are excluded.</span>
+                </div>
+                <button className="secondary-button" onClick={exportRoomData}>
+                  <Download size={16} />
+                  Export Room Data
+                </button>
+              </article>
+              <article className="preference-row">
+                <div>
+                  <strong>Create restorable backup</strong>
+                  <span>Download a full restoration file, including local access configuration. Store this backup securely.</span>
                 </div>
                 <button className="secondary-button" onClick={exportJson}>
                   <Download size={16} />
-                  Export Backup
+                  Export Restorable Backup
                 </button>
               </article>
               <article className="preference-row">
@@ -304,7 +319,7 @@ export default function SettingsView({
                 </div>
                 <span className={`save-status ${saveStatus.state}`}>{saveStatus.state}</span>
               </article>
-              {backupMessage ? <p className={backupMessage.includes('Backup') ? 'success-copy' : 'access-error'}>{backupMessage}</p> : null}
+              {backupMessage ? <p className={backupMessage.toLowerCase().includes('failed') ? 'access-error' : 'success-copy'}>{backupMessage}</p> : null}
               {reportMessage ? <p className={reportMessage.includes('failed') ? 'access-error' : 'success-copy'}>{reportMessage}</p> : null}
             </div>
           </section>
@@ -360,8 +375,8 @@ export default function SettingsView({
               </article>
               <article className="preference-row">
                 <div>
-                  <strong>Default hourly fee</strong>
-                  <span>Used for time-fee games where players pay by the hour.</span>
+                  <strong>Flat time fee</strong>
+                  <span>Set once for the room and charged per player-hour at every table using time fees.</span>
                 </div>
                 <input
                   type="number"
@@ -369,6 +384,7 @@ export default function SettingsView({
                   step="1"
                   value={state.settings.defaultHourlyFee}
                   onChange={(event) => updateSettings({ defaultHourlyFee: Number(event.target.value) })}
+                  aria-label="Flat time fee per player-hour"
                 />
               </article>
               <article className="preference-row">
@@ -390,7 +406,11 @@ export default function SettingsView({
                   <article className="preference-row collection-profile-row" key={game.id}>
                     <div>
                       <strong>{game.name} collection profile</strong>
-                      <span>{collectionProfile.collectionMode === 'Time' ? 'Hourly fee model' : 'Money removed from table model'}</span>
+                      <span>
+                        {collectionProfile.collectionMode === 'Time'
+                          ? `Uses the room-wide $${state.settings.defaultHourlyFee}/hour fee`
+                          : 'Money removed from table model'}
+                      </span>
                     </div>
                     <div className="segmented-control collection-profile-control">
                       <button
@@ -405,22 +425,16 @@ export default function SettingsView({
                       >
                         Time
                       </button>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={collectionProfile.hourlyFee}
-                        onChange={(event) => updateCollectionProfile(game.id, { hourlyFee: Number(event.target.value) })}
-                        title="Hourly fee"
-                      />
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={collectionProfile.estimatedDropPerSeatHour}
-                        onChange={(event) => updateCollectionProfile(game.id, { estimatedDropPerSeatHour: Number(event.target.value) })}
-                        title="Estimated drop per occupied seat-hour"
-                      />
+                      <label className="collection-profile-field">
+                        <strong>Drop / seat-hour</strong>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={collectionProfile.estimatedDropPerSeatHour}
+                          onChange={(event) => updateCollectionProfile(game.id, { estimatedDropPerSeatHour: Number(event.target.value) })}
+                        />
+                      </label>
                     </div>
                   </article>
                 );

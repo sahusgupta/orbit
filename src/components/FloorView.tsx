@@ -1,10 +1,12 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react';
-import { ChevronDown, ChevronUp, Clock, Eye, LayoutDashboard, MessageCircle, MoreHorizontal, Plus, Target, Users, WalletCards, X } from 'lucide-react';
+import { useRef, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
+import { ChevronDown, ChevronUp, Eye, LayoutDashboard, MoreHorizontal, Plus, Users, WalletCards, X } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
+import FloorRoomMap, { getFloorLayoutStorageKey } from './FloorRoomMap';
+import FloorUtilities from './FloorUtilities';
 import PokerTable, { type Player as PokerTablePlayer } from './PokerTable';
 import PanelTitle from './PanelTitle';
-import { getTimerStatusFromSeconds } from '../lib/appCore';
+import { getAccountKeyFromState } from '../domain/licensing';
 import { hasProfileReference } from '../lib/profileRelationships';
 import { getTableFinancialOverview, getTablePlayerFinancialOverview } from '../domain/reporting';
 import {
@@ -16,7 +18,7 @@ import {
   getViabilityState
 } from '../domain/operations';
 import { activeInterestStatuses, getParticipantPool } from '../domain/participants';
-import type { getAnalytics } from '../domain/analytics';
+import type { FloorActivityItem } from '../features/floor/floorActivity';
 import type {
   AppState,
   GameConfig,
@@ -25,6 +27,7 @@ import type {
   InterestStatus,
   PlayerProfile,
   PlayerSession,
+  TableCap,
   TableEventType
 } from '../domain/types';
 import type {
@@ -34,11 +37,9 @@ import type {
   QuickAddForm,
   SeatPickerState
 } from '../features/floor/floorWorkspace';
-type LiveFeedItem = { id: string; timestamp: string; label: string; actor: string; detail: string; kind: string };
 
 type FloorViewProps = {
   state: AppState;
-  analytics: ReturnType<typeof getAnalytics>;
   clockNow: number;
   openPanels: OpenPanels;
   collapsedTables: Record<string, boolean>;
@@ -48,14 +49,13 @@ type FloorViewProps = {
   dealerDrafts: Record<string, string>;
   handCountDrafts: Record<string, string>;
   formingGameId: string;
-  overviewTableId: string;
   financialOverviewTableId: string;
   waitlistPopupOpen: boolean;
   seatPickerModal: ReactNode;
   cashOutModal: ReactNode;
   tableLedgerModal: ReactNode;
   seatPicker: SeatPickerState | null;
-  liveFeedItems: LiveFeedItem[];
+  activityItems: FloorActivityItem[];
   quickAddOpenSeatSessions: GameSession[];
   form: QuickAddForm;
   statuses: InterestStatus[];
@@ -73,7 +73,6 @@ type FloorViewProps = {
   setDealerDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   setHandCountDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   setFormingGameId: Dispatch<SetStateAction<string>>;
-  setOverviewTableId: Dispatch<SetStateAction<string>>;
   setFinancialOverviewTableId: Dispatch<SetStateAction<string>>;
   setTableLedgerSessionId: Dispatch<SetStateAction<string | null>>;
   setForm: Dispatch<SetStateAction<QuickAddForm>>;
@@ -110,57 +109,102 @@ type FloorViewProps = {
   recordHands: (session: GameSession) => void;
   addTableDrop: (session: GameSession) => void;
   failFormingGame: (session: GameSession) => void;
-  addSession: (gameId: string) => void;
+  addPhysicalTable: (label: string, maxSeats: TableCap) => void;
+  addSession: (gameId: string, physicalTableId?: string) => void;
   addInterest: (event: FormEvent) => void;
   checkInProfileFromSearch: (profile: PlayerProfile) => void;
 };
 
 export default function FloorView(props: FloorViewProps) {
   const {
-    state, analytics, clockNow, openPanels, collapsedTables, startPlayerDrafts, eventDrafts, dropDrafts,
-    dealerDrafts, handCountDrafts, formingGameId, overviewTableId, financialOverviewTableId,
-    waitlistPopupOpen, seatPickerModal, cashOutModal, tableLedgerModal, seatPicker, liveFeedItems,
+    state, clockNow, openPanels, collapsedTables, startPlayerDrafts, eventDrafts, dropDrafts,
+    dealerDrafts, handCountDrafts, formingGameId, financialOverviewTableId,
+    waitlistPopupOpen, seatPickerModal, cashOutModal, tableLedgerModal, seatPicker, activityItems,
     quickAddOpenSeatSessions, form, statuses, checkInSearch, checkInMatches, inClubInterests,
     failedStartReasons, tableBreakReasons, setWaitlistPopupOpen, setOpenPanels, setCollapsedTables,
     setStartPlayerDrafts, setEventDrafts, setDropDrafts, setDealerDrafts, setHandCountDrafts,
-    setFormingGameId, setOverviewTableId, setFinancialOverviewTableId, setTableLedgerSessionId,
+    setFormingGameId, setFinancialOverviewTableId, setTableLedgerSessionId,
     setForm, setCheckInSearch, minutesSince, getAvailableSeatNumber, getActivePlayerSessionsForTable,
     getSeatOptions, getTimeRemainingSeconds, getMoveTargets, formatHours, formatClock, formatTimeLeft,
     toDateTimeInput, togglePanel, seatInterestAtTable, updateInterest, deleteInterest, openTableView,
     openSeatPicker, startSessionWithPlayers, updateSession, recordTableEvent, toggleStartPlayer,
     addPlayerTime, addBuyIn, requestPlayerCashOut, changePlayerSeat, movePlayerToTable,
     setTableCollectionMode, updateSessionTimestamp, assignDealer, endDealerAssignment, recordHands,
-    addTableDrop, failFormingGame, addSession, addInterest, checkInProfileFromSearch
+    addTableDrop, failFormingGame, addPhysicalTable, addSession, addInterest, checkInProfileFromSearch
   } = props;
+  const floorLayoutStorageKey = getFloorLayoutStorageKey(getAccountKeyFromState(state));
+  const waitingCount = state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length;
+  const currentTablesTriggerRef = useRef<HTMLButtonElement>(null);
+  const tableOverviewTriggerRef = useRef<HTMLButtonElement>(null);
+  const formingGamesTriggerRef = useRef<HTMLButtonElement>(null);
+  const openFloorWorkspace = (panel: 'currentTables' | 'tableFinancials' | 'formingGames') => {
+    setOpenPanels((panels) => ({
+      ...panels,
+      currentTables: panel === 'currentTables',
+      tableFinancials: panel === 'tableFinancials',
+      formingGames: panel === 'formingGames'
+    }));
+  };
+  const setFloorWorkspaceOpen = (
+    panel: 'currentTables' | 'tableFinancials' | 'formingGames',
+    open: boolean
+  ) => {
+    if (open) {
+      openFloorWorkspace(panel);
+      return;
+    }
+    setOpenPanels((panels) => ({ ...panels, [panel]: false }));
+    const trigger = panel === 'currentTables'
+      ? currentTablesTriggerRef.current
+      : panel === 'tableFinancials'
+        ? tableOverviewTriggerRef.current
+        : formingGamesTriggerRef.current;
+    trigger?.focus({ preventScroll: true });
+  };
   return (
-    <main className="app-shell">
-      <header className="topbar">
+    <main className="app-shell floor-view-shell">
+      <Dialog.Root open={waitlistPopupOpen} onOpenChange={setWaitlistPopupOpen}>
+      <header className="topbar floor-topbar">
         <div>
           <h1>Floor</h1>
-          <p className="page-subtitle">Live room operations</p>
+        </div>
+        <div className="floor-header-metrics" aria-label="Floor summary">
+          <span><strong>{state.sessions.filter((session) => session.status === 'Running').length}</strong> running</span>
+          <span><strong>{state.playerSessions.filter((session) => !session.leftAt).length}</strong> seated</span>
         </div>
         <div className="topbar-actions">
-          <button className="waitlist-icon-trigger" onClick={() => setWaitlistPopupOpen(true)} title="Open waitlist" aria-label={`Open waitlist, ${state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length} waiting`}>
-            <Users size={19} />
-            {state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length ? <span>{state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length}</span> : null}
-          </button>
+          <FloorUtilities
+            sessions={state.sessions}
+            games={state.games}
+            playerSessions={state.playerSessions}
+            activityItems={activityItems}
+            clockNow={clockNow}
+            getTimeRemainingSeconds={getTimeRemainingSeconds}
+            formatClock={formatClock}
+            formatTimeLeft={formatTimeLeft}
+          />
+          <Dialog.Trigger asChild>
+            <button className="waitlist-icon-trigger floor-utility-button" title="Open waitlist" aria-label={`Open waitlist, ${waitingCount} waiting`}>
+              <Users size={17} />
+              <span className="floor-utility-label">Waitlist</span>
+              <strong>{waitingCount}</strong>
+            </button>
+          </Dialog.Trigger>
           <button className="primary-button" onClick={() => setOpenPanels((panels) => ({ ...panels, quickAdd: true }))}><Plus size={18} /> Add player</button>
         </div>
       </header>
-      {seatPickerModal}
-      {cashOutModal}
-      {tableLedgerModal}
-
-      <Dialog.Root open={waitlistPopupOpen} onOpenChange={setWaitlistPopupOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="waitlist-popup-overlay" />
           <Dialog.Content className="waitlist-popup-content">
             <div className="waitlist-popup-header">
-              <div><Dialog.Title>Waitlist</Dialog.Title><Dialog.Description>{state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length} players need attention</Dialog.Description></div>
+              <div>
+                <Dialog.Title className="waitlist-popup-title">Waitlist</Dialog.Title>
+                <Dialog.Description className="waitlist-popup-description">{waitingCount} {waitingCount === 1 ? 'player is' : 'players are'} waiting for a table.</Dialog.Description>
+              </div>
               <Dialog.Close asChild><button className="icon-button" aria-label="Close waitlist" title="Close waitlist"><X size={18} /></button></Dialog.Close>
             </div>
-            <div className="waitlist-popup-list">
-              {state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length ? state.interests
+            <div className="waitlist-popup-list" aria-label="Waiting players" role="region" tabIndex={0}>
+              {waitingCount ? state.interests
                 .filter((interest) => activeInterestStatuses.includes(interest.status))
                 .sort((left, right) => left.interestedAt.localeCompare(right.interestedAt))
                 .map((interest) => {
@@ -178,8 +222,17 @@ export default function FloorView(props: FloorViewProps) {
                       <span>{game?.name ?? 'Unknown game'} · {interest.status === 'Confirmed Coming' ? 'Coming' : interest.status === 'Arrived' ? 'Here' : interest.status}</span>
                       {interest.expectedArrivalTime ? <span>Expected at {interest.expectedArrivalTime}</span> : null}
                       {interest.availabilityStartTime ? <span>Available {interest.availabilityStartTime}{interest.availabilityEndTime ? `–${interest.availabilityEndTime}` : ''}</span> : null}
+                      <small className="waitlist-popup-timing">
+                        Joined {formatClock(interest.interestedAt)} ({minutesSince(interest.interestedAt)}m)
+                        {interest.manualEdits?.interestedAt ? <em className="edited-marker">edited</em> : null}
+                      </small>
+                      {interest.arrivedAt ? (
+                        <small className="waitlist-popup-timing">
+                          Arrived {formatClock(interest.arrivedAt)} ({minutesSince(interest.arrivedAt)}m)
+                          {interest.manualEdits?.arrivedAt ? <em className="edited-marker">edited</em> : null}
+                        </small>
+                      ) : null}
                     </div>
-                    <em className="waitlist-popup-age">{minutesSince(interest.interestedAt)}m</em>
                     <div className="waitlist-popup-actions">
                       {interest.status === 'Arrived' ? (
                         openTables.length ? (
@@ -219,21 +272,75 @@ export default function FloorView(props: FloorViewProps) {
         </Dialog.Portal>
       </Dialog.Root>
 
-      <section className="floor-summary-bar" aria-label="Floor summary">
-        <span><strong>{state.sessions.filter((session) => session.status === 'Running').length}</strong> running</span>
-        <span><strong>{state.playerSessions.filter((session) => !session.leftAt).length}</strong> seated</span>
-        <span><strong>{state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length}</strong> waiting</span>
-        <span className={analytics.expiredTimeFeeSeats ? 'alert' : ''}><strong>{analytics.expiredTimeFeeSeats}</strong> actions needed</span>
-      </section>
+      <div className="floor-room-workspace">
+        <FloorRoomMap
+          key={floorLayoutStorageKey}
+          sessions={state.sessions}
+          physicalTables={state.physicalTables ?? []}
+          games={state.games}
+          playerSessions={state.playerSessions}
+          clockNow={clockNow}
+          layoutStorageKey={floorLayoutStorageKey}
+          getTimeRemainingSeconds={getTimeRemainingSeconds}
+          onOpenTable={openTableView}
+          onAddPhysicalTable={addPhysicalTable}
+          onStartGameAtTable={(physicalTableId, gameId) => addSession(gameId, physicalTableId)}
+        />
+
+        <nav className="floor-workspace-dock" aria-label="Floor workspaces">
+          <button
+            ref={currentTablesTriggerRef}
+            aria-haspopup="dialog"
+            aria-expanded={openPanels.currentTables}
+            className={openPanels.currentTables ? 'active' : ''}
+            onClick={() => openFloorWorkspace('currentTables')}
+            type="button"
+          ><LayoutDashboard size={17} /> Current tables</button>
+          <button
+            ref={tableOverviewTriggerRef}
+            aria-haspopup="dialog"
+            aria-expanded={openPanels.tableFinancials}
+            className={openPanels.tableFinancials ? 'active' : ''}
+            onClick={() => openFloorWorkspace('tableFinancials')}
+            type="button"
+          ><WalletCards size={17} /> Table overview</button>
+          <button
+            ref={formingGamesTriggerRef}
+            aria-haspopup="dialog"
+            aria-expanded={openPanels.formingGames}
+            className={openPanels.formingGames ? 'active' : ''}
+            onClick={() => openFloorWorkspace('formingGames')}
+            type="button"
+          ><Users size={17} /> Forming games</button>
+        </nav>
+      </div>
 
       <section className="minimal-dashboard dashboard-simple">
         <div className="dashboard-main-column">
-        <section className={`panel floor-panel current-tables-panel ${openPanels.currentTables ? '' : 'collapsed-panel'}`}>
+        <Dialog.Root
+          open={openPanels.currentTables}
+          onOpenChange={(open) => {
+            if (!open && (seatPicker || cashOutModal || tableLedgerModal)) return;
+            setFloorWorkspaceOpen('currentTables', open);
+          }}
+        >
+          <Dialog.Portal>
+            <Dialog.Overlay className="floor-workspace-backdrop" />
+            <Dialog.Content
+              asChild
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                currentTablesTriggerRef.current?.focus();
+              }}
+            >
+        <section className="panel floor-panel floor-workspace-popup current-tables-panel">
+          <Dialog.Title className="sr-only">Current tables</Dialog.Title>
+          <Dialog.Description className="sr-only">Manage live table sessions and seated players.</Dialog.Description>
           <PanelTitle
             icon={<LayoutDashboard />}
             title="Current Tables"
             collapsed={!openPanels.currentTables}
-            onToggle={() => togglePanel('currentTables')}
+            onToggle={() => setFloorWorkspaceOpen('currentTables', false)}
           />
           {openPanels.currentTables ? <div className="active-game-list">
             {state.sessions.filter((session: { status: string; }) => session.status !== 'Closed' && session.status !== 'Failed to Start').length ? (
@@ -572,113 +679,34 @@ export default function FloorView(props: FloorViewProps) {
               <p className="muted-copy">No active tables.</p>
             )}
           </div> : null}
+          {seatPickerModal}
+          {cashOutModal}
+          {tableLedgerModal}
         </section>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
         </div>
 
         <div className="dashboard-side-column">
-        <section className={`panel floor-panel table-overview-panel ${openPanels.tableOverview ? '' : 'collapsed-panel'}`}>
-          <PanelTitle
-            icon={<Clock />}
-            title="Time Overview"
-            collapsed={!openPanels.tableOverview}
-            onToggle={() => togglePanel('tableOverview')}
-          />
-          {openPanels.tableOverview ? (() => {
-            const allTimeOverviewId = 'all-time-overview';
-            const openSessions = state.sessions.filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start');
-            const isAllTimeOverview = overviewTableId === allTimeOverviewId;
-            const openSessionsById = new Map(openSessions.map((session) => [session.id, session]));
-            const selectedTable = openSessions.find((session) => session.id === overviewTableId) ?? openSessions[0];
-            const selectedPlayers = selectedTable
-              ? state.playerSessions
-                  .filter((playerSession) => playerSession.tableId === selectedTable.id && !playerSession.leftAt)
-                  .map((playerSession) => ({
-                    playerSession,
-                    isTimeCollection: Boolean(selectedTable.collectionMode === 'Time' || selectedTable.timeFeeBased || playerSession.timeFeeEnabled),
-                    remainingSeconds: getTimeRemainingSeconds(playerSession, clockNow)
-                  }))
-                  .sort((left, right) => {
-                    if (left.isTimeCollection !== right.isTimeCollection) return left.isTimeCollection ? -1 : 1;
-                    if (left.isTimeCollection && right.isTimeCollection) return left.remainingSeconds - right.remainingSeconds;
-                    return left.playerSession.playerName.localeCompare(right.playerSession.playerName);
-                  })
-              : [];
-            const allTimePlayers = state.playerSessions
-              .filter((playerSession) => !playerSession.leftAt && openSessionsById.has(playerSession.tableId))
-              .map((playerSession) => {
-                const table = openSessionsById.get(playerSession.tableId);
-                const isTimeCollection = Boolean(table && (table.collectionMode === 'Time' || table.timeFeeBased || playerSession.timeFeeEnabled));
-                const remainingSeconds = getTimeRemainingSeconds(playerSession, clockNow);
-                return { playerSession, table, isTimeCollection, remainingSeconds };
-              })
-              .sort((left, right) => {
-                if (left.isTimeCollection !== right.isTimeCollection) return left.isTimeCollection ? -1 : 1;
-                if (left.isTimeCollection && right.isTimeCollection) return left.remainingSeconds - right.remainingSeconds;
-                return minutesSince(right.playerSession.seatedAt) - minutesSince(left.playerSession.seatedAt);
-              });
-            return (
-              <div className="table-overview-content">
-                {openSessions.length ? (
-                  <>
-                    <select value={isAllTimeOverview ? allTimeOverviewId : selectedTable?.id ?? ''} onChange={(event) => setOverviewTableId(event.target.value)}>
-                      <option value={allTimeOverviewId}>All Players - Time Left</option>
-                      {openSessions.map((session) => (
-                        <option key={session.id} value={session.id}>
-                          {session.label} - {state.games.find((game) => game.id === session.gameId)?.name ?? 'Unknown'}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="overview-player-list">
-                      {isAllTimeOverview ? (
-                        allTimePlayers.length ? (
-                          allTimePlayers.map(({ playerSession, table, isTimeCollection, remainingSeconds }) => {
-                            const timeStatus = isTimeCollection ? getTimerStatusFromSeconds(remainingSeconds) : 'off';
-                            return (
-                              <div className="overview-player-row all-time-row" key={playerSession.id}>
-                                <span>{table?.label ?? 'Table'} - Seat {playerSession.seatNumber ?? '-'}</span>
-                                <strong title={playerSession.playerName}>{playerSession.playerName}</strong>
-                                <small title={state.games.find((game) => game.id === playerSession.gameId)?.name ?? 'Unknown'}>{state.games.find((game) => game.id === playerSession.gameId)?.name ?? 'Unknown'}</small>
-                                <em className={`time-left-pill ${timeStatus}`}>
-                                  {isTimeCollection ? formatTimeLeft(remainingSeconds) : 'No timer'}
-                                </em>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <p className="muted-copy">No seated players on open tables.</p>
-                        )
-                      ) : selectedPlayers.length ? (
-                        selectedPlayers.map(({ playerSession, isTimeCollection, remainingSeconds }) => {
-                          const timeStatus = isTimeCollection ? getTimerStatusFromSeconds(remainingSeconds) : 'off';
-                          return (
-                            <div className="overview-player-row" key={playerSession.id}>
-                              <span>Seat {playerSession.seatNumber ?? '-'}</span>
-                              <strong title={playerSession.playerName}>{playerSession.playerName}</strong>
-                              <em className={`time-left-pill ${timeStatus}`}>
-                                {isTimeCollection ? formatTimeLeft(remainingSeconds) : 'No timer'}
-                              </em>
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <p className="muted-copy">No seated players on this table.</p>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <p className="muted-copy">No open tables to summarize.</p>
-                )}
-              </div>
-            );
-          })() : null}
-        </section>
-
-        <section className={`panel floor-panel table-financial-overview-panel ${openPanels.tableFinancials ? '' : 'collapsed-panel'}`}>
+        <Dialog.Root open={openPanels.tableFinancials} onOpenChange={(open) => setFloorWorkspaceOpen('tableFinancials', open)}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="floor-workspace-backdrop" />
+            <Dialog.Content
+              asChild
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                tableOverviewTriggerRef.current?.focus();
+              }}
+            >
+        <section className="panel floor-panel floor-workspace-popup table-financial-overview-panel">
+          <Dialog.Title className="sr-only">Table overview</Dialog.Title>
+          <Dialog.Description className="sr-only">Review table collection, cash, and dealer totals.</Dialog.Description>
           <PanelTitle
             icon={<WalletCards />}
             title="Table Overview"
             collapsed={!openPanels.tableFinancials}
-            onToggle={() => togglePanel('tableFinancials')}
+            onToggle={() => setFloorWorkspaceOpen('tableFinancials', false)}
           />
           {openPanels.tableFinancials ? (() => {
             const allTableFinancialsId = 'all-table-financials';
@@ -789,36 +817,24 @@ export default function FloorView(props: FloorViewProps) {
             );
           })() : null}
         </section>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
 
-        <section className={`panel floor-panel live-feed-panel ${openPanels.recentActivity ? '' : 'collapsed-panel'}`}>
-          <PanelTitle
-            icon={<MessageCircle />}
-            title="Recent Activity"
-            collapsed={!openPanels.recentActivity}
-            onToggle={() => togglePanel('recentActivity')}
-          />
-          {openPanels.recentActivity ? <div className="live-feed-list" aria-live="polite">
-            {liveFeedItems.length ? (
-              liveFeedItems.map((item) => (
-                <article className={`live-feed-item ${item.kind}`} key={item.id}>
-                  <div className="live-feed-dot" />
-                  <div>
-                    <div className="live-feed-head">
-                      <strong>{item.actor}</strong>
-                      <span>{formatClock(item.timestamp)}</span>
-                    </div>
-                    <p>{item.label}{item.detail ? ` - ${item.detail}` : ''}</p>
-                  </div>
-                </article>
-              ))
-            ) : (
-              <p className="muted-copy">Live floor events will appear here.</p>
-            )}
-          </div> : null}
-        </section>
-
-        <section className={`panel floor-panel shown-interest-panel ${openPanels.formingGames ? '' : 'collapsed-panel'}`}>
-          <PanelTitle icon={<Users />} title="Forming Games" collapsed={!openPanels.formingGames} onToggle={() => togglePanel('formingGames')} />
+        <Dialog.Root open={openPanels.formingGames} onOpenChange={(open) => setFloorWorkspaceOpen('formingGames', open)}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="floor-workspace-backdrop" />
+            <Dialog.Content
+              asChild
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                formingGamesTriggerRef.current?.focus();
+              }}
+            >
+        <section className="panel floor-panel floor-workspace-popup shown-interest-panel">
+          <Dialog.Title className="sr-only">Forming games</Dialog.Title>
+          <Dialog.Description className="sr-only">Build and start games from current player demand.</Dialog.Description>
+          <PanelTitle icon={<Users />} title="Forming Games" collapsed={!openPanels.formingGames} onToggle={() => setFloorWorkspaceOpen('formingGames', false)} />
           {openPanels.formingGames ? <div className="forming-list">
             {state.games.length ? (
               <label className="forming-game-menu">
@@ -949,43 +965,9 @@ export default function FloorView(props: FloorViewProps) {
             {!state.games.length ? <p className="muted-copy">Add a game in Settings before forming a table.</p> : null}
           </div> : null}
         </section>
-
-        <section className={`panel floor-panel recommended-panel ${openPanels.waitlist ? '' : 'collapsed-panel'}`}>
-          <PanelTitle icon={<Target />} title="Waitlist" collapsed={!openPanels.waitlist} onToggle={() => togglePanel('waitlist')} />
-          {openPanels.waitlist ? <div className="waitlist-list">
-            {state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length ? (
-              state.interests
-                .filter((interest) => activeInterestStatuses.includes(interest.status))
-                .slice(0, 8)
-                .map((interest: Interest) => {
-                const game = state.games.find((item) => item.id === interest.gameId);
-                return (
-                  <article className="waitlist-card" key={interest.id}>
-                    <div>
-                      <strong>{interest.playerName}</strong>
-                      <span>{game?.name ?? 'Unknown'} - {interest.status}</span>
-                      <small>
-                        Logged {formatClock(interest.interestedAt)} ({minutesSince(interest.interestedAt)}m)
-                        {interest.manualEdits?.interestedAt ? <em className="edited-marker">edited</em> : null}
-                      </small>
-                      {interest.arrivedAt ? (
-                        <small>
-                          Arrived {formatClock(interest.arrivedAt)} ({minutesSince(interest.arrivedAt)}m)
-                          {interest.manualEdits?.arrivedAt ? <em className="edited-marker">edited</em> : null}
-                        </small>
-                      ) : null}
-                    </div>
-                    <div className="lifecycle-actions">
-                      <button className="ghost-button" onClick={() => deleteInterest(interest.id)}>Remove</button>
-                    </div>
-                  </article>
-                );
-              })
-            ) : (
-              <p className="muted-copy">No one is on the waitlist.</p>
-            )}
-          </div> : null}
-        </section>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
 
         {openPanels.quickAdd ? (
           <button

@@ -31,6 +31,117 @@ describe('canonical Firestore club layout', () => {
     expect(players[0].sourceProfileId).toBe('player_123');
   });
 
+  it('uses the flat room time fee instead of a legacy per-game rate', () => {
+    const players = publisher.buildCanonicalPlayerDocs({
+      ...state,
+      settings: {
+        ...state.settings,
+        defaultHourlyFee: 10,
+        collectionProfiles: [{
+          gameId: 'nlh',
+          collectionMode: 'Time',
+          hourlyFee: 99,
+          estimatedDropPerSeatHour: 7
+        }]
+      },
+      games: [{ id: 'nlh', name: '1/2 NLH' }],
+      sessions: [{ id: 'table-1', gameId: 'nlh' }],
+      playerSessions: [{
+        id: 'session-1',
+        profileId: 'player_123',
+        playerName: 'Test Player',
+        gameId: 'nlh',
+        tableId: 'table-1',
+        seatedAt: '2026-07-18T00:00:00.000Z',
+        leftAt: '2026-07-18T00:30:00.000Z',
+        timePurchasedMinutes: 30
+      }]
+    }, 'lic_test', '2026-07-18T01:00:00.000Z');
+
+    expect(players[0].contribution).toMatchObject({
+      timeFeeContribution: 5,
+      estimatedDropContribution: 0,
+      recordedDropContribution: 0
+    });
+  });
+
+  it('preserves exact time purchases across rate changes without dropping the initial fee', () => {
+    const players = publisher.buildCanonicalPlayerDocs({
+      ...state,
+      settings: {
+        ...state.settings,
+        defaultHourlyFee: 12,
+        collectionProfiles: [{
+          gameId: 'nlh',
+          collectionMode: 'Time',
+          hourlyFee: 99,
+          estimatedDropPerSeatHour: 7
+        }]
+      },
+      games: [{ id: 'nlh', name: '1/2 NLH' }],
+      sessions: [{ id: 'table-1', gameId: 'nlh' }],
+      playerSessions: [{
+        id: 'session-1',
+        profileId: 'player_123',
+        playerName: 'Test Player',
+        gameId: 'nlh',
+        tableId: 'table-1',
+        seatedAt: '2026-07-18T00:00:00.000Z',
+        leftAt: '2026-07-18T01:30:00.000Z',
+        timePurchasedMinutes: 90
+      }],
+      timeFeeLogs: [{
+        id: 'initial-time',
+        playerSessionId: 'session-1',
+        tableId: 'table-1',
+        gameId: 'nlh',
+        playerName: 'Test Player',
+        minutes: 60,
+        amount: 10,
+        timestamp: '2026-07-18T00:00:00.000Z'
+      }, {
+        id: 'added-time',
+        playerSessionId: 'session-1',
+        tableId: 'table-1',
+        gameId: 'nlh',
+        playerName: 'Test Player',
+        minutes: 30,
+        amount: 6,
+        timestamp: '2026-07-18T00:45:00.000Z'
+      }]
+    }, 'lic_test', '2026-07-18T02:00:00.000Z');
+
+    expect(players[0].contribution.timeFeeContribution).toBe(16);
+  });
+
+  it('migrates a missing room fee from one legacy time profile for every game', () => {
+    const players = publisher.buildCanonicalPlayerDocs({
+      ...state,
+      settings: {
+        ...state.settings,
+        defaultHourlyFee: undefined,
+        collectionProfiles: [
+          { gameId: 'holdem', collectionMode: 'Time', hourlyFee: 12, estimatedDropPerSeatHour: 0 },
+          { gameId: 'omaha', collectionMode: 'Time', hourlyFee: 99, estimatedDropPerSeatHour: 0 }
+        ]
+      },
+      games: [{ id: 'omaha', name: '1/2 PLO' }],
+      sessions: [{ id: 'table-1', gameId: 'omaha' }],
+      playerSessions: [{
+        id: 'session-1',
+        profileId: 'player_123',
+        playerName: 'Test Player',
+        gameId: 'omaha',
+        tableId: 'table-1',
+        seatedAt: '2026-07-18T00:00:00.000Z',
+        leftAt: '2026-07-18T00:30:00.000Z',
+        timePurchasedMinutes: 30
+      }]
+    }, 'lic_test', '2026-07-18T01:00:00.000Z');
+
+    expect(players[0].contribution.timeFeeContribution).toBe(6);
+  });
+
   it('does not duplicate membership players on the parent club document', () => {
     const players = publisher.buildCanonicalPlayerDocs(state, 'lic_test', '2026-07-18T00:00:00.000Z');
     const club = publisher.buildCanonicalClubDoc(

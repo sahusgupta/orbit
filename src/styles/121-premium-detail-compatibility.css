@@ -321,8 +321,9 @@ textarea:focus {
   display: flex;
   inset: 0;
   justify-content: center;
+  pointer-events: auto;
   position: fixed;
-  z-index: 120;
+  z-index: 180;
   padding: 28px;
 }
 

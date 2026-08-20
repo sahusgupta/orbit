@@ -28,5 +28,8 @@ The owner files follow the cascade in these groups:
 | `240` | Players activity and membership workflows |
 | `250` | final desktop/laptop responsive density pass |
 | `260` | staff notifications |
+| `270` | spatial Floor room map migration |
+| `280` | calm, table-first Table View migration |
+| `290` | Floor command bar and room utility drawers |
 
 The compatibility files deliberately retain selectors from multiple features when those rules were introduced as one ordered theme/detail pass. Moving individual rules across those boundaries requires its own rendered characterization because it can change equal-specificity winners.

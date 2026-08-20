@@ -12,6 +12,7 @@ import {
   addTournamentEntry as addTournamentEntryInState,
   advanceTournamentLevel as advanceTournamentLevelInState,
   checkInTournamentPlayer as checkInTournamentPlayerInState,
+  createDefaultTournamentPayoutDrafts,
   createTournament as createTournamentInState,
   drawTournamentTables as drawTournamentTablesInState,
   eliminateTournamentPlayer as eliminateTournamentPlayerInState,
@@ -21,7 +22,8 @@ import {
   resumeTournament as resumeTournamentInState,
   startTournament as startTournamentInState,
   updateTournamentPayout as updateTournamentPayoutInState,
-  updateTournamentSettings
+  updateTournamentSettings,
+  type TournamentPayoutDraft
 } from '../../application/management/tournamentCommands';
 
 export type TournamentView = 'library' | 'create' | 'edit' | 'manage';
@@ -34,6 +36,7 @@ export type TournamentDraft = {
   levelMinutes: string;
   rebuyPrizePercent: string;
   tableSize: string;
+  payouts?: TournamentPayoutDraft[];
 };
 
 export type TournamentPlayerDraft = {
@@ -101,7 +104,8 @@ export const useTournamentWorkspaceState = () => {
     startingStack: '20000',
     levelMinutes: '20',
     rebuyPrizePercent: '100',
-    tableSize: '9'
+    tableSize: '9',
+    payouts: createDefaultTournamentPayoutDrafts()
   });
   const [tournamentPlayerDraft, setTournamentPlayerDraft] = useState<TournamentPlayerDraft>({
     name: '',
@@ -151,7 +155,6 @@ export const useTournamentSelectionRepair = (
 type TournamentActionsOptions = ReturnType<typeof useTournamentWorkspaceState> & {
   clockNow: number;
   onPersist: (state: AppState, usageAction: string) => void;
-  openTournamentTv: (tournamentId: string) => void;
   selectedTournament: Tournament | null;
   state: AppState;
 };
@@ -159,7 +162,6 @@ type TournamentActionsOptions = ReturnType<typeof useTournamentWorkspaceState> &
 export const createTournamentActions = ({
   clockNow,
   onPersist,
-  openTournamentTv,
   selectedTournament,
   setSelectedTournamentId,
   setTournamentDraft,
@@ -177,7 +179,7 @@ export const createTournamentActions = ({
     onPersist(result.state, 'Created tournament');
     setSelectedTournamentId(result.tournament.id);
     setTournamentView('manage');
-    setTournamentSection('clock');
+    setTournamentSection('players');
   };
 
   const beginTournamentEdit = (tournament: Tournament) => {
@@ -188,7 +190,11 @@ export const createTournamentActions = ({
       startingStack: String(tournament.startingStack),
       levelMinutes: String(tournament.levels[0]?.durationMinutes ?? 20),
       rebuyPrizePercent: String(tournament.rebuyPrizePercent ?? 100),
-      tableSize: String(tournament.tableSize ?? 9)
+      tableSize: String(tournament.tableSize ?? 9),
+      payouts: tournament.payouts.map((payout) => ({
+        place: payout.place,
+        percent: String(payout.percent)
+      }))
     });
     setTournamentView('edit');
   };
@@ -196,11 +202,10 @@ export const createTournamentActions = ({
   const saveTournamentSettings = (event: FormEvent) => {
     event.preventDefault();
     if (!selectedTournament) return;
-    onPersist(
-      updateTournamentSettings(state, selectedTournament.id, tournamentDraft),
-      'Updated tournament settings'
-    );
-    setTournamentView('library');
+    const nextState = updateTournamentSettings(state, selectedTournament.id, tournamentDraft);
+    if (!nextState) return;
+    onPersist(nextState, 'Updated tournament settings');
+    setTournamentView('manage');
   };
 
   const runTournamentAgain = (source: Tournament) => {
@@ -231,7 +236,6 @@ export const createTournamentActions = ({
 
   const startTournament = (tournament: Tournament) => {
     onPersist(startTournamentInState(state, tournament.id, { nowIso }), 'Started tournament');
-    window.setTimeout(() => openTournamentTv(tournament.id), 100);
   };
 
   const pauseTournament = (tournament: Tournament) => {
