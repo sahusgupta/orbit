@@ -16,7 +16,9 @@ async function loadManifest() {
   releaseStatus.setAttribute('aria-busy', 'true');
 
   try {
-    const staged = await readSameOriginManifest('./downloads/manifest.json');
+    const staged = import.meta.env.DEV
+      ? await readSameOriginManifest('./downloads/manifest.json')
+      : null;
     const release = staged || await readSameOriginManifest('./release-manifest.json');
     if (!release) throw new Error('Release manifest is unavailable.');
     const updatedAt = release.installer?.updatedAt || release.zip?.updatedAt || release.generatedAt;
