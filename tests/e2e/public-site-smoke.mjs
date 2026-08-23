@@ -12,6 +12,7 @@ const page = await context.newPage();
 const pageErrors = [];
 const consoleErrors = [];
 const failedRequests = [];
+const expectedInstallerUrl = 'https://github.com/sahusgupta/orbit/releases/download/v0.1.70/Orbit-0.1.70-x64.exe';
 
 page.on('pageerror', (error) => pageErrors.push(error.message));
 page.on('console', (message) => {
@@ -46,8 +47,16 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, 'product-desktop.png'), fullPage: true });
 
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
-  if (await page.locator('#updated').innerText() !== 'Available after approved promotion') {
-    throw new Error('The same-origin release manifest did not render its approved-promotion state.');
+  if (await page.locator('#version').innerText() !== '0.1.70') {
+    throw new Error('The same-origin release manifest did not render version 0.1.70.');
+  }
+  if (await page.locator('#updated').innerText() !== 'Verified stable release') {
+    throw new Error('The same-origin release manifest did not render its verified stable state.');
+  }
+  const installerLink = page.locator('#installer-link');
+  if (await installerLink.innerText() !== 'Download for Windows'
+      || await installerLink.getAttribute('href') !== expectedInstallerUrl) {
+    throw new Error('The release CTA did not render the immutable 0.1.70 installer URL.');
   }
   await page.screenshot({ path: path.join(screenshotDir, 'home-desktop.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
