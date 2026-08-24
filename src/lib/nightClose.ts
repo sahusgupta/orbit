@@ -72,10 +72,17 @@ export function buildNightCloseTables(state: NightCloseSource, actuals: Record<s
     const actualCash = rawActual === '' || rawActual === undefined ? undefined : Number(rawActual);
     const warnings: string[] = [];
     if (session.status !== 'Closed') warnings.push('Table is still open');
+    const cashOutBelongsToPlayer = (entry: NightCloseSource['playerLedger'][number], player: NightCloseSource['playerSessions'][number]) =>
+      player.profileId ? entry.profileId === player.profileId : entry.playerName.toLowerCase() === player.playerName.toLowerCase();
     const playersWithoutCashOut = playerSessions.filter((player) => !cashOutEntries.some((entry) =>
-      player.profileId ? entry.profileId === player.profileId : entry.playerName.toLowerCase() === player.playerName.toLowerCase()
+      cashOutBelongsToPlayer(entry, player)
     ));
+    const playersWithoutCashOutAmount = playerSessions.filter((player) => {
+      const playerCashOuts = cashOutEntries.filter((entry) => cashOutBelongsToPlayer(entry, player));
+      return playerCashOuts.length > 0 && playerCashOuts.every((entry) => entry.amount === undefined);
+    });
     if (playersWithoutCashOut.length) warnings.push(`${playersWithoutCashOut.length} player${playersWithoutCashOut.length === 1 ? '' : 's'} missing cash-out`);
+    if (playersWithoutCashOutAmount.length) warnings.push(`${playersWithoutCashOutAmount.length} player${playersWithoutCashOutAmount.length === 1 ? '' : 's'} missing cash-out amount`);
     const missingTime = session.collectionMode === 'Time' || session.timeFeeBased
       ? playerSessions.filter((player) => (player.timePurchasedMinutes ?? 0) <= 0).length
       : 0;

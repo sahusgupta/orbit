@@ -183,7 +183,7 @@ describe('Player discovery characterization', () => {
     expect(discovery.filterTournaments({ ...base, tournamentDistanceFilter: 5 }).map((item) => item.tournament.id)).toEqual(['remote', 'tournament-1', 'paid']);
   });
 
-  it('pins opportunity eligibility, active-request exclusion, casino gates, distance bypass, and activity ordering', () => {
+  it('pins configured-game inclusion, active-request exclusion, casino gates, distance bypass, and activity ordering', () => {
     const older = game({ id: 'game-older', updatedAt: '2026-08-08T01:00:00.000Z' });
     const preferred = game({ id: 'game-preferred', updatedAt: '2026-08-08T04:00:00.000Z' });
     const inactive = game({ id: 'game-inactive', openTables: [], availableSeats: 0 });
@@ -205,11 +205,11 @@ describe('Player discovery characterization', () => {
       selectedFilterClubId: 'all',
       stakesFilter: ''
     };
-    expect(discovery.buildGameOpportunities(base).map((item) => item.game.id)).toEqual(['game-preferred', 'game-older']);
-    expect(discovery.buildGameOpportunities({ ...base, gameTypeFilter: 'favorites' }).map((item) => item.game.id)).toEqual(['game-preferred', 'game-older']);
-    expect(discovery.buildGameOpportunities({ ...base, selectedCasinoFilter: 'all' }).map((item) => item.game.id)).toEqual(['casino-game', 'game-preferred', 'game-older']);
+    expect(discovery.buildGameOpportunities(base).map((item) => item.game.id)).toEqual(['game-preferred', 'game-inactive', 'game-older']);
+    expect(discovery.buildGameOpportunities({ ...base, gameTypeFilter: 'favorites' }).map((item) => item.game.id)).toEqual(['game-preferred', 'game-inactive', 'game-older']);
+    expect(discovery.buildGameOpportunities({ ...base, selectedCasinoFilter: 'all' }).map((item) => item.game.id)).toEqual(['casino-game', 'game-preferred', 'game-inactive', 'game-older']);
     expect(discovery.buildGameOpportunities({ ...base, selectedFilterClubId: 'none', selectedCasinoFilter: 'all' }).map((item) => item.game.id)).toEqual(['casino-game']);
-    expect(discovery.buildGameOpportunities({ ...base, gameQuery: 'favorite', distanceFilter: 5 }).map((item) => item.game.id)).toEqual(['game-preferred', 'game-older']);
+    expect(discovery.buildGameOpportunities({ ...base, gameQuery: 'favorite', distanceFilter: 5 }).map((item) => item.game.id)).toEqual(['game-preferred', 'game-inactive', 'game-older']);
   });
 
   it('pins discovery decision projection and active-item refresh by stable opportunity key', () => {
@@ -219,6 +219,15 @@ describe('Player discovery characterization', () => {
     const second = { club: club('club-b', 'Beta'), game: game({ id: 'game-2' }), distanceMiles: 3, isJoined: false, isPreferred: false };
     const decisions = { [discovery.getOpportunityKey(first)]: 'saved' as const };
     expect(discovery.getDiscoveryDeck([first, second], decisions)).toEqual([second]);
+    const exhausted = discovery.advanceDiscoveryCycle([first, second], decisions, second, 'pass');
+    expect(exhausted).toEqual({ [discovery.getOpportunityKey(second)]: 'pass' });
+    expect(discovery.getDiscoveryDeck([first, second], exhausted)).toEqual([first]);
+    expect(discovery.getDiscoveryDeck([first, second], {
+      [discovery.getOpportunityKey(first)]: 'saved',
+      [discovery.getOpportunityKey(second)]: 'pass'
+    })).toEqual([first, second]);
+    expect(discovery.getDiscoveryDeck([], decisions)).toEqual([]);
+    expect(discovery.advanceDiscoveryCycle([first], {}, first, 'pass')).toEqual({});
     expect(discovery.getSavedOpportunities([first, second], decisions)).toEqual([first]);
     expect(discovery.getActiveDiscoveryOpportunity([refreshed, second], first)).toBe(refreshed);
     expect(discovery.getActiveDiscoveryOpportunity([second], first)).toBe(first);

@@ -18,6 +18,7 @@ import {
   type PlayerAccount
 } from './domain/playerSync';
 import {
+  advanceDiscoveryCycle,
   buildFindGameClubs,
   buildGameOpportunities,
   filterMapClubs,
@@ -129,6 +130,7 @@ export default function PlayerApp() {
   const [showTournamentFilters, setShowTournamentFilters] = useState(false);
   const [showMapFilters, setShowMapFilters] = useState(false);
   const [discoveryDecisions, setDiscoveryDecisions] = useState<Record<string, DiscoveryDecision>>({});
+  const [discoveryCycleDecisions, setDiscoveryCycleDecisions] = useState<Record<string, DiscoveryDecision>>({});
   const [selectedDiscoveryOpportunity, setSelectedDiscoveryOpportunity] = useState<GameOpportunity | null>(null);
   const [discoveryNotice, setDiscoveryNotice] = useState('');
   const [avatarHovered, setAvatarHovered] = useState(false);
@@ -353,8 +355,8 @@ export default function PlayerApp() {
 
   const displayedOpportunities = opportunities;
   const discoveryDeck = useMemo(
-    () => getDiscoveryDeck(displayedOpportunities, discoveryDecisions),
-    [discoveryDecisions, displayedOpportunities]
+    () => getDiscoveryDeck(displayedOpportunities, discoveryCycleDecisions),
+    [discoveryCycleDecisions, displayedOpportunities]
   );
   const savedOpportunities = useMemo(
     () => getSavedOpportunities(displayedOpportunities, discoveryDecisions),
@@ -368,6 +370,7 @@ export default function PlayerApp() {
   const decideDiscoveryOpportunity = (item: GameOpportunity, decision: DiscoveryDecision) => {
     const key = getOpportunityKey(item);
     setDiscoveryDecisions((current) => ({ ...current, [key]: decision }));
+    setDiscoveryCycleDecisions((current) => advanceDiscoveryCycle(displayedOpportunities, current, item, decision));
     if (decision === 'saved') {
       setDiscoveryNotice(`${item.game.name} saved. Review the join options and game alerts.`);
       setSelectedDiscoveryOpportunity(item);
@@ -400,6 +403,7 @@ export default function PlayerApp() {
 
   const resetDiscoveryDeck = () => {
     setDiscoveryDecisions({});
+    setDiscoveryCycleDecisions({});
     setDiscoveryNotice('Discovery deck refreshed.');
   };
 

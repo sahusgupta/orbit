@@ -1,6 +1,6 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { normalizeState } from '../../../domain/state';
-import { hasPersistedSignIn } from '../../../domain/licensing';
+import { restorePersistedSignIn } from '../../../domain/licensing';
 import type { AppState } from '../../../domain/types';
 import { saveBrowserManagementState } from '../../../app/persistence/browserStateRepository';
 import { loadDesktopManagementState } from '../../../app/persistence/managementPersistence';
@@ -31,12 +31,12 @@ export const useManagementStartupSync = ({
   useEffect(() => {
     // Browser state initializes the shell while the trusted desktop boundary
     // loads authoritative server state or its explicitly labelled offline cache.
-    loadDesktopManagementState()?.then((record) => {
+    loadDesktopManagementState()?.then(async (record) => {
       if (record?.state) {
         const next = normalizeState(record.state);
         setUndoStack([]);
         setState(next);
-        setHasAuthenticated(hasPersistedSignIn(next));
+        setHasAuthenticated(await restorePersistedSignIn(next));
         saveBrowserManagementState(next);
         setSaveStatus(record.authoritative === false
           ? { state: 'error', message: 'Offline cache loaded; server reconciliation required' }

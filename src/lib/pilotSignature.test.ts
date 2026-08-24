@@ -14,6 +14,7 @@ import {
   isFutureDate,
   isPilotAccessActive,
   persistSignIn,
+  restorePersistedSignIn,
   validatePilotKey,
   verifyPilotSignature
 } from '../domain/licensing';
@@ -108,6 +109,7 @@ describe('pilot licensing and staff authentication boundary', () => {
 
   beforeEach(() => {
     Reflect.set(getBrandingLicense(), 'publicKeyPem', harness.publicKeyPem);
+    Object.defineProperty(window, 'tableManagerDesktop', { configurable: true, value: undefined });
   });
 
   afterAll(() => {
@@ -198,7 +200,7 @@ describe('pilot licensing and staff authentication boundary', () => {
     await expect(verifyStaffSecret('wrong', salt, legacyHash)).resolves.toBe(false);
   });
 
-  it('preserves license date, account-key, and persisted sign-in semantics', () => {
+  it('preserves license date, account-key, and persisted sign-in semantics', async () => {
     const access: PilotAccess = {
       authorized: true,
       authorizationCode: 'AUTHORIZATION-CODE',
@@ -209,7 +211,16 @@ describe('pilot licensing and staff authentication boundary', () => {
     };
     const state: AppState = {
       ...structuredClone(seedState),
-      settings: { ...structuredClone(seedState.settings), pilotAccess: access }
+      settings: {
+        ...structuredClone(seedState.settings),
+        pilotAccess: access,
+        accountLogin: {
+          username: 'owner@example.test',
+          passwordSalt: 'salt',
+          passwordHash: 'pbkdf2-sha256$210000$hash',
+          createdAt: '2026-08-07T22:00:00.000Z'
+        }
+      }
     };
 
     expect(isFutureDate('2026-08-07')).toBe(true);
@@ -222,15 +233,73 @@ describe('pilot licensing and staff authentication boundary', () => {
     expect(getStorageKeyForState(state)).toBe('table-manager-state-v1:license-alpha');
     expect(getAuthStorageKey(state)).toBe('table-manager-state-v1:auth:license-alpha');
 
-    persistSignIn(state, true);
+    await expect(persistSignIn(state, true)).resolves.toBe(true);
     expect(hasPersistedSignIn(state)).toBe(true);
     expect(localStorage.getItem(getAuthStorageKey(state))).toBeNull();
     expect(hasPersistedSignIn({
       ...state,
       settings: { ...state.settings, pilotAccess: { ...access, expiresAt: '2099-12-30' } }
     })).toBe(false);
-    persistSignIn(state, false);
+    await expect(persistSignIn(state, false)).resolves.toBe(true);
     expect(hasPersistedSignIn(state)).toBe(false);
+    await expect(persistSignIn({
+      ...state,
+      settings: { ...state.settings, pilotAccess: { ...access, authorized: false } }
+    }, true)).resolves.toBe(false);
+  });
+
+  it('restores only an OS-bound session matching the current account credentials and license', async () => {
+    const state: AppState = {
+      ...structuredClone(seedState),
+      settings: {
+        ...structuredClone(seedState.settings),
+        pilotAccess: {
+          authorized: true,
+          authorizationCode: 'AUTHORIZATION-CODE',
+          expiresAt: '2099-12-31',
+          activatedAt: '2026-08-07T22:00:00.000Z',
+          licenseId: 'license-alpha'
+        },
+        accountLogin: {
+          username: 'owner@example.test',
+          passwordSalt: 'salt',
+          passwordHash: 'pbkdf2-sha256$210000$hash',
+          createdAt: '2026-08-07T22:00:00.000Z'
+        }
+      }
+    };
+    const persistedBindings: unknown[] = [];
+    const desktop = {
+      persistManagementSession: vi.fn(async (binding: unknown) => {
+        persistedBindings.push(binding);
+        return { ok: true, active: true };
+      }),
+      restoreManagementSession: vi.fn(async (binding: unknown) => ({
+        ok: true,
+        active: JSON.stringify(binding) === JSON.stringify(persistedBindings[0])
+      })),
+      clearManagementSession: vi.fn(async () => ({ ok: true, active: false }))
+    };
+    Object.defineProperty(window, 'tableManagerDesktop', { configurable: true, value: desktop });
+
+    await expect(persistSignIn(state, true)).resolves.toBe(true);
+    await expect(persistSignIn(state, false)).resolves.toBe(true);
+    await expect(restorePersistedSignIn(state)).resolves.toBe(true);
+    expect(desktop.restoreManagementSession).toHaveBeenCalledWith(expect.objectContaining({
+      accountKey: 'license-alpha',
+      credentialFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+      licenseExpiresAt: '2099-12-31'
+    }));
+
+    await persistSignIn(state, false);
+    await expect(restorePersistedSignIn({
+      ...state,
+      settings: {
+        ...state.settings,
+        accountLogin: { ...state.settings.accountLogin!, passwordHash: 'changed-hash' }
+      }
+    })).resolves.toBe(false);
+    Object.defineProperty(window, 'tableManagerDesktop', { configurable: true, value: undefined });
   });
 
   it('validates signed pilot-key aliases and preserves validation error precedence', async () => {

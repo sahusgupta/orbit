@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getTimerStatusFromSeconds } from '../lib/appCore';
 import type { BuyInLog, GameConfig, GameSession, PlayerSession } from '../domain/types';
-import TableView from './TableView';
+import TableView, { getTableDisplayPreferencesStorageKey } from './TableView';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -27,6 +27,7 @@ const tableGame: GameConfig = {
 
 const tableSession: GameSession = {
   id: 'table-1',
+  physicalTableId: 'physical-table-1',
   gameId: tableGame.id,
   label: 'Main Table',
   status: 'Running',
@@ -71,6 +72,7 @@ const formatTimeLeft = (seconds: number) => {
 
 type HarnessProps = {
   isTimeCollection: boolean;
+  tableSessionOverride?: GameSession;
   onAddPlayerTime?: (session: PlayerSession, minutes: number) => void;
   onOpenSeatPicker?: (session: GameSession, requestedSeatNumber?: number) => void;
   timePlayers: Array<{
@@ -81,14 +83,20 @@ type HarnessProps = {
   }>;
 };
 
-function Harness({ isTimeCollection, onAddPlayerTime = vi.fn(), onOpenSeatPicker = vi.fn(), timePlayers }: HarnessProps) {
+function Harness({
+  isTimeCollection,
+  tableSessionOverride = tableSession,
+  onAddPlayerTime = vi.fn(),
+  onOpenSeatPicker = vi.fn(),
+  timePlayers
+}: HarnessProps) {
   const [eventLogSessionId, setEventLogSessionId] = useState<string | null>(null);
   const [ledgerSessionId, setLedgerSessionId] = useState<string | null>(null);
 
   return (
     <TableView
       tableGame={tableGame}
-      tableSession={{ ...tableSession, collectionMode: isTimeCollection ? 'Time' : 'Drop' }}
+      tableSession={{ ...tableSessionOverride, collectionMode: isTimeCollection ? 'Time' : 'Drop' }}
       seatedPlayers={timePlayers.map((item) => item.playerSession)}
       tableAverageStack={500}
       isTimeCollection={isTimeCollection}
@@ -147,9 +155,98 @@ afterEach(() => {
     mountedRoots.splice(0).forEach((root) => root.unmount());
   });
   document.body.innerHTML = '';
+  window.localStorage.clear();
 });
 
 describe('TableView progressive disclosure', () => {
+  it('opens a focused settings popup and persists table theme, format, blinds, and seat timer choices', () => {
+    const container = renderHarness({
+      isTimeCollection: true,
+      timePlayers: [{
+        playerSession,
+        remainingSeconds: 240,
+        elapsedSeconds: 3600,
+        hasTimer: true
+      }]
+    });
+
+    expect(container.querySelector('.table-view-grid')?.classList.contains('table-theme-midnight')).toBe(true);
+    expect(container.querySelector('.table-view-grid')?.classList.contains('table-format-oval')).toBe(true);
+    expect(container.querySelector('.table-view-blinds-badge')?.textContent).toContain('No Limit Holdem');
+    act(() => {
+      container.querySelector<HTMLButtonElement>('button[aria-label="Table display settings"]')?.click();
+    });
+
+    const settingsDialog = document.querySelector<HTMLElement>('.table-display-settings-dialog');
+    expect(settingsDialog?.textContent).toContain('Adjust this table\'s visual theme, format, blinds, and seat timers.');
+    const findButton = (label: string) => Array.from(settingsDialog?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+      .find((button) => button.textContent?.trim() === label);
+    act(() => {
+      findButton('Green room')?.click();
+      findButton('Round')?.click();
+      settingsDialog?.querySelector<HTMLInputElement>('label:nth-of-type(1) input[type="checkbox"]')?.click();
+      settingsDialog?.querySelector<HTMLInputElement>('label:nth-of-type(2) input[type="checkbox"]')?.click();
+    });
+
+    expect(container.querySelector('.table-view-grid')?.classList.contains('table-theme-green')).toBe(true);
+    expect(container.querySelector('.table-view-grid')?.classList.contains('table-format-round')).toBe(true);
+    expect(container.querySelector('.table-view-blinds-badge')).toBeNull();
+    expect(JSON.parse(window.localStorage.getItem(getTableDisplayPreferencesStorageKey(tableSession.physicalTableId ?? tableSession.id)) ?? '{}'))
+      .toEqual({
+        theme: 'green',
+        format: 'round',
+        showBlinds: false,
+        showSeatTimers: false
+      });
+  });
+
+  it('restores display choices for a new session at the same physical table', () => {
+    const firstContainer = renderHarness({
+      isTimeCollection: true,
+      timePlayers: [{
+        playerSession,
+        remainingSeconds: 240,
+        elapsedSeconds: 3600,
+        hasTimer: true
+      }]
+    });
+    act(() => {
+      firstContainer.querySelector<HTMLButtonElement>('button[aria-label="Table display settings"]')?.click();
+    });
+    const settingsDialog = document.querySelector<HTMLElement>('.table-display-settings-dialog');
+    const findButton = (label: string) => Array.from(settingsDialog?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+      .find((button) => button.textContent?.trim() === label);
+    act(() => {
+      findButton('Green room')?.click();
+      findButton('Round')?.click();
+      settingsDialog?.querySelector<HTMLInputElement>('label:nth-of-type(1) input[type="checkbox"]')?.click();
+    });
+
+    const firstRoot = mountedRoots.shift();
+    act(() => firstRoot?.unmount());
+    firstContainer.remove();
+    const nextSession = { ...tableSession, id: 'table-next-session' };
+    const secondContainer = renderHarness({
+      isTimeCollection: true,
+      tableSessionOverride: nextSession,
+      timePlayers: [{
+        playerSession: { ...playerSession, tableId: nextSession.id },
+        remainingSeconds: 240,
+        elapsedSeconds: 3600,
+        hasTimer: true
+      }]
+    });
+
+    expect(secondContainer.querySelector('.table-view-grid')?.classList.contains('table-theme-green')).toBe(true);
+    expect(secondContainer.querySelector('.table-view-grid')?.classList.contains('table-format-round')).toBe(true);
+    expect(secondContainer.querySelector('.table-view-blinds-badge')).toBeNull();
+    expect(window.localStorage.getItem(getTableDisplayPreferencesStorageKey(tableSession.id))).toBeNull();
+    expect(window.localStorage.getItem(getTableDisplayPreferencesStorageKey(nextSession.id))).toBeNull();
+    expect(window.localStorage.getItem(
+      getTableDisplayPreferencesStorageKey(tableSession.physicalTableId ?? tableSession.id)
+    )).not.toBeNull();
+  });
+
   it('replaces permanent rails with compact, dismissible table utilities', () => {
     const openSeatPicker = vi.fn();
     const container = renderHarness({

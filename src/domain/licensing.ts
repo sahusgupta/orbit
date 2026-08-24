@@ -34,9 +34,46 @@ export const getStorageKeyForState = (state?: Partial<AppState>) => `${managemen
 
 export const getAuthStorageKey = (state?: Partial<AppState>) => `${managementStorageKey}:auth:${getAccountKeyFromState(state)}`;
 
-const managementSessions = new Map<string, { expiresAt: number; idleUntil: number; licenseExpiresAt: string }>();
-const managementSessionMaximumMs = 8 * 60 * 60 * 1000;
-const managementSessionIdleMs = 30 * 60 * 1000;
+export type ManagementSessionBinding = {
+  accountKey: string;
+  credentialFingerprint: string;
+  licenseExpiresAt: string;
+};
+
+type ManagementSessionBridge = {
+  persistManagementSession?: (binding: ManagementSessionBinding) => Promise<{ ok: boolean; active: boolean }>;
+  restoreManagementSession?: (binding: ManagementSessionBinding) => Promise<{ ok: boolean; active: boolean }>;
+  clearManagementSession?: (accountKey: string) => Promise<{ ok: boolean; active: boolean }>;
+};
+
+const managementSessions = new Map<string, { expiresAt: number; licenseExpiresAt: string }>();
+
+const getManagementSessionBridge = () => window.tableManagerDesktop as ManagementSessionBridge | undefined;
+
+const getPilotAccessExpiration = (value?: string) => {
+  if (!value) return Number.NaN;
+  return new Date(value.includes('T') ? value : `${value}T23:59:59.999`).getTime();
+};
+
+const bytesToHex = (bytes: Uint8Array) =>
+  Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+
+const getManagementSessionBinding = async (state: AppState): Promise<ManagementSessionBinding | null> => {
+  const accountLogin = state.settings.accountLogin;
+  const licenseExpiresAt = state.settings.pilotAccess?.expiresAt;
+  if (!accountLogin?.username || !accountLogin.passwordSalt || !accountLogin.passwordHash || !licenseExpiresAt) return null;
+  const credentialMaterial = [
+    accountLogin.username.trim().toLowerCase(),
+    accountLogin.passwordSalt,
+    accountLogin.passwordHash
+  ].join('\u0000');
+  const fingerprint = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(credentialMaterial));
+  return {
+    accountKey: getAccountKeyFromState(state),
+    credentialFingerprint: bytesToHex(new Uint8Array(fingerprint)),
+    licenseExpiresAt
+  };
+};
 
 export const hasPersistedSignIn = (state: AppState) => {
   if (!isPilotAccessActive(state.settings.pilotAccess)) return false;
@@ -46,32 +83,88 @@ export const hasPersistedSignIn = (state: AppState) => {
   return Boolean(
     session &&
     session.expiresAt > now &&
-    session.idleUntil > now &&
     session.licenseExpiresAt === state.settings.pilotAccess?.expiresAt
   );
 };
 
-export const persistSignIn = (state: AppState, staySignedIn: boolean) => {
+export const restorePersistedSignIn = async (state: AppState) => {
+  if (!isPilotAccessActive(state.settings.pilotAccess)) return false;
+  if (hasPersistedSignIn(state)) return true;
+  let binding: ManagementSessionBinding | null;
+  try {
+    binding = await getManagementSessionBinding(state);
+  } catch {
+    return false;
+  }
+  const bridge = getManagementSessionBridge();
+  if (!binding || !bridge?.restoreManagementSession) return false;
+  try {
+    const result = await bridge.restoreManagementSession(binding);
+    if (!result.ok || !result.active) return false;
+    managementSessions.set(getAuthStorageKey(state), {
+      expiresAt: getPilotAccessExpiration(binding.licenseExpiresAt),
+      licenseExpiresAt: binding.licenseExpiresAt
+    });
+    return hasPersistedSignIn(state);
+  } catch {
+    return false;
+  }
+};
+
+export const persistSignIn = async (state: AppState, staySignedIn: boolean) => {
   const key = getAuthStorageKey(state);
-  if (staySignedIn && state.settings.pilotAccess?.expiresAt) {
-    const now = Date.now();
+  if (staySignedIn) {
+    if (!isPilotAccessActive(state.settings.pilotAccess)) return false;
+    let binding: ManagementSessionBinding | null;
+    try {
+      binding = await getManagementSessionBinding(state);
+    } catch {
+      return false;
+    }
+    const expiresAt = getPilotAccessExpiration(binding?.licenseExpiresAt);
+    if (!binding || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) return false;
+    const bridge = getManagementSessionBridge();
+    if (bridge?.persistManagementSession) {
+      try {
+        const result = await bridge.persistManagementSession(binding);
+        if (!result.ok || !result.active) return false;
+      } catch {
+        return false;
+      }
+    }
     managementSessions.set(key, {
-      expiresAt: Math.min(Date.parse(state.settings.pilotAccess.expiresAt), now + managementSessionMaximumMs),
-      idleUntil: now + managementSessionIdleMs,
-      licenseExpiresAt: state.settings.pilotAccess.expiresAt
+      expiresAt,
+      licenseExpiresAt: binding.licenseExpiresAt
     });
     localStorage.removeItem(key);
-    return;
+    return true;
   }
   managementSessions.delete(key);
   localStorage.removeItem(key);
+  const bridge = getManagementSessionBridge();
+  if (bridge?.clearManagementSession) {
+    try {
+      const result = await bridge.clearManagementSession(getAccountKeyFromState(state));
+      return result.ok;
+    } catch {
+      return false;
+    }
+  }
+  return true;
 };
 
 export const touchPersistedSignIn = (state: AppState) => {
   const key = getAuthStorageKey(state);
   const session = managementSessions.get(key);
-  if (!session || session.expiresAt <= Date.now()) return false;
-  session.idleUntil = Math.min(session.expiresAt, Date.now() + managementSessionIdleMs);
+  if (
+    !session ||
+    !isPilotAccessActive(state.settings.pilotAccess) ||
+    session.expiresAt <= Date.now() ||
+    session.licenseExpiresAt !== state.settings.pilotAccess?.expiresAt
+  ) {
+    managementSessions.delete(key);
+    return false;
+  }
   return true;
 };
 

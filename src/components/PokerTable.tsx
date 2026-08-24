@@ -204,7 +204,7 @@ function PlayerCard({
     setActionMessage(`$${amount.toLocaleString()} buy-in recorded.`);
   };
   const selectAction = (action: Exclude<PlayerAction, null>) => {
-    setActiveAction(action);
+    setActiveAction((current) => current === action ? null : action);
     setActionMessage('');
     if (action === 'time') {
       setBuyInAmount('');
@@ -213,6 +213,9 @@ function PlayerCard({
       setCustomMinutes('');
     }
   };
+  const hasTimeAction = Boolean(showTimeRemaining && onAddTime);
+  const hasBuyInAction = Boolean(onAddBuyIn);
+  const hasPlayerActions = hasTimeAction || hasBuyInAction;
 
   return (
     <div ref={cardRef} className={`poker-seat-card ${seatEdgeClass} ${isOpen ? 'open' : ''} ${isDense ? 'dense' : ''} ${isDragging ? 'dragging' : ''}`} style={{ left: `${seat.x}%`, top: `${seat.y}%` }}>
@@ -291,137 +294,141 @@ function PlayerCard({
             <span>Tonight <strong>{player.tonightHours ?? '0.0h'}</strong></span>
             <span>Total <strong>{player.totalHours ?? '0.0h'}</strong></span>
           </div>
-          <section className="poker-seat-menu-section" aria-labelledby={positionHeadingId}>
-            <h4 className="poker-seat-menu-section-title" id={positionHeadingId}>Table position</h4>
-            <div className="poker-seat-menu-row seat-number-row">
-              <label htmlFor={`change-seat-${player.id}`}>Seat</label>
-              <select
-                id={`change-seat-${player.id}`}
-                value={player.seatNumber ?? position + 1}
-                onChange={(event) => onChangeSeat?.(player.id, Number(event.target.value))}
-              >
-                {seatOptions.map((seatNumber) => (
-                  <option key={seatNumber} value={seatNumber}>
-                    Seat {seatNumber}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {moveTargets.length ? (
-              <div className="poker-seat-menu-row move-player-row">
-                <label htmlFor={`move-player-${player.id}`}>Move to table</label>
-                <select
-                  id={`move-player-${player.id}`}
-                  defaultValue=""
-                  onChange={(event) => {
-                    const targetTableId = event.target.value;
-                    if (!targetTableId) return;
-                    onMovePlayer?.(player.id, targetTableId);
-                    onClose();
-                  }}
-                >
-                  <option value="">Choose table...</option>
-                  {moveTargets.map((target) => (
-                    <option key={target.id} value={target.id}>
-                      {target.label} ({target.openSeats} open)
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
-          </section>
-          {onAddTime || onAddBuyIn ? (
-            <section className="poker-seat-menu-section poker-seat-actions" aria-labelledby={actionsHeadingId}>
-              <h4 className="poker-seat-menu-section-title" id={actionsHeadingId}>Player actions</h4>
-              <div className="poker-seat-action-picker" role="group" aria-label={`Choose an action for ${player.name}`}>
-                {showTimeRemaining && onAddTime ? (
-                  <button
-                    aria-label={`Show add time controls for ${player.name}`}
-                    aria-controls={timePanelId}
-                    aria-pressed={activeAction === 'time'}
-                    className="poker-seat-action-choice"
-                    onClick={() => selectAction('time')}
-                    type="button"
+          <div className={`poker-seat-menu-workspace ${hasPlayerActions ? 'with-actions' : ''}`}>
+            {activeAction === null ? (
+              <section className="poker-seat-menu-section" aria-labelledby={positionHeadingId}>
+                <h4 className="poker-seat-menu-section-title" id={positionHeadingId}>Table position</h4>
+                <div className="poker-seat-menu-row seat-number-row">
+                  <label htmlFor={`change-seat-${player.id}`}>Seat</label>
+                  <select
+                    id={`change-seat-${player.id}`}
+                    value={player.seatNumber ?? position + 1}
+                    onChange={(event) => onChangeSeat?.(player.id, Number(event.target.value))}
                   >
-                    <Plus size={15} /> Add time
-                  </button>
-                ) : null}
-                {onAddBuyIn ? (
-                  <button
-                    aria-label={`Show buy-in form for ${player.name}`}
-                    aria-controls={buyInPanelId}
-                    aria-pressed={activeAction === 'buy-in'}
-                    className="poker-seat-action-choice"
-                    onClick={() => selectAction('buy-in')}
-                    type="button"
-                  >
-                    <DollarSign size={15} /> Record buy-in
-                  </button>
-                ) : null}
-              </div>
-              {actionMessage ? (
-                <p
-                  className="poker-seat-action-feedback"
-                  role={actionMessage.startsWith('Enter ') ? 'alert' : 'status'}
-                >
-                  {actionMessage}
-                </p>
-              ) : null}
-              {activeAction === 'time' && showTimeRemaining && onAddTime ? (
-                <div className="poker-seat-action-panel time-action-panel" id={timePanelId}>
-                  <strong>Add time</strong>
-                  <div className="poker-seat-time-actions">
-                    <button className="mini-button" type="button" onClick={() => addTime(30)}>+30 min</button>
-                    <button className="mini-button" type="button" onClick={() => addTime(60)}>+60 min</button>
-                  </div>
-                  <label className="poker-seat-field" htmlFor={customMinutesId}>
-                    <span>Custom minutes</span>
-                    <input
-                      id={customMinutesId}
-                      value={customMinutes}
-                      onChange={(event) => setCustomMinutes(event.target.value)}
-                      min="1"
-                      placeholder="Minutes"
-                      type="number"
-                    />
-                  </label>
-                  <button className="secondary-button poker-seat-submit-action" type="button" onClick={addCustomTime}>
-                    Add custom time
-                  </button>
+                    {seatOptions.map((seatNumber) => (
+                      <option key={seatNumber} value={seatNumber}>
+                        Seat {seatNumber}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              ) : null}
-              {activeAction === 'buy-in' && onAddBuyIn ? (
-                <div className="poker-seat-action-panel buyin-action-panel" id={buyInPanelId}>
-                  <strong>Record buy-in</strong>
-                  <label className="poker-seat-field" htmlFor={buyInAmountId}>
-                    <span>Amount</span>
-                    <input
-                      id={buyInAmountId}
-                      value={buyInAmount}
-                      onChange={(event) => setBuyInAmount(event.target.value)}
-                      min="1"
-                      placeholder="$0"
-                      type="number"
-                    />
-                  </label>
-                  <label className="poker-seat-field" htmlFor={buyInNoteId}>
-                    <span>Note (optional)</span>
-                    <input id={buyInNoteId} value={buyInNote} onChange={(event) => setBuyInNote(event.target.value)} placeholder="Buy-in note" />
-                  </label>
-                  <button className="secondary-button poker-seat-submit-action" type="button" onClick={addBuyIn}>
-                    Record buy-in
-                  </button>
-                  {player.recentBuyIns?.length ? (
-                    <div className="poker-seat-log" aria-label="Recent buy-ins">
-                      {player.recentBuyIns.slice(0, 4).map((buyIn) => (
-                        <span key={buyIn.id}>{buyIn.label}</span>
+                {moveTargets.length ? (
+                  <div className="poker-seat-menu-row move-player-row">
+                    <label htmlFor={`move-player-${player.id}`}>Move to table</label>
+                    <select
+                      id={`move-player-${player.id}`}
+                      defaultValue=""
+                      onChange={(event) => {
+                        const targetTableId = event.target.value;
+                        if (!targetTableId) return;
+                        onMovePlayer?.(player.id, targetTableId);
+                        onClose();
+                      }}
+                    >
+                      <option value="">Choose table...</option>
+                      {moveTargets.map((target) => (
+                        <option key={target.id} value={target.id}>
+                          {target.label} ({target.openSeats} open)
+                        </option>
                       ))}
-                    </div>
+                    </select>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+            {hasPlayerActions ? (
+              <section className="poker-seat-menu-section poker-seat-actions" aria-labelledby={actionsHeadingId}>
+                <h4 className="poker-seat-menu-section-title" id={actionsHeadingId}>Player actions</h4>
+                <div className="poker-seat-action-picker" role="group" aria-label={`Choose an action for ${player.name}`}>
+                  {hasTimeAction ? (
+                    <button
+                      aria-label={`${activeAction === 'time' ? 'Hide' : 'Show'} add time controls for ${player.name}`}
+                      aria-controls={timePanelId}
+                      aria-pressed={activeAction === 'time'}
+                      className="poker-seat-action-choice"
+                      onClick={() => selectAction('time')}
+                      type="button"
+                    >
+                      <Plus size={15} /> Add time
+                    </button>
+                  ) : null}
+                  {hasBuyInAction ? (
+                    <button
+                      aria-label={`${activeAction === 'buy-in' ? 'Hide' : 'Show'} buy-in form for ${player.name}`}
+                      aria-controls={buyInPanelId}
+                      aria-pressed={activeAction === 'buy-in'}
+                      className="poker-seat-action-choice"
+                      onClick={() => selectAction('buy-in')}
+                      type="button"
+                    >
+                      <DollarSign size={15} /> Record buy-in
+                    </button>
                   ) : null}
                 </div>
-              ) : null}
-            </section>
-          ) : null}
+                {actionMessage ? (
+                  <p
+                    className="poker-seat-action-feedback"
+                    role={actionMessage.startsWith('Enter ') ? 'alert' : 'status'}
+                  >
+                    {actionMessage}
+                  </p>
+                ) : null}
+                {activeAction === 'time' && showTimeRemaining && onAddTime ? (
+                  <div className="poker-seat-action-panel time-action-panel" id={timePanelId}>
+                    <strong>Add time</strong>
+                    <div className="poker-seat-time-actions">
+                      <button className="mini-button" type="button" onClick={() => addTime(30)}>+30 min</button>
+                      <button className="mini-button" type="button" onClick={() => addTime(60)}>+60 min</button>
+                    </div>
+                    <label className="poker-seat-field" htmlFor={customMinutesId}>
+                      <span>Custom minutes</span>
+                      <input
+                        id={customMinutesId}
+                        value={customMinutes}
+                        onChange={(event) => setCustomMinutes(event.target.value)}
+                        min="1"
+                        placeholder="Minutes"
+                        type="number"
+                      />
+                    </label>
+                    <button className="secondary-button poker-seat-submit-action" type="button" onClick={addCustomTime}>
+                      Add custom time
+                    </button>
+                  </div>
+                ) : null}
+                {activeAction === 'buy-in' && onAddBuyIn ? (
+                  <div className="poker-seat-action-panel buyin-action-panel" id={buyInPanelId}>
+                    <strong>Record buy-in</strong>
+                    <label className="poker-seat-field" htmlFor={buyInAmountId}>
+                      <span>Amount</span>
+                      <input
+                        id={buyInAmountId}
+                        value={buyInAmount}
+                        onChange={(event) => setBuyInAmount(event.target.value)}
+                        min="1"
+                        placeholder="$0"
+                        type="number"
+                      />
+                    </label>
+                    <label className="poker-seat-field" htmlFor={buyInNoteId}>
+                      <span>Note (optional)</span>
+                      <input id={buyInNoteId} value={buyInNote} onChange={(event) => setBuyInNote(event.target.value)} placeholder="Buy-in note" />
+                    </label>
+                    <button className="secondary-button poker-seat-submit-action" type="button" onClick={addBuyIn}>
+                      Record buy-in
+                    </button>
+                    {player.recentBuyIns?.length ? (
+                      <div className="poker-seat-log" aria-label="Recent buy-ins">
+                        {player.recentBuyIns.slice(0, 4).map((buyIn) => (
+                          <span key={buyIn.id}>{buyIn.label}</span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+          </div>
           <button className="poker-seat-cashout" type="button" onClick={() => {
             onRemovePlayer?.(player.id);
             onClose();

@@ -62,6 +62,9 @@ type RenderOptions = {
   onOpenTable?: (sessionId: string) => void;
   onAddPhysicalTable?: (label: string, maxSeats: TableCap) => void;
   onStartGameAtTable?: (physicalTableId: string, gameId: string) => void;
+  onClearTable?: (sessionId: string) => void;
+  onDeleteTable?: (tableId: string) => void;
+  onMergeTable?: (sourceSessionId: string, targetSessionId: string) => void;
 };
 
 const mountedRoots: Array<{ container: HTMLDivElement; root: Root }> = [];
@@ -74,7 +77,10 @@ const createMapElement = ({
   remainingSeconds = 3600,
   onOpenTable = vi.fn(),
   onAddPhysicalTable = vi.fn(),
-  onStartGameAtTable = vi.fn()
+  onStartGameAtTable = vi.fn(),
+  onClearTable = vi.fn(),
+  onDeleteTable = vi.fn(),
+  onMergeTable = vi.fn()
 }: RenderOptions = {}) => (
   <FloorRoomMap
     sessions={sessions}
@@ -87,6 +93,9 @@ const createMapElement = ({
     onOpenTable={onOpenTable}
     onAddPhysicalTable={onAddPhysicalTable}
     onStartGameAtTable={onStartGameAtTable}
+    onClearTable={onClearTable}
+    onDeleteTable={onDeleteTable}
+    onMergeTable={onMergeTable}
   />
 );
 
@@ -206,6 +215,117 @@ describe('FloorRoomMap', () => {
     });
 
     expect(onOpenTable).toHaveBeenCalledWith(runningTable.id);
+  });
+
+  it('opens three table operations on right click and routes clear, delete, and merge through explicit callbacks', () => {
+    const onClearTable = vi.fn();
+    const onDeleteTable = vi.fn();
+    const onMergeTable = vi.fn();
+    const mergeTarget: GameSession = {
+      ...runningTable,
+      id: 'table-target',
+      label: 'Table 9',
+      seatsFilled: 0
+    };
+    const container = renderMap({
+      sessions: [runningTable, mergeTarget],
+      onClearTable,
+      onDeleteTable,
+      onMergeTable
+    });
+    const sourceTable = Array.from(container.querySelectorAll<HTMLElement>('.floor-map-table'))
+      .find((table) => table.textContent?.includes('Table 7'));
+    const openContextMenu = () => {
+      act(() => {
+        sourceTable?.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 120,
+          clientY: 160
+        }));
+      });
+      return document.querySelector<HTMLElement>('[role="menu"]');
+    };
+
+    let menu = openContextMenu();
+    expect(Array.from(menu?.querySelectorAll('button') ?? [], (button) => button.textContent?.trim())).toEqual([
+      'Clear table',
+      'Delete table',
+      'Merge table'
+    ]);
+    expect(document.activeElement).toBe(getButton(menu ?? document, 'Clear table'));
+    act(() => {
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown' }));
+    });
+    expect(document.activeElement).toBe(getButton(menu ?? document, 'Delete table'));
+    act(() => {
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'End' }));
+    });
+    expect(document.activeElement).toBe(getButton(menu ?? document, 'Merge table'));
+    act(() => getButton(menu ?? document, 'Clear table')?.click());
+    expect(onClearTable).toHaveBeenCalledWith(runningTable.id);
+
+    menu = openContextMenu();
+    act(() => getButton(menu ?? document, 'Delete table')?.click());
+    expect(onDeleteTable).toHaveBeenCalledWith(runningTable.id);
+
+    menu = openContextMenu();
+    act(() => getButton(menu ?? document, 'Merge table')?.click());
+    const mergeDialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(mergeDialog?.textContent).toContain('Merge Table 7');
+    expect(mergeDialog?.querySelector<HTMLSelectElement>('[aria-label="Merge destination table"]')?.value)
+      .toBe(mergeTarget.id);
+    act(() => getButton(mergeDialog ?? document, 'Merge tables')?.click());
+    expect(onMergeTable).toHaveBeenCalledWith(runningTable.id, mergeTarget.id);
+  });
+
+  it('does not offer a merge destination that uses a different collection mode', () => {
+    const dropTarget: GameSession = {
+      ...runningTable,
+      id: 'drop-target',
+      label: 'Drop Table',
+      seatsFilled: 0,
+      collectionMode: 'Drop',
+      timeFeeBased: false
+    };
+    const container = renderMap({ sessions: [runningTable, dropTarget] });
+    const sourceTable = Array.from(container.querySelectorAll<HTMLElement>('.floor-map-table'))
+      .find((table) => table.textContent?.includes('Table 7'));
+
+    act(() => {
+      sourceTable?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    });
+
+    const menu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(getButton(menu ?? document, 'Merge table')?.disabled).toBe(true);
+  });
+
+  it('keeps all three context choices visible for an empty permanent table while disabling inapplicable actions', () => {
+    const permanentTable: PhysicalTable = {
+      id: 'physical-empty',
+      label: 'Empty Table',
+      maxSeats: 6,
+      createdAt: '2026-08-18T12:00:00.000Z'
+    };
+    const onDeleteTable = vi.fn();
+    const container = renderMap({
+      sessions: [],
+      physicalTables: [permanentTable],
+      players: [],
+      onDeleteTable
+    });
+    act(() => {
+      container.querySelector<HTMLElement>('.floor-map-table')?.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true
+      }));
+    });
+
+    const menu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(getButton(menu ?? document, 'Clear table')?.disabled).toBe(true);
+    expect(getButton(menu ?? document, 'Merge table')?.disabled).toBe(true);
+    act(() => getButton(menu ?? document, 'Delete table')?.click());
+    expect(onDeleteTable).toHaveBeenCalledWith(permanentTable.id);
   });
 
   it('allocates players with missing or invalid seat numbers to unused seat markers', () => {

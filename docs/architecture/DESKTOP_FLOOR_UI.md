@@ -12,6 +12,8 @@ The room-map stage fills the Floor container below the command bar. Its canvas e
 
 Current Tables, Table Overview, and Forming Games retain their characterized lifecycle, dealer, drop, reconciliation, and game-start workflows. Their persistent bottom dock is overlaid within the room-map stage. Each button opens a centered, portaled, dismissible workspace above its backdrop instead of consuming space beneath the map.
 
+The Floor header can switch between the spatial Graphic view and the list-based Classic view. Both surfaces expose the same Clear, Delete, and Merge table actions from a pointer context menu or Shift+F10/Context Menu keyboard command. Clear closes the current session, removes active players without inventing cash-out amounts, ends the dealer assignment, and retains the permanent table plus financial/audit history. Delete additionally removes the permanent table identity. Merge accepts only an open same-game table with the same Time/Drop collection mode and enough seats; it closes the source, moves active player sessions and their current-session financial/time attribution together, and retains both permanent table identities. The selected Graphic/Classic mode uses the existing `settings.showPlayerGrid` preference.
+
 ## Room utilities
 
 The Floor header is the compact room command bar. It keeps running-table and seated-player counts visible while Timers, Activity, Waitlist, and Add player disclose their fuller workflows only when requested. Activity opens as a compact floating overlay by default and can be expanded or restored in place. The existing waitlist actions remain unchanged inside their dialog, including arrival, seating, removal, and the displayed timestamp/edit audit context.
@@ -33,6 +35,8 @@ The value is a JSON object keyed by `PhysicalTable.id`, or by `GameSession.id` o
 ## Table View presentation boundary
 
 `src/components/TableView.tsx` remains a prop-driven renderer over the table projections and callbacks assembled in `src/main.tsx`. The graphical poker table is the primary surface. Activity, buy-in ledger, and timer/session details are compact header utilities that disclose their existing data in dismissible dialogs instead of occupying permanent rails around the table.
+
+Table display settings are presentation-only. Theme, oval/round format, game/blinds visibility, and seat-timer visibility are stored locally under `orbit-table-display-v1:<physical-table-id>` (falling back to the legacy session ID when no physical identity exists). They are not added to `AppState`, persisted through the management adapter, or published to players. The occupied-seat action area swaps a fixed-size, internally scrollable workspace between position, time, and buy-in controls so selecting an action does not expand the surrounding player inspector.
 
 The Activity utility continues to use the existing table-scoped activity projection, and Ledger opens the existing buy-in ledger modal. The Timers utility preserves the canonical countdown values and urgency thresholds. In Drop mode the same utility is labelled Sessions and shows a clock-derived elapsed duration for untimed players; an existing legacy timer still shows its countdown. This elapsed value is a transient presentation projection and is not persisted.
 

@@ -337,6 +337,117 @@ try {
   assert(await page.locator('.floor-map-table').count() === 6, 'Floor map should retain all six permanent tables.');
   assert(await page.locator('.floor-map-table.is-empty').count() === 5, 'Five permanent tables should remain visible and empty.');
 
+  const activeTableIdentity = page.getByRole('button', { name: /^Open Table 1, 4 of 10 seats filled/ });
+  const tableStateBeforeMenu = await page.evaluate((key) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return {
+      physicalTableIds: (state.physicalTables || []).map((table) => table.id),
+      playerSessionIds: (state.playerSessions || []).map((session) => `${session.id}:${session.leftAt || ''}`),
+      sessions: (state.sessions || []).map((session) => `${session.id}:${session.status}:${session.seatsFilled}`)
+    };
+  }, accountStorageKey);
+  await activeTableIdentity.click({ button: 'right' });
+  const tableContextMenu = page.getByRole('menu', { name: 'Table 1 table actions' });
+  await tableContextMenu.waitFor();
+  const tableContextItems = tableContextMenu.getByRole('menuitem');
+  assert(await tableContextItems.count() === 3, 'Table context menu should contain exactly three actions.');
+  assert(JSON.stringify((await tableContextItems.allTextContents()).map((label) => label.trim())) === JSON.stringify([
+    'Clear table',
+    'Delete table',
+    'Merge table'
+  ]), 'Table context menu should offer Clear, Delete, and Merge in order.');
+  assert(await tableContextMenu.getByRole('menuitem', { name: 'Merge table' }).isDisabled(), 'Merge should remain visible but disabled without a compatible target.');
+  await page.waitForFunction(() => document.activeElement?.textContent?.trim() === 'Clear table');
+  await page.keyboard.press('ArrowDown');
+  assert(await tableContextMenu.getByRole('menuitem', { name: 'Delete table' }).evaluate((item) => item === document.activeElement), 'ArrowDown should focus Delete table.');
+  await page.keyboard.press('ArrowDown');
+  assert(await tableContextMenu.getByRole('menuitem', { name: 'Clear table' }).evaluate((item) => item === document.activeElement), 'Arrow navigation should skip the disabled Merge action and wrap to Clear table.');
+  await page.keyboard.press('Escape');
+  await tableContextMenu.waitFor({ state: 'detached' });
+  const activeFloorTable = page.locator('.floor-map-table').filter({ has: activeTableIdentity });
+  assert(await activeFloorTable.evaluate((table) => table === document.activeElement || table.contains(document.activeElement)), 'Escape should return focus to the table that opened the menu.');
+  const tableStateAfterMenu = await page.evaluate((key) => {
+    const state = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return {
+      physicalTableIds: (state.physicalTables || []).map((table) => table.id),
+      playerSessionIds: (state.playerSessions || []).map((session) => `${session.id}:${session.leftAt || ''}`),
+      sessions: (state.sessions || []).map((session) => `${session.id}:${session.status}:${session.seatsFilled}`)
+    };
+  }, accountStorageKey);
+  assert(JSON.stringify(tableStateAfterMenu) === JSON.stringify(tableStateBeforeMenu), 'Inspecting table actions must not mutate, clear, merge, or delete table data.');
+
+  const classicFloorButton = page.getByRole('button', { name: 'Classic floor view' });
+  const graphicFloorButton = page.getByRole('button', { name: 'Graphic floor view' });
+  await classicFloorButton.click();
+  const classicOverview = page.locator('.floor-classic-overview');
+  await classicOverview.waitFor();
+  assert(await classicFloorButton.getAttribute('aria-pressed') === 'true', 'Classic view toggle should report its selected state.');
+  const classicTable = classicOverview.locator('.floor-classic-table[data-session-id="session-main"]');
+  assert(await classicTable.count() === 1, 'Classic view should show the running seeded table.');
+  assert(await classicTable.getByRole('heading', { name: 'Table 1' }).count() === 1, 'Classic view should identify Table 1.');
+  assert(await classicTable.getByText('1/2 NLH', { exact: true }).count() === 1, 'Classic view should show the configured game.');
+  assert(await classicTable.getByText('4/10', { exact: true }).count() === 1, 'Classic view should show the seated-player count.');
+  assert(await classicTable.locator('.floor-classic-player').count() === 4, 'Classic view should show all four seated players.');
+  const classicPlayerText = await classicTable.locator('.floor-classic-player-list').innerText();
+  for (const playerName of ['Alex Seat', 'Bailey Button', 'Casey Call', 'Evan Entry']) {
+    assert(classicPlayerText.includes(playerName), `Classic view should include ${playerName}.`);
+  }
+  await page.waitForFunction((key) => JSON.parse(window.localStorage.getItem(key) || '{}').settings?.showPlayerGrid === false, accountStorageKey);
+  await graphicFloorButton.click();
+  await page.locator('.floor-room-map').waitFor();
+  assert(await graphicFloorButton.getAttribute('aria-pressed') === 'true', 'Graphic view toggle should report its restored selected state.');
+  await page.waitForFunction((key) => JSON.parse(window.localStorage.getItem(key) || '{}').settings?.showPlayerGrid === true, accountStorageKey);
+
+  await activeTableIdentity.click();
+  let tableViewGrid = page.locator('.table-view-grid');
+  await tableViewGrid.waitFor();
+  await page.getByRole('button', { name: 'Table display settings' }).click();
+  let tableSettingsDialog = page.getByRole('dialog', { name: 'Display settings' });
+  await tableSettingsDialog.waitFor();
+  await tableSettingsDialog.getByRole('button', { name: 'Green room', exact: true }).click();
+  await tableSettingsDialog.getByRole('button', { name: 'Round', exact: true }).click();
+  await tableSettingsDialog.getByRole('button', { name: 'Close table display settings' }).click();
+  await page.waitForFunction(() => {
+    const grid = document.querySelector('.table-view-grid');
+    return grid?.classList.contains('table-theme-green') && grid.classList.contains('table-format-round');
+  });
+  const savedTableDisplay = await page.evaluate(() => JSON.parse(window.localStorage.getItem('orbit-table-display-v1:physical-table-1') || '{}'));
+  assert(savedTableDisplay.theme === 'green' && savedTableDisplay.format === 'round', 'Table theme and format should persist for the physical table.');
+  await page.locator('button[aria-label="Back to floor"]').click();
+  await page.locator('.floor-room-map').waitFor();
+  await activeTableIdentity.click();
+  tableViewGrid = page.locator('.table-view-grid');
+  await tableViewGrid.waitFor();
+  assert(await tableViewGrid.evaluate((grid) => grid.classList.contains('table-theme-green') && grid.classList.contains('table-format-round')), 'Table presentation should survive leaving and reopening the table view.');
+
+  await page.getByRole('button', { name: 'Open details for Alex Seat at seat 1' }).click();
+  const playerMenu = page.locator('.poker-seat-card.open .poker-seat-menu');
+  await playerMenu.waitFor();
+  const playerActionWorkspace = playerMenu.locator('.poker-seat-menu-workspace');
+  const workspaceBeforeAction = await playerActionWorkspace.evaluate((workspace) => {
+    const bounds = workspace.getBoundingClientRect();
+    return { height: bounds.height, width: bounds.width };
+  });
+  await playerMenu.getByRole('button', { name: 'Show buy-in form for Alex Seat' }).click();
+  await playerMenu.locator('.buyin-action-panel').waitFor();
+  const workspaceAfterAction = await playerActionWorkspace.evaluate((workspace) => {
+    const bounds = workspace.getBoundingClientRect();
+    return { height: bounds.height, width: bounds.width };
+  });
+  assert(workspaceBeforeAction.height >= 219 && workspaceBeforeAction.height <= 261, 'Player action workspace should use the fixed 220-260px presentation range.');
+  assert(Math.abs(workspaceAfterAction.height - workspaceBeforeAction.height) <= 1, 'Opening the buy-in form must not expand the player action workspace.');
+  assert(Math.abs(workspaceAfterAction.width - workspaceBeforeAction.width) <= 1, 'Opening the buy-in form must not widen the player action workspace.');
+  await playerMenu.getByRole('button', { name: 'Close player details' }).click();
+
+  await page.getByRole('button', { name: 'Table display settings' }).click();
+  tableSettingsDialog = page.getByRole('dialog', { name: 'Display settings' });
+  await tableSettingsDialog.getByRole('button', { name: 'Midnight', exact: true }).click();
+  await tableSettingsDialog.getByRole('button', { name: 'Oval', exact: true }).click();
+  await tableSettingsDialog.getByRole('button', { name: 'Close table display settings' }).click();
+  await page.locator('button[aria-label="Back to floor"]').click();
+  await page.locator('.floor-room-map').waitFor();
+  assert(await graphicFloorButton.getAttribute('aria-pressed') === 'true', 'Smoke flow should return to the Graphic floor view.');
+
   for (const viewport of [
     { width: 1440, height: 900 },
     { width: 1180, height: 800 },
@@ -401,7 +512,7 @@ try {
     throw new Error(JSON.stringify({ pageErrors, consoleErrors, failedRequests }, null, 2));
   }
 
-  console.log('Management production-bundle smoke passed: profile add, table start, seating, responsive floor, and clean console.');
+  console.log('Management production-bundle smoke passed: profile add, table start, seating, floor views/actions, table presentation, stable player actions, responsive floor, and clean console.');
 } finally {
   await browser.close();
 }

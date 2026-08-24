@@ -1,5 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, LayoutGrid, Maximize2, Pencil, Plus, RotateCcw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import type { GameConfig, GameSession, PhysicalTable, PlayerSession, TableCap } from '../domain/types';
 import { getTimerStatusFromSeconds } from '../lib/appCore';
@@ -25,7 +26,12 @@ type FloorRoomMapProps = {
   onOpenTable: (sessionId: string) => void;
   onAddPhysicalTable?: (label: string, maxSeats: TableCap) => void;
   onStartGameAtTable?: (physicalTableId: string, gameId: string) => void;
+  onClearTable?: (sessionId: string) => void;
+  onDeleteTable?: (tableId: string) => void;
+  onMergeTable?: (sourceSessionId: string, targetSessionId: string) => void;
 };
+
+type TableContextMenu = { nodeId: string; x: number; y: number };
 
 const minimumX = 16;
 const maximumX = 84;
@@ -36,6 +42,9 @@ const keyboardLargeStep = 6;
 const minimumZoom = 0.75;
 const maximumZoom = 1.25;
 const zoomStep = 0.125;
+
+const getCollectionMode = (session: GameSession) =>
+  session.collectionMode === 'Time' || session.timeFeeBased ? 'Time' : 'Drop';
 
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
@@ -140,7 +149,10 @@ export default function FloorRoomMap({
   getTimeRemainingSeconds,
   onOpenTable,
   onAddPhysicalTable,
-  onStartGameAtTable
+  onStartGameAtTable,
+  onClearTable,
+  onDeleteTable,
+  onMergeTable
 }: FloorRoomMapProps) {
   const [savedLayout, setSavedLayout] = useState<FloorLayout>(() => readFloorLayout(layoutStorageKey));
   const [draftLayout, setDraftLayout] = useState<FloorLayout>({});
@@ -154,6 +166,9 @@ export default function FloorRoomMap({
   const [newTableCap, setNewTableCap] = useState<TableCap>(10);
   const [startTableId, setStartTableId] = useState<string | null>(null);
   const [startGameId, setStartGameId] = useState('');
+  const [contextMenu, setContextMenu] = useState<TableContextMenu | null>(null);
+  const [mergeSourceSessionId, setMergeSourceSessionId] = useState<string | null>(null);
+  const [mergeTargetSessionId, setMergeTargetSessionId] = useState('');
   const editButtonRef = useRef<HTMLButtonElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const firstTableRef = useRef<HTMLElement>(null);
@@ -161,6 +176,8 @@ export default function FloorRoomMap({
   const pendingFocusRef = useRef<'map' | 'edit' | null>(null);
   const focusedTableIdRef = useRef<string | null>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const contextTriggerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setSavedLayout(readFloorLayout(layoutStorageKey));
@@ -173,6 +190,9 @@ export default function FloorRoomMap({
     pendingFocusRef.current = null;
     focusedTableIdRef.current = null;
     dragOffsetRef.current = { x: 0, y: 0 };
+    setContextMenu(null);
+    setMergeSourceSessionId(null);
+    setMergeTargetSessionId('');
   }, [layoutStorageKey]);
 
   useEffect(() => {
@@ -230,6 +250,74 @@ export default function FloorRoomMap({
     minWidth: `${canvasBaseWidth * zoom}px`,
     width: `${zoom * 100}%`
   } as CSSProperties;
+
+  const getActivePlayerCount = (sessionId: string) => playerSessions.filter(
+    (playerSession) => playerSession.tableId === sessionId && !playerSession.leftAt
+  ).length;
+  const mergeSourceSession = openSessions.find((session) => session.id === mergeSourceSessionId);
+  const mergeTargets = mergeSourceSession
+    ? openSessions.filter((session) =>
+        session.id !== mergeSourceSession.id &&
+        session.gameId === mergeSourceSession.gameId &&
+        getCollectionMode(session) === getCollectionMode(mergeSourceSession) &&
+        session.maxSeats - getActivePlayerCount(session.id) >= getActivePlayerCount(mergeSourceSession.id)
+      )
+    : [];
+  const contextNode = contextMenu ? roomNodes.find((node) => node.id === contextMenu.nodeId) : undefined;
+  const contextMergeTargets = contextNode?.session
+    ? openSessions.filter((session) =>
+        session.id !== contextNode.session?.id &&
+        session.gameId === contextNode.session?.gameId &&
+        getCollectionMode(session) === getCollectionMode(contextNode.session) &&
+        session.maxSeats - getActivePlayerCount(session.id) >= getActivePlayerCount(contextNode.session?.id ?? '')
+      )
+    : [];
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    contextMenuRef.current
+      ?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+      ?.focus();
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && contextMenuRef.current?.contains(event.target)) return;
+      setContextMenu(null);
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setContextMenu(null);
+      contextTriggerRef.current?.focus();
+    };
+    const closeMenu = () => setContextMenu(null);
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('blur', closeMenu);
+    window.addEventListener('resize', closeMenu);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('blur', closeMenu);
+      window.removeEventListener('resize', closeMenu);
+    };
+  }, [contextMenu]);
+
+  const handleContextMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    const items = Array.from(
+      contextMenuRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []
+    );
+    if (!items.length) return;
+    event.preventDefault();
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? items.length - 1
+        : event.key === 'ArrowDown'
+          ? (currentIndex + 1 + items.length) % items.length
+          : (currentIndex - 1 + items.length) % items.length;
+    items[nextIndex]?.focus();
+  };
 
   useEffect(() => {
     if (!isEditing || !focusedTableIdRef.current) return;
@@ -333,6 +421,29 @@ export default function FloorRoomMap({
       x: current.x + (event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0),
       y: current.y + (event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0)
     }, false);
+  };
+
+  const openTableContextMenu = (
+    nodeId: string,
+    event: ReactMouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>
+  ) => {
+    if (isEditing) return;
+    event.preventDefault();
+    contextTriggerRef.current = event.currentTarget;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = 'clientX' in event && event.clientX ? event.clientX : bounds.left + bounds.width / 2;
+    const y = 'clientY' in event && event.clientY ? event.clientY : bounds.top + bounds.height / 2;
+    setContextMenu({
+      nodeId,
+      x: Math.max(8, Math.min(x, window.innerWidth - 224)),
+      y: Math.max(8, Math.min(y, window.innerHeight - 154))
+    });
+  };
+
+  const handleTableIdentityKeyDown = (event: KeyboardEvent<HTMLButtonElement>, nodeId: string) => {
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      openTableContextMenu(nodeId, event);
+    }
   };
 
   const submitPhysicalTable = (event: FormEvent) => {
@@ -458,6 +569,58 @@ export default function FloorRoomMap({
         </Dialog.Portal>
       </Dialog.Root>
 
+      <Dialog.Root
+        open={Boolean(mergeSourceSessionId)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMergeSourceSessionId(null);
+            setMergeTargetSessionId('');
+          }
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="floor-map-dialog-overlay" />
+          <Dialog.Content className="floor-map-dialog" aria-describedby="merge-table-description">
+            <div className="floor-map-dialog-head">
+              <div>
+                <Dialog.Title>Merge {mergeSourceSession?.label ?? 'table'}</Dialog.Title>
+                <Dialog.Description id="merge-table-description">
+                  Move every seated player and close the source table.
+                </Dialog.Description>
+              </div>
+              <Dialog.Close asChild><button className="icon-button" aria-label="Close merge table"><X size={18} /></button></Dialog.Close>
+            </div>
+            <form
+              className="floor-map-dialog-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!mergeSourceSessionId || !mergeTargetSessionId) return;
+                onMergeTable?.(mergeSourceSessionId, mergeTargetSessionId);
+                setMergeSourceSessionId(null);
+                setMergeTargetSessionId('');
+              }}
+            >
+              <label>
+                <span>Merge into</span>
+                <select
+                  autoFocus
+                  aria-label="Merge destination table"
+                  value={mergeTargetSessionId}
+                  onChange={(event) => setMergeTargetSessionId(event.target.value)}
+                >
+                  {mergeTargets.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      {session.label} ({session.maxSeats - getActivePlayerCount(session.id)} open)
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="primary-button" type="submit" disabled={!mergeTargetSessionId}>Merge tables</button>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
       <div className="floor-room-map-viewport" ref={viewportRef}>
         <div
           className="floor-room-map-canvas"
@@ -526,6 +689,7 @@ export default function FloorRoomMap({
                 }}
                 onFocus={() => { focusedTableIdRef.current = node.id; }}
                 onKeyDown={(event) => handleTableKeyDown(event, node.id)}
+                onContextMenu={(event) => openTableContextMenu(node.id, event)}
                 ref={nodeIndex === 0 ? firstTableRef : undefined}
                 style={{ left: `${position.x}%`, top: `${position.y}%` }}
                 tabIndex={isEditing ? 0 : -1}
@@ -567,6 +731,7 @@ export default function FloorRoomMap({
                           setStartTableId(physicalTable.id);
                         }
                       }}
+                      onKeyDown={(event) => handleTableIdentityKeyDown(event, node.id)}
                       aria-label={session
                         ? `Open ${node.label}, ${seatedPlayers.length} of ${node.maxSeats} seats filled${occupiedSeatSummary ? `. ${occupiedSeatSummary}` : ''}`
                         : `Start a game at ${node.label}`}
@@ -596,6 +761,52 @@ export default function FloorRoomMap({
           )}
         </div>
       </div>
+      {contextMenu && contextNode ? createPortal(
+        <div
+          aria-label={`${contextNode.label} table actions`}
+          className="floor-table-context-menu"
+          onKeyDown={handleContextMenuKeyDown}
+          ref={contextMenuRef}
+          role="menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            disabled={!contextNode.session}
+            onClick={() => {
+              if (contextNode.session) onClearTable?.(contextNode.session.id);
+              setContextMenu(null);
+            }}
+            role="menuitem"
+            type="button"
+          >
+            Clear table
+          </button>
+          <button
+            onClick={() => {
+              onDeleteTable?.(contextNode.id);
+              setContextMenu(null);
+            }}
+            role="menuitem"
+            type="button"
+          >
+            Delete table
+          </button>
+          <button
+            disabled={!contextNode.session || !contextMergeTargets.length}
+            onClick={() => {
+              if (!contextNode.session || !contextMergeTargets.length) return;
+              setMergeSourceSessionId(contextNode.session.id);
+              setMergeTargetSessionId(contextMergeTargets[0].id);
+              setContextMenu(null);
+            }}
+            role="menuitem"
+            type="button"
+          >
+            Merge table
+          </button>
+        </div>,
+        document.body
+      ) : null}
     </section>
   );
 }

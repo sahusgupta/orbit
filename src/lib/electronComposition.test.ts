@@ -74,6 +74,9 @@ describe('Electron IPC and preload composition audit', () => {
       'validate-pilot-access',
       'get-management-recovery-status',
       'complete-management-recovery',
+      'persist-management-session',
+      'restore-management-session',
+      'clear-management-session',
       'submit-analytical-report',
       'verify-staff-pin',
       'authorize-staff-action',
@@ -117,6 +120,9 @@ describe('Electron IPC and preload composition audit', () => {
       'validatePilotAccess',
       'getManagementRecoveryStatus',
       'completeManagementRecovery',
+      'persistManagementSession',
+      'restoreManagementSession',
+      'clearManagementSession',
       'verifyStaffPin',
       'authorizeStaffAction',
       'submitAnalyticalReport',
@@ -133,6 +139,9 @@ describe('Electron IPC and preload composition audit', () => {
     const installDownloadedUpdate = bridge.installDownloadedUpdate as () => Promise<unknown>;
     const getManagementRecoveryStatus = bridge.getManagementRecoveryStatus as (access: unknown) => Promise<unknown>;
     const completeManagementRecovery = bridge.completeManagementRecovery as (payload: unknown) => Promise<unknown>;
+    const persistManagementSession = bridge.persistManagementSession as (binding: unknown) => Promise<unknown>;
+    const restoreManagementSession = bridge.restoreManagementSession as (binding: unknown) => Promise<unknown>;
+    const clearManagementSession = bridge.clearManagementSession as (accountKey: string) => Promise<unknown>;
     const recordClientEvent = bridge.recordClientEvent as (...args: unknown[]) => Promise<unknown>;
     await openWindow('table', { sessionId: 'session-1' });
     await preserveStateForUpdate('flush-1', { games: [] });
@@ -140,6 +149,9 @@ describe('Electron IPC and preload composition audit', () => {
     await installDownloadedUpdate();
     await getManagementRecoveryStatus({ authorizationCode: 'pilot-code' });
     await completeManagementRecovery({ access: { authorizationCode: 'pilot-code' }, password: 'new-password' });
+    await persistManagementSession({ accountKey: 'club-one' });
+    await restoreManagementSession({ accountKey: 'club-one' });
+    await clearManagementSession('club-one');
     await recordClientEvent('table-started', 'tables', { tableId: 'table-1' }, 'floor');
     expect(invoke.mock.calls).toEqual([
       ['open-route-window', 'table', { sessionId: 'session-1' }],
@@ -148,6 +160,9 @@ describe('Electron IPC and preload composition audit', () => {
       ['install-downloaded-update'],
       ['get-management-recovery-status', { authorizationCode: 'pilot-code' }],
       ['complete-management-recovery', { access: { authorizationCode: 'pilot-code' }, password: 'new-password' }],
+      ['persist-management-session', { accountKey: 'club-one' }],
+      ['restore-management-session', { accountKey: 'club-one' }],
+      ['clear-management-session', 'club-one'],
       ['record-client-event', 'table-started', 'tables', { tableId: 'table-1' }, 'floor']
     ]);
 
@@ -231,6 +246,71 @@ describe('Electron window and navigation composition audit', () => {
     expect(packagedWindow.loadFile).toHaveBeenCalledWith(path.join('C:\\repo\\electron', '..', 'dist', 'index.html'), {
       hash: '/tournament-tv?tournamentId=event%20%231'
     });
+  });
+
+  it('opens Tournament TV with native window chrome instead of forcing fullscreen', () => {
+    let browserOptions: Record<string, unknown> | undefined;
+    let readyToShow: (() => void) | undefined;
+    const webContents = {
+      getURL: vi.fn().mockReturnValue('file:///C:/repo/dist/index.html#/tournament-tv'),
+      on: vi.fn(),
+      openDevTools: vi.fn(),
+      setWindowOpenHandler: vi.fn()
+    };
+    const window = {
+      focus: vi.fn(),
+      isDestroyed: () => false,
+      maximize: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn((event: string, callback: () => void) => {
+        if (event === 'ready-to-show') readyToShow = callback;
+      }),
+      removeMenu: vi.fn(),
+      setFullScreen: vi.fn(),
+      setMenuBarVisibility: vi.fn(),
+      show: vi.fn(),
+      webContents
+    };
+    const BrowserWindow = vi.fn(function BrowserWindowConstructor(options: Record<string, unknown>) {
+      browserOptions = options;
+      return window;
+    });
+    const loadRoute = vi.fn();
+    const createWindow = loadFunction<(route?: string, context?: Record<string, string>) => typeof window>('createWindow', {
+      BrowserWindow,
+      __dirname: 'C:\\repo\\electron',
+      branding: {
+        product: { name: 'Orbit' },
+        desktop: { backgroundColor: '#000000', windowTitles: {} }
+      },
+      isDev: false,
+      loadRoute,
+      openTrustedExternal: vi.fn(),
+      path,
+      sendClientError: vi.fn(),
+      windows: new Map<string, typeof window>()
+    });
+
+    expect(createWindow('tournament-tv', { tournamentId: 'event-1' })).toBe(window);
+    expect(browserOptions).toMatchObject({
+      width: 1280,
+      height: 720,
+      minWidth: 960,
+      minHeight: 540,
+      title: 'Tournament TV',
+      frame: true,
+      autoHideMenuBar: true,
+      titleBarStyle: 'default'
+    });
+    expect(window.setMenuBarVisibility).toHaveBeenCalledWith(false);
+    expect(window.removeMenu).toHaveBeenCalledOnce();
+    expect(loadRoute).toHaveBeenCalledWith(window, 'tournament-tv', { tournamentId: 'event-1' });
+
+    expect(readyToShow).toBeTypeOf('function');
+    readyToShow?.();
+    expect(window.setFullScreen).not.toHaveBeenCalled();
+    expect(window.maximize).not.toHaveBeenCalled();
+    expect(window.show).toHaveBeenCalledOnce();
   });
 
   it('creates sandboxed isolated windows, denies child windows, and blocks navigation outside the local allowlist', () => {

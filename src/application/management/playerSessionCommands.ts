@@ -332,7 +332,7 @@ export function markInterestPlayerLeft(
 export function markPlayerSessionLeft(
   state: AppState,
   playerSession: PlayerSession,
-  cashOutAmount: number,
+  cashOutAmount: number | undefined,
   cashOutNote: string,
   dependencies: Pick<PlayerSessionCommandDependencies, 'createId' | 'nowIso'>
 ) {
@@ -367,10 +367,14 @@ export function markPlayerSessionLeft(
         playerName: playerSession.playerName,
         tableId: playerSession.tableId,
         gameId: playerSession.gameId,
-        amount: cashOutAmount,
+        ...(cashOutAmount !== undefined ? { amount: cashOutAmount } : {}),
         timestamp: leftAt,
         note: cashOutNote.trim() ||
-          (cashOutAmount === 0 ? 'Player left table with no cash out' : 'Player left table')
+          (cashOutAmount === undefined
+            ? 'Player left table without a recorded cash-out amount'
+            : cashOutAmount === 0
+              ? 'Player left table with no cash out'
+              : 'Player left table')
       },
       ...state.playerLedger
     ],

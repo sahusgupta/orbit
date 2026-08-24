@@ -94,6 +94,18 @@ export async function fetchRemotePlayerDiscovery(cursor = '', limit = 50) {
   return result;
 }
 
+export async function fetchPublicPlayerDiscovery(cursor = '', limit = 50) {
+  if (!orbitApiBaseUrl) throw new Error('EXPO_PUBLIC_ORBIT_API_URL is not configured.');
+  const params = new URLSearchParams({ limit: String(Math.min(Math.max(limit, 1), 50)) });
+  if (cursor) params.set('cursor', cursor);
+  const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/public/discovery?${params.toString()}`, {}, {
+    dedupeKey: `public-discovery:${cursor}:${limit}`
+  });
+  const result = decodeDiscoveryResponse(payload);
+  if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Orbit Player public discovery is unavailable.'));
+  return result;
+}
+
 export async function submitRemotePlayerRequest(path: string, request: PlayerMembershipRequest | PlayerWaitlistRequest): Promise<SyncResult> {
   if (!orbitApiBaseUrl) return { ok: false, error: 'Orbit API is not configured.' };
   try {

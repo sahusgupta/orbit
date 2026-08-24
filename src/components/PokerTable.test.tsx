@@ -146,6 +146,9 @@ describe('PokerTable seat rendering', () => {
     expect(details?.querySelector('label[for="change-seat-player-details"]')?.textContent).toBe('Seat');
     expect(details?.querySelector('label[for="move-player-player-details"]')?.textContent).toBe('Move to table');
     expect(details?.querySelector('.poker-seat-action-panel')).toBeNull();
+    const actionWorkspace = details?.querySelector('.poker-seat-menu-workspace.with-actions');
+    expect(actionWorkspace).not.toBeNull();
+    expect(actionWorkspace?.textContent).toContain('Table position');
 
     const actionChoices = Array.from(details?.querySelectorAll<HTMLButtonElement>('.poker-seat-action-choice') ?? []);
     const addTimeChoice = actionChoices.find((button) => button.textContent?.includes('Add time'));
@@ -156,8 +159,22 @@ describe('PokerTable seat rendering', () => {
     act(() => {
       addTimeChoice?.click();
     });
+    expect(details?.querySelector('.poker-seat-menu-workspace')).toBe(actionWorkspace);
+    expect(actionWorkspace?.textContent).not.toContain('Table position');
     expect(details?.querySelector('.time-action-panel')).not.toBeNull();
     expect(details?.querySelector('.buyin-action-panel')).toBeNull();
+    expect(addTimeChoice?.getAttribute('aria-label')).toBe('Hide add time controls for Alexandra Montgomery');
+
+    act(() => {
+      addTimeChoice?.click();
+    });
+    expect(details?.querySelector('.time-action-panel')).toBeNull();
+    expect(actionWorkspace?.textContent).toContain('Table position');
+    expect(addTimeChoice?.getAttribute('aria-pressed')).toBe('false');
+
+    act(() => {
+      addTimeChoice?.click();
+    });
 
     act(() => {
       details?.querySelector<HTMLButtonElement>('.time-action-panel .poker-seat-submit-action')?.click();
@@ -172,10 +189,13 @@ describe('PokerTable seat rendering', () => {
     expect(onAddBuyIn).not.toHaveBeenCalled();
     expect(details?.querySelector('.time-action-panel')).toBeNull();
     expect(details?.querySelector('[role="status"]')?.textContent).toBe('30 minutes added.');
+    expect(actionWorkspace?.textContent).toContain('Table position');
 
     act(() => {
       recordBuyInChoice?.click();
     });
+    expect(details?.querySelector('.poker-seat-menu-workspace')).toBe(actionWorkspace);
+    expect(actionWorkspace?.textContent).not.toContain('Table position');
     expect(details?.querySelector('.time-action-panel')).toBeNull();
     const buyInPanel = details?.querySelector<HTMLElement>('.buyin-action-panel');
     expect(buyInPanel).not.toBeNull();

@@ -732,6 +732,7 @@ describe('published and legacy club snapshot boundaries', () => {
   });
 
   it('hydrates a committed v2 club, filters hidden and other-player records, and preserves external documents', async () => {
+    signedInUser();
     const membership = {
       id: 'membership-player-1',
       clubId: 'club-1',
@@ -799,6 +800,7 @@ describe('published and legacy club snapshot boundaries', () => {
   });
 
   it('holds a published snapshot when a player record is newer than the parent commit', async () => {
+    signedInUser();
     setPublishedClubGraph({
       parent: { syncRevision: 'revision-1', publishedAt: '2026-08-09T12:00:00.000Z' },
       games: [['game-1', { id: 'game-1', name: '1/2 NLH', syncRevision: 'revision-1' }]],
@@ -856,6 +858,78 @@ describe('published and legacy club snapshot boundaries', () => {
       ok: true,
       clubs: [{ club: { id: 'club-1', name: 'River Room' } }]
     });
+  });
+
+  it('loads sanitized public discovery without a Firebase session and does not query player-scoped collections', async () => {
+    const publicClub = publishedClubSnapshot({
+      games: [{
+        id: 'planned-game',
+        name: '1/3 NLH',
+        maxSeats: 9,
+        openTables: [],
+        waitlistCount: 0,
+        formingCount: 0,
+        availableSeats: 0,
+        knownPlayersCount: 0
+      }]
+    });
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({
+      ok: true,
+      clubs: [publicClub],
+      tournaments: [],
+      registrations: [],
+      page: { count: 1, hasMore: false, nextCursor: null }
+    }));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({
+      ok: true,
+      clubs: [publicClub],
+      page: { count: 1, hasMore: false, nextCursor: null, databaseQueries: undefined }
+    });
+    expect(firebase.fetch).toHaveBeenCalledWith(
+      'https://orbitapp-one.vercel.app/player/public/discovery?limit=50',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect((firebase.fetch.mock.calls[0]?.[1] as RequestInit | undefined)?.headers).toBeUndefined();
+    expect(firebase.getDocs).not.toHaveBeenCalled();
+  });
+
+  it('uses only public club and game documents for unsigned Firestore fallback', async () => {
+    setPublishedClubGraph({
+      memberships: [['membership-player-1', { id: 'membership-player-1', playerId: 'player-1' }]],
+      waitlists: [['wait-player-1', { id: 'wait-player-1', playerId: 'player-1' }]],
+      notifications: [['notice-player-1', { id: 'notice-player-1', targetPlayerIds: ['player-1'] }]]
+    });
+    firebase.fetch.mockRejectedValueOnce(new Error('public API offline'));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({
+      ok: true,
+      clubs: [{ memberships: [], waitlists: [], notifications: [] }]
+    });
+    const queriedPaths = firebase.getDocs.mock.calls.map(([reference]) => referencePath(reference));
+    expect(queriedPaths).toContain('clubs');
+    expect(queriedPaths).toContain('clubs/club-1/games');
+    expect(queriedPaths).not.toContain('clubs/club-1/memberships');
+    expect(queriedPaths).not.toContain('clubs/club-1/waitlists');
+    expect(queriedPaths).not.toContain('clubs/club-1/notifications');
+  });
+
+  it('preserves public Firestore games when the signed-in identity does not match the local profile', async () => {
+    signedInUser('different-player');
+    setPublishedClubGraph();
+    firebase.fetch
+      .mockRejectedValueOnce(new Error('authenticated API offline'))
+      .mockRejectedValueOnce(new Error('public API offline'));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({
+      ok: true,
+      clubs: [{ games: [{ id: 'game-1' }], memberships: [], waitlists: [], notifications: [] }]
+    });
+    const queriedPaths = firebase.getDocs.mock.calls.map(([reference]) => referencePath(reference));
+    expect(queriedPaths).toContain('clubs/club-1/games');
+    expect(queriedPaths).not.toContain('clubs/club-1/memberships');
+    expect(queriedPaths).not.toContain('clubs/club-1/waitlists');
+    expect(queriedPaths).not.toContain('clubs/club-1/notifications');
   });
 
   it('falls back to visible legacy clubStates, returns an empty missing result, and exposes malformed/failure errors', async () => {

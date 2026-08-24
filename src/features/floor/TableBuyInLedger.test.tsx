@@ -90,4 +90,55 @@ describe('table buy-in ledger', () => {
     expect(container.textContent).toContain('30 minutes purchased');
     expect(container.querySelectorAll('.cash-ledger-entry.in')).toHaveLength(2);
   });
+
+  it('shows an omitted cash-out as not recorded while preserving an explicit zero', () => {
+    const session: GameSession = {
+      id: 'table-cash-out',
+      gameId: 'game-cash-out',
+      label: 'Cash-out Table',
+      status: 'Running',
+      seatsFilled: 0,
+      maxSeats: 8,
+      collectionMode: 'Drop',
+      tags: [],
+      startedAt: '2026-08-19T18:00:00.000Z'
+    };
+    const state: AppState = {
+      ...structuredClone(seedState),
+      sessions: [session],
+      playerLedger: [{
+        id: 'cash-out-omitted',
+        type: 'Cash-Out',
+        playerName: 'Amount Missing',
+        tableId: session.id,
+        gameId: session.gameId,
+        timestamp: '2026-08-19T19:00:00.000Z'
+      }, {
+        id: 'cash-out-zero',
+        type: 'Cash-Out',
+        playerName: 'Zero Recorded',
+        tableId: session.id,
+        gameId: session.gameId,
+        amount: 0,
+        timestamp: '2026-08-19T18:55:00.000Z'
+      }]
+    };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => root?.render(
+      <TableBuyInLedger state={state} session={session} formatClock={(timestamp) => timestamp ?? ''} />
+    ));
+
+    const cashOutRows = Array.from(container.querySelectorAll('.cash-ledger-entry.out'));
+    expect(cashOutRows).toHaveLength(2);
+    expect(cashOutRows[0]?.querySelector('em')?.textContent).toBe('Not recorded');
+    expect(cashOutRows[1]?.querySelector('em')?.textContent).toBe('−$0');
+    expect(container.querySelector('.cash-ledger-summary')?.textContent).toContain('Cash-outs$0 + 1 not recorded');
+    expect(container.querySelector('.cash-ledger-balance strong')?.textContent).toBe('Incomplete');
+    expect(container.querySelector('.cash-ledger-reconcile')?.textContent).toContain(
+      '1 cash-out amount not recorded; cash in play cannot be reconciled.'
+    );
+  });
 });

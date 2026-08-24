@@ -98,6 +98,24 @@ describe('buildNightCloseTables', () => {
     ]));
   });
 
+  it('keeps a cash-out with an omitted amount explicitly unresolved', () => {
+    const [table] = buildNightCloseTables({
+      ...state,
+      playerSessions: [state.playerSessions[0]],
+      playerLedger: [{
+        tableId: 'table-1',
+        type: 'Cash-Out',
+        profileId: 'alex',
+        playerName: 'Alex',
+        timestamp: '2026-07-19T03:00:00Z'
+      }]
+    }, { 'table-1': '710' });
+
+    expect(table.cashOuts).toBe(0);
+    expect(table.warnings).toContain('1 player missing cash-out amount');
+    expect(table.warnings).not.toContain('1 player missing cash-out');
+  });
+
   it('excludes transactions at or before the previous locked close', () => {
     const [table] = buildNightCloseTables({
       ...state,

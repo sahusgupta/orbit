@@ -8,9 +8,21 @@ const { redactDetails } = require('../apps/api/src/http/dataProtection');
 const { createOrbitCore } = require('../apps/api/src/shared/orbitCore.cjs');
 const { createEmbeddedBackend } = require('./embeddedBackend.cjs');
 const { createLocalStore } = require('./localStore.cjs');
+const { createManagementSessionStore } = require('./managementSessionStore.cjs');
 const { createOrbitApiClient } = require('./orbitApiClient.cjs');
 const { createStaffAuthorization } = require('./staffAuthorization.cjs');
 const { createUpdateController } = require('./updateController.cjs');
+function encodeProtectedState(value) {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('OS-backed local cache encryption is unavailable.');
+  return `safe-storage:v1:${safeStorage.encryptString(value).toString('base64')}`;
+}
+
+function decodeProtectedState(value) {
+  if (!value.startsWith('safe-storage:v1:')) return value;
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('OS-backed local cache decryption is unavailable.');
+  return safeStorage.decryptString(Buffer.from(value.slice('safe-storage:v1:'.length), 'base64'));
+}
+
 const {
   getAccountKeyFromAccess,
   getAccountKeyFromState,
@@ -153,16 +165,15 @@ const {
   writeLocalDatabase
 } = createLocalStore({
   app,
-  encodeState: (value) => {
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('OS-backed local cache encryption is unavailable.');
-    return `safe-storage:v1:${safeStorage.encryptString(value).toString('base64')}`;
-  },
-  decodeState: (value) => {
-    if (!value.startsWith('safe-storage:v1:')) return value;
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('OS-backed local cache decryption is unavailable.');
-    return safeStorage.decryptString(Buffer.from(value.slice('safe-storage:v1:'.length), 'base64'));
-  },
+  encodeState: encodeProtectedState,
+  decodeState: decodeProtectedState,
   updateBackendReportCount: (reportCount) => embeddedBackend.updateReportCount(reportCount)
+});
+
+const managementSessionStore = createManagementSessionStore({
+  app,
+  encodeState: encodeProtectedState,
+  decodeState: decodeProtectedState
 });
 
 const { buildPlayerClubSnapshot } = createOrbitCore({
@@ -306,6 +317,18 @@ ipcMain.handle('complete-management-recovery', trustedIpc(async (payload) => {
   return completeManagementRecoveryApi(bounded.access, bounded.password);
 }));
 
+ipcMain.handle('persist-management-session', trustedIpc((binding) =>
+  managementSessionStore.saveSession(boundedPayload(binding, 2_000))
+));
+
+ipcMain.handle('restore-management-session', trustedIpc((binding) =>
+  managementSessionStore.restoreSession(boundedPayload(binding, 2_000))
+));
+
+ipcMain.handle('clear-management-session', trustedIpc((accountKey) =>
+  managementSessionStore.clearSession(String(accountKey || ''))
+));
+
 ipcMain.handle('submit-analytical-report', trustedIpc((report) => submitAnalyticalReportApiFirst(boundedPayload(report, 500_000))));
 
 ipcMain.handle('verify-staff-pin', trustedIpc(async (payload) => {
@@ -398,9 +421,9 @@ function createWindow(route = 'floor', context = {}) {
 
   const mainWindow = new BrowserWindow({
     ...routeConfig,
-    frame: route !== 'tournament-tv',
+    frame: true,
     autoHideMenuBar: route === 'tournament-tv',
-    titleBarStyle: route === 'tournament-tv' ? 'hidden' : 'default',
+    titleBarStyle: 'default',
     fullscreenable: true,
     backgroundColor: branding.desktop.backgroundColor,
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
@@ -419,9 +442,7 @@ function createWindow(route = 'floor', context = {}) {
   }
 
   mainWindow.once('ready-to-show', () => {
-    if (route === 'tournament-tv') {
-      mainWindow.setFullScreen(true);
-    } else if (route === 'table') {
+    if (route === 'table') {
       mainWindow.maximize();
     }
     mainWindow.show();

@@ -197,7 +197,7 @@ export default function ProfilesView({
                 </div>
               ) : (
                 <div className="player-popup-ledger">
-                  {state.playerLedger.length ? state.playerLedger.slice(0, 40).map((entry) => <article key={entry.id}><div><strong>{entry.playerName}</strong><span>{entry.type}{entry.note ? ` · ${entry.note}` : ''}</span></div><div><strong>{entry.amount ? `$${entry.amount.toLocaleString()}` : 'Not recorded'}</strong><time>{formatClock(entry.timestamp)}</time></div></article>) : <div className="player-popup-empty"><strong>No ledger activity</strong><span>Check-ins and transactions will appear here.</span></div>}
+                  {state.playerLedger.length ? state.playerLedger.slice(0, 40).map((entry) => <article key={entry.id}><div><strong>{entry.playerName}</strong><span>{entry.type}{entry.note ? ` · ${entry.note}` : ''}</span></div><div><strong>{entry.amount !== undefined ? `$${entry.amount.toLocaleString()}` : 'Not recorded'}</strong><time>{formatClock(entry.timestamp)}</time></div></article>) : <div className="player-popup-empty"><strong>No ledger activity</strong><span>Check-ins and transactions will appear here.</span></div>}
                 </div>
               )}
             </Dialog.Content>
@@ -570,7 +570,7 @@ export default function ProfilesView({
                   <article className="waitlist-card" key={entry.id}>
                     <div>
                       <strong>{entry.playerName}</strong>
-                      <span>{entry.type}{entry.amount ? ` - $${entry.amount.toLocaleString()}` : ''}</span>
+                      <span>{entry.type}{entry.amount !== undefined ? ` - $${entry.amount.toLocaleString()}` : ''}</span>
                       <small>{formatClock(entry.timestamp)}{entry.note ? ` - ${entry.note}` : ''}</small>
                     </div>
                   </article>

@@ -584,6 +584,21 @@
   padding-top: 10px;
 }
 
+.poker-seat-menu-workspace {
+  align-content: start;
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+}
+
+.poker-seat-menu-workspace.with-actions {
+  block-size: clamp(220px, 32dvh, 260px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 3px;
+  scrollbar-gutter: stable;
+}
+
 .poker-seat-menu-section-title {
   color: #a6b1c0;
   font-family: var(--font-mono);

@@ -264,4 +264,20 @@ describe('management player-session commands', () => {
     expect(result.notification).toEqual({ gameId: game.id, reason: 'seat-opened' });
     expect(source).toEqual(snapshot);
   });
+
+  it('distinguishes an omitted cash-out amount from an explicitly recorded zero', () => {
+    const omitted = markPlayerSessionLeft(state(), playerSession, undefined, '', dependencies());
+    const zero = markPlayerSessionLeft(state(), playerSession, 0, '', dependencies());
+
+    expect(omitted.state.playerLedger[0]).not.toHaveProperty('amount');
+    expect(omitted.state.playerLedger[0]).toMatchObject({
+      type: 'Cash-Out',
+      note: 'Player left table without a recorded cash-out amount'
+    });
+    expect(zero.state.playerLedger[0]).toMatchObject({
+      type: 'Cash-Out',
+      amount: 0,
+      note: 'Player left table with no cash out'
+    });
+  });
 });

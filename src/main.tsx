@@ -100,6 +100,11 @@ import {
   updateTableSession
 } from './application/management/tableLifecycleCommands';
 import {
+  clearTableInState,
+  deleteTableInState,
+  mergeTableInState
+} from './application/management/tableOperationsCommands';
+import {
   buildPlayerProfile as buildPlayerProfileInState,
   checkProfileIntoClub,
   createActiveMemberProfile,
@@ -186,6 +191,8 @@ import {
   isPilotAccessActive,
   managementStorageKey as storageKey,
   persistSignIn,
+  restorePersistedSignIn,
+  type ManagementSessionBinding,
   touchPersistedSignIn,
   safeAccountKeyPart,
   validatePilotKey
@@ -299,6 +306,9 @@ declare global {
         revision?: number;
         error?: string;
       }>;
+      persistManagementSession: (binding: ManagementSessionBinding) => Promise<{ ok: boolean; active: boolean; expiresAt?: string }>;
+      restoreManagementSession: (binding: ManagementSessionBinding) => Promise<{ ok: boolean; active: boolean; expiresAt?: string }>;
+      clearManagementSession: (accountKey: string) => Promise<{ ok: boolean; active: boolean }>;
       verifyStaffPin: (payload: { staffId: string; pin: string; access: PilotAccess }) => Promise<{
         ok: boolean;
         token?: string;
@@ -757,15 +767,16 @@ function App() {
   useEffect(() => {
     if (!hasAuthenticated) return;
     let idleTimer = 0;
-    const expireSession = () => {
-      persistSignIn(state, false);
+    const expireSession = async () => {
+      await persistSignIn(state, false);
+      await signOutOfFirebase().catch(() => undefined);
       setStaffSession(null);
       setHasAuthenticated(false);
     };
     const refreshIdleSession = () => {
-      touchPersistedSignIn(state);
+      const staysSignedIn = touchPersistedSignIn(state);
       window.clearTimeout(idleTimer);
-      idleTimer = window.setTimeout(expireSession, 30 * 60 * 1000);
+      if (!staysSignedIn) idleTimer = window.setTimeout(() => void expireSession(), 30 * 60 * 1000);
     };
     refreshIdleSession();
     window.addEventListener('keydown', refreshIdleSession);
@@ -1545,7 +1556,7 @@ function App() {
     persist(finalState);
   };
 
-  const markPlayerSessionLeft = (playerSession: PlayerSession, cashOutAmount: number, cashOutNote = '') => {
+  const markPlayerSessionLeft = (playerSession: PlayerSession, cashOutAmount: number | undefined, cashOutNote = '') => {
     const result = markPlayerSessionLeftInState(
       state,
       playerSession,
@@ -2295,6 +2306,14 @@ function App() {
     };
   };
 
+  const persistRequestedSignIn = async (next: AppState, staySignedIn: boolean) => {
+    const persisted = await persistSignIn(next, staySignedIn);
+    if (persisted) return true;
+    await signOutOfFirebase().catch(() => undefined);
+    setPilotKeyError('Orbit could not securely save this sign-in choice. Check local app storage access and try again.');
+    return false;
+  };
+
   const signInToAccount = async (event: React.FormEvent) => {
     event.preventDefault();
     const accountLogin = state.settings.accountLogin;
@@ -2329,7 +2348,7 @@ function App() {
         }
       }
     };
-    persistSignIn(next, loginDraft.staySignedIn);
+    if (!await persistRequestedSignIn(next, loginDraft.staySignedIn)) return;
     setHasAuthenticated(true);
     setPilotKeyError('');
     persist(next, false, { feature: 'Account', action: 'Signed in', route: 'access' });
@@ -2369,6 +2388,67 @@ function App() {
     setExpiredDataExportMessage(
       result.ok ? 'Room data exported.' : `Room data export failed: ${result.error}`
     );
+  };
+
+  const clearTable = (sessionId: string) => {
+    const session = state.sessions.find((item) => item.id === sessionId);
+    if (!session) return;
+    const seatedCount = getActivePlayerSessionsForTable(state, session.id).length;
+    if (!window.confirm(
+      `Clear ${session.label}? This closes the live session and removes ${seatedCount} seated player${seatedCount === 1 ? '' : 's'} without entering cash-out amounts.`
+    )) return;
+    const result = clearTableInState(state, session.id, { createId: uid, nowIso });
+    if (!result.ok) {
+      window.alert(result.error);
+      return;
+    }
+    persist(result.state, true, {
+      feature: 'Tables',
+      action: 'Cleared table',
+      metadata: { gameId: session.gameId, tableId: session.id, players: seatedCount }
+    });
+  };
+
+  const deleteTable = (tableId: string) => {
+    const physicalTable = (state.physicalTables ?? []).find((table) => table.id === tableId);
+    const session = state.sessions.find((item) =>
+      item.id === tableId || item.physicalTableId === tableId
+    );
+    const label = physicalTable?.label ?? session?.label ?? 'this table';
+    if (!window.confirm(
+      `Delete ${label}? The table will be removed from the floor. Any live session will be closed, while financial and audit history remains available.`
+    )) return;
+    const result = deleteTableInState(state, { id: tableId }, { createId: uid, nowIso });
+    if (!result.ok) {
+      window.alert(result.error);
+      return;
+    }
+    persist(result.state, true, {
+      feature: 'Tables',
+      action: 'Deleted table',
+      metadata: { tableId, label }
+    });
+  };
+
+  const mergeTable = (sourceSessionId: string, targetSessionId: string) => {
+    const source = state.sessions.find((session) => session.id === sourceSessionId);
+    const target = state.sessions.find((session) => session.id === targetSessionId);
+    const result = mergeTableInState(state, sourceSessionId, targetSessionId, { createId: uid, nowIso });
+    if (!result.ok) {
+      window.alert(result.error);
+      return;
+    }
+    persist(result.state, true, {
+      feature: 'Tables',
+      action: 'Merged tables',
+      metadata: {
+        fromTableId: sourceSessionId,
+        toTableId: targetSessionId,
+        players: result.movedPlayerCount ?? 0,
+        fromLabel: source?.label ?? sourceSessionId,
+        toLabel: target?.label ?? targetSessionId
+      }
+    });
   };
 
   const exportLegacyRoomDataFromExpiredAccess = () => {
@@ -2483,7 +2563,10 @@ function App() {
       if (canUseRendererFirebaseAuth()) {
         void signInToFirebaseWithEmail(recoveredLogin.username, loginDraft.password).catch(() => undefined);
       }
-      persistSignIn(next, loginDraft.staySignedIn);
+      if (!await persistRequestedSignIn(next, loginDraft.staySignedIn)) {
+        setPasswordRecoveryStage('owner-ready');
+        return;
+      }
       setHasAuthenticated(true);
       setPasswordRecoveryStage('idle');
       setPasswordRecoveryNotice('');
@@ -2523,7 +2606,10 @@ function App() {
           accountLogin: recoveredLogin
         }
       };
-      persistSignIn(next, loginDraft.staySignedIn);
+      if (!await persistRequestedSignIn(next, loginDraft.staySignedIn)) {
+        setPasswordRecoveryStage('sent');
+        return;
+      }
       setHasAuthenticated(true);
       setPasswordRecoveryStage('idle');
       setPasswordRecoveryNotice('');
@@ -2554,7 +2640,7 @@ function App() {
         accountLogin
       }
     };
-    persistSignIn(next, setupDraft.staySignedIn);
+    if (!await persistRequestedSignIn(next, setupDraft.staySignedIn)) return;
     setHasAuthenticated(true);
     setPilotKeyError('');
     persist(next, true, { feature: 'Account', action: 'Created login', route: 'access' });
@@ -2589,7 +2675,7 @@ function App() {
     const next = await loadExistingManagementStateForAccount(access);
     if (!next) return false;
     setUndoStack([]);
-    setHasAuthenticated(hasPersistedSignIn(next));
+    setHasAuthenticated(await restorePersistedSignIn(next));
     persist(next, false, { feature: 'Account', action: 'Loaded existing pilot key', route: 'access' });
     setPendingPilotAccess(null);
     setPilotKeyError('');
@@ -2668,7 +2754,7 @@ function App() {
         }))
       }
     });
-    persistSignIn(next, setupDraft.staySignedIn);
+    if (!await persistRequestedSignIn(next, setupDraft.staySignedIn)) return;
     setHasAuthenticated(true);
     persist(next, true, { feature: 'Account', action: 'Activated pilot key', route: 'access' });
     window.location.hash = '/floor';
@@ -2845,10 +2931,10 @@ function App() {
       operator={activeStaffAccount?.name}
       saveState={saveStatus.state}
       onNavigate={navigatePrimary}
-      onSignOut={() => {
-        persistSignIn(state, false);
+      onSignOut={async () => {
+        await persistSignIn(state, false);
         // Local sign-out must complete even if the optional Firebase session cannot be cleared.
-        signOutOfFirebase().catch(() => undefined);
+        await signOutOfFirebase().catch(() => undefined);
         setHasAuthenticated(false);
       }}
       commands={shellCommands}
@@ -3635,8 +3721,9 @@ function App() {
         className="cash-out-modal"
         onSubmit={(event) => {
           event.preventDefault();
-          const amount = Number(cashOutDraft.amount);
-          if (!Number.isFinite(amount) || amount < 0) return;
+          const amountInput = cashOutDraft.amount.trim();
+          const amount = amountInput ? Number(amountInput) : undefined;
+          if (amount !== undefined && (!Number.isFinite(amount) || amount < 0)) return;
           markPlayerSessionLeft(cashOutPlayerSession, amount, cashOutDraft.note);
           setCashOutDraft(null);
         }}
@@ -3645,9 +3732,9 @@ function App() {
           <div><span>Close player session</span><h2>{cashOutPlayerSession.playerName}</h2></div>
           <button className="icon-button" type="button" onClick={() => setCashOutDraft(null)}><X size={18} /></button>
         </div>
-        <label>Cash-out amount<input autoFocus type="number" min="0" step="0.01" required value={cashOutDraft.amount} onChange={(event) => setCashOutDraft({ ...cashOutDraft, amount: event.target.value })} placeholder="$0.00" /></label>
+        <label>Cash-out amount (optional)<input autoFocus type="number" min="0" step="0.01" value={cashOutDraft.amount} onChange={(event) => setCashOutDraft({ ...cashOutDraft, amount: event.target.value })} placeholder="$0.00" /></label>
         <label>Note<input value={cashOutDraft.note} onChange={(event) => setCashOutDraft({ ...cashOutDraft, note: event.target.value })} placeholder="Optional note" /></label>
-        <div className="cash-out-actions"><button className="ghost-button" type="button" onClick={() => setCashOutDraft(null)}>Cancel</button><button className="primary-button" type="submit">Record cash-out</button></div>
+        <div className="cash-out-actions"><button className="ghost-button" type="button" onClick={() => setCashOutDraft(null)}>Cancel</button><button className="primary-button" type="submit">Close player session</button></div>
       </form>
     </div>,
     document.body,
@@ -3885,6 +3972,10 @@ function App() {
       failFormingGame={failFormingGame}
       addPhysicalTable={addPhysicalTable}
       addSession={addSession}
+      setFloorViewMode={(mode) => updateSettings({ showPlayerGrid: mode === 'graphic' })}
+      clearTable={clearTable}
+      deleteTable={deleteTable}
+      mergeTable={mergeTable}
       addInterest={addInterest}
       checkInProfileFromSearch={checkInProfileFromSearch}
     />
