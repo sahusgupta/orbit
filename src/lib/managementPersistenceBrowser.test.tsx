@@ -216,15 +216,20 @@ describe('management browser persistence orchestration', () => {
     expect(getState().interests.map((interest) => interest.id)).toEqual(['interest-remote']);
     const notifications = JSON.parse(localStorage.getItem('table-manager-state-v1:staff-notifications') ?? '[]') as Array<Record<string, unknown>>;
     expect(notifications).toEqual([
-      expect.objectContaining({
+      {
         id: 'membership-profile-request-2026-08-08T21:30:00.000Z',
         kind: 'membership',
-        title: 'New membership request',
-        body: 'Requested Player applied from the player app.',
         createdAt: '2026-08-08T22:00:01.500Z',
         read: false
-      })
+      },
+      {
+        id: 'seat-interest-remote',
+        kind: 'seat',
+        createdAt: '2026-08-08T22:00:01.500Z',
+        read: false
+      }
     ]);
+    expect(JSON.stringify(notifications)).not.toContain('Requested Player');
     expect(JSON.parse(localStorage.getItem(accountStorageKey) ?? '{}')).toMatchObject({
       profiles: [{ id: 'profile-local', name: 'Remote Replacement' }, { id: 'profile-request' }],
       interests: [{ id: 'interest-remote' }]
@@ -234,7 +239,7 @@ describe('management browser persistence orchestration', () => {
     harness.bridgeMode = 'same';
     await advance(1500);
     expect(getState()).toBe(mergedReference);
-    expect(JSON.parse(localStorage.getItem('table-manager-state-v1:staff-notifications') ?? '[]')).toHaveLength(1);
+    expect(JSON.parse(localStorage.getItem('table-manager-state-v1:staff-notifications') ?? '[]')).toHaveLength(2);
 
     harness.bridgeMode = 'empty';
     await advance(1500);

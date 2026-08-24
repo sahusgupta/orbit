@@ -127,16 +127,23 @@ async function listPilotLicensesForAccount(accountKey) {
   return snapshot.docs.map((document) => publicLicense({ id: document.id, ...document.data() }));
 }
 
-async function authenticatePilotLicense(authorizationCode) {
+async function inspectPilotLicense(authorizationCode) {
   const record = await findLicenseByAuthorizationCode(authorizationCode);
   if (!record) return { managed: false, active: false, license: null };
   const active = isLicenseActive(record);
+  return { managed: true, active, license: publicLicense(record) };
+}
+
+async function authenticatePilotLicense(authorizationCode) {
+  const result = await inspectPilotLicense(authorizationCode);
+  if (!result.managed) return result;
+  const active = result.active;
   if (active) {
     const lastAuthenticatedAt = new Date().toISOString();
-    await getLicenseCollection().doc(record.id).set({ lastAuthenticatedAt }, { merge: true });
-    Object.assign(record, { lastAuthenticatedAt });
+    await getLicenseCollection().doc(result.license.id).set({ lastAuthenticatedAt }, { merge: true });
+    result.license.lastAuthenticatedAt = lastAuthenticatedAt;
   }
-  return { managed: true, active, license: publicLicense(record) };
+  return result;
 }
 
 async function registerPilotLicense(access) {
@@ -223,6 +230,7 @@ module.exports = {
   canonicalPayload,
   getPilotLicense,
   hashAuthorizationCode,
+  inspectPilotLicense,
   isLicenseActive,
   listPilotLicensesForAccount,
   listPilotLicenses,

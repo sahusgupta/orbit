@@ -142,6 +142,8 @@ describe('settings route rendering', () => {
       'Address'
     ]);
     expect(document.querySelector('#settings-club > .preference-list > .account-management-form > button')?.textContent?.trim()).toBe('Save Account');
+    expect(document.querySelector('#settings-club')?.textContent).toContain('Player self-check-in QR');
+    expect(Array.from(document.querySelectorAll('#settings-club button')).some((button) => button.textContent?.includes('Generate QR PDF'))).toBe(true);
     expect(document.querySelector('.membership-plan-heading button')?.textContent?.trim()).toBe('Add plan');
   });
 

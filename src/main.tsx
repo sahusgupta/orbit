@@ -170,7 +170,6 @@ import {
   useReportingWorkspaceState
 } from './features/reporting/reportingWorkspace';
 import { useFloorWorkspaceState } from './features/floor/floorWorkspace';
-import TableBuyInLedger from './features/floor/TableBuyInLedger';
 import {
   useGamesWorkspaceState,
   type GroupMeCandidate
@@ -250,6 +249,7 @@ const SummaryView = React.lazy(() => import('./components/SummaryView'));
 const TableView = React.lazy(() => import('./components/TableView'));
 const TournamentsView = React.lazy(() => import('./components/TournamentsView'));
 const TournamentTvView = React.lazy(() => import('./components/TournamentTvView'));
+const TableBuyInLedger = React.lazy(() => import('./features/floor/TableBuyInLedger'));
 
 const withRouteLoadingBoundary = (content: React.ReactNode) => (
   <RecoveryBoundary label="This workspace">
@@ -304,6 +304,14 @@ declare global {
           lastLoginAt: string;
         };
         revision?: number;
+        error?: string;
+      }>;
+      generateSelfCheckInKit: (payload: { access: PilotAccess; staffToken: string }) => Promise<{
+        ok: boolean;
+        canceled?: boolean;
+        filePath?: string;
+        rotatedPreviousCode?: boolean;
+        selfCheckIn?: AppState['selfCheckIn'];
         error?: string;
       }>;
       persistManagementSession: (binding: ManagementSessionBinding) => Promise<{ ok: boolean; active: boolean; expiresAt?: string }>;
@@ -560,6 +568,7 @@ function App() {
     markStaffNotificationRead,
     replaceStaffNotifications,
     setStaffRequestNotice,
+    syncSelfCheckInStaffRequests,
     staffNotifications,
     staffRequestNotice
   } = useStaffRequestNotifications();
@@ -591,6 +600,7 @@ function App() {
     pilotKeyError,
     reportMessage,
     saveStatus,
+    selfCheckInKitMessage,
     settingsSection,
     setupDraft,
     staffDraft,
@@ -605,6 +615,7 @@ function App() {
     setPilotKeyError,
     setReportMessage,
     setSaveStatus,
+    setSelfCheckInKitMessage,
     setSettingsSection,
     setSetupDraft,
     setStaffDraft
@@ -827,6 +838,10 @@ function App() {
     state,
     stateRef
   });
+
+  useEffect(() => {
+    syncSelfCheckInStaffRequests(state.staffRequests);
+  }, [state.staffRequests, syncSelfCheckInStaffRequests]);
 
   useEffect(() => {
     const reportError = (payload: {
@@ -2919,9 +2934,48 @@ function App() {
     if (notification.kind === 'membership') {
       setPlayerSection('requests');
       navigatePrimary('players');
+    } else if (notification.kind === 'walk-in') {
+      setProfileSearch(notification.playerName ?? '');
+      navigatePrimary('players');
+      setStaffRequestNotice(notification);
     } else {
       navigatePrimary('floor');
     }
+  };
+
+  const generateSelfCheckInKit = async () => {
+    const { runSelfCheckInKitWorkflow } = await import('./features/settings/selfCheckInKitWorkflow');
+    await runSelfCheckInKitWorkflow({
+      access: state.settings.pilotAccess,
+      bridge: window.tableManagerDesktop,
+      authorize: () => authorizeStaffAction('staff-admin'),
+      getStaffToken: () => staffSession?.token,
+      hasExistingCode: Boolean(state.selfCheckIn?.capabilityGeneration),
+      confirmReplacement: () => window.confirm(
+        'Generating a new QR code will immediately deactivate every previously printed self-check-in code for this club. Continue?'
+      ),
+      setMessage: setSelfCheckInKitMessage,
+      applyConfiguration: (selfCheckIn) => setState((current) => ({ ...current, selfCheckIn }))
+    });
+  };
+  const markSelfCheckInRequestHandled = (notification: StaffRequestNotice) => {
+    if (!notification.staffRequestId) return;
+    const handledAt = nowIso();
+    persist({
+      ...state,
+      staffRequests: state.staffRequests.map((request) =>
+        request.id === notification.staffRequestId
+          ? {
+              ...request,
+              status: 'handled',
+              handledAt,
+              handledByStaffId: state.settings.activeStaffId
+            }
+          : request
+      )
+    }, false, { feature: 'Self check-in', action: 'Handled walk-in assistance request', route: 'profiles' });
+    markStaffNotificationRead(notification);
+    setStaffRequestNotice(null);
   };
   const unreadStaffNotificationCount = staffNotifications.filter((notification) => !notification.read).length;
   const withShell = (active: PrimaryDestination, content: React.ReactNode) => (
@@ -2955,6 +3009,14 @@ function App() {
             >
               Review
             </button>
+            {staffRequestNotice.kind === 'walk-in' ? (
+              <button
+                className="secondary-button"
+                onClick={() => markSelfCheckInRequestHandled(staffRequestNotice)}
+              >
+                Mark handled
+              </button>
+            ) : null}
             <button className="icon-button" onClick={() => setStaffRequestNotice(null)} aria-label="Dismiss notification">
               <X size={17} />
             </button>
@@ -3392,9 +3454,11 @@ function App() {
         saveStatus={saveStatus}
         backupMessage={backupMessage}
         reportMessage={reportMessage}
+        selfCheckInKitMessage={selfCheckInKitMessage}
         closeRoute={closeRoute}
         applyReplacementPilotKey={applyReplacementPilotKey}
         saveClubAccount={saveClubAccount}
+        generateSelfCheckInKit={generateSelfCheckInKit}
         updateSettings={updateSettings}
         selectActiveStaff={selectActiveStaff}
         addStaffAccount={addStaffAccount}
@@ -3745,7 +3809,9 @@ function App() {
     <div className="modal-backdrop cash-ledger-backdrop" role="dialog" aria-modal="true" aria-label={`${ledgerSession.label} buy-in ledger`}>
       <section className="cash-ledger-modal">
         <div className="cash-ledger-head"><div><span>{state.games.find((game) => game.id === ledgerSession.gameId)?.name ?? 'Table'}</span><h2>{ledgerSession.label} ledger</h2></div><button className="icon-button" onClick={() => setTableLedgerSessionId(null)}><X size={18} /></button></div>
-        <TableBuyInLedger state={state} session={ledgerSession} formatClock={formatClock} />
+        <React.Suspense fallback={<div className="cash-ledger-empty" aria-busy="true">Loading ledger...</div>}>
+          <TableBuyInLedger state={state} session={ledgerSession} formatClock={formatClock} />
+        </React.Suspense>
       </section>
     </div>,
     document.body,

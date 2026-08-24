@@ -8,8 +8,16 @@ const { recordRequestTiming, responseCompression } = require('./http/performance
 const { registerClientRoutes } = require('./routes/client');
 const { registerDashboardRoutes } = require('./routes/dashboard');
 const { registerPlayerRoutes } = require('./routes/player');
+const { registerSelfCheckInRoutes } = require('./routes/selfCheckIn');
 const { registerHealthRoute, registerLegalRoutes } = require('./routes/system');
 const { getDatabaseStatus } = require('./database');
+
+function applySelfCheckInPrivacyHeaders(_request, response, next) {
+  response.set('cache-control', 'private, no-store, max-age=0');
+  response.set('pragma', 'no-cache');
+  response.set('x-robots-tag', 'noindex, nofollow');
+  next();
+}
 
 function createApp() {
   // Validate the server-only authoritative Firestore configuration during cold
@@ -27,6 +35,13 @@ function createApp() {
   app.use(assignRequestId);
   app.use(recordRequestTiming);
   app.use(responseCompression);
+  app.use([
+    '/check-in',
+    '/self-check-in.css',
+    '/self-check-in.js',
+    '/player/check-in',
+    '/management/self-check-in'
+  ], applySelfCheckInPrivacyHeaders);
   app.use(applySecurityHeaders);
   app.use(enforceCors);
   app.use(rejectUnexpectedFileUploads);
@@ -38,12 +53,16 @@ function createApp() {
   app.use('/player/auth', createRateLimit({ name: 'player-auth', maximum: 10, windowMs: 15 * 60_000 }));
   app.use('/player/identity', createRateLimit({ name: 'player-identity', maximum: 30, windowMs: 15 * 60_000 }));
   app.use('/player', createRateLimit({ name: 'player-mutation', maximum: 120, windowMs: 60_000 }));
+  app.use('/player/check-in/lookup', createRateLimit({ name: 'self-check-in-lookup', identity: 'address', maximum: 120, windowMs: 10 * 60_000 }));
+  app.use('/player/check-in/seat', createRateLimit({ name: 'self-check-in-seat', identity: 'address', maximum: 120, windowMs: 10 * 60_000 }));
+  app.use('/management/self-check-in', createRateLimit({ name: 'self-check-in-issuer', maximum: 10, windowMs: 15 * 60_000 }));
   app.use('/webhooks', createRateLimit({ name: 'webhook', maximum: 300, windowMs: 60_000 }));
   app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), handleStripeWebhook);
   app.post('/webhooks/revenuecat', express.json({ limit: '256kb' }), asyncRoute(handleRevenueCatWebhook));
   app.use(express.json({ limit: '2mb' }));
 
   registerHealthRoute(app, startedAt);
+  registerSelfCheckInRoutes(app);
   registerPlayerRoutes(app);
   registerLegalRoutes(app);
   registerDashboardRoutes(app, liveUpdates, startedAt);

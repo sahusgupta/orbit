@@ -100,6 +100,7 @@ export const seedState: AppState = {
   playerLedger: [],
   tableEvents: [],
   inAppNotifications: [],
+  staffRequests: [],
   history: [],
   nightCloses: [],
   feedback: [],
@@ -368,6 +369,30 @@ export function normalizeState(parsed: PersistedAppState): AppState {
       targetPlayerIds: notification.targetPlayerIds ?? [],
       targetPlayerNames: notification.targetPlayerNames ?? []
     })),
+    staffRequests: (parsed.staffRequests ?? [])
+      .filter(
+        (request) =>
+          request.type === 'self-check-in-assistance' &&
+          typeof request.id === 'string' &&
+          typeof request.playerName === 'string' &&
+          (request.reason === 'not-found' || request.reason === 'ambiguous') &&
+          typeof request.createdAt === 'string'
+      )
+      .map((request) => ({
+        ...request,
+        status: request.status === 'handled' ? ('handled' as const) : ('pending' as const),
+        handledAt: request.status === 'handled' ? request.handledAt : undefined,
+        handledByStaffId: request.status === 'handled' ? request.handledByStaffId : undefined
+      }))
+      .slice(-200),
+    selfCheckIn:
+      typeof parsed.selfCheckIn?.capabilityGeneration === 'string' &&
+      typeof parsed.selfCheckIn?.generatedAt === 'string'
+        ? {
+            capabilityGeneration: parsed.selfCheckIn.capabilityGeneration,
+            generatedAt: parsed.selfCheckIn.generatedAt
+          }
+        : undefined,
     history: parsed.history ?? [],
     nightCloses: parsed.nightCloses ?? [],
     feedback: parsed.feedback ?? [],

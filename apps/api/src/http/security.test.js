@@ -107,4 +107,20 @@ describe('API perimeter security', () => {
     });
     expect(third.result.headers).toHaveProperty('retry-after');
   });
+
+  it('does not let rotating unverified credential headers bypass an address-only quota', () => {
+    const limit = createRateLimit({ name: 'public-address', identity: 'address', maximum: 1, windowMs: 60_000 });
+    const next = vi.fn();
+    const first = harness({ headers: { authorization: 'bogus-authorization-one' } });
+    const second = harness({ headers: { 'x-orbit-api-key': 'bogus-api-key-two' } });
+    const third = harness({ headers: { 'x-orbit-auth-key': 'bogus-auth-key-three' } });
+
+    limit(first.request, first.response, next);
+    limit(second.request, second.response, next);
+    limit(third.request, third.response, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(second.result).toMatchObject({ statusCode: 429, payload: { code: 'RATE_LIMITED' } });
+    expect(third.result).toMatchObject({ statusCode: 429, payload: { code: 'RATE_LIMITED' } });
+  });
 });

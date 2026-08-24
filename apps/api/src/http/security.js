@@ -29,7 +29,7 @@ function enforceCors(request, response, next) {
   response.set('vary', 'Origin');
   response.set('access-control-allow-credentials', 'true');
   response.set('access-control-allow-methods', 'GET,HEAD,POST,DELETE,OPTIONS');
-  response.set('access-control-allow-headers', 'authorization,content-type,x-orbit-api-key,x-orbit-auth-key,x-orbit-client-key,x-orbit-csrf,x-orbit-mutation-id,x-orbit-request-id');
+  response.set('access-control-allow-headers', 'authorization,content-type,x-orbit-api-key,x-orbit-auth-key,x-orbit-client-key,x-orbit-check-in-session,x-orbit-check-in-token,x-orbit-csrf,x-orbit-mutation-id,x-orbit-request-id');
   if (request.method === 'OPTIONS') {
     response.status(204).end();
     return;
@@ -66,8 +66,10 @@ function rejectUnexpectedFileUploads(request, response, next) {
   next();
 }
 
-function rateLimitIdentity(request) {
-  const credential = request.get('authorization') || request.get('x-orbit-api-key') || request.get('x-orbit-auth-key') || '';
+function rateLimitIdentity(request, identity = 'credential-or-address') {
+  const credential = identity === 'address'
+    ? ''
+    : request.get('authorization') || request.get('x-orbit-api-key') || request.get('x-orbit-auth-key') || '';
   const material = credential ? `credential:${credential}` : `address:${request.ip || request.socket?.remoteAddress || 'unknown'}`;
   return crypto.createHash('sha256').update(material).digest('hex').slice(0, 24);
 }
@@ -78,7 +80,7 @@ function createRateLimit(options = {}) {
   const buckets = new Map();
   return function rateLimit(request, response, next) {
     const now = Date.now();
-    const key = `${options.name || 'general'}:${rateLimitIdentity(request)}`;
+    const key = `${options.name || 'general'}:${rateLimitIdentity(request, options.identity)}`;
     let bucket = buckets.get(key);
     if (!bucket || bucket.resetAt <= now) bucket = { count: 0, resetAt: now + windowMs };
     bucket.count += 1;

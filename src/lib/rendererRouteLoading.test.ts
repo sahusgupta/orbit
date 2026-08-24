@@ -30,4 +30,14 @@ describe('management route loading boundary', () => {
       expect(mainSource).not.toMatch(new RegExp(`import\\s+${component}\\s+from`));
     });
   });
+
+  it('defers the modal-only buy-in ledger without deferring the default floor', () => {
+    expect(mainSource).toContain(
+      "const TableBuyInLedger = React.lazy(() => import('./features/floor/TableBuyInLedger'));"
+    );
+    expect(mainSource).not.toMatch(/import\s+TableBuyInLedger\s+from/);
+    expect(mainSource).toContain(
+      '<React.Suspense fallback={<div className="cash-ledger-empty" aria-busy="true">Loading ledger...</div>}>'
+    );
+  });
 });

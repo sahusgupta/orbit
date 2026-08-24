@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Player check-in | Orbit</title>
+    <link rel="icon" type="image/svg+xml" href="/orbit-logo.svg" />
+    <link rel="stylesheet" href="/self-check-in.css" />
+    <script src="/self-check-in.js" defer></script>
+  </head>
+  <body>
+    <main id="check-in-app" class="check-in-shell" aria-busy="false">
+      <header class="brand-header">
+        <img src="/orbit-logo.svg" width="44" height="44" alt="" />
+        <span>Orbit player check-in</span>
+      </header>
+
+      <div id="error-alert" class="alert alert-error" role="alert" tabindex="-1" hidden></div>
+
+      <section id="name-step" class="card" aria-labelledby="name-heading" hidden>
+        <p id="name-club" class="eyebrow" hidden></p>
+        <h1 id="name-heading">Check in to play</h1>
+        <p class="lead">Enter the name on your club profile. We will show only tables with a seat available.</p>
+
+        <form id="lookup-form" class="form-stack">
+          <div class="field-group">
+            <label for="player-name">Your name</label>
+            <input
+              id="player-name"
+              name="name"
+              type="text"
+              autocomplete="name"
+              autocapitalize="words"
+              enterkeyhint="go"
+              minlength="2"
+              maxlength="80"
+              aria-describedby="name-hint name-error"
+              required
+            />
+            <p id="name-hint" class="field-hint">Use the full name registered with this club.</p>
+            <p id="name-error" class="field-error" hidden></p>
+          </div>
+
+          <button id="lookup-button" class="primary-button" type="submit">Find my profile</button>
+          <p id="lookup-status" class="status-message" role="status" aria-live="polite" aria-atomic="true"></p>
+        </form>
+      </section>
+
+      <section id="table-step" class="card" aria-labelledby="table-heading" hidden>
+        <p id="table-club" class="eyebrow"></p>
+        <h1 id="table-heading" tabindex="-1">Choose a table</h1>
+        <p id="player-greeting" class="lead"></p>
+
+        <div class="table-toolbar">
+          <p id="table-summary" class="table-summary"></p>
+          <button id="refresh-button" class="secondary-button" type="button">Refresh tables</button>
+        </div>
+
+        <ul id="table-list" class="table-list" aria-label="Tables with available seats"></ul>
+        <div id="empty-tables" class="empty-state" hidden>
+          <strong>No tables have an open seat right now.</strong>
+          <p>Refresh in a moment, or ask a staff member for help.</p>
+        </div>
+        <p id="table-status" class="status-message" role="status" aria-live="polite" aria-atomic="true"></p>
+      </section>
+
+      <section id="success-step" class="card terminal-card success-card" aria-labelledby="success-heading" hidden>
+        <div class="result-icon" aria-hidden="true">✓</div>
+        <p id="success-club" class="eyebrow"></p>
+        <h1 id="success-heading" tabindex="-1">You’re checked in</h1>
+        <p id="success-message" class="lead"></p>
+        <dl id="success-details" class="result-details">
+          <div id="success-table-row">
+            <dt>Table</dt>
+            <dd id="success-table"></dd>
+          </div>
+          <div id="success-game-row">
+            <dt>Game</dt>
+            <dd id="success-game"></dd>
+          </div>
+          <div id="success-seat-row">
+            <dt>Seat</dt>
+            <dd id="success-seat"></dd>
+          </div>
+        </dl>
+        <p class="next-step">Please head to the table. Staff can help if anything has changed.</p>
+      </section>
+
+      <section id="assistance-step" class="card terminal-card assistance-card" aria-labelledby="assistance-heading" hidden>
+        <div class="result-icon" aria-hidden="true">i</div>
+        <p id="assistance-club" class="eyebrow" hidden></p>
+        <h1 id="assistance-heading" tabindex="-1">Please see a staff member</h1>
+        <p id="assistance-message" class="lead">A staff member will help you finish checking in.</p>
+        <p class="next-step">You have not been seated yet. Please stay near the front desk.</p>
+      </section>
+
+      <noscript>
+        <section class="card terminal-card assistance-card">
+          <h1>JavaScript is required</h1>
+          <p class="lead">Please enable JavaScript or ask a staff member to check you in.</p>
+        </section>
+      </noscript>
+    </main>
+  </body>
+</html>

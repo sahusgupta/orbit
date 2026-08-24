@@ -27,6 +27,10 @@ const createExportState = (): AppState => ({
     reason: 'game-forming',
     createdAt: '2026-08-18T12:00:00.000Z'
   }],
+  selfCheckIn: {
+    capabilityGeneration: 'export-generation',
+    generatedAt: '2026-08-18T12:00:00.000Z'
+  },
   profiles: [{
     id: 'profile-export',
     name: 'Export Player',

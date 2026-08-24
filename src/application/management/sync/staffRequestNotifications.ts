@@ -1,16 +1,18 @@
 import { useCallback, useState } from 'react';
 import { nowIso } from '../../../domain/state';
 import { managementStorageKey } from '../../../domain/licensing';
-import type { AppState } from '../../../domain/types';
+import type { AppState, StaffAssistanceRequest } from '../../../domain/types';
 import type { BrowserStorage } from '../../../app/persistence/browserStateRepository';
 
 export type StaffRequestNotice = {
   id: string;
-  kind: 'membership' | 'seat';
+  kind: 'membership' | 'seat' | 'walk-in';
   title: string;
   body: string;
   createdAt: string;
   read: boolean;
+  staffRequestId?: string;
+  playerName?: string;
 };
 
 export const staffNotificationsStorageKey = `${managementStorageKey}:staff-notifications`;
@@ -19,7 +21,28 @@ export const loadStaffRequestNotifications = (
   storage: Pick<BrowserStorage, 'getItem'> = localStorage
 ): StaffRequestNotice[] => {
   try {
-    return JSON.parse(storage.getItem(staffNotificationsStorageKey) || '[]');
+    const persisted = JSON.parse(storage.getItem(staffNotificationsStorageKey) || '[]');
+    if (!Array.isArray(persisted)) return [];
+    return persisted
+      .filter((item) =>
+        item &&
+        typeof item.id === 'string' &&
+        ['membership', 'seat', 'walk-in'].includes(item.kind) &&
+        typeof item.createdAt === 'string'
+      )
+      .map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        title: item.kind === 'membership'
+          ? 'Membership request'
+          : item.kind === 'walk-in'
+            ? 'Walk-in needs assistance'
+            : 'Seat request',
+        body: 'Open Orbit to review this request.',
+        createdAt: item.createdAt,
+        read: Boolean(item.read),
+        staffRequestId: typeof item.staffRequestId === 'string' ? item.staffRequestId : undefined
+      }));
   } catch {
     return [];
   }
@@ -29,7 +52,70 @@ export const saveStaffRequestNotifications = (
   notifications: StaffRequestNotice[],
   storage: Pick<BrowserStorage, 'setItem'> = localStorage
 ) => {
-  storage.setItem(staffNotificationsStorageKey, JSON.stringify(notifications));
+  storage.setItem(staffNotificationsStorageKey, JSON.stringify(notifications.map((notification) => ({
+    id: notification.id,
+    kind: notification.kind,
+    createdAt: notification.createdAt,
+    read: notification.read,
+    staffRequestId: notification.staffRequestId
+  }))));
+};
+
+const noticeForWalkInRequest = (request: StaffAssistanceRequest): StaffRequestNotice => ({
+  id: `walk-in-${request.id}`,
+  kind: 'walk-in',
+  title: 'Walk-in needs assistance',
+  body: `${request.playerName} scanned the club code and needs staff assistance.`,
+  createdAt: request.createdAt,
+  read: false,
+  staffRequestId: request.id,
+  playerName: request.playerName
+});
+
+export const getIncomingStaffRequestNotices = (
+  previousState: AppState,
+  nextState: AppState,
+  clock: { nowIso: () => string; nowMs: () => number } = { nowIso, nowMs: Date.now }
+): StaffRequestNotice[] => {
+  const membershipRequests = nextState.profiles
+    .filter((profile) => profile.membershipStatus === 'Requested')
+    .filter((profile) => !previousState.profiles.some((candidate) =>
+      candidate.id === profile.id &&
+      candidate.membershipStatus === 'Requested' &&
+      candidate.membershipRequestedAt === profile.membershipRequestedAt
+    ))
+    .sort((left, right) => Date.parse(right.membershipRequestedAt || '') - Date.parse(left.membershipRequestedAt || ''))
+    .map((profile) => ({
+      id: `membership-${profile.id}-${profile.membershipRequestedAt || clock.nowMs()}`,
+      kind: 'membership' as const,
+      title: 'New membership request',
+      body: `${profile.name} applied from the player app.`,
+      createdAt: clock.nowIso(),
+      read: false
+    }));
+
+  const walkInRequests = nextState.staffRequests
+    .filter((request) => request.status === 'pending')
+    .filter((request) => !previousState.staffRequests.some((candidate) => candidate.id === request.id))
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+    .map(noticeForWalkInRequest);
+
+  const seatRequests = nextState.interests
+    .filter((interest) => !previousState.interests.some((candidate) => candidate.id === interest.id))
+    .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))
+    .map((interest) => {
+      const gameName = nextState.games.find((game) => game.id === interest.gameId)?.name ?? 'a game';
+      return {
+        id: `seat-${interest.id}`,
+        kind: 'seat' as const,
+        title: 'New seat request',
+        body: `${interest.playerName} requested a seat in ${gameName}.`,
+        createdAt: clock.nowIso(),
+        read: false
+      };
+    });
+
+  return [...membershipRequests, ...walkInRequests, ...seatRequests];
 };
 
 export const getIncomingStaffRequestNotice = (
@@ -37,38 +123,7 @@ export const getIncomingStaffRequestNotice = (
   nextState: AppState,
   clock: { nowIso: () => string; nowMs: () => number } = { nowIso, nowMs: Date.now }
 ): StaffRequestNotice | null => {
-  const membershipRequest = nextState.profiles
-    .filter((profile) => profile.membershipStatus === 'Requested')
-    .filter((profile) => !previousState.profiles.some((candidate) =>
-      candidate.id === profile.id &&
-      candidate.membershipStatus === 'Requested' &&
-      candidate.membershipRequestedAt === profile.membershipRequestedAt
-    ))
-    .sort((left, right) => Date.parse(right.membershipRequestedAt || '') - Date.parse(left.membershipRequestedAt || ''))[0];
-  if (membershipRequest) {
-    return {
-      id: `membership-${membershipRequest.id}-${membershipRequest.membershipRequestedAt || clock.nowMs()}`,
-      kind: 'membership',
-      title: 'New membership request',
-      body: `${membershipRequest.name} applied from the player app.`,
-      createdAt: clock.nowIso(),
-      read: false
-    };
-  }
-
-  const seatRequest = nextState.interests
-    .filter((interest) => !previousState.interests.some((candidate) => candidate.id === interest.id))
-    .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))[0];
-  if (!seatRequest) return null;
-  const gameName = nextState.games.find((game) => game.id === seatRequest.gameId)?.name ?? 'a game';
-  return {
-    id: `seat-${seatRequest.id}`,
-    kind: 'seat',
-    title: 'New seat request',
-    body: `${seatRequest.playerName} requested a seat in ${gameName}.`,
-    createdAt: clock.nowIso(),
-    read: false
-  };
+  return getIncomingStaffRequestNotices(previousState, nextState, clock)[0] ?? null;
 };
 
 export const prependStaffRequestNotification = (
@@ -81,11 +136,36 @@ export const useStaffRequestNotifications = () => {
   const [staffNotifications, setStaffNotifications] = useState<StaffRequestNotice[]>(loadStaffRequestNotifications);
 
   const announceIncomingPlayerRequest = useCallback((previousState: AppState, nextState: AppState) => {
-    const notification = getIncomingStaffRequestNotice(previousState, nextState);
-    if (!notification) return;
-    setStaffRequestNotice(notification);
+    const notifications = getIncomingStaffRequestNotices(previousState, nextState);
+    if (!notifications.length) return;
+    setStaffRequestNotice(notifications[0]);
     setStaffNotifications((current) => {
-      const next = prependStaffRequestNotification(current, notification);
+      const next = notifications.reduceRight(
+        (result, notification) => prependStaffRequestNotification(result, notification),
+        current
+      );
+      saveStaffRequestNotifications(next);
+      return next;
+    });
+  }, []);
+
+  const syncSelfCheckInStaffRequests = useCallback((requests: StaffAssistanceRequest[]) => {
+    const pending = requests.filter((request) => request.status === 'pending');
+    const pendingIds = new Set(pending.map((request) => request.id));
+    const authoritative = pending.map(noticeForWalkInRequest);
+    setStaffRequestNotice((current) => {
+      if (current?.kind === 'walk-in' && (!current.staffRequestId || !pendingIds.has(current.staffRequestId))) return null;
+      return current ?? authoritative[0] ?? null;
+    });
+    setStaffNotifications((current) => {
+      const authoritativeById = new Map(authoritative.map((notice) => [notice.id, notice]));
+      const next = [
+        ...authoritative.map((notice) => ({
+          ...notice,
+          read: current.find((candidate) => candidate.id === notice.id)?.read ?? false
+        })),
+        ...current.filter((notice) => !authoritativeById.has(notice.id))
+      ].slice(0, 100);
       saveStaffRequestNotifications(next);
       return next;
     });
@@ -110,6 +190,7 @@ export const useStaffRequestNotifications = () => {
     markStaffNotificationRead,
     replaceStaffNotifications,
     setStaffRequestNotice,
+    syncSelfCheckInStaffRequests,
     staffNotifications,
     staffRequestNotice
   };

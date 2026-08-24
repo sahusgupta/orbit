@@ -10,6 +10,7 @@ const { createEmbeddedBackend } = require('./embeddedBackend.cjs');
 const { createLocalStore } = require('./localStore.cjs');
 const { createManagementSessionStore } = require('./managementSessionStore.cjs');
 const { createOrbitApiClient } = require('./orbitApiClient.cjs');
+const { createSelfCheckInPdf, selectSelfCheckInPdfDestination } = require('./selfCheckInKit.cjs');
 const { createStaffAuthorization } = require('./staffAuthorization.cjs');
 const { createUpdateController } = require('./updateController.cjs');
 function encodeProtectedState(value) {
@@ -199,10 +200,12 @@ async function saveStateEverywhere(state) {
 
 const {
   completeManagementRecoveryApi,
+  createSelfCheckInQrKitApi,
   getClientUpdateState,
   getManagementRecoveryStatusApi,
   getRemoteBackendStatus,
   loadStateApiFirst,
+  peekStateFromApi,
   saveStateApiFirst,
   saveStateToApi,
   sendClientError,
@@ -234,7 +237,7 @@ const embeddedBackend = createEmbeddedBackend({
 });
 
 const staffAuthorization = createStaffAuthorization({
-  loadStateForAccess: (access) => loadStateApiFirst(getAccountKeyFromAccess(access), access)
+  loadStateForAccess: (access) => peekStateFromApi(getAccountKeyFromAccess(access), access)
 });
 let nextTextBatchAt = 0;
 
@@ -315,6 +318,43 @@ ipcMain.handle('get-management-recovery-status', trustedIpc(async (access) => ge
 ipcMain.handle('complete-management-recovery', trustedIpc(async (payload) => {
   const bounded = boundedPayload(payload, 20_000);
   return completeManagementRecoveryApi(bounded.access, bounded.password);
+}));
+
+ipcMain.handle('generate-self-check-in-kit', trustedIpc(async (payload) => {
+  const bounded = boundedPayload(payload, 20_000);
+  const authorization = staffAuthorization.authorize({ token: bounded.staffToken, action: 'staff-admin' });
+  if (!authorization.ok) return { ok: false, error: authorization.error };
+  const access = boundedPayload(bounded.access, 16_000);
+  const accountKey = getAccountKeyFromAccess(access);
+  if (!accountKey || accountKey !== authorization.accountKey) {
+    return { ok: false, error: 'Staff authorization does not match the active club.' };
+  }
+  const record = await peekStateFromApi(accountKey, access);
+  if (!record?.authoritative || !record.state) {
+    return { ok: false, error: 'The authoritative club state is unavailable.' };
+  }
+  const clubName = String(record.state.settings?.clubAccount?.clubName || '').trim();
+  const destination = await selectSelfCheckInPdfDestination(clubName);
+  if (!destination.ok) return destination;
+  const kit = await createSelfCheckInQrKitApi(access);
+  if (!kit.ok) return kit;
+  const result = await createSelfCheckInPdf({
+    clubName: kit.clubName,
+    checkInUrl: kit.checkInUrl,
+    expiresAt: kit.expiresAt
+  }, { outputFilePath: destination.filePath });
+  sendClientEvent(result.ok ? 'self-check-in-kit-saved' : 'self-check-in-kit-save-failed', 'settings', {
+    result: result.ok ? 'saved' : result.canceled ? 'canceled' : 'failed',
+    rotatedPreviousCode: Boolean(kit.rotatedPreviousCode)
+  });
+  return {
+    ...result,
+    error: !result.ok && !result.canceled
+      ? 'The new club code was activated, but Orbit could not save its PDF. Generate another kit before using older prints.'
+      : result.error,
+    selfCheckIn: kit.selfCheckIn,
+    rotatedPreviousCode: Boolean(kit.rotatedPreviousCode)
+  };
 }));
 
 ipcMain.handle('persist-management-session', trustedIpc((binding) =>

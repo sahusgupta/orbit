@@ -74,6 +74,7 @@ describe('Electron IPC and preload composition audit', () => {
       'validate-pilot-access',
       'get-management-recovery-status',
       'complete-management-recovery',
+      'generate-self-check-in-kit',
       'persist-management-session',
       'restore-management-session',
       'clear-management-session',
@@ -120,6 +121,7 @@ describe('Electron IPC and preload composition audit', () => {
       'validatePilotAccess',
       'getManagementRecoveryStatus',
       'completeManagementRecovery',
+      'generateSelfCheckInKit',
       'persistManagementSession',
       'restoreManagementSession',
       'clearManagementSession',
@@ -139,6 +141,7 @@ describe('Electron IPC and preload composition audit', () => {
     const installDownloadedUpdate = bridge.installDownloadedUpdate as () => Promise<unknown>;
     const getManagementRecoveryStatus = bridge.getManagementRecoveryStatus as (access: unknown) => Promise<unknown>;
     const completeManagementRecovery = bridge.completeManagementRecovery as (payload: unknown) => Promise<unknown>;
+    const generateSelfCheckInKit = bridge.generateSelfCheckInKit as (payload: unknown) => Promise<unknown>;
     const persistManagementSession = bridge.persistManagementSession as (binding: unknown) => Promise<unknown>;
     const restoreManagementSession = bridge.restoreManagementSession as (binding: unknown) => Promise<unknown>;
     const clearManagementSession = bridge.clearManagementSession as (accountKey: string) => Promise<unknown>;
@@ -149,6 +152,7 @@ describe('Electron IPC and preload composition audit', () => {
     await installDownloadedUpdate();
     await getManagementRecoveryStatus({ authorizationCode: 'pilot-code' });
     await completeManagementRecovery({ access: { authorizationCode: 'pilot-code' }, password: 'new-password' });
+    await generateSelfCheckInKit({ access: { authorizationCode: 'pilot-code' }, staffToken: 'staff-token' });
     await persistManagementSession({ accountKey: 'club-one' });
     await restoreManagementSession({ accountKey: 'club-one' });
     await clearManagementSession('club-one');
@@ -160,6 +164,7 @@ describe('Electron IPC and preload composition audit', () => {
       ['install-downloaded-update'],
       ['get-management-recovery-status', { authorizationCode: 'pilot-code' }],
       ['complete-management-recovery', { access: { authorizationCode: 'pilot-code' }, password: 'new-password' }],
+      ['generate-self-check-in-kit', { access: { authorizationCode: 'pilot-code' }, staffToken: 'staff-token' }],
       ['persist-management-session', { accountKey: 'club-one' }],
       ['restore-management-session', { accountKey: 'club-one' }],
       ['clear-management-session', 'club-one'],
@@ -202,6 +207,71 @@ describe('Electron IPC and preload composition audit', () => {
       ['table', { sessionId: 'session-1' }],
       ['floor', {}]
     ]);
+  });
+
+  it('requires manager authorization, chooses a destination before rotation, and keeps the capability out of IPC results', async () => {
+    expect(electronMainSource).toContain(
+      'loadStateForAccess: (access) => peekStateFromApi(getAccountKeyFromAccess(access), access)'
+    );
+    const authorization = vi.fn().mockReturnValue({ ok: true, accountKey: 'club-one', staffId: 'manager-one', role: 'Manager' });
+    const peekStateFromApi = vi.fn().mockResolvedValue({
+      authoritative: true,
+      state: { settings: { clubAccount: { clubName: 'Orbit Room' } } }
+    });
+    const selectSelfCheckInPdfDestination = vi.fn().mockResolvedValue({ ok: true, filePath: 'C:\\safe\\Orbit-Room-self-check-in.pdf' });
+    const createSelfCheckInQrKitApi = vi.fn().mockResolvedValue({
+      ok: true,
+      clubName: 'Orbit Room',
+      checkInUrl: 'https://check-in.example.test/check-in#token=renderer-secret',
+      expiresAt: '2027-08-24T12:00:00.000Z',
+      selfCheckIn: { capabilityGeneration: 'generation-one', generatedAt: '2026-08-24T12:00:00.000Z' },
+      rotatedPreviousCode: true
+    });
+    const createSelfCheckInPdf = vi.fn().mockResolvedValue({ ok: true, filePath: 'C:\\safe\\Orbit-Room-self-check-in.pdf' });
+    const sendClientEvent = vi.fn();
+    const handler = loadIpcHandler<(payload: unknown) => Promise<Record<string, unknown>>>('generate-self-check-in-kit', {
+      boundedPayload: (value: unknown) => value,
+      createSelfCheckInPdf,
+      createSelfCheckInQrKitApi,
+      getAccountKeyFromAccess: () => 'club-one',
+      peekStateFromApi,
+      selectSelfCheckInPdfDestination,
+      sendClientEvent,
+      staffAuthorization: { authorize: authorization },
+      String,
+      trustedIpc: (candidate: unknown) => candidate
+    });
+
+    const result = await handler({ access: { licenseId: 'club-one' }, staffToken: 'staff-token' });
+
+    expect(authorization).toHaveBeenCalledWith({ token: 'staff-token', action: 'staff-admin' });
+    expect(selectSelfCheckInPdfDestination).toHaveBeenCalledWith('Orbit Room');
+    expect(selectSelfCheckInPdfDestination.mock.invocationCallOrder[0]).toBeLessThan(createSelfCheckInQrKitApi.mock.invocationCallOrder[0]);
+    expect(createSelfCheckInPdf).toHaveBeenCalledWith(expect.objectContaining({
+      checkInUrl: expect.stringContaining('renderer-secret')
+    }), { outputFilePath: 'C:\\safe\\Orbit-Room-self-check-in.pdf' });
+    expect(result).toEqual({
+      ok: true,
+      filePath: 'C:\\safe\\Orbit-Room-self-check-in.pdf',
+      error: undefined,
+      selfCheckIn: { capabilityGeneration: 'generation-one', generatedAt: '2026-08-24T12:00:00.000Z' },
+      rotatedPreviousCode: true
+    });
+    expect(JSON.stringify(result)).not.toContain('renderer-secret');
+
+    selectSelfCheckInPdfDestination.mockResolvedValueOnce({ ok: false, canceled: true });
+    await expect(handler({ access: { licenseId: 'club-one' }, staffToken: 'staff-token' })).resolves.toEqual({
+      ok: false,
+      canceled: true
+    });
+    expect(peekStateFromApi).toHaveBeenCalledTimes(2);
+    expect(createSelfCheckInQrKitApi).toHaveBeenCalledOnce();
+
+    authorization.mockReturnValueOnce({ ok: false, error: 'Staff reauthentication is required.' });
+    await expect(handler({ access: { licenseId: 'club-one' }, staffToken: 'expired' })).resolves.toEqual({
+      ok: false,
+      error: 'Staff reauthentication is required.'
+    });
   });
 });
 

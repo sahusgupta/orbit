@@ -63,6 +63,7 @@ export const useSettingsWorkspaceState = (state: AppState) => {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('club');
   const [reportMessage, setReportMessage] = useState('');
   const [backupMessage, setBackupMessage] = useState('');
+  const [selfCheckInKitMessage, setSelfCheckInKitMessage] = useState('');
 
   return {
     backendStatus,
@@ -76,6 +77,7 @@ export const useSettingsWorkspaceState = (state: AppState) => {
     pilotKeyError,
     reportMessage,
     saveStatus,
+    selfCheckInKitMessage,
     settingsSection,
     setupDraft,
     staffDraft,
@@ -90,6 +92,7 @@ export const useSettingsWorkspaceState = (state: AppState) => {
     setPilotKeyError,
     setReportMessage,
     setSaveStatus,
+    setSelfCheckInKitMessage,
     setSettingsSection,
     setSetupDraft,
     setStaffDraft

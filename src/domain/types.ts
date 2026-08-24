@@ -416,6 +416,22 @@ export type PlayerInAppNotification = {
   targetPlayerNames?: string[];
 };
 
+export type StaffAssistanceRequest = {
+  id: string;
+  type: 'self-check-in-assistance';
+  playerName: string;
+  reason: 'not-found' | 'ambiguous';
+  status: 'pending' | 'handled';
+  createdAt: string;
+  handledAt?: string;
+  handledByStaffId?: string;
+};
+
+export type ClubSelfCheckInConfiguration = {
+  capabilityGeneration: string;
+  generatedAt: string;
+};
+
 export type AppState = {
   games: GameConfig[];
   physicalTables?: PhysicalTable[];
@@ -433,6 +449,8 @@ export type AppState = {
   playerLedger: PlayerLedgerEntry[];
   tableEvents: TableEvent[];
   inAppNotifications: PlayerInAppNotification[];
+  staffRequests: StaffAssistanceRequest[];
+  selfCheckIn?: ClubSelfCheckInConfiguration;
   history: NightRecord[];
   nightCloses: NightCloseRecord[];
   feedback: FeedbackEntry[];

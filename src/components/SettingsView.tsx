@@ -21,9 +21,11 @@ type SettingsViewProps = {
   saveStatus: SaveStatus;
   backupMessage: string;
   reportMessage: string;
+  selfCheckInKitMessage: string;
   closeRoute: () => void;
   applyReplacementPilotKey: (file?: File) => Promise<void>;
   saveClubAccount: (event: FormEvent) => void;
+  generateSelfCheckInKit: () => Promise<void>;
   updateSettings: (patch: Partial<AppState['settings']>) => void;
   selectActiveStaff: (staffId: string) => void;
   addStaffAccount: (event: FormEvent) => Promise<void>;
@@ -56,9 +58,11 @@ export default function SettingsView({
   saveStatus,
   backupMessage,
   reportMessage,
+  selfCheckInKitMessage,
   closeRoute,
   applyReplacementPilotKey,
   saveClubAccount,
+  generateSelfCheckInKit,
   updateSettings,
   selectActiveStaff,
   addStaffAccount,
@@ -151,6 +155,17 @@ export default function SettingsView({
                   Save Account
                 </button>
               </form>
+              <article className="preference-row">
+                <div>
+                  <strong>Player self-check-in QR</strong>
+                  <span>Generate a club-specific printable PDF. Players scan it, enter their name, and choose from tables with live availability. Generating another kit deactivates older printed codes.</span>
+                </div>
+                <button className="secondary-button" type="button" onClick={generateSelfCheckInKit}>
+                  <FileText size={16} />
+                  Generate QR PDF
+                </button>
+              </article>
+              {selfCheckInKitMessage ? <p className={selfCheckInKitMessage.includes('could not') || selfCheckInKitMessage.includes('required') ? 'access-error' : 'success-copy'}>{selfCheckInKitMessage}</p> : null}
               <article className="preference-row membership-plan-heading">
                 <div><strong>Player memberships</strong><span>Create the plans published to Orbit Player. Purchases become club memberships and unlock game requests.</span></div>
                 <button className="secondary-button" type="button" onClick={() => updateSettings({ membershipPlans: [...state.settings.membershipPlans, { id: `plan-${Date.now()}`, name: 'New Membership', priceLabel: '$0', durationDays: 30, description: '', active: true }] })}><Plus size={16} /> Add plan</button>

@@ -134,9 +134,11 @@ describe('Player Web route and component behavior', () => {
 
   it('exposes a labeled Base UI filter select', async () => {
     const change = vi.fn();
+    const user = userEvent.setup();
     render(<SelectField label="Status" value="all" onValueChange={change} options={[{ value: 'all', label: 'Any' }, { value: 'running', label: 'Running' }]} />);
-    await userEvent.click(screen.getByRole('combobox', { name: 'Status' }));
-    await userEvent.click(screen.getByRole('option', { name: 'Running' }));
+    act(() => screen.getByRole('combobox', { name: 'Status' }).focus());
+    await user.keyboard('{ArrowDown}');
+    await user.click(await screen.findByRole('option', { name: 'Running' }));
     expect(change).toHaveBeenCalledWith('running');
   });
 
@@ -242,9 +244,11 @@ describe('Player Web route and component behavior', () => {
   });
 
   it('preserves game status filtering in route query state', async () => {
+    const user = userEvent.setup();
     render(<LocationProvider><GamesExplorer clubs={discovery.clubs} /></LocationProvider>);
-    await userEvent.click(screen.getByRole('combobox', { name: 'Status' }));
-    await userEvent.click(screen.getByRole('option', { name: 'Forming' }));
+    act(() => screen.getByRole('combobox', { name: 'Status' }).focus());
+    await user.keyboard('{ArrowDown}');
+    await user.click(await screen.findByRole('option', { name: 'Forming' }));
     expect(`${window.location.pathname}${window.location.search}`).toBe('/games?status=forming');
     expect(testState.replace).not.toHaveBeenCalled();
   });

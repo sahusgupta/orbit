@@ -76,4 +76,47 @@ describe('state normalization', () => {
     expect(restored.settings.defaultHourlyFee).toBe(15);
     expect(restored.settings.collectionProfiles[0].hourlyFee).toBe(15);
   });
+
+  it('preserves bounded self-check-in configuration and durable assistance status', () => {
+    const restored = normalizeState({
+      staffRequests: [
+        {
+          id: 'pending-one',
+          type: 'self-check-in-assistance',
+          playerName: 'New Player',
+          reason: 'not-found',
+          status: 'pending',
+          createdAt: '2026-08-24T12:00:00.000Z'
+        },
+        {
+          id: 'handled-one',
+          type: 'self-check-in-assistance',
+          playerName: 'Handled Player',
+          reason: 'ambiguous',
+          status: 'handled',
+          createdAt: '2026-08-24T12:01:00.000Z',
+          handledAt: '2026-08-24T12:02:00.000Z',
+          handledByStaffId: 'manager-one'
+        }
+      ],
+      selfCheckIn: {
+        capabilityGeneration: 'generation-one',
+        generatedAt: '2026-08-24T11:59:00.000Z'
+      }
+    });
+
+    expect(restored.staffRequests).toEqual([
+      expect.objectContaining({ id: 'pending-one', status: 'pending' }),
+      expect.objectContaining({
+        id: 'handled-one',
+        status: 'handled',
+        handledAt: '2026-08-24T12:02:00.000Z',
+        handledByStaffId: 'manager-one'
+      })
+    ]);
+    expect(restored.selfCheckIn).toEqual({
+      capabilityGeneration: 'generation-one',
+      generatedAt: '2026-08-24T11:59:00.000Z'
+    });
+  });
 });
