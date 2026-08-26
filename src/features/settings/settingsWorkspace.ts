@@ -4,6 +4,7 @@ import type { AppState, ClubAccount, PilotAccess, StaffRole } from '../../domain
 
 export type SettingsSection = 'club' | 'staff' | 'tables' | 'data' | 'display' | 'legal';
 export type StaffDraft = { name: string; role: StaffRole; pin: string };
+export type StaffAccountNotice = { kind: 'error' | 'success'; text: string } | null;
 export type BackendStatus = { running: boolean; host: string; port: number; reportCount: number };
 export type SaveStatus =
   | { state: 'idle'; message: string }
@@ -64,6 +65,7 @@ export const useSettingsWorkspaceState = (state: AppState) => {
   const [reportMessage, setReportMessage] = useState('');
   const [backupMessage, setBackupMessage] = useState('');
   const [selfCheckInKitMessage, setSelfCheckInKitMessage] = useState('');
+  const [staffAccountNotice, setStaffAccountNotice] = useState<StaffAccountNotice>(null);
 
   return {
     backendStatus,
@@ -78,6 +80,7 @@ export const useSettingsWorkspaceState = (state: AppState) => {
     reportMessage,
     saveStatus,
     selfCheckInKitMessage,
+    staffAccountNotice,
     settingsSection,
     setupDraft,
     staffDraft,
@@ -93,6 +96,7 @@ export const useSettingsWorkspaceState = (state: AppState) => {
     setReportMessage,
     setSaveStatus,
     setSelfCheckInKitMessage,
+    setStaffAccountNotice,
     setSettingsSection,
     setSetupDraft,
     setStaffDraft

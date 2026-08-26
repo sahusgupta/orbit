@@ -79,6 +79,10 @@ export default function AppShell({ active, clubName, operator, saveState, onNavi
       : saveState === 'saved'
         ? 'Server saved'
         : 'Not yet saved';
+  const showUpdateNotice = updateStatus.state === 'downloaded'
+    || updateStatus.state === 'preserving-state'
+    || updateStatus.state === 'installing'
+    || (updateStatus.state === 'error' && updateStatus.updateReady === true);
 
   return (
     <div className={cn('orbit-shell', collapsed && 'sidebar-collapsed', mobileOpen && 'mobile-sidebar-open')}>
@@ -99,7 +103,7 @@ export default function AppShell({ active, clubName, operator, saveState, onNavi
       </aside>
       <div className="orbit-mobile-scrim" onClick={() => setMobileOpen(false)} />
       <div className="orbit-shell-content">
-        {['downloaded', 'preserving-state', 'installing', 'error'].includes(updateStatus.state) && (
+        {showUpdateNotice && (
           <section className="orbit-update-notice" role={updateStatus.state === 'error' ? 'alert' : 'status'} aria-live="polite">
             <div>
               <strong>{updateStatus.state === 'downloaded' ? `Orbit ${updateStatus.version || 'update'} is ready` : updateStatus.state === 'preserving-state' ? 'Preserving workspace' : updateStatus.state === 'installing' ? 'Installing update' : 'Update paused'}</strong>

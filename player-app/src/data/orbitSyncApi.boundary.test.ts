@@ -860,6 +860,161 @@ describe('published and legacy club snapshot boundaries', () => {
     });
   });
 
+  it('loads every bounded discovery page and removes non-player fixture games', async () => {
+    signedInUser();
+    const first = publishedClubSnapshot({
+      club: { id: 'club-1', name: 'First Room', publishedAt: '2026-08-09T12:00:00.000Z' }
+    });
+    const second = publishedClubSnapshot({
+      club: { id: 'club-2', name: 'Second Room', publishedAt: '2026-08-09T13:00:00.000Z' },
+      games: [
+        {
+          id: 'game-2',
+          name: '2/5 NLH',
+          maxSeats: 9,
+          openTables: [],
+          waitlistCount: 0,
+          formingCount: 0,
+          availableSeats: 0,
+          knownPlayersCount: 0
+        },
+        {
+          id: 'stress-game',
+          name: 'Stress Game 99',
+          maxSeats: 9,
+          openTables: [],
+          waitlistCount: 0,
+          formingCount: 0,
+          availableSeats: 0,
+          knownPlayersCount: 0
+        }
+      ]
+    });
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [first],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: 'club-1', databaseQueries: 2 }
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [second],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: false, nextCursor: null, databaseQueries: 2 }
+      }));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({
+      ok: true,
+      clubs: [first, { ...second, games: [second.games[0]] }],
+      page: { count: 2, hasMore: false, nextCursor: null, databaseQueries: 4 }
+    });
+    expect(firebase.fetch).toHaveBeenNthCalledWith(
+      1,
+      'https://orbitapp-one.vercel.app/player/discovery?limit=50',
+      expect.objectContaining({ headers: { authorization: 'Bearer player-token' }, signal: expect.any(AbortSignal) })
+    );
+    expect(firebase.fetch).toHaveBeenNthCalledWith(
+      2,
+      'https://orbitapp-one.vercel.app/player/discovery?limit=50&cursor=club-1',
+      expect.objectContaining({ headers: { authorization: 'Bearer player-token' }, signal: expect.any(AbortSignal) })
+    );
+  });
+
+  it('keeps completed discovery pages when a later page fails', async () => {
+    signedInUser();
+    const first = publishedClubSnapshot({
+      club: { id: 'club-1', name: 'First Room', publishedAt: '2026-08-09T12:00:00.000Z' }
+    });
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [first],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: 'club-1', databaseQueries: 2 }
+      }))
+      .mockRejectedValueOnce(new Error('second page unavailable'));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({
+      ok: true,
+      clubs: [first],
+      page: { count: 1, hasMore: true, nextCursor: 'club-1', databaseQueries: 2 }
+    });
+    expect(firebase.getDocs).not.toHaveBeenCalled();
+  });
+
+  it('stops on an invalid discovery cursor and keeps the sanitized page already loaded', async () => {
+    const first = publishedClubSnapshot();
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({
+      ok: true,
+      clubs: [first],
+      tournaments: [],
+      registrations: [],
+      page: { count: 1, hasMore: true, nextCursor: null }
+    }));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({
+      ok: true,
+      clubs: [first],
+      page: { count: 1, hasMore: true, nextCursor: null, databaseQueries: undefined }
+    });
+    expect(firebase.fetch).toHaveBeenCalledTimes(1);
+    expect(firebase.getDocs).not.toHaveBeenCalled();
+  });
+
+  it('stops on a repeated discovery cursor without refetching it', async () => {
+    const first = publishedClubSnapshot({ club: { id: 'club-1', name: 'First Room' } });
+    const second = publishedClubSnapshot({ club: { id: 'club-2', name: 'Second Room' } });
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [first],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: 'cursor-1' }
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [second],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: 'cursor-1' }
+      }));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({
+      ok: true,
+      clubs: [first, second],
+      page: { count: 2, hasMore: true, nextCursor: null, databaseQueries: undefined }
+    });
+    expect(firebase.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns the first twenty sanitized pages as partial instead of discarding them at the safety cap', async () => {
+    signedInUser();
+    const clubs = Array.from({ length: 20 }, (_, index) => publishedClubSnapshot({
+      club: { id: `club-${index + 1}`, name: `Room ${index + 1}` }
+    }));
+    clubs.forEach((club, index) => {
+      firebase.fetch.mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [club],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: `cursor-${index + 1}`, databaseQueries: 2 }
+      }));
+    });
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({
+      ok: true,
+      clubs,
+      page: { count: 20, hasMore: true, nextCursor: 'cursor-20', databaseQueries: 40 }
+    });
+    expect(firebase.fetch).toHaveBeenCalledTimes(20);
+  });
+
   it('loads sanitized public discovery without a Firebase session and does not query player-scoped collections', async () => {
     const publicClub = publishedClubSnapshot({
       games: [{
@@ -892,6 +1047,34 @@ describe('published and legacy club snapshot boundaries', () => {
     );
     expect((firebase.fetch.mock.calls[0]?.[1] as RequestInit | undefined)?.headers).toBeUndefined();
     expect(firebase.getDocs).not.toHaveBeenCalled();
+  });
+
+  it('loads every public discovery page without adding an authorization header', async () => {
+    const first = publishedClubSnapshot({ club: { id: 'club-1', name: 'First Room' } });
+    const second = publishedClubSnapshot({ club: { id: 'club-2', name: 'Second Room' } });
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [first],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: 'club-1' }
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [second],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: false, nextCursor: null }
+      }));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({ ok: true, clubs: [first, second] });
+    expect(firebase.fetch).toHaveBeenNthCalledWith(
+      2,
+      'https://orbitapp-one.vercel.app/player/public/discovery?limit=50&cursor=club-1',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect(firebase.fetch.mock.calls.every(([, init]) => (init as RequestInit | undefined)?.headers === undefined)).toBe(true);
   });
 
   it('uses only public club and game documents for unsigned Firestore fallback', async () => {
@@ -1261,6 +1444,27 @@ describe('live club subscription lifecycle and revisions', () => {
 
     subscription.unsubscribe();
     expect(root.unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('publishes completed pages as partial when a later discovery page is unavailable', async () => {
+    signedInUser();
+    const snapshot = publishedClubSnapshot();
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [snapshot],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: 'club-1', databaseQueries: 2 }
+      }))
+      .mockRejectedValueOnce(new Error('second page unavailable'));
+    const callback = vi.fn();
+    const subscription = subscribeToAllClubSnapshots(player(), callback);
+
+    await subscription.refresh();
+
+    expect(callback).toHaveBeenLastCalledWith({ ok: true, clubs: [snapshot], partial: true });
+    subscription.unsubscribe();
   });
 
   it('reports root failure before data and re-emits cached data after a listener failure', async () => {

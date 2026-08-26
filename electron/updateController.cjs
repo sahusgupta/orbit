@@ -129,14 +129,14 @@ function createUpdateController(dependencies) {
       lastProgressBucket = -1;
       const message = error instanceof Error ? error.message : 'Update check failed.';
       sendClientUpdateEvent('update-error', 'error', { message });
-      broadcastStatus({ state: 'error', message });
+      broadcastStatus({ state: 'error', message, ...(installPending && !installStarted ? { updateReady: true } : {}) });
     });
 
     const checkForUpdates = () => {
       autoUpdater.checkForUpdatesAndNotify().catch((error) => {
         const message = error instanceof Error ? error.message : 'Update check failed.';
         sendClientUpdateEvent('update-error', 'error', { message });
-        broadcastStatus({ state: 'error', message });
+        broadcastStatus({ state: 'error', message, ...(installPending && !installStarted ? { updateReady: true } : {}) });
       });
     };
 

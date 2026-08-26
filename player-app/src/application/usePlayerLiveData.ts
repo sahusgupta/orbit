@@ -3,7 +3,6 @@ import type { PlayerPlatform } from '../app/playerPlatform';
 import { isPlayerMembership, type PlayerAccount, type PlayerClubSnapshot, type PlayerPrivateGameListing, type PlayerTournament, type PlayerTournamentRegistration } from '../domain/playerSync';
 import type { Screen } from '../domain/playerTypes';
 import {
-  fetchAllClubSnapshots,
   fetchPlayerProfile,
   fetchPlayerTournaments,
   fetchPrivateGameListings,
@@ -15,6 +14,7 @@ import {
 } from '../data/orbitSyncApi';
 import type { FirebasePlayerIdentity } from '../data/orbitSyncApi';
 import { bindPlayerPollingLifecycle } from './playerSubscriptionLifecycle';
+import type { ClubSnapshotSubscriptionResult } from '../data/subscriptions/clubSnapshotSubscription';
 
 type UsePlayerLiveDataOptions = {
   accountLoaded: boolean;
@@ -51,6 +51,7 @@ export function usePlayerLiveData({
   const [clubMembershipMessage, setClubMembershipMessage] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
   const [liveDataStatus, setLiveDataStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [liveDataPartial, setLiveDataPartial] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const membershipStatusRef = useRef<Record<string, string>>({});
   const profileHydrationSequence = useRef(0);
@@ -103,9 +104,6 @@ export function usePlayerLiveData({
         const firstClub = clubs.find((club) => clubIds.has(club.club.id));
         if (firstClub) {
           setSelectedClubId(firstClub.club.id);
-          setScreen('findGames');
-        } else {
-          setScreen('findGames');
         }
       })
       .catch(() => {
@@ -120,7 +118,8 @@ export function usePlayerLiveData({
     if (!accountLoaded || !hasAccount || !isSyncConfigured()) return;
     let active = true;
     setLiveDataStatus('loading');
-    const handleClubSync = (result: Awaited<ReturnType<typeof fetchAllClubSnapshots>>) => {
+    setLiveDataPartial(false);
+    const handleClubSync = (result: ClubSnapshotSubscriptionResult) => {
       if (!active) return;
       if (result.ok) {
         const liveClubs = result.clubs;
@@ -144,10 +143,16 @@ export function usePlayerLiveData({
         }
         membershipStatusRef.current = nextStatuses;
         setSelectedClubId((current) => existingMembershipClub?.club.id ?? liveClubs.find((club) => club.club.id === current)?.club.id ?? liveClubs[0]?.club.id ?? '');
-        setSyncStatus(`Showing ${result.clubs.length} live card house${result.clubs.length === 1 ? '' : 's'}.`);
+        setLiveDataPartial(result.partial === true);
+        setSyncStatus(
+          result.partial
+            ? `Showing ${result.clubs.length} live card house${result.clubs.length === 1 ? '' : 's'} while more rooms refresh.`
+            : `Showing ${result.clubs.length} live card house${result.clubs.length === 1 ? '' : 's'}.`
+        );
         setLiveDataStatus('ready');
       } else {
         setSyncStatus(`Unable to load live club data: ${result.error}`);
+        setLiveDataPartial(false);
         setLiveDataStatus('error');
       }
     };
@@ -193,6 +198,7 @@ export function usePlayerLiveData({
     clubs,
     privateGames,
     privateGameStatus,
+    liveDataPartial,
     liveDataStatus,
     retryLiveData: () => setRefreshVersion((current) => current + 1),
     selectedClubId,

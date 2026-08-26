@@ -20,6 +20,7 @@ import type {
 } from './components/PokerTable';
 import AppShell, { type PrimaryDestination, type ShellCommand } from './components/AppShell';
 import FloorView from './components/FloorView';
+import StaffPinDialog from './components/StaffPinDialog';
 import {
   createBackupEnvelope,
   getGameFrequencyRank,
@@ -126,6 +127,13 @@ import {
   signNightClose as signNightCloseInState
 } from './application/management/closeoutCommands';
 import {
+  activateStaffSelection,
+  hasActiveStaffAdministrator,
+  isStaffAdministratorRole,
+  isValidStaffPin,
+  type StaffSession
+} from './application/management/staffSelection';
+import {
   useStaffRequestNotifications,
   type StaffRequestNotice
 } from './application/management/sync/staffRequestNotifications';
@@ -199,6 +207,7 @@ import {
 import { hashStaffPin, verifyStaffSecret } from './domain/staffAuth';
 import {
   buildAnalyticalReportPayload,
+  getAnalytics,
   type AnalyticalReportPayload
 } from './domain/analytics';
 import {
@@ -251,10 +260,17 @@ const TournamentsView = React.lazy(() => import('./components/TournamentsView'))
 const TournamentTvView = React.lazy(() => import('./components/TournamentTvView'));
 const TableBuyInLedger = React.lazy(() => import('./features/floor/TableBuyInLedger'));
 
-const withRouteLoadingBoundary = (content: React.ReactNode) => (
+const withRouteLoadingBoundary = (
+  content: React.ReactNode,
+  loadingVariant: 'default' | 'table-view' | 'tournament-tv' = 'default'
+) => (
   <RecoveryBoundary label="This workspace">
     <React.Suspense fallback={(
-      <main className="route-skeleton" aria-busy="true" aria-label="Loading view">
+      <main
+        className={loadingVariant === 'default' ? 'route-skeleton' : `route-skeleton route-skeleton-${loadingVariant}`}
+        aria-busy="true"
+        aria-label="Loading view"
+      >
         <span className="route-skeleton-title" />
         <span className="route-skeleton-toolbar" />
         <span className="route-skeleton-panel" />
@@ -322,12 +338,14 @@ declare global {
         token?: string;
         staffId?: string;
         role?: StaffAccount['role'];
+        accountKey?: string;
         expiresAt?: string;
         error?: string;
       }>;
       authorizeStaffAction: (payload: { token: string; action: 'staff-sign' | 'manager-lock' | 'manager-reopen' | 'staff-admin' }) => Promise<{
         ok: boolean;
         error?: string;
+        reauthenticate?: boolean;
       }>;
       submitAnalyticalReport: (report: AnalyticalReportPayload) => Promise<ReportSubmissionResult>;
       recordClientEvent: (
@@ -470,9 +488,27 @@ const applyBrandTheme = (theme: BrandTheme) => {
   });
   document.body.style.setProperty('--brand-font-family', branding.theme.fontFamily);
 };
+const clearActiveStaffSelection = (current: AppState): AppState => current.settings.activeStaffId
+  ? {
+      ...current,
+      settings: { ...current.settings, activeStaffId: undefined }
+    }
+  : current;
+const projectTrustedStaffSelection = (current: AppState, session: StaffSession): AppState | null => {
+  if (session.accountKey !== getAccountKeyFromState(current)) return null;
+  const trustedStaff = current.settings.staffAccounts.find(
+    (staff) => staff.id === session.staffId && staff.active
+  );
+  if (!trustedStaff) return null;
+  if (current.settings.activeStaffId === session.staffId) return current;
+  return {
+    ...current,
+    settings: { ...current.settings, activeStaffId: session.staffId }
+  };
+};
 function App() {
   const [state, setState] = useState<AppState>(() => loadManagementState());
-  const [staffSession, setStaffSession] = useState<{ token: string; staffId: string; role: StaffAccount['role']; expiresAt: string } | null>(null);
+  const [staffSession, setStaffSession] = useState<StaffSession | null>(null);
   const getRouteFromHash = (): AppRoute =>
     window.location.hash.includes('tournament-tv')
       ? 'tournament-tv'
@@ -601,6 +637,7 @@ function App() {
     reportMessage,
     saveStatus,
     selfCheckInKitMessage,
+    staffAccountNotice,
     settingsSection,
     setupDraft,
     staffDraft,
@@ -616,6 +653,7 @@ function App() {
     setReportMessage,
     setSaveStatus,
     setSelfCheckInKitMessage,
+    setStaffAccountNotice,
     setSettingsSection,
     setSetupDraft,
     setStaffDraft
@@ -645,6 +683,64 @@ function App() {
     tournamentView
   } = tournamentWorkspace;
   const stateRef = useRef(state);
+  const staffSessionRef = useRef<StaffSession | null>(null);
+  const staffSelectionAttemptRef = useRef(0);
+  const staffPinRequestSequenceRef = useRef(0);
+  const staffPinResolverRef = useRef<((pin: string | null) => void) | null>(null);
+  const [staffPinRequest, setStaffPinRequest] = useState<{
+    id: number;
+    staffId: string;
+    staffName: string;
+  } | null>(null);
+  const saveSequenceRef = useRef(0);
+  const pendingManagementSaveRef = useRef<Promise<{ ok: boolean; error?: string }>>(
+    Promise.resolve({ ok: true })
+  );
+  const setTrustedStaffSession = (session: StaffSession | null) => {
+    staffSessionRef.current = session;
+    setStaffSession(session);
+  };
+  const resolveStaffPinRequest = (pin: string | null) => {
+    const resolve = staffPinResolverRef.current;
+    staffPinResolverRef.current = null;
+    setStaffPinRequest(null);
+    resolve?.(pin);
+  };
+  const requestStaffPin = (staffId: string) => {
+    const previousResolve = staffPinResolverRef.current;
+    staffPinResolverRef.current = null;
+    previousResolve?.(null);
+    const staffName = stateRef.current.settings.staffAccounts.find((staff) => staff.id === staffId)?.name
+      || 'staff member';
+    const id = staffPinRequestSequenceRef.current + 1;
+    staffPinRequestSequenceRef.current = id;
+    return new Promise<string | null>((resolve) => {
+      staffPinResolverRef.current = resolve;
+      setStaffPinRequest({ id, staffId, staffName });
+    });
+  };
+  const applyTrustedStaffProjection = (
+    session: StaffSession,
+    current = stateRef.current
+  ): AppState | null => {
+    const next = projectTrustedStaffSelection(current, session);
+    if (!next) return null;
+    if (next !== current) {
+      stateRef.current = next;
+      setState(next);
+    }
+    return next;
+  };
+  const clearTrustedStaffSelection = () => {
+    staffSelectionAttemptRef.current += 1;
+    resolveStaffPinRequest(null);
+    setTrustedStaffSession(null);
+    setState((current) => {
+      const next = clearActiveStaffSelection(current);
+      stateRef.current = next;
+      return next;
+    });
+  };
   const {
     playerPopup,
     playerSection,
@@ -691,6 +787,40 @@ function App() {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => () => {
+    const resolve = staffPinResolverRef.current;
+    staffPinResolverRef.current = null;
+    resolve?.(null);
+  }, []);
+
+  useEffect(() => {
+    const session = staffSessionRef.current;
+    const activeStaffId = state.settings.activeStaffId;
+    if (!session) {
+      if (activeStaffId) clearTrustedStaffSelection();
+      return;
+    }
+    if (!applyTrustedStaffProjection(session)) {
+      clearTrustedStaffSelection();
+    }
+  }, [
+    activeAccountKey,
+    state.settings.activeStaffId,
+    state.settings.staffAccounts,
+    staffSession?.accountKey,
+    staffSession?.staffId,
+    staffSession?.token
+  ]);
+
+  useEffect(() => {
+    if (!staffSession) return undefined;
+    const expiresIn = Date.parse(staffSession.expiresAt) - Date.now();
+    const timer = window.setTimeout(() => {
+      clearTrustedStaffSelection();
+    }, Number.isFinite(expiresIn) ? Math.max(0, expiresIn) : 0);
+    return () => window.clearTimeout(timer);
+  }, [staffSession?.expiresAt, staffSession?.token]);
 
   useTournamentSelectionRepair(state.tournaments, selectedTournamentId, setSelectedTournamentId);
 
@@ -761,12 +891,12 @@ function App() {
   }, [inClubInterests, state]);
 
   useManagementStartupSync({
+    getCurrentState: () => stateRef.current,
     hasAuthenticated,
     setHasAuthenticated,
     setSaveStatus,
     setState,
-    setUndoStack,
-    state
+    setUndoStack
   });
 
   useEffect(() => {
@@ -781,7 +911,7 @@ function App() {
     const expireSession = async () => {
       await persistSignIn(state, false);
       await signOutOfFirebase().catch(() => undefined);
-      setStaffSession(null);
+      clearTrustedStaffSelection();
       setHasAuthenticated(false);
     };
     const refreshIdleSession = () => {
@@ -813,7 +943,7 @@ function App() {
       .catch(() => undefined);
   }, []);
 
-  useManagementPilotAccessRefresh({ setState, state });
+  useManagementPilotAccessRefresh({ getCurrentState: () => stateRef.current, setState, state });
 
   useSettingsWorkspaceSync({ setClubDraft, setHasAuthenticated, state });
 
@@ -883,7 +1013,12 @@ function App() {
 
   const withUsageEvent = (next: AppState, usage?: UsageDescriptor): AppState => {
     if (!usage) return next;
-    const activeStaff = next.settings.staffAccounts.find((staff) => staff.id === next.settings.activeStaffId);
+    const trustedSession = staffSessionRef.current;
+    const activeStaff = trustedSession?.accountKey === getAccountKeyFromState(next)
+      ? next.settings.staffAccounts.find((staff) =>
+          staff.id === next.settings.activeStaffId && staff.id === trustedSession.staffId
+        )
+      : undefined;
     const event: UsageEvent = {
       id: uid(),
       feature: usage.feature,
@@ -921,32 +1056,59 @@ function App() {
 
   const persist = (nextState: AppState, trackUndo = true, usage?: UsageDescriptor) => {
     const next = withUsageEvent(nextState, usage);
+    const previousAccountKey = getAccountKeyFromState(stateRef.current);
+    const nextAccountKey = getAccountKeyFromState(next);
     if (trackUndo) {
       setUndoStack((previous) => [state, ...previous].slice(0, 5));
     }
+    if (previousAccountKey !== nextAccountKey) {
+      staffSelectionAttemptRef.current += 1;
+      setTrustedStaffSession(null);
+    }
+    stateRef.current = next;
     setState(next);
     setSaveStatus({ state: 'saving', message: 'Saving...' });
-    saveManagementState(next)
+    const saveSequence = saveSequenceRef.current + 1;
+    saveSequenceRef.current = saveSequence;
+    const pendingSave = pendingManagementSaveRef.current
+      .catch(() => ({ ok: false }))
+      .then(() => saveManagementState(next))
       .then((result) => {
-        if (!result.ok) {
-          setSaveStatus({ state: 'error', message: result.error || 'Saved to cache only; server reconciliation required' });
-          return;
+        if (saveSequence === saveSequenceRef.current) {
+          if (!result.ok) {
+            setSaveStatus({ state: 'error', message: result.error || 'Saved to cache only; server reconciliation required' });
+          } else {
+            setSaveStatus({
+              state: result.cloud === 'failed' ? 'error' : 'saved',
+              message: result.cloud === 'published'
+                ? `Published ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+                : result.cloud === 'failed'
+                  ? 'Server saved; player projection failed and will retry'
+                  : 'Server saved; player projection pending'
+            });
+          }
         }
-        setSaveStatus({
-          state: result.cloud === 'failed' ? 'error' : 'saved',
-          message: result.cloud === 'published'
-            ? `Published ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
-            : result.cloud === 'failed'
-              ? 'Server saved; player projection failed and will retry'
-              : 'Server saved; player projection pending'
-        });
+        return result;
       })
       .catch((error) => {
-        setSaveStatus({
-          state: 'error',
-          message: error instanceof Error ? `Save failed: ${error.message}` : 'Save failed'
-        });
+        const message = error instanceof Error ? `Save failed: ${error.message}` : 'Save failed';
+        if (saveSequence === saveSequenceRef.current) {
+          setSaveStatus({ state: 'error', message });
+        }
+        return { ok: false, error: message };
       });
+    pendingManagementSaveRef.current = pendingSave;
+    return pendingSave;
+  };
+
+  const waitForPendingManagementSaves = async () => {
+    let pendingSave = pendingManagementSaveRef.current;
+    let result = await pendingSave;
+    while (pendingSave !== pendingManagementSaveRef.current) {
+      pendingSave = pendingManagementSaveRef.current;
+      result = await pendingSave;
+    }
+    return result;
   };
 
   const addInterest = (event: React.FormEvent) => {
@@ -1993,15 +2155,38 @@ function App() {
     return result.record;
   };
 
-  const authorizeStaffAction = async (action: 'staff-sign' | 'manager-lock' | 'manager-reopen' | 'staff-admin') => {
-    if (!staffSession || staffSession.staffId !== state.settings.activeStaffId || !window.tableManagerDesktop?.authorizeStaffAction) {
-      window.alert('Select and verify an active staff account before this action.');
+  const authorizeStaffAction = async (
+    action: 'staff-sign' | 'manager-lock' | 'manager-reopen' | 'staff-admin',
+    presentFailure: (message: string) => void = (message) => window.alert(message)
+  ) => {
+    const staffRequirement = action === 'staff-sign' ? 'an active staff account' : 'an Owner or Manager';
+    const trustedSession = staffSessionRef.current;
+    const authorize = window.tableManagerDesktop?.authorizeStaffAction;
+    const current = trustedSession ? applyTrustedStaffProjection(trustedSession) : null;
+    if (!trustedSession || !current || !authorize) {
+      clearTrustedStaffSelection();
+      presentFailure(`Select and verify ${staffRequirement} before this action.`);
       return false;
     }
-    const result = await window.tableManagerDesktop.authorizeStaffAction({ token: staffSession.token, action });
+    let result: { ok: boolean; error?: string; reauthenticate?: boolean };
+    try {
+      result = await authorize({ token: trustedSession.token, action });
+    } catch {
+      clearTrustedStaffSelection();
+      presentFailure('Staff authorization is temporarily unavailable. Select the staff account again.');
+      return false;
+    }
+    const latestSession = staffSessionRef.current;
+    if (
+      latestSession?.token !== trustedSession.token ||
+      !applyTrustedStaffProjection(trustedSession)
+    ) {
+      presentFailure('The active staff selection changed before authorization completed. Try again.');
+      return false;
+    }
     if (!result.ok) {
-      setStaffSession(null);
-      window.alert(result.error || 'Staff reauthentication is required.');
+      if (result.reauthenticate !== false) clearTrustedStaffSelection();
+      presentFailure(result.error || 'Staff reauthentication is required.');
       return false;
     }
     return true;
@@ -2009,10 +2194,17 @@ function App() {
 
   const signNightClose = async () => {
     if (!await authorizeStaffAction('staff-sign')) return;
+    const currentState = stateRef.current;
+    const workspace = getNightCloseWorkspace(currentState, nightCloseActuals);
     const result = signNightCloseInState(
-      state,
-      { current: currentNightClose, tables: nightCloseTables, warnings: nightCloseWarnings, notes: nightCloseNotes },
-      nightCloseTotals,
+      currentState,
+      {
+        current: workspace.currentNightClose,
+        tables: workspace.nightCloseTables,
+        warnings: workspace.nightCloseWarnings,
+        notes: nightCloseNotes
+      },
+      workspace.nightCloseTotals,
       { createId: uid, nowIso, todayDate }
     );
     if (!result.ok) {
@@ -2020,7 +2212,7 @@ function App() {
       return;
     }
     persist(result.state, true,
-      { feature: 'Night close', action: 'Staff signed reconciliation', route: 'summary', metadata: { discrepancy: Number(nightCloseTotals.discrepancy.toFixed(2)) } });
+      { feature: 'Night close', action: 'Staff signed reconciliation', route: 'summary', metadata: { discrepancy: Number(workspace.nightCloseTotals.discrepancy.toFixed(2)) } });
   };
 
   const approveAndLockNightClose = async () => {
@@ -2030,15 +2222,27 @@ function App() {
       return;
     }
     if (!await authorizeStaffAction('manager-lock')) return;
+    const currentState = stateRef.current;
+    const workspace = getNightCloseWorkspace(currentState, nightCloseActuals);
+    const latestValidationError = getNightCloseLockError(currentState, workspace.currentNightClose);
+    if (latestValidationError) {
+      window.alert(latestValidationError);
+      return;
+    }
     if (!window.confirm(
-      `Lock tonight's reconciliation with a ${nightCloseTotals.discrepancy < 0 ? '-' : '+'}$${Math.abs(nightCloseTotals.discrepancy).toFixed(2)} discrepancy?\n\nThis will close every current table, remove all seated players, and reset Recent Activity.`
+      `Lock tonight's reconciliation with a ${workspace.nightCloseTotals.discrepancy < 0 ? '-' : '+'}$${Math.abs(workspace.nightCloseTotals.discrepancy).toFixed(2)} discrepancy?\n\nThis will close every current table, remove all seated players, and reset Recent Activity.`
     )) return;
-    if (!currentNightClose) return;
+    if (!workspace.currentNightClose) return;
     const result = lockNightClose(
-      state,
-      { current: currentNightClose, tables: nightCloseTables, warnings: nightCloseWarnings, notes: nightCloseNotes },
-      nightCloseTotals,
-      analytics.currentNight,
+      currentState,
+      {
+        current: workspace.currentNightClose,
+        tables: workspace.nightCloseTables,
+        warnings: workspace.nightCloseWarnings,
+        notes: nightCloseNotes
+      },
+      workspace.nightCloseTotals,
+      getAnalytics(currentState).currentNight,
       { createId: uid, nowIso, todayDate }
     );
     if (!result.ok) {
@@ -2049,7 +2253,7 @@ function App() {
       feature: 'Night close',
       action: 'Manager approved and locked night',
       route: 'summary',
-      metadata: { discrepancy: Number(nightCloseTotals.discrepancy.toFixed(2)) }
+      metadata: { discrepancy: Number(workspace.nightCloseTotals.discrepancy.toFixed(2)) }
     });
   };
 
@@ -2060,9 +2264,21 @@ function App() {
       return;
     }
     if (!await authorizeStaffAction('manager-reopen')) return;
+    const currentState = stateRef.current;
+    const workspace = getNightCloseWorkspace(currentState, nightCloseActuals);
+    const latestValidationError = getNightCloseReopenError(currentState, workspace.currentNightClose);
+    if (latestValidationError) {
+      window.alert(latestValidationError);
+      return;
+    }
     const reason = window.prompt('Reason for reopening this locked reconciliation:')?.trim();
-    if (!reason || !currentNightClose) return;
-    const result = reopenNightCloseInState(state, currentNightClose, reason, { createId: uid, nowIso, todayDate });
+    if (!reason || !workspace.currentNightClose) return;
+    const result = reopenNightCloseInState(
+      currentState,
+      workspace.currentNightClose,
+      reason,
+      { createId: uid, nowIso, todayDate }
+    );
     if (!result.ok) {
       if (result.message) window.alert(result.message);
       return;
@@ -2689,6 +2905,8 @@ function App() {
   const loadExistingAccountState = async (access: PilotAccess) => {
     const next = await loadExistingManagementStateForAccount(access);
     if (!next) return false;
+    staffSelectionAttemptRef.current += 1;
+    setTrustedStaffSession(null);
     setUndoStack([]);
     setHasAuthenticated(await restorePersistedSignIn(next));
     persist(next, false, { feature: 'Account', action: 'Loaded existing pilot key', route: 'access' });
@@ -2820,77 +3038,142 @@ function App() {
 
   const addStaffAccount = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (state.settings.staffAccounts.some((staff) => staff.active) && !await authorizeStaffAction('staff-admin')) return;
     const name = staffDraft.name.trim();
     const pin = staffDraft.pin.trim();
-    if (!name || pin.length < 4) {
-      setBackupMessage('Staff name and a PIN with at least 4 digits are required.');
+    const role = staffDraft.role;
+    if (!name || !isValidStaffPin(pin)) {
+      setStaffAccountNotice({ kind: 'error', text: 'Staff name and a PIN with 4 to 12 digits are required.' });
       return;
     }
+    const accountKey = getAccountKeyFromState(stateRef.current);
     const salt = randomToken();
+    const pinHash = await hashStaffPin(pin, salt);
+    if (accountKey !== getAccountKeyFromState(stateRef.current)) {
+      setStaffAccountNotice({ kind: 'error', text: 'The active account changed. Add the staff account again.' });
+      return;
+    }
+    const hasActiveAdministrator = hasActiveStaffAdministrator(stateRef.current.settings.staffAccounts);
+    if (!hasActiveAdministrator && !isStaffAdministratorRole(role)) {
+      setStaffAccountNotice({
+        kind: 'error',
+        text: 'Add an Owner or Manager before adding Floor staff accounts.'
+      });
+      return;
+    }
+    if (
+      hasActiveAdministrator &&
+      !await authorizeStaffAction('staff-admin', (message) => {
+        setStaffAccountNotice({ kind: 'error', text: message });
+      })
+    ) return;
+    const current = stateRef.current;
+    if (accountKey !== getAccountKeyFromState(current)) {
+      setStaffAccountNotice({ kind: 'error', text: 'The active account changed. Add the staff account again.' });
+      return;
+    }
     const account: StaffAccount = {
       id: uid(),
       name,
-      role: staffDraft.role,
+      role,
       pinSalt: salt,
-      pinHash: await hashStaffPin(pin, salt),
+      pinHash,
       active: true,
       createdAt: nowIso(),
       lastSelectedAt: nowIso()
     };
     persist({
-      ...state,
+      ...current,
       settings: {
-        ...state.settings,
-        staffAccounts: [...state.settings.staffAccounts, account],
-        activeStaffId: state.settings.activeStaffId
+        ...current.settings,
+        staffAccounts: [...current.settings.staffAccounts, account],
+        activeStaffId: current.settings.activeStaffId
       }
     }, true, { feature: 'Staff accounts', action: 'Added staff account', metadata: { role: account.role } });
     setStaffDraft({ name: '', role: 'Floor', pin: '' });
-    setBackupMessage('Staff account added.');
+    setStaffAccountNotice({ kind: 'success', text: 'Staff account added.' });
   };
 
   const selectActiveStaff = async (staffId: string) => {
+    const selectionAttempt = staffSelectionAttemptRef.current + 1;
+    staffSelectionAttemptRef.current = selectionAttempt;
     if (!staffId) {
-      setStaffSession(null);
-    } else {
-      const pin = window.prompt('Enter this staff member\'s PIN to activate their account:') || '';
-      const access = state.settings.pilotAccess;
-      const result = access && window.tableManagerDesktop?.verifyStaffPin
-        ? await window.tableManagerDesktop.verifyStaffPin({ staffId, pin, access })
-        : { ok: false, error: 'Trusted desktop staff verification is unavailable.' };
-      if (!result.ok || !result.token || !result.staffId || !result.role || !result.expiresAt) {
-        setStaffSession(null);
-        window.alert(result.error || 'Staff verification failed.');
-        return;
-      }
-      setStaffSession({ token: result.token, staffId: result.staffId, role: result.role, expiresAt: result.expiresAt });
+      setStaffAccountNotice(null);
+      setTrustedStaffSession(null);
+      const current = stateRef.current;
+      persist(clearActiveStaffSelection(current), true, {
+        feature: 'Staff accounts',
+        action: 'Cleared active staff'
+      });
+      return;
     }
+
+    const selectionState = stateRef.current;
+    const accountKey = getAccountKeyFromState(selectionState);
+    const result = await activateStaffSelection({
+      access: selectionState.settings.pilotAccess,
+      accountKey,
+      pendingSave: waitForPendingManagementSaves(),
+      requestPin: () => requestStaffPin(staffId),
+      staffId,
+      verifyStaffPin: window.tableManagerDesktop?.verifyStaffPin
+    });
+    if (
+      selectionAttempt !== staffSelectionAttemptRef.current ||
+      accountKey !== getAccountKeyFromState(stateRef.current)
+    ) {
+      return;
+    }
+    if (!result.ok) {
+      if ('canceled' in result) return;
+      clearTrustedStaffSelection();
+      setStaffAccountNotice({ kind: 'error', text: result.error });
+      return;
+    }
+    const current = stateRef.current;
+    const selectedStaff = current.settings.staffAccounts.find((staff) => staff.id === staffId && staff.active);
+    if (!selectedStaff) {
+      clearTrustedStaffSelection();
+      setStaffAccountNotice({ kind: 'error', text: 'This staff account is no longer active.' });
+      return;
+    }
+    setTrustedStaffSession(result.session);
     persist({
-      ...state,
+      ...current,
       settings: {
-        ...state.settings,
+        ...current.settings,
         activeStaffId: staffId || undefined,
-        staffAccounts: state.settings.staffAccounts.map((staff) =>
+        staffAccounts: current.settings.staffAccounts.map((staff) =>
           staff.id === staffId ? { ...staff, lastSelectedAt: nowIso() } : staff
         )
       }
-    }, true, { feature: 'Staff accounts', action: staffId ? 'Selected active staff' : 'Cleared active staff' });
+    }, true, { feature: 'Staff accounts', action: 'Selected active staff' });
+    setStaffAccountNotice({ kind: 'success', text: `${selectedStaff.name} is now the active operator.` });
   };
 
   const deactivateStaffAccount = async (staffId: string) => {
-    if (!await authorizeStaffAction('staff-admin')) return;
-    if (staffSession?.staffId === staffId) setStaffSession(null);
+    if (!await authorizeStaffAction('staff-admin', (message) => {
+      setStaffAccountNotice({ kind: 'error', text: message });
+    })) return;
+    const current = stateRef.current;
+    const deactivatedStaff = current.settings.staffAccounts.find((staff) => staff.id === staffId);
+    if (staffSessionRef.current?.staffId === staffId) {
+      staffSelectionAttemptRef.current += 1;
+      setTrustedStaffSession(null);
+    }
     persist({
-      ...state,
+      ...current,
       settings: {
-        ...state.settings,
-        activeStaffId: state.settings.activeStaffId === staffId ? undefined : state.settings.activeStaffId,
-        staffAccounts: state.settings.staffAccounts.map((staff) =>
+        ...current.settings,
+        activeStaffId: current.settings.activeStaffId === staffId ? undefined : current.settings.activeStaffId,
+        staffAccounts: current.settings.staffAccounts.map((staff) =>
           staff.id === staffId ? { ...staff, active: false } : staff
         )
       }
     }, true, { feature: 'Staff accounts', action: 'Deactivated staff account' });
+    setStaffAccountNotice({
+      kind: 'success',
+      text: `${deactivatedStaff?.name || 'Staff account'} deactivated.`
+    });
   };
 
   const togglePanel = (panelId: string) => {
@@ -2921,7 +3204,12 @@ function App() {
     };
     window.location.hash = `/${routes[destination]}`;
   };
-  const activeStaffAccount = state.settings.staffAccounts.find((staff) => staff.id === state.settings.activeStaffId);
+  const activeStaffAccount = staffSession?.accountKey === activeAccountKey
+    ? state.settings.staffAccounts.find((staff) =>
+        staff.id === staffSession.staffId && staff.active
+      )
+    : undefined;
+  const activeStaffSelectionId = staffPinRequest?.staffId ?? activeStaffAccount?.id ?? '';
   const shellCommands: ShellCommand[] = [
     ...state.profiles.slice(0, 30).map((profile) => ({ id: `player-${profile.id}`, label: `Player: ${profile.name}`, group: 'Players', keywords: `${profile.phone} ${profile.preferredStakes}`, action: () => { setProfileSearch(profile.name); openRoute('profiles'); } })),
     ...state.sessions.filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start').map((session) => ({ id: `table-${session.id}`, label: `Open ${session.label}`, group: 'Tables', action: () => openTableView(session.id) })),
@@ -2948,8 +3236,8 @@ function App() {
     await runSelfCheckInKitWorkflow({
       access: state.settings.pilotAccess,
       bridge: window.tableManagerDesktop,
-      authorize: () => authorizeStaffAction('staff-admin'),
-      getStaffToken: () => staffSession?.token,
+      authorize: () => authorizeStaffAction('staff-admin', (message) => setSelfCheckInKitMessage(message)),
+      getStaffToken: () => staffSessionRef.current?.token,
       hasExistingCode: Boolean(state.selfCheckIn?.capabilityGeneration),
       confirmReplacement: () => window.confirm(
         'Generating a new QR code will immediately deactivate every previously printed self-check-in code for this club. Continue?'
@@ -2989,6 +3277,7 @@ function App() {
         await persistSignIn(state, false);
         // Local sign-out must complete even if the optional Firebase session cannot be cleared.
         await signOutOfFirebase().catch(() => undefined);
+        clearTrustedStaffSelection();
         setHasAuthenticated(false);
       }}
       commands={shellCommands}
@@ -3070,6 +3359,14 @@ function App() {
           </section>
         ) : null}
       </div>
+      {staffPinRequest ? (
+        <StaffPinDialog
+          key={staffPinRequest.id}
+          staffName={staffPinRequest.staffName}
+          onCancel={() => resolveStaffPinRequest(null)}
+          onSubmit={(pin) => resolveStaffPinRequest(pin)}
+        />
+      ) : null}
       {withRouteLoadingBoundary(content)}
     </AppShell>
   );
@@ -3371,7 +3668,8 @@ function App() {
     return (
       tournament ? (
         withRouteLoadingBoundary(
-          <TournamentTvView tournament={tournament} nowMs={clockNow} remainingSeconds={remaining} prizePool={prizePool} />
+          <TournamentTvView tournament={tournament} nowMs={clockNow} remainingSeconds={remaining} prizePool={prizePool} />,
+          'tournament-tv'
         )
       ) : (
         <main className="orbit-tournament-display">
@@ -3446,6 +3744,7 @@ function App() {
     return withShell('settings', (
       <SettingsView
         state={state}
+        activeStaffSelectionId={activeStaffSelectionId}
         settingsSection={settingsSection}
         clubDraft={clubDraft}
         staffDraft={staffDraft}
@@ -3455,6 +3754,7 @@ function App() {
         backupMessage={backupMessage}
         reportMessage={reportMessage}
         selfCheckInKitMessage={selfCheckInKitMessage}
+        staffAccountNotice={staffAccountNotice}
         closeRoute={closeRoute}
         applyReplacementPilotKey={applyReplacementPilotKey}
         saveClubAccount={saveClubAccount}
@@ -3931,37 +4231,40 @@ function App() {
         }
       : undefined;
 
-    return <TableView
-      tableGame={tableGame}
-      tableSession={tableSession}
-      seatedPlayers={seatedPlayers}
-      tableAverageStack={tableAverageStack}
-      isTimeCollection={isTimeCollection}
-      seatPickerModal={seatPickerModal}
-      cashOutModal={cashOutModal}
-      tableLedgerModal={tableLedgerModal}
-      tableActivity={tableActivity}
-      tableBuyInRows={tableBuyInRows}
-      tableTimePlayers={tableTimePlayers}
-      pokerTablePlayers={pokerTablePlayers}
-      tableRevenueEstimate={tableRevenueEstimate}
-      tableDealerControl={tableDealerControl}
-      tableEventLogSessionId={tableEventLogSessionId}
-      seatPicker={seatPicker}
-      closeRoute={closeRoute}
-      formatClock={formatClock}
-      formatTimeLeft={formatTimeLeft}
-      getTimerStatusFromSeconds={getTimerStatusFromSeconds}
-      getMoveTargets={getMoveTargets}
-      openSeatPicker={openSeatPicker}
-      addPlayerTime={addPlayerTime}
-      addBuyIn={addBuyIn}
-      requestPlayerCashOut={requestPlayerCashOut}
-      changePlayerSeat={changePlayerSeat}
-      movePlayerToTable={movePlayerToTable}
-      setTableEventLogSessionId={setTableEventLogSessionId}
-      setTableLedgerSessionId={setTableLedgerSessionId}
-    />;
+    return withRouteLoadingBoundary(
+      <TableView
+        tableGame={tableGame}
+        tableSession={tableSession}
+        seatedPlayers={seatedPlayers}
+        tableAverageStack={tableAverageStack}
+        isTimeCollection={isTimeCollection}
+        seatPickerModal={seatPickerModal}
+        cashOutModal={cashOutModal}
+        tableLedgerModal={tableLedgerModal}
+        tableActivity={tableActivity}
+        tableBuyInRows={tableBuyInRows}
+        tableTimePlayers={tableTimePlayers}
+        pokerTablePlayers={pokerTablePlayers}
+        tableRevenueEstimate={tableRevenueEstimate}
+        tableDealerControl={tableDealerControl}
+        tableEventLogSessionId={tableEventLogSessionId}
+        seatPicker={seatPicker}
+        closeRoute={closeRoute}
+        formatClock={formatClock}
+        formatTimeLeft={formatTimeLeft}
+        getTimerStatusFromSeconds={getTimerStatusFromSeconds}
+        getMoveTargets={getMoveTargets}
+        openSeatPicker={openSeatPicker}
+        addPlayerTime={addPlayerTime}
+        addBuyIn={addBuyIn}
+        requestPlayerCashOut={requestPlayerCashOut}
+        changePlayerSeat={changePlayerSeat}
+        movePlayerToTable={movePlayerToTable}
+        setTableEventLogSessionId={setTableEventLogSessionId}
+        setTableLedgerSessionId={setTableLedgerSessionId}
+      />,
+      'table-view'
+    );
   }
 
   return withShell('floor', (

@@ -3,15 +3,19 @@ import { fetchAllClubSnapshots } from '../firebase/clubSnapshotRepository';
 import { subscribeToClubCommitMarker } from './clubCommitMarker';
 
 export const cardHouseGameRefreshIntervalMs = 60_000;
+export type ClubSnapshotSubscriptionResult =
+  | { ok: true; clubs: PlayerClubSnapshot[]; partial?: true }
+  | { ok: false; error: string };
 
 export function subscribeToAllClubSnapshots(
   player: Pick<PlayerAccount, 'id' | 'name'>,
-  callback: (result: { ok: true; clubs: PlayerClubSnapshot[] } | { ok: false; error: string }) => void
+  callback: (result: ClubSnapshotSubscriptionResult) => void
 ) {
   let disposed = false;
   let refreshInFlight: Promise<void> | null = null;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
   let latestClubs: PlayerClubSnapshot[] = [];
+  let latestPartial = false;
 
   const refresh = () => {
     if (disposed) return Promise.resolve();
@@ -21,7 +25,8 @@ export function subscribeToAllClubSnapshots(
         if (disposed) return;
         if (result.ok) {
           latestClubs = result.clubs;
-          callback({ ok: true, clubs: latestClubs });
+          latestPartial = 'page' in result && result.page?.hasMore === true;
+          callback(latestPartial ? { ok: true, clubs: latestClubs, partial: true } : { ok: true, clubs: latestClubs });
         } else if (!latestClubs.length) {
           callback(result);
         }
@@ -54,7 +59,7 @@ export function subscribeToAllClubSnapshots(
   const commitMarkerUnsubscribe = subscribeToClubCommitMarker(
     () => void refresh(),
     (error) => latestClubs.length
-      ? callback({ ok: true, clubs: latestClubs })
+      ? callback(latestPartial ? { ok: true, clubs: latestClubs, partial: true } : { ok: true, clubs: latestClubs })
       : callback({ ok: false, error: error.message || 'Unable to subscribe to club revisions.' })
   );
 

@@ -21,6 +21,7 @@ import { discoveryStyles } from './discoveryStyles';
 const styles = { ...sharedStyles, ...discoveryStyles };
 
 export function GameDetailsScreen({
+  backLabel,
   item,
   player,
   onBack,
@@ -28,6 +29,7 @@ export function GameDetailsScreen({
   onJoin,
   onViewStore
 }: {
+  backLabel: 'Home' | 'Matches';
   item: GameOpportunity;
   player: PlayerAccount;
   onBack: () => void;
@@ -41,9 +43,9 @@ export function GameDetailsScreen({
   return (
     <View style={styles.gameDetailsPage}>
       <View style={styles.gameDetailsNav}>
-        <Pressable accessibilityLabel="Back to discovery" accessibilityRole="button" onPress={onBack} style={styles.gameDetailsBack}>
+        <Pressable accessibilityLabel={`Back to ${backLabel}`} accessibilityRole="button" onPress={onBack} style={styles.gameDetailsBack}>
           <Ionicons name="arrow-back" size={19} color={colors.ink} />
-          <Text style={styles.gameDetailsBackText}>Discover</Text>
+          <Text style={styles.gameDetailsBackText}>{backLabel}</Text>
         </Pressable>
         <View style={styles.gameDetailsLivePill}>
           <View style={[styles.liveDot, !item.game.availableSeats && styles.liveDotWarm]} />

@@ -207,6 +207,15 @@ export function buildGameOpportunities({
     });
 }
 
+export function selectContinuousDiscoveryOpportunities(
+  exactMatches: GameOpportunity[],
+  broadMatches: GameOpportunity[]
+) {
+  if (exactMatches.length) return { opportunities: exactMatches, filtersRelaxed: false };
+  if (broadMatches.length) return { opportunities: broadMatches, filtersRelaxed: true };
+  return { opportunities: [], filtersRelaxed: false };
+}
+
 export function getDiscoveryDeck(opportunities: GameOpportunity[], decisions: Record<string, DiscoveryDecision>) {
   const unreviewed = opportunities.filter((item) => !decisions[getOpportunityKey(item)]);
   return unreviewed.length || !opportunities.length ? unreviewed : opportunities;

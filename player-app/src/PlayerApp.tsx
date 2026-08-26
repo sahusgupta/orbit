@@ -28,7 +28,8 @@ import {
   getDiscoveryDeck,
   getOpportunityKey,
   getSavedOpportunities,
-  resolveAddressCoordinate
+  resolveAddressCoordinate,
+  selectContinuousDiscoveryOpportunities
 } from './domain/discovery';
 import { getLatestInAppNotification } from './domain/playerNotifications';
 import type {
@@ -71,7 +72,7 @@ import { usePlayerClubs } from './application/usePlayerClubs';
 playerPlatform.completeAuthSession();
 
 const tabs: Array<{ id: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
-  { id: 'findGames', label: 'Games', icon: 'flame-outline' },
+  { id: 'home', label: 'Home', icon: 'home-outline' },
   { id: 'tournaments', label: 'Events', icon: 'trophy-outline' },
   { id: 'map', label: 'Map', icon: 'map-outline' },
   { id: 'clubs', label: 'Clubs', icon: 'business-outline' },
@@ -109,14 +110,14 @@ export default function PlayerApp() {
     setOnboardingStep,
     setPlayer
   } = usePlayerStorage(emptyPlayer);
-  const [screen, setScreen] = useState<Screen>('findGames');
+  const [screen, setScreen] = useState<Screen>('home');
   const [showHostScreen, setShowHostScreen] = useState(false);
   const [gameQuery, setGameQuery] = useState('');
   const [tournamentQuery, setTournamentQuery] = useState('');
   const [tournamentFilter, setTournamentFilter] = useState<TournamentFilter>('all');
   const [tournamentClubFilter, setTournamentClubFilter] = useState('all');
   const [tournamentDistanceFilter, setTournamentDistanceFilter] = useState<DistanceFilter>('none');
-  const [selectedCasinoFilter, setSelectedCasinoFilter] = useState<CasinoFilter>('none');
+  const [selectedCasinoFilter, setSelectedCasinoFilter] = useState<CasinoFilter>('all');
   const [mapQuery, setMapQuery] = useState('');
   const [mapDistanceFilter, setMapDistanceFilter] = useState<DistanceFilter>('none');
   const [mapVenueFilter, setMapVenueFilter] = useState<MapVenueFilter>('all');
@@ -132,10 +133,10 @@ export default function PlayerApp() {
   const [discoveryDecisions, setDiscoveryDecisions] = useState<Record<string, DiscoveryDecision>>({});
   const [discoveryCycleDecisions, setDiscoveryCycleDecisions] = useState<Record<string, DiscoveryDecision>>({});
   const [selectedDiscoveryOpportunity, setSelectedDiscoveryOpportunity] = useState<GameOpportunity | null>(null);
+  const [gameDetailsReturnScreen, setGameDetailsReturnScreen] = useState<'home' | 'findGames'>('findGames');
   const [discoveryNotice, setDiscoveryNotice] = useState('');
   const [avatarHovered, setAvatarHovered] = useState(false);
   const mainScrollRef = useRef<ScrollView>(null);
-  const discoveryStartY = useRef(0);
   const [syncStatus, setSyncStatus] = useState(
     isSyncConfigured() ? 'Connecting to Firebase club sync...' : 'Live club sync is not configured.'
   );
@@ -199,6 +200,7 @@ export default function PlayerApp() {
     clubs,
     privateGames,
     privateGameStatus,
+    liveDataPartial,
     liveDataStatus,
     retryLiveData,
     selectedClubId,
@@ -353,7 +355,29 @@ export default function PlayerApp() {
     [activePlayerGameKeys, distanceFilter, favoriteClubIds, findGameClubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, joinedClubIds, player.homeLocation, player.preferredGameIds, playerHomeCoordinate, selectedCasinoFilter, selectedFilterClubId, stakesFilter]
   );
 
-  const displayedOpportunities = opportunities;
+  const broadOpportunities = useMemo(
+    () => buildGameOpportunities({
+      activePlayerGameKeys,
+      distanceFilter: 'none',
+      favoriteClubIds,
+      findGameClubs,
+      fitScoreFilterEnabled: false,
+      gameQuery: '',
+      gameTypeFilter: 'all',
+      joinedClubIds,
+      player,
+      playerHomeCoordinate,
+      selectedCasinoFilter: 'all',
+      selectedFilterClubId: 'all',
+      stakesFilter: ''
+    }),
+    [activePlayerGameKeys, favoriteClubIds, findGameClubs, joinedClubIds, player.homeLocation, player.preferredGameIds, playerHomeCoordinate]
+  );
+  const discoverySelection = useMemo(
+    () => selectContinuousDiscoveryOpportunities(opportunities, broadOpportunities),
+    [broadOpportunities, opportunities]
+  );
+  const displayedOpportunities = discoverySelection.opportunities;
   const discoveryDeck = useMemo(
     () => getDiscoveryDeck(displayedOpportunities, discoveryCycleDecisions),
     [discoveryCycleDecisions, displayedOpportunities]
@@ -374,6 +398,7 @@ export default function PlayerApp() {
     if (decision === 'saved') {
       setDiscoveryNotice(`${item.game.name} saved. Review the join options and game alerts.`);
       setSelectedDiscoveryOpportunity(item);
+      setGameDetailsReturnScreen('findGames');
       setScreen('gameDetails');
     } else {
       setSelectedDiscoveryOpportunity(null);
@@ -383,28 +408,49 @@ export default function PlayerApp() {
 
   const openDiscoveryGame = (item: GameOpportunity) => {
     setSelectedDiscoveryOpportunity(item);
+    setGameDetailsReturnScreen(screen === 'home' ? 'home' : 'findGames');
     setScreen('gameDetails');
   };
 
   const closeDiscoveryGame = () => {
     setSelectedDiscoveryOpportunity(null);
-    setScreen('findGames');
+    setScreen(gameDetailsReturnScreen);
   };
 
   useEffect(() => {
-    if (screen !== 'gameDetails') return undefined;
+    if (screen !== 'gameDetails' && screen !== 'findGames') return undefined;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      setSelectedDiscoveryOpportunity(null);
-      setScreen('findGames');
+      if (screen === 'gameDetails') {
+        setSelectedDiscoveryOpportunity(null);
+        setScreen(gameDetailsReturnScreen);
+      } else if (showHostScreen) {
+        setShowHostScreen(false);
+      } else {
+        setScreen('home');
+      }
       return true;
     });
     return () => subscription.remove();
-  }, [screen]);
+  }, [gameDetailsReturnScreen, screen, showHostScreen]);
+
+  const clearDiscoveryFilters = () => {
+    setGameQuery('');
+    setGameTypeFilter('all');
+    setSelectedFilterClubId('all');
+    setSelectedCasinoFilter('all');
+    setStakesFilter('');
+    setDistanceFilter('none');
+    setFitScoreFilterEnabled(false);
+  };
 
   const resetDiscoveryDeck = () => {
-    setDiscoveryDecisions({});
     setDiscoveryCycleDecisions({});
-    setDiscoveryNotice('Discovery deck refreshed.');
+    if (displayedOpportunities.length) {
+      setDiscoveryNotice('Discovery deck refreshed.');
+    } else {
+      setDiscoveryNotice('Checking for newly published game matches...');
+      retryLiveData();
+    }
   };
 
   if (!accountLoaded) {
@@ -440,7 +486,7 @@ export default function PlayerApp() {
         <LinearGradient colors={['#060c1a', '#0b1020', '#10182b']} style={styles.appBackdrop} />
         <PlayerAmbientFlow />
         <View style={styles.shell}>
-          {screen !== 'gameDetails' && screen !== 'findGames' ? (
+          {screen !== 'gameDetails' && screen !== 'home' ? (
             <View style={styles.header}>
               <View>
                 <Text style={[styles.eyebrow, styles.darkShellEyebrow]}>{screen === 'clubs' ? 'Your memberships' : screen === 'tournaments' ? 'Upcoming games' : screen === 'map' ? 'Browse nearby' : 'Orbit Player'}</Text>
@@ -464,17 +510,20 @@ export default function PlayerApp() {
           ) : null}
 
           <ScrollView ref={mainScrollRef} showsVerticalScrollIndicator={screen === 'tournaments' || screen === 'gameDetails'} contentContainerStyle={styles.content}>
-            {screen === 'findGames' && !showHostScreen ? (
+            {screen === 'home' ? (
               <PlayerLandingHero
-                opportunities={displayedOpportunities}
+                opportunities={broadOpportunities}
+                inventoryPartial={liveDataPartial}
+                inventoryStatus={liveDataStatus}
                 openTournamentCount={visibleTournaments.filter(({ tournament }) => tournament.registrationStatus === 'open').length}
                 clubCount={findGameClubs.length}
-                onFindGame={() => mainScrollRef.current?.scrollTo({ y: discoveryStartY.current, animated: true })}
+                onFindGame={() => setScreen('findGames')}
                 onOpenGame={openDiscoveryGame}
                 onBrowseTournaments={() => setScreen('tournaments')}
                 onBrowseClubs={() => setScreen('clubs')}
               />
             ) : null}
+            {screen === 'home' ? <OrbitJourney /> : null}
             {liveDataStatus === 'loading' && !clubs.length ? (
               <View accessibilityLabel="Loading live card houses" accessibilityRole="progressbar" style={[styles.emptyState, { minHeight: 132 }]}>
                 <Text style={styles.cardTitle}>Loading live card houses...</Text>
@@ -504,6 +553,7 @@ export default function PlayerApp() {
                 key={getOpportunityKey(activeDiscoveryOpportunity)}
                 item={activeDiscoveryOpportunity}
                 player={player}
+                backLabel={gameDetailsReturnScreen === 'home' ? 'Home' : 'Matches'}
                 onBack={closeDiscoveryGame}
                 onDirections={() => openDirections(activeDiscoveryOpportunity.club)}
                 onJoin={() => {
@@ -527,11 +577,10 @@ export default function PlayerApp() {
             ) : null}
             {screen === 'findGames' && !showHostScreen ? (
               <>
-                <View
-                  onLayout={({ nativeEvent }) => {
-                    discoveryStartY.current = nativeEvent.layout.y;
-                  }}
-                />
+                <Pressable accessibilityLabel="Back to Home" accessibilityRole="button" style={styles.inlineBackAction} onPress={() => setScreen('home')}>
+                  <Ionicons name="chevron-back" size={17} color={colors.primary} />
+                  <Text style={styles.inlineBackText}>Home</Text>
+                </Pressable>
                 <MyGamesSection
                   games={activePlayerGames}
                   onBuyTime={(club) => openClubPayment(club, 'time-5')}
@@ -539,8 +588,8 @@ export default function PlayerApp() {
                 />
                 <View style={styles.sectionHeader}>
                   <View>
-                    <Text style={styles.sectionTitle}>Discover games</Text>
-                    <Text style={styles.muted}>Games you have already requested are kept in My Games.</Text>
+                    <Text style={styles.sectionTitle}>Your game matches</Text>
+                    <Text style={styles.muted}>Swipe left to pass or right to save. Requested games stay in My Games.</Text>
                   </View>
                 </View>
                 <View style={styles.discoveryToolbar}>
@@ -594,8 +643,20 @@ export default function PlayerApp() {
                   })}
                 </ScrollView>
 
+                {discoverySelection.filtersRelaxed ? (
+                  <View accessibilityLiveRegion="polite" style={styles.discoveryNotice}>
+                    <Ionicons name="options-outline" size={16} color={colors.primary} />
+                    <Text style={styles.discoveryNoticeText}>No exact filter matches. Showing other published games so you can keep matching.</Text>
+                    <Pressable accessibilityRole="button" onPress={clearDiscoveryFilters} style={styles.compactButton}>
+                      <Text style={styles.compactButtonText}>Clear filters</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+
                 <DiscoveryDeck
                   opportunities={discoveryDeck}
+                  inventoryPartial={liveDataPartial}
+                  inventoryStatus={liveDataStatus}
                   totalCount={displayedOpportunities.length}
                   savedCount={savedOpportunities.length}
                   onPass={(item) => decideDiscoveryOpportunity(item, 'pass')}
@@ -613,9 +674,6 @@ export default function PlayerApp() {
                 {savedOpportunities.length ? (
                   <SavedGamesStrip opportunities={savedOpportunities} onOpen={openDiscoveryGame} />
                 ) : null}
-
-                <OrbitJourney />
-
                 {playerPremiumEnabled ? (
                   <Pressable style={styles.hostPromptCard} onPress={() => setShowHostScreen(true)}>
                     <View style={styles.hostPromptIcon}>
@@ -680,7 +738,7 @@ export default function PlayerApp() {
 
             {playerPremiumEnabled && screen === 'findGames' && showHostScreen ? (
               <>
-                <Pressable style={styles.inlineBackAction} onPress={() => setShowHostScreen(false)}>
+                <Pressable accessibilityLabel="Back to game matches" accessibilityRole="button" style={styles.inlineBackAction} onPress={() => setShowHostScreen(false)}>
                   <Ionicons name="chevron-back" size={17} color={colors.primary} />
                   <Text style={styles.inlineBackText}>Find Games</Text>
                 </Pressable>
@@ -800,21 +858,26 @@ export default function PlayerApp() {
           </ScrollView>
 
           {screen !== 'gameDetails' && screen !== 'identityVerification' ? (
-            <View style={styles.tabBar}>
-              {tabs.map((tab) => (
-                <Pressable
-                  key={tab.id}
-                  onPress={() => {
-                    setScreen(tab.id);
-                    setSelectedDiscoveryOpportunity(null);
-                    if (tab.id !== 'findGames') setShowHostScreen(false);
-                  }}
-                  style={[styles.tab, screen === tab.id && styles.activeTab]}
-                >
-                  <Ionicons name={tab.icon} size={19} color={screen === tab.id ? '#6f91ff' : '#566680'} />
-                  <Text style={[styles.tabText, screen === tab.id && styles.activeTabText]}>{tab.label}</Text>
-                </Pressable>
-              ))}
+            <View accessibilityLabel="Primary navigation" accessibilityRole="tablist" style={styles.tabBar}>
+              {tabs.map((tab) => {
+                const active = screen === tab.id || (tab.id === 'home' && screen === 'findGames');
+                return (
+                  <Pressable
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                    key={tab.id}
+                    onPress={() => {
+                      setScreen(tab.id);
+                      setSelectedDiscoveryOpportunity(null);
+                      setShowHostScreen(false);
+                    }}
+                    style={[styles.tab, active && styles.activeTab]}
+                  >
+                    <Ionicons name={tab.icon} size={19} color={active ? '#6f91ff' : '#566680'} />
+                    <Text style={[styles.tabText, active && styles.activeTabText]}>{tab.label}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
           ) : null}
         </View>
@@ -823,12 +886,7 @@ export default function PlayerApp() {
           title="Game filters"
           onClose={() => setShowDiscoveryFilters(false)}
           onReset={() => {
-            setGameTypeFilter('all');
-            setSelectedFilterClubId('all');
-            setSelectedCasinoFilter('none');
-            setStakesFilter('');
-            setDistanceFilter('none');
-            setFitScoreFilterEnabled(false);
+            clearDiscoveryFilters();
           }}
         >
           <View style={styles.sheetField}>
@@ -933,6 +991,7 @@ export default function PlayerApp() {
 }
 
 function getScreenTitle(screen: Screen) {
+  if (screen === 'findGames') return 'Game Matches';
   if (screen === 'settings') return 'Profile';
   if (screen === 'identityVerification') return 'Age Verification';
   return tabs.find((tab) => tab.id === screen)?.label ?? 'Orbit';

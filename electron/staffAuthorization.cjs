@@ -35,9 +35,18 @@ function createStaffAuthorization(dependencies) {
     const prior = attempts.get(attemptKey) || { failures: 0, lockedUntil: 0 };
     if (prior.lockedUntil > now()) return { ok: false, error: 'Staff verification is temporarily locked.' };
 
-    const record = await loadStateForAccess(input.access);
+    let record;
+    try {
+      record = await loadStateForAccess(input.access);
+    } catch {
+      return { ok: false, error: 'Authoritative staff verification is temporarily unavailable.' };
+    }
+    if (!record?.authoritative) {
+      return { ok: false, error: 'Authoritative staff verification is temporarily unavailable.' };
+    }
     const staff = record?.state?.settings?.staffAccounts?.find((candidate) => candidate.id === staffId && candidate.active !== false);
-    if (!record?.authoritative || !staff || !verifyPin(pin, staff.pinSalt, staff.pinHash)) {
+    if (!staff) return { ok: false, error: 'Staff verification failed.' };
+    if (!verifyPin(pin, staff.pinSalt, staff.pinHash)) {
       const failures = prior.failures + 1;
       attempts.set(attemptKey, {
         failures: failures >= 5 ? 0 : failures,
@@ -50,17 +59,34 @@ function createStaffAuthorization(dependencies) {
     const token = crypto.randomBytes(32).toString('base64url');
     const expiresAt = now() + 15 * 60_000;
     sessions.set(token, { staffId: staff.id, role: staff.role, accountKey: record.accountKey, expiresAt });
-    return { ok: true, token, staffId: staff.id, role: staff.role, expiresAt: new Date(expiresAt).toISOString() };
+    return {
+      ok: true,
+      token,
+      staffId: staff.id,
+      role: staff.role,
+      accountKey: record.accountKey,
+      expiresAt: new Date(expiresAt).toISOString()
+    };
   }
 
   function authorize(input) {
-    const session = sessions.get(String(input?.token || ''));
-    if (!session || session.expiresAt <= now()) return { ok: false, error: 'Staff reauthentication is required.' };
+    const token = String(input?.token || '');
+    const session = sessions.get(token);
+    if (!session || session.expiresAt <= now()) {
+      sessions.delete(token);
+      return { ok: false, error: 'Staff reauthentication is required.', reauthenticate: true };
+    }
     const action = String(input?.action || '');
     const allowed = action === 'staff-sign'
       || (['manager-lock', 'manager-reopen', 'staff-admin', 'send-text-messages'].includes(action)
         && ['Owner', 'Manager'].includes(session.role));
-    if (!allowed) return { ok: false, error: 'This staff role is not authorized for that action.' };
+    if (!allowed) {
+      return {
+        ok: false,
+        error: 'Select and verify an Owner or Manager for this action.',
+        reauthenticate: false
+      };
+    }
     return { ok: true, staffId: session.staffId, role: session.role, accountKey: session.accountKey };
   }
 

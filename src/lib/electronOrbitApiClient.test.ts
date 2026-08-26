@@ -220,7 +220,12 @@ describe('Electron Orbit API transport', () => {
         selfCheckIn: { capabilityGeneration: 'generation-one', generatedAt: '2026-08-24T12:00:00.000Z' },
         rotatedPreviousCode: true
       })))
-      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","revision":9}'));
+      .mockResolvedValueOnce(response(JSON.stringify({
+        ok: false,
+        code: 'STATE_REVISION_CONFLICT',
+        expectedRevision: 0,
+        currentRevision: 8
+      }), { ok: false, status: 409 }));
     const writeOrbitApiLog = vi.fn();
     const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, writeOrbitApiLog }));
 
@@ -247,10 +252,95 @@ describe('Electron Orbit API transport', () => {
       settings: { pilotAccess: { licenseId: 'club-one', authorizationCode: 'pilot-code' } }
     });
     expect(JSON.parse(String((fetch.mock.calls[1][1] as RequestInit).body))).toMatchObject({ expectedRevision: 0 });
-    expect(writeOrbitApiLog).not.toHaveBeenCalled();
+    expect(JSON.stringify(writeOrbitApiLog.mock.calls)).not.toContain('signed-capability');
   });
 
-  it('does not advance a writable revision from a partial QR issuance response', async () => {
+  it('serializes state writes per account before assigning expected revisions', async () => {
+    let finishFirstRequest: ((value: ReturnType<typeof response>) => void) | undefined;
+    const firstRequest = new Promise<ReturnType<typeof response>>((resolve) => {
+      finishFirstRequest = resolve;
+    });
+    const fetch = vi.fn()
+      .mockImplementationOnce(() => firstRequest)
+      .mockResolvedValueOnce(response(JSON.stringify({
+        ok: true,
+        accountKey: 'club-one',
+        revision: 2
+      })));
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch }));
+    const state = (marker: string) => ({
+      games: [{ id: marker }],
+      sessions: [],
+      playerSessions: [],
+      settings: { pilotAccess: { licenseId: 'club-one', authorizationCode: 'pilot-code' } }
+    });
+
+    const firstSave = client.saveStateToApi(state('first'));
+    const secondSave = client.saveStateToApi(state('second'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    finishFirstRequest?.(response(JSON.stringify({
+      ok: true,
+      accountKey: 'club-one',
+      revision: 1
+    })));
+    await expect(firstSave).resolves.toMatchObject({ ok: true, revision: 1 });
+    await expect(secondSave).resolves.toMatchObject({ ok: true, revision: 2 });
+    expect(requestBodies(fetch)).toMatchObject([
+      { expectedRevision: 0, state: { games: [{ id: 'first' }] } },
+      { expectedRevision: 1, state: { games: [{ id: 'second' }] } }
+    ]);
+  });
+
+  it('serializes QR issuance between state writes and advances only its contiguous revision', async () => {
+    let finishFirstRequest: ((value: ReturnType<typeof response>) => void) | undefined;
+    const firstRequest = new Promise<ReturnType<typeof response>>((resolve) => {
+      finishFirstRequest = resolve;
+    });
+    const fetch = vi.fn()
+      .mockImplementationOnce(() => firstRequest)
+      .mockResolvedValueOnce(response(JSON.stringify({
+        ok: true,
+        accountKey: 'club-one',
+        clubName: 'Orbit Room',
+        checkInUrl: 'https://check-in.example.test/check-in#token=signed-capability',
+        expiresAt: '2027-08-24T12:00:00.000Z',
+        revision: 2,
+        selfCheckIn: { capabilityGeneration: 'generation-two', generatedAt: '2026-08-24T12:00:00.000Z' }
+      })))
+      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","revision":3}'));
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch }));
+    const state = (marker: string) => ({
+      games: [{ id: marker }],
+      sessions: [],
+      playerSessions: [],
+      settings: { pilotAccess: { licenseId: 'club-one', authorizationCode: 'pilot-code' } }
+    });
+
+    const firstSave = client.saveStateToApi(state('before-qr'));
+    const kit = client.createSelfCheckInQrKitApi({ licenseId: 'club-one', authorizationCode: 'pilot-code' });
+    const secondSave = client.saveStateToApi(state('after-qr'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    finishFirstRequest?.(response('{"ok":true,"accountKey":"club-one","revision":1}'));
+    await expect(firstSave).resolves.toMatchObject({ ok: true, revision: 1 });
+    await expect(kit).resolves.toMatchObject({ ok: true, selfCheckIn: { capabilityGeneration: 'generation-two' } });
+    await expect(secondSave).resolves.toMatchObject({ ok: true, revision: 3 });
+
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      'http://127.0.0.1:4310/state',
+      'http://127.0.0.1:4310/management/self-check-in/qr',
+      'http://127.0.0.1:4310/state'
+    ]);
+    expect(JSON.parse(String((fetch.mock.calls[0][1] as RequestInit).body))).toMatchObject({ expectedRevision: 0 });
+    expect(JSON.parse(String((fetch.mock.calls[2][1] as RequestInit).body))).toMatchObject({ expectedRevision: 2 });
+  });
+
+  it('advances a known writable revision after a contiguous QR issuance', async () => {
     const staleState = {
       games: [],
       sessions: [],
@@ -272,12 +362,40 @@ describe('Electron Orbit API transport', () => {
         revision: 8,
         selfCheckIn: { capabilityGeneration: 'generation-one', generatedAt: '2026-08-24T12:00:00.000Z' }
       })))
+      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","revision":9}'));
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch }));
+
+    await client.loadStateFromApi('club-one', { authorizationCode: 'pilot-code' });
+    await client.createSelfCheckInQrKitApi({ licenseId: 'club-one', authorizationCode: 'pilot-code' });
+    await expect(client.saveStateToApi(staleState)).resolves.toMatchObject({ ok: true, revision: 9 });
+
+    expect(JSON.parse(String((fetch.mock.calls[2][1] as RequestInit).body))).toMatchObject({ expectedRevision: 8 });
+  });
+
+  it('keeps the prior writable revision when QR issuance skips an unseen server change', async () => {
+    const staleState = {
+      games: [],
+      sessions: [],
+      playerSessions: [],
+      settings: { pilotAccess: { licenseId: 'club-one', authorizationCode: 'pilot-code' } }
+    };
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response(JSON.stringify({ accountKey: 'club-one', revision: 7, state: staleState })))
+      .mockResolvedValueOnce(response(JSON.stringify({
+        ok: true,
+        accountKey: 'club-one',
+        clubName: 'Orbit Room',
+        checkInUrl: 'https://check-in.example.test/check-in#token=signed-capability',
+        expiresAt: '2027-08-24T12:00:00.000Z',
+        revision: 9,
+        selfCheckIn: { capabilityGeneration: 'generation-nine', generatedAt: '2026-08-24T12:00:00.000Z' }
+      })))
       .mockResolvedValueOnce(response(JSON.stringify({
         ok: false,
         code: 'STATE_REVISION_CONFLICT',
         error: 'Venue state changed elsewhere.',
         expectedRevision: 7,
-        currentRevision: 8
+        currentRevision: 9
       }), { ok: false, status: 409 }));
     const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch }));
 
@@ -286,9 +404,8 @@ describe('Electron Orbit API transport', () => {
     await expect(client.saveStateToApi(staleState)).resolves.toMatchObject({
       conflict: true,
       expectedRevision: 7,
-      currentRevision: 8
+      currentRevision: 9
     });
-
     expect(JSON.parse(String((fetch.mock.calls[2][1] as RequestInit).body))).toMatchObject({ expectedRevision: 7 });
   });
 

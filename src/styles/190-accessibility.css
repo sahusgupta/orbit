@@ -187,11 +187,33 @@ body:not(.low-light) select:focus option {
   padding: 32px;
 }
 
+.route-skeleton {
+  background: var(--canvas);
+}
+
 .route-skeleton span {
   animation: orbit-skeleton-pulse 1.4s ease-in-out infinite;
-  background: var(--surface-soft, #e9edf3);
+  background: linear-gradient(100deg, var(--canvas), var(--state-loading), var(--canvas));
   border-radius: 8px;
   display: block;
+}
+
+.route-skeleton-tournament-tv {
+  background: #070b15;
+  min-height: 100vh;
+}
+
+.route-skeleton-tournament-tv span {
+  background: linear-gradient(100deg, #070b15, #111827, #070b15);
+}
+
+.route-skeleton-table-view {
+  background: #080d13;
+  min-height: 100vh;
+}
+
+.route-skeleton-table-view span {
+  background: linear-gradient(100deg, #080d13, #0e151e, #080d13);
 }
 
 .route-skeleton-title { height: 34px; max-width: 320px; }

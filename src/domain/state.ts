@@ -429,7 +429,9 @@ export function normalizeState(parsed: PersistedAppState): AppState {
       pilotAccess: parsed.settings?.pilotAccess,
       clubAccount: parsed.settings?.clubAccount,
       staffAccounts: parsed.settings?.staffAccounts ?? [],
-      activeStaffId: parsed.settings?.activeStaffId,
+      // A staff PIN session is memory-only, so a persisted operator must be
+      // selected and verified again after every state hydration.
+      activeStaffId: undefined,
       accountLogin: parsed.settings?.accountLogin
         ? {
             ...parsed.settings.accountLogin,

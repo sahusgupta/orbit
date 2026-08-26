@@ -58,7 +58,7 @@ export function usePlayerIdentity({
   const [identityStatus, setIdentityStatus] = useState<PlayerIdentityStatus>(emptyIdentityStatus);
   const [identityBusy, setIdentityBusy] = useState(false);
   const [identityMessage, setIdentityMessage] = useState('');
-  const [identityReturnScreen, setIdentityReturnScreen] = useState<Screen>('findGames');
+  const [identityReturnScreen, setIdentityReturnScreen] = useState<Screen>('home');
   const [authStatus, setAuthStatus] = useState(accountSignInReadyStatus);
   const [playerAuthMethod, setPlayerAuthMethod] = useState<'email' | 'phone'>('email');
   const [playerAuthEmail, setPlayerAuthEmail] = useState('');
@@ -112,7 +112,7 @@ export function usePlayerIdentity({
     setPlayer(nextPlayer);
     setDraftPlayer(nextPlayer);
     setHasAccount(true);
-    setScreen('findGames');
+    setScreen('home');
     setSyncStatus(isSyncConfigured() ? 'Account ready - syncing from Firebase...' : 'Account ready, but live club sync is unavailable.');
     // Account creation is locally complete; remote profile publication is background fan-out.
     if (identity) savePlayerProfile(nextPlayer).catch(() => undefined);
@@ -272,7 +272,7 @@ export function usePlayerIdentity({
   const resetLocalAccount = async () => {
     await clearLocalPlayer();
     setFirebaseIdentity(null);
-    setScreen('findGames');
+    setScreen('home');
   };
 
   const deletePlayerAccount = () => {

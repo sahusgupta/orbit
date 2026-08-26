@@ -89,6 +89,44 @@ const invoke = async (name: string, ...args: unknown[]) => {
   });
 };
 
+const startInvoke = async (name: string, ...args: unknown[]) => {
+  if (typeof harness.props !== 'object' || harness.props === null) throw new Error('Expected summary props');
+  const callback: unknown = Reflect.get(harness.props, name);
+  if (typeof callback !== 'function') throw new Error(`Expected ${name} callback`);
+  let pending: unknown;
+  await act(async () => {
+    pending = Reflect.apply(callback, undefined, args);
+    await Promise.resolve();
+  });
+  return { pending: pending instanceof Promise ? pending : Promise.resolve(pending) };
+};
+
+const submitOpenStaffPin = async (pin = '4821') => {
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+  const input = dialog?.querySelector<HTMLInputElement>('input[name="staff-pin"]');
+  const form = dialog?.querySelector<HTMLFormElement>('form');
+  if (!dialog || !input || !form) throw new Error('Expected the staff PIN dialog');
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  if (!setter) throw new Error('Input value setter is unavailable.');
+  await act(async () => {
+    setter.call(input, pin);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await Promise.resolve();
+  });
+  await act(async () => {
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await Promise.resolve();
+  });
+};
+
+const selectStaff = async (staffId: string, pin = '4821') => {
+  const { pending } = await startInvoke('selectActiveStaff', staffId);
+  await submitOpenStaffPin(pin);
+  await act(async () => {
+    await pending;
+  });
+};
+
 const resetState = async () => {
   const setter = harness.stateSetter;
   if (typeof setter !== 'function') throw new Error('Expected state setter');
@@ -111,7 +149,10 @@ const resetState = async () => {
         settings: {
           ...current.settings,
           activeStaffId: 'staff-manager',
-          staffAccounts: [{ id: 'staff-manager', name: 'Manager One', role: 'Manager', pinSalt: 'salt', pinHash: 'hash', active: true, createdAt: '2026-01-01T00:00:00.000Z' }]
+          staffAccounts: [
+            { id: 'staff-manager', name: 'Manager One', role: 'Manager', pinSalt: 'salt', pinHash: 'hash', active: true, createdAt: '2026-01-01T00:00:00.000Z' },
+            { id: 'staff-floor', name: 'Floor One', role: 'Floor', pinSalt: 'salt', pinHash: 'hash', active: true, createdAt: '2026-01-01T00:00:00.000Z' }
+          ]
         }
       };
     });
@@ -162,14 +203,16 @@ describe('night-close mutation orchestration', () => {
         token: 'staff-session-token',
         staffId: 'staff-manager',
         role: 'Manager',
+        accountKey: 'ref-017-close-license',
         expiresAt: '2099-01-01T00:00:00.000Z'
       })),
       authorizeStaffAction: vi.fn(async () => ({ ok: true })),
       recordClientEvent: vi.fn(async () => ({ ok: true })),
       saveState: vi.fn(async () => ({ ok: true, path: 'test', publication: { status: 'pending' } }))
     });
-    await invoke('selectActiveStaff', 'staff-manager');
+    await selectStaff('staff-manager');
     vi.mocked(globalThis.prompt).mockClear();
+    vi.mocked(globalThis.prompt).mockReturnValue('  Recounted cash  ');
     await invoke('setNightCloseActuals', { 'table-close': '20' });
     await invoke('setNightCloseNotes', 'Counted at cage');
     await invoke('saveNightClose');
@@ -212,6 +255,296 @@ describe('night-close mutation orchestration', () => {
     expect(close).toMatchObject({ status: 'Draft', lockedAt: undefined, managerSignOff: undefined, updatedAt: now });
     expect(close.audit.map((entry) => entry.action)).toEqual(['Created', 'Staff Signed', 'Manager Approved', 'Reopened']);
     expect(close.audit.at(-1)).toMatchObject({ note: 'Recounted cash', staffId: 'staff-manager' });
+    Reflect.deleteProperty(window, 'tableManagerDesktop');
+  });
+
+  it('clears a displayed operator when the trusted staff session is rejected', async () => {
+    await resetState();
+    Reflect.set(window, 'tableManagerDesktop', {
+      verifyStaffPin: vi.fn(async () => ({
+        ok: true,
+        token: 'expired-staff-session',
+        staffId: 'staff-manager',
+        role: 'Manager',
+        accountKey: 'ref-017-close-license',
+        expiresAt: '2099-01-01T00:00:00.000Z'
+      })),
+      authorizeStaffAction: vi.fn(async () => ({ ok: false, error: 'Staff reauthentication is required.' })),
+      recordClientEvent: vi.fn(async () => ({ ok: true })),
+      saveState: vi.fn(async () => ({ ok: true, path: 'test', publication: { status: 'pending' } }))
+    });
+
+    await selectStaff('staff-manager');
+    expect(getState().settings.activeStaffId).toBe('staff-manager');
+
+    await invoke('signNightClose');
+    expect(getState().settings.activeStaffId).toBeUndefined();
+    expect(globalThis.alert).toHaveBeenLastCalledWith('Staff reauthentication is required.');
+    Reflect.deleteProperty(window, 'tableManagerDesktop');
+  });
+
+  it('preserves a trusted session when same-account hydration clears the persisted operator', async () => {
+    await resetState();
+    const authorizeStaffAction = vi.fn(async () => ({ ok: true }));
+    Reflect.set(window, 'tableManagerDesktop', {
+      verifyStaffPin: vi.fn(async () => ({
+        ok: true,
+        token: 'pre-hydration-session',
+        staffId: 'staff-manager',
+        role: 'Manager',
+        accountKey: 'ref-017-close-license',
+        expiresAt: '2099-01-01T00:00:00.000Z'
+      })),
+      authorizeStaffAction,
+      recordClientEvent: vi.fn(async () => ({ ok: true })),
+      saveState: vi.fn(async () => ({ ok: true, path: 'test', publication: { status: 'pending' } }))
+    });
+
+    await selectStaff('staff-manager');
+    expect(getState().settings.activeStaffId).toBe('staff-manager');
+
+    const setter = harness.stateSetter;
+    if (typeof setter !== 'function') throw new Error('Expected state setter');
+    await act(async () => {
+      setter((current: unknown) => {
+        if (!isAppState(current)) throw new Error('Expected current state');
+        return {
+          ...current,
+          settings: { ...current.settings, activeStaffId: undefined }
+        };
+      });
+      await Promise.resolve();
+    });
+    expect(getState().settings.activeStaffId).toBe('staff-manager');
+    await invoke('signNightClose');
+
+    expect(authorizeStaffAction).toHaveBeenCalledWith({
+      token: 'pre-hydration-session',
+      action: 'staff-sign'
+    });
+    expect(getState().settings.activeStaffId).toBe('staff-manager');
+    Reflect.deleteProperty(window, 'tableManagerDesktop');
+  });
+
+  it('clears trusted staff when hydration removes that staff account', async () => {
+    await resetState();
+    const authorizeStaffAction = vi.fn(async () => ({ ok: true }));
+    Reflect.set(window, 'tableManagerDesktop', {
+      verifyStaffPin: vi.fn(async () => ({
+        ok: true,
+        token: 'removed-staff-session',
+        staffId: 'staff-manager',
+        role: 'Manager',
+        accountKey: 'ref-017-close-license',
+        expiresAt: '2099-01-01T00:00:00.000Z'
+      })),
+      authorizeStaffAction,
+      recordClientEvent: vi.fn(async () => ({ ok: true })),
+      saveState: vi.fn(async () => ({ ok: true, path: 'test', publication: { status: 'pending' } }))
+    });
+
+    await selectStaff('staff-manager');
+    const setter = harness.stateSetter;
+    if (typeof setter !== 'function') throw new Error('Expected state setter');
+    await act(async () => {
+      setter((current: unknown) => {
+        if (!isAppState(current)) throw new Error('Expected current state');
+        return {
+          ...current,
+          settings: {
+            ...current.settings,
+            activeStaffId: undefined,
+            staffAccounts: current.settings.staffAccounts.filter((staff) => staff.id !== 'staff-manager')
+          }
+        };
+      });
+      await Promise.resolve();
+    });
+    await invoke('signNightClose');
+
+    expect(authorizeStaffAction).not.toHaveBeenCalled();
+    expect(getState().settings.activeStaffId).toBeUndefined();
+    Reflect.deleteProperty(window, 'tableManagerDesktop');
+  });
+
+  it('serializes the selected-operator save before a privileged mutation save', async () => {
+    await resetState();
+    let finishSelectionSave: (() => void) | undefined;
+    const selectionSave = new Promise<{ ok: true; path: string; publication: { status: 'pending' } }>((resolve) => {
+      finishSelectionSave = () => resolve({ ok: true, path: 'test', publication: { status: 'pending' } });
+    });
+    const saveState = vi.fn()
+      .mockImplementationOnce(() => selectionSave)
+      .mockResolvedValue({ ok: true, path: 'test', publication: { status: 'pending' } });
+    let finishAuthorization: ((value: { ok: true }) => void) | undefined;
+    const authorization = new Promise<{ ok: true }>((resolve) => {
+      finishAuthorization = resolve;
+    });
+    Reflect.set(window, 'tableManagerDesktop', {
+      verifyStaffPin: vi.fn(async () => ({
+        ok: true,
+        token: 'serialized-staff-session',
+        staffId: 'staff-manager',
+        role: 'Manager',
+        accountKey: 'ref-017-close-license',
+        expiresAt: '2099-01-01T00:00:00.000Z'
+      })),
+      authorizeStaffAction: vi.fn(() => authorization),
+      recordClientEvent: vi.fn(async () => ({ ok: true })),
+      saveState
+    });
+
+    await startInvoke('selectActiveStaff', 'staff-manager');
+    await submitOpenStaffPin();
+    await Promise.resolve();
+    expect(saveState).toHaveBeenCalledTimes(1);
+
+    const { pending: signNight } = await startInvoke('signNightClose');
+    const setter = harness.stateSetter;
+    if (typeof setter !== 'function') throw new Error('Expected state setter');
+    let interveningLowLight = false;
+    await act(async () => {
+      setter((current: unknown) => {
+        if (!isAppState(current)) throw new Error('Expected current state');
+        interveningLowLight = !current.settings.lowLight;
+        return {
+          ...current,
+          settings: { ...current.settings, lowLight: interveningLowLight }
+        };
+      });
+      await Promise.resolve();
+    });
+    finishAuthorization?.({ ok: true });
+    await act(async () => {
+      await signNight;
+    });
+    expect(saveState).toHaveBeenCalledTimes(1);
+
+    finishSelectionSave?.();
+    await act(async () => {
+      await selectionSave;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(saveState).toHaveBeenCalledTimes(2);
+    expect(saveState.mock.calls[1]?.[0]).toMatchObject({
+      settings: { activeStaffId: 'staff-manager', lowLight: interveningLowLight }
+    });
+    Reflect.deleteProperty(window, 'tableManagerDesktop');
+  });
+
+  it('keeps the latest staff choice when verification responses finish out of order', async () => {
+    await resetState();
+    const verifiers = new Map<string, (result: {
+      ok: true;
+      token: string;
+      staffId: string;
+      role: 'Manager' | 'Floor';
+      accountKey: string;
+      expiresAt: string;
+    }) => void>();
+    const verifyStaffPin = vi.fn(({ staffId }: { staffId: string }) => new Promise((resolve) => {
+      verifiers.set(staffId, resolve);
+    }));
+    Reflect.set(window, 'tableManagerDesktop', {
+      verifyStaffPin,
+      authorizeStaffAction: vi.fn(async () => ({ ok: true })),
+      recordClientEvent: vi.fn(async () => ({ ok: true })),
+      saveState: vi.fn(async () => ({ ok: true, path: 'test', publication: { status: 'pending' } }))
+    });
+
+    const { pending: managerSelection } = await startInvoke('selectActiveStaff', 'staff-manager');
+    await submitOpenStaffPin();
+    const { pending: floorSelection } = await startInvoke('selectActiveStaff', 'staff-floor');
+    await submitOpenStaffPin();
+    verifiers.get('staff-floor')?.({
+      ok: true,
+      token: 'floor-session',
+      staffId: 'staff-floor',
+      role: 'Floor',
+      accountKey: 'ref-017-close-license',
+      expiresAt: '2099-01-01T00:00:00.000Z'
+    });
+    await act(async () => {
+      await floorSelection;
+    });
+    verifiers.get('staff-manager')?.({
+      ok: true,
+      token: 'manager-session',
+      staffId: 'staff-manager',
+      role: 'Manager',
+      accountKey: 'ref-017-close-license',
+      expiresAt: '2099-01-01T00:00:00.000Z'
+    });
+    await act(async () => {
+      await managerSelection;
+    });
+
+    expect(getState().settings.activeStaffId).toBe('staff-floor');
+    Reflect.deleteProperty(window, 'tableManagerDesktop');
+  });
+
+  it('does not bind a verified staff token to an account loaded during verification', async () => {
+    await resetState();
+    let finishVerification: ((result: {
+      ok: true;
+      token: string;
+      staffId: string;
+      role: 'Manager';
+      accountKey: string;
+      expiresAt: string;
+    }) => void) | undefined;
+    const verifyStaffPin = vi.fn(() => new Promise((resolve) => {
+      finishVerification = resolve;
+    }));
+    const authorizeStaffAction = vi.fn(async () => ({ ok: true }));
+    Reflect.set(window, 'tableManagerDesktop', {
+      verifyStaffPin,
+      authorizeStaffAction,
+      recordClientEvent: vi.fn(async () => ({ ok: true })),
+      saveState: vi.fn(async () => ({ ok: true, path: 'test', publication: { status: 'pending' } }))
+    });
+
+    const { pending: selection } = await startInvoke('selectActiveStaff', 'staff-manager');
+    await submitOpenStaffPin();
+    const setter = harness.stateSetter;
+    if (typeof setter !== 'function') throw new Error('Expected state setter');
+    await act(async () => {
+      setter((current: unknown) => {
+        if (!isAppState(current)) throw new Error('Expected current state');
+        return {
+          ...current,
+          settings: {
+            ...current.settings,
+            activeStaffId: undefined,
+            pilotAccess: {
+              activatedAt: '2026-08-08T12:00:00.000Z',
+              authorizationCode: 'REF-017-OTHER',
+              authorized: true,
+              expiresAt: '2099-12-31T23:59:59.000Z',
+              licenseId: 'REF-017-OTHER-LICENSE'
+            }
+          }
+        };
+      });
+      await Promise.resolve();
+    });
+    finishVerification?.({
+      ok: true,
+      token: 'old-account-session',
+      staffId: 'staff-manager',
+      role: 'Manager',
+      accountKey: 'ref-017-close-license',
+      expiresAt: '2099-01-01T00:00:00.000Z'
+    });
+    await act(async () => {
+      await selection;
+    });
+
+    expect(getState().settings.pilotAccess?.licenseId).toBe('REF-017-OTHER-LICENSE');
+    expect(getState().settings.activeStaffId).toBeUndefined();
+    await invoke('signNightClose');
+    expect(authorizeStaffAction).not.toHaveBeenCalled();
     Reflect.deleteProperty(window, 'tableManagerDesktop');
   });
 });

@@ -232,6 +232,40 @@ describe('Player discovery characterization', () => {
     expect(discovery.getActiveDiscoveryOpportunity([refreshed, second], first)).toBe(refreshed);
     expect(discovery.getActiveDiscoveryOpportunity([second], first)).toBe(first);
     expect(discovery.getActiveDiscoveryOpportunity([second], null)).toBeNull();
+
+    let cycleDecisions: Record<string, 'pass' | 'saved'> = {};
+    for (let index = 0; index < 10; index += 1) {
+      const deck = discovery.getDiscoveryDeck([first, second], cycleDecisions);
+      expect(deck.length).toBeGreaterThan(0);
+      cycleDecisions = discovery.advanceDiscoveryCycle(
+        [first, second],
+        cycleDecisions,
+        deck[0],
+        index % 2 ? 'saved' : 'pass'
+      );
+    }
+  });
+
+  it('uses broad published inventory when exact filters have no matches', () => {
+    const alpha = club('club-a', 'Alpha');
+    const exact = [{ club: alpha, game: game(), distanceMiles: 2, isJoined: false, isPreferred: false }];
+    const broad = [
+      ...exact,
+      { club: club('casino-b', 'Casino B'), game: game({ id: 'game-2' }), distanceMiles: 8, isJoined: false, isPreferred: false }
+    ];
+
+    expect(discovery.selectContinuousDiscoveryOpportunities(exact, broad)).toEqual({
+      opportunities: exact,
+      filtersRelaxed: false
+    });
+    expect(discovery.selectContinuousDiscoveryOpportunities([], broad)).toEqual({
+      opportunities: broad,
+      filtersRelaxed: true
+    });
+    expect(discovery.selectContinuousDiscoveryOpportunities([], [])).toEqual({
+      opportunities: [],
+      filtersRelaxed: false
+    });
   });
 
   it('pins player-facing labels, compatibility reasons, grouping, table labels, and game-type matching', () => {

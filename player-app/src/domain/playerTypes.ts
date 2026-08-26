@@ -7,6 +7,7 @@ import type {
 } from './playerSync';
 
 export type Screen =
+  | 'home'
   | 'findGames'
   | 'gameDetails'
   | 'tournaments'

@@ -48,6 +48,26 @@ describe('state normalization', () => {
     expect(normalizeState({ games: [], sessions: [] }).physicalTables).toEqual([]);
   });
 
+  it('does not restore an active operator without a live trusted staff session', () => {
+    const restored = normalizeState({
+      settings: {
+        activeStaffId: 'manager-one',
+        staffAccounts: [{
+          id: 'manager-one',
+          name: 'Manager One',
+          role: 'Manager',
+          pinSalt: 'salt',
+          pinHash: 'hash',
+          active: true,
+          createdAt: '2026-08-25T12:00:00.000Z'
+        }]
+      }
+    });
+
+    expect(restored.settings.staffAccounts).toHaveLength(1);
+    expect(restored.settings.activeStaffId).toBeUndefined();
+  });
+
   it('migrates legacy per-game time fees to one flat room rate', () => {
     const restored = normalizeState({
       settings: {

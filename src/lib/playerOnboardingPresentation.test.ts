@@ -267,7 +267,7 @@ describe('Player discovery presentation contract', () => {
     const componentDigest = digest(discoveryComponentNames.map((name) => findFunction(sources, name)));
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
 
-    expect(componentDigest).toBe('380244f439c848afaa21ec21f64ca3abd530e7df1b933909044dca5ddc23f45c');
+    expect(componentDigest).toBe('08d2175bc7893e5b90a1b889b657e719f8cb32fc79a5636a44df8eb11957a6a9');
     [
       '<GameDetailsScreen',
       '<MyGamesSection',
@@ -379,7 +379,7 @@ describe('Player identity and settings presentation contract', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const componentDigest = digest(settingsComponentNames.map((name) => findFunction(sources, name)));
 
-    expect(componentDigest).toBe('9734431411a32ce83dea7529a7d5f87a65dcc0e873221a099548252ecc7ce012');
+    expect(componentDigest).toBe('3718394e571c3ede0bd508357f609de193250a58efc80254729887a9d881c170');
   });
 
   it('preserves every identity/settings-owned and shared style value byte-for-byte', () => {

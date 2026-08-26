@@ -2,13 +2,13 @@
 
 Pushes and merges are integration events, not production releases. `.github/workflows/release.yml` is manual-only and separates candidate verification/packaging from promotion. Running or promoting that workflow is a production-facing action and requires separate authorization; this document does not grant it.
 
-## Solo-maintainer GitHub controls
+## Solo-maintainer GitHub contr1ols
 
 Orbit currently uses a sole-maintainer release model. The `production-release` environment records deployment history but intentionally has no required reviewer. Safety comes from immutable inputs, two separate manual dispatches, serialized release runs, a typed promotion confirmation, complete reproducible gates, checksums, attestations, and post-deployment observation.
 
 - Leave `promotion_confirmation` blank when `promote=false`.
 - When the reviewed candidate is ready, dispatch the same exact inputs with `promote=true` and type `PROMOTE` in `promotion_confirmation`.
-- Never run two desktop release candidates or promotions concurrently. Workflow concurrency serializes them rather than cancelling in-flight evidence.
+- Never run two desktop release candidates or promotions concurrently. Workflow concurrency serializ.es them rather than cancelling in-flight evidence.
 
 The GitHub release workflow currently creates unsigned Windows artifacts and does not require signing credentials. It explicitly disables certificate autodiscovery and Electron Builder's code-signing requirement for that workflow invocation, while retaining immutable-source validation, the complete code and production-smoke gates, SHA-256 checksums, GitHub artifact attestations, and explicit solo-maintainer promotion. Operators should expect Windows to identify these artifacts as coming from an unknown publisher until signing is introduced in a separately approved change.
 

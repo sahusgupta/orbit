@@ -7,12 +7,17 @@ import type {
   BackendStatus,
   SaveStatus,
   SettingsSection,
+  StaffAccountNotice,
   StaffDraft
 } from '../features/settings/settingsWorkspace';
+import { staffPinInputPattern } from '../application/management/staffSelection';
 const tableCaps = [6, 8, 10] as const satisfies readonly TableCap[];
+const isSelfCheckInErrorMessage = (message: string) =>
+  /could not|required|select and verify|reauthentication|unavailable|failed/i.test(message);
 
 type SettingsViewProps = {
   state: AppState;
+  activeStaffSelectionId: string;
   settingsSection: SettingsSection;
   clubDraft: ClubAccount;
   staffDraft: StaffDraft;
@@ -22,6 +27,7 @@ type SettingsViewProps = {
   backupMessage: string;
   reportMessage: string;
   selfCheckInKitMessage: string;
+  staffAccountNotice: StaffAccountNotice;
   closeRoute: () => void;
   applyReplacementPilotKey: (file?: File) => Promise<void>;
   saveClubAccount: (event: FormEvent) => void;
@@ -50,6 +56,7 @@ type SettingsViewProps = {
 
 export default function SettingsView({
   state,
+  activeStaffSelectionId,
   settingsSection,
   clubDraft,
   staffDraft,
@@ -59,6 +66,7 @@ export default function SettingsView({
   backupMessage,
   reportMessage,
   selfCheckInKitMessage,
+  staffAccountNotice,
   closeRoute,
   applyReplacementPilotKey,
   saveClubAccount,
@@ -165,7 +173,11 @@ export default function SettingsView({
                   Generate QR PDF
                 </button>
               </article>
-              {selfCheckInKitMessage ? <p className={selfCheckInKitMessage.includes('could not') || selfCheckInKitMessage.includes('required') ? 'access-error' : 'success-copy'}>{selfCheckInKitMessage}</p> : null}
+              {selfCheckInKitMessage ? (
+                <p className={isSelfCheckInErrorMessage(selfCheckInKitMessage) ? 'access-error' : 'success-copy'}>
+                  {selfCheckInKitMessage}
+                </p>
+              ) : null}
               <article className="preference-row membership-plan-heading">
                 <div><strong>Player memberships</strong><span>Create the plans published to Orbit Player. Purchases become club memberships and unlock game requests.</span></div>
                 <button className="secondary-button" type="button" onClick={() => updateSettings({ membershipPlans: [...state.settings.membershipPlans, { id: `plan-${Date.now()}`, name: 'New Membership', priceLabel: '$0', durationDays: 30, description: '', active: true }] })}><Plus size={16} /> Add plan</button>
@@ -197,7 +209,7 @@ export default function SettingsView({
                   <span>Select the staff account using this station tonight.</span>
                 </div>
                 <select
-                  value={state.settings.activeStaffId ?? ''}
+                  value={activeStaffSelectionId}
                   onChange={(event) => selectActiveStaff(event.target.value)}
                 >
                   <option value="">No operator selected</option>
@@ -211,12 +223,18 @@ export default function SettingsView({
               <form className="staff-account-form" onSubmit={addStaffAccount}>
                 <input
                   value={staffDraft.name}
-                  onChange={(event) => setStaffDraft({ ...staffDraft, name: event.target.value })}
+                  onChange={(event) => {
+                    const name = event.target.value;
+                    setStaffDraft((current) => ({ ...current, name }));
+                  }}
                   placeholder="Staff name"
                 />
                 <select
                   value={staffDraft.role}
-                  onChange={(event) => setStaffDraft({ ...staffDraft, role: event.target.value as StaffDraft['role'] })}
+                  onChange={(event) => {
+                    const role = event.target.value as StaffDraft['role'];
+                    setStaffDraft((current) => ({ ...current, role }));
+                  }}
                 >
                   <option value="Floor">Floor</option>
                   <option value="Manager">Manager</option>
@@ -224,15 +242,29 @@ export default function SettingsView({
                 </select>
                 <input
                   value={staffDraft.pin}
-                  onChange={(event) => setStaffDraft({ ...staffDraft, pin: event.target.value })}
+                  onChange={(event) => {
+                    const pin = event.target.value;
+                    setStaffDraft((current) => ({ ...current, pin }));
+                  }}
                   placeholder="PIN"
                   type="password"
                   inputMode="numeric"
+                  minLength={4}
+                  maxLength={12}
+                  pattern={staffPinInputPattern}
                 />
                 <button className="secondary-button" type="submit">
                   Add Staff
                 </button>
               </form>
+              {staffAccountNotice ? (
+                <p
+                  className={staffAccountNotice.kind === 'error' ? 'access-error' : 'success-copy'}
+                  role={staffAccountNotice.kind === 'error' ? 'alert' : 'status'}
+                >
+                  {staffAccountNotice.text}
+                </p>
+              ) : null}
               {state.settings.staffAccounts.length ? (
                 <div className="staff-account-list">
                   {state.settings.staffAccounts.map((staff) => (

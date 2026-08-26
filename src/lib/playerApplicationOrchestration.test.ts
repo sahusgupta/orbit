@@ -111,17 +111,21 @@ describe('Player storage and lifecycle orchestration contract', () => {
 
   it('preserves auth/identity, premium, profile, live-club, private-game, and tournament lifecycles', () => {
     const sources = parseSources();
+    const profileHydrationEffect = findUseEffectContaining(sources, 'fetchPlayerProfile()');
+    const liveClubEffect = findUseEffectContaining(sources, 'subscribeToAllClubSnapshots');
     const lifecycleDigest = digest([
       findUseEffectContaining(sources, 'onFirebasePlayerChanged'),
       findUseEffectContaining(sources, 'fetchPlayerIdentityStatus(forceTokenRefresh)'),
       findUseEffectContaining(sources, 'configureApplePurchases'),
       findUseEffectContaining(sources, 'savePlayerProfile(player)'),
-      findUseEffectContaining(sources, 'fetchPlayerProfile()'),
-      findUseEffectContaining(sources, 'subscribeToAllClubSnapshots'),
+      profileHydrationEffect,
+      liveClubEffect,
       findUseEffectContaining(sources, 'subscribeToPrivateGameListings'),
       findUseEffectContaining(sources, 'subscribeToPlayerTournaments')
     ]);
 
-    expect(lifecycleDigest).toBe('71ad8229cde6ca9f81caf1300c20061b9ae26df03e6452d576fa07d456e67dba');
+    expect(profileHydrationEffect).not.toContain("setScreen('findGames')");
+    expect(liveClubEffect).toContain('setLiveDataPartial(result.partial === true)');
+    expect(lifecycleDigest).toBe('910d86479abe0112a3a40a3794612f40ec454ff58e01144d2e952eb545187463');
   });
 });

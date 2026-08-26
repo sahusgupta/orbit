@@ -12,27 +12,34 @@ type ManagementSaveStatus =
   | { state: 'error'; message: string };
 
 type ManagementStartupSyncOptions = {
+  getCurrentState: () => AppState;
   hasAuthenticated: boolean;
   setHasAuthenticated: Dispatch<SetStateAction<boolean>>;
   setSaveStatus: (status: ManagementSaveStatus) => void;
   setState: Dispatch<SetStateAction<AppState>>;
   setUndoStack: Dispatch<SetStateAction<AppState[]>>;
-  state: AppState;
 };
 
 export const useManagementStartupSync = ({
+  getCurrentState,
   hasAuthenticated,
   setHasAuthenticated,
   setSaveStatus,
   setState,
-  setUndoStack,
-  state: _state
+  setUndoStack
 }: ManagementStartupSyncOptions) => {
   useEffect(() => {
     // Browser state initializes the shell while the trusted desktop boundary
     // loads authoritative server state or its explicitly labelled offline cache.
+    const stateWhenLoadStarted = getCurrentState();
     loadDesktopManagementState()?.then(async (record) => {
       if (record?.state) {
+        if (getCurrentState() !== stateWhenLoadStarted) {
+          console.info('[management-startup-sync] skipped stale hydration', {
+            reason: 'state-changed-during-load'
+          });
+          return;
+        }
         const next = normalizeState(record.state);
         setUndoStack([]);
         setState(next);

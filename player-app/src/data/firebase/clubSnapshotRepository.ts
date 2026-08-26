@@ -17,6 +17,62 @@ import { fetchPublicPlayerDiscovery, fetchRemotePlayerDiscovery } from '../api/p
 import type { SyncResult } from '../playerDataContracts';
 import { auth, db } from './firebaseClient';
 
+const discoveryPageSize = 50;
+const maximumDiscoveryPages = 20;
+type DiscoveryPageFetcher = typeof fetchRemotePlayerDiscovery;
+
+async function fetchDiscoveryCatalog(
+  fetchPage: DiscoveryPageFetcher,
+  player: Pick<PlayerAccount, 'id' | 'name'>
+) {
+  let clubs: PlayerClubSnapshot[] = [];
+  let cursor = '';
+  let databaseQueries = 0;
+  let hasDatabaseQueryCount = false;
+  const seenCursors = new Set<string>();
+
+  const createCatalog = (hasMore: boolean, nextCursor: string | null) => ({
+    clubs,
+    page: {
+      count: clubs.length,
+      hasMore,
+      nextCursor,
+      databaseQueries: hasDatabaseQueryCount ? databaseQueries : undefined
+    }
+  });
+
+  for (let pageIndex = 0; pageIndex < maximumDiscoveryPages; pageIndex += 1) {
+    let result: Awaited<ReturnType<DiscoveryPageFetcher>>;
+    try {
+      result = await fetchPage(cursor, discoveryPageSize);
+    } catch (error) {
+      if (!clubs.length) throw error;
+      return createCatalog(true, cursor || null);
+    }
+    clubs = mergeSnapshotSources(
+      clubs,
+      result.clubs.map((snapshot) => filterSnapshotForPlayer(snapshot, player))
+    );
+    if (typeof result.page.databaseQueries === 'number') {
+      databaseQueries += result.page.databaseQueries;
+      hasDatabaseQueryCount = true;
+    }
+    if (!result.page.hasMore) {
+      return createCatalog(false, null);
+    }
+
+    const nextCursor = result.page.nextCursor?.trim() ?? '';
+    if (!nextCursor || nextCursor === cursor || seenCursors.has(nextCursor)) {
+      if (!clubs.length) throw new Error('Orbit Player discovery returned an invalid cursor.');
+      return createCatalog(true, null);
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+
+  return createCatalog(true, cursor || null);
+}
+
 export async function fetchClubSnapshot(player: Pick<PlayerAccount, 'id' | 'name'>, accountKey?: string): Promise<SyncResult> {
   try {
     const record = accountKey ? await getClubState(accountKey) : await getFirstClubState();
@@ -54,10 +110,10 @@ export async function fetchClubSnapshots(player: Pick<PlayerAccount, 'id' | 'nam
 export async function fetchAllClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>) {
   const [localAttempt, discoveryAttempt] = await Promise.allSettled([
     fetchLocalClubSnapshot(player),
-    auth.currentUser ? fetchRemotePlayerDiscovery() : fetchPublicPlayerDiscovery()
+    fetchDiscoveryCatalog(auth.currentUser ? fetchRemotePlayerDiscovery : fetchPublicPlayerDiscovery, player)
   ]);
   const localResult = localAttempt.status === 'fulfilled' ? localAttempt.value : { ok: false as const, error: 'Local bridge unavailable.' };
-  const localClubs = localResult.ok ? [localResult.snapshot] : [];
+  const localClubs = localResult.ok ? [filterSnapshotForPlayer(localResult.snapshot, player)] : [];
   if (discoveryAttempt.status === 'fulfilled') {
     return {
       ok: true as const,
@@ -67,7 +123,7 @@ export async function fetchAllClubSnapshots(player: Pick<PlayerAccount, 'id' | '
   }
   if (auth.currentUser) {
     try {
-      const publicDiscovery = await fetchPublicPlayerDiscovery();
+      const publicDiscovery = await fetchDiscoveryCatalog(fetchPublicPlayerDiscovery, player);
       return {
         ok: true as const,
         clubs: mergeSnapshotSources(publicDiscovery.clubs, localClubs),
