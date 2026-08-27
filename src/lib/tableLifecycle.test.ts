@@ -26,6 +26,7 @@ type CapturedState = Record<string, unknown> & {
 type LifecycleFixtures = {
   correctionLog?: IdentifiedRecord[];
   dealerAssignments?: IdentifiedRecord[];
+  playerLedger?: IdentifiedRecord[];
   playerSessions?: IdentifiedRecord[];
   sessions?: IdentifiedRecord[];
   tableEvents?: IdentifiedRecord[];
@@ -325,6 +326,7 @@ const replaceCapturedState = async (session: Session, fixtures: LifecycleFixture
           structuredClone(closedTargetDealer),
           structuredClone(otherTableDealer)
         ],
+        playerLedger: fixtures.playerLedger ?? [],
         playerSessions: fixtures.playerSessions ?? [
           structuredClone(openTargetPlayerSession),
           structuredClone(closedTargetPlayerSession),
@@ -357,6 +359,7 @@ const invokeLifecycleFunction = async (session: Session, bindingName: string, ar
       objectId: functionObjectId,
       functionDeclaration: 'function () { return this.apply(undefined, arguments); }',
       arguments: args.map((value) => ({ value })),
+      awaitPromise: true,
       returnByValue: true
     });
   });
@@ -488,7 +491,14 @@ describe('table lifecycle transitions', () => {
         }
       })
     );
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) =>
+      init?.method === 'POST'
+        ? new Response(JSON.stringify({ ok: true, revision: 1 }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          })
+        : new Response(null, { status: 404 })
+    ));
     inspectorSession.connect();
     await inspectorSession.post('Debugger.enable');
     await act(async () => {
@@ -821,6 +831,7 @@ describe('table lifecycle transitions', () => {
     expect(getRecord(nextState.sessions, runningTarget.id)).toEqual({
       ...runningTarget,
       status: 'Closed',
+      seatsFilled: 0,
       endedAt: now
     });
     expect(nextState.sessions[1]).toBe(previousState.sessions[1]);
@@ -831,7 +842,8 @@ describe('table lifecycle transitions', () => {
     ]);
     expect(getRecord(nextState.playerSessions, openTargetPlayerSession.id)).toEqual({
       ...openTargetPlayerSession,
-      leftAt: now
+      leftAt: now,
+      manualEdits: { seatNumber: '2026-08-07T19:05:00.000Z', leftAt: now }
     });
     expect(nextState.playerSessions[1]).toBe(previousState.playerSessions[1]);
     expect(nextState.playerSessions[2]).toBe(previousState.playerSessions[2]);
@@ -855,11 +867,24 @@ describe('table lifecycle transitions', () => {
       }
     ]);
     expect(nextState.correctionLog).toEqual([existingCorrection]);
+    expect(nextState.playerLedger).toEqual([
+      {
+        id: expect.any(String),
+        type: 'Cash-Out',
+        profileId: openTargetPlayerSession.profileId,
+        playerName: openTargetPlayerSession.playerName,
+        tableId: runningTarget.id,
+        gameId: game.id,
+        timestamp: now,
+        note: 'Table closed by staff'
+      }
+    ]);
     expectRecordedEventUsage(nextState, 'Closed', 'Staff closed table');
     const persisted = getPersistedState();
     expect(persisted.sessions).toEqual(nextState.sessions);
     expect(persisted.playerSessions).toEqual(nextState.playerSessions);
     expect(persisted.dealerAssignments).toEqual(nextState.dealerAssignments);
+    expect(persisted.playerLedger).toEqual(nextState.playerLedger);
     expect(persisted.tableEvents).toEqual(nextState.tableEvents);
   });
 
@@ -882,11 +907,13 @@ describe('table lifecycle transitions', () => {
     expectPreviousStateUnchanged(previousState, previousSnapshot);
     expect(getRecord(nextState.sessions, alreadyEndedRunningTarget.id)).toEqual({
       ...alreadyEndedRunningTarget,
-      status: 'Closed'
+      status: 'Closed',
+      seatsFilled: 0
     });
     expect(getRecord(nextState.playerSessions, openTargetPlayerSession.id)).toEqual({
       ...openTargetPlayerSession,
-      leftAt: now
+      leftAt: now,
+      manualEdits: { seatNumber: '2026-08-07T19:05:00.000Z', leftAt: now }
     });
     expect(nextState.playerSessions[1]).toBe(previousState.playerSessions[1]);
     expect(nextState.playerSessions[2]).toBe(previousState.playerSessions[2]);
@@ -908,7 +935,20 @@ describe('table lifecycle transitions', () => {
       }
     ]);
     expectRecordedEventUsage(nextState, 'Broke', 'Short game');
+    expect(nextState.playerLedger).toEqual([
+      {
+        id: expect.any(String),
+        type: 'Cash-Out',
+        profileId: openTargetPlayerSession.profileId,
+        playerName: openTargetPlayerSession.playerName,
+        tableId: alreadyEndedRunningTarget.id,
+        gameId: game.id,
+        timestamp: now,
+        note: 'Table broke; player session closed by staff'
+      }
+    ]);
     expect(getPersistedState().playerSessions).toEqual(nextState.playerSessions);
+    expect(getPersistedState().playerLedger).toEqual(nextState.playerLedger);
   });
 
   it('records Failed to Start by ending the table and open dealer without changing player sessions', async () => {

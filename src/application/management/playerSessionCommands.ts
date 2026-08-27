@@ -307,18 +307,31 @@ export function markInterestPlayerLeft(
   interest: Interest,
   dependencies: Pick<PlayerSessionCommandDependencies, 'nowIso'>
 ) {
-  const openSession = state.playerSessions.find(
-    (session) => session.playerName === interest.playerName && session.gameId === interest.gameId && !session.leftAt
+  const hasProfileId = interest.profileId !== undefined;
+  const normalizedPlayerName = interest.playerName.trim().toLowerCase();
+  const activeGameSessions = state.playerSessions.filter(
+    (session) => session.gameId === interest.gameId && !session.leftAt
   );
+  const fallbackNameMatches = hasProfileId
+    ? []
+    : activeGameSessions.filter(
+        (session) => session.playerName.trim().toLowerCase() === normalizedPlayerName
+      );
+  const openSession = hasProfileId
+    ? activeGameSessions.find((session) => session.profileId === interest.profileId)
+    : fallbackNameMatches.length === 1
+      ? fallbackNameMatches[0]
+      : undefined;
+  const timestamp = dependencies.nowIso();
   const nextState: AppState = {
     ...state,
     interests: state.interests.map((item) =>
       item.id === interest.id
-        ? { ...item, status: 'Removed', closedAt: dependencies.nowIso(), timestamp: dependencies.nowIso() }
+        ? { ...item, status: 'Removed', closedAt: timestamp, timestamp }
         : item
     ),
     playerSessions: state.playerSessions.map((session) =>
-      session.id === openSession?.id ? { ...session, leftAt: dependencies.nowIso() } : session
+      session.id === openSession?.id ? { ...session, leftAt: timestamp } : session
     )
   };
   return {

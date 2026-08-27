@@ -265,6 +265,54 @@ describe('management player-session commands', () => {
     expect(source).toEqual(snapshot);
   });
 
+  it('uses the authoritative profile relationship when an interest and seated-session name differ', () => {
+    const renamedInterest = { ...interest, playerName: 'Prior Display Name' };
+    const source = state({ interests: [renamedInterest] });
+
+    const result = markInterestPlayerLeft(source, renamedInterest, dependencies());
+
+    expect(result.state.interests[0]).toMatchObject({ status: 'Removed', closedAt: now });
+    expect(result.state.playerSessions[0]).toMatchObject({ id: playerSession.id, leftAt: now });
+    expect(result.state.playerSessions[1]).toBe(source.playerSessions[1]);
+  });
+
+  it('never falls back by name when a profile-linked interest has no matching active session', () => {
+    const linkedInterest = { ...interest, profileId: 'profile-missing' };
+    const sameNameSession = { ...playerSession, profileId: 'profile-other' };
+    const source = state({ interests: [linkedInterest], playerSessions: [sameNameSession, peerSession] });
+
+    const result = markInterestPlayerLeft(source, linkedInterest, dependencies());
+
+    expect(result.state.interests[0]).toMatchObject({ status: 'Removed', closedAt: now });
+    expect(result.state.playerSessions[0]).toBe(source.playerSessions[0]);
+    expect(result.state.playerSessions[1]).toBe(source.playerSessions[1]);
+    expect(result.notification).toBeNull();
+  });
+
+  it('uses legacy name matching only when exactly one active session matches the game', () => {
+    const { profileId: _profileId, ...legacyInterest } = interest;
+    const uniqueSource = state({ interests: [legacyInterest] });
+    const uniqueResult = markInterestPlayerLeft(uniqueSource, legacyInterest, dependencies());
+    const duplicateSession = {
+      ...playerSession,
+      id: 'session-duplicate-name',
+      profileId: 'profile-duplicate-name',
+      seatNumber: 3
+    };
+    const ambiguousSource = state({
+      interests: [legacyInterest],
+      playerSessions: [playerSession, peerSession, duplicateSession]
+    });
+
+    const ambiguousResult = markInterestPlayerLeft(ambiguousSource, legacyInterest, dependencies());
+
+    expect(uniqueResult.state.playerSessions[0]).toMatchObject({ leftAt: now });
+    expect(uniqueResult.notification).toEqual({ gameId: game.id, reason: 'seat-opened' });
+    expect(ambiguousResult.state.playerSessions[0]).toBe(ambiguousSource.playerSessions[0]);
+    expect(ambiguousResult.state.playerSessions[2]).toBe(ambiguousSource.playerSessions[2]);
+    expect(ambiguousResult.notification).toBeNull();
+  });
+
   it('distinguishes an omitted cash-out amount from an explicitly recorded zero', () => {
     const omitted = markPlayerSessionLeft(state(), playerSession, undefined, '', dependencies());
     const zero = markPlayerSessionLeft(state(), playerSession, 0, '', dependencies());

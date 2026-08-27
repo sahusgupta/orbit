@@ -310,6 +310,7 @@ const invokeCapturedFunction = async (session: Session, globalName: string, args
   await act(async () => {
     const called = await session.post('Runtime.evaluate', {
       expression: `globalThis.${globalName}(...${serializedArgs})`,
+      awaitPromise: true,
       returnByValue: true
     });
     result = called.result.value;
@@ -541,7 +542,14 @@ describe('player table transitions', () => {
         }
       })
     );
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) =>
+      init?.method === 'POST'
+        ? new Response(JSON.stringify({ ok: true, revision: 1 }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          })
+        : new Response(null, { status: 404 })
+    ));
     vi.spyOn(window, 'alert').mockImplementation(() => undefined);
     inspectorSession.connect();
     await inspectorSession.post('Debugger.enable');
@@ -888,7 +896,7 @@ describe('player table transitions', () => {
     expect(persisted.inAppNotifications).toEqual(nextState.inAppNotifications);
   });
 
-  it('still removes the selected interest when no exact open player session exists', async () => {
+  it('removes the selected interest and closes its unique case-insensitive open session match', async () => {
     const targetInterest: IdentifiedRecord = {
       id: 'interest-without-session',
       playerName,
@@ -936,8 +944,9 @@ describe('player table transitions', () => {
       closedAt: now,
       timestamp: now
     });
-    nextState.playerSessions.forEach((session, index) => expect(session).toBe(previousState.playerSessions[index]));
-    nextState.sessions.forEach((session, index) => expect(session).toBe(previousState.sessions[index]));
+    expect(nextState.playerSessions[0]).toBe(previousState.playerSessions[0]);
+    expect(nextState.playerSessions[1]).toEqual({ ...caseDifferentSession, leftAt: now });
+    expect(nextState.sessions).toEqual([{ ...table, seatsFilled: 0 }]);
     nextState.profiles.forEach((profile, index) => expect(profile).toBe(previousState.profiles[index]));
     expect(nextState.playerLedger).toEqual([existingLedger]);
     expect(nextState.inAppNotifications).toEqual([existingNotification]);

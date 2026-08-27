@@ -224,18 +224,18 @@ describe('settings route rendering', () => {
 
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
     expect(dialog?.textContent).toContain('Verify Settings Manager');
-    expect(document.querySelector('.command-overlay')).toBeNull();
-    expect(document.body.style.pointerEvents).not.toBe('none');
+    expect(document.querySelector('.command-overlay')).not.toBeNull();
+
+    const verificationPin = dialog?.querySelector<HTMLInputElement>('input[name="staff-pin"]');
+    expect(verificationPin).not.toBeNull();
+    await act(async () => {
+      setInputValue(verificationPin!, '4821');
+      await Promise.resolve();
+    });
+    expect(verificationPin!.value).toBe('4821');
 
     const staffName = document.querySelector<HTMLInputElement>('.staff-account-form input[placeholder="Staff name"]');
     expect(staffName).not.toBeNull();
-    await act(async () => {
-      staffName!.focus();
-      setInputValue(staffName!, 'Still editable');
-      await Promise.resolve();
-    });
-    expect(document.activeElement).toBe(staffName);
-    expect(staffName!.value).toBe('Still editable');
 
     const cancelButton = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
       (button) => button.textContent === 'Cancel'
@@ -251,6 +251,14 @@ describe('settings route rendering', () => {
     expect(document.body.style.pointerEvents).not.toBe('none');
     expect(staffSelect!.value).toBe('');
     expect(desktop.verifyStaffPin).not.toHaveBeenCalled();
+
+    await act(async () => {
+      staffName!.focus();
+      setInputValue(staffName!, 'Still editable');
+      await Promise.resolve();
+    });
+    expect(document.activeElement).toBe(staffName);
+    expect(staffName!.value).toBe('Still editable');
 
     await act(async () => {
       setInputValue(staffName!, '');

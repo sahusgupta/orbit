@@ -53,6 +53,7 @@ function createApp() {
   app.use('/player/auth', createRateLimit({ name: 'player-auth', maximum: 10, windowMs: 15 * 60_000 }));
   app.use('/player/identity', createRateLimit({ name: 'player-identity', maximum: 30, windowMs: 15 * 60_000 }));
   app.use('/player', createRateLimit({ name: 'player-mutation', maximum: 120, windowMs: 60_000 }));
+  app.use('/player/check-in/context', createRateLimit({ name: 'self-check-in-context', identity: 'address', maximum: 120, windowMs: 10 * 60_000 }));
   app.use('/player/check-in/lookup', createRateLimit({ name: 'self-check-in-lookup', identity: 'address', maximum: 120, windowMs: 10 * 60_000 }));
   app.use('/player/check-in/seat', createRateLimit({ name: 'self-check-in-seat', identity: 'address', maximum: 120, windowMs: 10 * 60_000 }));
   app.use('/management/self-check-in', createRateLimit({ name: 'self-check-in-issuer', maximum: 10, windowMs: 15 * 60_000 }));

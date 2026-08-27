@@ -352,6 +352,56 @@ function createSelfCheckInHandlers(dependencies = {}) {
     });
   }
 
+  async function getClubContext(request, response) {
+    setPrivateResponseHeaders(response);
+    if (!requireJsonBody(request, response, [])) return;
+    let security;
+    try {
+      security = getSecurity(dependencies);
+    } catch {
+      response.status(503).json({ ok: false, code: 'SELF_CHECK_IN_NOT_CONFIGURED', error: 'Club self-check-in is unavailable.' });
+      return;
+    }
+    const capabilityToken = readBoundedHeader(request, checkInTokenHeader);
+    const unboundCapability = security.verifyClubCapability(capabilityToken);
+    if (!unboundCapability.ok) {
+      sendTokenError(response, unboundCapability);
+      return;
+    }
+    const readState = dependencies.loadState || loadState;
+    const record = await readState(unboundCapability.value.clubId);
+    if (!record?.state) {
+      response.status(404).json({ ok: false, code: 'CLUB_NOT_FOUND', error: 'This club is not available.' });
+      return;
+    }
+    const capability = security.verifyClubCapability(capabilityToken, {
+      expectedGeneration: record.state.selfCheckIn?.capabilityGeneration
+    });
+    if (!capability.ok || !record.state.selfCheckIn?.capabilityGeneration) {
+      sendTokenError(response, capability.ok ? { code: 'revoked' } : capability);
+      return;
+    }
+    const license = await verifyActiveClubLicense(
+      record.state,
+      capability.value.clubId,
+      dependencies,
+      dependencies.nowMs ? dependencies.nowMs() : Date.now()
+    );
+    if (!license.ok) {
+      sendLicenseError(response, license);
+      return;
+    }
+    if (capability.value.issuedAt < license.updatedAtMs) {
+      sendTokenError(response, { code: 'revoked' });
+      return;
+    }
+    response.json({
+      ok: true,
+      status: 'ready',
+      clubName: getClubName(record.state)
+    });
+  }
+
   async function lookupPlayer(request, response) {
     setPrivateResponseHeaders(response);
     if (!requireJsonBody(request, response, ['name', 'mutationId'])) return;
@@ -667,7 +717,7 @@ function createSelfCheckInHandlers(dependencies = {}) {
     });
   }
 
-  return { issueClubKit, lookupPlayer, seatPlayer };
+  return { getClubContext, issueClubKit, lookupPlayer, seatPlayer };
 }
 
 function registerSelfCheckInRoutes(app, dependencies = {}) {
@@ -685,6 +735,7 @@ function registerSelfCheckInRoutes(app, dependencies = {}) {
     response.sendFile(path.join(publicDirectory, 'self-check-in.js'));
   });
   app.post('/management/self-check-in/qr', requireClientAuth, requireSelfCheckInIssuer, asyncRoute(handlers.issueClubKit));
+  app.post('/player/check-in/context', asyncRoute(handlers.getClubContext));
   app.post('/player/check-in/lookup', asyncRoute(handlers.lookupPlayer));
   app.post('/player/check-in/seat', asyncRoute(handlers.seatPlayer));
 }

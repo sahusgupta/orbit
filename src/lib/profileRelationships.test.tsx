@@ -4,6 +4,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { act } from 'react';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AppState, PersistedStateRecord } from '../domain/types';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -25,7 +26,14 @@ type CapturedState = Record<string, unknown> & {
 
 const harness = vi.hoisted(() => ({
   latestState: undefined as unknown,
+  loadStateForAccount: vi.fn<() => Promise<PersistedStateRecord | null>>(async () => null),
   root: undefined as { unmount: () => void } | undefined,
+  saveState: vi.fn<(state: AppState) => Promise<{
+    ok: boolean;
+    path: string;
+    conflict?: boolean;
+    error?: string;
+  }>>(async () => ({ ok: true, path: 'fixture' })),
   stateSetter: undefined as unknown
 }));
 
@@ -175,8 +183,7 @@ const getReactClickHandler = (element: Element) => {
 const click = async (element: Element) => {
   const handler = getReactClickHandler(element);
   await act(async () => {
-    handler();
-    await Promise.resolve();
+    await handler();
   });
 };
 
@@ -276,10 +283,13 @@ const resetState = async ({
   });
 };
 
-const expectProfileInClub = (index: number, expected: boolean) => {
+const expectProfileStatus = (
+  index: number,
+  expectedStatus: 'Seated' | 'In club' | 'Not checked in'
+) => {
   const card = getProfileCard(index);
-  expect(card.querySelector('.status-pill')?.textContent?.trim()).toBe(expected ? 'In club' : undefined);
-  expect(getProfileAction(card, expected ? 'Remove' : 'Check in')).toBeTruthy();
+  expect(card.querySelector('.status-pill')?.textContent?.trim()).toBe(expectedStatus);
+  expect(getProfileAction(card, expectedStatus === 'Not checked in' ? 'Check in' : 'Check out')).toBeTruthy();
 };
 
 describe('profile relationship mutations', () => {
@@ -305,13 +315,13 @@ describe('profile relationship mutations', () => {
     Reflect.set(window, 'tableManagerDesktop', {
       getBackendStatus: vi.fn(async () => ({ mode: 'local' })),
       loadState: vi.fn(async () => null),
-      loadStateForAccount: vi.fn(async () => null),
+      loadStateForAccount: harness.loadStateForAccount,
       onPrepareForUpdate: vi.fn(() => () => undefined),
       openWindow: vi.fn(async () => undefined),
       preserveStateForUpdate: vi.fn(async () => ({ ok: true })),
       recordClientError: vi.fn(async () => ({ ok: true })),
       recordClientEvent: vi.fn(async () => ({ ok: true })),
-      saveState: vi.fn(async () => ({ ok: true, path: 'fixture' })),
+      saveState: harness.saveState,
       sendTextMessages: vi.fn(async () => ({ ok: true })),
       submitAnalyticalReport: vi.fn(async () => ({ ok: true })),
       validatePilotAccess: vi.fn(async () => ({ ok: true, managed: false, active: true }))
@@ -326,6 +336,8 @@ describe('profile relationship mutations', () => {
 
   beforeEach(() => {
     vi.mocked(globalThis.confirm).mockClear();
+    harness.loadStateForAccount.mockReset().mockResolvedValue(null);
+    harness.saveState.mockReset().mockResolvedValue({ ok: true, path: 'fixture' });
   });
 
   afterAll(() => {
@@ -512,12 +524,14 @@ describe('profile relationship mutations', () => {
     const authoritative = buildInterest('interest-authoritative', nameMatch.name as string, target.id);
     await resetState({ profiles: [target, nameMatch], interests: [authoritative] });
 
-    expectProfileInClub(0, true);
-    expectProfileInClub(1, false);
-    await click(getProfileAction(getProfileCard(0), 'Remove'));
+    expectProfileStatus(0, 'In club');
+    expectProfileStatus(1, 'Not checked in');
+    await click(getProfileAction(getProfileCard(0), 'Check out'));
 
-    expect(getLatestState().interests).toEqual([]);
-    expect(getPersistedState().interests).toEqual([]);
+    expect(getLatestState().interests).toEqual([
+      { ...authoritative, status: 'Removed', closedAt: now, timestamp: now }
+    ]);
+    expect(getPersistedState().interests).toEqual(getLatestState().interests);
   });
 
   it('preserves an unresolved authoritative profile ID without falling back by name', async () => {
@@ -526,7 +540,7 @@ describe('profile relationship mutations', () => {
     await resetState({ profiles: [target], interests: [broken] });
     const previousState = getLatestState();
 
-    expectProfileInClub(0, false);
+    expectProfileStatus(0, 'Not checked in');
     await click(getProfileAction(getProfileCard(0), 'Check in'));
 
     expect(getLatestState().interests).toEqual([
@@ -542,11 +556,414 @@ describe('profile relationship mutations', () => {
     const unlinked = buildInterest('interest-unlinked', '  UNIQUE PLAYER  ');
     await resetState({ profiles: [target], interests: [unlinked] });
 
-    expectProfileInClub(0, true);
-    await click(getProfileAction(getProfileCard(0), 'Remove'));
+    expectProfileStatus(0, 'In club');
+    await click(getProfileAction(getProfileCard(0), 'Check out'));
 
-    expect(getLatestState().interests).toEqual([]);
-    expect(getPersistedState().interests).toEqual([]);
+    expect(getLatestState().interests).toEqual([
+      { ...unlinked, status: 'Removed', closedAt: now, timestamp: now }
+    ]);
+    expect(getPersistedState().interests).toEqual(getLatestState().interests);
+  });
+
+  it('treats an active player session as checked in even when its interest is missing', async () => {
+    const target = buildProfile('profile-target', 'Session Only Player');
+    const activeSession: IdentifiedRecord = {
+      id: 'player-session-active',
+      profileId: target.id,
+      playerName: target.name,
+      gameId: games[0].id,
+      tableId: 'table-active',
+      seatNumber: 3,
+      seatedAt: '2026-08-07T20:00:00.000Z'
+    };
+    await resetState({ profiles: [target], playerSessions: [activeSession] });
+
+    expectProfileStatus(0, 'Seated');
+    await click(getProfileAction(getProfileCard(0), 'Check out'));
+
+    const nextState = getLatestState();
+    expect(nextState.playerSessions).toEqual([
+      expect.objectContaining({ ...activeSession, leftAt: now })
+    ]);
+    expect(nextState.playerLedger[0]).toMatchObject({
+      type: 'Cash-Out',
+      profileId: target.id,
+      playerName: target.name,
+      timestamp: now,
+      note: 'Checked out from the player directory'
+    });
+    expect(nextState.profiles[0]).toMatchObject({
+      id: target.id,
+      totalTimePlayedHours: 12,
+      lastSessionTimePlayedHours: 2
+    });
+    expectProfileStatus(0, 'Not checked in');
+    expect(getPersistedState().playerSessions).toEqual(nextState.playerSessions);
+    expect(getPersistedState().playerLedger).toEqual(nextState.playerLedger);
+  });
+
+  it('reapplies checkout to a player seated by QR during a revision conflict', async () => {
+    const target = buildProfile('profile-target', 'Concurrent QR Player');
+    const arrived = buildInterest('interest-arrived', target.name as string, target.id);
+    await resetState({ profiles: [target], interests: [arrived] });
+    const initialState = getLatestState() as unknown as AppState;
+    const authoritativeState: AppState = {
+      ...initialState,
+      interests: initialState.interests.map((interest) =>
+        interest.id === arrived.id ? { ...interest, status: 'Seated' as const } : interest
+      ),
+      playerSessions: [
+        {
+          id: 'qr-player-session',
+          profileId: target.id,
+          playerName: target.name as string,
+          gameId: games[0].id,
+          tableId: 'table-qr',
+          seatNumber: 5,
+          seatedAt: '2026-08-07T21:30:00.000Z'
+        }
+      ]
+    };
+    harness.saveState
+      .mockResolvedValueOnce({
+        ok: false,
+        path: 'fixture',
+        conflict: true,
+        error: 'revision conflict'
+      })
+      .mockResolvedValue({ ok: true, path: 'fixture' });
+    harness.loadStateForAccount.mockResolvedValueOnce({
+      schemaVersion: 5,
+      savedAt: now,
+      state: authoritativeState,
+      revision: 2,
+      authoritative: true,
+      source: 'api'
+    });
+
+    await click(getProfileAction(getProfileCard(0), 'Check out'));
+
+    const nextState = getLatestState();
+    expect(harness.saveState).toHaveBeenCalledTimes(2);
+    expect(harness.loadStateForAccount).toHaveBeenCalledOnce();
+    expect(nextState.playerSessions).toEqual([
+      expect.objectContaining({ id: 'qr-player-session', leftAt: now })
+    ]);
+    expect(nextState.interests).toEqual([
+      expect.objectContaining({ id: arrived.id, status: 'Removed', closedAt: now })
+    ]);
+    expect(nextState.playerLedger[0]).toMatchObject({
+      type: 'Cash-Out',
+      profileId: target.id,
+      note: 'Checked out from the player directory'
+    });
+    expectProfileStatus(0, 'Not checked in');
+  });
+
+  it('does not overwrite a newer profile edit when checkout saving finishes later', async () => {
+    const target = buildProfile('profile-target', 'Concurrent Local Edit');
+    const seatedInterest = {
+      ...buildInterest('interest-seated', target.name as string, target.id),
+      status: 'Seated'
+    };
+    const activeSession: IdentifiedRecord = {
+      id: 'player-session-concurrent-edit',
+      profileId: target.id,
+      playerName: target.name,
+      gameId: games[0].id,
+      tableId: 'table-active',
+      seatNumber: 2,
+      seatedAt: '2026-08-07T21:00:00.000Z'
+    };
+    await resetState({
+      profiles: [target],
+      interests: [seatedInterest],
+      playerSessions: [activeSession]
+    });
+
+    type SaveResult = { ok: boolean; path: string; conflict?: boolean; error?: string };
+    let resolveCheckoutSave: ((result: SaveResult) => void) | undefined;
+    const checkoutSave = new Promise<SaveResult>((resolve) => {
+      resolveCheckoutSave = resolve;
+    });
+    harness.saveState
+      .mockImplementationOnce(() => checkoutSave)
+      .mockResolvedValue({ ok: true, path: 'fixture' });
+
+    const checkoutHandler = getReactClickHandler(getProfileAction(getProfileCard(0), 'Check out'));
+    let checkoutPromise: Promise<unknown> | undefined;
+    await act(async () => {
+      checkoutPromise = Promise.resolve(checkoutHandler());
+      await Promise.resolve();
+    });
+
+    await click(getProfileAction(getProfileCard(0), 'Edit'));
+    const editForm = getProfileCard(0).querySelector('.profile-edit-form');
+    const phoneInput = editForm?.querySelector('input[placeholder="Phone"]');
+    if (!editForm || !phoneInput) throw new Error('Expected the profile edit form and phone input');
+    await changeInput(phoneInput, '555-0109');
+    await submitForm(editForm);
+    expect((getLatestState().profiles[0] as IdentifiedRecord).phone).toBe('555-0109');
+
+    await act(async () => {
+      resolveCheckoutSave?.({ ok: true, path: 'fixture' });
+      await checkoutPromise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const nextState = getLatestState();
+    expect(harness.saveState).toHaveBeenCalledTimes(2);
+    expect((nextState.profiles[0] as IdentifiedRecord).phone).toBe('555-0109');
+    expect(nextState.playerSessions).toEqual([
+      expect.objectContaining({ id: activeSession.id, leftAt: now })
+    ]);
+  });
+
+  it('reports success when a newer queued save authoritatively carries the checkout', async () => {
+    const target = buildProfile('profile-target', 'Queued Save Player');
+    const seatedInterest = {
+      ...buildInterest('interest-queued-save', target.name as string, target.id),
+      status: 'Seated'
+    };
+    const activeSession: IdentifiedRecord = {
+      id: 'player-session-queued-save',
+      profileId: target.id,
+      playerName: target.name,
+      gameId: games[0].id,
+      tableId: 'table-active',
+      seatNumber: 4,
+      seatedAt: '2026-08-07T21:00:00.000Z'
+    };
+    await resetState({ profiles: [target], interests: [seatedInterest], playerSessions: [activeSession] });
+
+    type SaveResult = { ok: boolean; path: string; conflict?: boolean; error?: string };
+    let resolveCheckoutSave: ((result: SaveResult) => void) | undefined;
+    const checkoutSave = new Promise<SaveResult>((resolve) => {
+      resolveCheckoutSave = resolve;
+    });
+    harness.saveState
+      .mockImplementationOnce(() => checkoutSave)
+      .mockResolvedValue({ ok: true, path: 'fixture' });
+    harness.loadStateForAccount.mockImplementation(async () => {
+      const queuedState = harness.saveState.mock.calls.at(-1)?.[0];
+      if (!queuedState) throw new Error('Expected the newer queued save state');
+      return {
+        schemaVersion: 5,
+        savedAt: now,
+        state: queuedState,
+        revision: 5,
+        authoritative: true,
+        source: 'api'
+      };
+    });
+
+    const checkoutHandler = getReactClickHandler(getProfileAction(getProfileCard(0), 'Check out'));
+    let checkoutPromise: Promise<unknown> | undefined;
+    await act(async () => {
+      checkoutPromise = Promise.resolve(checkoutHandler());
+      await Promise.resolve();
+    });
+    await click(getProfileAction(getProfileCard(0), 'Edit'));
+    const editForm = getProfileCard(0).querySelector('.profile-edit-form');
+    const phoneInput = editForm?.querySelector('input[placeholder="Phone"]');
+    if (!editForm || !phoneInput) throw new Error('Expected the profile edit form and phone input');
+    await changeInput(phoneInput, '555-0110');
+    await submitForm(editForm);
+
+    let checkoutOutcome: unknown;
+    await act(async () => {
+      resolveCheckoutSave?.({ ok: false, path: 'fixture', error: 'first save failed' });
+      checkoutOutcome = await checkoutPromise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(checkoutOutcome).toBe(true);
+    expect((getLatestState().profiles[0] as IdentifiedRecord).phone).toBe('555-0110');
+    expect(getLatestState().playerSessions).toEqual([
+      expect.objectContaining({ id: activeSession.id, leftAt: now })
+    ]);
+  });
+
+  it('restores authoritative state when checkout and a newer queued edit both fail to save', async () => {
+    const target = buildProfile('profile-target', 'Failed Concurrent Edit');
+    const seatedInterest = {
+      ...buildInterest('interest-seated-failure', target.name as string, target.id),
+      status: 'Seated'
+    };
+    const activeSession: IdentifiedRecord = {
+      id: 'player-session-concurrent-failure',
+      profileId: target.id,
+      playerName: target.name,
+      gameId: games[0].id,
+      tableId: 'table-active',
+      seatNumber: 3,
+      seatedAt: '2026-08-07T21:00:00.000Z'
+    };
+    await resetState({
+      profiles: [target],
+      interests: [seatedInterest],
+      playerSessions: [activeSession]
+    });
+    const authoritativeState = structuredClone(getLatestState()) as unknown as AppState;
+    harness.loadStateForAccount.mockResolvedValue({
+      schemaVersion: 5,
+      savedAt: now,
+      state: authoritativeState,
+      revision: 4,
+      authoritative: true,
+      source: 'api'
+    });
+
+    type SaveResult = { ok: boolean; path: string; conflict?: boolean; error?: string };
+    let resolveCheckoutSave: ((result: SaveResult) => void) | undefined;
+    const checkoutSave = new Promise<SaveResult>((resolve) => {
+      resolveCheckoutSave = resolve;
+    });
+    harness.saveState
+      .mockImplementationOnce(() => checkoutSave)
+      .mockResolvedValue({ ok: false, path: 'fixture', error: 'offline' });
+
+    const checkoutHandler = getReactClickHandler(getProfileAction(getProfileCard(0), 'Check out'));
+    let checkoutPromise: Promise<unknown> | undefined;
+    await act(async () => {
+      checkoutPromise = Promise.resolve(checkoutHandler());
+      await Promise.resolve();
+    });
+
+    await click(getProfileAction(getProfileCard(0), 'Edit'));
+    const editForm = getProfileCard(0).querySelector('.profile-edit-form');
+    const phoneInput = editForm?.querySelector('input[placeholder="Phone"]');
+    if (!editForm || !phoneInput) throw new Error('Expected the profile edit form and phone input');
+    await changeInput(phoneInput, '555-0199');
+    await submitForm(editForm);
+
+    await act(async () => {
+      resolveCheckoutSave?.({ ok: false, path: 'fixture', error: 'offline' });
+      await checkoutPromise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const nextState = getLatestState();
+    expect(harness.saveState).toHaveBeenCalledTimes(2);
+    expect(harness.loadStateForAccount).toHaveBeenCalledOnce();
+    expect((nextState.profiles[0] as IdentifiedRecord).phone).not.toBe('555-0199');
+    expect(nextState.playerSessions).toEqual([
+      expect.not.objectContaining({ leftAt: expect.any(String) })
+    ]);
+    expect(nextState.interests).toEqual([
+      expect.objectContaining({ id: seatedInterest.id, status: 'Seated' })
+    ]);
+  });
+
+  it('never restores a failed transition from the previous account over a newly selected account', async () => {
+    const target = buildProfile('profile-target', 'Account Switch Player');
+    const seatedInterest = {
+      ...buildInterest('interest-account-switch', target.name as string, target.id),
+      status: 'Seated'
+    };
+    const activeSession: IdentifiedRecord = {
+      id: 'player-session-account-switch',
+      profileId: target.id,
+      playerName: target.name,
+      gameId: games[0].id,
+      tableId: 'table-active',
+      seatNumber: 5,
+      seatedAt: '2026-08-07T21:00:00.000Z'
+    };
+    await resetState({ profiles: [target], interests: [seatedInterest], playerSessions: [activeSession] });
+
+    type SaveResult = { ok: boolean; path: string; conflict?: boolean; error?: string };
+    let resolveCheckoutSave: ((result: SaveResult) => void) | undefined;
+    const checkoutSave = new Promise<SaveResult>((resolve) => {
+      resolveCheckoutSave = resolve;
+    });
+    harness.saveState.mockImplementationOnce(() => checkoutSave);
+
+    const checkoutHandler = getReactClickHandler(getProfileAction(getProfileCard(0), 'Check out'));
+    let checkoutPromise: Promise<unknown> | undefined;
+    await act(async () => {
+      checkoutPromise = Promise.resolve(checkoutHandler());
+      await Promise.resolve();
+    });
+
+    const stateSetter = harness.stateSetter;
+    if (typeof stateSetter !== 'function') throw new Error('Expected the application state setter');
+    await act(async () => {
+      stateSetter((current: unknown) => {
+        if (!isCapturedState(current)) throw new Error('Expected captured application state');
+        return {
+          ...current,
+          settings: {
+            ...current.settings,
+            pilotAccess: {
+              authorized: true,
+              authorizationCode: 'TYPE-OTHER-ACCOUNT-CODE',
+              expiresAt: '2099-12-31T23:59:59.000Z',
+              activatedAt: now,
+              licenseId: 'TYPE-OTHER-ACCOUNT'
+            }
+          }
+        };
+      });
+      await Promise.resolve();
+    });
+
+    let checkoutOutcome: unknown;
+    await act(async () => {
+      resolveCheckoutSave?.({ ok: false, path: 'fixture', error: 'offline' });
+      checkoutOutcome = await checkoutPromise;
+      await Promise.resolve();
+    });
+
+    expect(checkoutOutcome).toBe(false);
+    expect(Reflect.get(getLatestState().settings.pilotAccess as object, 'licenseId')).toBe('TYPE-OTHER-ACCOUNT');
+    expect(harness.loadStateForAccount).toHaveBeenCalledTimes(1);
+    expect(harness.loadStateForAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ licenseId: 'TYPE-OTHER-ACCOUNT' })
+    );
+  });
+
+  it('checks out the linked session from In Club instead of deleting its interest history', async () => {
+    const target = buildProfile('profile-target', 'In Club Player');
+    const arrived = buildInterest('interest-arrived', target.name as string, target.id);
+    const activeSession: IdentifiedRecord = {
+      id: 'player-session-active',
+      profileId: target.id,
+      playerName: target.name,
+      gameId: games[0].id,
+      tableId: 'table-active',
+      seatNumber: 4,
+      seatedAt: '2026-08-07T21:00:00.000Z'
+    };
+    await resetState({
+      profiles: [target],
+      interests: [arrived],
+      playerSessions: [activeSession]
+    });
+    const inClubAction = document.querySelector<HTMLButtonElement>('.club-card button');
+    if (!inClubAction) throw new Error('Expected the In Club checkout action');
+    expect(inClubAction.textContent?.trim()).toBe('Check out');
+
+    await click(inClubAction);
+
+    const nextState = getLatestState();
+    expect(nextState.interests).toEqual([
+      { ...arrived, status: 'Removed', closedAt: now, timestamp: now }
+    ]);
+    expect(nextState.playerSessions).toEqual([
+      expect.objectContaining({ ...activeSession, leftAt: now })
+    ]);
+    expect(nextState.playerLedger[0]).toMatchObject({
+      type: 'Cash-Out',
+      profileId: target.id,
+      note: 'Checked out from the In Club list'
+    });
+    expect(document.querySelector('.club-card')).toBeNull();
+    expect(getPersistedState().interests).toEqual(nextState.interests);
+    expect(getPersistedState().playerSessions).toEqual(nextState.playerSessions);
   });
 
   it('creates a new authoritative check-in when no ID or name relationship exists', async () => {
@@ -556,7 +973,7 @@ describe('profile relationship mutations', () => {
     const previousState = getLatestState();
     const previousSnapshot = structuredClone(previousState);
 
-    expectProfileInClub(0, false);
+    expectProfileStatus(0, 'Not checked in');
     await click(getProfileAction(getProfileCard(0), 'Check in'));
 
     const nextState = getLatestState();
@@ -597,7 +1014,7 @@ describe('profile relationship mutations', () => {
     await resetState({ profiles: [target], interests: [first, second] });
     const previousState = getLatestState();
 
-    expectProfileInClub(0, false);
+    expectProfileStatus(0, 'Not checked in');
     await click(getProfileAction(getProfileCard(0), 'Check in'));
 
     expect(getLatestState().interests).toEqual([
@@ -617,8 +1034,8 @@ describe('profile relationship mutations', () => {
     await resetState({ profiles: [target, linkedProfile], interests: [incompatible] });
     const previousState = getLatestState();
 
-    expectProfileInClub(0, false);
-    expectProfileInClub(1, true);
+    expectProfileStatus(0, 'Not checked in');
+    expectProfileStatus(1, 'In club');
     await click(getProfileAction(getProfileCard(0), 'Check in'));
 
     expect(getLatestState().interests).toEqual([

@@ -121,9 +121,7 @@ const invokeFloor = async (name: string, ...args: unknown[]) => {
   const callback: unknown = Reflect.get(harness.floorProps, name);
   if (typeof callback !== 'function') throw new Error(`Expected ${name}`);
   await act(async () => {
-    Reflect.apply(callback, undefined, args);
-    await Promise.resolve();
-    await Promise.resolve();
+    await Reflect.apply(callback, undefined, args);
   });
 };
 
@@ -190,11 +188,15 @@ describe('management browser persistence orchestration', () => {
     harness.fetchCalls.length = 0;
     await invokeFloor('deleteInterest', 'interest-local');
     const saved = JSON.parse(localStorage.getItem(accountStorageKey) ?? '{}') as { interests?: unknown[] };
-    expect(saved.interests).toEqual([]);
+    expect(saved.interests).toEqual([
+      expect.objectContaining({ id: 'interest-local', status: 'Removed', closedAt: now, timestamp: now })
+    ]);
     expect(localStorage.getItem(lastAccountKey)).toBe(accountStorageKey);
     const mutationPost = harness.fetchCalls.find((call) => call.method === 'POST');
     expect(mutationPost).toBeTruthy();
-    expect(JSON.parse(mutationPost?.body ?? '{}')).toMatchObject({ state: { interests: [] } });
+    expect(JSON.parse(mutationPost?.body ?? '{}')).toMatchObject({
+      state: { interests: [expect.objectContaining({ id: 'interest-local', status: 'Removed' })] }
+    });
     expect(Reflect.get(harness.shellProps as object, 'saveState')).toBe('saved');
 
     const latest = getState();

@@ -249,6 +249,12 @@
     return identifiers.size === tables.length ? tables : null;
   }
 
+  function parseContextResponse(payload) {
+    if (!isRecord(payload) || payload.ok !== true || payload.status !== 'ready') return null;
+    const clubName = safeDisplayString(payload.clubName, 120);
+    return clubName ? { clubName } : null;
+  }
+
   function parseLookupResponse(payload) {
     if (!isRecord(payload) || payload.ok !== true) return null;
     const clubName = safeDisplayString(payload.clubName, 120);
@@ -388,11 +394,12 @@
       game.className = 'table-choice-game';
       capacity.className = 'table-choice-capacity';
       action.className = 'table-choice-action';
+      action.setAttribute('aria-hidden', 'true');
 
       label.textContent = table.label;
       game.textContent = table.gameName;
       capacity.textContent = `${table.availableSeats} of ${table.maxSeats} seats available`;
-      action.textContent = 'Choose table';
+      action.textContent = '\u2192';
 
       main.append(label, game, capacity);
       button.append(main, action);
@@ -421,11 +428,11 @@
     clearStoredCredentials();
     clearTransientPlayerData();
     elements.successClub.textContent = result.clubName;
-    elements.successHeading.textContent = alreadySeated ? 'You’re already checked in' : 'You’re checked in';
+    elements.successHeading.textContent = alreadySeated ? "You're already checked in" : 'Checked in';
     elements.successMessage.textContent = alreadySeated
       ? safeDisplayString(result.message, 240)
         || (safeDisplayString(result.playerName, 120) ? `${result.playerName}, your seat is already ready.` : 'You are already checked in.')
-      : `${result.playerName}, your seat is ready.`;
+      : `${result.playerName}, seat ready.`;
     setOptionalResult(elements.successTableRow, elements.successTable, result.tableLabel);
     setOptionalResult(elements.successGameRow, elements.successGame, result.gameName);
     const seatNumber = safeSeatNumber(result.seatNumber);
@@ -435,8 +442,8 @@
       && elements.successGameRow.hidden
       && elements.successSeatRow.hidden;
     elements.successNextStep.textContent = alreadySeated
-      ? 'Please see a staff member if you need help finding your seat.'
-      : 'Please head to the table. Staff can help if anything has changed.';
+      ? 'See staff if you need help.'
+      : 'Head to your table.';
     showSection(elements.successStep, elements.successHeading);
   }
 
@@ -456,7 +463,7 @@
     clearError();
     flow.playerName = playerName;
     if (options.freshMutation || !flow.lookupMutationId) flow.lookupMutationId = createMutationId('lookup');
-    setBusy(true, options.useStoredName ? 'Refreshing live table availability…' : 'Looking for your club profile…');
+    setBusy(true, options.useStoredName ? 'Refreshing live table availability...' : 'Looking for your club profile...');
 
     let focusRefreshAfterRequest = false;
     try {
@@ -482,7 +489,7 @@
       flow.seatMutationId = '';
       flow.selectedTableId = '';
       elements.tableClub.textContent = result.clubName;
-      elements.playerGreeting.textContent = `${result.playerName}, select where you would like to play.`;
+      elements.playerGreeting.textContent = result.playerName;
       showSection(elements.tableStep, elements.tableHeading);
       if (!hasCurrentSession()) {
         const message = 'Your check-in session expired. Refresh the tables to continue.';
@@ -532,7 +539,7 @@
     }
 
     clearError();
-    setBusy(true, `Checking availability at ${table.label}…`);
+    setBusy(true, `Checking availability at ${table.label}...`);
     let focusRefreshAfterRequest = false;
     try {
       const payload = await postJson('/player/check-in/seat', 'x-orbit-check-in-session', flow.sessionToken, {
@@ -597,10 +604,39 @@
     void lookupPlayer({ useStoredName: true, freshMutation: true });
   });
 
-  flow.capability = readCapabilityFromFragment();
-  if (!flow.capability) {
-    showAssistance('', 'This QR check-in link is unavailable. Please ask a staff member for help.');
-  } else {
-    showSection(elements.nameStep, elements.playerName);
+  async function initializeClubContext() {
+    if (!flow.capability) {
+      showAssistance('', 'This QR check-in link is unavailable. Please ask a staff member for help.');
+      return;
+    }
+
+    elements.app.setAttribute('aria-busy', 'true');
+    try {
+      const payload = await postJson('/player/check-in/context', 'x-orbit-check-in-token', flow.capability, {});
+      const context = parseContextResponse(payload);
+      if (!context) {
+        throw new CheckInRequestError(
+          'The club returned an unexpected response. Please ask a staff member for help.',
+          0,
+          'INVALID_RESPONSE',
+          payload
+        );
+      }
+      elements.nameClub.textContent = context.clubName;
+      elements.nameClub.hidden = false;
+      elements.app.setAttribute('aria-busy', 'false');
+      showSection(elements.nameStep, elements.playerName);
+    } catch (error) {
+      elements.app.setAttribute('aria-busy', 'false');
+      const requestError = error instanceof CheckInRequestError ? error : null;
+      const message = requestError
+        ? messageForError(requestError.code, requestError.status)
+        : safeDisplayString(error && error.message, 240);
+      clearStoredCredentials();
+      showAssistance('', message || 'Self check-in is unavailable. Please ask a staff member for help.');
+    }
   }
+
+  flow.capability = readCapabilityFromFragment();
+  void initializeClubContext();
 })();

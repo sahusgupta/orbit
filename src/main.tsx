@@ -142,6 +142,7 @@ import {
   useManagementStorageSync,
   useManagementUpdatePreservation
 } from './application/management/sync/useManagementPersistenceEvents';
+import { commitAuthoritativeTransition } from './application/management/sync/authoritativeTransition';
 import { useManagementPlayerUpdateSync } from './application/management/sync/useManagementPlayerUpdateSync';
 import { useManagementPilotAccessRefresh } from './application/management/sync/useManagementPilotAccessRefresh';
 import {
@@ -184,10 +185,13 @@ import {
 } from './features/games/gamesWorkspace';
 import {
   canUseRendererFirebaseAuth,
+  loadDesktopManagementStateForAccount,
   loadExistingManagementStateForAccount,
   loadManagementState,
+  loadManagementStateFromLocalBridge,
   saveManagementState
 } from './app/persistence/managementPersistence';
+import { saveBrowserManagementState } from './app/persistence/browserStateRepository';
 import {
   getCollectionProfile,
   getTableFinancialOverview
@@ -1101,6 +1105,177 @@ function App() {
     return pendingSave;
   };
 
+  const loadAuthoritativeStateForTransition = async (sourceState: AppState) => {
+    const access = sourceState.settings.pilotAccess;
+    if (!access) throw new Error('The active club license is unavailable.');
+
+    let desktopLoadError: unknown;
+    try {
+      const record = await loadDesktopManagementStateForAccount(access);
+      if (record?.state && record.authoritative !== false) {
+        return normalizeState({
+          ...record.state,
+          settings: { ...record.state.settings, pilotAccess: access }
+        });
+      }
+      if (record?.authoritative === false) {
+        desktopLoadError = new Error('The desktop returned an offline cache instead of authoritative club state.');
+      }
+    } catch (error) {
+      desktopLoadError = error;
+    }
+
+    try {
+      const record = await loadManagementStateFromLocalBridge(getAccountKeyFromState(sourceState));
+      if (record.status === 'available' && record.state) {
+        return normalizeState({
+          ...record.state,
+          settings: { ...record.state.settings, pilotAccess: access }
+        });
+      }
+    } catch (error) {
+      desktopLoadError ??= error;
+    }
+
+    throw desktopLoadError instanceof Error
+      ? desktopLoadError
+      : new Error('The latest club state could not be loaded after a save conflict.');
+  };
+
+  const reconcileFailedStaffTransition = async (
+    sourceState: AppState,
+    transition: (sourceState: AppState) => AppState,
+    saveError?: string
+  ) => {
+    const sourceAccountKey = getAccountKeyFromState(sourceState);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      let pendingSave = pendingManagementSaveRef.current;
+      await pendingSave;
+      while (pendingSave !== pendingManagementSaveRef.current) {
+        pendingSave = pendingManagementSaveRef.current;
+        await pendingSave;
+      }
+
+      const expectedSaveSequence = saveSequenceRef.current;
+      const expectedState = stateRef.current;
+      if (getAccountKeyFromState(expectedState) !== sourceAccountKey) return false;
+      let authoritativeState: AppState;
+      try {
+        authoritativeState = await loadAuthoritativeStateForTransition(sourceState);
+      } catch (error) {
+        if (
+          expectedSaveSequence !== saveSequenceRef.current ||
+          !Object.is(expectedState, stateRef.current)
+        ) continue;
+        setSaveStatus({
+          state: 'error',
+          message: error instanceof Error
+            ? error.message
+              : saveError || 'The failed change could not be reconciled with the server.'
+        });
+        return false;
+      }
+
+      if (
+        expectedSaveSequence !== saveSequenceRef.current ||
+        !Object.is(expectedState, stateRef.current)
+      ) continue;
+
+      saveBrowserManagementState(authoritativeState);
+      stateRef.current = authoritativeState;
+      setState(authoritativeState);
+      const authoritativeIncludesTransition = Object.is(
+        transition(authoritativeState),
+        authoritativeState
+      );
+      setSaveStatus(authoritativeIncludesTransition
+        ? { state: 'saved', message: 'Saved by a newer queued update' }
+        : {
+            state: 'error',
+            message: saveError || 'The change was not saved. The latest server state has been restored.'
+          });
+      return authoritativeIncludesTransition;
+    }
+    return false;
+  };
+
+  const commitStaffTransition = async (
+    transition: (sourceState: AppState) => AppState,
+    usage?: UsageDescriptor
+  ) => {
+    const initialState = stateRef.current;
+    let replayUsageEvent: UsageEvent | undefined;
+    let ownedState = initialState;
+    let ownedSaveSequence = saveSequenceRef.current;
+    const transitionWithUsage = (sourceState: AppState) => {
+      const nextState = transition(sourceState);
+      if (Object.is(nextState, sourceState) || !usage) return nextState;
+      if (!replayUsageEvent) {
+        const stateWithUsage = withUsageEvent(nextState, usage);
+        replayUsageEvent = stateWithUsage.usageEvents[0];
+        return stateWithUsage;
+      }
+      return {
+        ...nextState,
+        usageEvents: [
+          replayUsageEvent,
+          ...(nextState.usageEvents ?? []).filter((event) => event.id !== replayUsageEvent?.id)
+        ].slice(0, 5000)
+      };
+    };
+    let firstSave = true;
+    const result = await commitAuthoritativeTransition({
+      initialState,
+      transition: transitionWithUsage,
+      save: (nextState) => {
+        if (
+          !firstSave &&
+          (
+            saveSequenceRef.current !== ownedSaveSequence ||
+            !Object.is(stateRef.current, ownedState)
+          )
+        ) {
+          return Promise.resolve({
+            ok: false,
+            conflict: true,
+            error: 'A newer local change was made while the server state was being reconciled.'
+          });
+        }
+        const trackUndo = firstSave;
+        firstSave = false;
+        const pendingSave = persist(nextState, trackUndo);
+        ownedState = nextState;
+        ownedSaveSequence = saveSequenceRef.current;
+        return pendingSave;
+      },
+      loadAuthoritative: () => loadAuthoritativeStateForTransition(initialState)
+    });
+
+    const stillOwnsRenderedState =
+      saveSequenceRef.current === ownedSaveSequence &&
+      Object.is(stateRef.current, ownedState);
+    if (stillOwnsRenderedState) {
+      // A rejected optimistic save must never remain as either the rendered state
+      // or local recovery cache. Never replace a newer, separately queued change.
+      saveBrowserManagementState(result.state);
+      if (!Object.is(stateRef.current, result.state)) {
+        stateRef.current = result.state;
+        setState(result.state);
+      }
+      if (!result.ok) {
+        setSaveStatus({
+          state: 'error',
+          message: result.error || 'The change was not saved. The latest server state has been restored.'
+        });
+      } else if (result.adoptedAuthoritative) {
+        setSaveStatus({ state: 'saved', message: 'Already updated from the latest server state' });
+      }
+    } else if (!result.ok) {
+      return reconcileFailedStaffTransition(initialState, transition, result.error);
+    }
+    return result.ok;
+  };
+
   const waitForPendingManagementSaves = async () => {
     let pendingSave = pendingManagementSaveRef.current;
     let result = await pendingSave;
@@ -1299,14 +1474,6 @@ function App() {
     setHandCountDrafts((drafts) => ({ ...drafts, [session.id]: '' }));
   };
 
-  const deleteInterest = (id: string) => {
-    if (!window.confirm('Remove this interest entry?')) return;
-    persist(removeWaitlistInterest(state, id), true, {
-      feature: 'Waitlist',
-      action: 'Removed interest'
-    });
-  };
-
   const getSeatOptions = (gameId: string) =>
     state.interests.filter(
       (interest) =>
@@ -1439,9 +1606,6 @@ function App() {
     }
     return sourceState;
   };
-
-  const promptDemandAction = (sourceState: AppState, gameId: string) =>
-    applyWaitlistDemandPrompt(sourceState, getWaitlistDemandPrompt(sourceState, gameId));
 
   const getSeatPickerCandidates = (session: GameSession, query = '') => {
     const seatedProfileIds = new Set(
@@ -1726,27 +1890,131 @@ function App() {
   // Kept as a named application boundary: characterization coverage invokes this
   // transition directly even though the current view does not render its control.
   const markPlayerLeft = (interest: Interest) => {
-    const result = markInterestPlayerLeft(state, interest, { nowIso });
-    const finalState = result.notification
-      ? withGameFrequencyInAppNotifications(result.state, result.notification.gameId, result.notification.reason)
-      : result.state;
-    persist(finalState);
+    const timestamp = nowIso();
+    return commitStaffTransition((sourceState) => {
+      const currentInterest = sourceState.interests.find((item) => item.id === interest.id);
+      if (!currentInterest || currentInterest.status === 'Removed') return sourceState;
+      const result = markInterestPlayerLeft(sourceState, currentInterest, { nowIso: () => timestamp });
+      return result.notification
+        ? withGameFrequencyInAppNotifications(result.state, result.notification.gameId, result.notification.reason)
+        : result.state;
+    });
   };
 
-  const markPlayerSessionLeft = (playerSession: PlayerSession, cashOutAmount: number | undefined, cashOutNote = '') => {
-    const result = markPlayerSessionLeftInState(
-      state,
-      playerSession,
-      cashOutAmount,
-      cashOutNote,
-      { createId: uid, nowIso }
+  const getActivePlayerSessionForProfile = (sourceState: AppState, profile: PlayerProfile) =>
+    sourceState.playerSessions.find((session) => session.profileId === profile.id && !session.leftAt) ??
+    findUniqueProfileReference(
+      sourceState.playerSessions,
+      sourceState.profiles,
+      profile,
+      (session) => !session.leftAt
     );
-    const finalState = withGameFrequencyInAppNotifications(
-      result.state,
-      result.notification.gameId,
-      result.notification.reason
+
+  const getActivePlayerSessionForInterest = (sourceState: AppState, interest: Interest) => {
+    if (interest.profileId) {
+      return sourceState.playerSessions.find(
+        (session) =>
+          session.profileId === interest.profileId &&
+          session.gameId === interest.gameId &&
+          !session.leftAt
+      );
+    }
+    const normalizedName = interest.playerName.trim().toLowerCase();
+    const matches = sourceState.playerSessions.filter(
+      (session) =>
+        session.playerName.trim().toLowerCase() === normalizedName &&
+        session.gameId === interest.gameId &&
+        !session.leftAt
     );
-    persist(finalState, true, { feature: 'Seating', action: 'Marked player left', metadata: { gameId: playerSession.gameId, tableId: playerSession.tableId } });
+    return matches.length === 1 ? matches[0] : undefined;
+  };
+
+  const markPlayerSessionLeft = (
+    playerSession: PlayerSession,
+    cashOutAmount: number | undefined,
+    cashOutNote = ''
+  ) => {
+    const timestamp = nowIso();
+    return commitStaffTransition((sourceState) => {
+      const currentSession = sourceState.playerSessions.find(
+        (session) => session.id === playerSession.id && !session.leftAt
+      );
+      if (!currentSession) return sourceState;
+      const result = markPlayerSessionLeftInState(
+        sourceState,
+        currentSession,
+        cashOutAmount,
+        cashOutNote,
+        { createId: uid, nowIso: () => timestamp }
+      );
+      return withGameFrequencyInAppNotifications(
+        result.state,
+        result.notification.gameId,
+        result.notification.reason
+      );
+    }, {
+      feature: 'Seating',
+      action: 'Marked player left',
+      metadata: { gameId: playerSession.gameId, tableId: playerSession.tableId }
+    });
+  };
+
+  const deleteInterest = async (id: string) => {
+    const selectedInterest = stateRef.current.interests.find((interest) => interest.id === id);
+    if (!selectedInterest) return false;
+    const isInClub = selectedInterest.status === 'Arrived' || selectedInterest.status === 'Seated';
+    if (!isInClub) {
+      if (!window.confirm('Remove this interest entry?')) return false;
+      return commitStaffTransition((sourceState) => {
+        const currentInterest = sourceState.interests.find((interest) => interest.id === id);
+        if (
+          !currentInterest ||
+          currentInterest.status === 'Arrived' ||
+          currentInterest.status === 'Seated' ||
+          currentInterest.status === 'Removed'
+        ) return sourceState;
+        return removeWaitlistInterest(sourceState, id);
+      }, {
+        feature: 'Waitlist',
+        action: 'Removed interest'
+      });
+    }
+    if (!window.confirm(`Check out ${selectedInterest.playerName}?`)) return false;
+    const timestamp = nowIso();
+    return commitStaffTransition((sourceState) => {
+      const currentInterest = sourceState.interests.find(
+        (interest) => interest.id === id && (interest.status === 'Arrived' || interest.status === 'Seated')
+      );
+      if (!currentInterest) return sourceState;
+      const currentSession = getActivePlayerSessionForInterest(sourceState, currentInterest);
+      if (!currentSession) {
+        const result = markInterestPlayerLeft(sourceState, currentInterest, { nowIso: () => timestamp });
+        return result.notification
+          ? withGameFrequencyInAppNotifications(result.state, result.notification.gameId, result.notification.reason)
+          : result.state;
+      }
+      const sessionResult = markPlayerSessionLeftInState(
+        sourceState,
+        currentSession,
+        undefined,
+        'Checked out from the In Club list',
+        { createId: uid, nowIso: () => timestamp }
+      );
+      const interestResult = markInterestPlayerLeft(
+        sessionResult.state,
+        currentInterest,
+        { nowIso: () => timestamp }
+      );
+      return withGameFrequencyInAppNotifications(
+        interestResult.state,
+        sessionResult.notification.gameId,
+        sessionResult.notification.reason
+      );
+    }, {
+      feature: 'Profiles',
+      action: 'Checked player out from club',
+      metadata: { gameId: selectedInterest.gameId }
+    });
   };
 
   const requestPlayerCashOut = (playerSession: PlayerSession) => {
@@ -1831,11 +2099,34 @@ function App() {
   };
 
   const recordTableEvent = (session: GameSession, type: TableEventType, reason: string, note = '') => {
-    persist(
-      recordTableLifecycleEvent(state, session, type, reason, note, { createId: uid, nowIso }),
-      true,
-      { feature: 'Tables', action: type, metadata: { gameId: session.gameId, tableId: session.id, reason } }
-    );
+    const usage = { feature: 'Tables', action: type, metadata: { gameId: session.gameId, tableId: session.id, reason } };
+    if (type !== 'Closed' && type !== 'Broke') {
+      persist(
+        recordTableLifecycleEvent(state, session, type, reason, note, { createId: uid, nowIso }),
+        true,
+        usage
+      );
+      return;
+    }
+    const timestamp = nowIso();
+    return commitStaffTransition((sourceState) => {
+      const currentSession = sourceState.sessions.find(
+        (candidate) =>
+          candidate.id === session.id &&
+          candidate.status !== 'Closed' &&
+          candidate.status !== 'Failed to Start'
+      );
+      return currentSession
+        ? recordTableLifecycleEvent(
+            sourceState,
+            currentSession,
+            type,
+            reason,
+            note,
+            { createId: uid, nowIso: () => timestamp }
+          )
+        : sourceState;
+    }, usage);
   };
 
   const failFormingGame = (session: GameSession) => {
@@ -2011,17 +2302,45 @@ function App() {
     persist(mergeDuplicateProfilesInState(state, profilesToMerge));
   };
 
-  const addProfileToClub = (profile: PlayerProfile, sourceState = state) => {
-    const result = checkProfileIntoClub(sourceState, profile, { createId: uid, nowIso });
-    const nextState = promptDemandAction(result.state, result.preferredGameId);
-    persist(nextState, true, {
+  const addProfileToClub = (profile: PlayerProfile) => {
+    const timestamp = nowIso();
+    let demandChoice: string | null | undefined;
+    const preferredGameId = profile.preferredGameIds?.[0] || profile.preferredGameId;
+    return commitStaffTransition((sourceState) => {
+      const currentProfile = sourceState.profiles.find((candidate) => candidate.id === profile.id);
+      if (!currentProfile) return sourceState;
+      const alreadyCheckedIn = Boolean(getActivePlayerSessionForProfile(sourceState, currentProfile)) ||
+        hasProfileReference(getInClubInterests(sourceState), sourceState.profiles, currentProfile);
+      if (alreadyCheckedIn) return sourceState;
+
+      const result = checkProfileIntoClub(
+        sourceState,
+        currentProfile,
+        { createId: uid, nowIso: () => timestamp }
+      );
+      const demandPrompt = getWaitlistDemandPrompt(result.state, result.preferredGameId);
+      if (!demandPrompt) return result.state;
+      if (demandChoice === undefined) {
+        demandChoice = window.prompt(demandPrompt.message, demandPrompt.defaultChoice);
+      }
+      const normalizedChoice = demandChoice?.trim().toLowerCase() ?? '';
+      if (normalizedChoice.startsWith('switch')) return switchOpenTableToGame(result.state, demandPrompt.gameId);
+      if (normalizedChoice.startsWith('start')) {
+        return addSessionToState(
+          result.state,
+          demandPrompt.gameId,
+          `Prompted by ${demandPrompt.activeCount} interested players`
+        );
+      }
+      return result.state;
+    }, {
       feature: 'Profiles',
       action: 'Checked player into club',
-      metadata: { preferredGameId: result.preferredGameId, seated: false }
+      metadata: { preferredGameId, seated: false }
     });
   };
 
-  const handleMembershipQrCheckIn = (rawValue: string) => {
+  const handleMembershipQrCheckIn = async (rawValue: string) => {
     const sourceState = stateRef.current;
     const validation = validateMembershipQrCheckIn(rawValue, getAccountKeyFromState(sourceState), sourceState.profiles);
     if (!validation.ok) {
@@ -2037,15 +2356,19 @@ function App() {
     }
     const profile = validation.profile as PlayerProfile;
 
-    const alreadyInClub = hasProfileReference(getInClubInterests(sourceState), sourceState.profiles, profile);
-    if (alreadyInClub) {
+    const alreadyCheckedIn = Boolean(getActivePlayerSessionForProfile(sourceState, profile)) ||
+      hasProfileReference(getInClubInterests(sourceState), sourceState.profiles, profile);
+    if (alreadyCheckedIn) {
       setQrScanMessage(`${profile.name} is already checked in.`);
       return;
     }
 
-    addProfileToClub(profile, sourceState);
-    setQrManualValue('');
-    setQrScanMessage(`${profile.name} checked in successfully.`);
+    if (await addProfileToClub(profile)) {
+      setQrManualValue('');
+      setQrScanMessage(`${profile.name} checked in successfully.`);
+    } else {
+      setQrScanMessage(`${profile.name} could not be checked in. Try again.`);
+    }
   };
 
   useMembershipQrScanner({
@@ -2072,7 +2395,41 @@ function App() {
   });
 
   const removeProfileFromClub = (profile: PlayerProfile) => {
-    persist(removeProfileFromClubInState(state, profile));
+    const selectedSession = getActivePlayerSessionForProfile(stateRef.current, profile);
+    const timestamp = nowIso();
+    return commitStaffTransition((sourceState) => {
+      const currentProfile = sourceState.profiles.find((candidate) => candidate.id === profile.id);
+      if (!currentProfile) return sourceState;
+      const currentSession = getActivePlayerSessionForProfile(sourceState, currentProfile);
+      const sessionResult = currentSession
+        ? markPlayerSessionLeftInState(
+            sourceState,
+            currentSession,
+            undefined,
+            'Checked out from the player directory',
+            { createId: uid, nowIso: () => timestamp }
+          )
+        : null;
+      const nextState = removeProfileFromClubInState(
+        sessionResult?.state ?? sourceState,
+        currentProfile,
+        { nowIso: () => timestamp }
+      );
+      return sessionResult
+        ? withGameFrequencyInAppNotifications(
+            nextState,
+            sessionResult.notification.gameId,
+            sessionResult.notification.reason
+          )
+        : nextState;
+    }, {
+      feature: 'Profiles',
+      action: 'Checked player out from club',
+      metadata: {
+        gameId: selectedSession?.gameId || profile.preferredGameIds?.[0] || profile.preferredGameId,
+        seated: Boolean(selectedSession)
+      }
+    });
   };
 
   const profileImportContext: ProfileImportContext = {
@@ -3081,14 +3438,34 @@ function App() {
       createdAt: nowIso(),
       lastSelectedAt: nowIso()
     };
-    persist({
-      ...current,
-      settings: {
-        ...current.settings,
-        staffAccounts: [...current.settings.staffAccounts, account],
-        activeStaffId: current.settings.activeStaffId
-      }
-    }, true, { feature: 'Staff accounts', action: 'Added staff account', metadata: { role: account.role } });
+    const saved = await commitStaffTransition((sourceState) => {
+      if (getAccountKeyFromState(sourceState) !== accountKey) return sourceState;
+      if (sourceState.settings.staffAccounts.some((staff) => staff.id === account.id)) return sourceState;
+      if (
+        !hasActiveStaffAdministrator(sourceState.settings.staffAccounts) &&
+        !isStaffAdministratorRole(account.role)
+      ) return sourceState;
+      return {
+        ...sourceState,
+        settings: {
+          ...sourceState.settings,
+          staffAccounts: [...sourceState.settings.staffAccounts, account],
+          activeStaffId: sourceState.settings.activeStaffId
+        }
+      };
+    }, {
+      feature: 'Staff accounts',
+      action: 'Added staff account',
+      metadata: { role: account.role }
+    });
+    const accountWasAdded = stateRef.current.settings.staffAccounts.some((staff) => staff.id === account.id);
+    if (!saved || !accountWasAdded) {
+      setStaffAccountNotice({
+        kind: 'error',
+        text: 'The staff account was not added. Refresh the active operator and try again.'
+      });
+      return;
+    }
     setStaffDraft({ name: '', role: 'Floor', pin: '' });
     setStaffAccountNotice({ kind: 'success', text: 'Staff account added.' });
   };
@@ -3099,8 +3476,7 @@ function App() {
     if (!staffId) {
       setStaffAccountNotice(null);
       setTrustedStaffSession(null);
-      const current = stateRef.current;
-      persist(clearActiveStaffSelection(current), true, {
+      await commitStaffTransition(clearActiveStaffSelection, {
         feature: 'Staff accounts',
         action: 'Cleared active staff'
       });
@@ -3136,18 +3512,51 @@ function App() {
       setStaffAccountNotice({ kind: 'error', text: 'This staff account is no longer active.' });
       return;
     }
+    const selectedAt = nowIso();
+    // Keep the verified projection active while the authoritative selection is
+    // persisted; otherwise the selection-repair effect correctly clears an
+    // untrusted activeStaffId before the save can finish.
     setTrustedStaffSession(result.session);
-    persist({
-      ...current,
-      settings: {
-        ...current.settings,
-        activeStaffId: staffId || undefined,
-        staffAccounts: current.settings.staffAccounts.map((staff) =>
-          staff.id === staffId ? { ...staff, lastSelectedAt: nowIso() } : staff
-        )
-      }
-    }, true, { feature: 'Staff accounts', action: 'Selected active staff' });
-    setStaffAccountNotice({ kind: 'success', text: `${selectedStaff.name} is now the active operator.` });
+    const saved = await commitStaffTransition((sourceState) => {
+      if (
+        selectionAttempt !== staffSelectionAttemptRef.current ||
+        accountKey !== getAccountKeyFromState(sourceState)
+      ) return sourceState;
+      const currentStaff = sourceState.settings.staffAccounts.find(
+        (staff) => staff.id === staffId && staff.active
+      );
+      if (!currentStaff) return sourceState;
+      if (sourceState.settings.activeStaffId === staffId) return sourceState;
+      return {
+        ...sourceState,
+        settings: {
+          ...sourceState.settings,
+          activeStaffId: staffId,
+          staffAccounts: sourceState.settings.staffAccounts.map((staff) =>
+            staff.id === staffId ? { ...staff, lastSelectedAt: selectedAt } : staff
+          )
+        }
+      };
+    }, { feature: 'Staff accounts', action: 'Selected active staff' });
+    const committedStaff = stateRef.current.settings.staffAccounts.find(
+      (staff) => staff.id === staffId && staff.active
+    );
+    if (
+      !saved ||
+      !committedStaff ||
+      stateRef.current.settings.activeStaffId !== staffId ||
+      selectionAttempt !== staffSelectionAttemptRef.current
+    ) {
+      clearTrustedStaffSelection();
+      setStaffAccountNotice({
+        kind: 'error',
+        text: committedStaff
+          ? 'The active operator was not saved. Select the staff account again.'
+          : 'This staff account is no longer active.'
+      });
+      return;
+    }
+    setStaffAccountNotice({ kind: 'success', text: `${committedStaff.name} is now the active operator.` });
   };
 
   const deactivateStaffAccount = async (staffId: string) => {
@@ -3160,16 +3569,26 @@ function App() {
       staffSelectionAttemptRef.current += 1;
       setTrustedStaffSession(null);
     }
-    persist({
-      ...current,
-      settings: {
-        ...current.settings,
-        activeStaffId: current.settings.activeStaffId === staffId ? undefined : current.settings.activeStaffId,
-        staffAccounts: current.settings.staffAccounts.map((staff) =>
-          staff.id === staffId ? { ...staff, active: false } : staff
-        )
-      }
-    }, true, { feature: 'Staff accounts', action: 'Deactivated staff account' });
+    const saved = await commitStaffTransition((sourceState) => {
+      const currentStaff = sourceState.settings.staffAccounts.find((staff) => staff.id === staffId);
+      if (!currentStaff || !currentStaff.active) return sourceState;
+      return {
+        ...sourceState,
+        settings: {
+          ...sourceState.settings,
+          activeStaffId: sourceState.settings.activeStaffId === staffId
+            ? undefined
+            : sourceState.settings.activeStaffId,
+          staffAccounts: sourceState.settings.staffAccounts.map((staff) =>
+            staff.id === staffId ? { ...staff, active: false } : staff
+          )
+        }
+      };
+    }, { feature: 'Staff accounts', action: 'Deactivated staff account' });
+    if (!saved || stateRef.current.settings.staffAccounts.find((staff) => staff.id === staffId)?.active) {
+      setStaffAccountNotice({ kind: 'error', text: 'The staff account was not deactivated. Try again.' });
+      return;
+    }
     setStaffAccountNotice({
       kind: 'success',
       text: `${deactivatedStaff?.name || 'Staff account'} deactivated.`
@@ -4083,13 +4502,14 @@ function App() {
     <div className="modal-backdrop cash-out-backdrop" role="dialog" aria-modal="true" aria-label={`Cash out ${cashOutPlayerSession.playerName}`}>
       <form
         className="cash-out-modal"
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
           const amountInput = cashOutDraft.amount.trim();
           const amount = amountInput ? Number(amountInput) : undefined;
           if (amount !== undefined && (!Number.isFinite(amount) || amount < 0)) return;
-          markPlayerSessionLeft(cashOutPlayerSession, amount, cashOutDraft.note);
-          setCashOutDraft(null);
+          if (await markPlayerSessionLeft(cashOutPlayerSession, amount, cashOutDraft.note)) {
+            setCashOutDraft(null);
+          }
         }}
       >
         <div className="cash-out-head">

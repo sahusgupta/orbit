@@ -89,9 +89,21 @@ describe('management table-lifecycle commands', () => {
       const openPlayer = {
         id: 'player-open',
         playerName: 'Open Player',
+        profileId: 'profile-open',
         gameId: game.id,
         tableId: table.id,
         seatedAt: '2026-08-08T21:00:00.000Z'
+      };
+      const seatedInterest = {
+        id: 'interest-open',
+        playerName: openPlayer.playerName,
+        profileId: openPlayer.profileId,
+        gameId: game.id,
+        status: 'Seated' as const,
+        timestamp: openPlayer.seatedAt,
+        interestedAt: openPlayer.seatedAt,
+        seatedAt: openPlayer.seatedAt,
+        notes: ''
       };
       const openDealer = {
         id: 'dealer-open',
@@ -100,7 +112,11 @@ describe('management table-lifecycle commands', () => {
         dealerName: 'Dealer',
         startedAt: '2026-08-08T21:00:00.000Z'
       };
-      const source = state({ playerSessions: [openPlayer], dealerAssignments: [openDealer] });
+      const source = state({
+        interests: [seatedInterest],
+        playerSessions: [openPlayer],
+        dealerAssignments: [openDealer]
+      });
 
       const result = recordTableLifecycleEvent(
         source,
@@ -115,10 +131,25 @@ describe('management table-lifecycle commands', () => {
       expect(result.sessions[0].endedAt).toBe(
         type === 'Failed to Start' || type === 'Broke' || type === 'Closed' ? now : undefined
       );
-      expect(result.playerSessions[0]).toEqual(closesPlayers ? { ...openPlayer, leftAt: now } : openPlayer);
+      expect(result.playerSessions[0]).toEqual(closesPlayers
+        ? { ...openPlayer, leftAt: now, manualEdits: { leftAt: now } }
+        : openPlayer);
+      expect(result.interests[0]).toEqual(closesPlayers
+        ? { ...seatedInterest, status: 'Removed', closedAt: now, timestamp: now }
+        : seatedInterest);
+      expect(result.sessions[0].seatsFilled).toBe(closesPlayers ? 0 : table.seatsFilled);
+      expect(result.playerLedger).toEqual(closesPlayers
+        ? [expect.objectContaining({
+            id: 'created-1',
+            type: 'Cash-Out',
+            profileId: openPlayer.profileId,
+            timestamp: now,
+            note: type === 'Broke' ? 'Table broke; player session closed by staff' : 'Table closed by staff'
+          })]
+        : []);
       expect(result.dealerAssignments[0]).toEqual(closesDealer ? { ...openDealer, endedAt: now } : openDealer);
       expect(result.tableEvents[0]).toEqual({
-        id: 'created-1',
+        id: closesPlayers ? 'created-2' : 'created-1',
         type,
         gameId: game.id,
         tableId: table.id,

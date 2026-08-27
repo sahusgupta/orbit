@@ -341,17 +341,28 @@ export function checkProfileIntoClub(
   };
 }
 
-export function removeProfileFromClub(state: AppState, profile: PlayerProfile): AppState {
+export function removeProfileFromClub(
+  state: AppState,
+  profile: PlayerProfile,
+  dependencies: Pick<ProfileCommandDependencies, 'nowIso'>
+): AppState {
   const matchingInterestIds = new Set(
     getProfileReferenceMatches(
       state.interests,
       state.profiles,
       profile,
-      (interest) => interest.status === 'Arrived'
+      (interest) => interest.status === 'Arrived' || interest.status === 'Seated'
     ).map((interest) => interest.id)
   );
+  if (matchingInterestIds.size === 0) return state;
+
+  const timestamp = dependencies.nowIso();
   return {
     ...state,
-    interests: state.interests.filter((interest) => !matchingInterestIds.has(interest.id))
+    interests: state.interests.map((interest) =>
+      matchingInterestIds.has(interest.id)
+        ? { ...interest, status: 'Removed', closedAt: timestamp, timestamp }
+        : interest
+    )
   };
 }

@@ -261,7 +261,7 @@ describe('management profile commands', () => {
     expect(result.profiles[1]).toBe(source.profiles[1]);
   });
 
-  it('checks profiles in and removes only canonical arrived relationships', () => {
+  it('checks profiles in and checks them out without deleting lifecycle history', () => {
     const target = profile('profile-target', 'Target', { preferredGameIds: [games[1].id] });
     const source = state({ profiles: [target] });
     const checkedIn = checkProfileIntoClub(source, target, dependencies());
@@ -290,6 +290,10 @@ describe('management profile commands', () => {
         { ...checkedIn.state.interests[0], id: 'closed', status: 'Seated' as const }
       ]
     };
-    expect(removeProfileFromClub(withClosed, target).interests).toEqual([withClosed.interests[1]]);
+    const checkedOut = removeProfileFromClub(withClosed, target, { nowIso: () => now });
+    expect(checkedOut.interests).toEqual([
+      expect.objectContaining({ id: 'created-1', status: 'Removed', closedAt: now, timestamp: now }),
+      expect.objectContaining({ id: 'closed', status: 'Removed', closedAt: now, timestamp: now })
+    ]);
   });
 });

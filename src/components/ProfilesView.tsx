@@ -274,6 +274,7 @@ export default function ProfilesView({
                   profile,
                   (session) => !session.leftAt
                 );
+                const checkedIn = seated || inClub;
                 return (
                   <article className="profile-card" key={profile.id}>
                     <div className="profile-card-main">
@@ -282,7 +283,9 @@ export default function ProfilesView({
                           <h3>{profile.name}</h3>
                           <p>{preferredGame || 'No preferred game'}</p>
                         </div>
-                        {seated ? <span className="status-pill viable">Seated</span> : inClub ? <span className="status-pill viable">In club</span> : null}
+                        <span className={`status-pill${checkedIn ? ' viable' : ''}`}>
+                          {seated ? 'Seated' : inClub ? 'In club' : 'Not checked in'}
+                        </span>
                       </div>
                       <div className="profile-card-stats">
                         <span>Total <strong>{formatHours(profile.totalTimePlayedHours)}</strong></span>
@@ -407,8 +410,8 @@ export default function ProfilesView({
                         <Edit3 size={16} />
                         Edit
                       </button>
-                      <button className="secondary-button" onClick={() => (inClub ? removeProfileFromClub(profile) : addProfileToClub(profile))}>
-                        {inClub ? 'Remove' : 'Check in'}
+                      <button className="secondary-button" onClick={() => (checkedIn ? removeProfileFromClub(profile) : addProfileToClub(profile))}>
+                        {checkedIn ? 'Check out' : 'Check in'}
                       </button>
                       <button aria-label={`Remove ${profile.name}`} className="icon-button danger" onClick={() => deleteProfile(profile.id)} title="Remove profile">
                         <Trash2 size={17} />
@@ -433,7 +436,7 @@ export default function ProfilesView({
                         <small>{state.games.find((game) => game.id === interest.gameId)?.name ?? 'Unknown game'}</small>
                       </div>
                       <button className="secondary-button" onClick={() => deleteInterest(interest.id)}>
-                        Remove
+                        Check out
                       </button>
                     </article>
                   ))

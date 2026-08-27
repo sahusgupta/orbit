@@ -712,6 +712,39 @@ describe('Electron API-first orchestration', () => {
     expect(saveStateEverywhere).toHaveBeenCalledWith(state);
   });
 
+  it('does not poison the offline cache with stale state after an API revision conflict', async () => {
+    const state = {
+      games: [],
+      sessions: [],
+      playerSessions: [],
+      settings: { pilotAccess: { licenseId: 'club-one', authorizationCode: 'pilot-code' } }
+    };
+    const fetch = vi.fn().mockResolvedValueOnce(response(JSON.stringify({
+      ok: false,
+      code: 'STATE_REVISION_CONFLICT',
+      error: 'Venue state changed elsewhere.',
+      expectedRevision: 3,
+      currentRevision: 4
+    }), { ok: false, status: 409 }));
+    const saveStateEverywhere = vi.fn().mockResolvedValue({ ok: true, engine: 'file-cache' });
+    const writeLocalDatabase = vi.fn();
+    const client = createOrbitApiClient(baseDependencies({
+      fetchImpl: fetch,
+      saveStateEverywhere,
+      writeLocalDatabase
+    }));
+
+    await expect(client.saveStateApiFirst(state)).resolves.toMatchObject({
+      ok: false,
+      path: 'orbit-api',
+      conflict: true,
+      currentRevision: 4,
+      error: 'Venue state changed elsewhere.'
+    });
+    expect(saveStateEverywhere).not.toHaveBeenCalled();
+    expect(writeLocalDatabase).not.toHaveBeenCalled();
+  });
+
   it('falls back to local report storage only when the API report submission has no result', async () => {
     const fetch = vi.fn().mockRejectedValue(new Error('API unavailable'));
     const storeAnalyticalReport = vi.fn().mockResolvedValue({ ok: true, reportId: 'local-1' });

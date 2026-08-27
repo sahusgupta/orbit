@@ -319,7 +319,15 @@ describe('floor collection projections', () => {
         }
       })
     );
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) =>
+      init?.method === 'POST'
+        ? new Response(JSON.stringify({ ok: true, revision: 1 }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          })
+        : new Response(null, { status: 404 })
+    ));
+    vi.stubGlobal('confirm', vi.fn(() => true));
 
     await act(async () => {
       await import('../main');
@@ -430,7 +438,7 @@ describe('floor collection projections', () => {
     expect(graphicButton?.getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('renders complete game demand and waitlist dialog values in canonical order without mutating state', () => {
+  it('renders canonical waitlist details without incidental mutations and removes the selected entry', async () => {
     act(() => {
       document.querySelectorAll<HTMLButtonElement>('.floor-workspace-dock button')[2]?.click();
     });
@@ -550,6 +558,27 @@ describe('floor collection projections', () => {
       (card) => card.querySelector('strong')?.textContent === 'Bob Interested'
     );
     expect(bobCard?.querySelector('span')?.textContent).toBe('Unknown game \u00b7 Interested');
+
+    await act(async () => {
+      bobCard
+        ?.querySelector<HTMLButtonElement>('button[aria-label="Actions for Bob Interested"]')
+        ?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+      await Promise.resolve();
+    });
+    const removeWaitlistItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+      (item) => item.textContent?.trim() === 'Remove from waitlist'
+    );
+    expect(removeWaitlistItem).toBeTruthy();
+    await act(async () => {
+      removeWaitlistItem?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(harness.latestInterestReferences.some((interest) => (
+      typeof interest === 'object' && interest !== null && 'id' in interest && interest.id === 'interest-bob'
+    ))).toBe(false);
+    expect(globalThis.confirm).toHaveBeenCalledWith('Remove this interest entry?');
+    expect(document.body.textContent).not.toContain('Bob Interested');
 
     act(() => {
       stateSetter((current: unknown) => {

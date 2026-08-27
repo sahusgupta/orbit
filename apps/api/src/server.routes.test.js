@@ -178,6 +178,7 @@ describe('API route composition', () => {
     expect(await stylesheet.text()).toContain('min-height: 48px');
     expect(script.headers.get('content-type')).toMatch(/javascript/);
     const scriptSource = await script.text();
+    expect(scriptSource).toContain("'/player/check-in/context'");
     expect(scriptSource).toContain("'x-orbit-check-in-token'");
     expect(scriptSource).toContain("'x-orbit-check-in-session'");
     expect(scriptSource).not.toContain('innerHTML');
@@ -194,6 +195,20 @@ describe('API route composition', () => {
     expect(unauthorizedIssuer.headers.get('cache-control')).toContain('no-store');
     expect(unauthorizedIssuer.headers.get('x-robots-tag')).toBe('noindex, nofollow');
     expect(Number(unauthorizedIssuer.headers.get('x-ratelimit-remaining'))).toBeGreaterThanOrEqual(0);
+
+    const invalidContext = await request('/player/check-in/context', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-orbit-check-in-token': 'invalid-token-that-is-long-enough'
+      },
+      body: '{}'
+    });
+    expect(invalidContext.status).toBe(401);
+    expect(await invalidContext.json()).toMatchObject({ ok: false, code: 'INVALID_CHECK_IN_TOKEN' });
+    expect(Number(invalidContext.headers.get('x-ratelimit-limit'))).toBe(120);
+    expect(invalidContext.headers.get('cache-control')).toContain('no-store');
+    expect(invalidContext.headers.get('x-robots-tag')).toBe('noindex, nofollow');
 
     const nonJsonLookup = await request('/player/check-in/lookup', {
       method: 'POST',

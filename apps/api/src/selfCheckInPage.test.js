@@ -52,7 +52,11 @@ function recognizedPayload(overrides = {}) {
   };
 }
 
-function installPage(responses, fragment = `#token=${capability}`) {
+function installPage(
+  responses,
+  fragment = `#token=${capability}`,
+  contextResponse = jsonResponse({ ok: true, status: 'ready', clubName: 'Orbit Room' })
+) {
   document.documentElement.innerHTML = pageHtml;
   window.history.replaceState(null, '', `/check-in${fragment}`);
   sessionStorage.clear();
@@ -61,13 +65,23 @@ function installPage(responses, fragment = `#token=${capability}`) {
     return 1;
   });
   const fetch = vi.fn();
-  for (const response of responses) fetch.mockResolvedValueOnce(response);
+  for (const response of [contextResponse, ...responses]) fetch.mockResolvedValueOnce(response);
   vi.stubGlobal('fetch', fetch);
   Function(pageScript)();
   return fetch;
 }
 
+function actionCalls(fetch) {
+  return fetch.mock.calls.filter((call) => call[0] !== '/player/check-in/context');
+}
+
+async function waitForNameStep() {
+  await vi.waitFor(() => expect(document.querySelector('#name-step')?.hasAttribute('hidden')).toBe(false));
+  await vi.waitFor(() => expect(document.querySelector('#check-in-app')?.getAttribute('aria-busy')).toBe('false'));
+}
+
 async function submitName(name = 'José O’Brien') {
+  await waitForNameStep();
   const input = /** @type {any} */ (document.querySelector('#player-name'));
   input.value = name;
   document.querySelector('#lookup-form').dispatchEvent(new BrowserEvent('submit', { bubbles: true, cancelable: true }));
@@ -83,6 +97,44 @@ afterEach(() => {
 });
 
 describe('public self-check-in page', () => {
+  it('shows a verified, minimal club-specific landing step', async () => {
+    const fetch = installPage([]);
+
+    await waitForNameStep();
+
+    expect(document.querySelector('#name-heading')?.textContent?.replace(/\s+/gu, ' ').trim()).toBe('Check in to Orbit Room');
+    expect(document.querySelector('#player-name')?.getAttribute('placeholder')).toBe('Name');
+    expect(document.querySelector('#lookup-button')?.getAttribute('aria-label')).toBe('Continue');
+    expect(document.querySelector('.brand-header')?.textContent?.trim()).toBe('');
+    expect(document.querySelector('#name-step .lead')).toBeNull();
+    expect(document.querySelector('#name-step .field-hint')).toBeNull();
+    expect(fetch).toHaveBeenCalledOnce();
+    const request = fetch.mock.calls[0][1];
+    expect(fetch.mock.calls[0][0]).toBe('/player/check-in/context');
+    expect(request.method).toBe('POST');
+    expect(request.cache).toBe('no-store');
+    expect(request.credentials).toBe('same-origin');
+    expect(request.referrerPolicy).toBe('no-referrer');
+    expect(request.headers['x-orbit-check-in-token']).toBe(capability);
+    expect(request.body).toBe('{}');
+    expect(request.body).not.toContain(capability);
+  });
+
+  it('fails closed before showing the name form when club context is invalid', async () => {
+    const fetch = installPage([], `#token=${capability}`, jsonResponse({
+      ok: false,
+      code: 'CHECK_IN_TOKEN_REVOKED',
+      error: 'This club check-in code is no longer active.'
+    }, 410));
+
+    await vi.waitFor(() => expect(document.querySelector('#assistance-step')?.hasAttribute('hidden')).toBe(false));
+
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(document.querySelector('#name-step')?.hasAttribute('hidden')).toBe(true);
+    expect(document.querySelector('#assistance-message')?.textContent).toContain('staff member');
+    expect(sessionStorage.getItem('orbit.selfCheckIn.capability')).toBeNull();
+  });
+
   it('strips the bearer fragment, sends credentials only in headers, and completes seating', async () => {
     const fetch = installPage([
       jsonResponse(recognizedPayload()),
@@ -99,6 +151,7 @@ describe('public self-check-in page', () => {
 
     expect(window.location.hash).toBe('');
     expect(sessionStorage.getItem('orbit.selfCheckIn.capability')).toBe(capability);
+    await waitForNameStep();
     expect(document.activeElement).toBe(document.querySelector('#player-name'));
     await submitName();
     expect(document.querySelector('#table-step')?.hasAttribute('hidden')).toBe(false);
@@ -106,9 +159,10 @@ describe('public self-check-in page', () => {
     document.querySelector('.table-choice').dispatchEvent(new BrowserMouseEvent('click', { bubbles: true }));
     await vi.waitFor(() => expect(document.querySelector('#success-step')?.hasAttribute('hidden')).toBe(false));
 
-    const lookupRequest = fetch.mock.calls[0][1];
-    const seatRequest = fetch.mock.calls[1][1];
-    expect(fetch.mock.calls.map((call) => call[0])).toEqual(['/player/check-in/lookup', '/player/check-in/seat']);
+    const requests = actionCalls(fetch);
+    const lookupRequest = requests[0][1];
+    const seatRequest = requests[1][1];
+    expect(requests.map((call) => call[0])).toEqual(['/player/check-in/lookup', '/player/check-in/seat']);
     expect(lookupRequest.headers['x-orbit-check-in-token']).toBe(capability);
     expect(seatRequest.headers['x-orbit-check-in-session']).toBe(sessionToken);
     expect(lookupRequest.body).not.toContain(capability);
@@ -134,7 +188,7 @@ describe('public self-check-in page', () => {
 
     await submitName();
 
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(actionCalls(fetch)).toHaveLength(1);
     expect(document.querySelector('#success-step')?.hasAttribute('hidden')).toBe(false);
     expect(document.querySelector('#success-heading')?.textContent).toContain('already checked in');
     expect(document.querySelector('#success-message')?.textContent).toContain('ask staff');
@@ -157,7 +211,7 @@ describe('public self-check-in page', () => {
 
     await submitName('New Player');
 
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(actionCalls(fetch)).toHaveLength(1);
     expect(document.querySelector('#assistance-step')?.hasAttribute('hidden')).toBe(false);
     expect(document.querySelector('#assistance-message')?.textContent).toContain('Club staff have been alerted');
     expect(document.querySelector('#player-name')?.value).toBe('');
@@ -178,12 +232,12 @@ describe('public self-check-in page', () => {
     document.querySelector('#refresh-button').dispatchEvent(new BrowserMouseEvent('click', { bubbles: true }));
     await vi.waitFor(() => expect(document.querySelector('#assistance-step')?.hasAttribute('hidden')).toBe(false));
 
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(actionCalls(fetch)).toHaveLength(2);
     expect(document.querySelector('#player-name')?.value).toBe('');
     expect(document.querySelector('#player-greeting')?.textContent).toBe('');
     expect(document.querySelector('#table-club')?.textContent).toBe('');
     expect(document.querySelector('#table-list')?.children).toHaveLength(0);
-    expect(document.body.textContent).not.toContain('José O’Brien');
+    expect(document.body.textContent).not.toContain(recognizedPayload().playerName);
     expect(document.activeElement).toBe(document.querySelector('#assistance-heading'));
     expect(sessionStorage.getItem('orbit.selfCheckIn.capability')).toBeNull();
   });
@@ -216,26 +270,27 @@ describe('public self-check-in page', () => {
 
     expect(document.querySelector('#table-status')?.textContent).toContain('Availability changed');
     expect(document.querySelector('#error-alert')?.textContent).toContain('no longer available');
-    const firstLookupMutationId = JSON.parse(fetch.mock.calls[0][1].body).mutationId;
+    const firstLookupMutationId = JSON.parse(actionCalls(fetch)[0][1].body).mutationId;
 
     document.querySelector('#refresh-button').dispatchEvent(new BrowserMouseEvent('click', { bubbles: true }));
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(actionCalls(fetch)).toHaveLength(3));
     await vi.waitFor(() => expect(document.querySelector('#check-in-app')?.getAttribute('aria-busy')).toBe('false'));
-    const refreshedLookupMutationId = JSON.parse(fetch.mock.calls[2][1].body).mutationId;
+    const refreshedLookupMutationId = JSON.parse(actionCalls(fetch)[2][1].body).mutationId;
     expect(refreshedLookupMutationId).not.toBe(firstLookupMutationId);
     expect(document.querySelector('#error-alert')?.hasAttribute('hidden')).toBe(true);
 
     document.querySelector('.table-choice').dispatchEvent(new BrowserMouseEvent('click', { bubbles: true }));
     await vi.waitFor(() => expect(document.querySelector('#success-step')?.hasAttribute('hidden')).toBe(false));
 
-    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+    const requests = actionCalls(fetch);
+    expect(requests.map((call) => call[0])).toEqual([
       '/player/check-in/lookup',
       '/player/check-in/seat',
       '/player/check-in/lookup',
       '/player/check-in/seat'
     ]);
-    expect(fetch.mock.calls[3][1].headers['x-orbit-check-in-session']).toBe(refreshedSessionToken);
-    expect(JSON.parse(fetch.mock.calls[3][1].body)).toMatchObject({ tableId: 'table-two' });
+    expect(requests[3][1].headers['x-orbit-check-in-session']).toBe(refreshedSessionToken);
+    expect(JSON.parse(requests[3][1].body)).toMatchObject({ tableId: 'table-two' });
     expect(document.querySelector('#success-table')?.textContent).toBe('Table 2');
     expect(document.querySelector('#success-seat')?.textContent).toBe('5');
   });
@@ -253,7 +308,7 @@ describe('public self-check-in page', () => {
     document.querySelector('.table-choice').dispatchEvent(new BrowserMouseEvent('click', { bubbles: true }));
     await vi.waitFor(() => expect(document.querySelector('#check-in-app')?.getAttribute('aria-busy')).toBe('false'));
 
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(actionCalls(fetch)).toHaveLength(2);
     expect(document.querySelector('#table-list')?.children).toHaveLength(0);
     expect(document.querySelector('#table-summary')?.textContent).toBe('');
     expect(document.querySelector('#table-status')?.textContent).toContain('Refresh the tables');
@@ -274,7 +329,7 @@ describe('public self-check-in page', () => {
     now.mockReturnValue(Date.parse('2026-08-24T12:06:00.000Z'));
     tableButton.dispatchEvent(new BrowserMouseEvent('click', { bubbles: true }));
 
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(actionCalls(fetch)).toHaveLength(1);
     expect(document.querySelector('#table-list')?.children).toHaveLength(0);
     expect(document.querySelector('#table-status')?.textContent).toContain('session expired');
     expect(document.activeElement).toBe(document.querySelector('#refresh-button'));
@@ -291,7 +346,7 @@ describe('public self-check-in page', () => {
     document.querySelector('.table-choice').dispatchEvent(new BrowserMouseEvent('click', { bubbles: true }));
     await vi.waitFor(() => expect(document.querySelector('#check-in-app')?.getAttribute('aria-busy')).toBe('false'));
 
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(actionCalls(fetch)).toHaveLength(2);
     expect(document.querySelector('#table-list')?.children).toHaveLength(0);
     expect(document.querySelector('#table-status')?.textContent).toContain('session expired');
     expect(document.activeElement).toBe(document.querySelector('#refresh-button'));
@@ -311,11 +366,11 @@ describe('public self-check-in page', () => {
     document.querySelector('.table-choice').dispatchEvent(new BrowserMouseEvent('click', { bubbles: true }));
     await vi.waitFor(() => expect(document.querySelector('#assistance-step')?.hasAttribute('hidden')).toBe(false));
 
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(actionCalls(fetch)).toHaveLength(2);
     expect(document.querySelector('#table-list')?.children).toHaveLength(0);
     expect(document.querySelector('#player-greeting')?.textContent).toBe('');
     expect(document.querySelector('#player-name')?.value).toBe('');
-    expect(document.body.textContent).not.toContain('JosÃ© Oâ€™Brien');
+    expect(document.body.textContent).not.toContain(recognizedPayload().playerName);
     expect(document.querySelector('#assistance-message')?.textContent).toContain('staff member');
     expect(document.activeElement).toBe(document.querySelector('#assistance-heading'));
     expect(sessionStorage.getItem('orbit.selfCheckIn.capability')).toBeNull();
@@ -327,7 +382,7 @@ describe('public self-check-in page', () => {
     await submitName('###');
 
     const input = document.querySelector('#player-name');
-    expect(fetch).not.toHaveBeenCalled();
+    expect(actionCalls(fetch)).toHaveLength(0);
     expect(input?.getAttribute('aria-invalid')).toBe('true');
     expect(input?.getAttribute('aria-describedby')).toContain('name-error');
     expect(document.querySelector('#name-error')?.hasAttribute('hidden')).toBe(false);

@@ -584,6 +584,10 @@ function createOrbitApiClient(dependencies) {
       }
       return apiResult;
     }
+    // A revision conflict means this renderer state is stale. Persisting it to
+    // the offline cache would let a later fallback resurrect sessions that the
+    // authoritative API has already changed (for example, a QR check-in).
+    if (apiResult?.conflict) return apiResult;
     const cacheResult = await saveStateEverywhere(state);
     return {
       ...cacheResult,

@@ -8,16 +8,16 @@ type StaffPinDialogProps = {
 };
 
 const validStaffPin = /^\d{4,12}$/;
-
 export default function StaffPinDialog({ staffName, onCancel, onSubmit }: StaffPinDialogProps) {
   const [pin, setPin] = useState('');
   const canSubmit = validStaffPin.test(pin);
 
   return (
-    <Dialog.Root modal={false} open onOpenChange={(open) => {
+    <Dialog.Root open onOpenChange={(open) => {
       if (!open) onCancel();
     }}>
       <Dialog.Portal>
+        <Dialog.Overlay className="command-overlay" />
         <Dialog.Content
           className="command-dialog staff-pin-dialog"
           aria-describedby="staff-pin-dialog-description"
@@ -32,7 +32,7 @@ export default function StaffPinDialog({ staffName, onCancel, onSubmit }: StaffP
             <div className="staff-pin-dialog-heading">
               <Dialog.Title>Verify {staffName}</Dialog.Title>
               <Dialog.Description id="staff-pin-dialog-description">
-                Enter this staff member&apos;s PIN to use their account on this station, or keep editing to cancel.
+                Enter this staff member&apos;s PIN to activate their account on this station.
               </Dialog.Description>
             </div>
             <label>

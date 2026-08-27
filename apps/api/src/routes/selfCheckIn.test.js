@@ -72,7 +72,7 @@ function createRequest(input = {}) {
 }
 
 function capabilityFrom(response) {
-  return new URL(response.payload.checkInUrl).hash.slice('#token='.length);
+  return new URLSearchParams(new URL(response.payload.checkInUrl).hash.slice(1)).get('token');
 }
 
 function createHarness(initialState = baseState(), dependencyOverrides = {}) {
@@ -140,6 +140,12 @@ function createHarness(initialState = baseState(), dependencyOverrides = {}) {
     saveState,
     schedulePublicationDrain,
     get state() { return record.state; },
+    mutateState(transform) {
+      record = {
+        revision: record.revision + 1,
+        state: structuredClone(transform(record.state))
+      };
+    },
     conflictOnNextSave(transform) {
       conflictOnNextSave = true;
       conflictStateTransform = transform;
@@ -171,6 +177,15 @@ async function lookup(harness, capability, body) {
   return response;
 }
 
+async function context(harness, capability, body = {}) {
+  const response = createResponse();
+  await harness.handlers.getClubContext(createRequest({
+    headers: { 'content-type': 'application/json', 'x-orbit-check-in-token': capability },
+    body
+  }), response);
+  return response;
+}
+
 describe('self-check-in API routes', () => {
   it('restricts QR issuance to a tenant-bound client:write identity', () => {
     const next = vi.fn();
@@ -185,6 +200,51 @@ describe('self-check-in API routes', () => {
 
     requireSelfCheckInIssuer({ orbitAuth: { accountKey: 'club-one', scopes: ['client:write'] } }, createResponse(), next);
     expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('returns only the verified club context before player lookup', async () => {
+    const harness = createHarness();
+    const { capability } = await issue(harness);
+
+    const response = await context(harness, capability);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.payload).toEqual({ ok: true, status: 'ready', clubName: 'Orbit Room' });
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(response.payload).not.toHaveProperty('profiles');
+    expect(response.payload).not.toHaveProperty('tables');
+    expect(response.payload).not.toHaveProperty('playerSessions');
+    expect(harness.saveState).toHaveBeenCalledOnce();
+  });
+
+  it('rejects unsupported context input and a rotated capability', async () => {
+    const harness = createHarness();
+    const first = await issue(harness);
+    const unsupported = await context(harness, first.capability, { name: 'Player' });
+    expect(unsupported.statusCode).toBe(400);
+    expect(unsupported.payload).toMatchObject({ code: 'INVALID_INPUT' });
+
+    await issue(harness);
+    const revoked = await context(harness, first.capability);
+    expect(revoked.statusCode).toBe(410);
+    expect(revoked.payload).toMatchObject({ code: 'CHECK_IN_TOKEN_REVOKED' });
+  });
+
+  it('rejects club context when the active license is removed', async () => {
+    const harness = createHarness();
+    const { capability } = await issue(harness);
+    harness.mutateState((state) => ({
+      ...state,
+      settings: {
+        ...state.settings,
+        pilotAccess: { ...state.settings.pilotAccess, authorized: false }
+      }
+    }));
+
+    const response = await context(harness, capability);
+
+    expect(response.statusCode).toBe(410);
+    expect(response.payload).toMatchObject({ code: 'PILOT_LICENSE_INACTIVE' });
   });
 
   it('rejects non-JSON, unsupported fields, invalid names, and invalid identifiers before state access', async () => {
@@ -302,6 +362,57 @@ describe('self-check-in API routes', () => {
     expect(replay.statusCode).toBe(200);
     expect(replay.payload).toMatchObject({ status: 'already-seated', tableLabel: 'Table 1', seatNumber: 1 });
     expect(harness.state.playerSessions).toHaveLength(1);
+  });
+
+  it('offers the freed table again after Core checks the player out and allows a fresh seating session', async () => {
+    const harness = createHarness();
+    const { capability } = await issue(harness);
+    const firstLookup = await lookup(harness, capability, {
+      name: baseState().profiles[0].name,
+      mutationId: 'first-lifecycle-lookup'
+    });
+    const firstSeat = createResponse();
+    await harness.handlers.seatPlayer(createRequest({
+      headers: { 'content-type': 'application/json', 'x-orbit-check-in-session': firstLookup.payload.sessionToken },
+      body: { tableId: 'table-one', mutationId: 'first-lifecycle-seat' }
+    }), firstSeat);
+    expect(firstSeat.payload).toMatchObject({ status: 'seated', seatNumber: 1 });
+
+    harness.mutateState((state) => ({
+      ...state,
+      interests: state.interests.map((interest) => ({
+        ...interest,
+        status: 'Removed',
+        closedAt: '2026-08-24T13:00:00.000Z'
+      })),
+      playerSessions: state.playerSessions.map((session) => ({
+        ...session,
+        leftAt: '2026-08-24T13:00:00.000Z'
+      })),
+      sessions: state.sessions.map((table) => ({ ...table, seatsFilled: 0 }))
+    }));
+
+    const secondLookup = await lookup(harness, capability, {
+      name: baseState().profiles[0].name,
+      mutationId: 'second-lifecycle-lookup'
+    });
+    expect(secondLookup.payload).toMatchObject({
+      status: 'recognized',
+      tables: [{ id: 'table-one', availableSeats: 2 }]
+    });
+
+    const secondSeat = createResponse();
+    await harness.handlers.seatPlayer(createRequest({
+      headers: { 'content-type': 'application/json', 'x-orbit-check-in-session': secondLookup.payload.sessionToken },
+      body: { tableId: 'table-one', mutationId: 'second-lifecycle-seat' }
+    }), secondSeat);
+
+    expect(secondSeat.payload).toMatchObject({ status: 'seated', seatNumber: 1 });
+    expect(harness.state.playerSessions).toHaveLength(2);
+    expect(harness.state.playerSessions.filter((session) => !session.leftAt)).toEqual([
+      expect.objectContaining({ seatNumber: 1 })
+    ]);
+    expect(harness.state.interests.filter((interest) => interest.status === 'Seated')).toHaveLength(1);
   });
 
   it('creates one durable assistance alert for an unknown player and rejects changed replay input', async () => {
