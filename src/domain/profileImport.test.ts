@@ -137,7 +137,7 @@ describe('profile import domain boundary', () => {
       'address.state': 'TX',
       'address.zipCode': '77840',
       email: 'john@example.test',
-      phone: '555-0100',
+        phone: '555-010-0000',
       hasSSN: 'TRUE',
       birthday: '1990-02-03',
       optInEmail: 'TRUE (T/F)',
@@ -151,6 +151,8 @@ describe('profile import domain boundary', () => {
       id: 'ABC123456',
       name: 'John Smith',
       email: 'john@example.test',
+        phone: '(555) 010-0000',
+      hasSSN: true,
       address: { street: '123 Main Street', city: 'College Station', state: 'TX', zipCode: '77840' },
       communicationPreferences: { email: true, mail: false, sms: true },
       birthday: '1990-02-03',
@@ -158,7 +160,20 @@ describe('profile import domain boundary', () => {
       totalTimePlayedHours: 1.55,
       lastSessionTimePlayedHours: 0.5
     });
-    expect(profileFromImportedRecord({ hasSSN: 'TRUE', firstName: 'Safe', lastName: 'Player' }, context)).not.toHaveProperty('hasSSN');
+    expect(profileFromImportedRecord({ hasSSN: 'TRUE', firstName: 'Safe', lastName: 'Player' }, context).hasSSN).toBe(true);
+    expect(profileFromImportedRecord({
+      hasSSN: '(Can be blank, autofill to No if blank, else keep value)',
+      firstName: 'Placeholder',
+      lastName: 'Player',
+      email: 'username@email.com (can be blank)',
+      phone: 'XXX-XXX-XXXX (Can be Nothing)'
+    }, context)).toMatchObject({ hasSSN: false, phone: '' });
+    expect(profileFromImportedRecord({
+      firstName: 'Formatted',
+      lastName: 'Phone',
+      email: 'valid@example.com',
+      phone: '+1 (979) 555-0100'
+    }, context)).toMatchObject({ email: 'valid@example.com', phone: '(979) 555-0100' });
   });
 
   it('preserves JSON validation and malformed-JSON delimited fallback semantics', () => {

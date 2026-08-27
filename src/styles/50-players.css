@@ -305,6 +305,7 @@
 }
 
 .club-data-import {
+  color: var(--ink);
   display: grid;
   gap: 9px;
   margin-top: 14px;
@@ -317,7 +318,7 @@
 .club-data-import > p,
 .profile-import-message,
 .pasted-player-import {
-  color: var(--muted);
+  color: var(--ink);
   font-size: 0.82rem;
   font-weight: 700;
   line-height: 1.4;

@@ -120,6 +120,13 @@ export default function ProfilesView({
     event.preventDefault();
     setIsImportDropActive(false);
     void importProfileFile(event.dataTransfer.files[0]);
+    setPlayerPopup(null);
+  };
+
+  const handleImportFileSelection = (file?: File) => {
+    if (!file) return;
+    void importProfileFile(file);
+    setPlayerPopup(null);
   };
 
   return (
@@ -170,6 +177,30 @@ export default function ProfilesView({
                     <label><span>Amount paid in person</span><input type="number" min="0" step="0.01" value={newProfile.membershipAmount} onChange={(event) => setNewProfile({ ...newProfile, membershipAmount: Number(event.target.value) })} placeholder="0.00" /></label>
                   </div>
                   <label><span>Birthday</span><input type="date" value={newProfile.birthday} onChange={(event) => setNewProfile({ ...newProfile, birthday: event.target.value })} /></label>
+                  <div className="club-data-import player-popup-import">
+                    <strong>Import existing player data</strong>
+                    <span>Choose or drop the club CSV/XLSX export to add its players.</span>
+                    <label
+                      className={`secondary-button license-file-button${isImportDropActive ? ' import-drop-active' : ''}`}
+                      onDragEnter={(event) => {
+                        event.preventDefault();
+                        setIsImportDropActive(true);
+                      }}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDragLeave={(event) => {
+                        if (event.currentTarget === event.target) setIsImportDropActive(false);
+                      }}
+                      onDrop={handleImportDrop}
+                    >
+                      <Upload size={16} />
+                      <span>Choose or drop CSV/XLSX</span>
+                      <input
+                        type="file"
+                        accept=".csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        onChange={(event) => handleImportFileSelection(event.target.files?.[0])}
+                      />
+                    </label>
+                  </div>
                   <div className="player-popup-actions"><Dialog.Close asChild><button className="ghost-button" type="button">Cancel</button></Dialog.Close><button className="primary-button" type="submit">Add active member</button></div>
                 </form>
               ) : playerPopup === 'scan' ? (

@@ -66,6 +66,7 @@ export type PlayerProfile = {
   name: string;
   phone: string;
   email?: string;
+  hasSSN?: boolean;
   address?: {
     street: string;
     city: string;

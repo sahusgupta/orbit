@@ -374,7 +374,7 @@ describe('pasted profile import boundary', () => {
     await importPastedProfiles(JSON.stringify([{ id: 'existing-bob', name: 'Bob' }]));
     const csv = [
       'Name,Phone,DOB,Member Since,Expires At,Game,Companions,Notes',
-      '" Alice, Jr. ",555-0100,1990-02-03,2025-01-02,2027-03-04,PLO,Bob|Carol,"Says ""hello"""',
+        '" Alice, Jr. ",555-010-0000,1990-02-03,2025-01-02,2027-03-04,PLO,Bob|Carol,"Says ""hello"""',
       'Bob,555-0199,,,,1/2 NLH,,Duplicate should be skipped'
     ].join('\n');
     const file = new File([csv], 'profiles.csv', { type: 'text/csv' });
@@ -385,7 +385,7 @@ describe('pasted profile import boundary', () => {
     expect(getLatestState().profiles[0]).toMatchObject({ id: 'existing-bob', name: 'Bob' });
     expect(getLatestState().profiles[1]).toMatchObject({
       name: 'Alice, Jr.',
-      phone: '555-0100',
+        phone: '(555) 010-0000',
       birthday: '1990-02-03',
       membershipStartDate: '2025-01-02',
       membershipExpirationDate: '2027-03-04',
