@@ -23,6 +23,7 @@ type ProfilesViewProps = {
   getGamePlayEntries: (profile: PlayerProfile) => [string, number][];
   getMostPlayedGameName: (profile: PlayerProfile) => string;
   importProfileFile: (file?: File) => Promise<void>;
+  profileImportMessage: string;
   importProfiles: () => void;
   importText: string;
   inClubInterests: Interest[];
@@ -74,6 +75,7 @@ export default function ProfilesView({
   getGamePlayEntries,
   getMostPlayedGameName,
   importProfileFile,
+  profileImportMessage,
   importProfiles,
   importText,
   inClubInterests,
@@ -300,6 +302,7 @@ export default function ProfilesView({
                       )}
                       <small>Membership: {profile.membershipStartDate || 'Not set'} to {profile.membershipExpirationDate || 'Not set'}</small>
                       {profile.phone ? <small>Phone: {profile.phone}</small> : null}
+                      {profile.email ? <small>Email: {profile.email}</small> : null}
                       {companionNames.length > 0 ? <small>Plays with: {companionNames.join(', ')}</small> : null}
                       {editingProfileId === profile.id && profileEditDraft ? (
                         <form className="profile-edit-form" onSubmit={saveProfileEdit}>
@@ -541,26 +544,32 @@ export default function ProfilesView({
                 </button>
               </form>
               {profileFormMessage ? <p className="profile-form-message">{profileFormMessage}</p> : null}
-              <textarea
-                className="import-box"
-                value={importText}
-                onChange={(event) => setImportText(event.target.value)}
-                placeholder="Import CSV: name, preferred game, birthday, membership start, membership expiration, companions separated by |"
-              />
-              <div className="inline-actions">
-                <button className="secondary-button import-button" onClick={importProfiles}>
-                  Import Pasted People
-                </button>
+              <section className="club-data-import" aria-labelledby="club-data-import-title">
+                <strong id="club-data-import-title">Import club player data</strong>
+                <p>Upload a CSV or XLSX export to add its players to this club. Orbit recognizes member number, names, contact details, membership date, preferences, and played time. SSN-related columns are not imported.</p>
                 <label className="secondary-button license-file-button">
                   <Upload size={16} />
-                  Upload CSV / XLSX
+                  Choose CSV or XLSX
                   <input
                     type="file"
                     accept=".csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     onChange={(event) => importProfileFile(event.target.files?.[0])}
                   />
                 </label>
-              </div>
+                {profileImportMessage ? <p className="profile-import-message" role="status">{profileImportMessage}</p> : null}
+                <details className="pasted-player-import">
+                  <summary>Paste player data instead</summary>
+                  <textarea
+                    className="import-box"
+                    value={importText}
+                    onChange={(event) => setImportText(event.target.value)}
+                    placeholder="Paste CSV: name, preferred game, birthday, membership start, membership expiration, companions separated by |"
+                  />
+                  <button className="secondary-button import-button" onClick={importProfiles}>
+                    Import pasted players
+                  </button>
+                </details>
+              </section>
             </section>
 
             <section className="panel">

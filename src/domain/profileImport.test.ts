@@ -125,6 +125,42 @@ describe('profile import domain boundary', () => {
     });
   });
 
+  it('imports the club CSV layout including member numbers, contact preferences, and split time totals', () => {
+    const context = createContext();
+    expect(profileFromImportedRecord({
+      createdDate: '2024-11-20',
+      playerNumber: 'ABC123456',
+      firstName: 'John',
+      lastName: 'Smith',
+      'address.street': '123 Main Street',
+      'address.city': 'College Station',
+      'address.state': 'TX',
+      'address.zipCode': '77840',
+      email: 'john@example.test',
+      phone: '555-0100',
+      hasSSN: 'TRUE',
+      birthday: '1990-02-03',
+      optInEmail: 'TRUE (T/F)',
+      optInMail: 'false',
+      optInSMS: 'T',
+      joinHours: 0,
+      joinMinutes: 30,
+      totalHours: 1,
+      totalMinutes: 33
+    }, context)).toMatchObject({
+      id: 'ABC123456',
+      name: 'John Smith',
+      email: 'john@example.test',
+      address: { street: '123 Main Street', city: 'College Station', state: 'TX', zipCode: '77840' },
+      communicationPreferences: { email: true, mail: false, sms: true },
+      birthday: '1990-02-03',
+      membershipStartDate: '2024-11-20',
+      totalTimePlayedHours: 1.55,
+      lastSessionTimePlayedHours: 0.5
+    });
+    expect(profileFromImportedRecord({ hasSSN: 'TRUE', firstName: 'Safe', lastName: 'Player' }, context)).not.toHaveProperty('hasSSN');
+  });
+
   it('preserves JSON validation and malformed-JSON delimited fallback semantics', () => {
     const context = createContext();
     const jsonProfiles = parsePastedProfiles(JSON.stringify([

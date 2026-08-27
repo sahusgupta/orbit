@@ -65,6 +65,18 @@ export type PlayerProfile = {
   id: string;
   name: string;
   phone: string;
+  email?: string;
+  address?: {
+    street: string;
+    city: string;
+    state: string;
+    zipCode: string;
+  };
+  communicationPreferences?: {
+    email: boolean;
+    mail: boolean;
+    sms: boolean;
+  };
   birthday: string;
   membershipStartDate: string;
   membershipExpirationDate: string;

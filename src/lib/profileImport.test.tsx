@@ -150,7 +150,7 @@ const importPastedProfiles = async (text: string) => {
   const textarea = document.querySelector<HTMLTextAreaElement>('textarea.import-box');
   if (!textarea) throw new Error('Expected the profile import textarea');
   const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
-    (candidate) => candidate.textContent?.trim() === 'Import Pasted People'
+    (candidate) => candidate.textContent?.trim() === 'Import pasted players'
   );
   if (!button) throw new Error('Expected the profile import button');
   await invoke(getReactHandler(textarea, 'onChange'), { target: { value: text } });
@@ -267,12 +267,10 @@ describe('pasted profile import boundary', () => {
     expect(document.querySelector('.profile-search-row input')?.getAttribute('placeholder')).toBe(
       'Search players, stakes, companions, notes'
     );
-    expect(document.querySelector('textarea.import-box')?.getAttribute('placeholder')).toContain('Import CSV');
-    expect(
-      Array.from(document.querySelectorAll('.inline-actions > button, .inline-actions > label'), (control) =>
-        control.textContent?.trim()
-      )
-    ).toEqual(['Import Pasted People', 'Upload CSV / XLSX']);
+    expect(document.querySelector('#club-data-import-title')?.textContent).toBe('Import club player data');
+    expect(document.querySelector('.club-data-import p')?.textContent).toContain('CSV or XLSX');
+    expect(document.querySelector('textarea.import-box')?.getAttribute('placeholder')).toContain('Paste CSV');
+    expect(document.querySelector('.club-data-import .license-file-button')?.textContent).toContain('Choose CSV or XLSX');
   });
 
   it('normalizes valid JSON arrays, aliases, arrays, and numeric strings without losing fields', async () => {
