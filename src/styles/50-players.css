@@ -329,6 +329,11 @@
   width: 100%;
 }
 
+.club-data-import .license-file-button.import-drop-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+
 .pasted-player-import summary {
   cursor: pointer;
 }

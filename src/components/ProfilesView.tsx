@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import type { Dispatch, FormEvent, RefObject, SetStateAction } from 'react';
+import { useState, type Dispatch, type DragEvent, type FormEvent, type RefObject, type SetStateAction } from 'react';
 import { BadgeCheck, Bell, Clock, Edit3, Plus, Save, ScanLine, Trash2, Upload, Users, X } from 'lucide-react';
 import { hasProfileReference } from '../lib/profileRelationships';
 import type { AppState, Interest, InterestStatus, PlayerProfile } from '../domain/types';
@@ -114,6 +114,14 @@ export default function ProfilesView({
   setQrManualValue,
   toLocalDateValue
 }: ProfilesViewProps) {
+  const [isImportDropActive, setIsImportDropActive] = useState(false);
+
+  const handleImportDrop = (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setIsImportDropActive(false);
+    void importProfileFile(event.dataTransfer.files[0]);
+  };
+
   return (
       <main className="app-shell compact-shell">
         <header className="topbar">
@@ -547,9 +555,20 @@ export default function ProfilesView({
               <section className="club-data-import" aria-labelledby="club-data-import-title">
                 <strong id="club-data-import-title">Import club player data</strong>
                 <p>Upload a CSV or XLSX export to add its players to this club. Orbit recognizes member number, names, contact details, membership date, preferences, and played time. SSN-related columns are not imported.</p>
-                <label className="secondary-button license-file-button">
+                <label
+                  className={`secondary-button license-file-button${isImportDropActive ? ' import-drop-active' : ''}`}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    setIsImportDropActive(true);
+                  }}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDragLeave={(event) => {
+                    if (event.currentTarget === event.target) setIsImportDropActive(false);
+                  }}
+                  onDrop={handleImportDrop}
+                >
                   <Upload size={16} />
-                  Choose CSV or XLSX
+                  <span>Choose or drop CSV/XLSX</span>
                   <input
                     type="file"
                     accept=".csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
