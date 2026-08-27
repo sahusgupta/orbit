@@ -8,8 +8,8 @@ import { publicPages, resolvePublicOrigin } from '../download-site/public-config
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputRoot = path.join(repositoryRoot, 'download-dist');
 const publicOrigin = 'https://orbit-preview.invalid';
-const expectedVersion = '0.1.72';
-const expectedInstallerUrl = 'https://github.com/sahusgupta/orbit/releases/download/v0.1.72/Orbit-0.1.72-x64.exe';
+const expectedVersion = '0.1.73';
+const expectedInstallerUrl = 'https://github.com/sahusgupta/orbit/releases/download/v0.1.73/Orbit-0.1.73-x64.exe';
 assert.equal(resolvePublicOrigin({}), 'http://127.0.0.1:4174');
 assert.equal(resolvePublicOrigin({ VERCEL_URL: 'orbit-branch-preview.invalid' }), 'https://orbit-branch-preview.invalid');
 assert.equal(resolvePublicOrigin({ ORBIT_PUBLIC_PREVIEW_ORIGIN: publicOrigin }), publicOrigin);
