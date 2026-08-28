@@ -75,18 +75,29 @@ function getMembershipWindow(request) {
   const requestedAt = request.requestedAt || new Date().toISOString();
   const plan = request.plan === 'day' ? 'day' : 'monthly';
   const paymentMethod = request.paymentMethod === 'in-person' ? 'in-person' : 'app';
-  const active = paymentMethod !== 'in-person';
-  const start = new Date(requestedAt);
-  const expires = new Date(start);
-  expires.setDate(expires.getDate() + (Number.isFinite(Number(request.membershipDurationDays)) ? Math.max(1, Number(request.membershipDurationDays)) : plan === 'day' ? 1 : 30));
+  const paymentStatus = request.membershipPaymentRequired === false ? 'Not required' : 'Pending';
   return {
     plan,
     paymentMethod,
-    status: active ? 'Active' : 'Requested',
+    status: 'Approved',
+    paymentStatus,
     requestedAt,
-    startDate: active ? start.toISOString().slice(0, 10) : '',
-    expirationDate: active ? expires.toISOString().slice(0, 10) : '',
-    expiresAt: active ? expires.toISOString() : undefined
+    startDate: '',
+    expirationDate: '',
+    expiresAt: undefined
+  };
+}
+
+function getIdentityProfileFields(request, existingProfile = {}) {
+  if (existingProfile.identityReviewStatus === 'Approved') return {};
+  const identity = isRecord(request.identitySummary) ? request.identitySummary : {};
+  return {
+    name: String(identity.fullName || request.player?.name || existingProfile.name || 'Player').trim() || 'Player',
+    birthday: String(identity.dateOfBirth || existingProfile.birthday || ''),
+    address: String(identity.address || existingProfile.address || ''),
+    identityCaptureMethod: identity.captureMethod === 'player-camera-pdf417' ? 'player-camera-pdf417' : existingProfile.identityCaptureMethod,
+    identityCapturedAt: String(identity.capturedAt || existingProfile.identityCapturedAt || '') || undefined,
+    identityReviewStatus: identity.reviewStatus === 'Approved' ? 'Approved' : 'Pending'
   };
 }
 
@@ -104,6 +115,19 @@ function appendSyncNote(existing, note) {
   if (!existing) return note;
   if (existing.includes(note)) return existing;
   return `${existing} | ${note}`;
+}
+
+function matchesAuthenticatedProfile(profile, player) {
+  if (!profile || !player) return false;
+  const playerId = String(player.id || '').trim();
+  if (playerId && [profile.id, profile.orbitPlayerId].some((value) => String(value || '').trim() === playerId)) return true;
+  if (profile.orbitPlayerId) return false;
+  const email = String(player.email || '').trim().toLowerCase();
+  if (email && String(profile.email || '').trim().toLowerCase() === email) return true;
+  const phone = String(player.phone || '').replace(/\D/g, '');
+  if (phone.length >= 10 && String(profile.phone || '').replace(/\D/g, '') === phone) return true;
+  if (playerId || email || phone) return false;
+  return String(profile.name || '').trim().toLowerCase() === String(player.name || '').trim().toLowerCase();
 }
 
 function getInterestTime(interest) {
@@ -148,10 +172,9 @@ function buildPlayerClubSnapshot(state, player = {}, options = {}) {
   const account = state.settings?.clubAccount || {};
   const activePlayerSessions = (state.playerSessions || []).filter((session) => !session.leftAt);
   const activeAdminCount = (state.settings?.staffAccounts || []).filter((staff) => staff.active !== false).length;
+  const playerId = String(player?.id || '').trim();
   const playerName = String(player?.name || '').trim().toLowerCase();
-  const requestingProfile = (state.profiles || []).find(
-    (profile) => profile.id === player?.id || String(profile.name || '').trim().toLowerCase() === playerName
-  );
+  const requestingProfile = (state.profiles || []).find((profile) => matchesAuthenticatedProfile(profile, player));
   const knownProfileIds = new Set(requestingProfile?.commonlyPlaysWithProfileIds || []);
   const knownPlayerNames = new Set((requestingProfile?.usualCompanions || []).map((name) => String(name).trim().toLowerCase()).filter(Boolean));
   const isKnownPlayerSession = (session) =>
@@ -181,17 +204,18 @@ function buildPlayerClubSnapshot(state, player = {}, options = {}) {
   const waitlists = (state.games || []).flatMap((game) => getWaitlistEntriesForGame(state.interests || [], clubId, game.id));
   const notifications = (state.inAppNotifications || []).filter((notification) => {
     if (electronProfile ? !player?.id && !player?.name : !player?.id && !playerName) return true;
-    const playerId = String(player?.id || '').trim().toLowerCase();
     const targetIds = (notification.targetPlayerIds || []).map((target) => String(target).trim().toLowerCase());
     const targetNames = (notification.targetPlayerNames || []).map((target) => String(target).trim().toLowerCase());
-    return Boolean(playerId && targetIds.includes(playerId)) || Boolean(playerName && targetNames.includes(playerName));
+    return playerId
+      ? targetIds.includes(playerId.toLowerCase())
+      : Boolean(playerName && targetNames.includes(playerName));
   });
   const memberships = (state.profiles || [])
     .filter((profile) => {
       if (electronProfile ? !player?.id && !player?.name : !player?.id && !playerName) return true;
-      return profile.id === player.id || (electronProfile
+      return profile.id === player.id || (!player?.id && (electronProfile
         ? String(profile.name || '').toLowerCase() === String(player.name || '').toLowerCase()
-        : String(profile.name || '').trim().toLowerCase() === playerName);
+        : String(profile.name || '').trim().toLowerCase() === playerName));
     })
     .map((profile) => ({
       id: `${clubId}:${profile.id}`,
@@ -215,12 +239,28 @@ function buildPlayerClubSnapshot(state, player = {}, options = {}) {
           : profile.membershipExpiresAt || profile.membershipExpirationDate,
       plan: profile.membershipPlan,
       paymentMethod: profile.membershipPaymentMethod,
+      paymentStatus: profile.membershipPaymentStatus,
+      identityReviewStatus: profile.identityReviewStatus,
       requestedAt: profile.membershipRequestedAt,
       loyalty: getPlayerLoyalty(clubId, profile.totalTimePlayedHours || 0),
       preferredGameIds: profile.preferredGameIds?.length ? profile.preferredGameIds : profile.preferredGameId ? [profile.preferredGameId] : [],
       preferredStakes: profile.preferredStakes,
       clubNote: profile.typicalAvailability
     }));
+  const timeCollectionEnabled = state.settings?.defaultCollectionMode === 'Time' ||
+    (state.settings?.collectionProfiles || []).some((profile) => profile.collectionMode === 'Time') ||
+    tables.some((table) => table.collectionMode === 'Time');
+  const linkedPlayerSession = requestingProfile
+    ? activePlayerSessions.find((playerSession) => {
+        if (playerSession.profileId !== requestingProfile.id) return false;
+        return tables.find((table) => table.id === playerSession.tableId)?.collectionMode === 'Time';
+      })
+    : undefined;
+  const linkedTable = linkedPlayerSession ? tables.find((table) => table.id === linkedPlayerSession.tableId) : undefined;
+  const linkedGame = linkedPlayerSession ? (state.games || []).find((game) => game.id === linkedPlayerSession.gameId) : undefined;
+  const elapsedMinutes = linkedPlayerSession?.timeFeeEnabled && linkedPlayerSession.lastTimeTickAt
+    ? Math.max(0, (Date.now() - Date.parse(linkedPlayerSession.lastTimeTickAt)) / 60_000)
+    : 0;
 
   return {
     club: {
@@ -228,6 +268,7 @@ function buildPlayerClubSnapshot(state, player = {}, options = {}) {
       name: account.clubName || 'Local Poker Club',
       address: account.address,
       phone: account.phone,
+      minimumAge: account.minimumPlayerAge === 18 ? 18 : 21,
       membershipOptions: (state.settings?.membershipPlans || [])
         .filter((plan) => plan.active !== false)
         .map(({ id, name, priceLabel, durationDays, description }) => ({ id, name, priceLabel, durationDays, description }))
@@ -260,6 +301,24 @@ function buildPlayerClubSnapshot(state, player = {}, options = {}) {
       knownPlayersInHouse: activePlayerSessions.filter(isKnownPlayerSession).length,
       waitlistCount: waitlists.filter((entry) => activeWaitlistStatuses.has(entry.status)).length
     },
+    timeAccess: {
+      enabled: timeCollectionEnabled,
+      hourlyFeeCents: Math.max(0, Math.round(Number(state.settings?.defaultHourlyFee || 0) * 100)),
+      linked: Boolean(requestingProfile),
+      profileId: requestingProfile?.id,
+      savedMinutes: Math.max(0, Math.floor(Number(requestingProfile?.savedTimeCreditMinutes || 0))),
+      ...(linkedPlayerSession && linkedTable && linkedGame ? {
+        activeSession: {
+          id: linkedPlayerSession.id,
+          tableId: linkedPlayerSession.tableId,
+          tableLabel: linkedTable.label,
+          gameId: linkedPlayerSession.gameId,
+          gameName: linkedGame.name,
+          purchasedMinutes: Math.max(0, Math.floor(Number(linkedPlayerSession.timePurchasedMinutes || 0))),
+          remainingMinutes: Math.max(0, Math.ceil(Number(linkedPlayerSession.timeRemainingMinutes || 0) - elapsedMinutes))
+        }
+      } : {})
+    },
     generatedAt: new Date().toISOString()
   };
 }
@@ -271,9 +330,16 @@ function applyMembershipRequestToState(state, request, options = {}) {
   if (request.clubId !== accountKey) return state;
   const player = request.player || {};
   const existingProfile = (state.profiles || []).find(
-    (profile) => profile.id === player.id || String(profile.name || '').toLowerCase() === String(player.name || '').toLowerCase()
+    (profile) => profile.id === player.id || (!player.id && String(profile.name || '').toLowerCase() === String(player.name || '').toLowerCase())
   );
   const membership = getMembershipWindow(request);
+  const preserveCurrentActiveWindow = Boolean(
+    existingProfile?.membershipStatus === 'Active' &&
+    isFutureDate(existingProfile.membershipExpiresAt || existingProfile.membershipExpirationDate)
+  );
+  const preserveAuthoritativePayment = Boolean(
+    existingProfile?.membershipPaymentStatus === 'Paid' && existingProfile.membershipPaymentTransactionId
+  );
 
   if (existingProfile) {
     return {
@@ -282,12 +348,15 @@ function applyMembershipRequestToState(state, request, options = {}) {
         profile.id === existingProfile.id
           ? {
               ...profile,
-              membershipStartDate: membership.startDate || profile.membershipStartDate,
-              membershipExpirationDate: membership.expirationDate,
-              membershipExpiresAt: membership.expiresAt,
+              membershipStartDate: preserveCurrentActiveWindow ? profile.membershipStartDate : membership.startDate,
+              membershipExpirationDate: preserveCurrentActiveWindow ? profile.membershipExpirationDate : membership.expirationDate,
+              membershipExpiresAt: preserveCurrentActiveWindow ? profile.membershipExpiresAt : membership.expiresAt,
               membershipPlan: membership.plan,
               membershipPaymentMethod: membership.paymentMethod,
-              membershipStatus: membership.status,
+              membershipPaymentStatus: preserveAuthoritativePayment ? 'Paid' : membership.paymentStatus,
+              membershipPaymentTransactionId: preserveAuthoritativePayment ? profile.membershipPaymentTransactionId : undefined,
+              membershipPaymentAmountCents: preserveAuthoritativePayment ? profile.membershipPaymentAmountCents : undefined,
+              membershipStatus: preserveCurrentActiveWindow ? 'Active' : membership.status,
               membershipRequestedAt: membership.requestedAt,
               membershipPriceLabel: request.priceLabel,
               membershipPlanName: request.planName,
@@ -296,10 +365,10 @@ function applyMembershipRequestToState(state, request, options = {}) {
               preferredGameIds: mergeUnique([...(profile.preferredGameIds || []), ...(player.preferredGameIds || [])]),
               preferredStakes: player.preferredStakes || profile.preferredStakes,
               typicalAvailability: player.typicalAvailability || profile.typicalAvailability,
+              email: player.email || profile.email,
               phone: player.phone || profile.phone,
-              notes: appendSyncNote(profile.notes, membership.status === 'Requested'
-                ? `Player app: ${membership.plan} pass requested; pay in person (${player.email || player.id})`
-                : `Player app: ${membership.plan} pass paid in app (${player.email || player.id})`)
+              ...getIdentityProfileFields(request, profile),
+              notes: appendSyncNote(profile.notes, `Player app: ${membership.plan} pass requested; ${membership.paymentMethod === 'in-person' ? 'pay in person' : 'payment pending'} (${player.email || player.id})`)
             }
           : profile
       )
@@ -312,14 +381,17 @@ function applyMembershipRequestToState(state, request, options = {}) {
       ...(state.profiles || []),
       {
         id: player.id || getFallbackId(request.id, options),
-        name: player.name || 'Player',
+        name: request.identitySummary?.fullName || player.name || 'Player',
+        email: player.email || '',
         phone: player.phone || '',
-        birthday: '',
+        birthday: request.identitySummary?.dateOfBirth || '',
+        address: request.identitySummary?.address || '',
         membershipStartDate: membership.startDate,
         membershipExpirationDate: membership.expirationDate,
         membershipExpiresAt: membership.expiresAt,
         membershipPlan: membership.plan,
         membershipPaymentMethod: membership.paymentMethod,
+        membershipPaymentStatus: membership.paymentStatus,
         membershipStatus: membership.status,
         membershipRequestedAt: membership.requestedAt,
         membershipPriceLabel: request.priceLabel,
@@ -337,7 +409,85 @@ function applyMembershipRequestToState(state, request, options = {}) {
         typicalAvailability: player.typicalAvailability || '',
         preferredTags: [],
         usualCompanions: [],
-        notes: `${membership.status === 'Requested' ? 'Pay in person requested' : 'Paid in player app'}: ${player.email || ''}${player.phone ? `, ${player.phone}` : ''}`.trim()
+        notes: `${membership.paymentMethod === 'in-person' ? 'Pay in person requested' : 'Payment pending in player app'}: ${player.email || ''}${player.phone ? `, ${player.phone}` : ''}`.trim(),
+        ...getIdentityProfileFields(request)
+      }
+    ]
+  };
+}
+
+function applyMembershipPaymentToState(state, payment, options = {}) {
+  if (options.validateState !== false) validateStatePayload(state);
+  const accountKey = getAccountKeyFromState(state);
+  if (payment.clubId !== accountKey || !payment.transactionId || !payment.playerId) return state;
+  if ((state.revenueTransactions || []).some((transaction) => transaction.id === payment.transactionId)) return state;
+  const occurredAt = payment.occurredAt || new Date().toISOString();
+  const plan = payment.product === 'day' ? 'day' : 'monthly';
+  const durationDays = Number.isFinite(Number(payment.membershipDurationDays))
+    ? Math.max(1, Number(payment.membershipDurationDays))
+    : plan === 'day' ? 1 : 30;
+  const startDate = occurredAt.slice(0, 10);
+  const expirationDate = addDays(startDate, durationDays);
+  const isTimePackage = payment.product === 'time' || /^time-(?:30|60|120|5)$/.test(String(payment.product || ''));
+  const timeMinutes = isTimePackage
+    ? Math.max(1, Math.floor(Number(payment.timeMinutes || (payment.product === 'time-5' ? 300 : 0))))
+    : 0;
+  const activeTimeSession = isTimePackage
+    ? (state.playerSessions || []).find((session) => {
+        if (session.leftAt || session.profileId !== payment.playerId) return false;
+        const table = (state.sessions || []).find((candidate) => candidate.id === session.tableId);
+        return table && (table.collectionMode === 'Time' || table.timeFeeBased);
+      })
+    : undefined;
+  const elapsedMinutes = activeTimeSession?.timeFeeEnabled && activeTimeSession.lastTimeTickAt
+    ? Math.max(0, (Date.parse(occurredAt) - Date.parse(activeTimeSession.lastTimeTickAt)) / 60_000)
+    : 0;
+  return {
+    ...state,
+    profiles: isTimePackage
+      ? (state.profiles || []).map((profile) => profile.id === payment.playerId && !activeTimeSession
+          ? { ...profile, savedTimeCreditMinutes: Math.max(0, Number(profile.savedTimeCreditMinutes) || 0) + timeMinutes }
+          : profile)
+      : (state.profiles || []).map((profile) => {
+          if (profile.id !== payment.playerId) return profile;
+          const identityApproved = profile.identityReviewStatus === 'Approved' || profile.identityReviewStatus === 'Not required';
+          return {
+            ...profile,
+            membershipPaymentMethod: 'app',
+            membershipPaymentStatus: 'Paid',
+            membershipPaymentTransactionId: payment.transactionId,
+            membershipPaymentAmountCents: Number(payment.amountCents || 0),
+            membershipStatus: identityApproved ? 'Active' : 'Approved',
+            membershipStartDate: identityApproved ? startDate : '',
+            membershipExpirationDate: identityApproved ? expirationDate : '',
+            membershipExpiresAt: identityApproved ? `${expirationDate}T23:59:59.999Z` : undefined
+          };
+        }),
+    playerSessions: activeTimeSession
+      ? (state.playerSessions || []).map((session) => session.id === activeTimeSession.id
+          ? {
+              ...session,
+              timePurchasedMinutes: Math.max(0, Number(session.timePurchasedMinutes) || 0) + timeMinutes,
+              timeRemainingMinutes: Math.max(0, (Number(session.timeRemainingMinutes) || 0) - elapsedMinutes) + timeMinutes,
+              lastTimeTickAt: occurredAt,
+              timeFeeEnabled: true
+            }
+          : session)
+      : state.playerSessions,
+    revenueTransactions: [
+      ...(state.revenueTransactions || []),
+      {
+        id: payment.transactionId,
+        type: isTimePackage ? 'time-package' : 'membership',
+        amountCents: Number(payment.amountCents || 0),
+        occurredAt,
+        paymentStatus: 'paid',
+        source: 'stripe',
+        playerId: payment.playerId,
+        playerName: payment.playerName || '',
+        playerEmail: payment.playerEmail || '',
+        membershipPlan: isTimePackage ? null : plan,
+        stripeEventId: payment.stripeEventId || ''
       }
     ]
   };
@@ -350,10 +500,10 @@ function applyWaitlistRequestToState(state, request, options = {}) {
   if (request.clubId !== accountKey) return state;
   const player = request.player || {};
   const profile = (state.profiles || []).find(
-    (candidate) => candidate.id === player.id || String(candidate.name || '').toLowerCase() === String(player.name || '').toLowerCase()
+    (candidate) => candidate.id === player.id || (!player.id && String(candidate.name || '').toLowerCase() === String(player.name || '').toLowerCase())
   );
   const matchesPlayer = (interest) =>
-    Boolean((profile && interest.profileId === profile.id) || String(interest.playerName || '').toLowerCase() === String(player.name || '').toLowerCase());
+    Boolean((profile && interest.profileId === profile.id) || (!player.id && String(interest.playerName || '').toLowerCase() === String(player.name || '').toLowerCase()));
   if (request.action === 'cancel') {
     return {
       ...state,
@@ -383,9 +533,11 @@ function applyWaitlistRequestToState(state, request, options = {}) {
   const requestedAt = request.requestedAt || new Date().toISOString();
   const syncedProfile = profile || {
     id: player.id,
-    name: player.name || 'Player',
+    name: request.identitySummary?.fullName || player.name || 'Player',
+    email: player.email || '',
     phone: player.phone || '',
-    birthday: '',
+    birthday: request.identitySummary?.dateOfBirth || '',
+    address: request.identitySummary?.address || '',
     membershipStartDate: '',
     membershipExpirationDate: '',
     totalTimePlayedHours: 0,
@@ -400,13 +552,16 @@ function applyWaitlistRequestToState(state, request, options = {}) {
     typicalAvailability: '',
     preferredTags: [],
     usualCompanions: [],
-    notes: `Player app: ${player.email || ''}${player.phone ? `, ${player.phone}` : ''}`
+    notes: `Player app: ${player.email || ''}${player.phone ? `, ${player.phone}` : ''}`,
+    ...getIdentityProfileFields(request)
   };
   const profiles = profile
     ? (state.profiles || []).map((candidate) => candidate.id === profile.id
       ? {
           ...candidate,
+          email: player.email || candidate.email,
           phone: player.phone || candidate.phone,
+          ...getIdentityProfileFields(request, candidate),
           preferredGameId: candidate.preferredGameId || request.gameId,
           preferredGameIds: Array.from(new Set([...(candidate.preferredGameIds || []), request.gameId])),
           notes: appendSyncNote(candidate.notes, `Player app: ${player.email || ''}`)
@@ -450,6 +605,7 @@ function applyWaitlistRequestToState(state, request, options = {}) {
  */
 function createOrbitCore(options = {}) {
   return {
+    applyMembershipPaymentToState: (state, payment) => applyMembershipPaymentToState(state, payment, options),
     applyMembershipRequestToState: (state, request) => applyMembershipRequestToState(state, request, options),
     applyWaitlistRequestToState: (state, request) => applyWaitlistRequestToState(state, request, options),
     buildPlayerClubSnapshot: (state, player) => buildPlayerClubSnapshot(state, player, options),
@@ -460,6 +616,7 @@ function createOrbitCore(options = {}) {
 }
 
 module.exports = {
+  applyMembershipPaymentToState,
   applyMembershipRequestToState,
   applyWaitlistRequestToState,
   buildPlayerClubSnapshot,

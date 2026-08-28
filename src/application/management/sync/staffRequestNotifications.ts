@@ -78,10 +78,16 @@ export const getIncomingStaffRequestNotices = (
   clock: { nowIso: () => string; nowMs: () => number } = { nowIso, nowMs: Date.now }
 ): StaffRequestNotice[] => {
   const membershipRequests = nextState.profiles
-    .filter((profile) => profile.membershipStatus === 'Requested')
+    .filter((profile) =>
+      profile.membershipStatus === 'Requested' ||
+      (profile.membershipStatus === 'Approved' &&
+        (profile.identityReviewStatus === 'Pending' || profile.membershipPaymentStatus === 'Pending'))
+    )
     .filter((profile) => !previousState.profiles.some((candidate) =>
       candidate.id === profile.id &&
-      candidate.membershipStatus === 'Requested' &&
+      candidate.membershipStatus === profile.membershipStatus &&
+      candidate.identityReviewStatus === profile.identityReviewStatus &&
+      candidate.membershipPaymentStatus === profile.membershipPaymentStatus &&
       candidate.membershipRequestedAt === profile.membershipRequestedAt
     ))
     .sort((left, right) => Date.parse(right.membershipRequestedAt || '') - Date.parse(left.membershipRequestedAt || ''))
@@ -89,7 +95,7 @@ export const getIncomingStaffRequestNotices = (
       id: `membership-${profile.id}-${profile.membershipRequestedAt || clock.nowMs()}`,
       kind: 'membership' as const,
       title: 'New membership request',
-      body: `${profile.name} applied from the player app.`,
+      body: `${profile.name} signed up from the player app.${profile.identityReviewStatus === 'Pending' ? ' ID review required.' : ''}${profile.membershipPaymentStatus === 'Pending' ? profile.membershipPaymentMethod === 'app' ? ' Awaiting online payment.' : ' Payment due in person.' : ''}`,
       createdAt: clock.nowIso(),
       read: false
     }));

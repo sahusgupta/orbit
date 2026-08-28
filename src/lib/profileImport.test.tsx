@@ -243,14 +243,15 @@ describe('pasted profile import boundary', () => {
       Array.from(document.querySelectorAll('.players-header-actions button'), (button) =>
         button.getAttribute('aria-label')
       )
-    ).toEqual(['Scan member QR', 'Open player ledger', 'Add player']);
+    ).toEqual(['Scan member QR', 'Scan or swipe government ID', 'Open player ledger', 'Add player']);
 
     const tabs = document.querySelector('.players-section-tabs');
     expect(tabs?.getAttribute('aria-label')).toBe('Player sections');
     expect(Array.from(tabs?.querySelectorAll('button') ?? [], (button) => button.textContent?.trim())).toEqual([
       'Memberships 0',
       'Requests 0',
-      'Today 0'
+      'Today 0',
+      'Past players 0'
     ]);
     expect(tabs?.querySelector('button.active')?.textContent?.trim()).toBe('Memberships 0');
 

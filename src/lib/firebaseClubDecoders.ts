@@ -35,6 +35,7 @@ export function readPendingRequestMarker(value: unknown) {
 export function decodeMembershipRequest(value: unknown): PlayerMembershipRequest {
   const record = requireRecord(value, 'Membership request');
   const player = decodePlayerAccount(record.player);
+  const identitySummary = decodeIdentitySummary(record.identitySummary);
   if (
     !isNonEmptyString(record.id) ||
     (record.type !== undefined && record.type !== 'membership-request') ||
@@ -47,7 +48,8 @@ export function decodeMembershipRequest(value: unknown): PlayerMembershipRequest
     !isOptionalString(record.planId) ||
     !isOptionalString(record.planName) ||
     !isOptionalString(record.planPriceLabel) ||
-    !isOptionalPositiveNumber(record.membershipDurationDays)
+    !isOptionalPositiveNumber(record.membershipDurationDays) ||
+    (record.identitySummary !== undefined && !identitySummary)
   ) {
     throw new TypeError('Membership request record is malformed.');
   }
@@ -63,7 +65,31 @@ export function decodeMembershipRequest(value: unknown): PlayerMembershipRequest
     planName: record.planName,
     planPriceLabel: record.planPriceLabel,
     membershipDurationDays: record.membershipDurationDays,
+    identitySummary,
     requestedAt: record.requestedAt
+  };
+}
+
+function decodeIdentitySummary(value: unknown): PlayerMembershipRequest['identitySummary'] | undefined {
+  if (value === undefined) return undefined;
+  const record = asRecord(value);
+  if (
+    !record ||
+    typeof record.fullName !== 'string' ||
+    typeof record.dateOfBirth !== 'string' ||
+    typeof record.address !== 'string' ||
+    record.captureMethod !== 'player-camera-pdf417' ||
+    !isNonEmptyString(record.capturedAt) ||
+    typeof record.ageLevel !== 'number' ||
+    !Number.isFinite(record.ageLevel)
+  ) return undefined;
+  return {
+    fullName: record.fullName,
+    dateOfBirth: record.dateOfBirth,
+    address: record.address,
+    captureMethod: 'player-camera-pdf417',
+    capturedAt: record.capturedAt,
+    ageLevel: record.ageLevel
   };
 }
 

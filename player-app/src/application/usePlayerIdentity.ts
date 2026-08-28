@@ -1,9 +1,14 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { isValidEmail, isValidPhoneNumber } from '../domain/discovery';
+import { isIdentityActionEligible } from '../domain/playerIdentity';
+import {
+  getOrCreateIdentityCaptureAttempt,
+  type ConfirmedPlayerIdentityDetails,
+  type PlayerIdentityCaptureAttempt
+} from '../domain/playerIdentityCapture';
 import type { PlayerAccount } from '../domain/playerSync';
 import type { Screen } from '../domain/playerTypes';
 import {
-  createPlayerIdentityVerificationSession,
   completePlayerPhoneSignIn,
   deleteCurrentPlayerAccount,
   fetchPlayerIdentityStatus,
@@ -11,6 +16,7 @@ import {
   isSyncConfigured,
   onFirebasePlayerChanged,
   requestPlayerPasswordReset,
+  savePlayerIdentityCapture,
   savePlayerProfile,
   signInOrCreatePlayerWithEmail,
   startPlayerPhoneSignIn,
@@ -23,10 +29,14 @@ import type { PlayerPlatform } from '../app/playerPlatform';
 export const emptyIdentityStatus: PlayerIdentityStatus = {
   status: 'unverified',
   ageVerified: false,
+  ageEligible: false,
   ageLevel: 0,
-  minimumAge: 21,
+  minimumAge: 18,
   verifiedAt: null,
-  failureCode: null
+  capturedAt: null,
+  failureCode: null,
+  reviewStatus: 'not-started',
+  verifiedDetails: null
 };
 
 export const accountSignInReadyStatus = 'Use your email address or phone number to sync this player profile.';
@@ -59,6 +69,7 @@ export function usePlayerIdentity({
   const [identityBusy, setIdentityBusy] = useState(false);
   const [identityMessage, setIdentityMessage] = useState('');
   const [identityReturnScreen, setIdentityReturnScreen] = useState<Screen>('home');
+  const [identityRequiredMinimumAge, setIdentityRequiredMinimumAge] = useState<18 | 21>(18);
   const [authStatus, setAuthStatus] = useState(accountSignInReadyStatus);
   const [playerAuthMethod, setPlayerAuthMethod] = useState<'email' | 'phone'>('email');
   const [playerAuthEmail, setPlayerAuthEmail] = useState('');
@@ -66,6 +77,7 @@ export function usePlayerIdentity({
   const [playerAuthPassword, setPlayerAuthPassword] = useState('');
   const [playerAuthCode, setPlayerAuthCode] = useState('');
   const [playerPhoneChallenge, setPlayerPhoneChallenge] = useState('');
+  const identityCaptureAttempt = useRef<PlayerIdentityCaptureAttempt | null>(null);
 
   useEffect(() => onFirebasePlayerChanged(setFirebaseIdentity), []);
 
@@ -80,7 +92,9 @@ export function usePlayerIdentity({
         .then((status) => {
           if (!active) return;
           setIdentityStatus(status);
-          setIdentityMessage(status.ageVerified ? 'Your age is verified.' : '');
+          setIdentityMessage(status.reviewStatus === 'pending-in-person'
+            ? 'Your ID details are saved. Staff will check the physical ID when you arrive.'
+            : status.ageVerified ? 'Your age is verified.' : '');
         })
         .catch((error) => {
           if (active) setIdentityMessage(error instanceof Error ? error.message : 'Unable to check age-verification status.');
@@ -125,22 +139,21 @@ export function usePlayerIdentity({
     finishAccount(firebaseIdentity);
   };
 
-  const showIdentityVerification = (returnScreen: Screen, message = '') => {
+  const showIdentityVerification = (returnScreen: Screen, message = '', minimumAge: 18 | 21 = 18) => {
     setIdentityReturnScreen(returnScreen);
     setIdentityMessage(message);
+    setIdentityRequiredMinimumAge(minimumAge);
     setScreen('identityVerification');
   };
 
-  const requireVerifiedAge = (returnScreen: Screen, action: string) => {
-    if (firebaseIdentity && identityStatus.ageVerified) return true;
+  const requireVerifiedAge = (returnScreen: Screen, action: string, minimumAge: 18 | 21 = 21) => {
+    if (firebaseIdentity && isIdentityActionEligible(identityStatus, minimumAge)) return true;
     if (!firebaseIdentity) {
-      showIdentityVerification(returnScreen, `Sign in, then verify your age before ${action}.`);
-    } else if (identityStatus.status === 'underage') {
-      showIdentityVerification(returnScreen, `You must be ${identityStatus.minimumAge}+ to ${action}.`);
-    } else if (identityStatus.status === 'processing') {
-      showIdentityVerification(returnScreen, 'Stripe is still reviewing your verification.');
+      showIdentityVerification(returnScreen, `Sign in, then verify that you are ${minimumAge}+ before ${action}.`, minimumAge);
+    } else if (identityStatus.status === 'underage' || identityStatus.ageLevel > 0 && identityStatus.ageLevel < minimumAge) {
+      showIdentityVerification(returnScreen, `You must be ${minimumAge}+ to ${action}.`, minimumAge);
     } else {
-      showIdentityVerification(returnScreen, `Verify that you are ${identityStatus.minimumAge}+ before ${action}.`);
+      showIdentityVerification(returnScreen, `Scan the barcode on your ID to confirm that you are ${minimumAge}+ before ${action}.`, minimumAge);
     }
     return false;
   };
@@ -155,13 +168,13 @@ export function usePlayerIdentity({
       const status = await fetchPlayerIdentityStatus(true);
       setIdentityStatus(status);
       setIdentityMessage(
-        status.ageVerified
+        status.reviewStatus === 'pending-in-person'
+          ? 'Your ID details are saved. Staff will check the physical ID when you arrive.'
+          : status.ageVerified
           ? 'Your age is verified.'
-          : status.status === 'processing'
-            ? 'Stripe is still reviewing your verification.'
-            : status.status === 'underage'
+          : status.status === 'underage'
               ? `You must be ${status.minimumAge}+ to use player access features.`
-              : 'Verification is not complete yet.'
+              : 'ID capture is not complete yet.'
       );
       return status;
     } catch (error) {
@@ -172,40 +185,37 @@ export function usePlayerIdentity({
     }
   };
 
-  const startIdentityVerification = async () => {
+  const startIdentityVerification = async (details: ConfirmedPlayerIdentityDetails) => {
     if (!firebaseIdentity) {
       setIdentityMessage('Sign in to your Orbit Player account before verifying your age.');
       return;
     }
+    const attempt = getOrCreateIdentityCaptureAttempt(
+      identityCaptureAttempt.current,
+      details,
+      () => `identity:${firebaseIdentity.uid}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`
+    );
+    identityCaptureAttempt.current = attempt;
     setIdentityBusy(true);
-    setIdentityMessage('Opening Stripe Identity...');
+    setIdentityMessage('Sending the confirmed ID details securely...');
     try {
-      const session = await createPlayerIdentityVerificationSession();
-      setIdentityStatus(session.identity);
-      if (session.alreadyVerified || session.identity.ageVerified) {
-        setIdentityMessage('Your age is verified.');
-        return;
-      }
-      if (!session.verificationUrl) {
-        setIdentityMessage('Stripe is still reviewing your verification. Check again shortly.');
-        return;
-      }
-      const browserResult = await platform.openAuthSession(session.verificationUrl, session.returnUrl);
-      const status = await fetchPlayerIdentityStatus(true);
+      const status = await savePlayerIdentityCapture({
+        fullName: details.fullName,
+        dateOfBirth: details.dateOfBirth,
+        address: details.address,
+        mutationId: attempt.mutationId
+      });
+      identityCaptureAttempt.current = null;
       setIdentityStatus(status);
-      setIdentityMessage(
-        status.ageVerified
+      setIdentityMessage(status.reviewStatus === 'pending-in-person'
+        ? 'ID details sent. Bring the physical ID so card-house staff can approve it on your first visit.'
+        : status.ageVerified
           ? 'Your age is verified.'
-          : status.status === 'processing'
-            ? 'Stripe received your information and is reviewing it.'
-            : status.status === 'underage'
-              ? `You must be ${status.minimumAge}+ to use player access features.`
-              : browserResult.type === 'cancel' || browserResult.type === 'dismiss'
-                ? 'Verification was not completed. You can continue when ready.'
-                : 'Stripe needs more information to finish verification.'
-      );
+          : status.status === 'underage'
+            ? `You must be ${status.minimumAge}+ to use player access features.`
+            : 'The confirmed ID details were saved.');
     } catch (error) {
-      setIdentityMessage(error instanceof Error ? error.message : 'Unable to start age verification.');
+      setIdentityMessage(error instanceof Error ? error.message : 'Unable to save the confirmed ID details. Try again.');
     } finally {
       setIdentityBusy(false);
     }
@@ -225,6 +235,10 @@ export function usePlayerIdentity({
     setHasAccount(true);
     await savePlayerProfile(nextPlayer);
     setAuthStatus(`Connected as ${playerAuthMethod === 'phone' ? nextPlayer.phone : nextPlayer.email}.`);
+    setIdentityReturnScreen('settings');
+    setIdentityRequiredMinimumAge(18);
+    setIdentityMessage('Scan the PDF417 barcode on a government-issued ID to fill your name, date of birth, and address.');
+    setScreen('identityVerification');
   };
 
   const connectPlayerAccount = async () => {
@@ -306,6 +320,7 @@ export function usePlayerIdentity({
     identityBusy,
     identityMessage,
     identityReturnScreen,
+    identityRequiredMinimumAge,
     identityStatus,
     playerAuthEmail,
     playerAuthCode,

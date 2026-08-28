@@ -11,7 +11,7 @@ config.watchFolders = [
 ];
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (platform === 'web' && moduleName === './components/MapView') {
+  if (platform === 'web' && /(?:^|[\\/])MapView$/.test(moduleName)) {
     return {
       type: 'sourceFile',
       filePath: path.join(__dirname, 'src', 'components', 'MapView.web.tsx')

@@ -1,5 +1,7 @@
 const { spawn } = require('child_process');
+const fs = require('fs');
 const net = require('net');
+const path = require('path');
 
 const isWindows = process.platform === 'win32';
 const npmCommand = isWindows ? (process.env.ComSpec || 'C:\\Windows\\System32\\cmd.exe') : 'npm';
@@ -21,26 +23,37 @@ async function findPlayerPort() {
 }
 
 async function main() {
+  for (const envPath of [path.join(process.cwd(), '.env'), path.join(process.cwd(), 'apps', 'api', '.env')]) {
+    if (fs.existsSync(envPath) && typeof process.loadEnvFile === 'function') process.loadEnvFile(envPath);
+  }
   const playerPort = await findPlayerPort();
   const commands = [
     { label: 'Orbit local sync', args: ['run', 'api:dev'] },
     { label: 'Orbit Core', args: ['run', 'dev'] },
-    { label: 'Orbit Player', args: ['--prefix', 'player-app', 'run', 'web', '--', '--port', String(playerPort)] }
+    {
+      label: 'Orbit Player',
+      args: ['--prefix', 'player-app', 'run', 'web', '--', '--port', String(playerPort)],
+      env: {
+        EXPO_PUBLIC_ORBIT_API_URL: 'http://127.0.0.1:4629',
+        EXPO_PUBLIC_ORBIT_LOCAL_API_URL: 'http://127.0.0.1:4629'
+      }
+    }
   ];
 
   console.log('Starting linked Orbit development:');
   console.log('  Core:   http://127.0.0.1:5173');
   console.log(`  Player: http://127.0.0.1:${playerPort}`);
   console.log('  Sync:   http://127.0.0.1:4629');
+  console.log('  ID scan: uses the device camera; saving confirmed fields requires local Firebase Admin configuration');
   console.log('Press Ctrl+C once to stop all three.');
 
-  const children = commands.map(({ label, args }) => {
+  const children = commands.map(({ label, args, env }) => {
     const spawnArgs = isWindows
       ? ['/d', '/s', '/c', `npm.cmd ${args.join(' ')}`]
       : args;
     const child = spawn(npmCommand, spawnArgs, {
       cwd: process.cwd(),
-      env: process.env,
+      env: { ...process.env, ...env },
       stdio: 'inherit',
       windowsHide: true
     });

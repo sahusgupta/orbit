@@ -100,6 +100,9 @@ type FloorViewProps = {
   recordTableEvent: (session: GameSession, type: TableEventType, reason: string, note?: string) => void;
   toggleStartPlayer: (sessionId: string, interestId: string) => void;
   addPlayerTime: (playerSession: PlayerSession, minutes: number) => void;
+  deductPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
+  pauseAndSavePlayerTime: (playerSession: PlayerSession) => boolean;
+  useSavedPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
   addBuyIn: (playerSession: PlayerSession, amountOverride?: number, noteOverride?: string) => void;
   requestPlayerCashOut: (playerSession: PlayerSession) => void;
   changePlayerSeat: (playerSession: PlayerSession, seatNumber: number) => void;
@@ -134,7 +137,8 @@ export default function FloorView(props: FloorViewProps) {
     getSeatOptions, getTimeRemainingSeconds, getMoveTargets, formatHours, formatClock, formatTimeLeft,
     toDateTimeInput, togglePanel, seatInterestAtTable, updateInterest, deleteInterest, openTableView,
     openSeatPicker, startSessionWithPlayers, updateSession, recordTableEvent, toggleStartPlayer,
-    addPlayerTime, addBuyIn, requestPlayerCashOut, changePlayerSeat, movePlayerToTable,
+    addPlayerTime, deductPlayerTime, pauseAndSavePlayerTime, useSavedPlayerTime,
+    addBuyIn, requestPlayerCashOut, changePlayerSeat, movePlayerToTable,
     setTableCollectionMode, updateSessionTimestamp, assignDealer, endDealerAssignment, recordHands,
     addTableDrop, failFormingGame, addPhysicalTable, addSession, setFloorViewMode, clearTable,
     deleteTable, mergeTable, addInterest, checkInProfileFromSearch
@@ -404,6 +408,11 @@ export default function FloorView(props: FloorViewProps) {
                   const hours = getPlayerLoggedHours(state, playerSession);
                   const buyIns = getSessionBuyIns(state, playerSession);
                   const buyInTotal = buyIns.reduce((sum, buyIn) => sum + buyIn.amount, 0);
+                  const playerProfile = state.profiles.find((profile) =>
+                    playerSession.profileId
+                      ? profile.id === playerSession.profileId
+                      : profile.name.trim().toLowerCase() === playerSession.playerName.trim().toLowerCase()
+                  );
                   return {
                     id: playerSession.id,
                     seatNumber: playerSession.seatNumber ?? index + 1,
@@ -412,6 +421,7 @@ export default function FloorView(props: FloorViewProps) {
                     joinedAt: new Date(playerSession.seatedAt).getTime(),
                     hourlyTimeLimit: isTimeCollection ? Math.max(1, playerSession.timePurchasedMinutes ?? 60) : undefined,
                     timeRemainingSeconds: isTimeCollection ? getTimeRemainingSeconds(playerSession, clockNow) : undefined,
+                    savedTimeCreditMinutes: playerProfile?.savedTimeCreditMinutes ?? 0,
                     tonightHours: formatHours(hours.tonight),
                     totalHours: formatHours(hours.total),
                     buyInTotal,
@@ -544,6 +554,18 @@ export default function FloorView(props: FloorViewProps) {
                             onAddTime={(playerId, minutes) => {
                               const playerSession = seatedPlayers.find((player) => player.id === playerId);
                               if (playerSession) addPlayerTime(playerSession, minutes);
+                            }}
+                            onDeductTime={(playerId, minutes) => {
+                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                              return playerSession ? deductPlayerTime(playerSession, minutes) : false;
+                            }}
+                            onPauseAndSaveTime={(playerId) => {
+                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                              return playerSession ? pauseAndSavePlayerTime(playerSession) : false;
+                            }}
+                            onUseSavedTime={(playerId, minutes) => {
+                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                              return playerSession ? useSavedPlayerTime(playerSession, minutes) : false;
                             }}
                             onAddBuyIn={(playerId, amount, note) => {
                               const playerSession = seatedPlayers.find((player) => player.id === playerId);

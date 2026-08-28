@@ -7,6 +7,8 @@ import {
   readBoundaryError
 } from '../../domain/decoders/playerBoundaryDecoders';
 import type { PlayerAccount, PlayerMembershipRequest, PlayerWaitlistRequest } from '../../domain/playerSync';
+import type { ConfirmedPlayerIdentityDetails } from '../../domain/playerIdentityCapture';
+import type { TimeAccessProduct } from '../../domain/playerTypes';
 import { auth } from '../firebase/firebaseClient';
 import type { SyncResult } from '../playerDataContracts';
 import { requestJson } from './boundedFetch';
@@ -36,22 +38,34 @@ export async function fetchPlayerIdentityStatus(forceTokenRefresh = false) {
   return result.identity;
 }
 
-export async function createPlayerIdentityVerificationSession() {
-  const { token, user } = await getOrbitPlayerToken();
-  const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/identity/session`, {
+export async function savePlayerIdentityCapture(
+  input: ConfirmedPlayerIdentityDetails & { mutationId: string }
+) {
+  const { token } = await getOrbitPlayerToken();
+  const safeBody = {
+    fullName: input.fullName,
+    dateOfBirth: input.dateOfBirth,
+    address: input.address,
+    mutationId: input.mutationId
+  };
+  const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/identity/capture`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${token}`,
       'content-type': 'application/json'
-    }
+    },
+    body: JSON.stringify(safeBody)
   });
   const result = decodeIdentityResponse(payload);
-  if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Unable to start age verification.'));
-  if (result.identity.ageVerified) await user.getIdToken(true);
-  return result;
+  if (!response.ok || !result) throw new Error(readBoundaryError(payload, 'Unable to save the confirmed ID details.'));
+  return result.identity;
 }
 
-export async function createClubMembershipCheckout(input: { clubId: string; product: 'day' | 'monthly' | 'time-5'; playerName: string }) {
+type ClubMembershipCheckoutInput =
+  | { clubId: string; product: 'day' | 'monthly'; playerName: string; planId: string }
+  | { clubId: string; product: TimeAccessProduct; playerName: string; planId?: never };
+
+export async function createClubMembershipCheckout(input: ClubMembershipCheckoutInput) {
   const { token } = await getOrbitPlayerToken();
   const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/membership-checkout`, {
     method: 'POST',

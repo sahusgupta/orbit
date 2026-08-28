@@ -17,7 +17,7 @@ type ManagementStartupSyncOptions = {
   setHasAuthenticated: Dispatch<SetStateAction<boolean>>;
   setSaveStatus: (status: ManagementSaveStatus) => void;
   setState: Dispatch<SetStateAction<AppState>>;
-  setUndoStack: Dispatch<SetStateAction<AppState[]>>;
+  clearUndo: () => void;
 };
 
 export const useManagementStartupSync = ({
@@ -26,7 +26,7 @@ export const useManagementStartupSync = ({
   setHasAuthenticated,
   setSaveStatus,
   setState,
-  setUndoStack
+  clearUndo
 }: ManagementStartupSyncOptions) => {
   useEffect(() => {
     // Browser state initializes the shell while the trusted desktop boundary
@@ -41,7 +41,7 @@ export const useManagementStartupSync = ({
           return;
         }
         const next = normalizeState(record.state);
-        setUndoStack([]);
+        clearUndo();
         setState(next);
         setHasAuthenticated(await restorePersistedSignIn(next));
         saveBrowserManagementState(next);

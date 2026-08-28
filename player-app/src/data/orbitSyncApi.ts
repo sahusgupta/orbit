@@ -2,11 +2,11 @@ import { firebaseConfig } from './firebaseConfig';
 
 export {
   createClubMembershipCheckout,
-  createPlayerIdentityVerificationSession,
   fetchPublicPlayerDiscovery,
   fetchRemotePlayerDiscovery,
   fetchPlayerIdentityStatus,
-  orbitApiBaseUrl
+  orbitApiBaseUrl,
+  savePlayerIdentityCapture
 } from './api/playerHttpApi';
 export type { PlayerIdentityStatus } from './api/playerHttpApi';
 

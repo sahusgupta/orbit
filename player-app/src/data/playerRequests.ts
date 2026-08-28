@@ -13,10 +13,9 @@ import {
 
 export function applyMembershipRequest(snapshot: PlayerClubSnapshot, request: PlayerMembershipRequest): PlayerClubSnapshot {
   if (snapshot.club.id !== request.clubId) return snapshot;
-  const requestedAt = new Date(request.requestedAt);
-  const expiresAt = new Date(requestedAt);
-  expiresAt.setDate(expiresAt.getDate() + (request.plan === 'day' ? 1 : 30));
-  const pending = request.paymentMethod === 'in-person';
+  const priceLabel = request.planPriceLabel ?? request.priceLabel ?? '';
+  const numericPrice = priceLabel.match(/\d+(?:\.\d+)?/);
+  const paymentNotRequired = /\bfree\b/i.test(priceLabel) || numericPrice != null && Number(numericPrice[0]) === 0;
   return {
     ...snapshot,
     memberships: [
@@ -26,11 +25,12 @@ export function applyMembershipRequest(snapshot: PlayerClubSnapshot, request: Pl
         clubId: request.clubId,
         playerId: request.player.id,
         playerName: request.player.name,
-        status: pending ? 'Requested' : 'Active',
+        status: 'Approved',
         joinedAt: request.requestedAt.slice(0, 10),
-        expiresAt: pending ? undefined : expiresAt.toISOString(),
         plan: request.plan,
         paymentMethod: request.paymentMethod,
+        paymentStatus: paymentNotRequired ? 'Not required' : 'Pending',
+        identityReviewStatus: 'Pending',
         requestedAt: request.requestedAt,
         loyalty: getPlayerLoyalty(request.clubId, 0),
         preferredGameIds: request.player.preferredGameIds,

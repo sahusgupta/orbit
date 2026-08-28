@@ -19,6 +19,7 @@ export type PlayerSyncClub = {
   name: string;
   address?: string;
   phone?: string;
+  minimumAge?: 18 | 21;
   syncProtocolVersion?: number;
   syncRevision?: string;
   publishedAt?: string;
@@ -105,12 +106,61 @@ export type PlayerMembership = {
   expiresAt?: string;
   plan?: 'day' | 'monthly';
   paymentMethod?: 'app' | 'in-person' | 'core';
+  paymentStatus?: 'Not required' | 'Pending' | 'Paid' | 'Failed' | 'Refunded';
+  identityReviewStatus?: 'Pending' | 'Approved' | 'Rejected' | 'Not required';
   requestedAt?: string;
   loyalty: PlayerLoyalty;
   preferredGameIds: string[];
   preferredStakes?: string;
   clubNote?: string;
 };
+
+export function getApprovedMembershipActivationCopy(membership: PlayerMembership) {
+  const identityPending = membership.identityReviewStatus === 'Pending';
+  const paymentReceived = membership.paymentStatus === 'Paid' || membership.paymentStatus === 'Not required';
+  const paymentDueInPerson = membership.paymentMethod === 'in-person' && !paymentReceived;
+
+  if (paymentReceived && identityPending) {
+    return {
+      title: membership.paymentStatus === 'Paid' ? 'Payment received · ID review needed' : 'ID review needed',
+      body: 'Bring your physical ID to the front desk. Staff will activate your access after approving it.'
+    };
+  }
+  if (paymentDueInPerson) {
+    return {
+      title: identityPending ? 'Bring your ID and pay in person' : 'Pay in person to activate',
+      body: identityPending
+        ? 'Staff must approve your physical ID and confirm payment before activating your access.'
+        : 'Staff must confirm your payment before activating your access.'
+    };
+  }
+  if (membership.paymentStatus === 'Pending') {
+    return {
+      title: 'Waiting for online payment confirmation',
+      body: identityPending
+        ? 'Stripe and the card house must confirm payment. Bring your physical ID for staff review.'
+        : 'Stripe and the card house must confirm payment before your access activates.'
+    };
+  }
+  if (identityPending) {
+    return {
+      title: 'Physical ID review needed',
+      body: 'Bring your physical ID to the front desk so staff can approve it and activate your access.'
+    };
+  }
+  if (paymentReceived) {
+    return {
+      title: 'Ready for staff activation',
+      body: membership.paymentStatus === 'Paid'
+        ? 'Payment and ID requirements are complete. Staff can activate your access.'
+        : 'No payment is due. Staff can activate your access.'
+    };
+  }
+  return {
+    title: 'Visit the front desk to activate',
+    body: 'Bring your physical ID and confirm any membership fee with staff.'
+  };
+}
 
 export type PlayerClubMembershipRecord = {
   clubId: string;
@@ -169,9 +219,27 @@ export type PlayerClubSnapshot = {
   waitlists: PlayerWaitlistEntry[];
   notifications: PlayerInAppNotification[];
   social: PlayerSocialSummary;
+  timeAccess?: PlayerTimeAccess;
   generatedAt: string;
   syncProtocolVersion?: number;
   syncRevision?: string;
+};
+
+export type PlayerTimeAccess = {
+  enabled: boolean;
+  hourlyFeeCents: number;
+  linked: boolean;
+  profileId?: string;
+  savedMinutes: number;
+  activeSession?: {
+    id: string;
+    tableId: string;
+    tableLabel: string;
+    gameId: string;
+    gameName: string;
+    purchasedMinutes: number;
+    remainingMinutes: number;
+  };
 };
 
 export type TournamentRegistrationStatus =
@@ -364,10 +432,9 @@ export function normalizedIdentity(value?: string) {
 export function isPlayerMembership(membership: PlayerClubSnapshot['memberships'][number], player: PlayerAccount) {
   const playerId = normalizedIdentity(player.id);
   const playerName = normalizedIdentity(player.name);
-  return Boolean(
-    (playerId && normalizedIdentity(membership.playerId) === playerId) ||
-    (playerName && normalizedIdentity(membership.playerName) === playerName)
-  );
+  const membershipPlayerId = normalizedIdentity(membership.playerId);
+  if (membershipPlayerId) return Boolean(playerId && membershipPlayerId === playerId);
+  return Boolean(playerName && normalizedIdentity(membership.playerName) === playerName);
 }
 
 export function isMembershipCurrentlyActive(
@@ -395,10 +462,9 @@ export function formatPassCountdown(expiresAt: string | undefined, nowMs: number
 export function isPlayerWaitlistEntry(entry: PlayerWaitlistEntry, player: PlayerAccount) {
   const playerId = normalizedIdentity(player.id);
   const playerName = normalizedIdentity(player.name);
-  return Boolean(
-    (playerId && normalizedIdentity(entry.playerId) === playerId) ||
-    (playerName && normalizedIdentity(entry.playerName) === playerName)
-  );
+  const entryPlayerId = normalizedIdentity(entry.playerId);
+  if (entryPlayerId) return Boolean(playerId && entryPlayerId === playerId);
+  return Boolean(playerName && normalizedIdentity(entry.playerName) === playerName);
 }
 
 export function isActivePlayerGameRequest(entry: PlayerWaitlistEntry) {

@@ -23,7 +23,8 @@ export type DistanceFilter = 'none' | 5 | 10 | 20 | 50;
 export type CasinoFilter = 'none' | 'all' | string;
 export type TournamentFilter = 'all' | 'open' | 'free' | 'registered';
 export type MapVenueFilter = 'all' | 'card-house' | 'casino' | 'club';
-export type ClubAccessProduct = 'day' | 'monthly' | 'time-5';
+export type TimeAccessProduct = 'time-30' | 'time-60' | 'time-120';
+export type ClubAccessProduct = 'day' | 'monthly' | TimeAccessProduct;
 export type DiscoveryDecision = 'pass' | 'saved';
 
 export type Coordinate = { latitude: number; longitude: number };

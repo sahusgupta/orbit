@@ -79,4 +79,45 @@ describe('AppShell', () => {
     delete window.tableManagerDesktop;
     container.remove();
   });
+
+  it('keeps Undo visible and enables it only when an operational action is available', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const onUndo = vi.fn();
+
+    act(() => {
+      root.render(
+        <AppShell
+          active="floor"
+          canUndo
+          clubName="Example Club"
+          onNavigate={vi.fn()}
+          onSignOut={vi.fn()}
+          onUndo={onUndo}
+          undoLabel="Added player time"
+        >
+          <main>Floor</main>
+        </AppShell>
+      );
+    });
+
+    const undo = container.querySelector<HTMLButtonElement>('.orbit-undo');
+    expect(undo?.disabled).toBe(false);
+    expect(undo?.getAttribute('aria-label')).toBe('Undo Added player time');
+    act(() => undo?.click());
+    expect(onUndo).toHaveBeenCalledOnce();
+
+    act(() => {
+      root.render(
+        <AppShell active="floor" clubName="Example Club" onNavigate={vi.fn()} onSignOut={vi.fn()}>
+          <main>Floor</main>
+        </AppShell>
+      );
+    });
+    expect(container.querySelector<HTMLButtonElement>('.orbit-undo')?.disabled).toBe(true);
+
+    act(() => root.unmount());
+    container.remove();
+  });
 });

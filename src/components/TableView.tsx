@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { Activity, Clock, Maximize2, Minimize2, Plus, Settings2, WalletCards, X } from 'lucide-react';
+import { Activity, Clock, Maximize2, Minimize2, Plus, Settings2, Undo2, WalletCards, X } from 'lucide-react';
 import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import PokerTable, {
   type Player as PokerTablePlayer,
@@ -70,12 +70,18 @@ type TableViewProps = {
   tableEventLogSessionId: string | null;
   seatPicker: SeatPickerState | null;
   closeRoute: () => void;
+  canUndo?: boolean;
+  undoLabel?: string;
+  undoLastAction?: () => void;
   formatClock: (iso?: string) => string;
   formatTimeLeft: (seconds: number) => string;
   getTimerStatusFromSeconds: (seconds: number) => string;
   getMoveTargets: (sourceTableId: string) => { id: string; label: string; openSeats: number }[];
   openSeatPicker: (session: GameSession, requestedSeatNumber?: number) => void;
   addPlayerTime: (playerSession: PlayerSession, minutes: number) => void;
+  deductPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
+  pauseAndSavePlayerTime: (playerSession: PlayerSession) => boolean;
+  useSavedPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
   addBuyIn: (playerSession: PlayerSession, amountOverride?: number, noteOverride?: string) => void;
   requestPlayerCashOut: (playerSession: PlayerSession) => void;
   changePlayerSeat: (playerSession: PlayerSession, seatNumber: number) => void;
@@ -104,12 +110,18 @@ export default function TableView({
   tableEventLogSessionId,
   seatPicker,
   closeRoute,
+  canUndo = false,
+  undoLabel,
+  undoLastAction,
   formatClock,
   formatTimeLeft,
   getTimerStatusFromSeconds,
   getMoveTargets,
   openSeatPicker,
   addPlayerTime,
+  deductPlayerTime,
+  pauseAndSavePlayerTime,
+  useSavedPlayerTime,
   addBuyIn,
   requestPlayerCashOut,
   changePlayerSeat,
@@ -185,6 +197,17 @@ export default function TableView({
 
         {tableSession ? (
           <div className="table-view-utilities" aria-label="Table utilities" role="group">
+            <button
+              aria-label={canUndo ? `Undo ${undoLabel || 'last action'}` : 'Nothing to undo'}
+              className="table-view-utility-button table-view-undo-button"
+              disabled={!canUndo}
+              onClick={undoLastAction}
+              title={canUndo ? `Undo ${undoLabel || 'last action'}` : 'Nothing to undo'}
+              type="button"
+            >
+              <Undo2 size={16} />
+              <span>Undo</span>
+            </button>
             <button
               className="table-view-seat-player-button"
               onClick={() => openSeatPicker(tableSession)}
@@ -483,6 +506,18 @@ export default function TableView({
                   onAddTime={(playerId, minutes) => {
                     const playerSession = seatedPlayers.find((player) => player.id === playerId);
                     if (playerSession) addPlayerTime(playerSession, minutes);
+                  }}
+                  onDeductTime={(playerId, minutes) => {
+                    const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                    return playerSession ? deductPlayerTime(playerSession, minutes) : false;
+                  }}
+                  onPauseAndSaveTime={(playerId) => {
+                    const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                    return playerSession ? pauseAndSavePlayerTime(playerSession) : false;
+                  }}
+                  onUseSavedTime={(playerId, minutes) => {
+                    const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                    return playerSession ? useSavedPlayerTime(playerSession, minutes) : false;
                   }}
                   onAddBuyIn={(playerId, amount, note) => {
                     const playerSession = seatedPlayers.find((player) => player.id === playerId);

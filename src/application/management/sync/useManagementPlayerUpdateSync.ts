@@ -21,7 +21,7 @@ type ManagementPlayerUpdateSyncOptions = {
   hasAuthenticated: boolean;
   setSaveStatus: (status: ManagementSaveStatus) => void;
   setState: Dispatch<SetStateAction<AppState>>;
-  setUndoStack: Dispatch<SetStateAction<AppState[]>>;
+  clearUndo: () => void;
   state: AppState;
   stateRef: MutableRefObject<AppState>;
 };
@@ -58,7 +58,7 @@ export const useManagementPlayerUpdateSync = ({
   hasAuthenticated,
   setSaveStatus,
   setState,
-  setUndoStack: _setUndoStack,
+  clearUndo,
   state,
   stateRef
 }: ManagementPlayerUpdateSyncOptions) => {
@@ -85,6 +85,7 @@ export const useManagementPlayerUpdateSync = ({
         if (hasSameIncomingPlayerOperations(latestState, remoteState)) return;
         announceIncomingPlayerRequest(latestState, remoteState);
         const mergedState = mergeIncomingPlayerOperations(latestState, remoteState);
+        clearUndo();
         stateRef.current = mergedState;
         setState(mergedState);
         saveBrowserManagementState(mergedState);
@@ -119,6 +120,7 @@ export const useManagementPlayerUpdateSync = ({
 
         announceIncomingPlayerRequest(latestState, remoteState);
         const mergedState = mergeIncomingPlayerOperations(latestState, remoteState);
+        clearUndo();
         stateRef.current = mergedState;
         setState(mergedState);
         setSaveStatus({ state: 'saved', message: 'Player operations synced' });

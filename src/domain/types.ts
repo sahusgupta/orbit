@@ -64,7 +64,10 @@ export type Interest = {
 export type PlayerProfile = {
   id: string;
   name: string;
+  orbitPlayerId?: string;
+  email?: string;
   phone: string;
+  address?: string;
   birthday: string;
   membershipStartDate: string;
   membershipExpirationDate: string;
@@ -76,6 +79,12 @@ export type PlayerProfile = {
   membershipPriceLabel?: string;
   membershipPlanName?: string;
   membershipDurationDays?: number;
+  membershipPaymentStatus?: 'Not required' | 'Pending' | 'Paid' | 'Failed' | 'Refunded';
+  membershipPaymentTransactionId?: string;
+  membershipPaymentAmountCents?: number;
+  savedTimeCreditMinutes?: number;
+  archivedAt?: string;
+  archivedReason?: string;
   totalTimePlayedHours: number;
   lastSessionTimePlayedHours: number;
   commonlyPlaysWithProfileIds: string[];
@@ -91,6 +100,11 @@ export type PlayerProfile = {
   usualCompanions: string[];
   preferredTags: TableTag[];
   notes: string;
+  identityReviewStatus?: 'Pending' | 'Approved' | 'Rejected' | 'Not required';
+  identityCaptureMethod?: 'id-barcode' | 'player-camera-pdf417';
+  identityCapturedAt?: string;
+  identityReviewedAt?: string;
+  identityReviewedByStaffId?: string;
 };
 
 export type GameSession = {
@@ -120,6 +134,7 @@ export type PlayerSession = {
   seatedAt: string;
   leftAt?: string;
   timePurchasedMinutes?: number;
+  timeCreditAppliedMinutes?: number;
   timeRemainingMinutes?: number;
   lastTimeTickAt?: string;
   timeFeeEnabled?: boolean;
@@ -346,6 +361,7 @@ export type ClubAccount = {
   email: string;
   phone: string;
   address: string;
+  minimumPlayerAge?: 18 | 21;
 };
 
 export type StaffAccount = {

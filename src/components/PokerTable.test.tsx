@@ -96,6 +96,9 @@ describe('PokerTable seat rendering', () => {
     const root = createRoot(container);
     const onAddBuyIn = vi.fn();
     const onAddTime = vi.fn();
+    const onDeductTime = vi.fn(() => true);
+    const onPauseAndSaveTime = vi.fn(() => true);
+    const onUseSavedTime = vi.fn(() => true);
     const onRemovePlayer = vi.fn();
     const player = {
       id: 'player-details',
@@ -104,7 +107,8 @@ describe('PokerTable seat rendering', () => {
       membershipId: 'member-details',
       joinedAt: Date.now(),
       buyInTotal: 1250,
-      timeRemainingSeconds: 1199
+      timeRemainingSeconds: 1199,
+      savedTimeCreditMinutes: 45
     };
 
     act(() => {
@@ -115,6 +119,9 @@ describe('PokerTable seat rendering', () => {
           moveTargets={[{ id: 'table-2', label: 'Second Table', openSeats: 4 }]}
           onAddBuyIn={onAddBuyIn}
           onAddTime={onAddTime}
+          onDeductTime={onDeductTime}
+          onPauseAndSaveTime={onPauseAndSaveTime}
+          onUseSavedTime={onUseSavedTime}
           onMovePlayer={vi.fn()}
           onRemovePlayer={onRemovePlayer}
           showTimeRemaining
@@ -152,9 +159,13 @@ describe('PokerTable seat rendering', () => {
 
     const actionChoices = Array.from(details?.querySelectorAll<HTMLButtonElement>('.poker-seat-action-choice') ?? []);
     const addTimeChoice = actionChoices.find((button) => button.textContent?.includes('Add time'));
+    const deductTimeChoice = actionChoices.find((button) => button.textContent?.includes('Deduct time'));
+    const pauseTimeChoice = actionChoices.find((button) => button.textContent?.includes('Pause'));
+    const useSavedTimeChoice = actionChoices.find((button) => button.textContent?.includes('Use saved'));
     const recordBuyInChoice = actionChoices.find((button) => button.textContent?.includes('Record buy-in'));
     expect(addTimeChoice?.getAttribute('aria-pressed')).toBe('false');
     expect(recordBuyInChoice?.getAttribute('aria-pressed')).toBe('false');
+    expect(details?.textContent).toContain('Saved time 45 min');
 
     act(() => {
       addTimeChoice?.click();
@@ -170,6 +181,29 @@ describe('PokerTable seat rendering', () => {
     });
     expect(details?.querySelector('.time-action-panel')).toBeNull();
     expect(actionWorkspace?.textContent).toContain('Table position');
+
+    act(() => {
+      deductTimeChoice?.click();
+    });
+    const deductPanel = details?.querySelector<HTMLElement>('.deduct-time-action-panel');
+    expect(deductPanel).not.toBeNull();
+    act(() => {
+      deductPanel?.querySelector<HTMLButtonElement>('.mini-button')?.click();
+    });
+    expect(onDeductTime).toHaveBeenCalledWith('player-details', 15);
+    expect(details?.querySelector('[role="status"]')?.textContent).toBe('15 minutes deducted.');
+
+    act(() => {
+      pauseTimeChoice?.click();
+    });
+    expect(onPauseAndSaveTime).toHaveBeenCalledWith('player-details');
+    expect(details?.querySelector('[role="status"]')?.textContent).toContain('paused and saved');
+
+    act(() => {
+      useSavedTimeChoice?.click();
+    });
+    expect(onUseSavedTime).toHaveBeenCalledWith('player-details', 45);
+    expect(details?.querySelector('[role="status"]')?.textContent).toBe('45 saved minutes applied.');
     expect(addTimeChoice?.getAttribute('aria-pressed')).toBe('false');
 
     act(() => {
@@ -220,6 +254,7 @@ describe('PokerTable seat rendering', () => {
     });
     expect(onAddBuyIn).toHaveBeenCalledWith('player-details', 275, 'second bullet');
     expect(onAddTime).toHaveBeenCalledTimes(1);
+    expect(onDeductTime).toHaveBeenCalledTimes(1);
     expect(details?.querySelector('.buyin-action-panel')).toBeNull();
     expect(details?.querySelector('[role="status"]')?.textContent).toBe('$275 buy-in recorded.');
 

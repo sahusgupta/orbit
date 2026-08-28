@@ -75,12 +75,15 @@ import {
 import {
   addPlayerBuyIn,
   addPlayerTime as addPlayerTimeInState,
+  applySavedPlayerTimeCredit,
   assignTableDealer,
   correctPlayerSession,
+  deductUnconsumedPlayerTime,
   endTableDealerAssignment,
   getPlayerSeatChangeError,
   markInterestPlayerLeft,
   markPlayerSessionLeft as markPlayerSessionLeftInState,
+  pauseAndStorePlayerTimeCredit,
   recordTableDrop,
   recordTableHands,
   setTableCollectionMode as setTableCollectionModeInState
@@ -107,16 +110,18 @@ import {
 } from './application/management/tableOperationsCommands';
 import {
   buildPlayerProfile as buildPlayerProfileInState,
+  archiveProfile as archivePlayerProfileInState,
   checkProfileIntoClub,
   createActiveMemberProfile,
-  deleteProfile as deleteProfileFromState,
   mergeDuplicateProfiles as mergeDuplicateProfilesInState,
   removeProfileFromClub as removeProfileFromClubInState,
+  restoreProfile as restorePlayerProfileInState,
   saveEditedProfile
 } from './application/management/profileCommands';
 import {
-  activateInPersonMembership as activateInPersonMembershipInState,
-  approveMembershipRequest as approveMembershipRequestInState
+  approveMembershipRequest as approveMembershipRequestInState,
+  approvePlayerIdentity as approvePlayerIdentityInState,
+  markMembershipPaidInPerson as markMembershipPaidInPersonInState
 } from './application/management/membershipCommands';
 import {
   getNightCloseLockError,
@@ -145,6 +150,11 @@ import {
 import { commitAuthoritativeTransition } from './application/management/sync/authoritativeTransition';
 import { useManagementPlayerUpdateSync } from './application/management/sync/useManagementPlayerUpdateSync';
 import { useManagementPilotAccessRefresh } from './application/management/sync/useManagementPilotAccessRefresh';
+import {
+  createManagementUndoEntry,
+  restoreManagementUndoEntry,
+  type ManagementUndoEntry
+} from './application/management/managementUndo';
 import {
   createTournamentActions,
   formatTournamentTime,
@@ -669,8 +679,7 @@ function App() {
     const mismatch = matchesValue !== undefined && input.value !== matchesValue;
     setAccessFieldError(mismatch ? 'Password and confirmation do not match.' : input.validationMessage);
   };
-  // The undo control was removed before this refactor; keep its write cadence until product scope decides whether to restore or remove it.
-  const [, setUndoStack] = useState<AppState[]>([]);
+  const [undoAction, setUndoAction] = useState<{ entry: ManagementUndoEntry; label: string } | null>(null);
   const tournamentWorkspace = useTournamentWorkspaceState();
   const {
     selectedTournamentId,
@@ -851,6 +860,7 @@ function App() {
   const {
     activeMemberProfiles,
     approvedMembershipProfiles,
+    archivedProfiles,
     checkInMatches,
     duplicateProfiles,
     membershipDirectoryProfiles,
@@ -900,7 +910,7 @@ function App() {
     setHasAuthenticated,
     setSaveStatus,
     setState,
-    setUndoStack
+    clearUndo: () => setUndoAction(null)
   });
 
   useEffect(() => {
@@ -951,7 +961,7 @@ function App() {
 
   useSettingsWorkspaceSync({ setClubDraft, setHasAuthenticated, state });
 
-  useManagementStorageSync(setState);
+  useManagementStorageSync(setState, () => setUndoAction(null));
 
   useEffect(() => {
     const syncRoute = () => {
@@ -968,7 +978,7 @@ function App() {
     hasAuthenticated,
     setSaveStatus,
     setState,
-    setUndoStack,
+    clearUndo: () => setUndoAction(null),
     state,
     stateRef
   });
@@ -1060,14 +1070,17 @@ function App() {
 
   const persist = (nextState: AppState, trackUndo = true, usage?: UsageDescriptor) => {
     const next = withUsageEvent(nextState, usage);
-    const previousAccountKey = getAccountKeyFromState(stateRef.current);
+    const previousState = stateRef.current;
+    const previousAccountKey = getAccountKeyFromState(previousState);
     const nextAccountKey = getAccountKeyFromState(next);
     if (trackUndo) {
-      setUndoStack((previous) => [state, ...previous].slice(0, 5));
+      const entry = createManagementUndoEntry(previousState, next);
+      if (entry) setUndoAction({ entry, label: usage?.action ?? 'last action' });
     }
     if (previousAccountKey !== nextAccountKey) {
       staffSelectionAttemptRef.current += 1;
       setTrustedStaffSession(null);
+      setUndoAction(null);
     }
     stateRef.current = next;
     setState(next);
@@ -1346,7 +1359,11 @@ function App() {
       window.alert('No open seats are available for that game.');
       return;
     }
-    const result = upsertWaitlistInterest(state, {
+    const targetProfile = existingProfile ?? buildPlayerProfile(playerName, form.gameId, {
+      notes: 'Created from Quick Add'
+    });
+    const profileState = existingProfile ? state : { ...state, profiles: [...state.profiles, targetProfile] };
+    const result = upsertWaitlistInterest(profileState, {
       playerName,
       gameId: form.gameId,
       status: form.status,
@@ -1355,7 +1372,11 @@ function App() {
     const nextState = applyWaitlistDemandPrompt(result.state, result.demandPrompt);
     persist(nextState, true, {
       feature: 'Waitlist',
-      action: result.updatedExisting ? 'Updated active member status' : 'Added interest',
+      action: result.updatedExisting
+        ? 'Updated active player status'
+        : existingProfile
+          ? 'Added interest'
+          : 'Created profile and added interest',
       metadata: { status: form.status, gameId: form.gameId }
     });
     setForm({ ...form, playerName: '', notes: '', tableId: '', seatNumber: '', initialBuyIn: '' });
@@ -1418,6 +1439,65 @@ function App() {
     if (!result.ok) return;
     persist(result.state, true, { feature: 'Table time', action: 'Added player time', metadata: { minutes, gameId: playerSession.gameId } });
     setCustomTimeDrafts((drafts) => ({ ...drafts, [playerSession.id]: '' }));
+  };
+
+  const deductPlayerTime = (playerSession: PlayerSession, minutes: number) => {
+    const reason = window.prompt('Why are you deducting this time?', 'Time added by mistake')?.trim();
+    if (!reason) return false;
+    const result = deductUnconsumedPlayerTime(
+      state,
+      playerSession.id,
+      minutes,
+      reason,
+      { createId: uid, nowIso, nowMs: Date.now }
+    );
+    if (!result.ok) {
+      if (result.error) window.alert(result.error);
+      return false;
+    }
+    persist(result.state, true, {
+      feature: 'Table time',
+      action: 'Deducted player time',
+      metadata: { minutes, reason, gameId: playerSession.gameId }
+    });
+    return true;
+  };
+
+  const pauseAndSavePlayerTime = (playerSession: PlayerSession) => {
+    const result = pauseAndStorePlayerTimeCredit(
+      state,
+      playerSession.id,
+      { nowIso, nowMs: Date.now }
+    );
+    if (!result.ok) {
+      if (result.error) window.alert(result.error);
+      return false;
+    }
+    persist(result.state, true, {
+      feature: 'Table time',
+      action: 'Paused and saved player time',
+      metadata: { profileId: playerSession.profileId ?? '', gameId: playerSession.gameId }
+    });
+    return true;
+  };
+
+  const useSavedPlayerTime = (playerSession: PlayerSession, minutes: number) => {
+    const result = applySavedPlayerTimeCredit(
+      state,
+      playerSession.id,
+      minutes,
+      { nowIso, nowMs: Date.now }
+    );
+    if (!result.ok) {
+      if (result.error) window.alert(result.error);
+      return false;
+    }
+    persist(result.state, true, {
+      feature: 'Table time',
+      action: 'Applied saved player time',
+      metadata: { minutes, profileId: playerSession.profileId ?? '', gameId: playerSession.gameId }
+    });
+    return true;
   };
 
   const addBuyIn = (playerSession: PlayerSession, amountOverride?: number, noteOverride?: string) => {
@@ -1798,17 +1878,38 @@ function App() {
   };
 
   const seatInterestAtTable = (interest: Interest, tableId?: string, seatNumber?: number) => {
+    const existingProfile = interest.profileId
+      ? state.profiles.find((profile) => profile.id === interest.profileId)
+      : state.profiles.find(
+          (profile) => profile.name.trim().toLowerCase() === interest.playerName.trim().toLowerCase()
+        );
+    const targetProfile = existingProfile ?? buildPlayerProfile(interest.playerName, interest.gameId, {
+      notes: 'Created from waitlist seating'
+    });
+    const seatingState: AppState = {
+      ...state,
+      profiles: existingProfile ? state.profiles : [...state.profiles, targetProfile],
+      interests: state.interests.map((candidate) =>
+        candidate.id === interest.id ? { ...candidate, profileId: targetProfile.id } : candidate
+      )
+    };
+    const linkedInterest = { ...interest, profileId: targetProfile.id };
     const table = tableId
-      ? state.sessions.find((session: { id: string; status: string; }) => session.id === tableId && session.status !== 'Closed' && session.status !== 'Failed to Start')
-      : state.sessions.find((session: { gameId: string; status: string; }) => session.gameId === interest.gameId && session.status !== 'Closed' && session.status !== 'Failed to Start');
+      ? seatingState.sessions.find((session: { id: string; status: string; }) => session.id === tableId && session.status !== 'Closed' && session.status !== 'Failed to Start')
+      : seatingState.sessions.find((session: { gameId: string; status: string; }) => session.gameId === interest.gameId && session.status !== 'Closed' && session.status !== 'Failed to Start');
     if (!table) {
-      updateInterest(interest.id, { status: 'Seated' });
+      const result = patchWaitlistInterest(seatingState, linkedInterest.id, { status: 'Seated' }, { nowIso });
+      persist(result.state, true, {
+        feature: 'Profiles',
+        action: existingProfile ? 'Updated player status' : 'Created profile and updated player status',
+        metadata: { profileId: targetProfile.id, status: 'Seated' }
+      });
       return;
     }
-    const result = seatPlayerInState(state, table.id, {
-      playerName: interest.playerName,
-      profileId: interest.profileId,
-      interestId: interest.id,
+    const result = seatPlayerInState(seatingState, table.id, {
+      playerName: linkedInterest.playerName,
+      profileId: linkedInterest.profileId,
+      interestId: linkedInterest.id,
       requestedSeatNumber: seatNumber,
       note: 'Seated from waitlist'
     });
@@ -1834,8 +1935,32 @@ function App() {
   const startSessionWithPlayers = (session: GameSession) => {
     const selectedIds = startPlayerDrafts[session.id] ?? [];
     const triggeringCardHouse = getClubDisplayName(state);
+    let preparedState = state;
+    selectedIds.forEach((interestId) => {
+      const interest = preparedState.interests.find((candidate) => candidate.id === interestId);
+      if (!interest) return;
+      const existingProfile = interest.profileId
+        ? preparedState.profiles.find((profile) => profile.id === interest.profileId)
+        : preparedState.profiles.find(
+            (profile) => profile.name.trim().toLowerCase() === interest.playerName.trim().toLowerCase()
+          );
+      const targetProfile = existingProfile ?? buildPlayerProfileInState(
+        preparedState,
+        interest.playerName,
+        interest.gameId,
+        { notes: 'Created when table started' },
+        { createProfileId: memberId, todayDate, nextYearDate }
+      );
+      preparedState = {
+        ...preparedState,
+        profiles: existingProfile ? preparedState.profiles : [...preparedState.profiles, targetProfile],
+        interests: preparedState.interests.map((candidate) =>
+          candidate.id === interest.id ? { ...candidate, profileId: targetProfile.id } : candidate
+        )
+      };
+    });
     const result = startTableWithPlayers(
-      state,
+      preparedState,
       session,
       selectedIds,
       triggeringCardHouse,
@@ -2162,11 +2287,15 @@ function App() {
     cancelEditProfile();
   };
 
-  const activateInPersonMembership = (profile: PlayerProfile) => {
-    const result = activateInPersonMembershipInState(
+  const approvePlayerIdentity = (profile: PlayerProfile) => {
+    const result = approvePlayerIdentityInState(
       state,
       profile,
-      { accountKey: getAccountKeyFromState(state), clubDisplayName: getClubDisplayName(state) },
+      {
+        accountKey: getAccountKeyFromState(state),
+        clubDisplayName: getClubDisplayName(state),
+        staffId: state.settings.activeStaffId
+      },
       { createId: uid, nowDate: () => new Date() }
     );
     if (!result.ok) {
@@ -2175,8 +2304,31 @@ function App() {
     }
     persist(result.state, true, {
       feature: 'Profiles',
-      action: 'Activated in-person membership',
-      metadata: { profileId: profile.id, plan: profile.membershipPlan || 'monthly' }
+      action: 'Approved player ID',
+      metadata: { profileId: profile.id, captureMethod: profile.identityCaptureMethod ?? 'unknown' }
+    });
+    setProfileFormMessage(result.message);
+  };
+
+  const markMembershipPaidInPerson = (profile: PlayerProfile) => {
+    const result = markMembershipPaidInPersonInState(
+      state,
+      profile,
+      {
+        accountKey: getAccountKeyFromState(state),
+        clubDisplayName: getClubDisplayName(state),
+        staffId: state.settings.activeStaffId
+      },
+      { createId: uid, nowDate: () => new Date() }
+    );
+    if (!result.ok) {
+      if (result.message) setProfileFormMessage(result.message);
+      return;
+    }
+    persist(result.state, true, {
+      feature: 'Profiles',
+      action: 'Recorded in-person membership payment',
+      metadata: { profileId: profile.id, transactionId: result.state.profiles.find((candidate) => candidate.id === profile.id)?.membershipPaymentTransactionId ?? 'not-required' }
     });
     setProfileFormMessage(result.message);
   };
@@ -2218,9 +2370,21 @@ function App() {
     setNewProfile(createNewProfileDraft());
   };
 
-  const deleteProfile = (id: string) => {
-    if (!window.confirm('Remove this profile? Existing sessions and interest entries will keep the player name.')) return;
-    persist(deleteProfileFromState(state, id));
+  const archivePlayerProfile = (profile: PlayerProfile) => {
+    if (!window.confirm(`Move ${profile.name} to Past players? Their history and saved time will be kept.`)) return;
+    persist(
+      archivePlayerProfileInState(state, profile.id, nowIso(), 'Archived by staff'),
+      true,
+      { feature: 'Profiles', action: 'Archived player profile', metadata: { profileId: profile.id } }
+    );
+  };
+
+  const restorePlayerProfile = (profile: PlayerProfile) => {
+    persist(
+      restorePlayerProfileInState(state, profile.id),
+      true,
+      { feature: 'Profiles', action: 'Restored player profile', metadata: { profileId: profile.id } }
+    );
   };
 
   const updateScriptTemplate = (index: number, value: string) => {
@@ -3264,7 +3428,7 @@ function App() {
     if (!next) return false;
     staffSelectionAttemptRef.current += 1;
     setTrustedStaffSession(null);
-    setUndoStack([]);
+    setUndoAction(null);
     setHasAuthenticated(await restorePersistedSignIn(next));
     persist(next, false, { feature: 'Account', action: 'Loaded existing pilot key', route: 'access' });
     setPendingPilotAccess(null);
@@ -3330,7 +3494,8 @@ function App() {
           contactName: clubDraft.contactName.trim(),
           email: clubDraft.email.trim().toLowerCase(),
           phone: clubDraft.phone.trim(),
-          address: clubDraft.address.trim()
+          address: clubDraft.address.trim(),
+          minimumPlayerAge: clubDraft.minimumPlayerAge === 18 ? 18 : 21
         },
         accountLogin,
         defaultCollectionMode: setupDraft.defaultCollectionMode,
@@ -3388,7 +3553,8 @@ function App() {
         contactName: clubDraft.contactName.trim(),
         email: clubDraft.email.trim().toLowerCase(),
         phone: clubDraft.phone.trim(),
-        address: clubDraft.address.trim()
+        address: clubDraft.address.trim(),
+        minimumPlayerAge: clubDraft.minimumPlayerAge === 18 ? 18 : 21
       }
     });
   };
@@ -3685,12 +3851,32 @@ function App() {
     setStaffRequestNotice(null);
   };
   const unreadStaffNotificationCount = staffNotifications.filter((notification) => !notification.read).length;
+  const undoLastAction = () => {
+    if (!undoAction) return;
+    const restored = restoreManagementUndoEntry(stateRef.current, undoAction.entry);
+    setUndoAction(null);
+    if (!restored) {
+      setSaveStatus({
+        state: 'error',
+        message: 'Undo was cleared because newer synced data changed the workspace.'
+      });
+      return;
+    }
+    void persist(restored, false, {
+      feature: 'Undo',
+      action: `Undid ${undoAction.label}`,
+      metadata: { originalAction: undoAction.label }
+    });
+  };
   const withShell = (active: PrimaryDestination, content: React.ReactNode) => (
     <AppShell
       active={active}
       clubName={state.settings.clubAccount?.clubName || 'Orbit Club'}
       operator={activeStaffAccount?.name}
       saveState={saveStatus.state}
+      canUndo={Boolean(undoAction)}
+      undoLabel={undoAction?.label}
+      onUndo={undoLastAction}
       onNavigate={navigatePrimary}
       onSignOut={async () => {
         await persistSignIn(state, false);
@@ -3948,6 +4134,15 @@ function App() {
               </label>
               <label className="access-field">Club address
                 <input value={clubDraft.address} onChange={(event) => setClubDraft({ ...clubDraft, address: event.target.value })} placeholder="Street address" />
+              </label>
+              <label className="access-field">Minimum player age
+                <select
+                  value={clubDraft.minimumPlayerAge}
+                  onChange={(event) => setClubDraft({ ...clubDraft, minimumPlayerAge: event.target.value === '18' ? 18 : 21 })}
+                >
+                  <option value={21}>21+</option>
+                  <option value={18}>18+</option>
+                </select>
               </label>
               <label className="access-field">Login email
                 <input value={setupDraft.username} onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })} onBlur={validateAccessField} placeholder="Defaults to club email" type="email" aria-describedby="access-field-error" />
@@ -4233,6 +4428,7 @@ function App() {
         state={state}
         activeMemberProfiles={activeMemberProfiles}
         approvedMembershipProfiles={approvedMembershipProfiles}
+        archivedProfiles={archivedProfiles}
         duplicateProfiles={duplicateProfiles}
         editingProfileId={editingProfileId}
         formatClock={formatClock}
@@ -4256,19 +4452,21 @@ function App() {
         qrScanMessage={qrScanMessage}
         qrVideoRef={qrVideoRef}
         todayPlayerActivity={todayPlayerActivity}
-        activateInPersonMembership={activateInPersonMembership}
+        approvePlayerIdentity={approvePlayerIdentity}
         addProfile={addProfile}
         addProfileToClub={addProfileToClub}
         approveMembershipRequest={approveMembershipRequest}
+        markMembershipPaidInPerson={markMembershipPaidInPerson}
         beginEditProfile={beginEditProfile}
         cancelEditProfile={cancelEditProfile}
         deleteInterest={deleteInterest}
-        deleteProfile={deleteProfile}
+        archiveProfile={archivePlayerProfile}
         mergeDuplicateProfiles={mergeDuplicateProfiles}
         onOpenQrScanner={openQrScanner}
         onRestartQrScanner={restartQrScanner}
         onSubmitQrManual={submitQrManual}
         removeProfileFromClub={removeProfileFromClub}
+        restoreProfile={restorePlayerProfile}
         saveProfileEdit={saveProfileEdit}
         setImportText={setImportText}
         setNewProfile={setNewProfile}
@@ -4553,6 +4751,11 @@ function App() {
       const hours = getPlayerLoggedHours(state, playerSession);
       const buyIns = getSessionBuyIns(state, playerSession);
       const buyInTotal = buyIns.reduce((sum, buyIn) => sum + buyIn.amount, 0);
+      const playerProfile = state.profiles.find((profile) =>
+        playerSession.profileId
+          ? profile.id === playerSession.profileId
+          : profile.name.trim().toLowerCase() === playerSession.playerName.trim().toLowerCase()
+      );
       return {
         id: playerSession.id,
         seatNumber: playerSession.seatNumber ?? index + 1,
@@ -4561,6 +4764,7 @@ function App() {
         joinedAt: new Date(playerSession.seatedAt).getTime(),
         hourlyTimeLimit: isTimeCollection ? Math.max(1, playerSession.timePurchasedMinutes ?? 60) : undefined,
         timeRemainingSeconds: isTimeCollection ? getTimeRemainingSeconds(playerSession, clockNow) : undefined,
+        savedTimeCreditMinutes: playerProfile?.savedTimeCreditMinutes ?? 0,
         tonightHours: formatHours(hours.tonight),
         totalHours: formatHours(hours.total),
         buyInTotal,
@@ -4670,12 +4874,18 @@ function App() {
         tableEventLogSessionId={tableEventLogSessionId}
         seatPicker={seatPicker}
         closeRoute={closeRoute}
+        canUndo={Boolean(undoAction)}
+        undoLabel={undoAction?.label}
+        undoLastAction={undoLastAction}
         formatClock={formatClock}
         formatTimeLeft={formatTimeLeft}
         getTimerStatusFromSeconds={getTimerStatusFromSeconds}
         getMoveTargets={getMoveTargets}
         openSeatPicker={openSeatPicker}
         addPlayerTime={addPlayerTime}
+        deductPlayerTime={deductPlayerTime}
+        pauseAndSavePlayerTime={pauseAndSavePlayerTime}
+        useSavedPlayerTime={useSavedPlayerTime}
         addBuyIn={addBuyIn}
         requestPlayerCashOut={requestPlayerCashOut}
         changePlayerSeat={changePlayerSeat}
@@ -4748,6 +4958,9 @@ function App() {
       recordTableEvent={recordTableEvent}
       toggleStartPlayer={toggleStartPlayer}
       addPlayerTime={addPlayerTime}
+      deductPlayerTime={deductPlayerTime}
+      pauseAndSavePlayerTime={pauseAndSavePlayerTime}
+      useSavedPlayerTime={useSavedPlayerTime}
       addBuyIn={addBuyIn}
       requestPlayerCashOut={requestPlayerCashOut}
       changePlayerSeat={changePlayerSeat}

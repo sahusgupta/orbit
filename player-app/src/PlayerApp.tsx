@@ -148,6 +148,7 @@ export default function PlayerApp() {
     firebaseIdentity,
     identityBusy,
     identityMessage,
+    identityRequiredMinimumAge,
     identityReturnScreen,
     identityStatus,
     playerAuthEmail,
@@ -233,7 +234,9 @@ export default function PlayerApp() {
     openClubPayment,
     openClubSignup,
     openDirections,
+    openPlayerTimePurchase,
     pendingClubProduct,
+    pendingMembershipOption,
     requestInPersonMembership,
     seatRequestDraft,
     seatRequestMessage,
@@ -264,6 +267,7 @@ export default function PlayerApp() {
   });
   const { pendingTournamentIds, registerTournament, tournamentMessage, unregisterTournament } = usePlayerTournaments({
     firebaseIdentity,
+    getClubMinimumAge: (clubId) => clubs.find((club) => club.club.id === clubId)?.club.minimumAge === 18 ? 18 : 21,
     player,
     requireVerifiedAge,
     setTournamentRegistrations
@@ -295,7 +299,7 @@ export default function PlayerApp() {
   const joinedClubIds = new Set(memberships.filter((membership) => isMembershipCurrentlyActive(membership, clockNow)).map((membership) => membership.clubId));
   const membershipClubIds = new Set(memberships.map((membership) => membership.clubId));
   const favoriteClubIds = player.favoriteClubIds ?? [];
-  const memberClubs = clubs.filter((club) => membershipClubIds.has(club.club.id));
+  const memberClubs = clubs.filter((club) => membershipClubIds.has(club.club.id) || club.timeAccess?.linked);
   const selectedClubTournaments = selectedClub ? tournaments.filter((tournament) => tournament.clubId === selectedClub.club.id) : [];
   const findGameClubs = useMemo(() => buildFindGameClubs(clubs), [clubs]);
   const playerHomeCoordinate = useMemo(() => resolveAddressCoordinate(player.homeLocation), [player.homeLocation]);
@@ -558,7 +562,7 @@ export default function PlayerApp() {
                 onDirections={() => openDirections(activeDiscoveryOpportunity.club)}
                 onJoin={() => {
                   const item = activeDiscoveryOpportunity;
-                  item.isJoined ? joinWaitlist(item.club, item.game) : openClubSignup(item.club);
+                  joinWaitlist(item.club, item.game);
                 }}
                 onViewStore={() => openClubSignup(activeDiscoveryOpportunity.club)}
               />
@@ -569,6 +573,7 @@ export default function PlayerApp() {
                 signedIn={Boolean(firebaseIdentity)}
                 busy={identityBusy}
                 message={identityMessage}
+                requiredMinimumAge={identityRequiredMinimumAge}
                 onBack={() => setScreen(identityReturnScreen)}
                 onSignIn={() => setScreen('settings')}
                 onStart={startIdentityVerification}
@@ -583,7 +588,7 @@ export default function PlayerApp() {
                 </Pressable>
                 <MyGamesSection
                   games={activePlayerGames}
-                  onBuyTime={(club) => openClubPayment(club, 'time-5')}
+                  onBuyTime={openPlayerTimePurchase}
                   onCancel={(club, game, entry) => cancelWaitlist(club, game, entry)}
                 />
                 <View style={styles.sectionHeader}>
@@ -789,6 +794,8 @@ export default function PlayerApp() {
                 tournaments={selectedClubTournaments}
                 onSelectClub={(club) => setSelectedClubId(club.club.id)}
                 onGame={(game) => joinWaitlist(selectedClub, game)}
+                onAddTime={openPlayerTimePurchase}
+                timePurchaseBusy={clubActionPending}
                 onManageAccess={() => openClubSignup(selectedClub)}
                 onViewEvents={() => {
                   setTournamentClubFilter(selectedClub.club.id);
@@ -799,6 +806,7 @@ export default function PlayerApp() {
 
             {screen === 'clubSignup' && selectedClub ? (
               <ClubMembershipPlanScreen
+                key={selectedClub.club.id}
                 club={selectedClub}
                 prices={getClubMembershipPrices(selectedClub)}
                 message={clubMembershipMessage}
@@ -813,7 +821,7 @@ export default function PlayerApp() {
               <ClubAccessCheckoutScreen
                 club={selectedClub}
                 product={pendingClubProduct}
-                price={getClubProductLabel(pendingClubProduct, getClubMembershipPrices(selectedClub))}
+                price={pendingMembershipOption?.priceLabel ?? getClubProductLabel(pendingClubProduct, getClubMembershipPrices(selectedClub))}
                 message={clubMembershipMessage}
                 connectedCheckoutEnabled={cardHouseCheckoutEnabled}
                 busy={clubActionPending}

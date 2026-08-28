@@ -55,17 +55,20 @@ const makeProfile = (id: string, name: string) => ({
   id,
   name,
   phone: `555-${id}`,
+  address: '',
   birthday: '1990-01-02',
   membershipStartDate: '2026-01-01',
   membershipExpirationDate: '2099-12-31',
   membershipExpiresAt: '2099-12-31T23:59:59.000Z',
   membershipPlan: 'monthly',
   membershipPaymentMethod: 'core',
+  membershipPaymentStatus: 'Paid',
   membershipStatus: 'Active',
   membershipRequestedAt: '2026-01-01T10:00:00.000Z',
   membershipPriceLabel: '$40/mo',
   membershipPlanName: 'Monthly Membership',
   membershipDurationDays: 30,
+  savedTimeCreditMinutes: 0,
   totalTimePlayedHours: id.length,
   lastSessionTimePlayedHours: 2,
   commonlyPlaysWithProfileIds: [`companion-${id}`],
@@ -80,7 +83,8 @@ const makeProfile = (id: string, name: string) => ({
   typicalAvailability: 'Friday evening',
   usualCompanions: [`Friend ${id}`],
   preferredTags: ['Action'],
-  notes: `Notes for ${id}`
+  notes: `Notes for ${id}`,
+  identityReviewStatus: 'Not required'
 });
 
 const aliceOne = makeProfile('alice-1', ' Alice ');

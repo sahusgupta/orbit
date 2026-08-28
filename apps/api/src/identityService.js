@@ -1,8 +1,20 @@
 const { getAdminApp, getAdminSdk } = require('./services/firebaseAdmin');
 const { getStripe } = require('./services/stripeClient');
+const { loadState } = require('./database');
 
 function getRequiredMinimumAge() {
-  return 21;
+  return 18;
+}
+
+function normalizeRequiredMinimumAge(value) {
+  return Number(value) === 18 ? 18 : 21;
+}
+
+async function resolveRequestMinimumAge(request) {
+  const clubId = String(request.body?.clubId || request.query?.clubId || '').trim();
+  if (!clubId) return 21;
+  const record = await loadState(clubId);
+  return normalizeRequiredMinimumAge(record?.state?.settings?.clubAccount?.minimumPlayerAge);
 }
 
 function isMatchingSelfieRequired() {
@@ -20,6 +32,46 @@ function getIdentityServiceStatus() {
 
 function identityDocumentPath(playerId) {
   return `players/${playerId}/private/identity`;
+}
+
+const cameraCaptureKeys = new Set(['fullName', 'dateOfBirth', 'address', 'mutationId']);
+const forbiddenCaptureKeyPattern = /(image|photo|selfie|barcode|pdf417|id.?number|document.?number|license.?number|raw)/i;
+
+function normalizeCameraCapture(body, now = new Date()) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { ok: false, error: 'A valid identity capture body is required.' };
+  }
+  const keys = Object.keys(body);
+  const rejectedKey = keys.find((key) => !cameraCaptureKeys.has(key) || forbiddenCaptureKeyPattern.test(key));
+  if (rejectedKey) {
+    return { ok: false, error: 'Identity capture accepts only extracted name, date of birth, address, and mutation ID.' };
+  }
+  const values = keys.map((key) => body[key]);
+  if (values.some((value) => typeof value === 'string' && (/^data:/i.test(value.trim()) || value.length > 4_096))) {
+    return { ok: false, error: 'Raw identity media is not accepted.' };
+  }
+  const fullName = typeof body.fullName === 'string' ? body.fullName.trim().replace(/\s+/g, ' ') : '';
+  const dateOfBirth = typeof body.dateOfBirth === 'string' ? body.dateOfBirth.trim() : '';
+  const address = typeof body.address === 'string' ? body.address.trim().replace(/\s+/g, ' ') : '';
+  const mutationId = typeof body.mutationId === 'string' ? body.mutationId.trim() : '';
+  if (!fullName || fullName.length > 120 || !address || address.length > 300 || !mutationId || mutationId.length > 180) {
+    return { ok: false, error: 'Name, address, and a valid mutation ID are required.' };
+  }
+  if (!/^[A-Za-z0-9._:-]+$/.test(mutationId) || !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+    return { ok: false, error: 'Date of birth or mutation ID is invalid.' };
+  }
+  const [year, month, day] = dateOfBirth.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() + 1 !== month ||
+    parsed.getUTCDate() !== day
+  ) {
+    return { ok: false, error: 'Date of birth is invalid.' };
+  }
+  const age = calculateAgeFromDate({ year, month, day }, now);
+  if (age == null) return { ok: false, error: 'Date of birth is invalid.' };
+  return { ok: true, value: { fullName, dateOfBirth, address, mutationId, age } };
 }
 
 function calculateAgeFromDate(dateOfBirth, today = new Date()) {
@@ -42,19 +94,73 @@ function getAgeLevel(age) {
   return 0;
 }
 
+function formatDateOfBirth(dateOfBirth) {
+  const year = Number(dateOfBirth?.year);
+  const month = Number(dateOfBirth?.month);
+  const day = Number(dateOfBirth?.day);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return '';
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function formatVerifiedAddress(address) {
+  if (!address || typeof address !== 'object') return '';
+  const region = [address.state, address.postal_code].filter(Boolean).join(' ');
+  const locality = [address.city, region].filter(Boolean).join(', ');
+  return [address.line1, address.line2, locality, address.country]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
+function getVerifiedDetails(verifiedOutputs = {}) {
+  const fullName = [verifiedOutputs.first_name, verifiedOutputs.last_name]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  return {
+    fullName,
+    dateOfBirth: formatDateOfBirth(verifiedOutputs.dob),
+    address: formatVerifiedAddress(verifiedOutputs.address)
+  };
+}
+
+function getCurrentVerifiedAge(record, now = new Date()) {
+  const dateOfBirth = String(record?.verifiedDetails?.dateOfBirth || '');
+  const [year, month, day] = dateOfBirth.split('-').map(Number);
+  return calculateAgeFromDate({ year, month, day }, now);
+}
+
 function getPublicIdentityStatus(record = {}) {
   const verifiedAt = typeof record.verifiedAt === 'string'
     ? record.verifiedAt
     : typeof record.verifiedAt?.toDate === 'function'
       ? record.verifiedAt.toDate().toISOString()
       : null;
+  const currentVerifiedAge = getCurrentVerifiedAge(record);
+  const ageLevel = currentVerifiedAge == null ? Number(record.ageLevel || 0) : getAgeLevel(currentVerifiedAge);
+  const ageEligible = (record.status === 'verified' && record.ageVerified === true) ||
+    (record.status === 'provisional' && record.ageEligible === true);
   return {
     status: record.status || 'unverified',
-    ageVerified: record.status === 'verified' && record.ageVerified === true,
-    ageLevel: Number(record.ageLevel || 0),
+    ageVerified: record.status === 'verified' && record.ageVerified === true && ageLevel >= getRequiredMinimumAge(),
+    ageEligible: ageEligible && ageLevel >= getRequiredMinimumAge(),
+    ageLevel,
     minimumAge: getRequiredMinimumAge(),
     verifiedAt,
-    failureCode: record.failureCode || null
+    reviewStatus: typeof record.reviewStatus === 'string'
+      ? record.reviewStatus
+      : record.status === 'verified'
+        ? 'approved'
+        : 'not-started',
+    capturedAt: typeof record.capturedAt === 'string' ? record.capturedAt : null,
+    failureCode: record.failureCode || null,
+    verifiedDetails: ['verified', 'provisional'].includes(record.status) && record.ageEligible !== false && record.verifiedDetails
+      ? {
+          fullName: String(record.verifiedDetails.fullName || ''),
+          dateOfBirth: String(record.verifiedDetails.dateOfBirth || ''),
+          address: String(record.verifiedDetails.address || '')
+        }
+      : null
   };
 }
 
@@ -87,7 +193,8 @@ function buildEligibilityUpdate(session, event, minimumAge = getRequiredMinimumA
       ageVerified: age >= minimumAge,
       ageLevel,
       verifiedAt: now.toISOString(),
-      failureCode: age >= minimumAge ? null : 'minimum_age_not_met'
+      failureCode: age >= minimumAge ? null : 'minimum_age_not_met',
+      verifiedDetails: age >= minimumAge ? getVerifiedDetails(session.verified_outputs) : null
     };
   }
 
@@ -189,6 +296,7 @@ async function handleStripeIdentityEvent(event) {
       providerStatus: 'redacted',
       verifiedAt: null,
       failureCode: null,
+      verifiedDetails: null,
       lastStripeEventId: String(event.id || ''),
       lastStripeEventCreated: Number(event.created || Math.floor(Date.now() / 1000))
     });
@@ -216,6 +324,74 @@ async function getPlayerIdentityStatus(request, response) {
   response.set('cache-control', 'no-store');
   const record = await readIdentityRecord(request.orbitPlayer.uid);
   response.json({ ok: true, identity: getPublicIdentityStatus(record) });
+}
+
+function getTrustedIdentitySummary(record = {}) {
+  const status = getPublicIdentityStatus(record);
+  return {
+    fullName: status.verifiedDetails?.fullName || '',
+    dateOfBirth: status.verifiedDetails?.dateOfBirth || '',
+    address: status.verifiedDetails?.address || '',
+    ageLevel: status.ageLevel,
+    captureMethod: record.captureMethod === 'camera-pdf417' ? 'player-camera-pdf417' : 'provider',
+    capturedAt: status.capturedAt || status.verifiedAt || '',
+    reviewStatus: status.reviewStatus === 'approved' ? 'Approved' : 'Pending'
+  };
+}
+
+function buildCameraIdentityRecord(current, capture, capturedAt) {
+  const ageLevel = getAgeLevel(capture.age);
+  const ageEligible = ageLevel >= getRequiredMinimumAge();
+  const providerSessionIds = Array.from(new Set([
+    ...(Array.isArray(current?.providerSessionIds) ? current.providerSessionIds : []),
+    current?.providerSessionId
+  ].map((value) => String(value || '').trim()).filter(Boolean)));
+  return {
+    status: ageEligible ? 'provisional' : 'underage',
+    ageVerified: false,
+    ageEligible,
+    ageLevel: ageEligible ? ageLevel : 0,
+    reviewStatus: ageEligible ? 'pending-in-person' : 'not-started',
+    captureMethod: 'camera-pdf417',
+    capturedAt: capturedAt.toISOString(),
+    captureMutationId: capture.mutationId,
+    failureCode: ageEligible ? null : 'minimum_age_not_met',
+    verifiedDetails: ageEligible
+      ? { fullName: capture.fullName, dateOfBirth: capture.dateOfBirth, address: capture.address }
+      : null,
+    ...(providerSessionIds.length ? { providerSessionIds } : {}),
+    ...(current?.providerSessionId ? { providerSessionId: String(current.providerSessionId) } : {}),
+    ...(current?.provider ? { provider: String(current.provider) } : {})
+  };
+}
+
+async function capturePlayerIdentity(request, response) {
+  response.set('cache-control', 'no-store');
+  const capturedAt = new Date();
+  const normalized = normalizeCameraCapture(request.body, capturedAt);
+  if (!normalized.ok) {
+    response.status(400).json({ ok: false, error: normalized.error });
+    return;
+  }
+  const admin = getAdminSdk();
+  const database = admin.firestore(getAdminApp());
+  const reference = database.doc(identityDocumentPath(request.orbitPlayer.uid));
+  const { mutationId } = normalized.value;
+  let record;
+  await database.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    const current = snapshot.exists ? snapshot.data() || {} : {};
+    if (current.captureMutationId === mutationId) {
+      record = current;
+      return;
+    }
+    record = buildCameraIdentityRecord(current, normalized.value, capturedAt);
+    transaction.set(reference, {
+      ...record,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: false });
+  });
+  response.status(201).json({ ok: true, identity: getPublicIdentityStatus(record) });
 }
 
 class IdentityDeletionError extends Error {
@@ -380,9 +556,12 @@ async function createPlayerIdentitySession(request, response) {
       ? { verification_flow: verificationFlow }
       : {
           type: /** @type {'document'} */ ('document'),
-          ...(isMatchingSelfieRequired()
-            ? { options: { document: { require_matching_selfie: true } } }
-            : {})
+          options: {
+            document: {
+              require_live_capture: true,
+              ...(isMatchingSelfieRequired() ? { require_matching_selfie: true } : {})
+            }
+          }
         })
   };
   const session = await getStripe().identity.verificationSessions.create(
@@ -419,17 +598,19 @@ async function createPlayerIdentitySession(request, response) {
 async function requireVerifiedPlayerAge(request, response, next) {
   try {
     const record = await readIdentityRecord(request.orbitPlayer.uid);
-    const minimumAge = getRequiredMinimumAge();
-    if (record.status !== 'verified' || record.ageVerified !== true || Number(record.ageLevel || 0) < minimumAge) {
+    const minimumAge = await resolveRequestMinimumAge(request);
+    const identity = getPublicIdentityStatus(record);
+    if (identity.ageEligible !== true || identity.ageLevel < minimumAge) {
       response.status(403).json({
         ok: false,
         code: 'AGE_VERIFICATION_REQUIRED',
         error: `Verify that you are ${minimumAge}+ before joining or purchasing card-house access.`,
-        identity: getPublicIdentityStatus(record)
+        identity: { ...identity, minimumAge }
       });
       return;
     }
-    request.orbitIdentity = getPublicIdentityStatus(record);
+    request.orbitIdentity = { ...identity, minimumAge };
+    request.orbitIdentitySummary = getTrustedIdentitySummary(record);
     next();
   } catch (error) {
     next(error);
@@ -438,14 +619,21 @@ async function requireVerifiedPlayerAge(request, response, next) {
 
 module.exports = {
   buildEligibilityUpdate,
+  buildCameraIdentityRecord,
   calculateAgeFromDate,
+  capturePlayerIdentity,
   createPlayerIdentitySession,
   deletePlayerIdentity,
   deletePlayerIdentityData,
   getAgeLevel,
+  getVerifiedDetails,
   getIdentityServiceStatus,
   getPlayerIdentityStatus,
   getPublicIdentityStatus,
+  getTrustedIdentitySummary,
   handleStripeIdentityEvent,
+  normalizeCameraCapture,
+  normalizeRequiredMinimumAge,
+  readIdentityRecord,
   requireVerifiedPlayerAge
 };

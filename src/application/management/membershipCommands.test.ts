@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { seedState } from '../../domain/state';
 import type { AppState, PlayerProfile } from '../../domain/types';
-import { activateInPersonMembership, approveMembershipRequest } from './membershipCommands';
+import { activateInPersonMembership, approveMembershipRequest, markMembershipPaidInPerson } from './membershipCommands';
 
 const now = '2026-08-08T20:00:00.000Z';
 const profile = (overrides: Partial<PlayerProfile> = {}): PlayerProfile => ({
@@ -112,7 +112,7 @@ describe('management membership commands', () => {
       membershipStatus: 'Active'
     });
     expect(result.state.revenueTransactions).toEqual([{
-      id: 'created-2',
+      id: 'membership:profile-member:legacy:in-person',
       type: 'membership',
       amountCents: 4900,
       occurredAt: now,
@@ -129,11 +129,22 @@ describe('management membership commands', () => {
       expiresAt: '2026-08-15T20:00:00.000Z',
       targetPlayerIds: [approved.id]
     });
+    const replayProfile = result.state.profiles[0];
+    const replay = markMembershipPaidInPerson(result.state, replayProfile, context, dependencies());
+    expect(replay.ok).toBe(true);
+    expect(replay.state).toBe(result.state);
+    expect(replay.state.revenueTransactions).toHaveLength(1);
     expect(source).toEqual(snapshot);
   });
 
-  it('keeps zero-price activation revenue-free and rejects unapproved profiles explicitly', () => {
-    const approved = profile({ membershipStatus: 'Approved', membershipPlan: 'day', membershipPriceLabel: '' });
+  it('activates explicitly no-fee memberships without revenue and rejects unknown amounts', () => {
+    const approved = profile({
+      membershipStatus: 'Approved',
+      membershipPlan: 'day',
+      membershipPaymentMethod: 'app',
+      membershipPaymentStatus: 'Not required',
+      identityReviewStatus: 'Approved'
+    });
     const activated = activateInPersonMembership(state(approved), approved, context, dependencies());
     expect(activated.ok).toBe(true);
     if (activated.ok) {
@@ -141,10 +152,23 @@ describe('management membership commands', () => {
       expect(activated.state.profiles[0].membershipExpirationDate).toBe('2026-08-09');
     }
 
+    const unknownAmount = profile({
+      membershipStatus: 'Approved',
+      membershipPaymentMethod: 'in-person',
+      membershipPaymentStatus: 'Pending',
+      membershipPriceLabel: ''
+    });
+    const rejectedAmount = activateInPersonMembership(state(unknownAmount), unknownAmount, context, dependencies());
+    expect(rejectedAmount).toMatchObject({
+      ok: false,
+      message: 'A valid membership amount is required before marking Member Player paid.'
+    });
+    expect(rejectedAmount.state).toEqual(state(unknownAmount));
+
     const requested = profile({ membershipStatus: 'Requested' });
     expect(activateInPersonMembership(state(requested), requested, context, dependencies())).toMatchObject({
       ok: false,
-      message: "Approve Member Player's application before activating the membership."
+      message: "Approve Member Player's application before recording payment."
     });
   });
 });
