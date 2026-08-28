@@ -6,6 +6,7 @@ import type {
   CollectionProfile,
   InterestStatus,
   PersistedAppState,
+  PlayerProfile,
   TableCap,
   Tournament,
   TournamentLevel,
@@ -100,6 +101,7 @@ export const seedState: AppState = {
   playerLedger: [],
   tableEvents: [],
   inAppNotifications: [],
+  staffRequests: [],
   history: [],
   nightCloses: [],
   feedback: [],
@@ -176,12 +178,13 @@ export function normalizeState(parsed: PersistedAppState): AppState {
       .filter(Boolean);
     return resolved.length ? Array.from(new Set(resolved)) : [fallback];
   };
-  const profiles =
+  const profiles: PlayerProfile[] =
     parsed.profiles ??
     (parsed.interests ?? []).map((interest) => ({
       id: uid(),
       name: interest.playerName,
       phone: '',
+      address: '',
       birthday: '',
       membershipStartDate: todayDate(),
       membershipExpirationDate: nextYearDate(),
@@ -243,9 +246,26 @@ export function normalizeState(parsed: PersistedAppState): AppState {
       return {
         ...profile,
         phone: profile.phone ?? '',
+        address: profile.address ?? '',
         birthday: profile.birthday ?? '',
+        identityReviewStatus:
+          profile.identityReviewStatus ??
+          (profile.identityCaptureMethod === 'player-camera-pdf417'
+            ? 'Pending'
+            : profile.identityCaptureMethod === 'id-barcode'
+              ? 'Approved'
+              : 'Not required'),
+        membershipPaymentStatus:
+          profile.membershipPaymentStatus ??
+          (profile.membershipStatus === 'Active'
+            ? 'Paid'
+            : profile.membershipPaymentMethod === 'in-person' &&
+                (profile.membershipStatus === 'Requested' || profile.membershipStatus === 'Approved')
+              ? 'Pending'
+              : 'Not required'),
         membershipStartDate: profile.membershipStartDate ?? todayDate(),
         membershipExpirationDate: profile.membershipExpirationDate ?? nextYearDate(),
+        savedTimeCreditMinutes: Math.max(0, Number(profile.savedTimeCreditMinutes) || 0),
         totalTimePlayedHours: profile.totalTimePlayedHours ?? 0,
         lastSessionTimePlayedHours: profile.lastSessionTimePlayedHours ?? 0,
         commonlyPlaysWithProfileIds:
@@ -315,6 +335,7 @@ export function normalizeState(parsed: PersistedAppState): AppState {
         ...session,
         gameId,
         timePurchasedMinutes: session.timePurchasedMinutes ?? 0,
+        timeCreditAppliedMinutes: Math.max(0, Number(session.timeCreditAppliedMinutes) || 0),
         timeRemainingMinutes: session.timeRemainingMinutes ?? 0,
         lastTimeTickAt: session.lastTimeTickAt ?? session.seatedAt,
         timeFeeEnabled: session.timeFeeEnabled ?? Boolean((session as Record<string, unknown>)[`time${'Ra'}keEnabled`]),
@@ -368,6 +389,30 @@ export function normalizeState(parsed: PersistedAppState): AppState {
       targetPlayerIds: notification.targetPlayerIds ?? [],
       targetPlayerNames: notification.targetPlayerNames ?? []
     })),
+    staffRequests: (parsed.staffRequests ?? [])
+      .filter(
+        (request) =>
+          request.type === 'self-check-in-assistance' &&
+          typeof request.id === 'string' &&
+          typeof request.playerName === 'string' &&
+          (request.reason === 'not-found' || request.reason === 'ambiguous') &&
+          typeof request.createdAt === 'string'
+      )
+      .map((request) => ({
+        ...request,
+        status: request.status === 'handled' ? ('handled' as const) : ('pending' as const),
+        handledAt: request.status === 'handled' ? request.handledAt : undefined,
+        handledByStaffId: request.status === 'handled' ? request.handledByStaffId : undefined
+      }))
+      .slice(-200),
+    selfCheckIn:
+      typeof parsed.selfCheckIn?.capabilityGeneration === 'string' &&
+      typeof parsed.selfCheckIn?.generatedAt === 'string'
+        ? {
+            capabilityGeneration: parsed.selfCheckIn.capabilityGeneration,
+            generatedAt: parsed.selfCheckIn.generatedAt
+          }
+        : undefined,
     history: parsed.history ?? [],
     nightCloses: parsed.nightCloses ?? [],
     feedback: parsed.feedback ?? [],
@@ -402,9 +447,16 @@ export function normalizeState(parsed: PersistedAppState): AppState {
       showDashboardKpis: parsed.settings?.showDashboardKpis ?? false,
       showRecentPlayers: parsed.settings?.showRecentPlayers ?? true,
       pilotAccess: parsed.settings?.pilotAccess,
-      clubAccount: parsed.settings?.clubAccount,
+      clubAccount: parsed.settings?.clubAccount
+        ? {
+            ...parsed.settings.clubAccount,
+            minimumPlayerAge: parsed.settings.clubAccount.minimumPlayerAge === 18 ? 18 : 21
+          }
+        : undefined,
       staffAccounts: parsed.settings?.staffAccounts ?? [],
-      activeStaffId: parsed.settings?.activeStaffId,
+      // A staff PIN session is memory-only, so a persisted operator must be
+      // selected and verified again after every state hydration.
+      activeStaffId: undefined,
       accountLogin: parsed.settings?.accountLogin
         ? {
             ...parsed.settings.accountLogin,

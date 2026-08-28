@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "productName": "Orbit",
-  "version": "0.1.70",
+  "version": "0.1.73",
   "publishedLabel": "Verified stable release",
-  "installerUrl": "https://github.com/sahusgupta/orbit/releases/download/v0.1.70/Orbit-0.1.70-x64.exe"
+  "installerUrl": "https://github.com/sahusgupta/orbit/releases/download/v0.1.73/Orbit-0.1.73-x64.exe"
 }

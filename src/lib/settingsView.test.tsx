@@ -3,6 +3,7 @@
  */
 import { act } from 'react';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { AppState } from '../domain/types';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -11,7 +12,38 @@ declare global {
 const harness = vi.hoisted(() => ({
   root: undefined as { unmount: () => void } | undefined,
   blobs: [] as Array<{ parts: BlobPart[]; type: string }>,
-  downloads: [] as Array<{ fileName: string; href: string }>
+  downloads: [] as Array<{ fileName: string; href: string }>,
+  startupLoadResolvers: [] as Array<(value: unknown) => void>
+}));
+
+const desktop = vi.hoisted(() => ({
+  authorizeStaffAction: vi.fn(async () => ({ ok: true })),
+  generateSelfCheckInKit: vi.fn(async () => ({
+    ok: true,
+    filePath: 'C:\\Prints\\Orbit-self-check-in.pdf',
+    selfCheckIn: {
+      capabilityGeneration: 'settings-test-generation',
+      generatedAt: '2026-08-26T12:00:00.000Z'
+    }
+  })),
+  getBackendStatus: vi.fn(async () => ({
+    running: true,
+    host: '127.0.0.1',
+    port: 4629,
+    reportCount: 0,
+    mode: 'test'
+  })),
+  loadState: vi.fn(),
+  recordClientEvent: vi.fn(async () => ({ ok: true })),
+  saveState: vi.fn(async (_state: unknown) => ({ ok: true, path: 'test', publication: { status: 'pending' } })),
+  verifyStaffPin: vi.fn(async () => ({
+    ok: true,
+    token: 'settings-staff-token',
+    staffId: 'settings-manager',
+    role: 'Manager' as const,
+    accountKey: 'ref-006g-license',
+    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString()
+  }))
 }));
 
 vi.mock('react-dom/client', async (importOriginal) => {
@@ -37,6 +69,13 @@ vi.mock('./firebaseClubSync', () => ({
 }));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+const setInputValue = (input: HTMLInputElement, value: string) => {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  if (!setter) throw new Error('Input value setter is unavailable.');
+  setter.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+};
 
 describe('settings route rendering', () => {
   beforeAll(async () => {
@@ -65,7 +104,16 @@ describe('settings route rendering', () => {
             issuedTo: 'REF-006G Fixture Club',
             licenseId: 'REF-006G-LICENSE'
           },
-          accountLogin: { username: 'ref-006g@example.test' }
+          accountLogin: { username: 'ref-006g@example.test' },
+          staffAccounts: [{
+            id: 'settings-manager',
+            name: 'Settings Manager',
+            role: 'Manager',
+            pinSalt: 'settings-salt',
+            pinHash: 'settings-hash',
+            active: true,
+            createdAt: '2026-08-26T11:00:00.000Z'
+          }]
         }
       })
     );
@@ -88,6 +136,11 @@ describe('settings route rendering', () => {
     }
     vi.stubGlobal('Blob', TestBlob);
     vi.stubGlobal('URL', TestUrl);
+    vi.stubGlobal('alert', vi.fn());
+    desktop.loadState.mockImplementation(() => new Promise((resolve) => {
+      harness.startupLoadResolvers.push(resolve);
+    }));
+    Reflect.set(window, 'tableManagerDesktop', desktop);
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
       harness.downloads.push({ fileName: this.download, href: this.href });
     });
@@ -103,6 +156,7 @@ describe('settings route rendering', () => {
     vi.unstubAllGlobals();
     localStorage.clear();
     window.location.hash = '';
+    Reflect.deleteProperty(window, 'tableManagerDesktop');
     document.body.innerHTML = '';
   });
 
@@ -142,7 +196,223 @@ describe('settings route rendering', () => {
       'Address'
     ]);
     expect(document.querySelector('#settings-club > .preference-list > .account-management-form > button')?.textContent?.trim()).toBe('Save Account');
+    expect(document.querySelector('#settings-club')?.textContent).toContain('Player self-check-in QR');
+    expect(Array.from(document.querySelectorAll('#settings-club button')).some((button) => button.textContent?.includes('Generate QR PDF'))).toBe(true);
     expect(document.querySelector('.membership-plan-heading button')?.textContent?.trim()).toBe('Add plan');
+
+    const staffPin = document.querySelector<HTMLInputElement>('.staff-account-form input[type="password"]');
+    expect(staffPin).toMatchObject({ inputMode: 'numeric', minLength: 4, maxLength: 12 });
+    expect(staffPin?.pattern).toBe('[0-9]{4,12}');
+  });
+
+  it('leaves the operator unchanged when the in-app PIN dialog is canceled', async () => {
+    desktop.verifyStaffPin.mockClear();
+    const staffTab = Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-nav button')).find(
+      (button) => button.textContent === 'Staff'
+    );
+    expect(staffTab).toBeDefined();
+    act(() => staffTab!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(document.querySelector('.settings-nav button.active')?.textContent).toBe('Staff');
+
+    const staffSelect = document.querySelector<HTMLSelectElement>('#settings-staff .preference-row select');
+    expect(staffSelect).not.toBeNull();
+    await act(async () => {
+      staffSelect!.value = 'settings-manager';
+      staffSelect!.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.textContent).toContain('Verify Settings Manager');
+    expect(document.querySelector('.command-overlay')).not.toBeNull();
+
+    const verificationPin = dialog?.querySelector<HTMLInputElement>('input[name="staff-pin"]');
+    expect(verificationPin).not.toBeNull();
+    await act(async () => {
+      setInputValue(verificationPin!, '4821');
+      await Promise.resolve();
+    });
+    expect(verificationPin!.value).toBe('4821');
+
+    const staffName = document.querySelector<HTMLInputElement>('.staff-account-form input[placeholder="Staff name"]');
+    expect(staffName).not.toBeNull();
+
+    const cancelButton = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+      (button) => button.textContent === 'Cancel'
+    );
+    if (cancelButton) {
+      await act(async () => {
+        cancelButton.click();
+        await Promise.resolve();
+      });
+    }
+
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.body.style.pointerEvents).not.toBe('none');
+    expect(staffSelect!.value).toBe('');
+    expect(desktop.verifyStaffPin).not.toHaveBeenCalled();
+
+    await act(async () => {
+      staffName!.focus();
+      setInputValue(staffName!, 'Still editable');
+      await Promise.resolve();
+    });
+    expect(document.activeElement).toBe(staffName);
+    expect(staffName!.value).toBe('Still editable');
+
+    await act(async () => {
+      setInputValue(staffName!, '');
+      await Promise.resolve();
+    });
+  });
+
+  it('selects staff through the in-app PIN dialog and carries the trusted token into QR generation', async () => {
+    desktop.verifyStaffPin.mockClear();
+    desktop.authorizeStaffAction.mockClear();
+    desktop.generateSelfCheckInKit.mockClear();
+
+    const staffTab = Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-nav button')).find(
+      (button) => button.textContent === 'Staff'
+    );
+    expect(staffTab).toBeDefined();
+    act(() => staffTab!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+    const staffSelect = document.querySelector<HTMLSelectElement>('#settings-staff .preference-row select');
+    expect(staffSelect).not.toBeNull();
+    await act(async () => {
+      staffSelect!.value = 'settings-manager';
+      staffSelect!.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.textContent).toContain('Verify Settings Manager');
+    expect(staffSelect!.value).toBe('settings-manager');
+    const pinInput = dialog?.querySelector<HTMLInputElement>('input[name="staff-pin"]');
+    expect(pinInput).not.toBeNull();
+    await act(async () => {
+      setInputValue(pinInput!, '4821');
+      await Promise.resolve();
+    });
+    const pinForm = dialog?.querySelector<HTMLFormElement>('form');
+    expect(pinForm).not.toBeNull();
+    await act(async () => {
+      pinForm!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(desktop.verifyStaffPin).toHaveBeenCalledWith({
+          staffId: 'settings-manager',
+          pin: '4821',
+          access: expect.objectContaining({ licenseId: 'REF-006G-LICENSE' })
+        });
+        expect(staffSelect!.value).toBe('settings-manager');
+        expect(document.querySelector('.orbit-account-summary strong')?.textContent).toBe('Settings Manager');
+      });
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.body.style.pointerEvents).not.toBe('none');
+
+    const selectedState = desktop.saveState.mock.calls.at(-1)?.[0] as AppState | undefined;
+    expect(selectedState).toMatchObject({
+      settings: { activeStaffId: 'settings-manager' }
+    });
+    const startupRecord = {
+      authoritative: true,
+      savedAt: '2026-08-26T14:00:00.000Z',
+      schemaVersion: 4,
+      state: selectedState
+        ? {
+            ...selectedState,
+            settings: {
+              ...selectedState.settings,
+              activeStaffId: undefined,
+              clubAccount: {
+                ...selectedState.settings.clubAccount!,
+                clubName: 'Stale Startup Club'
+              }
+            }
+          }
+        : selectedState
+    };
+    await act(async () => {
+      harness.startupLoadResolvers.splice(0).forEach((resolve) => resolve(startupRecord));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => {
+      expect(staffSelect!.value).toBe('settings-manager');
+      expect(document.querySelector('.orbit-account-summary strong')?.textContent).toBe('Settings Manager');
+    });
+    expect(document.querySelector<HTMLInputElement>('#settings-club input[placeholder="Club name"]')?.value)
+      .toBe('Settings Fixture Club');
+
+    const staffForm = document.querySelector<HTMLFormElement>('.staff-account-form');
+    const staffName = staffForm?.querySelector<HTMLInputElement>('input[placeholder="Staff name"]');
+    const staffRole = staffForm?.querySelector<HTMLSelectElement>('select');
+    const staffPin = staffForm?.querySelector<HTMLInputElement>('input[placeholder="PIN"]');
+    expect(staffForm).not.toBeNull();
+    expect(staffName).not.toBeNull();
+    expect(staffRole).not.toBeNull();
+    expect(staffPin).not.toBeNull();
+    await act(async () => {
+      setInputValue(staffName!, 'Second Owner');
+      staffRole!.value = 'Owner';
+      staffRole!.dispatchEvent(new Event('change', { bubbles: true }));
+      setInputValue(staffPin!, '8642');
+      await Promise.resolve();
+    });
+    expect(staffName!.value).toBe('Second Owner');
+    expect(staffRole!.value).toBe('Owner');
+    expect(staffPin!.value).toBe('8642');
+    await act(async () => {
+      staffForm!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await vi.waitFor(() => {
+        expect(desktop.authorizeStaffAction).toHaveBeenCalledWith({
+          token: 'settings-staff-token',
+          action: 'staff-admin'
+        });
+      }, { timeout: 2_000 });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(document.querySelector('#settings-staff button[aria-label="Deactivate Second Owner"]')).not.toBeNull();
+    expect(staffName!.value).toBe('');
+    expect(staffRole!.value).toBe('Floor');
+    expect(staffPin!.value).toBe('');
+
+    const clubTab = Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-nav button')).find(
+      (button) => button.textContent === 'Club & license'
+    );
+    expect(clubTab).toBeDefined();
+    act(() => clubTab!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+    const qrButton = Array.from(document.querySelectorAll<HTMLButtonElement>('#settings-club button')).find(
+      (button) => button.textContent?.includes('Generate QR PDF')
+    );
+    expect(qrButton).toBeDefined();
+    await act(async () => {
+      qrButton!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(desktop.authorizeStaffAction).toHaveBeenCalledWith({
+          token: 'settings-staff-token',
+          action: 'staff-admin'
+        });
+        expect(desktop.generateSelfCheckInKit).toHaveBeenCalledWith({
+          access: expect.objectContaining({ licenseId: 'REF-006G-LICENSE' }),
+          staffToken: 'settings-staff-token'
+        });
+      });
+    });
   });
 
   it('keeps portable room data separate from the restorable backup and downloads the sanitized export', () => {

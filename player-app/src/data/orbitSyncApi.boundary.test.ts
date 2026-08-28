@@ -109,7 +109,6 @@ vi.mock('firebase/firestore', () => ({
 import {
   createClubMembershipCheckout,
   completePlayerPhoneSignIn,
-  createPlayerIdentityVerificationSession,
   deleteCurrentPlayerAccount,
   fetchAllClubSnapshots,
   fetchClubSnapshots,
@@ -124,6 +123,7 @@ import {
   startPlayerPhoneSignIn,
   registerForTournament,
   savePlayerProfile,
+  savePlayerIdentityCapture,
   signInOrCreatePlayerWithEmail,
   signOutCurrentPlayer,
   submitMembershipRequest,
@@ -368,8 +368,13 @@ afterEach(() => {
 describe('authenticated Orbit API boundaries', () => {
   it('requires a signed-in account without contacting fetch', async () => {
     await expect(fetchPlayerIdentityStatus()).rejects.toThrow('Sign in to your Orbit Player account first.');
-    await expect(createPlayerIdentityVerificationSession()).rejects.toThrow('Sign in to your Orbit Player account first.');
-    await expect(createClubMembershipCheckout({ clubId: 'club-1', product: 'day', playerName: 'Alex' })).rejects.toThrow('Sign in to your Orbit Player account first.');
+    await expect(savePlayerIdentityCapture({
+      fullName: 'Jordan Rivera',
+      dateOfBirth: '1990-01-02',
+      address: '100 Main St',
+      mutationId: 'identity:attempt-1'
+    })).rejects.toThrow('Sign in to your Orbit Player account first.');
+    await expect(createClubMembershipCheckout({ clubId: 'club-1', product: 'day', playerName: 'Alex', planId: 'day-pass' })).rejects.toThrow('Sign in to your Orbit Player account first.');
     expect(firebase.fetch).not.toHaveBeenCalled();
   });
 
@@ -378,10 +383,13 @@ describe('authenticated Orbit API boundaries', () => {
     const identity = {
       status: 'verified' as const,
       ageVerified: true,
+      ageEligible: true,
       ageLevel: 21,
       minimumAge: 21,
       verifiedAt: '2026-08-09T11:00:00.000Z',
-      failureCode: null
+      capturedAt: '2026-08-09T10:00:00.000Z',
+      failureCode: null,
+      reviewStatus: 'approved' as const
     };
     firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, identity }));
 
@@ -407,42 +415,87 @@ describe('authenticated Orbit API boundaries', () => {
     await expect(fetchPlayerIdentityStatus()).rejects.toThrow('Identity provider unavailable.');
   });
 
-  it('preserves identity-session and checkout HTTP methods, headers, bodies, and results', async () => {
+  it('preserves checkout HTTP methods, headers, bodies, and results', async () => {
     signedInUser();
-    const identity = {
-      status: 'requires_input' as const,
-      ageVerified: false,
-      ageLevel: 0,
-      minimumAge: 21,
-      verifiedAt: null,
-      failureCode: null
-    };
     firebase.fetch
-      .mockResolvedValueOnce(jsonResponse({ ok: true, identity, verificationUrl: 'https://verify.example/session' }))
-      .mockResolvedValueOnce(jsonResponse({ ok: true, checkoutUrl: 'https://checkout.example/session', sessionId: 'session-1' }));
+      .mockResolvedValueOnce(jsonResponse({ ok: true, checkoutUrl: 'https://checkout.example/session', sessionId: 'session-1' }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, checkoutUrl: 'https://checkout.example/time-pack', sessionId: 'session-2' }));
 
-    await expect(createPlayerIdentityVerificationSession()).resolves.toMatchObject({ identity, verificationUrl: 'https://verify.example/session' });
-    await expect(createClubMembershipCheckout({ clubId: 'club-1', product: 'monthly', playerName: 'Alex' })).resolves.toEqual({
+    await expect(createClubMembershipCheckout({ clubId: 'club-1', product: 'monthly', playerName: 'Alex', planId: 'monthly-standard' })).resolves.toEqual({
       ok: true,
       checkoutUrl: 'https://checkout.example/session',
       sessionId: 'session-1'
     });
+    await expect(createClubMembershipCheckout({ clubId: 'club-1', product: 'time-30', playerName: 'Alex' })).resolves.toEqual({
+      ok: true,
+      checkoutUrl: 'https://checkout.example/time-pack',
+      sessionId: 'session-2'
+    });
 
-    expect(firebase.fetch).toHaveBeenNthCalledWith(1, 'https://orbitapp-one.vercel.app/player/identity/session', expect.objectContaining({
-      method: 'POST',
-      headers: {
-        authorization: 'Bearer player-token',
-        'content-type': 'application/json'
-      }
-    }));
-    expect(firebase.fetch).toHaveBeenNthCalledWith(2, 'https://orbitapp-one.vercel.app/player/membership-checkout', expect.objectContaining({
+    expect(firebase.fetch).toHaveBeenNthCalledWith(1, 'https://orbitapp-one.vercel.app/player/membership-checkout', expect.objectContaining({
       method: 'POST',
       headers: {
         authorization: 'Bearer player-token',
         'content-type': 'application/json'
       },
-      body: JSON.stringify({ clubId: 'club-1', product: 'monthly', playerName: 'Alex' })
+      body: JSON.stringify({ clubId: 'club-1', product: 'monthly', playerName: 'Alex', planId: 'monthly-standard' })
     }));
+    expect(firebase.fetch).toHaveBeenNthCalledWith(2, 'https://orbitapp-one.vercel.app/player/membership-checkout', expect.objectContaining({
+      body: JSON.stringify({ clubId: 'club-1', product: 'time-30', playerName: 'Alex' })
+    }));
+  });
+
+  it('sends only confirmed identity fields with bearer auth and decodes the provisional response', async () => {
+    signedInUser();
+    const identity = {
+      status: 'provisional' as const,
+      ageVerified: false,
+      ageEligible: true,
+      ageLevel: 21,
+      minimumAge: 18,
+      verifiedAt: null,
+      capturedAt: '2026-08-28T12:00:00.000Z',
+      failureCode: null,
+      reviewStatus: 'pending-in-person' as const,
+      verifiedDetails: {
+        fullName: 'Jordan Rivera',
+        dateOfBirth: '1990-01-02',
+        address: '100 Main St'
+      }
+    };
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, identity }));
+    const confirmedInput = {
+      fullName: 'Jordan Rivera',
+      dateOfBirth: '1990-01-02',
+      address: '100 Main St',
+      mutationId: 'identity:attempt-1',
+      rawBarcode: 'RAW-PDF417-SECRET',
+      idNumber: 'ID-NUMBER-SECRET',
+      photo: 'PHOTO-SECRET',
+      selfie: 'SELFIE-SECRET'
+    };
+
+    await expect(savePlayerIdentityCapture(confirmedInput)).resolves.toEqual(identity);
+
+    expect(firebase.fetch).toHaveBeenCalledWith(
+      'https://orbitapp-one.vercel.app/player/identity/capture',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer player-token',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          fullName: 'Jordan Rivera',
+          dateOfBirth: '1990-01-02',
+          address: '100 Main St',
+          mutationId: 'identity:attempt-1'
+        })
+      })
+    );
+    const requestBody = JSON.parse(firebase.fetch.mock.calls[0][1].body as string) as Record<string, unknown>;
+    expect(Object.keys(requestBody).sort()).toEqual(['address', 'dateOfBirth', 'fullName', 'mutationId']);
+    expect(JSON.stringify(requestBody)).not.toMatch(/RAW-PDF417-SECRET|ID-NUMBER-SECRET|PHOTO-SECRET|SELFIE-SECRET/);
   });
 
   it('delegates complete account deletion to the trusted API and surfaces retained categories', async () => {
@@ -732,6 +785,7 @@ describe('published and legacy club snapshot boundaries', () => {
   });
 
   it('hydrates a committed v2 club, filters hidden and other-player records, and preserves external documents', async () => {
+    signedInUser();
     const membership = {
       id: 'membership-player-1',
       clubId: 'club-1',
@@ -799,6 +853,7 @@ describe('published and legacy club snapshot boundaries', () => {
   });
 
   it('holds a published snapshot when a player record is newer than the parent commit', async () => {
+    signedInUser();
     setPublishedClubGraph({
       parent: { syncRevision: 'revision-1', publishedAt: '2026-08-09T12:00:00.000Z' },
       games: [['game-1', { id: 'game-1', name: '1/2 NLH', syncRevision: 'revision-1' }]],
@@ -856,6 +911,261 @@ describe('published and legacy club snapshot boundaries', () => {
       ok: true,
       clubs: [{ club: { id: 'club-1', name: 'River Room' } }]
     });
+  });
+
+  it('loads every bounded discovery page and removes non-player fixture games', async () => {
+    signedInUser();
+    const first = publishedClubSnapshot({
+      club: { id: 'club-1', name: 'First Room', publishedAt: '2026-08-09T12:00:00.000Z' }
+    });
+    const second = publishedClubSnapshot({
+      club: { id: 'club-2', name: 'Second Room', publishedAt: '2026-08-09T13:00:00.000Z' },
+      games: [
+        {
+          id: 'game-2',
+          name: '2/5 NLH',
+          maxSeats: 9,
+          openTables: [],
+          waitlistCount: 0,
+          formingCount: 0,
+          availableSeats: 0,
+          knownPlayersCount: 0
+        },
+        {
+          id: 'stress-game',
+          name: 'Stress Game 99',
+          maxSeats: 9,
+          openTables: [],
+          waitlistCount: 0,
+          formingCount: 0,
+          availableSeats: 0,
+          knownPlayersCount: 0
+        }
+      ]
+    });
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [first],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: 'club-1', databaseQueries: 2 }
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [second],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: false, nextCursor: null, databaseQueries: 2 }
+      }));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({
+      ok: true,
+      clubs: [first, { ...second, games: [second.games[0]] }],
+      page: { count: 2, hasMore: false, nextCursor: null, databaseQueries: 4 }
+    });
+    expect(firebase.fetch).toHaveBeenNthCalledWith(
+      1,
+      'https://orbitapp-one.vercel.app/player/discovery?limit=50',
+      expect.objectContaining({ headers: { authorization: 'Bearer player-token' }, signal: expect.any(AbortSignal) })
+    );
+    expect(firebase.fetch).toHaveBeenNthCalledWith(
+      2,
+      'https://orbitapp-one.vercel.app/player/discovery?limit=50&cursor=club-1',
+      expect.objectContaining({ headers: { authorization: 'Bearer player-token' }, signal: expect.any(AbortSignal) })
+    );
+  });
+
+  it('keeps completed discovery pages when a later page fails', async () => {
+    signedInUser();
+    const first = publishedClubSnapshot({
+      club: { id: 'club-1', name: 'First Room', publishedAt: '2026-08-09T12:00:00.000Z' }
+    });
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [first],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: 'club-1', databaseQueries: 2 }
+      }))
+      .mockRejectedValueOnce(new Error('second page unavailable'));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({
+      ok: true,
+      clubs: [first],
+      page: { count: 1, hasMore: true, nextCursor: 'club-1', databaseQueries: 2 }
+    });
+    expect(firebase.getDocs).not.toHaveBeenCalled();
+  });
+
+  it('stops on an invalid discovery cursor and keeps the sanitized page already loaded', async () => {
+    const first = publishedClubSnapshot();
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({
+      ok: true,
+      clubs: [first],
+      tournaments: [],
+      registrations: [],
+      page: { count: 1, hasMore: true, nextCursor: null }
+    }));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({
+      ok: true,
+      clubs: [first],
+      page: { count: 1, hasMore: true, nextCursor: null, databaseQueries: undefined }
+    });
+    expect(firebase.fetch).toHaveBeenCalledTimes(1);
+    expect(firebase.getDocs).not.toHaveBeenCalled();
+  });
+
+  it('stops on a repeated discovery cursor without refetching it', async () => {
+    const first = publishedClubSnapshot({ club: { id: 'club-1', name: 'First Room' } });
+    const second = publishedClubSnapshot({ club: { id: 'club-2', name: 'Second Room' } });
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [first],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: 'cursor-1' }
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [second],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: 'cursor-1' }
+      }));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({
+      ok: true,
+      clubs: [first, second],
+      page: { count: 2, hasMore: true, nextCursor: null, databaseQueries: undefined }
+    });
+    expect(firebase.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns the first twenty sanitized pages as partial instead of discarding them at the safety cap', async () => {
+    signedInUser();
+    const clubs = Array.from({ length: 20 }, (_, index) => publishedClubSnapshot({
+      club: { id: `club-${index + 1}`, name: `Room ${index + 1}` }
+    }));
+    clubs.forEach((club, index) => {
+      firebase.fetch.mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [club],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: `cursor-${index + 1}`, databaseQueries: 2 }
+      }));
+    });
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({
+      ok: true,
+      clubs,
+      page: { count: 20, hasMore: true, nextCursor: 'cursor-20', databaseQueries: 40 }
+    });
+    expect(firebase.fetch).toHaveBeenCalledTimes(20);
+  });
+
+  it('loads sanitized public discovery without a Firebase session and does not query player-scoped collections', async () => {
+    const publicClub = publishedClubSnapshot({
+      games: [{
+        id: 'planned-game',
+        name: '1/3 NLH',
+        maxSeats: 9,
+        openTables: [],
+        waitlistCount: 0,
+        formingCount: 0,
+        availableSeats: 0,
+        knownPlayersCount: 0
+      }]
+    });
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({
+      ok: true,
+      clubs: [publicClub],
+      tournaments: [],
+      registrations: [],
+      page: { count: 1, hasMore: false, nextCursor: null }
+    }));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({
+      ok: true,
+      clubs: [publicClub],
+      page: { count: 1, hasMore: false, nextCursor: null, databaseQueries: undefined }
+    });
+    expect(firebase.fetch).toHaveBeenCalledWith(
+      'https://orbitapp-one.vercel.app/player/public/discovery?limit=50',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect((firebase.fetch.mock.calls[0]?.[1] as RequestInit | undefined)?.headers).toBeUndefined();
+    expect(firebase.getDocs).not.toHaveBeenCalled();
+  });
+
+  it('loads every public discovery page without adding an authorization header', async () => {
+    const first = publishedClubSnapshot({ club: { id: 'club-1', name: 'First Room' } });
+    const second = publishedClubSnapshot({ club: { id: 'club-2', name: 'Second Room' } });
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [first],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: 'club-1' }
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [second],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: false, nextCursor: null }
+      }));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({ ok: true, clubs: [first, second] });
+    expect(firebase.fetch).toHaveBeenNthCalledWith(
+      2,
+      'https://orbitapp-one.vercel.app/player/public/discovery?limit=50&cursor=club-1',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect(firebase.fetch.mock.calls.every(([, init]) => (init as RequestInit | undefined)?.headers === undefined)).toBe(true);
+  });
+
+  it('uses only public club and game documents for unsigned Firestore fallback', async () => {
+    setPublishedClubGraph({
+      memberships: [['membership-player-1', { id: 'membership-player-1', playerId: 'player-1' }]],
+      waitlists: [['wait-player-1', { id: 'wait-player-1', playerId: 'player-1' }]],
+      notifications: [['notice-player-1', { id: 'notice-player-1', targetPlayerIds: ['player-1'] }]]
+    });
+    firebase.fetch.mockRejectedValueOnce(new Error('public API offline'));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({
+      ok: true,
+      clubs: [{ memberships: [], waitlists: [], notifications: [] }]
+    });
+    const queriedPaths = firebase.getDocs.mock.calls.map(([reference]) => referencePath(reference));
+    expect(queriedPaths).toContain('clubs');
+    expect(queriedPaths).toContain('clubs/club-1/games');
+    expect(queriedPaths).not.toContain('clubs/club-1/memberships');
+    expect(queriedPaths).not.toContain('clubs/club-1/waitlists');
+    expect(queriedPaths).not.toContain('clubs/club-1/notifications');
+  });
+
+  it('preserves public Firestore games when the signed-in identity does not match the local profile', async () => {
+    signedInUser('different-player');
+    setPublishedClubGraph();
+    firebase.fetch
+      .mockRejectedValueOnce(new Error('authenticated API offline'))
+      .mockRejectedValueOnce(new Error('public API offline'));
+
+    await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({
+      ok: true,
+      clubs: [{ games: [{ id: 'game-1' }], memberships: [], waitlists: [], notifications: [] }]
+    });
+    const queriedPaths = firebase.getDocs.mock.calls.map(([reference]) => referencePath(reference));
+    expect(queriedPaths).toContain('clubs/club-1/games');
+    expect(queriedPaths).not.toContain('clubs/club-1/memberships');
+    expect(queriedPaths).not.toContain('clubs/club-1/waitlists');
+    expect(queriedPaths).not.toContain('clubs/club-1/notifications');
   });
 
   it('falls back to visible legacy clubStates, returns an empty missing result, and exposes malformed/failure errors', async () => {
@@ -1187,6 +1497,27 @@ describe('live club subscription lifecycle and revisions', () => {
 
     subscription.unsubscribe();
     expect(root.unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('publishes completed pages as partial when a later discovery page is unavailable', async () => {
+    signedInUser();
+    const snapshot = publishedClubSnapshot();
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        clubs: [snapshot],
+        tournaments: [],
+        registrations: [],
+        page: { count: 1, hasMore: true, nextCursor: 'club-1', databaseQueries: 2 }
+      }))
+      .mockRejectedValueOnce(new Error('second page unavailable'));
+    const callback = vi.fn();
+    const subscription = subscribeToAllClubSnapshots(player(), callback);
+
+    await subscription.refresh();
+
+    expect(callback).toHaveBeenLastCalledWith({ ok: true, clubs: [snapshot], partial: true });
+    subscription.unsubscribe();
   });
 
   it('reports root failure before data and re-emits cached data after a listener failure', async () => {

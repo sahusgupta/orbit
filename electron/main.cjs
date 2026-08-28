@@ -8,9 +8,22 @@ const { redactDetails } = require('../apps/api/src/http/dataProtection');
 const { createOrbitCore } = require('../apps/api/src/shared/orbitCore.cjs');
 const { createEmbeddedBackend } = require('./embeddedBackend.cjs');
 const { createLocalStore } = require('./localStore.cjs');
+const { createManagementSessionStore } = require('./managementSessionStore.cjs');
 const { createOrbitApiClient } = require('./orbitApiClient.cjs');
+const { createSelfCheckInPdf, selectSelfCheckInPdfDestination } = require('./selfCheckInKit.cjs');
 const { createStaffAuthorization } = require('./staffAuthorization.cjs');
 const { createUpdateController } = require('./updateController.cjs');
+function encodeProtectedState(value) {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('OS-backed local cache encryption is unavailable.');
+  return `safe-storage:v1:${safeStorage.encryptString(value).toString('base64')}`;
+}
+
+function decodeProtectedState(value) {
+  if (!value.startsWith('safe-storage:v1:')) return value;
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('OS-backed local cache decryption is unavailable.');
+  return safeStorage.decryptString(Buffer.from(value.slice('safe-storage:v1:'.length), 'base64'));
+}
+
 const {
   getAccountKeyFromAccess,
   getAccountKeyFromState,
@@ -153,16 +166,15 @@ const {
   writeLocalDatabase
 } = createLocalStore({
   app,
-  encodeState: (value) => {
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('OS-backed local cache encryption is unavailable.');
-    return `safe-storage:v1:${safeStorage.encryptString(value).toString('base64')}`;
-  },
-  decodeState: (value) => {
-    if (!value.startsWith('safe-storage:v1:')) return value;
-    if (!safeStorage.isEncryptionAvailable()) throw new Error('OS-backed local cache decryption is unavailable.');
-    return safeStorage.decryptString(Buffer.from(value.slice('safe-storage:v1:'.length), 'base64'));
-  },
+  encodeState: encodeProtectedState,
+  decodeState: decodeProtectedState,
   updateBackendReportCount: (reportCount) => embeddedBackend.updateReportCount(reportCount)
+});
+
+const managementSessionStore = createManagementSessionStore({
+  app,
+  encodeState: encodeProtectedState,
+  decodeState: decodeProtectedState
 });
 
 const { buildPlayerClubSnapshot } = createOrbitCore({
@@ -188,10 +200,12 @@ async function saveStateEverywhere(state) {
 
 const {
   completeManagementRecoveryApi,
+  createSelfCheckInQrKitApi,
   getClientUpdateState,
   getManagementRecoveryStatusApi,
   getRemoteBackendStatus,
   loadStateApiFirst,
+  peekStateFromApi,
   saveStateApiFirst,
   saveStateToApi,
   sendClientError,
@@ -223,7 +237,7 @@ const embeddedBackend = createEmbeddedBackend({
 });
 
 const staffAuthorization = createStaffAuthorization({
-  loadStateForAccess: (access) => loadStateApiFirst(getAccountKeyFromAccess(access), access)
+  loadStateForAccess: (access) => peekStateFromApi(getAccountKeyFromAccess(access), access)
 });
 let nextTextBatchAt = 0;
 
@@ -305,6 +319,55 @@ ipcMain.handle('complete-management-recovery', trustedIpc(async (payload) => {
   const bounded = boundedPayload(payload, 20_000);
   return completeManagementRecoveryApi(bounded.access, bounded.password);
 }));
+
+ipcMain.handle('generate-self-check-in-kit', trustedIpc(async (payload) => {
+  const bounded = boundedPayload(payload, 20_000);
+  const authorization = staffAuthorization.authorize({ token: bounded.staffToken, action: 'staff-admin' });
+  if (!authorization.ok) return { ok: false, error: authorization.error };
+  const access = boundedPayload(bounded.access, 16_000);
+  const accountKey = getAccountKeyFromAccess(access);
+  if (!accountKey || accountKey !== authorization.accountKey) {
+    return { ok: false, error: 'Staff authorization does not match the active club.' };
+  }
+  const record = await peekStateFromApi(accountKey, access);
+  if (!record?.authoritative || !record.state) {
+    return { ok: false, error: 'The authoritative club state is unavailable.' };
+  }
+  const clubName = String(record.state.settings?.clubAccount?.clubName || '').trim();
+  const destination = await selectSelfCheckInPdfDestination(clubName);
+  if (!destination.ok) return destination;
+  const kit = await createSelfCheckInQrKitApi(access);
+  if (!kit.ok) return kit;
+  const result = await createSelfCheckInPdf({
+    clubName: kit.clubName,
+    checkInUrl: kit.checkInUrl,
+    expiresAt: kit.expiresAt
+  }, { outputFilePath: destination.filePath });
+  sendClientEvent(result.ok ? 'self-check-in-kit-saved' : 'self-check-in-kit-save-failed', 'settings', {
+    result: result.ok ? 'saved' : result.canceled ? 'canceled' : 'failed',
+    rotatedPreviousCode: Boolean(kit.rotatedPreviousCode)
+  });
+  return {
+    ...result,
+    error: !result.ok && !result.canceled
+      ? 'The new club code was activated, but Orbit could not save its PDF. Generate another kit before using older prints.'
+      : result.error,
+    selfCheckIn: kit.selfCheckIn,
+    rotatedPreviousCode: Boolean(kit.rotatedPreviousCode)
+  };
+}));
+
+ipcMain.handle('persist-management-session', trustedIpc((binding) =>
+  managementSessionStore.saveSession(boundedPayload(binding, 2_000))
+));
+
+ipcMain.handle('restore-management-session', trustedIpc((binding) =>
+  managementSessionStore.restoreSession(boundedPayload(binding, 2_000))
+));
+
+ipcMain.handle('clear-management-session', trustedIpc((accountKey) =>
+  managementSessionStore.clearSession(String(accountKey || ''))
+));
 
 ipcMain.handle('submit-analytical-report', trustedIpc((report) => submitAnalyticalReportApiFirst(boundedPayload(report, 500_000))));
 
@@ -398,9 +461,9 @@ function createWindow(route = 'floor', context = {}) {
 
   const mainWindow = new BrowserWindow({
     ...routeConfig,
-    frame: route !== 'tournament-tv',
+    frame: true,
     autoHideMenuBar: route === 'tournament-tv',
-    titleBarStyle: route === 'tournament-tv' ? 'hidden' : 'default',
+    titleBarStyle: 'default',
     fullscreenable: true,
     backgroundColor: branding.desktop.backgroundColor,
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
@@ -419,9 +482,7 @@ function createWindow(route = 'floor', context = {}) {
   }
 
   mainWindow.once('ready-to-show', () => {
-    if (route === 'tournament-tv') {
-      mainWindow.setFullScreen(true);
-    } else if (route === 'table') {
+    if (route === 'table') {
       mainWindow.maximize();
     }
     mainWindow.show();

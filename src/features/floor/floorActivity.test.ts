@@ -79,6 +79,30 @@ const state = (overrides: Partial<FloorActivityState> = {}): FloorActivityState 
 });
 
 describe('floor activity presentation projection', () => {
+  it('includes an explicitly recorded zero amount but omits an unrecorded amount', () => {
+    const items = buildFloorActivityItems(state({
+      playerLedger: [{
+        id: 'zero-cash-out',
+        type: 'Cash-Out',
+        playerName: 'Zero Player',
+        tableId: 'table-a',
+        gameId: 'game-holdem',
+        amount: 0,
+        timestamp: '2026-08-18T16:01:00.000Z'
+      }, {
+        id: 'omitted-cash-out',
+        type: 'Cash-Out',
+        playerName: 'Missing Player',
+        tableId: 'table-a',
+        gameId: 'game-holdem',
+        timestamp: '2026-08-18T16:00:00.000Z'
+      }]
+    }));
+
+    expect(items[0]?.detail).toBe('$1/$2 Holdem $0');
+    expect(items[1]?.detail).toBe('$1/$2 Holdem');
+  });
+
   it('maps current activity sources with exact event and direct table scope fields', () => {
     const items = buildFloorActivityItems(state({
       playerLedger: [

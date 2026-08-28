@@ -14,10 +14,14 @@ export const useManagementUpdatePreservation = (state: AppState) => {
   }, [state]);
 };
 
-export const useManagementStorageSync = (setState: Dispatch<SetStateAction<AppState>>) => {
+export const useManagementStorageSync = (
+  setState: Dispatch<SetStateAction<AppState>>,
+  clearUndo: () => void = () => undefined
+) => {
   useEffect(() => {
     const syncState = (event: StorageEvent) => {
       if (isManagementStateStorageEvent(event)) {
+        clearUndo();
         setState(loadManagementState());
       }
     };

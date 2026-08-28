@@ -1,0 +1,137 @@
+.table-display-settings-dialog {
+  background: #0b1420;
+  border: 1px solid rgba(125, 160, 255, 0.28);
+  border-radius: 14px;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.7);
+  color: #e2e8f0;
+  left: 50%;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  position: fixed;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 32px));
+  z-index: 610;
+}
+
+.table-display-settings-list {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px 18px;
+}
+
+.table-display-settings-list fieldset {
+  border: 0;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.table-display-settings-list legend {
+  color: #a6b1c0;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.table-display-settings-list .segmented-control {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.table-display-toggle {
+  align-items: center;
+  background: rgba(148, 163, 184, 0.05);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 10px;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 11px 12px;
+}
+
+.table-display-toggle > span {
+  display: grid;
+  gap: 3px;
+}
+
+.table-display-toggle strong {
+  color: #dbe4f1;
+  font-size: 0.8rem;
+}
+
+.table-display-toggle small {
+  color: #94a3b8;
+  font-size: 0.7rem;
+}
+
+.table-display-toggle input {
+  height: 18px;
+  width: 18px;
+}
+
+.table-display-settings-list > p[role="alert"] {
+  color: #ffb1b6;
+  font-size: 0.75rem;
+  margin: 0;
+}
+
+.table-view-blinds-badge {
+  background: rgba(5, 12, 22, 0.9);
+  border: 1px solid rgba(125, 160, 255, 0.28);
+  border-radius: 9px;
+  display: grid;
+  gap: 2px;
+  left: 16px;
+  max-width: min(280px, 45%);
+  padding: 8px 10px;
+  position: absolute;
+  top: 16px;
+  z-index: 12;
+}
+
+.table-view-blinds-badge span {
+  color: #7f8da3;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.table-view-blinds-badge strong {
+  color: #e2e8f0;
+  font-size: 0.76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-view-grid.table-theme-green .poker-table-rail {
+  background: radial-gradient(ellipse at 50% 28%, #375c4b 0%, #213f35 48%, #0b1d19 100%);
+  border-color: rgba(110, 231, 183, 0.3);
+}
+
+.table-view-grid.table-theme-green .poker-table-surface,
+body.low-light .table-view-grid.table-theme-green .poker-table-surface {
+  background: radial-gradient(ellipse at 50% 36%, #25634f 0%, #174b3d 58%, #0b3028 100%);
+}
+
+.table-view-grid.table-theme-green .poker-table-ring {
+  border-color: rgba(110, 231, 183, 0.22);
+}
+
+.table-view-grid.table-format-round .poker-table-stage {
+  aspect-ratio: 1;
+  max-width: min(72vh, 760px);
+}
+
+@media (max-width: 760px) {
+  .table-view-blinds-badge {
+    left: 8px;
+    top: 8px;
+  }
+}

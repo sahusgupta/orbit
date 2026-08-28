@@ -94,6 +94,8 @@ export type PlayerMembership = {
   expiresAt?: string;
   plan?: 'day' | 'monthly';
   paymentMethod?: 'app' | 'in-person' | 'core';
+  paymentStatus?: 'Not required' | 'Pending' | 'Paid' | 'Failed' | 'Refunded';
+  identityReviewStatus?: 'Pending' | 'Approved' | 'Rejected' | 'Not required';
   requestedAt?: string;
   loyalty: PlayerLoyalty;
   preferredGameIds: string[];
@@ -128,7 +130,25 @@ export type PlayerClubSnapshot = {
   waitlists: PlayerWaitlistEntry[];
   notifications: PlayerInAppNotification[];
   social: PlayerSocialSummary;
+  timeAccess?: PlayerTimeAccess;
   generatedAt: string;
+};
+
+export type PlayerTimeAccess = {
+  enabled: boolean;
+  hourlyFeeCents: number;
+  linked: boolean;
+  profileId?: string;
+  savedMinutes: number;
+  activeSession?: {
+    id: string;
+    tableId: string;
+    tableLabel: string;
+    gameId: string;
+    gameName: string;
+    purchasedMinutes: number;
+    remainingMinutes: number;
+  };
 };
 
 export type PlayerMembershipRequest = {
@@ -143,6 +163,14 @@ export type PlayerMembershipRequest = {
   planName?: string;
   planPriceLabel?: string;
   membershipDurationDays?: number;
+  identitySummary?: {
+    fullName: string;
+    dateOfBirth: string;
+    address: string;
+    captureMethod: 'player-camera-pdf417';
+    capturedAt: string;
+    ageLevel: number;
+  };
   requestedAt: string;
 };
 
@@ -226,6 +254,8 @@ type ManagementInterest = {
 type ManagementProfile = {
   id: string;
   name: string;
+  orbitPlayerId?: string;
+  email?: string;
   phone?: string;
   birthday?: string;
   membershipStartDate?: string;
@@ -238,6 +268,15 @@ type ManagementProfile = {
   membershipPriceLabel?: string;
   membershipPlanName?: string;
   membershipDurationDays?: number;
+  membershipPaymentStatus?: 'Not required' | 'Pending' | 'Paid' | 'Failed' | 'Refunded';
+  membershipPaymentTransactionId?: string;
+  membershipPaymentAmountCents?: number;
+  address?: string;
+  identityReviewStatus?: 'Pending' | 'Approved' | 'Rejected' | 'Not required';
+  identityCaptureMethod?: 'id-barcode' | 'player-camera-pdf417';
+  identityCapturedAt?: string;
+  identityReviewedAt?: string;
+  identityReviewedByStaffId?: string;
   totalTimePlayedHours?: number;
   lastSessionTimePlayedHours?: number;
   commonlyPlaysWithProfileIds?: string[];
@@ -251,6 +290,7 @@ type ManagementProfile = {
   preferredTags?: string[];
   usualCompanions?: string[];
   notes?: string;
+  savedTimeCreditMinutes?: number;
 };
 
 type ManagementPlayerSession = {
@@ -259,7 +299,12 @@ type ManagementPlayerSession = {
   profileId?: string;
   gameId: string;
   tableId: string;
+  seatedAt?: string;
   leftAt?: string;
+  timePurchasedMinutes?: number;
+  timeRemainingMinutes?: number;
+  lastTimeTickAt?: string;
+  timeFeeEnabled?: boolean;
 };
 
 type ManagementStaffAccount = {
@@ -276,6 +321,7 @@ export type ManagementClubState = {
   inAppNotifications?: PlayerInAppNotification[];
   settings?: {
     defaultCollectionMode?: 'Time' | 'Drop';
+    defaultHourlyFee?: number;
     collectionProfiles?: Array<{ gameId: string; collectionMode: 'Time' | 'Drop' }>;
     clubAccount?: {
       clubName?: string;
@@ -316,6 +362,27 @@ const addDays = (date: string, days: number) => {
   next.setDate(next.getDate() + days);
   return next.toISOString().slice(0, 10);
 };
+const parseMembershipAmountCents = (value?: string) => {
+  const match = value?.replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+  if (!match) return 0;
+  const amount = Number(match[0]);
+  return Number.isFinite(amount) && amount > 0 ? Math.round(amount * 100) : 0;
+};
+const matchesPlayerProfile = (
+  profile: Pick<ManagementProfile, 'id' | 'orbitPlayerId' | 'name' | 'email' | 'phone'>,
+  player?: Pick<PlayerAccount, 'id' | 'name' | 'email' | 'phone'>
+) => {
+  if (!player) return false;
+  const playerId = player.id?.trim();
+  if (playerId && (profile.id === playerId || profile.orbitPlayerId === playerId)) return true;
+  if (profile.orbitPlayerId) return false;
+  const email = player.email?.trim().toLowerCase();
+  if (email && profile.email?.trim().toLowerCase() === email) return true;
+  const phone = player.phone?.replace(/\D/g, '');
+  if (phone && phone.length >= 10 && profile.phone?.replace(/\D/g, '') === phone) return true;
+  if (playerId || email || phone) return false;
+  return profile.name.trim().toLowerCase() === player.name.trim().toLowerCase();
+};
 
 export function getClubIdFromState(state: ManagementClubState) {
   const account = state.settings?.clubAccount;
@@ -339,7 +406,7 @@ export function getPlayerLoyalty(clubId: string, lifetimeHours = 0): PlayerLoyal
 
 export function buildPlayerClubSnapshot(
   state: ManagementClubState,
-  player?: Pick<PlayerAccount, 'id' | 'name' | 'email'>
+  player?: Pick<PlayerAccount, 'id' | 'name' | 'email' | 'phone'>
 ): PlayerClubSnapshot {
   const clubId = getClubIdFromState(state);
   const account = state.settings?.clubAccount;
@@ -378,7 +445,7 @@ export function buildPlayerClubSnapshot(
   const memberships = state.profiles
     .filter((profile) => {
       if (!player) return true;
-      return profile.id === player.id || profile.name.toLowerCase() === player.name.toLowerCase();
+      return matchesPlayerProfile(profile, player);
     })
     .map<PlayerMembership>((profile) => ({
       id: `${clubId}:${profile.id}`,
@@ -396,12 +463,47 @@ export function buildPlayerClubSnapshot(
         : profile.membershipExpiresAt || profile.membershipExpirationDate,
       plan: profile.membershipPlan,
       paymentMethod: profile.membershipPaymentMethod,
+      paymentStatus: profile.membershipPaymentStatus,
+      identityReviewStatus: profile.identityReviewStatus,
       requestedAt: profile.membershipRequestedAt,
       loyalty: getPlayerLoyalty(clubId, profile.totalTimePlayedHours ?? 0),
       preferredGameIds: profile.preferredGameIds?.length ? profile.preferredGameIds : profile.preferredGameId ? [profile.preferredGameId] : [],
       preferredStakes: profile.preferredStakes,
       clubNote: profile.typicalAvailability
     }));
+  const timeCollectionEnabled = state.settings?.defaultCollectionMode === 'Time' ||
+    (state.settings?.collectionProfiles ?? []).some((profile) => profile.collectionMode === 'Time') ||
+    tables.some((table) => table.collectionMode === 'Time');
+  const linkedPlayerSession = requestingProfile
+    ? activePlayerSessions.find((playerSession) => {
+        if (playerSession.profileId !== requestingProfile.id) return false;
+        const table = tables.find((candidate) => candidate.id === playerSession.tableId);
+        return table?.collectionMode === 'Time';
+      })
+    : undefined;
+  const linkedTable = linkedPlayerSession ? tables.find((table) => table.id === linkedPlayerSession.tableId) : undefined;
+  const linkedGame = linkedPlayerSession ? state.games.find((game) => game.id === linkedPlayerSession.gameId) : undefined;
+  const elapsedMinutes = linkedPlayerSession?.timeFeeEnabled && linkedPlayerSession.lastTimeTickAt
+    ? Math.max(0, (Date.now() - Date.parse(linkedPlayerSession.lastTimeTickAt)) / 60_000)
+    : 0;
+  const timeAccess: PlayerTimeAccess = {
+    enabled: timeCollectionEnabled,
+    hourlyFeeCents: Math.max(0, Math.round(Number(state.settings?.defaultHourlyFee ?? 0) * 100)),
+    linked: Boolean(requestingProfile),
+    profileId: requestingProfile?.id,
+    savedMinutes: Math.max(0, Math.floor(Number(requestingProfile?.savedTimeCreditMinutes ?? 0))),
+    ...(linkedPlayerSession && linkedTable && linkedGame ? {
+      activeSession: {
+        id: linkedPlayerSession.id,
+        tableId: linkedPlayerSession.tableId,
+        tableLabel: linkedTable.label,
+        gameId: linkedPlayerSession.gameId,
+        gameName: linkedGame.name,
+        purchasedMinutes: Math.max(0, Math.floor(Number(linkedPlayerSession.timePurchasedMinutes ?? 0))),
+        remainingMinutes: Math.max(0, Math.ceil(Number(linkedPlayerSession.timeRemainingMinutes ?? 0) - elapsedMinutes))
+      }
+    } : {})
+  };
 
   return {
     club: {
@@ -442,7 +544,7 @@ export function buildPlayerClubSnapshot(
       const playerName = player.name?.trim().toLowerCase();
       const targetIds = (notification.targetPlayerIds ?? []).map((target) => target.trim().toLowerCase());
       const targetNames = (notification.targetPlayerNames ?? []).map((target) => target.trim().toLowerCase());
-      return Boolean(playerId && targetIds.includes(playerId)) || Boolean(playerName && targetNames.includes(playerName));
+      return playerId ? targetIds.includes(playerId) : Boolean(playerName && targetNames.includes(playerName));
     }),
     social: {
       activePlayerCount: activePlayerSessions.length || tables.reduce((sum, table) => sum + table.seatsFilled, 0),
@@ -450,6 +552,7 @@ export function buildPlayerClubSnapshot(
       knownPlayersInHouse: activePlayerSessions.filter(isKnownPlayerSession).length,
       waitlistCount: waitlists.filter((entry) => activeWaitlistStatuses.includes(entry.status)).length
     },
+    timeAccess,
     generatedAt: new Date().toISOString()
   };
 }
@@ -466,6 +569,7 @@ export function createMembershipRequest(
     name?: string;
     durationDays?: number;
     active?: boolean;
+    identitySummary?: PlayerMembershipRequest['identitySummary'];
   } = {}
 ): PlayerMembershipRequest {
   const configuredPlan = options.id
@@ -484,6 +588,7 @@ export function createMembershipRequest(
     plan: options.plan ?? (options.durationDays === 1 ? 'day' : 'monthly'),
     paymentMethod: options.paymentMethod ?? 'app',
     priceLabel: options.priceLabel,
+    identitySummary: options.identitySummary,
     ...configuredPlan,
     requestedAt
   };
@@ -525,70 +630,100 @@ export function createWaitlistRequest(
 export function applyMembershipRequestToClubState(
   state: ManagementClubState,
   request: PlayerMembershipRequest,
-  options: { membershipDurationDays?: number } = {}
+  _options: { membershipDurationDays?: number } = {}
 ): ManagementClubState {
   const clubId = getClubIdFromState(state);
   if (request.clubId !== clubId) return state;
 
-  const existingProfile = state.profiles.find(
-    (profile) => profile.id === request.player.id || profile.name.toLowerCase() === request.player.name.toLowerCase()
-  );
+  const existingProfile = state.profiles.find((profile) => matchesPlayerProfile(profile, request.player));
   const preferredGameIds = request.player.preferredGameIds ?? [];
-  const activatesImmediately = request.paymentMethod !== 'in-person';
-  const membershipStartDate = request.requestedAt.slice(0, 10);
-  const durationDays = options.membershipDurationDays ?? request.membershipDurationDays ?? (request.plan === 'day' ? 1 : 30);
-  const membershipExpiresAt = new Date(Date.parse(request.requestedAt) + durationDays * 24 * 60 * 60 * 1000).toISOString();
-  const membershipExpirationDate = membershipExpiresAt.slice(0, 10);
-  const requestNote = `${request.planName ?? (request.plan === 'day' ? 'Day pass' : 'Monthly membership')} - ${request.paymentMethod === 'in-person' ? 'pay in person requested' : 'paid in app'}${request.priceLabel ? ` (${request.priceLabel})` : ''}`;
+  const identitySummary = request.identitySummary?.captureMethod === 'player-camera-pdf417'
+    ? request.identitySummary
+    : undefined;
+  const identityAlreadyApproved = existingProfile?.identityReviewStatus === 'Approved';
+  const identityReviewStatus: ManagementProfile['identityReviewStatus'] = identityAlreadyApproved ? 'Approved' : 'Pending';
+  const priceLabel = request.planPriceLabel ?? request.priceLabel;
+  const amountCents = parseMembershipAmountCents(priceLabel);
+  const hasExplicitZeroPrice = Boolean(priceLabel && (/\bfree\b/i.test(priceLabel) || /(?:^|\D)0(?:\.0+)?(?:\D|$)/.test(priceLabel)));
+  const membershipPaymentStatus = hasExplicitZeroPrice ? 'Not required' : 'Pending';
+  const preserveCurrentActiveWindow = Boolean(
+    existingProfile?.membershipStatus === 'Active' &&
+    isFutureDate(existingProfile.membershipExpiresAt ?? existingProfile.membershipExpirationDate)
+  );
+  const preserveAuthoritativePayment = Boolean(
+    existingProfile?.membershipPaymentStatus === 'Paid' && existingProfile.membershipPaymentTransactionId
+  );
+  const requestNote = `${request.planName ?? (request.plan === 'day' ? 'Day pass' : 'Monthly membership')} - ${request.paymentMethod === 'in-person' ? 'pay in person requested' : 'online payment selected'}${request.priceLabel ? ` (${request.priceLabel})` : ''}`;
+  const identityPatch = identityAlreadyApproved
+    ? { identityReviewStatus: 'Approved' as const }
+    : identitySummary
+      ? {
+        name: identitySummary.fullName || request.player.name,
+        birthday: identitySummary.dateOfBirth,
+        address: identitySummary.address,
+        identityCaptureMethod: 'player-camera-pdf417' as const,
+        identityCapturedAt: identitySummary.capturedAt,
+        identityReviewStatus
+      }
+      : { identityReviewStatus };
 
-  if (existingProfile) {
-    return {
+  const withProfile: ManagementClubState = existingProfile
+    ? {
       ...state,
       profiles: state.profiles.map((profile) =>
         profile.id === existingProfile.id
           ? {
               ...profile,
-              membershipStartDate: activatesImmediately ? membershipStartDate : profile.membershipStartDate,
-              membershipExpirationDate: activatesImmediately ? membershipExpirationDate : profile.membershipExpirationDate,
-              membershipExpiresAt: activatesImmediately ? membershipExpiresAt : profile.membershipExpiresAt,
+              ...identityPatch,
+              membershipStartDate: preserveCurrentActiveWindow ? profile.membershipStartDate : '',
+              membershipExpirationDate: preserveCurrentActiveWindow ? profile.membershipExpirationDate : '',
+              membershipExpiresAt: preserveCurrentActiveWindow ? profile.membershipExpiresAt : undefined,
               membershipPlan: request.plan,
               membershipPaymentMethod: request.paymentMethod,
-              membershipStatus: activatesImmediately ? 'Active' : 'Requested',
+              membershipStatus: preserveCurrentActiveWindow ? 'Active' : 'Approved',
               membershipRequestedAt: request.requestedAt,
               membershipPriceLabel: request.priceLabel,
               membershipPlanName: request.planName,
               membershipDurationDays: request.membershipDurationDays,
+              membershipPaymentStatus: preserveAuthoritativePayment ? 'Paid' : membershipPaymentStatus,
+              membershipPaymentTransactionId: preserveAuthoritativePayment ? profile.membershipPaymentTransactionId : undefined,
+              membershipPaymentAmountCents: preserveAuthoritativePayment ? profile.membershipPaymentAmountCents : amountCents,
               preferredGameId: preferredGameIds[0] ?? profile.preferredGameId,
               preferredGameIds: mergeUnique([...(profile.preferredGameIds ?? []), ...preferredGameIds]),
               preferredStakes: request.player.preferredStakes ?? profile.preferredStakes,
               typicalAvailability: request.player.typicalAvailability ?? profile.typicalAvailability,
+              email: request.player.email || profile.email,
               phone: request.player.phone ?? profile.phone,
               notes: appendSyncNote(appendSyncNote(profile.notes, `Player app: ${request.player.email}`), requestNote)
             }
           : profile
       )
-    };
-  }
-
-  return {
+    }
+    : {
     ...state,
     profiles: [
       ...state.profiles,
       {
         id: request.player.id,
-        name: request.player.name,
+        name: identitySummary?.fullName || request.player.name,
+        email: request.player.email,
         phone: request.player.phone ?? '',
-        birthday: '',
-        membershipStartDate: activatesImmediately ? membershipStartDate : '',
-        membershipExpirationDate: activatesImmediately ? membershipExpirationDate : '',
-        membershipExpiresAt: activatesImmediately ? membershipExpiresAt : undefined,
+        address: identitySummary?.address ?? '',
+        birthday: identitySummary?.dateOfBirth ?? '',
+        identityCaptureMethod: identitySummary?.captureMethod,
+        identityCapturedAt: identitySummary?.capturedAt,
+        identityReviewStatus,
+        membershipStartDate: '',
+        membershipExpirationDate: '',
         membershipPlan: request.plan,
         membershipPaymentMethod: request.paymentMethod,
-        membershipStatus: activatesImmediately ? 'Active' : 'Requested',
+        membershipStatus: 'Approved',
         membershipRequestedAt: request.requestedAt,
         membershipPriceLabel: request.priceLabel,
         membershipPlanName: request.planName,
         membershipDurationDays: request.membershipDurationDays,
+        membershipPaymentStatus,
+        membershipPaymentAmountCents: amountCents,
         totalTimePlayedHours: 0,
         lastSessionTimePlayedHours: 0,
         commonlyPlaysWithProfileIds: [],
@@ -605,6 +740,8 @@ export function applyMembershipRequestToClubState(
       }
     ]
   };
+
+  return withProfile;
 }
 
 export function applyPlayerProfileDocumentToClubState(
@@ -616,8 +753,11 @@ export function applyPlayerProfileDocumentToClubState(
   if (!membership || membership.status === 'Denied') return state;
   const membershipStatus: Exclude<PlayerClubMembershipRecord['status'], 'Denied'> = membership.status;
 
-  const existingProfile = state.profiles.find(
-    (profile) => profile.id === player.uid || profile.id === player.id || profile.name.toLowerCase() === player.name.toLowerCase()
+  const stablePlayerId = player.uid?.trim() || player.id?.trim();
+  const existingProfile = state.profiles.find((profile) =>
+    stablePlayerId
+      ? profile.id === stablePlayerId
+      : profile.name.toLowerCase() === player.name.toLowerCase()
   );
   const membershipStartDate = membership.joinedAt ?? membership.requestedAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
   const membershipExpirationDate = membership.expiresAt ?? addDays(membershipStartDate, 365);
@@ -691,11 +831,11 @@ export function applyWaitlistRequestToClubState(state: ManagementClubState, requ
   const clubId = getClubIdFromState(state);
   if (request.clubId !== clubId) return state;
 
-  const profile = state.profiles.find(
-    (candidate) => candidate.id === request.player.id || candidate.name.toLowerCase() === request.player.name.toLowerCase()
-  );
-  const matchesPlayer = (interest: ManagementInterest) =>
-    Boolean((profile && interest.profileId === profile.id) || interest.playerName.toLowerCase() === request.player.name.toLowerCase());
+  const profile = state.profiles.find((candidate) => matchesPlayerProfile(candidate, request.player));
+  const stablePlayerId = request.player.id?.trim();
+  const matchesPlayer = (interest: ManagementInterest) => stablePlayerId
+    ? interest.profileId === stablePlayerId
+    : Boolean((profile && interest.profileId === profile.id) || interest.playerName.toLowerCase() === request.player.name.toLowerCase());
 
   if (request.action === 'cancel') {
     return {
@@ -733,6 +873,7 @@ export function applyWaitlistRequestToClubState(state: ManagementClubState, requ
   const syncedProfile: ManagementProfile = profile ?? {
     id: request.player.id,
     name: request.player.name,
+    email: request.player.email,
     phone: request.player.phone ?? '',
     birthday: '',
     membershipStartDate: '',
@@ -757,6 +898,7 @@ export function applyWaitlistRequestToClubState(state: ManagementClubState, requ
         candidate.id === profile.id
           ? {
               ...candidate,
+              email: request.player.email || candidate.email,
               phone: request.player.phone || candidate.phone,
               preferredGameId: candidate.preferredGameId || request.gameId,
               preferredGameIds: mergeUnique([...(candidate.preferredGameIds ?? []), request.gameId]),
@@ -836,8 +978,7 @@ function mergeUnique(values: string[]) {
 
 function getRequestingProfile(profiles: ManagementProfile[], player?: Pick<PlayerAccount, 'id' | 'name' | 'email'>) {
   if (!player) return undefined;
-  const playerName = player.name.trim().toLowerCase();
-  return profiles.find((profile) => profile.id === player.id || profile.name.trim().toLowerCase() === playerName);
+  return profiles.find((profile) => matchesPlayerProfile(profile, player));
 }
 
 function appendSyncNote(existing: string | undefined, note: string) {

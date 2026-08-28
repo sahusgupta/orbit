@@ -20,6 +20,8 @@ const roomDataCollectionKeys = [
   'playerLedger',
   'tableEvents',
   'inAppNotifications',
+  'staffRequests',
+  'selfCheckIn',
   'history',
   'nightCloses',
   'feedback',

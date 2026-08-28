@@ -13,9 +13,65 @@ import {
 } from '../../domain/playerSnapshotTransforms';
 import { hasUncommittedFutureRevision, selectCommittedGames, selectRevisionCompatibleRecords } from '../../domain/syncProtocol';
 import { fetchLocalClubSnapshot } from '../api/localPlayerApi';
-import { fetchRemotePlayerDiscovery } from '../api/playerHttpApi';
+import { fetchPublicPlayerDiscovery, fetchRemotePlayerDiscovery } from '../api/playerHttpApi';
 import type { SyncResult } from '../playerDataContracts';
-import { db } from './firebaseClient';
+import { auth, db } from './firebaseClient';
+
+const discoveryPageSize = 50;
+const maximumDiscoveryPages = 20;
+type DiscoveryPageFetcher = typeof fetchRemotePlayerDiscovery;
+
+async function fetchDiscoveryCatalog(
+  fetchPage: DiscoveryPageFetcher,
+  player: Pick<PlayerAccount, 'id' | 'name'>
+) {
+  let clubs: PlayerClubSnapshot[] = [];
+  let cursor = '';
+  let databaseQueries = 0;
+  let hasDatabaseQueryCount = false;
+  const seenCursors = new Set<string>();
+
+  const createCatalog = (hasMore: boolean, nextCursor: string | null) => ({
+    clubs,
+    page: {
+      count: clubs.length,
+      hasMore,
+      nextCursor,
+      databaseQueries: hasDatabaseQueryCount ? databaseQueries : undefined
+    }
+  });
+
+  for (let pageIndex = 0; pageIndex < maximumDiscoveryPages; pageIndex += 1) {
+    let result: Awaited<ReturnType<DiscoveryPageFetcher>>;
+    try {
+      result = await fetchPage(cursor, discoveryPageSize);
+    } catch (error) {
+      if (!clubs.length) throw error;
+      return createCatalog(true, cursor || null);
+    }
+    clubs = mergeSnapshotSources(
+      clubs,
+      result.clubs.map((snapshot) => filterSnapshotForPlayer(snapshot, player))
+    );
+    if (typeof result.page.databaseQueries === 'number') {
+      databaseQueries += result.page.databaseQueries;
+      hasDatabaseQueryCount = true;
+    }
+    if (!result.page.hasMore) {
+      return createCatalog(false, null);
+    }
+
+    const nextCursor = result.page.nextCursor?.trim() ?? '';
+    if (!nextCursor || nextCursor === cursor || seenCursors.has(nextCursor)) {
+      if (!clubs.length) throw new Error('Orbit Player discovery returned an invalid cursor.');
+      return createCatalog(true, null);
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+
+  return createCatalog(true, cursor || null);
+}
 
 export async function fetchClubSnapshot(player: Pick<PlayerAccount, 'id' | 'name'>, accountKey?: string): Promise<SyncResult> {
   try {
@@ -54,16 +110,28 @@ export async function fetchClubSnapshots(player: Pick<PlayerAccount, 'id' | 'nam
 export async function fetchAllClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>) {
   const [localAttempt, discoveryAttempt] = await Promise.allSettled([
     fetchLocalClubSnapshot(player),
-    fetchRemotePlayerDiscovery()
+    fetchDiscoveryCatalog(auth.currentUser ? fetchRemotePlayerDiscovery : fetchPublicPlayerDiscovery, player)
   ]);
   const localResult = localAttempt.status === 'fulfilled' ? localAttempt.value : { ok: false as const, error: 'Local bridge unavailable.' };
-  const localClubs = localResult.ok ? [localResult.snapshot] : [];
+  const localClubs = localResult.ok ? [filterSnapshotForPlayer(localResult.snapshot, player)] : [];
   if (discoveryAttempt.status === 'fulfilled') {
     return {
       ok: true as const,
       clubs: mergeSnapshotSources(discoveryAttempt.value.clubs, localClubs),
       page: discoveryAttempt.value.page
     };
+  }
+  if (auth.currentUser) {
+    try {
+      const publicDiscovery = await fetchDiscoveryCatalog(fetchPublicPlayerDiscovery, player);
+      return {
+        ok: true as const,
+        clubs: mergeSnapshotSources(publicDiscovery.clubs, localClubs),
+        page: publicDiscovery.page
+      };
+    } catch {
+      // The public Firestore projection remains available if both API reads fail.
+    }
   }
   try {
     const publishedClubs = await getPublishedClubSnapshots(player);
@@ -117,12 +185,24 @@ async function getPublishedClubSnapshots(player: Pick<PlayerAccount, 'id' | 'nam
 async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: Pick<PlayerAccount, 'id' | 'name'>) {
   const club = decodePublishedClubRecord(clubDoc.data());
   if (!club || !isPlayerVisibleClubName(club.name)) throw new Error(`Club ${clubDoc.id} is not player-visible.`);
-  const [games, memberships, waitlists, notifications] = await Promise.all([
-    getDocs(query(collection(db, 'clubs', clubDoc.id, 'games'), limit(100))),
-    getDocs(playerScopedCollection(clubDoc.id, 'memberships', player.id)),
-    getDocs(playerScopedCollection(clubDoc.id, 'waitlists', player.id)),
-    getDocs(playerNotificationCollection(clubDoc.id, player.id))
-  ]);
+  const emptyPlayerRecords = { docs: [] };
+  const games = await getDocs(query(collection(db, 'clubs', clubDoc.id, 'games'), limit(100)));
+  const readPlayerRecords = async (reference: ReturnType<typeof playerScopedCollection>) => {
+    try {
+      return await getDocs(reference);
+    } catch {
+      // Public games remain usable when an expired/mismatched auth session cannot
+      // read the optional player projection during API fallback.
+      return emptyPlayerRecords;
+    }
+  };
+  const [memberships, waitlists, notifications] = auth.currentUser?.uid === player.id
+    ? await Promise.all([
+      readPlayerRecords(playerScopedCollection(clubDoc.id, 'memberships', player.id)),
+      readPlayerRecords(playerScopedCollection(clubDoc.id, 'waitlists', player.id)),
+      readPlayerRecords(playerNotificationCollection(clubDoc.id, player.id))
+    ])
+    : [emptyPlayerRecords, emptyPlayerRecords, emptyPlayerRecords];
   const membershipRecords = memberships.docs.map((membershipDoc) => decodeRevisionedMembership(membershipDoc.data()));
   const waitlistRecords = waitlists.docs.map((waitlistDoc) => decodeRevisionedWaitlist(waitlistDoc.data()));
   const notificationRecords = notifications.docs.map((notificationDoc) => decodeRevisionedNotification(notificationDoc.data()));

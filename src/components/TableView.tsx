@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { Activity, Clock, Maximize2, Minimize2, Plus, WalletCards, X } from 'lucide-react';
-import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import { Activity, Clock, Maximize2, Minimize2, Plus, Settings2, Undo2, WalletCards, X } from 'lucide-react';
+import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import PokerTable, {
   type Player as PokerTablePlayer,
   type PokerTableDealerControl,
@@ -16,6 +16,40 @@ type TableTimePlayer = {
   remainingSeconds: number;
   elapsedSeconds: number;
   hasTimer: boolean;
+};
+
+type TableDisplayPreferences = {
+  theme: 'midnight' | 'green';
+  format: 'oval' | 'round';
+  showBlinds: boolean;
+  showSeatTimers: boolean;
+};
+
+const defaultTableDisplayPreferences: TableDisplayPreferences = {
+  theme: 'midnight',
+  format: 'oval',
+  showBlinds: true,
+  showSeatTimers: true
+};
+
+export const getTableDisplayPreferencesStorageKey = (tableIdentity: string) =>
+  `orbit-table-display-v1:${tableIdentity}`;
+
+const readTableDisplayPreferences = (tableIdentity?: string): TableDisplayPreferences => {
+  if (!tableIdentity) return defaultTableDisplayPreferences;
+  try {
+    const raw = window.localStorage.getItem(getTableDisplayPreferencesStorageKey(tableIdentity));
+    if (!raw) return defaultTableDisplayPreferences;
+    const parsed = JSON.parse(raw) as Partial<TableDisplayPreferences>;
+    return {
+      theme: parsed.theme === 'green' ? 'green' : 'midnight',
+      format: parsed.format === 'round' ? 'round' : 'oval',
+      showBlinds: parsed.showBlinds !== false,
+      showSeatTimers: parsed.showSeatTimers !== false
+    };
+  } catch {
+    return defaultTableDisplayPreferences;
+  }
 };
 
 type TableViewProps = {
@@ -36,12 +70,18 @@ type TableViewProps = {
   tableEventLogSessionId: string | null;
   seatPicker: SeatPickerState | null;
   closeRoute: () => void;
+  canUndo?: boolean;
+  undoLabel?: string;
+  undoLastAction?: () => void;
   formatClock: (iso?: string) => string;
   formatTimeLeft: (seconds: number) => string;
   getTimerStatusFromSeconds: (seconds: number) => string;
   getMoveTargets: (sourceTableId: string) => { id: string; label: string; openSeats: number }[];
   openSeatPicker: (session: GameSession, requestedSeatNumber?: number) => void;
   addPlayerTime: (playerSession: PlayerSession, minutes: number) => void;
+  deductPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
+  pauseAndSavePlayerTime: (playerSession: PlayerSession) => boolean;
+  useSavedPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
   addBuyIn: (playerSession: PlayerSession, amountOverride?: number, noteOverride?: string) => void;
   requestPlayerCashOut: (playerSession: PlayerSession) => void;
   changePlayerSeat: (playerSession: PlayerSession, seatNumber: number) => void;
@@ -70,12 +110,18 @@ export default function TableView({
   tableEventLogSessionId,
   seatPicker,
   closeRoute,
+  canUndo = false,
+  undoLabel,
+  undoLastAction,
   formatClock,
   formatTimeLeft,
   getTimerStatusFromSeconds,
   getMoveTargets,
   openSeatPicker,
   addPlayerTime,
+  deductPlayerTime,
+  pauseAndSavePlayerTime,
+  useSavedPlayerTime,
   addBuyIn,
   requestPlayerCashOut,
   changePlayerSeat,
@@ -83,8 +129,36 @@ export default function TableView({
   setTableEventLogSessionId,
   setTableLedgerSessionId
 }: TableViewProps) {
+  const tableDisplayIdentity = tableSession?.physicalTableId ?? tableSession?.id;
   const [timeDrawerOpen, setTimeDrawerOpen] = useState(false);
   const [activityExpanded, setActivityExpanded] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [displayPreferences, setDisplayPreferences] = useState<TableDisplayPreferences>(() =>
+    readTableDisplayPreferences(tableDisplayIdentity)
+  );
+  const displayPreferencesRef = useRef(displayPreferences);
+  const [displayPreferenceError, setDisplayPreferenceError] = useState('');
+  useEffect(() => {
+    const nextPreferences = readTableDisplayPreferences(tableDisplayIdentity);
+    displayPreferencesRef.current = nextPreferences;
+    setDisplayPreferences(nextPreferences);
+    setDisplayPreferenceError('');
+  }, [tableDisplayIdentity]);
+  const updateDisplayPreferences = (patch: Partial<TableDisplayPreferences>) => {
+    const nextPreferences = { ...displayPreferencesRef.current, ...patch };
+    displayPreferencesRef.current = nextPreferences;
+    setDisplayPreferences(nextPreferences);
+    setDisplayPreferenceError('');
+    if (!tableDisplayIdentity) return;
+    try {
+      window.localStorage.setItem(
+        getTableDisplayPreferencesStorageKey(tableDisplayIdentity),
+        JSON.stringify(nextPreferences)
+      );
+    } catch {
+      setDisplayPreferenceError('Display settings could not be saved on this device.');
+    }
+  };
   const tableBuyInTotal = tableBuyInRows.reduce((sum, row) => sum + row.entry.amount, 0);
   const timedPlayers = tableTimePlayers.filter((item) => item.hasTimer);
   const urgentTimerCount = timedPlayers.filter(
@@ -123,6 +197,17 @@ export default function TableView({
 
         {tableSession ? (
           <div className="table-view-utilities" aria-label="Table utilities" role="group">
+            <button
+              aria-label={canUndo ? `Undo ${undoLabel || 'last action'}` : 'Nothing to undo'}
+              className="table-view-utility-button table-view-undo-button"
+              disabled={!canUndo}
+              onClick={undoLastAction}
+              title={canUndo ? `Undo ${undoLabel || 'last action'}` : 'Nothing to undo'}
+              type="button"
+            >
+              <Undo2 size={16} />
+              <span>Undo</span>
+            </button>
             <button
               className="table-view-seat-player-button"
               onClick={() => openSeatPicker(tableSession)}
@@ -210,6 +295,91 @@ export default function TableView({
               <span>Ledger</span>
               <strong>{tableBuyInRows.length}</strong>
             </button>
+
+            <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
+              <Dialog.Trigger asChild>
+                <button
+                  aria-label="Table display settings"
+                  className="table-view-utility-button"
+                  type="button"
+                >
+                  <Settings2 size={16} />
+                  <span>Settings</span>
+                </button>
+              </Dialog.Trigger>
+              <Dialog.Portal>
+                <Dialog.Overlay className="table-utility-overlay" />
+                <Dialog.Content className="table-display-settings-dialog">
+                  <div className="table-utility-drawer-head">
+                    <div>
+                      <span>Table view</span>
+                      <Dialog.Title className="table-utility-title">Display settings</Dialog.Title>
+                      <Dialog.Description className="table-utility-description">
+                        Adjust this table's visual theme, format, blinds, and seat timers.
+                      </Dialog.Description>
+                    </div>
+                    <Dialog.Close asChild>
+                      <button aria-label="Close table display settings" className="icon-button" title="Close table display settings" type="button">
+                        <X size={18} />
+                      </button>
+                    </Dialog.Close>
+                  </div>
+                  <div className="table-display-settings-list">
+                    <fieldset>
+                      <legend>Theme</legend>
+                      <div className="segmented-control" role="group" aria-label="Table theme">
+                        <button
+                          aria-pressed={displayPreferences.theme === 'midnight'}
+                          className={displayPreferences.theme === 'midnight' ? 'secondary-button active' : 'ghost-button'}
+                          onClick={() => updateDisplayPreferences({ theme: 'midnight' })}
+                          type="button"
+                        >Midnight</button>
+                        <button
+                          aria-pressed={displayPreferences.theme === 'green'}
+                          className={displayPreferences.theme === 'green' ? 'secondary-button active' : 'ghost-button'}
+                          onClick={() => updateDisplayPreferences({ theme: 'green' })}
+                          type="button"
+                        >Green room</button>
+                      </div>
+                    </fieldset>
+                    <fieldset>
+                      <legend>Format</legend>
+                      <div className="segmented-control" role="group" aria-label="Table format">
+                        <button
+                          aria-pressed={displayPreferences.format === 'oval'}
+                          className={displayPreferences.format === 'oval' ? 'secondary-button active' : 'ghost-button'}
+                          onClick={() => updateDisplayPreferences({ format: 'oval' })}
+                          type="button"
+                        >Oval</button>
+                        <button
+                          aria-pressed={displayPreferences.format === 'round'}
+                          className={displayPreferences.format === 'round' ? 'secondary-button active' : 'ghost-button'}
+                          onClick={() => updateDisplayPreferences({ format: 'round' })}
+                          type="button"
+                        >Round</button>
+                      </div>
+                    </fieldset>
+                    <label className="table-display-toggle">
+                      <span><strong>Blinds and game</strong><small>Show the configured game on the table.</small></span>
+                      <input
+                        checked={displayPreferences.showBlinds}
+                        onChange={(event) => updateDisplayPreferences({ showBlinds: event.target.checked })}
+                        type="checkbox"
+                      />
+                    </label>
+                    <label className="table-display-toggle">
+                      <span><strong>Seat timers</strong><small>Show countdowns directly on occupied seats.</small></span>
+                      <input
+                        checked={displayPreferences.showSeatTimers}
+                        onChange={(event) => updateDisplayPreferences({ showSeatTimers: event.target.checked })}
+                        type="checkbox"
+                      />
+                    </label>
+                    {displayPreferenceError ? <p role="alert">{displayPreferenceError}</p> : null}
+                  </div>
+                </Dialog.Content>
+              </Dialog.Portal>
+            </Dialog.Root>
 
             <Dialog.Root open={timeDrawerOpen} onOpenChange={setTimeDrawerOpen}>
               <Dialog.Trigger asChild>
@@ -312,13 +482,19 @@ export default function TableView({
       {tableLedgerModal}
 
       {tableSession ? (
-        <section className="table-view-grid">
+        <section className={`table-view-grid table-theme-${displayPreferences.theme} table-format-${displayPreferences.format}`}>
           <section className="table-view-stage">
             <div className="table-view-table">
+              {displayPreferences.showBlinds ? (
+                <div className="table-view-blinds-badge" aria-label={`Game and blinds: ${tableGame?.name ?? 'Not configured'}`}>
+                  <span>Game / blinds</span>
+                  <strong>{tableGame?.name ?? 'Not configured'}</strong>
+                </div>
+              ) : null}
               <div className="table-view-poker-table">
                 <PokerTable
                   players={pokerTablePlayers}
-                  showTimeRemaining={isTimeCollection}
+                  showTimeRemaining={isTimeCollection && displayPreferences.showSeatTimers}
                   maxPlayers={tableSession.maxSeats}
                   selectedSeatNumber={seatPicker?.sessionId === tableSession.id ? seatPicker.seatNumber : undefined}
                   moveTargets={getMoveTargets(tableSession.id)}
@@ -330,6 +506,18 @@ export default function TableView({
                   onAddTime={(playerId, minutes) => {
                     const playerSession = seatedPlayers.find((player) => player.id === playerId);
                     if (playerSession) addPlayerTime(playerSession, minutes);
+                  }}
+                  onDeductTime={(playerId, minutes) => {
+                    const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                    return playerSession ? deductPlayerTime(playerSession, minutes) : false;
+                  }}
+                  onPauseAndSaveTime={(playerId) => {
+                    const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                    return playerSession ? pauseAndSavePlayerTime(playerSession) : false;
+                  }}
+                  onUseSavedTime={(playerId, minutes) => {
+                    const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                    return playerSession ? useSavedPlayerTime(playerSession, minutes) : false;
                   }}
                   onAddBuyIn={(playerId, amount, note) => {
                     const playerSession = seatedPlayers.find((player) => player.id === playerId);

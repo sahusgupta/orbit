@@ -7,6 +7,7 @@ const identityStatuses = new Set<PlayerIdentityStatus['status']>([
   'unverified',
   'requires_input',
   'processing',
+  'provisional',
   'verified',
   'underage',
   'canceled',
@@ -106,31 +107,56 @@ export function readFirebaseErrorCode(value: unknown) {
 
 function decodeIdentityStatus(value: unknown): PlayerIdentityStatus | null {
   const record = asRecord(value);
+  const hasVerifiedDetails = Boolean(record && Object.prototype.hasOwnProperty.call(record, 'verifiedDetails'));
+  const verifiedDetailsRecord = record && asRecord(record.verifiedDetails);
+  const verifiedDetails = !hasVerifiedDetails
+    ? undefined
+    : record?.verifiedDetails === null
+    ? null
+    : verifiedDetailsRecord &&
+        typeof verifiedDetailsRecord.fullName === 'string' &&
+        typeof verifiedDetailsRecord.dateOfBirth === 'string' &&
+        typeof verifiedDetailsRecord.address === 'string'
+      ? {
+          fullName: verifiedDetailsRecord.fullName,
+          dateOfBirth: verifiedDetailsRecord.dateOfBirth,
+          address: verifiedDetailsRecord.address
+        }
+      : undefined;
   if (
     !record ||
     typeof record.status !== 'string' ||
     !identityStatuses.has(record.status as PlayerIdentityStatus['status']) ||
     typeof record.ageVerified !== 'boolean' ||
+    typeof record.ageEligible !== 'boolean' ||
     typeof record.ageLevel !== 'number' ||
     typeof record.minimumAge !== 'number' ||
     (record.verifiedAt !== null && typeof record.verifiedAt !== 'string') ||
-    (record.failureCode !== null && typeof record.failureCode !== 'string')
+    (record.capturedAt !== null && typeof record.capturedAt !== 'string') ||
+    (record.failureCode !== null && typeof record.failureCode !== 'string') ||
+    !['not-started', 'pending-in-person', 'approved'].includes(String(record.reviewStatus || '')) ||
+    (hasVerifiedDetails && verifiedDetails === undefined)
   ) {
     return null;
   }
   return {
     status: record.status as PlayerIdentityStatus['status'],
     ageVerified: record.ageVerified,
+    ageEligible: record.ageEligible,
     ageLevel: record.ageLevel,
     minimumAge: record.minimumAge,
     verifiedAt: record.verifiedAt,
-    failureCode: record.failureCode
+    capturedAt: record.capturedAt,
+    failureCode: record.failureCode,
+    reviewStatus: record.reviewStatus as PlayerIdentityStatus['reviewStatus'],
+    ...(hasVerifiedDetails ? { verifiedDetails } : {})
   };
 }
 
 function decodePlayerClubSnapshot(value: unknown): PlayerClubSnapshot | null {
   const record = asRecord(value);
   const club = record && asRecord(record.club);
+  const timeAccess = record?.timeAccess === undefined ? undefined : decodePlayerTimeAccess(record.timeAccess);
   if (
     !record ||
     !club ||
@@ -139,11 +165,34 @@ function decodePlayerClubSnapshot(value: unknown): PlayerClubSnapshot | null {
     !Array.isArray(record.games) ||
     !Array.isArray(record.memberships) ||
     !Array.isArray(record.waitlists) ||
-    (record.notifications !== undefined && !Array.isArray(record.notifications))
+    (record.notifications !== undefined && !Array.isArray(record.notifications)) ||
+    (record.timeAccess !== undefined && !timeAccess)
   ) {
     return null;
   }
   return record as PlayerClubSnapshot;
+}
+
+function decodePlayerTimeAccess(value: unknown) {
+  const record = asRecord(value);
+  const activeSession = record?.activeSession === undefined ? undefined : asRecord(record.activeSession);
+  if (
+    !record ||
+    typeof record.enabled !== 'boolean' ||
+    typeof record.linked !== 'boolean' ||
+    typeof record.hourlyFeeCents !== 'number' ||
+    typeof record.savedMinutes !== 'number' ||
+    (record.profileId !== undefined && typeof record.profileId !== 'string') ||
+    (record.activeSession !== undefined && (!activeSession ||
+      typeof activeSession.id !== 'string' ||
+      typeof activeSession.tableId !== 'string' ||
+      typeof activeSession.tableLabel !== 'string' ||
+      typeof activeSession.gameId !== 'string' ||
+      typeof activeSession.gameName !== 'string' ||
+      typeof activeSession.purchasedMinutes !== 'number' ||
+      typeof activeSession.remainingMinutes !== 'number'))
+  ) return null;
+  return record;
 }
 
 function requireRecord(value: unknown, label: string) {

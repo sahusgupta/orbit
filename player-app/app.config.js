@@ -23,7 +23,10 @@ module.exports = ({ config }) => ({
     ...(config.plugins || []),
     'expo-asset',
     'expo-font',
-    'expo-web-browser'
+    'expo-web-browser',
+    ['expo-camera', {
+      cameraPermission: 'Allow Orbit Player to scan the PDF417 barcode on your government ID. Orbit does not save a photo.'
+    }]
   ],
   ios: {
     ...config.ios,

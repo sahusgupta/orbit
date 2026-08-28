@@ -12,7 +12,7 @@ Standalone Expo mobile app for players on iOS and Android.
 - Real-time game listeners plus a full 30-second refresh across every registered card house, with an immediate refresh when the app returns to the foreground.
 - Waitlist request flow that produces the same action payload shape the management app can ingest.
 - Club-by-club loyalty status, points, and tier progress.
-- Hosted Stripe Identity verification before player access actions, with a server-enforced 21+ result.
+- On-device PDF417 ID-barcode capture before age-restricted actions, with server-enforced club-specific 18+ or 21+ eligibility and first-visit physical-ID review.
 
 The app syncs with the Orbit management app through Firebase Firestore. If no live club state has been published, the app shows an empty state; it never inserts demo clubs or games into production.
 
@@ -63,9 +63,9 @@ Card-house products use the Orbit API rather than a client-owned Payment Link. S
 EXPO_PUBLIC_ORBIT_API_URL=https://your-orbit-api.example.com
 ```
 
-The API owns catalog defaults and platform credentials, verifies the Firebase player ID token, and creates Checkout on the selected card house's connected Stripe account. A published club must provide `stripeAccountId` (or `connectedStripeAccountId`). The API records memberships and time-wallet balances only after a signed Connect webhook confirms payment. `ORBIT_FIVE_HOUR_TIME_PRICE_CENTS` controls the fallback five-hour package price.
+The API owns catalog and platform credentials, verifies the Firebase player ID token, and creates Checkout on the selected card house's connected Stripe account. Membership checkout resolves the submitted plan ID against that club's active server-side membership plans, so the client cannot choose its own price or duration. A published club must provide `stripeAccountId` (or `connectedStripeAccountId`). The API records memberships and time-wallet balances only after a signed Connect webhook confirms payment. `ORBIT_FIVE_HOUR_TIME_PRICE_CENTS` controls the fallback five-hour package price.
 
-The same API URL starts hosted Stripe Identity checks. Orbit stores only a private 21+ eligibility result and Firebase custom claims; Stripe handles the ID, selfie, date of birth, and document images. Configure the API return URL and Identity webhook events described in `apps/api/README.md` before testing access actions.
+The Player app scans the PDF417 barcode on the device and discards the raw barcode immediately after extracting the confirmed name, date of birth, and address. Those safe fields go through the authenticated API; the ID photo, ID number, raw barcode, and selfie are never uploaded. The server recalculates age and enforces each club's 18+ or 21+ requirement. A passing scan is provisional until that card house checks the physical ID on the player's first visit.
 
 ## Sync With Management Database
 

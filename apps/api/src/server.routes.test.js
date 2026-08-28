@@ -76,6 +76,8 @@ beforeAll(async () => {
       ORBIT_DASHBOARD_PASSWORD: 'local-dashboard-password',
       ORBIT_DASHBOARD_SESSION_SECRET: 'local-dashboard-session-secret-at-least-32',
       ORBIT_PUBLIC_ORIGIN: 'https://orbit-public-preview.invalid',
+      ORBIT_SELF_CHECK_IN_ORIGIN: 'https://self-check-in-route-test.invalid',
+      ORBIT_SELF_CHECK_IN_SECRET: 'local-self-check-in-signing-secret-at-least-32-characters',
       FIREBASE_SERVICE_ACCOUNT_JSON: '',
       FIREBASE_SERVICE_ACCOUNT_BASE64: '',
       GOOGLE_APPLICATION_CREDENTIALS: '',
@@ -143,6 +145,106 @@ describe('API route composition', () => {
     expect(privacyHtml).toContain('Google Firebase and Google Cloud');
     expect(privacyHtml).toContain('built with assistance from AI development tools, including OpenAI Codex');
     expect(privacyHtml).not.toContain('Orbit Technologies LLC');
+  });
+
+  it('serves the self-check-in page and external assets with private security headers', async () => {
+    const page = await request('/check-in');
+    const stylesheet = await request('/self-check-in.css');
+    const script = await request('/self-check-in.js');
+
+    for (const { pathname, response } of [
+      { pathname: '/check-in', response: page },
+      { pathname: '/self-check-in.css', response: stylesheet },
+      { pathname: '/self-check-in.js', response: script }
+    ]) {
+      expect(response.status, pathname).toBe(200);
+      expect(response.headers.get('cache-control'), pathname).toContain('no-store');
+      expect(response.headers.get('x-robots-tag'), pathname).toBe('noindex, nofollow');
+      const contentSecurityPolicy = response.headers.get('content-security-policy') || '';
+      expect(contentSecurityPolicy, pathname).toContain("script-src 'self'");
+      expect(contentSecurityPolicy, pathname).toContain("style-src 'self'");
+      expect(contentSecurityPolicy, pathname).not.toContain("'unsafe-inline'");
+      expect(contentSecurityPolicy, pathname).not.toContain("'unsafe-eval'");
+    }
+
+    expect(page.headers.get('content-type')).toContain('text/html');
+    const pageHtml = await page.text();
+    expect(pageHtml).toContain('<link rel="stylesheet" href="/self-check-in.css" />');
+    expect(pageHtml).toContain('<script src="/self-check-in.js" defer></script>');
+    expect(pageHtml).not.toMatch(/<style\b/i);
+    expect(pageHtml).not.toMatch(/<script(?!\s+src=)[^>]*>/i);
+
+    expect(stylesheet.headers.get('content-type')).toContain('text/css');
+    expect(await stylesheet.text()).toContain('min-height: 48px');
+    expect(script.headers.get('content-type')).toMatch(/javascript/);
+    const scriptSource = await script.text();
+    expect(scriptSource).toContain("'/player/check-in/context'");
+    expect(scriptSource).toContain("'x-orbit-check-in-token'");
+    expect(scriptSource).toContain("'x-orbit-check-in-session'");
+    expect(scriptSource).not.toContain('innerHTML');
+  });
+
+  it('protects self-check-in issuance and rejects malformed lookup requests behind dedicated limits', async () => {
+    const unauthorizedIssuer = await request('/management/self-check-in/qr', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}'
+    });
+    expect(unauthorizedIssuer.status).toBe(401);
+    expect(Number(unauthorizedIssuer.headers.get('x-ratelimit-limit'))).toBe(10);
+    expect(unauthorizedIssuer.headers.get('cache-control')).toContain('no-store');
+    expect(unauthorizedIssuer.headers.get('x-robots-tag')).toBe('noindex, nofollow');
+    expect(Number(unauthorizedIssuer.headers.get('x-ratelimit-remaining'))).toBeGreaterThanOrEqual(0);
+
+    const invalidContext = await request('/player/check-in/context', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-orbit-check-in-token': 'invalid-token-that-is-long-enough'
+      },
+      body: '{}'
+    });
+    expect(invalidContext.status).toBe(401);
+    expect(await invalidContext.json()).toMatchObject({ ok: false, code: 'INVALID_CHECK_IN_TOKEN' });
+    expect(Number(invalidContext.headers.get('x-ratelimit-limit'))).toBe(120);
+    expect(invalidContext.headers.get('cache-control')).toContain('no-store');
+    expect(invalidContext.headers.get('x-robots-tag')).toBe('noindex, nofollow');
+
+    const nonJsonLookup = await request('/player/check-in/lookup', {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: 'Alex Player'
+    });
+    expect(nonJsonLookup.status).toBe(415);
+    expect(await nonJsonLookup.json()).toMatchObject({ ok: false, code: 'JSON_REQUIRED' });
+    expect(Number(nonJsonLookup.headers.get('x-ratelimit-limit'))).toBe(120);
+    expect(Number(nonJsonLookup.headers.get('x-ratelimit-remaining'))).toBeGreaterThanOrEqual(0);
+    expect(nonJsonLookup.headers.get('cache-control')).toContain('no-store');
+    expect(nonJsonLookup.headers.get('x-robots-tag')).toBe('noindex, nofollow');
+
+    const malformedLookup = await request('/player/check-in/lookup', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{"name":'
+    });
+    expect(malformedLookup.status).toBe(400);
+    expect(await malformedLookup.json()).toMatchObject({ ok: false, code: 'INVALID_REQUEST' });
+    expect(Number(malformedLookup.headers.get('x-ratelimit-limit'))).toBe(120);
+    expect(Number(malformedLookup.headers.get('x-ratelimit-remaining'))).toBeGreaterThanOrEqual(0);
+    expect(malformedLookup.headers.get('cache-control')).toContain('no-store');
+    expect(malformedLookup.headers.get('x-robots-tag')).toBe('noindex, nofollow');
+
+    let limitedIssuer;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      limitedIssuer = await request('/management/self-check-in/qr', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}'
+      });
+    }
+    expect(limitedIssuer.status).toBe(429);
+    expect(limitedIssuer.headers.get('cache-control')).toContain('no-store');
+    expect(limitedIssuer.headers.get('x-robots-tag')).toBe('noindex, nofollow');
   });
 
   it('uses an HttpOnly dashboard session without browser-stored or query-string keys', async () => {

@@ -20,6 +20,8 @@ type DiscoveryAccent = { color: string; background: string };
 
 export function DiscoveryDeck({
   opportunities,
+  inventoryPartial,
+  inventoryStatus,
   totalCount,
   savedCount,
   onPass,
@@ -28,6 +30,8 @@ export function DiscoveryDeck({
   onReset
 }: {
   opportunities: GameOpportunity[];
+  inventoryPartial: boolean;
+  inventoryStatus: 'idle' | 'loading' | 'ready' | 'error';
   totalCount: number;
   savedCount: number;
   onPass: (item: GameOpportunity) => void;
@@ -99,16 +103,38 @@ export function DiscoveryDeck({
   const seenCount = Math.max(0, totalCount - opportunities.length);
 
   if (!item) {
+    const hasPublishedMatches = totalCount > 0;
+    let emptyTitle = 'Loading live matches';
+    let emptyCopy = 'Orbit is checking current room updates. Matches will appear here as soon as they load.';
+    let resetLabel = 'Refresh now';
+    if (hasPublishedMatches) {
+      emptyTitle = 'Refreshing your matches';
+      emptyCopy = savedCount
+        ? `${savedCount} saved game${savedCount === 1 ? '' : 's'} are waiting below.`
+        : 'Orbit is starting another pass through the published games.';
+      resetLabel = 'Start over';
+    } else if (inventoryPartial) {
+      emptyTitle = 'More matches are loading';
+      emptyCopy = 'No matches are in the rooms loaded so far. More rooms are still refreshing.';
+    } else if (inventoryStatus === 'ready') {
+      emptyTitle = 'Looking for live matches';
+      emptyCopy = 'No eligible game is published right now. Orbit checks again automatically, or you can refresh now.';
+      resetLabel = 'Check again';
+    } else if (inventoryStatus === 'error') {
+      emptyTitle = 'Live matches unavailable';
+      emptyCopy = 'Orbit could not refresh published games. Check your connection and try again.';
+      resetLabel = 'Try again';
+    }
     return (
       <View style={styles.discoveryEmpty}>
         <View style={styles.discoveryEmptyIcon}>
-          <Ionicons name="checkmark-done-outline" size={30} color={colors.teal} />
+          <Ionicons name={hasPublishedMatches ? 'checkmark-done-outline' : 'search-outline'} size={30} color={colors.teal} />
         </View>
-        <Text style={styles.discoveryEmptyTitle}>You’ve reviewed every available game</Text>
-        <Text style={styles.muted}>{savedCount ? `${savedCount} saved game${savedCount === 1 ? '' : 's'} are waiting below.` : 'Refresh the deck or loosen your filters to see more games.'}</Text>
+        <Text style={styles.discoveryEmptyTitle}>{emptyTitle}</Text>
+        <Text style={styles.muted}>{emptyCopy}</Text>
         <Pressable accessibilityLabel="Refresh discovery deck" accessibilityRole="button" onPress={onReset} style={styles.discoveryResetButton}>
           <Ionicons name="refresh-outline" size={17} color="#ffffff" />
-          <Text style={styles.discoveryResetText}>Start over</Text>
+          <Text style={styles.discoveryResetText}>{resetLabel}</Text>
         </Pressable>
       </View>
     );

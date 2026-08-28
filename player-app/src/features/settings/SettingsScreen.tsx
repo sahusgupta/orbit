@@ -275,6 +275,7 @@ export function SettingsScreen({
 export function getIdentityStatusLabel(status: PlayerIdentityStatus, signedIn: boolean) {
   if (!signedIn) return 'Not signed in';
   if (status.ageVerified) return `Verified ${status.minimumAge}+`;
+  if (status.status === 'provisional' && status.ageEligible) return 'ID review pending';
   if (status.status === 'processing') return 'Verification pending';
   if (status.status === 'underage') return `Minimum age ${status.minimumAge}`;
   return 'Not verified';

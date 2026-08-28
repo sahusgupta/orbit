@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { DollarSign, Plus, X } from 'lucide-react';
+import { DollarSign, Minus, Pause, Play, Plus, X } from 'lucide-react';
 import { getTimerStatusFromSeconds } from '../lib/appCore';
 
 /**
@@ -13,6 +13,7 @@ export interface Player {
   joinedAt: number; // Unix timestamp in milliseconds when player joined
   hourlyTimeLimit?: number; // Time limit in minutes before requiring another purchase
   timeRemainingSeconds?: number;
+  savedTimeCreditMinutes?: number;
   tonightHours?: string;
   totalHours?: string;
   buyInTotal?: number;
@@ -43,6 +44,9 @@ export interface PokerTableProps {
   selectedSeatNumber?: number;
   onSeatClick?: (seatNumber: number) => void;
   onAddTime?: (playerId: string, minutes: number) => void;
+  onDeductTime?: (playerId: string, minutes: number) => boolean | void;
+  onPauseAndSaveTime?: (playerId: string) => boolean | void;
+  onUseSavedTime?: (playerId: string, minutes: number) => boolean | void;
   onAddBuyIn?: (playerId: string, amount: number, note: string) => void;
   onRemovePlayer?: (playerId: string) => void;
   onChangeSeat?: (playerId: string, seatNumber: number) => void;
@@ -64,6 +68,9 @@ interface PlayerCardProps {
   onDragStart: (playerId: string) => void;
   onDragEnd: () => void;
   onAddTime?: (playerId: string, minutes: number) => void;
+  onDeductTime?: (playerId: string, minutes: number) => boolean | void;
+  onPauseAndSaveTime?: (playerId: string) => boolean | void;
+  onUseSavedTime?: (playerId: string, minutes: number) => boolean | void;
   onAddBuyIn?: (playerId: string, amount: number, note: string) => void;
   onRemovePlayer?: (playerId: string) => void;
   onChangeSeat?: (playerId: string, seatNumber: number) => void;
@@ -82,7 +89,7 @@ const formatDuration = (seconds: number) => {
     : `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
 };
 
-type PlayerAction = 'time' | 'buy-in' | null;
+type PlayerAction = 'time' | 'deduct-time' | 'buy-in' | null;
 
 function PlayerCard({
   player,
@@ -96,6 +103,9 @@ function PlayerCard({
   onDragStart,
   onDragEnd,
   onAddTime,
+  onDeductTime,
+  onPauseAndSaveTime,
+  onUseSavedTime,
   onAddBuyIn,
   onRemovePlayer,
   onChangeSeat,
@@ -105,6 +115,7 @@ function PlayerCard({
 }: PlayerCardProps) {
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [customMinutes, setCustomMinutes] = useState('');
+  const [customDeductMinutes, setCustomDeductMinutes] = useState('');
   const [buyInAmount, setBuyInAmount] = useState('');
   const [buyInNote, setBuyInNote] = useState('');
   const [activeAction, setActiveAction] = useState<PlayerAction>(null);
@@ -118,8 +129,10 @@ function PlayerCard({
   const positionHeadingId = `${menuId}-position-heading`;
   const actionsHeadingId = `${menuId}-actions-heading`;
   const timePanelId = `${menuId}-time-panel`;
+  const deductTimePanelId = `${menuId}-deduct-time-panel`;
   const buyInPanelId = `${menuId}-buy-in-panel`;
   const customMinutesId = `${menuId}-custom-minutes`;
+  const customDeductMinutesId = `${menuId}-custom-deduct-minutes`;
   const buyInAmountId = `${menuId}-buy-in-amount`;
   const buyInNoteId = `${menuId}-buy-in-note`;
 
@@ -151,6 +164,7 @@ function PlayerCard({
     if (isOpen) return;
     setActiveAction(null);
     setCustomMinutes('');
+    setCustomDeductMinutes('');
     setBuyInAmount('');
     setBuyInNote('');
     setActionMessage('');
@@ -191,6 +205,35 @@ function PlayerCard({
     }
     addTime(minutes);
   };
+  const deductTime = (minutes: number) => {
+    const result = onDeductTime?.(player.id, minutes);
+    if (result === false) return;
+    setCustomDeductMinutes('');
+    setActiveAction(null);
+    setActionMessage(`${minutes} minutes deducted.`);
+  };
+  const deductCustomTime = () => {
+    const minutes = Number(customDeductMinutes);
+    if (!Number.isInteger(minutes) || minutes <= 0) {
+      setActionMessage('Enter a whole number of minutes greater than zero.');
+      return;
+    }
+    deductTime(minutes);
+  };
+  const pauseAndSaveTime = () => {
+    const result = onPauseAndSaveTime?.(player.id);
+    if (result === false) return;
+    setActiveAction(null);
+    setActionMessage('Remaining time paused and saved to the player profile.');
+  };
+  const useSavedTime = () => {
+    const minutes = Math.max(0, Math.floor(player.savedTimeCreditMinutes ?? 0));
+    if (!minutes) return;
+    const result = onUseSavedTime?.(player.id, minutes);
+    if (result === false) return;
+    setActiveAction(null);
+    setActionMessage(`${minutes} saved minutes applied.`);
+  };
   const addBuyIn = () => {
     const amount = Number(buyInAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -204,15 +247,19 @@ function PlayerCard({
     setActionMessage(`$${amount.toLocaleString()} buy-in recorded.`);
   };
   const selectAction = (action: Exclude<PlayerAction, null>) => {
-    setActiveAction(action);
+    setActiveAction((current) => current === action ? null : action);
     setActionMessage('');
-    if (action === 'time') {
+    if (action === 'time' || action === 'deduct-time') {
       setBuyInAmount('');
       setBuyInNote('');
     } else {
       setCustomMinutes('');
+      setCustomDeductMinutes('');
     }
   };
+  const hasTimeAction = Boolean(showTimeRemaining && (onAddTime || onDeductTime || onPauseAndSaveTime || onUseSavedTime));
+  const hasBuyInAction = Boolean(onAddBuyIn);
+  const hasPlayerActions = hasTimeAction || hasBuyInAction;
 
   return (
     <div ref={cardRef} className={`poker-seat-card ${seatEdgeClass} ${isOpen ? 'open' : ''} ${isDense ? 'dense' : ''} ${isDragging ? 'dragging' : ''}`} style={{ left: `${seat.x}%`, top: `${seat.y}%` }}>
@@ -288,140 +335,193 @@ function PlayerCard({
           <div className="poker-seat-menu-summary">
             <span>At table <strong>{timeAtTableDisplay}</strong></span>
             {showTimeRemaining ? <span>Time left <strong>{timeRemainingDisplay}</strong></span> : null}
+            {player.savedTimeCreditMinutes ? <span>Saved time <strong>{player.savedTimeCreditMinutes} min</strong></span> : null}
             <span>Tonight <strong>{player.tonightHours ?? '0.0h'}</strong></span>
             <span>Total <strong>{player.totalHours ?? '0.0h'}</strong></span>
           </div>
-          <section className="poker-seat-menu-section" aria-labelledby={positionHeadingId}>
-            <h4 className="poker-seat-menu-section-title" id={positionHeadingId}>Table position</h4>
-            <div className="poker-seat-menu-row seat-number-row">
-              <label htmlFor={`change-seat-${player.id}`}>Seat</label>
-              <select
-                id={`change-seat-${player.id}`}
-                value={player.seatNumber ?? position + 1}
-                onChange={(event) => onChangeSeat?.(player.id, Number(event.target.value))}
-              >
-                {seatOptions.map((seatNumber) => (
-                  <option key={seatNumber} value={seatNumber}>
-                    Seat {seatNumber}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {moveTargets.length ? (
-              <div className="poker-seat-menu-row move-player-row">
-                <label htmlFor={`move-player-${player.id}`}>Move to table</label>
-                <select
-                  id={`move-player-${player.id}`}
-                  defaultValue=""
-                  onChange={(event) => {
-                    const targetTableId = event.target.value;
-                    if (!targetTableId) return;
-                    onMovePlayer?.(player.id, targetTableId);
-                    onClose();
-                  }}
-                >
-                  <option value="">Choose table...</option>
-                  {moveTargets.map((target) => (
-                    <option key={target.id} value={target.id}>
-                      {target.label} ({target.openSeats} open)
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
-          </section>
-          {onAddTime || onAddBuyIn ? (
-            <section className="poker-seat-menu-section poker-seat-actions" aria-labelledby={actionsHeadingId}>
-              <h4 className="poker-seat-menu-section-title" id={actionsHeadingId}>Player actions</h4>
-              <div className="poker-seat-action-picker" role="group" aria-label={`Choose an action for ${player.name}`}>
-                {showTimeRemaining && onAddTime ? (
-                  <button
-                    aria-label={`Show add time controls for ${player.name}`}
-                    aria-controls={timePanelId}
-                    aria-pressed={activeAction === 'time'}
-                    className="poker-seat-action-choice"
-                    onClick={() => selectAction('time')}
-                    type="button"
+          <div className={`poker-seat-menu-workspace ${hasPlayerActions ? 'with-actions' : ''}`}>
+            {activeAction === null ? (
+              <section className="poker-seat-menu-section" aria-labelledby={positionHeadingId}>
+                <h4 className="poker-seat-menu-section-title" id={positionHeadingId}>Table position</h4>
+                <div className="poker-seat-menu-row seat-number-row">
+                  <label htmlFor={`change-seat-${player.id}`}>Seat</label>
+                  <select
+                    id={`change-seat-${player.id}`}
+                    value={player.seatNumber ?? position + 1}
+                    onChange={(event) => onChangeSeat?.(player.id, Number(event.target.value))}
                   >
-                    <Plus size={15} /> Add time
-                  </button>
-                ) : null}
-                {onAddBuyIn ? (
-                  <button
-                    aria-label={`Show buy-in form for ${player.name}`}
-                    aria-controls={buyInPanelId}
-                    aria-pressed={activeAction === 'buy-in'}
-                    className="poker-seat-action-choice"
-                    onClick={() => selectAction('buy-in')}
-                    type="button"
-                  >
-                    <DollarSign size={15} /> Record buy-in
-                  </button>
-                ) : null}
-              </div>
-              {actionMessage ? (
-                <p
-                  className="poker-seat-action-feedback"
-                  role={actionMessage.startsWith('Enter ') ? 'alert' : 'status'}
-                >
-                  {actionMessage}
-                </p>
-              ) : null}
-              {activeAction === 'time' && showTimeRemaining && onAddTime ? (
-                <div className="poker-seat-action-panel time-action-panel" id={timePanelId}>
-                  <strong>Add time</strong>
-                  <div className="poker-seat-time-actions">
-                    <button className="mini-button" type="button" onClick={() => addTime(30)}>+30 min</button>
-                    <button className="mini-button" type="button" onClick={() => addTime(60)}>+60 min</button>
-                  </div>
-                  <label className="poker-seat-field" htmlFor={customMinutesId}>
-                    <span>Custom minutes</span>
-                    <input
-                      id={customMinutesId}
-                      value={customMinutes}
-                      onChange={(event) => setCustomMinutes(event.target.value)}
-                      min="1"
-                      placeholder="Minutes"
-                      type="number"
-                    />
-                  </label>
-                  <button className="secondary-button poker-seat-submit-action" type="button" onClick={addCustomTime}>
-                    Add custom time
-                  </button>
+                    {seatOptions.map((seatNumber) => (
+                      <option key={seatNumber} value={seatNumber}>
+                        Seat {seatNumber}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              ) : null}
-              {activeAction === 'buy-in' && onAddBuyIn ? (
-                <div className="poker-seat-action-panel buyin-action-panel" id={buyInPanelId}>
-                  <strong>Record buy-in</strong>
-                  <label className="poker-seat-field" htmlFor={buyInAmountId}>
-                    <span>Amount</span>
-                    <input
-                      id={buyInAmountId}
-                      value={buyInAmount}
-                      onChange={(event) => setBuyInAmount(event.target.value)}
-                      min="1"
-                      placeholder="$0"
-                      type="number"
-                    />
-                  </label>
-                  <label className="poker-seat-field" htmlFor={buyInNoteId}>
-                    <span>Note (optional)</span>
-                    <input id={buyInNoteId} value={buyInNote} onChange={(event) => setBuyInNote(event.target.value)} placeholder="Buy-in note" />
-                  </label>
-                  <button className="secondary-button poker-seat-submit-action" type="button" onClick={addBuyIn}>
-                    Record buy-in
-                  </button>
-                  {player.recentBuyIns?.length ? (
-                    <div className="poker-seat-log" aria-label="Recent buy-ins">
-                      {player.recentBuyIns.slice(0, 4).map((buyIn) => (
-                        <span key={buyIn.id}>{buyIn.label}</span>
+                {moveTargets.length ? (
+                  <div className="poker-seat-menu-row move-player-row">
+                    <label htmlFor={`move-player-${player.id}`}>Move to table</label>
+                    <select
+                      id={`move-player-${player.id}`}
+                      defaultValue=""
+                      onChange={(event) => {
+                        const targetTableId = event.target.value;
+                        if (!targetTableId) return;
+                        onMovePlayer?.(player.id, targetTableId);
+                        onClose();
+                      }}
+                    >
+                      <option value="">Choose table...</option>
+                      {moveTargets.map((target) => (
+                        <option key={target.id} value={target.id}>
+                          {target.label} ({target.openSeats} open)
+                        </option>
                       ))}
-                    </div>
+                    </select>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+            {hasPlayerActions ? (
+              <section className="poker-seat-menu-section poker-seat-actions" aria-labelledby={actionsHeadingId}>
+                <h4 className="poker-seat-menu-section-title" id={actionsHeadingId}>Player actions</h4>
+                <div className="poker-seat-action-picker" role="group" aria-label={`Choose an action for ${player.name}`}>
+                  {showTimeRemaining && onAddTime ? (
+                    <button
+                      aria-label={`${activeAction === 'time' ? 'Hide' : 'Show'} add time controls for ${player.name}`}
+                      aria-controls={timePanelId}
+                      aria-pressed={activeAction === 'time'}
+                      className="poker-seat-action-choice"
+                      onClick={() => selectAction('time')}
+                      type="button"
+                    >
+                      <Plus size={15} /> Add time
+                    </button>
+                  ) : null}
+                  {showTimeRemaining && onDeductTime ? (
+                    <button
+                      aria-label={`${activeAction === 'deduct-time' ? 'Hide' : 'Show'} deduct time controls for ${player.name}`}
+                      aria-controls={deductTimePanelId}
+                      aria-pressed={activeAction === 'deduct-time'}
+                      className="poker-seat-action-choice"
+                      onClick={() => selectAction('deduct-time')}
+                      type="button"
+                    >
+                      <Minus size={15} /> Deduct time
+                    </button>
+                  ) : null}
+                  {showTimeRemaining && onPauseAndSaveTime && timeRemainingSeconds > 0 ? (
+                    <button className="poker-seat-action-choice" onClick={pauseAndSaveTime} type="button">
+                      <Pause size={15} /> Pause &amp; save
+                    </button>
+                  ) : null}
+                  {showTimeRemaining && onUseSavedTime && (player.savedTimeCreditMinutes ?? 0) > 0 ? (
+                    <button className="poker-seat-action-choice" onClick={useSavedTime} type="button">
+                      <Play size={15} /> Use saved time
+                    </button>
+                  ) : null}
+                  {hasBuyInAction ? (
+                    <button
+                      aria-label={`${activeAction === 'buy-in' ? 'Hide' : 'Show'} buy-in form for ${player.name}`}
+                      aria-controls={buyInPanelId}
+                      aria-pressed={activeAction === 'buy-in'}
+                      className="poker-seat-action-choice"
+                      onClick={() => selectAction('buy-in')}
+                      type="button"
+                    >
+                      <DollarSign size={15} /> Record buy-in
+                    </button>
                   ) : null}
                 </div>
-              ) : null}
-            </section>
-          ) : null}
+                {actionMessage ? (
+                  <p
+                    className="poker-seat-action-feedback"
+                    role={actionMessage.startsWith('Enter ') ? 'alert' : 'status'}
+                  >
+                    {actionMessage}
+                  </p>
+                ) : null}
+                {activeAction === 'time' && showTimeRemaining && onAddTime ? (
+                  <div className="poker-seat-action-panel time-action-panel" id={timePanelId}>
+                    <strong>Add time</strong>
+                    <div className="poker-seat-time-actions">
+                      <button className="mini-button" type="button" onClick={() => addTime(30)}>+30 min</button>
+                      <button className="mini-button" type="button" onClick={() => addTime(60)}>+60 min</button>
+                    </div>
+                    <label className="poker-seat-field" htmlFor={customMinutesId}>
+                      <span>Custom minutes</span>
+                      <input
+                        id={customMinutesId}
+                        value={customMinutes}
+                        onChange={(event) => setCustomMinutes(event.target.value)}
+                        min="1"
+                        placeholder="Minutes"
+                        type="number"
+                      />
+                    </label>
+                    <button className="secondary-button poker-seat-submit-action" type="button" onClick={addCustomTime}>
+                      Add custom time
+                    </button>
+                  </div>
+                ) : null}
+                {activeAction === 'deduct-time' && showTimeRemaining && onDeductTime ? (
+                  <div className="poker-seat-action-panel deduct-time-action-panel" id={deductTimePanelId}>
+                    <strong>Deduct mistaken time</strong>
+                    <div className="poker-seat-time-actions">
+                      <button className="mini-button" type="button" onClick={() => deductTime(15)}>-15 min</button>
+                      <button className="mini-button" type="button" onClick={() => deductTime(30)}>-30 min</button>
+                      <button className="mini-button" type="button" onClick={() => deductTime(60)}>-60 min</button>
+                    </div>
+                    <label className="poker-seat-field" htmlFor={customDeductMinutesId}>
+                      <span>Custom minutes</span>
+                      <input
+                        id={customDeductMinutesId}
+                        value={customDeductMinutes}
+                        onChange={(event) => setCustomDeductMinutes(event.target.value)}
+                        min="1"
+                        placeholder="Minutes"
+                        step="1"
+                        type="number"
+                      />
+                    </label>
+                    <button className="secondary-button poker-seat-submit-action" type="button" onClick={deductCustomTime}>
+                      Deduct custom time
+                    </button>
+                    <small>Use this only to correct time added by mistake. Reports receive an offsetting fee correction.</small>
+                  </div>
+                ) : null}
+                {activeAction === 'buy-in' && onAddBuyIn ? (
+                  <div className="poker-seat-action-panel buyin-action-panel" id={buyInPanelId}>
+                    <strong>Record buy-in</strong>
+                    <label className="poker-seat-field" htmlFor={buyInAmountId}>
+                      <span>Amount</span>
+                      <input
+                        id={buyInAmountId}
+                        value={buyInAmount}
+                        onChange={(event) => setBuyInAmount(event.target.value)}
+                        min="1"
+                        placeholder="$0"
+                        type="number"
+                      />
+                    </label>
+                    <label className="poker-seat-field" htmlFor={buyInNoteId}>
+                      <span>Note (optional)</span>
+                      <input id={buyInNoteId} value={buyInNote} onChange={(event) => setBuyInNote(event.target.value)} placeholder="Buy-in note" />
+                    </label>
+                    <button className="secondary-button poker-seat-submit-action" type="button" onClick={addBuyIn}>
+                      Record buy-in
+                    </button>
+                    {player.recentBuyIns?.length ? (
+                      <div className="poker-seat-log" aria-label="Recent buy-ins">
+                        {player.recentBuyIns.slice(0, 4).map((buyIn) => (
+                          <span key={buyIn.id}>{buyIn.label}</span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+          </div>
           <button className="poker-seat-cashout" type="button" onClick={() => {
             onRemovePlayer?.(player.id);
             onClose();
@@ -453,6 +553,9 @@ export default function PokerTable({
   selectedSeatNumber,
   onSeatClick,
   onAddTime,
+  onDeductTime,
+  onPauseAndSaveTime,
+  onUseSavedTime,
   onAddBuyIn,
   onRemovePlayer,
   onChangeSeat,
@@ -608,6 +711,9 @@ export default function PokerTable({
                 setDragOverSeatNumber(null);
               }}
               onAddTime={onAddTime}
+              onDeductTime={onDeductTime}
+              onPauseAndSaveTime={onPauseAndSaveTime}
+              onUseSavedTime={onUseSavedTime}
               onAddBuyIn={onAddBuyIn}
               onRemovePlayer={onRemovePlayer}
               onChangeSeat={onChangeSeat}

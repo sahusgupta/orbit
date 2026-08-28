@@ -1,8 +1,10 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { useRef, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
-import { ChevronDown, ChevronUp, Eye, LayoutDashboard, MoreHorizontal, Plus, Users, WalletCards, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, LayoutDashboard, LayoutGrid, List, MoreHorizontal, Plus, Users, WalletCards, X } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
+import { Button } from './ui/button';
 import FloorRoomMap, { getFloorLayoutStorageKey } from './FloorRoomMap';
+import FloorClassicOverview from './FloorClassicOverview';
 import FloorUtilities from './FloorUtilities';
 import PokerTable, { type Player as PokerTablePlayer } from './PokerTable';
 import PanelTitle from './PanelTitle';
@@ -98,6 +100,9 @@ type FloorViewProps = {
   recordTableEvent: (session: GameSession, type: TableEventType, reason: string, note?: string) => void;
   toggleStartPlayer: (sessionId: string, interestId: string) => void;
   addPlayerTime: (playerSession: PlayerSession, minutes: number) => void;
+  deductPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
+  pauseAndSavePlayerTime: (playerSession: PlayerSession) => boolean;
+  useSavedPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
   addBuyIn: (playerSession: PlayerSession, amountOverride?: number, noteOverride?: string) => void;
   requestPlayerCashOut: (playerSession: PlayerSession) => void;
   changePlayerSeat: (playerSession: PlayerSession, seatNumber: number) => void;
@@ -111,6 +116,10 @@ type FloorViewProps = {
   failFormingGame: (session: GameSession) => void;
   addPhysicalTable: (label: string, maxSeats: TableCap) => void;
   addSession: (gameId: string, physicalTableId?: string) => void;
+  setFloorViewMode: (mode: 'graphic' | 'classic') => void;
+  clearTable: (sessionId: string) => void;
+  deleteTable: (tableId: string) => void;
+  mergeTable: (sourceSessionId: string, targetSessionId: string) => void;
   addInterest: (event: FormEvent) => void;
   checkInProfileFromSearch: (profile: PlayerProfile) => void;
 };
@@ -128,9 +137,11 @@ export default function FloorView(props: FloorViewProps) {
     getSeatOptions, getTimeRemainingSeconds, getMoveTargets, formatHours, formatClock, formatTimeLeft,
     toDateTimeInput, togglePanel, seatInterestAtTable, updateInterest, deleteInterest, openTableView,
     openSeatPicker, startSessionWithPlayers, updateSession, recordTableEvent, toggleStartPlayer,
-    addPlayerTime, addBuyIn, requestPlayerCashOut, changePlayerSeat, movePlayerToTable,
+    addPlayerTime, deductPlayerTime, pauseAndSavePlayerTime, useSavedPlayerTime,
+    addBuyIn, requestPlayerCashOut, changePlayerSeat, movePlayerToTable,
     setTableCollectionMode, updateSessionTimestamp, assignDealer, endDealerAssignment, recordHands,
-    addTableDrop, failFormingGame, addPhysicalTable, addSession, addInterest, checkInProfileFromSearch
+    addTableDrop, failFormingGame, addPhysicalTable, addSession, setFloorViewMode, clearTable,
+    deleteTable, mergeTable, addInterest, checkInProfileFromSearch
   } = props;
   const floorLayoutStorageKey = getFloorLayoutStorageKey(getAccountKeyFromState(state));
   const waitingCount = state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length;
@@ -173,6 +184,20 @@ export default function FloorView(props: FloorViewProps) {
           <span><strong>{state.playerSessions.filter((session) => !session.leftAt).length}</strong> seated</span>
         </div>
         <div className="topbar-actions">
+          <div className="floor-view-toggle" role="group" aria-label="Floor view">
+            <button
+              aria-pressed={state.settings.showPlayerGrid}
+              aria-label="Graphic floor view"
+              onClick={() => setFloorViewMode('graphic')}
+              type="button"
+            ><LayoutGrid size={15} /><span>Graphic</span></button>
+            <button
+              aria-pressed={!state.settings.showPlayerGrid}
+              aria-label="Classic floor view"
+              onClick={() => setFloorViewMode('classic')}
+              type="button"
+            ><List size={15} /><span>Classic</span></button>
+          </div>
           <FloorUtilities
             sessions={state.sessions}
             games={state.games}
@@ -273,19 +298,38 @@ export default function FloorView(props: FloorViewProps) {
       </Dialog.Root>
 
       <div className="floor-room-workspace">
-        <FloorRoomMap
-          key={floorLayoutStorageKey}
-          sessions={state.sessions}
-          physicalTables={state.physicalTables ?? []}
-          games={state.games}
-          playerSessions={state.playerSessions}
-          clockNow={clockNow}
-          layoutStorageKey={floorLayoutStorageKey}
-          getTimeRemainingSeconds={getTimeRemainingSeconds}
-          onOpenTable={openTableView}
-          onAddPhysicalTable={addPhysicalTable}
-          onStartGameAtTable={(physicalTableId, gameId) => addSession(gameId, physicalTableId)}
-        />
+        {state.settings.showPlayerGrid ? (
+          <FloorRoomMap
+            key={floorLayoutStorageKey}
+            sessions={state.sessions}
+            physicalTables={state.physicalTables ?? []}
+            games={state.games}
+            playerSessions={state.playerSessions}
+            clockNow={clockNow}
+            layoutStorageKey={floorLayoutStorageKey}
+            getTimeRemainingSeconds={getTimeRemainingSeconds}
+            onOpenTable={openTableView}
+            onAddPhysicalTable={addPhysicalTable}
+            onStartGameAtTable={(physicalTableId, gameId) => addSession(gameId, physicalTableId)}
+            onClearTable={clearTable}
+            onDeleteTable={deleteTable}
+            onMergeTable={mergeTable}
+          />
+        ) : (
+          <FloorClassicOverview
+            sessions={state.sessions}
+            games={state.games}
+            playerSessions={state.playerSessions}
+            clockNow={clockNow}
+            getTimeRemainingSeconds={getTimeRemainingSeconds}
+            formatTimeLeft={formatTimeLeft}
+            onOpenTable={openTableView}
+            onManageTables={() => openFloorWorkspace('currentTables')}
+            onClearTable={clearTable}
+            onDeleteTable={deleteTable}
+            onMergeTable={mergeTable}
+          />
+        )}
 
         <nav className="floor-workspace-dock" aria-label="Floor workspaces">
           <button
@@ -364,6 +408,11 @@ export default function FloorView(props: FloorViewProps) {
                   const hours = getPlayerLoggedHours(state, playerSession);
                   const buyIns = getSessionBuyIns(state, playerSession);
                   const buyInTotal = buyIns.reduce((sum, buyIn) => sum + buyIn.amount, 0);
+                  const playerProfile = state.profiles.find((profile) =>
+                    playerSession.profileId
+                      ? profile.id === playerSession.profileId
+                      : profile.name.trim().toLowerCase() === playerSession.playerName.trim().toLowerCase()
+                  );
                   return {
                     id: playerSession.id,
                     seatNumber: playerSession.seatNumber ?? index + 1,
@@ -372,6 +421,7 @@ export default function FloorView(props: FloorViewProps) {
                     joinedAt: new Date(playerSession.seatedAt).getTime(),
                     hourlyTimeLimit: isTimeCollection ? Math.max(1, playerSession.timePurchasedMinutes ?? 60) : undefined,
                     timeRemainingSeconds: isTimeCollection ? getTimeRemainingSeconds(playerSession, clockNow) : undefined,
+                    savedTimeCreditMinutes: playerProfile?.savedTimeCreditMinutes ?? 0,
                     tonightHours: formatHours(hours.tonight),
                     totalHours: formatHours(hours.total),
                     buyInTotal,
@@ -413,6 +463,16 @@ export default function FloorView(props: FloorViewProps) {
                       ) : null}
                       <button className="ghost-button" onClick={() => openTableView(session.id)}><Eye size={17} /> Open</button>
                       <button className="ghost-button" onClick={() => setTableLedgerSessionId(session.id)}><WalletCards size={17} /> Ledger</button>
+                      <Button
+                        aria-label={`Close ${session.label} and clear ${seatedPlayers.length} seated player${seatedPlayers.length === 1 ? '' : 's'}`}
+                        onClick={() => recordTableEvent(session, 'Closed', 'Staff closed table')}
+                        size="sm"
+                        title="Close table and clear seated players"
+                        type="button"
+                        variant="destructive"
+                      >
+                        Close table
+                      </Button>
                       <button
                         aria-label={tableExpanded ? 'Hide table' : 'Show table'}
                         className="icon-button"
@@ -494,6 +554,18 @@ export default function FloorView(props: FloorViewProps) {
                             onAddTime={(playerId, minutes) => {
                               const playerSession = seatedPlayers.find((player) => player.id === playerId);
                               if (playerSession) addPlayerTime(playerSession, minutes);
+                            }}
+                            onDeductTime={(playerId, minutes) => {
+                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                              return playerSession ? deductPlayerTime(playerSession, minutes) : false;
+                            }}
+                            onPauseAndSaveTime={(playerId) => {
+                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                              return playerSession ? pauseAndSavePlayerTime(playerSession) : false;
+                            }}
+                            onUseSavedTime={(playerId, minutes) => {
+                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                              return playerSession ? useSavedPlayerTime(playerSession, minutes) : false;
                             }}
                             onAddBuyIn={(playerId, amount, note) => {
                               const playerSession = seatedPlayers.find((player) => player.id === playerId);

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Player check-in | Orbit</title>
+    <link rel="icon" type="image/svg+xml" href="/orbit-logo.svg" />
+    <link rel="stylesheet" href="/self-check-in.css" />
+    <script src="/self-check-in.js" defer></script>
+  </head>
+  <body>
+    <main id="check-in-app" class="check-in-shell" aria-busy="false">
+      <header class="brand-header" aria-label="Orbit">
+        <img src="/orbit-logo.svg" width="40" height="40" alt="" />
+      </header>
+
+      <div id="error-alert" class="alert alert-error" role="alert" tabindex="-1" hidden></div>
+
+      <section id="name-step" class="card name-card" aria-labelledby="name-heading" hidden>
+        <h1 id="name-heading">Check in to <span id="name-club"></span></h1>
+
+        <form id="lookup-form" class="name-form">
+          <label class="sr-only" for="player-name">Full name</label>
+          <div class="name-entry">
+            <input
+              id="player-name"
+              name="name"
+              type="text"
+              placeholder="Name"
+              autocomplete="name"
+              autocapitalize="words"
+              enterkeyhint="go"
+              minlength="2"
+              maxlength="80"
+              aria-describedby="name-error lookup-status"
+              required
+            />
+            <button id="lookup-button" class="continue-button" type="submit" aria-label="Continue">
+              <span aria-hidden="true">&rarr;</span>
+            </button>
+          </div>
+          <p id="name-error" class="field-error" hidden></p>
+          <p id="lookup-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+        </form>
+      </section>
+
+      <section id="table-step" class="card" aria-labelledby="table-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <p id="table-club" class="eyebrow"></p>
+            <h1 id="table-heading" tabindex="-1">Choose a table</h1>
+          </div>
+          <button id="refresh-button" class="icon-button" type="button" aria-label="Refresh tables">
+            <span aria-hidden="true">&#8635;</span>
+          </button>
+        </div>
+        <p id="player-greeting" class="lead"></p>
+        <p id="table-summary" class="table-summary"></p>
+
+        <ul id="table-list" class="table-list" aria-label="Tables with available seats"></ul>
+        <div id="empty-tables" class="empty-state" hidden>
+          <strong>No open seats</strong>
+          <p>Try again shortly.</p>
+        </div>
+        <p id="table-status" class="status-message" role="status" aria-live="polite" aria-atomic="true"></p>
+      </section>
+
+      <section id="success-step" class="card terminal-card success-card" aria-labelledby="success-heading" hidden>
+        <div class="result-icon" aria-hidden="true">&#10003;</div>
+        <p id="success-club" class="eyebrow"></p>
+        <h1 id="success-heading" tabindex="-1">Checked in</h1>
+        <p id="success-message" class="lead"></p>
+        <dl id="success-details" class="result-details">
+          <div id="success-table-row">
+            <dt>Table</dt>
+            <dd id="success-table"></dd>
+          </div>
+          <div id="success-game-row">
+            <dt>Game</dt>
+            <dd id="success-game"></dd>
+          </div>
+          <div id="success-seat-row">
+            <dt>Seat</dt>
+            <dd id="success-seat"></dd>
+          </div>
+        </dl>
+        <p class="next-step">Head to your table.</p>
+      </section>
+
+      <section id="assistance-step" class="card terminal-card assistance-card" aria-labelledby="assistance-heading" hidden>
+        <div class="result-icon" aria-hidden="true">i</div>
+        <p id="assistance-club" class="eyebrow" hidden></p>
+        <h1 id="assistance-heading" tabindex="-1">Staff can help</h1>
+        <p id="assistance-message" class="lead">Please see the front desk.</p>
+      </section>
+
+      <noscript>
+        <section class="card terminal-card assistance-card">
+          <h1>JavaScript required</h1>
+          <p class="lead">Please see staff.</p>
+        </section>
+      </noscript>
+    </main>
+  </body>
+</html>

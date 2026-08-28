@@ -267,7 +267,7 @@ describe('Player discovery presentation contract', () => {
     const componentDigest = digest(discoveryComponentNames.map((name) => findFunction(sources, name)));
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
 
-    expect(componentDigest).toBe('380244f439c848afaa21ec21f64ca3abd530e7df1b933909044dca5ddc23f45c');
+    expect(componentDigest).toBe('dfd9e74a349d50c84f59bb3a0c57113660ff592543b38e5a123ed636e34ae7b2');
     [
       '<GameDetailsScreen',
       '<MyGamesSection',
@@ -324,7 +324,7 @@ describe('Player clubs and membership presentation contract', () => {
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
     const clubsScreen = findFunction(sources, 'ClubsScreen');
 
-    expect(componentDigest).toBe('1127a7ac230c9fa747f8a9df27a9947edc1c6d621a06785b3b1436b7f488ed65');
+    expect(componentDigest).toBe('6c13ded1b96c05ca1830e54e78cb80857a37e49dff91e774d16a4d56c92dcf19');
     ['<ClubsScreen', '<ClubMembershipPlanScreen', '<ClubAccessCheckoutScreen', '<SeatRequestModal'].forEach((token) => expect(playerApp).toContain(token));
     expect(clubsScreen).toContain('<ClubHubSections');
   });
@@ -379,7 +379,7 @@ describe('Player identity and settings presentation contract', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const componentDigest = digest(settingsComponentNames.map((name) => findFunction(sources, name)));
 
-    expect(componentDigest).toBe('9734431411a32ce83dea7529a7d5f87a65dcc0e873221a099548252ecc7ce012');
+    expect(componentDigest).toBe('3515c6404fce6a37e412112e272e6c972f5c1968ba02c9ca9381ee78fae7b4f1');
   });
 
   it('preserves every identity/settings-owned and shared style value byte-for-byte', () => {

@@ -1,5 +1,7 @@
 const crypto = require('crypto');
-const { handleStripeIdentityEvent } = require('./identityService');
+const { StateConflictError, loadState, saveState, schedulePublicationDrain } = require('./database');
+const { getTrustedIdentitySummary, handleStripeIdentityEvent, readIdentityRecord } = require('./identityService');
+const { applyMembershipPaymentToState, applyMembershipRequestToState, buildPlayerClubSnapshot } = require('./orbitCore');
 const { getAdminApp, getAdminSdk } = require('./services/firebaseAdmin');
 const { getStripe } = require('./services/stripeClient');
 
@@ -16,6 +18,77 @@ function getPaymentServiceStatus() {
 
 function isVerifiedPlayerClaims(claims) {
   return Boolean(claims?.phone_number || (claims?.email && claims?.email_verified === true));
+}
+
+function parseMembershipPlanAmountCents(plan) {
+  if (Number.isInteger(plan?.amountCents) && plan.amountCents >= 0) return plan.amountCents;
+  const priceLabel = String(plan?.priceLabel || '').trim();
+  if (/\bfree\b/i.test(priceLabel)) return 0;
+  const match = priceLabel.replace(/,/g, '').match(/^\$?\s*(\d+(?:\.\d{1,2})?)(?:\s*(?:\/|per\s+)(?:day|week|month|mo|year|yr))?$/i);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  return Number.isFinite(amount) && amount >= 0 ? Math.round(amount * 100) : null;
+}
+
+const timeCheckoutProducts = Object.freeze({
+  'time-30': { minutes: 30, name: '30-Minute Time Pack' },
+  'time-60': { minutes: 60, name: '1-Hour Time Pack' },
+  'time-120': { minutes: 120, name: '2-Hour Time Pack' },
+  // Keep fulfilling checkout sessions created before the shorter options shipped.
+  'time-5': { minutes: 300, name: '5-Hour Time Pack' }
+});
+
+function isTimeCheckoutProduct(product) {
+  return Object.hasOwn(timeCheckoutProducts, product);
+}
+
+function getTimeCheckoutMinutes(product) {
+  return timeCheckoutProducts[product]?.minutes || 0;
+}
+
+function resolveAuthoritativeCheckoutProduct(state, body = {}) {
+  if (isTimeCheckoutProduct(body.product)) {
+    const timeEnabled = state?.settings?.defaultCollectionMode === 'Time' ||
+      (state?.settings?.collectionProfiles || []).some((profile) => profile.collectionMode === 'Time') ||
+      (state?.sessions || []).some((session) => session.collectionMode === 'Time' || session.timeFeeBased);
+    const hourlyFee = Number(state?.settings?.defaultHourlyFee || 0);
+    if (!timeEnabled) return { ok: false, status: 409, error: 'This card house is not currently using time fees.' };
+    if (!Number.isFinite(hourlyFee) || hourlyFee <= 0) {
+      return { ok: false, status: 409, error: 'This card house has not configured its hourly time fee.' };
+    }
+    const option = timeCheckoutProducts[body.product];
+    return {
+      ok: true,
+      value: {
+        product: body.product,
+        timeMinutes: option.minutes,
+        amountCents: Math.round(hourlyFee * (option.minutes / 60) * 100),
+        name: option.name
+      }
+    };
+  }
+  const planId = String(body.planId || '').trim();
+  if (!planId) return { ok: false, status: 400, error: 'A membership plan ID is required for checkout.' };
+  const plan = (state?.settings?.membershipPlans || []).find(
+    (candidate) => candidate.active !== false && String(candidate.id || '') === planId
+  );
+  if (!plan) return { ok: false, status: 400, error: 'The selected membership plan is not available at this club.' };
+  const amountCents = parseMembershipPlanAmountCents(plan);
+  if (amountCents == null) return { ok: false, status: 409, error: 'The selected membership plan does not have a checkout price.' };
+  if (amountCents === 0) return { ok: false, status: 409, error: 'This membership plan does not require online payment.' };
+  const membershipDurationDays = Math.max(1, Number(plan.durationDays) || 1);
+  return {
+    ok: true,
+    value: {
+      product: membershipDurationDays === 1 ? 'day' : 'monthly',
+      planId,
+      planName: String(plan.name || 'Membership'),
+      priceLabel: String(plan.priceLabel || ''),
+      membershipDurationDays,
+      amountCents,
+      name: String(plan.name || (membershipDurationDays === 1 ? 'Day Pass' : 'Membership'))
+    }
+  };
 }
 
 async function requireFirebasePlayer(request, response, next) {
@@ -44,8 +117,8 @@ async function requireFirebasePlayer(request, response, next) {
 async function createMembershipCheckout(request, response) {
   const admin = getAdminSdk();
   const { clubId, playerName } = request.body || {};
-  const product = request.body?.product || request.body?.plan;
-  if (!clubId || !['day', 'monthly', 'time-5'].includes(product)) {
+  const requestedProduct = request.body?.product || request.body?.plan;
+  if (!clubId || (!['day', 'monthly'].includes(requestedProduct) && !isTimeCheckoutProduct(requestedProduct))) {
     response.status(400).json({ ok: false, error: 'A valid club and access product are required.' });
     return;
   }
@@ -56,6 +129,51 @@ async function createMembershipCheckout(request, response) {
     return;
   }
   const database = admin.firestore(getAdminApp());
+  const authoritativeClub = await loadState(clubId);
+  if (!authoritativeClub?.state) {
+    response.status(404).json({ ok: false, error: 'The selected Orbit club is unavailable.' });
+    return;
+  }
+  const resolvedProduct = resolveAuthoritativeCheckoutProduct(authoritativeClub.state, {
+    ...request.body,
+    product: requestedProduct
+  });
+  if (!resolvedProduct.ok) {
+    response.status(resolvedProduct.status).json({ ok: false, error: resolvedProduct.error });
+    return;
+  }
+  const productDetails = resolvedProduct.value;
+  const product = productDetails.product;
+  const playerSnapshot = buildPlayerClubSnapshot(authoritativeClub.state, {
+    id: request.orbitPlayer.uid,
+    name: playerName || request.orbitPlayer.name || request.orbitPlayer.email || 'Player',
+    email: request.orbitPlayer.email || '',
+    phone: request.orbitPlayer.phone_number || ''
+  });
+  if (isTimeCheckoutProduct(product) && (!playerSnapshot.timeAccess?.linked || !playerSnapshot.timeAccess.activeSession)) {
+    response.status(409).json({
+      ok: false,
+      error: 'Ask staff to link your verified Orbit email or phone to your Core profile and seat you at a time-fee table first.'
+    });
+    return;
+  }
+  if (isTimeCheckoutProduct(product) && playerSnapshot.timeAccess.profileId) {
+    const linkedProfileId = playerSnapshot.timeAccess.profileId;
+    const profile = (authoritativeClub.state.profiles || []).find((candidate) => candidate.id === linkedProfileId);
+    if (profile && profile.orbitPlayerId !== request.orbitPlayer.uid) {
+      await saveState({
+        ...authoritativeClub.state,
+        profiles: authoritativeClub.state.profiles.map((candidate) => candidate.id === linkedProfileId
+          ? { ...candidate, orbitPlayerId: request.orbitPlayer.uid }
+          : candidate)
+      }, {
+        expectedRevision: authoritativeClub.revision,
+        mutationId: `player-link:${request.orbitPlayer.uid}:${linkedProfileId}`,
+        mutationType: 'player-core-link'
+      });
+      void schedulePublicationDrain();
+    }
+  }
   const clubSnapshot = await database.doc(`clubs/${clubId}`).get();
   if (!clubSnapshot.exists) {
     response.status(404).json({ ok: false, error: 'The selected Orbit club is not published.' });
@@ -67,11 +185,6 @@ async function createMembershipCheckout(request, response) {
     response.status(409).json({ ok: false, error: `${club.name || 'This card house'} has not connected its merchant checkout yet.` });
     return;
   }
-  const productDetails = product === 'day'
-    ? { amountCents: Number(process.env.ORBIT_DAY_PASS_PRICE_CENTS || 1000), name: 'Day Pass' }
-    : product === 'monthly'
-      ? { amountCents: Number(process.env.ORBIT_MONTHLY_MEMBERSHIP_PRICE_CENTS || 3500), name: 'Monthly Membership' }
-      : { amountCents: Number(process.env.ORBIT_FIVE_HOUR_TIME_PRICE_CENTS || 5000), name: '5-Hour Time Pack' };
   const session = await getStripe().checkout.sessions.create({
     mode: 'payment',
     customer_email: request.orbitPlayer.email,
@@ -90,7 +203,14 @@ async function createMembershipCheckout(request, response) {
       product,
       playerId: request.orbitPlayer.uid,
       playerName: String(playerName || request.orbitPlayer.name || request.orbitPlayer.email || 'Player').slice(0, 120),
-      playerEmail: String(request.orbitPlayer.email || '').slice(0, 200)
+      playerEmail: String(request.orbitPlayer.email || '').slice(0, 200),
+      ...(isTimeCheckoutProduct(product) ? { timeMinutes: String(productDetails.timeMinutes) } : {}),
+      ...(productDetails.planId ? {
+        planId: productDetails.planId,
+        planName: productDetails.planName.slice(0, 120),
+        priceLabel: productDetails.priceLabel.slice(0, 120),
+        membershipDurationDays: String(productDetails.membershipDurationDays)
+      } : {})
     },
     success_url: `${successUrl}${successUrl.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: cancelUrl
@@ -151,11 +271,11 @@ async function recordMembershipPayment(event, dependencies = {}) {
   if (!clubId || !playerId || session.payment_status !== 'paid') return;
   const product = metadata.product || metadata.plan || 'monthly';
   const occurredAt = new Date((event.created || Math.floor(Date.now() / 1000)) * 1000).toISOString();
-  const planDays = product === 'day' ? 1 : 30;
-  const joinedAt = occurredAt.slice(0, 10);
-  const expires = new Date(`${joinedAt}T12:00:00Z`);
-  expires.setUTCDate(expires.getUTCDate() + planDays);
   const database = dependencies.database || admin.firestore(getAdminApp());
+  let reconciliation = null;
+  if (dependencies.reconcileState !== false && (!dependencies.database || dependencies.loadState)) {
+    reconciliation = await reconcileMembershipPayment(event, dependencies);
+  }
   const eventRef = database.doc(`webhookEvents/${webhookEventDocumentId('stripe', event.id)}`);
   const transactionRef = database.doc(`clubs/${clubId}/transactions/${session.id}`);
   const membershipRef = database.doc(`clubs/${clubId}/memberships/${playerId}`);
@@ -180,7 +300,7 @@ async function recordMembershipPayment(event, dependencies = {}) {
 
     transaction.set(transactionRef, {
       id: session.id,
-      type: product === 'time-5' ? 'time-package' : 'membership',
+      type: isTimeCheckoutProduct(product) ? 'time-package' : 'membership',
       amountCents: Number(session.amount_total || 0),
       currency: session.currency || 'usd',
       occurredAt,
@@ -189,7 +309,7 @@ async function recordMembershipPayment(event, dependencies = {}) {
       playerId,
       playerName: metadata.playerName || '',
       playerEmail: metadata.playerEmail || session.customer_details?.email || '',
-      membershipPlan: product === 'time-5' ? null : product,
+      membershipPlan: isTimeCheckoutProduct(product) ? null : product,
       accessProduct: product,
       fulfilledByClubId: clubId,
       connectedStripeAccountId: event.account || '',
@@ -197,33 +317,138 @@ async function recordMembershipPayment(event, dependencies = {}) {
       stripePaymentIntentId: String(session.payment_intent || ''),
       createdAt: processedAt
     }, { merge: true });
-    if (product === 'time-5') {
+    if (isTimeCheckoutProduct(product)) {
       const timeWalletRef = database.doc(`clubs/${clubId}/timeWallets/${playerId}`);
       transaction.set(timeWalletRef, {
         id: `${clubId}:${playerId}`,
         clubId,
         playerId,
         playerName: metadata.playerName || '',
-        balanceMinutes: admin.firestore.FieldValue.increment(300),
+        balanceMinutes: admin.firestore.FieldValue.increment(getTimeCheckoutMinutes(product)),
         lastPurchaseTransactionId: session.id,
         updatedAt: processedAt
       }, { merge: true });
     } else {
-      transaction.set(membershipRef, {
+      transaction.set(membershipRef, buildPaidMembershipProjection({
+        reconciliation,
         id: `${clubId}:${playerId}`,
         clubId,
         playerId,
         playerName: metadata.playerName || '',
-        status: 'Active',
         plan: product,
-        joinedAt,
-        expiresAt: expires.toISOString().slice(0, 10),
         paymentTransactionId: session.id,
         updatedAt: processedAt
-      }, { merge: true });
+      }), { merge: true });
     }
     return 'applied';
   });
+}
+
+function buildPaidMembershipProjection(input) {
+  const profile = input.reconciliation?.profile || {};
+  const active = profile.membershipStatus === 'Active' && profile.membershipPaymentStatus === 'Paid';
+  return {
+    id: input.id,
+    clubId: input.clubId,
+    playerId: input.playerId,
+    playerName: input.playerName,
+    status: active ? 'Active' : profile.membershipStatus || 'Approved',
+    plan: input.plan,
+    joinedAt: active ? String(profile.membershipStartDate || '') : '',
+    expiresAt: active ? String(profile.membershipExpirationDate || '') || null : null,
+    paymentTransactionId: input.paymentTransactionId,
+    membershipPaymentStatus: 'Paid',
+    identityReviewStatus: profile.identityReviewStatus || 'Pending',
+    updatedAt: input.updatedAt
+  };
+}
+
+async function reconcileMembershipPayment(event, dependencies = {}) {
+  const session = event.data.object;
+  const metadata = session.metadata || {};
+  const clubId = String(metadata.clubId || '').trim();
+  const playerId = String(metadata.playerId || session.client_reference_id || '').trim();
+  if (!clubId || !playerId || session.payment_status !== 'paid') return { outcome: 'ignored', profile: null };
+  const load = dependencies.loadState || loadState;
+  const save = dependencies.saveState || saveState;
+  const schedule = dependencies.schedulePublicationDrain || schedulePublicationDrain;
+  const readIdentity = dependencies.readIdentityRecord || readIdentityRecord;
+  const product = metadata.product || metadata.plan || 'monthly';
+  const occurredAt = new Date((event.created || Math.floor(Date.now() / 1000)) * 1000).toISOString();
+  const identityRecord = isTimeCheckoutProduct(product) ? {} : await readIdentity(playerId);
+  const identitySummary = getTrustedIdentitySummary(identityRecord);
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const record = await load(clubId);
+    if (!record?.state) throw new Error(`Authoritative club state is unavailable for paid checkout ${session.id}.`);
+    if ((record.state.revenueTransactions || []).some((transaction) => transaction.id === String(session.id))) {
+      void schedule();
+      return {
+        outcome: 'duplicate-payment',
+        profile: (record.state.profiles || []).find((profile) => profile.id === playerId || profile.orbitPlayerId === playerId) || null
+      };
+    }
+    const linkedSnapshot = isTimeCheckoutProduct(product)
+      ? buildPlayerClubSnapshot(record.state, {
+          id: playerId,
+          name: metadata.playerName || 'Player',
+          email: metadata.playerEmail || session.customer_details?.email || ''
+        })
+      : null;
+    const corePlayerId = isTimeCheckoutProduct(product) ? linkedSnapshot?.timeAccess?.profileId : playerId;
+    if (isTimeCheckoutProduct(product) && !corePlayerId) {
+      throw new Error(`The paid time checkout ${session.id} is no longer linked to a Core player profile.`);
+    }
+    let nextState = record.state;
+    if (!isTimeCheckoutProduct(product)) {
+      nextState = applyMembershipRequestToState(nextState, {
+        id: `stripe-${session.id}`,
+        clubId,
+        plan: product === 'day' ? 'day' : 'monthly',
+        paymentMethod: 'app',
+        priceLabel: metadata.priceLabel,
+        planName: metadata.planName,
+        membershipDurationDays: Number(metadata.membershipDurationDays || 0) || undefined,
+        membershipPaymentRequired: true,
+        requestedAt: occurredAt,
+        player: {
+          id: playerId,
+          name: identitySummary.fullName || metadata.playerName || 'Player',
+          email: metadata.playerEmail || session.customer_details?.email || '',
+          preferredGameIds: []
+        },
+        identitySummary
+      });
+    }
+    nextState = applyMembershipPaymentToState(nextState, {
+      clubId,
+      transactionId: String(session.id),
+      playerId: corePlayerId,
+      playerName: identitySummary.fullName || metadata.playerName || '',
+      playerEmail: metadata.playerEmail || session.customer_details?.email || '',
+      product,
+      timeMinutes: isTimeCheckoutProduct(product) ? getTimeCheckoutMinutes(product) : 0,
+      membershipDurationDays: Number(metadata.membershipDurationDays || 0) || undefined,
+      amountCents: Number(session.amount_total || 0),
+      occurredAt,
+      stripeEventId: String(event.id || '')
+    });
+    try {
+      const saved = await save(nextState, {
+        expectedRevision: record.revision,
+        mutationId: `stripe-payment:${session.id}`,
+        mutationType: 'stripe-membership-payment'
+      });
+      void schedule();
+      return {
+        outcome: saved.duplicate ? 'duplicate-payment' : 'applied',
+        profile: (nextState.profiles || []).find((profile) => profile.id === playerId) || null
+      };
+    } catch (error) {
+      if (!(error instanceof StateConflictError) || attempt === 2) throw error;
+    }
+  }
+  return { outcome: 'conflict', profile: null };
 }
 
 function hashProviderEventId(eventId) {
@@ -299,11 +524,15 @@ async function applyRevenueCatEvent(database, admin, event, options) {
 
 module.exports = {
   applyRevenueCatEvent,
+  buildPaidMembershipProjection,
   createMembershipCheckout,
   getPaymentServiceStatus,
   isVerifiedPlayerClaims,
   handleRevenueCatWebhook,
   handleStripeWebhook,
+  parseMembershipPlanAmountCents,
   recordMembershipPayment,
+  reconcileMembershipPayment,
+  resolveAuthoritativeCheckoutProduct,
   requireFirebasePlayer
 };

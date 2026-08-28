@@ -674,10 +674,16 @@ function applyRevenueTransactions(state: FirebaseSyncState, rawTransactions: unk
       const membershipExpirationDate = addDays(membershipStartDate, transaction.membershipPlan === 'day' ? 1 : 30);
       if (profileIndex >= 0) {
         const profile = profiles[profileIndex];
+        const identityReady = profile.identityReviewStatus === 'Approved' || profile.identityReviewStatus === 'Not required';
         profiles[profileIndex] = {
           ...profile,
-          membershipStartDate,
-          membershipExpirationDate,
+          membershipStartDate: identityReady ? membershipStartDate : '',
+          membershipExpirationDate: identityReady ? membershipExpirationDate : '',
+          membershipExpiresAt: identityReady ? `${membershipExpirationDate}T23:59:59.999Z` : undefined,
+          membershipStatus: identityReady ? 'Active' : 'Approved',
+          membershipPaymentStatus: 'Paid',
+          membershipPaymentTransactionId: transaction.id,
+          membershipPaymentAmountCents: transaction.amountCents,
           notes: profile.notes || `Verified payment: ${transaction.playerEmail || transaction.playerId}`
         };
         return;
@@ -689,8 +695,15 @@ function applyRevenueTransactions(state: FirebaseSyncState, rawTransactions: unk
         name: transaction.playerName,
         phone: '',
         birthday: '',
-        membershipStartDate,
-        membershipExpirationDate,
+        membershipStartDate: '',
+        membershipExpirationDate: '',
+        membershipPlan: transaction.membershipPlan,
+        membershipPaymentMethod: 'app',
+        membershipStatus: 'Approved',
+        membershipPaymentStatus: 'Paid',
+        membershipPaymentTransactionId: transaction.id,
+        membershipPaymentAmountCents: transaction.amountCents,
+        identityReviewStatus: 'Pending',
         totalTimePlayedHours: 0,
         lastSessionTimePlayedHours: 0,
         commonlyPlaysWithProfileIds: [],
@@ -735,6 +748,8 @@ async function markRequestApplied(accountKey: string, collectionName: 'membershi
 async function updatePlayerMembershipStatus(playerId: string | undefined, clubId: string, request: PlayerMembershipRequest) {
   if (!playerId) return;
   const requestedAt = request.requestedAt || new Date().toISOString();
+  const priceLabel = request.planPriceLabel ?? request.priceLabel ?? '';
+  const paymentNotRequired = /\bfree\b/i.test(priceLabel) || /(?:^|\D)0(?:\.0+)?(?:\D|$)/.test(priceLabel);
   // The player profile mirror is secondary to the authoritative club request update.
   await setDoc(
     doc(db, 'clubs', clubId, 'memberships', playerId),
@@ -742,16 +757,16 @@ async function updatePlayerMembershipStatus(playerId: string | undefined, clubId
       clubId,
       playerId,
       playerName: request.player.name,
-      status: request.paymentMethod === 'in-person' ? 'Requested' : 'Active',
+      status: 'Approved',
       requestedAt,
-      joinedAt: request.paymentMethod === 'in-person' ? '' : requestedAt.slice(0, 10),
-      expiresAt: request.paymentMethod === 'in-person'
-        ? null
-        : addDays(requestedAt.slice(0, 10), request.membershipDurationDays ?? 365),
+      joinedAt: '',
+      expiresAt: null,
       planId: request.planId,
       planName: request.planName,
       plan: request.plan,
       paymentMethod: request.paymentMethod,
+      paymentStatus: paymentNotRequired ? 'Not required' : 'Pending',
+      identityReviewStatus: 'Pending',
       updatedAt: serverTimestamp()
     },
     { merge: true }

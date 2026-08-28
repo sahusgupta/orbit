@@ -171,7 +171,6 @@ export function buildGameOpportunities({
         if (selectedFilterClubId !== 'all' && club.club.id !== selectedFilterClubId) return [];
       }
       return club.games
-        .filter(isActivePlayerGame)
         .filter((game) => !activePlayerGameKeys.has(`${club.club.id}:${game.id}`))
         .filter((game) => !query || `${game.name} ${clubSearchText}`.toLowerCase().includes(query))
         .filter((game) => !stakesQuery || game.name.toLowerCase().includes(stakesQuery))
@@ -208,8 +207,32 @@ export function buildGameOpportunities({
     });
 }
 
+export function selectContinuousDiscoveryOpportunities(
+  exactMatches: GameOpportunity[],
+  broadMatches: GameOpportunity[]
+) {
+  if (exactMatches.length) return { opportunities: exactMatches, filtersRelaxed: false };
+  if (broadMatches.length) return { opportunities: broadMatches, filtersRelaxed: true };
+  return { opportunities: [], filtersRelaxed: false };
+}
+
 export function getDiscoveryDeck(opportunities: GameOpportunity[], decisions: Record<string, DiscoveryDecision>) {
-  return opportunities.filter((item) => !decisions[getOpportunityKey(item)]);
+  const unreviewed = opportunities.filter((item) => !decisions[getOpportunityKey(item)]);
+  return unreviewed.length || !opportunities.length ? unreviewed : opportunities;
+}
+
+export function advanceDiscoveryCycle(
+  opportunities: GameOpportunity[],
+  decisions: Record<string, DiscoveryDecision>,
+  item: GameOpportunity,
+  decision: DiscoveryDecision
+) {
+  const itemKey = getOpportunityKey(item);
+  const next = { ...decisions, [itemKey]: decision };
+  const exhausted = opportunities.length > 0
+    && opportunities.every((opportunity) => Boolean(next[getOpportunityKey(opportunity)]));
+  if (!exhausted) return next;
+  return opportunities.length === 1 ? {} : { [itemKey]: decision };
 }
 
 export function getSavedOpportunities(opportunities: GameOpportunity[], decisions: Record<string, DiscoveryDecision>) {

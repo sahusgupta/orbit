@@ -65,7 +65,7 @@ export function buildFloorActivityItems(state: FloorActivityState): FloorActivit
 
   const activityItems: FloorActivityItem[] = [
     ...state.playerLedger.map((entry): FloorActivityItem => {
-      const amount = entry.amount ? ` $${entry.amount.toLocaleString()}` : '';
+      const amount = entry.amount !== undefined ? ` $${entry.amount.toLocaleString()}` : '';
       const eventType = entry.type === 'Check-In' && entry.tableId ? 'Seated' : entry.type;
       return {
         id: `ledger-${entry.id}`,

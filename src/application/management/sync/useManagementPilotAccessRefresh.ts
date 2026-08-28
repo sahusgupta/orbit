@@ -7,11 +7,13 @@ import {
 } from '../../../app/persistence/managementPersistence';
 
 type ManagementPilotAccessRefreshOptions = {
+  getCurrentState: () => AppState;
   setState: Dispatch<SetStateAction<AppState>>;
   state: AppState;
 };
 
 export const useManagementPilotAccessRefresh = ({
+  getCurrentState,
   setState,
   state
 }: ManagementPilotAccessRefreshOptions) => {
@@ -28,7 +30,9 @@ export const useManagementPilotAccessRefresh = ({
       if (!result.managed) {
         // One-time migration: publishing the already activated signed key lets the
         // API register it without asking the venue to load a replacement file.
-        await saveDesktopManagementState(state)?.catch(() => undefined);
+        const currentState = getCurrentState();
+        if (currentState.settings.pilotAccess?.authorizationCode !== access.authorizationCode) return;
+        await saveDesktopManagementState(currentState)?.catch(() => undefined);
         result = await validatePilotAccess(access).catch(() => null);
       }
       if (cancelled || !result?.managed || !result.license?.expiresAt) return;

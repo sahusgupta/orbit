@@ -247,16 +247,24 @@ describe('API license compiler boundaries', () => {
       status: 'active'
     };
     const set = vi.fn().mockResolvedValue(undefined);
+    const inspectPilotLicense = loadFunction<AuthenticatePilotLicense>(
+      licenseServiceSource,
+      'apps/api/src/licenseService.js',
+      'inspectPilotLicense',
+      {
+        findLicenseByAuthorizationCode: vi.fn().mockResolvedValue(record),
+        isLicenseActive: () => true,
+        publicLicense: (value: LicenseRecord) => ({ ...value })
+      }
+    );
     const authenticatePilotLicense = loadFunction<AuthenticatePilotLicense>(
       licenseServiceSource,
       'apps/api/src/licenseService.js',
       'authenticatePilotLicense',
       {
         Date,
-        findLicenseByAuthorizationCode: vi.fn().mockResolvedValue(record),
         getLicenseCollection: () => ({ doc: (id: string) => ({ id, set }) }),
-        isLicenseActive: () => true,
-        publicLicense: (value: LicenseRecord) => ({ ...value })
+        inspectPilotLicense
       }
     );
 

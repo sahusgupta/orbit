@@ -1,4 +1,5 @@
 import type { AppState, GameSession, TableEventType } from '../../domain/types';
+import { markPlayerSessionLeft } from './playerSessionCommands';
 import type { TableCommandDependencies } from './tableCommands';
 
 const markManualEdit = (
@@ -93,9 +94,26 @@ export function recordTableLifecycleEvent(
   dependencies: TableCommandDependencies
 ): AppState {
   const timestamp = dependencies.nowIso();
+  const closesPlayers = type === 'Broke' || type === 'Closed';
+  const activePlayers = closesPlayers
+    ? state.playerSessions.filter((playerSession) => playerSession.tableId === session.id && !playerSession.leftAt)
+    : [];
+  const departureNote = type === 'Broke'
+    ? 'Table broke; player session closed by staff'
+    : 'Table closed by staff';
+  const stableDependencies = {
+    createId: dependencies.createId,
+    nowIso: () => timestamp
+  };
+  const stateWithDepartures = activePlayers.reduce(
+    (nextState, playerSession) =>
+      markPlayerSessionLeft(nextState, playerSession, undefined, departureNote, stableDependencies).state,
+    state
+  );
+
   return {
-    ...state,
-    sessions: state.sessions.map((item) =>
+    ...stateWithDepartures,
+    sessions: stateWithDepartures.sessions.map((item) =>
       item.id === session.id
         ? {
             ...item,
@@ -112,22 +130,15 @@ export function recordTableLifecycleEvent(
           }
         : item
     ),
-    playerSessions: type === 'Broke' || type === 'Closed'
-      ? state.playerSessions.map((playerSession) =>
-          playerSession.tableId === session.id && !playerSession.leftAt
-            ? { ...playerSession, leftAt: timestamp }
-            : playerSession
-        )
-      : state.playerSessions,
     dealerAssignments: type === 'Broke' || type === 'Closed' || type === 'Failed to Start'
-      ? state.dealerAssignments.map((assignment) =>
+      ? stateWithDepartures.dealerAssignments.map((assignment) =>
           assignment.tableId === session.id && !assignment.endedAt
             ? { ...assignment, endedAt: timestamp }
             : assignment
         )
-      : state.dealerAssignments,
+      : stateWithDepartures.dealerAssignments,
     tableEvents: [
-      ...state.tableEvents,
+      ...stateWithDepartures.tableEvents,
       {
         id: dependencies.createId(),
         type,

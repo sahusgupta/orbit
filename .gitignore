@@ -42,6 +42,7 @@ ui-debug.log*
 
 # Packaging and generated downloads
 out/
+output/
 download-dist/
 download-site/public/downloads/
 download-site/downloads/

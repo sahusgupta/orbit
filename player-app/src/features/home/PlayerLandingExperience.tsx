@@ -97,6 +97,8 @@ export function PlayerAmbientFlow() {
 
 export function PlayerLandingHero({
   opportunities,
+  inventoryPartial,
+  inventoryStatus,
   openTournamentCount,
   clubCount,
   onFindGame,
@@ -105,6 +107,8 @@ export function PlayerLandingHero({
   onBrowseClubs
 }: {
   opportunities: GameOpportunity[];
+  inventoryPartial: boolean;
+  inventoryStatus: 'idle' | 'loading' | 'ready' | 'error';
   openTournamentCount: number;
   clubCount: number;
   onFindGame: () => void;
@@ -115,6 +119,18 @@ export function PlayerLandingHero({
   const [activeFeatureId, setActiveFeatureId] = useState<(typeof featureCards)[number]['id']>('live');
   const activeFeature = featureCards.find((feature) => feature.id === activeFeatureId) ?? featureCards[0];
   const currentGames = opportunities.slice(0, 3);
+  let emptyInventoryTitle = 'Loading live games';
+  let emptyInventoryCopy = 'Orbit is checking the latest updates from current rooms.';
+  if (inventoryPartial) {
+    emptyInventoryTitle = 'More live games are loading';
+    emptyInventoryCopy = 'No matches are in the rooms loaded so far. More rooms are still refreshing.';
+  } else if (inventoryStatus === 'ready') {
+    emptyInventoryTitle = 'No live games published yet';
+    emptyInventoryCopy = 'Browse current rooms while they update their floors.';
+  } else if (inventoryStatus === 'error') {
+    emptyInventoryTitle = 'Live games unavailable';
+    emptyInventoryCopy = 'Orbit could not refresh current games. Try again when your connection returns.';
+  }
 
   return (
     <View style={styles.landingHero}>
@@ -136,7 +152,7 @@ export function PlayerLandingHero({
         <Text accessibilityRole="header" style={styles.heroTitle}>Find your game.</Text>
         <View style={styles.heroActions}>
           <Pressable accessibilityRole="button" onPress={onFindGame} style={styles.primaryAction}>
-            <Text style={styles.primaryActionText}>Find a game</Text>
+            <Text style={styles.primaryActionText}>Start matching</Text>
             <Ionicons color="#ffffff" name="arrow-forward" size={18} />
           </Pressable>
           <Pressable accessibilityRole="button" onPress={onBrowseTournaments} style={styles.secondaryAction}>
@@ -202,7 +218,7 @@ export function PlayerLandingHero({
             <Text style={styles.nowBoardTitle}>Now on Orbit</Text>
           </View>
           <Pressable accessibilityRole="button" onPress={onFindGame} style={styles.quietAction}>
-            <Text style={styles.quietActionText}>All games</Text>
+            <Text style={styles.quietActionText}>View matches</Text>
             <Ionicons color="#9bb0ff" name="arrow-forward" size={15} />
           </Pressable>
         </View>
@@ -242,8 +258,8 @@ export function PlayerLandingHero({
           <View style={styles.nowBoardEmpty}>
             <Ionicons color={colors.primary} name="radio-outline" size={22} />
             <View style={styles.nowBoardEmptyCopy}>
-              <Text style={styles.nowBoardEmptyTitle}>No live games published yet</Text>
-              <Text style={styles.nowBoardEmptyText}>Browse current rooms while they update their floors.</Text>
+              <Text style={styles.nowBoardEmptyTitle}>{emptyInventoryTitle}</Text>
+              <Text style={styles.nowBoardEmptyText}>{emptyInventoryCopy}</Text>
             </View>
           </View>
         )}

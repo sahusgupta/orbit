@@ -3,6 +3,7 @@ import { seedState } from '../../../domain/state';
 import type { AppState, Interest, PlayerProfile } from '../../../domain/types';
 import {
   getIncomingStaffRequestNotice,
+  getIncomingStaffRequestNotices,
   loadStaffRequestNotifications,
   prependStaffRequestNotification,
   saveStaffRequestNotifications,
@@ -70,7 +71,7 @@ describe('staff request notification policy', () => {
       id: 'membership-newer-2026-08-08T21:00:00.000Z',
       kind: 'membership',
       title: 'New membership request',
-      body: 'newer applied from the player app.',
+      body: 'newer signed up from the player app.',
       createdAt: clock.nowIso(),
       read: false
     });
@@ -88,6 +89,43 @@ describe('staff request notification policy', () => {
       body: 'newer-seat requested a seat in Notice Game.'
     });
     expect(getIncomingStaffRequestNotice(next, next, clock)).toBeNull();
+  });
+
+  it('emits every new pending walk-in alert without treating it as player demand', () => {
+    const previous = state();
+    const next = {
+      ...state(),
+      staffRequests: [
+        {
+          id: 'older-walk-in',
+          type: 'self-check-in-assistance' as const,
+          playerName: 'Older Player',
+          reason: 'not-found' as const,
+          status: 'pending' as const,
+          createdAt: '2026-08-08T20:00:00.000Z'
+        },
+        {
+          id: 'newer-walk-in',
+          type: 'self-check-in-assistance' as const,
+          playerName: 'New Player',
+          reason: 'ambiguous' as const,
+          status: 'pending' as const,
+          createdAt: '2026-08-08T21:00:00.000Z'
+        }
+      ]
+    };
+
+    expect(getIncomingStaffRequestNotices(previous, next, clock)).toEqual([
+      expect.objectContaining({
+        id: 'walk-in-newer-walk-in',
+        kind: 'walk-in',
+        staffRequestId: 'newer-walk-in',
+        body: 'New Player scanned the club code and needs staff assistance.'
+      }),
+      expect.objectContaining({ id: 'walk-in-older-walk-in', kind: 'walk-in' })
+    ]);
+    expect(next.profiles).toEqual([]);
+    expect(next.interests).toEqual([]);
   });
 
   it('deduplicates newest-first, caps at 100, and round-trips browser storage', () => {
@@ -112,7 +150,16 @@ describe('staff request notification policy', () => {
     };
     saveStaffRequestNotifications(next, storage);
     expect(values.has(staffNotificationsStorageKey)).toBe(true);
-    expect(loadStaffRequestNotifications(storage)).toEqual(next);
+    expect(values.get(staffNotificationsStorageKey)).not.toContain('Replacement');
+    expect(loadStaffRequestNotifications(storage)).toEqual(next.map((notification) => ({
+      id: notification.id,
+      kind: notification.kind,
+      title: 'Seat request',
+      body: 'Open Orbit to review this request.',
+      createdAt: notification.createdAt,
+      read: notification.read,
+      staffRequestId: undefined
+    })));
     values.set(staffNotificationsStorageKey, '{invalid');
     expect(loadStaffRequestNotifications(storage)).toEqual([]);
   });

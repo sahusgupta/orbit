@@ -295,6 +295,48 @@ describe('Electron update controller', () => {
     expect(statuses).toContainEqual({ state: 'error', message: 'check failed' });
   });
 
+  it('keeps a downloaded update actionable after a later updater error', () => {
+    const autoUpdater = Object.assign(createEmitter(), {
+      checkForUpdatesAndNotify: vi.fn().mockResolvedValue(undefined),
+      quitAndInstall: vi.fn()
+    });
+    const controller = createUpdateController(baseDependencies({ autoUpdater }));
+
+    controller.start();
+    autoUpdater.listeners.get('update-downloaded')?.({ version: '2.0.0' });
+    autoUpdater.listeners.get('error')?.(new Error('later check failed'));
+
+    expect(controller.getStatus()).toEqual({
+      state: 'error',
+      message: 'later check failed',
+      updateReady: true
+    });
+  });
+
+  it('does not expose a duplicate install action while state preservation is in progress', async () => {
+    const autoUpdater = Object.assign(createEmitter(), {
+      checkForUpdatesAndNotify: vi.fn().mockResolvedValue(undefined),
+      quitAndInstall: vi.fn()
+    });
+    const floorWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } };
+    const controller = createUpdateController(baseDependencies({
+      autoUpdater,
+      getFloorWindow: () => floorWindow,
+      getAllWindows: () => [floorWindow]
+    }));
+
+    controller.start();
+    autoUpdater.listeners.get('update-downloaded')?.({ version: '2.0.0' });
+    const installation = controller.installDownloadedUpdate();
+    expect(controller.getStatus()).toEqual({ state: 'preserving-state' });
+
+    autoUpdater.listeners.get('error')?.(new Error('concurrent updater error'));
+    expect(controller.getStatus()).toEqual({ state: 'error', message: 'concurrent updater error' });
+
+    await controller.handleRendererStateFlush('flush-001', { games: [], sessions: [], playerSessions: [], settings: {} });
+    await expect(installation).resolves.toEqual({ ok: true });
+  });
+
   it('preserves state locally before best-effort cloud flush and resolves failures through the same handshake', async () => {
     const saveStateToApi = vi.fn().mockRejectedValue(new Error('cloud unavailable'));
     const writeOrbitApiLog = vi.fn();

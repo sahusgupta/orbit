@@ -1,6 +1,6 @@
 import { getTimeRemainingMinutes, hoursBetween } from '../../domain/operations';
 import { getCollectionProfile } from '../../domain/reporting';
-import type { AppState, GameSession, Interest, PlayerSession } from '../../domain/types';
+import type { AppState, GameSession, Interest, PlayerProfile, PlayerSession } from '../../domain/types';
 import { syncSessionSeatCount } from './seatingCommands';
 
 export type PlayerSessionCommandDependencies = {
@@ -12,6 +12,10 @@ export type PlayerSessionCommandDependencies = {
 export type PlayerSessionCommandResult =
   | { ok: true; state: AppState }
   | { ok: false; error?: string };
+
+type ResolvedTimeProfile =
+  | { ok: true; profile: PlayerProfile }
+  | { ok: false; error: string };
 
 const markManualEdit = (
   edits: Record<string, string> | undefined,
@@ -38,6 +42,43 @@ const withCorrectionLog = (
     ...state.correctionLog
   ].slice(0, 50)
 });
+
+const findCurrentPlayerSession = (state: AppState, playerSessionId: string) => {
+  const playerSession = state.playerSessions.find((session) => session.id === playerSessionId);
+  if (!playerSession) return { ok: false as const, error: 'This player session no longer exists.' };
+  if (playerSession.leftAt) return { ok: false as const, error: 'This player session is already closed.' };
+  return { ok: true as const, playerSession };
+};
+
+const resolveTimeProfile = (state: AppState, playerSession: PlayerSession): ResolvedTimeProfile => {
+  if (playerSession.profileId) {
+    const profile = state.profiles.find((candidate) => candidate.id === playerSession.profileId);
+    return profile
+      ? { ok: true, profile }
+      : { ok: false, error: 'The player session is linked to a profile that no longer exists.' };
+  }
+
+  const normalizedName = playerSession.playerName.trim().toLowerCase();
+  const legacyMatches = state.profiles.filter(
+    (profile) => profile.name.trim().toLowerCase() === normalizedName
+  );
+  if (legacyMatches.length === 1) return { ok: true, profile: legacyMatches[0] };
+  if (legacyMatches.length > 1) {
+    return {
+      ok: false,
+      error: 'Multiple player profiles match this legacy session. Link the correct profile before moving saved time.'
+    };
+  }
+  return {
+    ok: false,
+    error: 'Link this player session to a profile before moving saved time.'
+  };
+};
+
+const getCurrentRemainingMinutes = (playerSession: PlayerSession, nowMs: number) =>
+  playerSession.timeFeeEnabled
+    ? getTimeRemainingMinutes(playerSession, nowMs)
+    : Math.max(0, Number(playerSession.timeRemainingMinutes) || 0);
 
 export function correctPlayerSession(
   state: AppState,
@@ -164,6 +205,174 @@ export function addPlayerTime(
           note: `${minutes} minutes added for ${playerSession.playerName}`
         }
       ]
+    }
+  };
+}
+
+export function deductUnconsumedPlayerTime(
+  state: AppState,
+  playerSessionId: string,
+  minutes: number,
+  reason: string,
+  dependencies: PlayerSessionCommandDependencies
+): PlayerSessionCommandResult {
+  if (!Number.isInteger(minutes) || minutes <= 0) {
+    return { ok: false, error: 'Enter a whole number of minutes to deduct.' };
+  }
+  const normalizedReason = reason.trim();
+  if (!normalizedReason) return { ok: false, error: 'Enter a reason for the time correction.' };
+
+  const currentResult = findCurrentPlayerSession(state, playerSessionId);
+  if (!currentResult.ok) return currentResult;
+  const current = currentResult.playerSession;
+  const purchasedMinutes = Math.max(0, Number(current.timePurchasedMinutes) || 0);
+  const remainingMinutes = getCurrentRemainingMinutes(current, dependencies.nowMs());
+  const appliedCreditMinutes = Math.max(0, Number(current.timeCreditAppliedMinutes) || 0);
+  // Treat paid minutes as consumed before reusable credit so a correction can
+  // never refund time that remains only because saved credit was applied.
+  const consumedMinutes = Math.max(0, purchasedMinutes + appliedCreditMinutes - remainingMinutes);
+  const deductibleMinutes = Math.max(0, purchasedMinutes - consumedMinutes);
+  if (minutes > deductibleMinutes) {
+    return {
+      ok: false,
+      error: `Only ${deductibleMinutes} unconsumed purchased minute${deductibleMinutes === 1 ? '' : 's'} can be deducted.`
+    };
+  }
+
+  const timestamp = dependencies.nowIso();
+  const correctionAmount = (minutes / 60) * getCollectionProfile(state, current.gameId).hourlyFee;
+  const correctedState: AppState = {
+    ...state,
+    playerSessions: state.playerSessions.map((session) =>
+      session.id === current.id
+        ? {
+            ...session,
+            timePurchasedMinutes: purchasedMinutes - minutes,
+            timeRemainingMinutes: remainingMinutes - minutes,
+            lastTimeTickAt: timestamp,
+            timeFeeEnabled: Boolean(session.timeFeeEnabled && remainingMinutes - minutes > 0)
+          }
+        : session
+    ),
+    timeFeeLogs: [
+      ...state.timeFeeLogs,
+      {
+        id: dependencies.createId(),
+        playerSessionId: current.id,
+        tableId: current.tableId,
+        gameId: current.gameId,
+        playerName: current.playerName,
+        minutes: -minutes,
+        amount: correctionAmount === 0 ? 0 : -correctionAmount,
+        timestamp
+      }
+    ]
+  };
+
+  return {
+    ok: true,
+    state: withCorrectionLog(
+      correctedState,
+      current.id,
+      'timePurchasedMinutes',
+      `Deducted ${minutes} unconsumed purchased minute${minutes === 1 ? '' : 's'}: ${normalizedReason}`,
+      { createId: dependencies.createId, nowIso: () => timestamp }
+    )
+  };
+}
+
+export function pauseAndStorePlayerTimeCredit(
+  state: AppState,
+  playerSessionId: string,
+  dependencies: Pick<PlayerSessionCommandDependencies, 'nowIso' | 'nowMs'>
+): PlayerSessionCommandResult {
+  const currentResult = findCurrentPlayerSession(state, playerSessionId);
+  if (!currentResult.ok) return currentResult;
+  const current = currentResult.playerSession;
+  const profileResult = resolveTimeProfile(state, current);
+  if (!profileResult.ok) return profileResult;
+
+  const remainingMinutes = getCurrentRemainingMinutes(current, dependencies.nowMs());
+  if (remainingMinutes <= 0) return { ok: false, error: 'This player has no remaining time to save.' };
+  const timestamp = dependencies.nowIso();
+  return {
+    ok: true,
+    state: {
+      ...state,
+      profiles: state.profiles.map((profile) =>
+        profile.id === profileResult.profile.id
+          ? {
+              ...profile,
+              savedTimeCreditMinutes: Math.max(0, Number(profile.savedTimeCreditMinutes) || 0) + remainingMinutes
+            }
+          : profile
+      ),
+      playerSessions: state.playerSessions.map((session) =>
+        session.id === current.id
+          ? {
+              ...session,
+              timeRemainingMinutes: 0,
+              lastTimeTickAt: timestamp,
+              timeFeeEnabled: false
+            }
+          : session
+      )
+    }
+  };
+}
+
+export function applySavedPlayerTimeCredit(
+  state: AppState,
+  playerSessionId: string,
+  minutes: number,
+  dependencies: Pick<PlayerSessionCommandDependencies, 'nowIso' | 'nowMs'>
+): PlayerSessionCommandResult {
+  if (!Number.isInteger(minutes) || minutes <= 0) {
+    return { ok: false, error: 'Enter a whole number of saved minutes to apply.' };
+  }
+  const currentResult = findCurrentPlayerSession(state, playerSessionId);
+  if (!currentResult.ok) return currentResult;
+  const current = currentResult.playerSession;
+  const table = state.sessions.find((session) => session.id === current.tableId);
+  if (!table || table.status === 'Closed' || table.status === 'Failed to Start') {
+    return { ok: false, error: 'Saved time can only be applied at an open table.' };
+  }
+  if (table.collectionMode !== 'Time' && !table.timeFeeBased) {
+    return { ok: false, error: 'Saved time can only be applied at a time-collection table.' };
+  }
+
+  const profileResult = resolveTimeProfile(state, current);
+  if (!profileResult.ok) return profileResult;
+  const availableMinutes = Math.max(0, Number(profileResult.profile.savedTimeCreditMinutes) || 0);
+  if (minutes > availableMinutes) {
+    return {
+      ok: false,
+      error: `Only ${availableMinutes} saved minute${availableMinutes === 1 ? '' : 's'} are available.`
+    };
+  }
+
+  const remainingMinutes = getCurrentRemainingMinutes(current, dependencies.nowMs());
+  const timestamp = dependencies.nowIso();
+  return {
+    ok: true,
+    state: {
+      ...state,
+      profiles: state.profiles.map((profile) =>
+        profile.id === profileResult.profile.id
+          ? { ...profile, savedTimeCreditMinutes: availableMinutes - minutes }
+          : profile
+      ),
+      playerSessions: state.playerSessions.map((session) =>
+        session.id === current.id
+          ? {
+              ...session,
+              timeCreditAppliedMinutes: Math.max(0, Number(session.timeCreditAppliedMinutes) || 0) + minutes,
+              timeRemainingMinutes: remainingMinutes + minutes,
+              lastTimeTickAt: timestamp,
+              timeFeeEnabled: true
+            }
+          : session
+      )
     }
   };
 }
@@ -307,18 +516,31 @@ export function markInterestPlayerLeft(
   interest: Interest,
   dependencies: Pick<PlayerSessionCommandDependencies, 'nowIso'>
 ) {
-  const openSession = state.playerSessions.find(
-    (session) => session.playerName === interest.playerName && session.gameId === interest.gameId && !session.leftAt
+  const hasProfileId = interest.profileId !== undefined;
+  const normalizedPlayerName = interest.playerName.trim().toLowerCase();
+  const activeGameSessions = state.playerSessions.filter(
+    (session) => session.gameId === interest.gameId && !session.leftAt
   );
+  const fallbackNameMatches = hasProfileId
+    ? []
+    : activeGameSessions.filter(
+        (session) => session.playerName.trim().toLowerCase() === normalizedPlayerName
+      );
+  const openSession = hasProfileId
+    ? activeGameSessions.find((session) => session.profileId === interest.profileId)
+    : fallbackNameMatches.length === 1
+      ? fallbackNameMatches[0]
+      : undefined;
+  const timestamp = dependencies.nowIso();
   const nextState: AppState = {
     ...state,
     interests: state.interests.map((item) =>
       item.id === interest.id
-        ? { ...item, status: 'Removed', closedAt: dependencies.nowIso(), timestamp: dependencies.nowIso() }
+        ? { ...item, status: 'Removed', closedAt: timestamp, timestamp }
         : item
     ),
     playerSessions: state.playerSessions.map((session) =>
-      session.id === openSession?.id ? { ...session, leftAt: dependencies.nowIso() } : session
+      session.id === openSession?.id ? { ...session, leftAt: timestamp } : session
     )
   };
   return {
@@ -332,7 +554,7 @@ export function markInterestPlayerLeft(
 export function markPlayerSessionLeft(
   state: AppState,
   playerSession: PlayerSession,
-  cashOutAmount: number,
+  cashOutAmount: number | undefined,
   cashOutNote: string,
   dependencies: Pick<PlayerSessionCommandDependencies, 'createId' | 'nowIso'>
 ) {
@@ -367,10 +589,14 @@ export function markPlayerSessionLeft(
         playerName: playerSession.playerName,
         tableId: playerSession.tableId,
         gameId: playerSession.gameId,
-        amount: cashOutAmount,
+        ...(cashOutAmount !== undefined ? { amount: cashOutAmount } : {}),
         timestamp: leftAt,
         note: cashOutNote.trim() ||
-          (cashOutAmount === 0 ? 'Player left table with no cash out' : 'Player left table')
+          (cashOutAmount === undefined
+            ? 'Player left table without a recorded cash-out amount'
+            : cashOutAmount === 0
+              ? 'Player left table with no cash out'
+              : 'Player left table')
       },
       ...state.playerLedger
     ],

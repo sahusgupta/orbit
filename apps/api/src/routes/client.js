@@ -24,6 +24,16 @@ const { logDomainChange, logStateChanges } = require('../http/domainEvents');
 const { protectedIdentifier } = require('../http/dataProtection');
 const { getManagementAccountService } = require('../managementAccountService');
 
+function preserveServerManagedState(incomingState, authoritativeState) {
+  const state = { ...incomingState };
+  if (authoritativeState?.selfCheckIn) {
+    state.selfCheckIn = authoritativeState.selfCheckIn;
+  } else {
+    delete state.selfCheckIn;
+  }
+  return state;
+}
+
 function registerClientRoutes(app, liveUpdates) {
   const managementAccounts = getManagementAccountService();
   const recordSecurityActivity = async (payload) => {
@@ -257,8 +267,9 @@ function registerClientRoutes(app, liveUpdates) {
       return;
     }
     const previous = await loadState(accountKey);
-    const result = await saveState(state, { expectedRevision, mutationId, mutationType: 'desktop-state' });
-    logStateChanges(previous?.state, state, result.accountKey);
+    const stateWithServerManagedFields = preserveServerManagedState(state, previous?.state);
+    const result = await saveState(stateWithServerManagedFields, { expectedRevision, mutationId, mutationType: 'desktop-state' });
+    logStateChanges(previous?.state, stateWithServerManagedFields, result.accountKey);
     void schedulePublicationDrain();
     response.status(result.duplicate ? 200 : 201).json({ ok: true, ...result });
   }));
@@ -299,4 +310,4 @@ function registerClientRoutes(app, liveUpdates) {
   }));
 }
 
-module.exports = { registerClientRoutes };
+module.exports = { preserveServerManagedState, registerClientRoutes };

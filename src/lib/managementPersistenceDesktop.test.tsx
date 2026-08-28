@@ -206,9 +206,7 @@ const invokeFloor = async (name: string, ...args: unknown[]) => {
   const callback: unknown = Reflect.get(harness.floorProps, name);
   if (typeof callback !== 'function') throw new Error(`Expected ${name}`);
   await act(async () => {
-    Reflect.apply(callback, undefined, args);
-    await Promise.resolve();
-    await Promise.resolve();
+    await Reflect.apply(callback, undefined, args);
   });
 };
 
@@ -310,8 +308,19 @@ describe('management desktop authoritative API persistence orchestration', () =>
     harness.saveCloudStates.length = 0;
     harness.fetchCalls.length = 0;
     await invokeFloor('deleteInterest', 'interest-delete');
-    expect(JSON.parse(localStorage.getItem(accountStorageKey) ?? '{}')).toMatchObject({ interests: [] });
-    expect(harness.desktopSaveStates.at(-1)?.interests).toEqual([]);
+    const checkedOutInterests = getState().interests;
+    expect(checkedOutInterests).toEqual([
+      expect.objectContaining({ id: 'interest-delete', status: 'Removed', closedAt: expect.any(String) })
+    ]);
+    expect(JSON.parse(localStorage.getItem(accountStorageKey) ?? '{}')).toMatchObject({
+      interests: [expect.objectContaining({
+        id: 'interest-delete',
+        status: 'Removed',
+        closedAt: checkedOutInterests[0]?.closedAt,
+        timestamp: checkedOutInterests[0]?.timestamp
+      })]
+    });
+    expect(harness.desktopSaveStates.at(-1)?.interests).toEqual(checkedOutInterests);
     expect(harness.saveCloudStates).toEqual([]);
     expect(harness.fetchCalls).toEqual([]);
 
@@ -335,9 +344,18 @@ describe('management desktop authoritative API persistence orchestration', () =>
     await advance(3000);
     expect(getState().profiles.map((candidate) => candidate.name)).toEqual(['Desktop Replacement', 'Desktop New']);
     expect(getState().interests.map((interest) => interest.id)).toEqual(['interest-desktop-new']);
-    expect(JSON.parse(localStorage.getItem('table-manager-state-v1:staff-notifications') ?? '[]')).toEqual([
-      expect.objectContaining({ id: 'seat-interest-desktop-new', kind: 'seat', title: 'New seat request', body: 'Desktop New requested a seat in runtime-local.' })
+    const persistedNotifications = JSON.parse(
+      localStorage.getItem('table-manager-state-v1:staff-notifications') ?? '[]'
+    ) as Array<Record<string, unknown>>;
+    expect(persistedNotifications).toEqual([
+      {
+        id: 'seat-interest-desktop-new',
+        kind: 'seat',
+        createdAt: '2026-08-08T22:00:03.002Z',
+        read: false
+      }
     ]);
+    expect(JSON.stringify(persistedNotifications)).not.toContain('Desktop New');
 
     const afterDesktopMerge = getState();
     harness.desktopPollError = true;

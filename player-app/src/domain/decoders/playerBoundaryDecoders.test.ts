@@ -15,10 +15,13 @@ describe('Player external boundary decoders', () => {
     const identity = {
       status: 'verified',
       ageVerified: true,
+      ageEligible: true,
       ageLevel: 21,
       minimumAge: 21,
       verifiedAt: '2026-08-09T11:00:00.000Z',
-      failureCode: null
+      capturedAt: '2026-08-09T10:00:00.000Z',
+      failureCode: null,
+      reviewStatus: 'approved'
     };
 
     expect(decodeIdentityResponse({ ok: true, identity, verificationUrl: null })).toEqual({
@@ -27,7 +30,18 @@ describe('Player external boundary decoders', () => {
       verificationUrl: null
     });
     expect(decodeIdentityResponse({ ok: true, identity: { ...identity, ageLevel: '21' } })).toBeNull();
+    expect(decodeIdentityResponse({ ok: true, identity: { ...identity, ageEligible: 'yes' } })).toBeNull();
+    expect(decodeIdentityResponse({ ok: true, identity: { ...identity, reviewStatus: 'maybe' } })).toBeNull();
     expect(decodeIdentityResponse({ ok: true, identity: { ...identity, status: 'unknown' } })).toBeNull();
+    expect(decodeIdentityResponse({ ok: true, identity: {
+      ...identity,
+      status: 'provisional',
+      ageVerified: false,
+      reviewStatus: 'pending-in-person'
+    } })).toMatchObject({ identity: { status: 'provisional', ageEligible: true, ageVerified: false, reviewStatus: 'pending-in-person' } });
+    expect(decodeIdentityResponse({ ok: true, identity: { ...identity, verifiedDetails: { fullName: 'Jordan Rivera', dateOfBirth: '1990-01-02', address: '100 Main St' } } }))
+      .toMatchObject({ identity: { verifiedDetails: { fullName: 'Jordan Rivera', dateOfBirth: '1990-01-02', address: '100 Main St' } } });
+    expect(decodeIdentityResponse({ ok: true, identity: { ...identity, verifiedDetails: { fullName: 'Jordan Rivera' } } })).toBeNull();
     expect(decodeIdentityResponse(null)).toBeNull();
   });
 

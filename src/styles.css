@@ -34,5 +34,7 @@
 @import './styles/250-responsive-density.css';
 @import './styles/260-notifications.css';
 @import './styles/270-floor-room-map.css';
+@import './styles/271-floor-classic-view.css';
 @import './styles/280-table-view-calm.css';
+@import './styles/281-table-view-settings.css';
 @import './styles/290-floor-utilities.css';

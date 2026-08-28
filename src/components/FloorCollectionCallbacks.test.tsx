@@ -319,7 +319,15 @@ describe('floor collection projections', () => {
         }
       })
     );
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
+    vi.stubGlobal('fetch', vi.fn(async (_input: string | URL | Request, init?: RequestInit) =>
+      init?.method === 'POST'
+        ? new Response(JSON.stringify({ ok: true, revision: 1 }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          })
+        : new Response(null, { status: 404 })
+    ));
+    vi.stubGlobal('confirm', vi.fn(() => true));
 
     await act(async () => {
       await import('../main');
@@ -353,6 +361,8 @@ describe('floor collection projections', () => {
     expect(document.querySelector<HTMLButtonElement>('.floor-utility-button[aria-label^="Activity"]')?.getAttribute('aria-label')).toBe(
       'Activity, 0 recent events'
     );
+    expect(document.querySelector<HTMLButtonElement>('button[aria-label="Graphic floor view"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector<HTMLButtonElement>('button[aria-label="Classic floor view"]')?.getAttribute('aria-pressed')).toBe('false');
     expect(document.querySelector('.floor-room-map h2')?.textContent).toBe('Room map');
     expect(document.body.textContent).not.toContain('Select a table identity to open its live table view.');
     expect(document.querySelector('.floor-map-table-identity strong')?.textContent).toBe('Main Table');
@@ -384,11 +394,12 @@ describe('floor collection projections', () => {
     );
     const tableControls = Array.from(document.querySelectorAll<HTMLButtonElement>('.active-game-card .seat-control > button'));
     expect(
-      tableControls.slice(0, 4).map((button) =>
+      tableControls.slice(0, 5).map((button) =>
         button.textContent?.trim()
       )
-    ).toEqual(['+', 'Start Table', 'Open', 'Ledger']);
-    expect(tableControls.slice(4).map((button) => button.getAttribute('title'))).toEqual([
+    ).toEqual(['+', 'Start Table', 'Open', 'Ledger', 'Close table']);
+    expect(tableControls[4]?.getAttribute('aria-label')).toBe('Close Main Table and clear 0 seated players');
+    expect(tableControls.slice(5).map((button) => button.getAttribute('title'))).toEqual([
       'Hide table',
       'Table actions'
     ]);
@@ -402,7 +413,32 @@ describe('floor collection projections', () => {
     expect(document.activeElement).toBe(dockButtons[0]);
   });
 
-  it('renders complete game demand and waitlist dialog values in canonical order without mutating state', () => {
+  it('persists a two-way toggle between the graphic room map and classic table list', async () => {
+    const graphicButton = document.querySelector<HTMLButtonElement>('button[aria-label="Graphic floor view"]');
+    const classicButton = document.querySelector<HTMLButtonElement>('button[aria-label="Classic floor view"]');
+
+    await act(async () => {
+      classicButton?.click();
+      await Promise.resolve();
+    });
+    expect(document.querySelector('.floor-room-map')).toBeNull();
+    expect(document.querySelector('.floor-classic-overview h2')?.textContent).toBe('Current tables');
+    expect(document.querySelector('.floor-classic-table h3')?.textContent).toBe('Main Table');
+    expect(classicButton?.getAttribute('aria-pressed')).toBe('true');
+    const persistedStateKey = localStorage.getItem('table-manager-state-v1:last-account');
+    const classicState = JSON.parse(localStorage.getItem(persistedStateKey ?? '') ?? '{}');
+    expect(classicState.settings?.showPlayerGrid).toBe(false);
+
+    await act(async () => {
+      graphicButton?.click();
+      await Promise.resolve();
+    });
+    expect(document.querySelector('.floor-room-map h2')?.textContent).toBe('Room map');
+    expect(document.querySelector('.floor-classic-overview')).toBeNull();
+    expect(graphicButton?.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('renders canonical waitlist details without incidental mutations and removes the selected entry', async () => {
     act(() => {
       document.querySelectorAll<HTMLButtonElement>('.floor-workspace-dock button')[2]?.click();
     });
@@ -523,6 +559,27 @@ describe('floor collection projections', () => {
     );
     expect(bobCard?.querySelector('span')?.textContent).toBe('Unknown game \u00b7 Interested');
 
+    await act(async () => {
+      bobCard
+        ?.querySelector<HTMLButtonElement>('button[aria-label="Actions for Bob Interested"]')
+        ?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+      await Promise.resolve();
+    });
+    const removeWaitlistItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+      (item) => item.textContent?.trim() === 'Remove from waitlist'
+    );
+    expect(removeWaitlistItem).toBeTruthy();
+    await act(async () => {
+      removeWaitlistItem?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(harness.latestInterestReferences.some((interest) => (
+      typeof interest === 'object' && interest !== null && 'id' in interest && interest.id === 'interest-bob'
+    ))).toBe(false);
+    expect(globalThis.confirm).toHaveBeenCalledWith('Remove this interest entry?');
+    expect(document.body.textContent).not.toContain('Bob Interested');
+
     act(() => {
       stateSetter((current: unknown) => {
         if (typeof current !== 'object' || current === null) throw new Error('Expected application state');
@@ -531,5 +588,122 @@ describe('floor collection projections', () => {
     });
     expect(document.querySelector('.waitlist-popup-list')?.textContent).toContain('No one is waiting');
     expect(document.querySelectorAll('.waitlist-popup-row')).toHaveLength(0);
+  });
+
+  it('accepts a blank cash-out and closes the remaining table players from the direct control', async () => {
+    const stateSetter = harness.stateSetter;
+    if (typeof stateSetter !== 'function') throw new Error('Expected to capture the application state setter');
+    const cashOutPlayer = {
+      id: 'player-session-cash-out',
+      playerName: 'Alex Optional',
+      gameId: 'game-a',
+      tableId: 'forming-game-a',
+      seatNumber: 1,
+      seatedAt: '2026-08-07T17:00:00.000Z'
+    };
+    const remainingPlayer = {
+      id: 'player-session-remaining',
+      playerName: 'Casey Remaining',
+      gameId: 'game-a',
+      tableId: 'forming-game-a',
+      seatNumber: 2,
+      seatedAt: '2026-08-07T17:15:00.000Z'
+    };
+
+    act(() => {
+      document.querySelector<HTMLButtonElement>('button[aria-label="Close waitlist"]')?.click();
+      stateSetter((current: unknown) => {
+        if (
+          typeof current !== 'object' ||
+          current === null ||
+          !('sessions' in current) ||
+          !Array.isArray(current.sessions)
+        ) {
+          throw new Error('Expected application state with sessions');
+        }
+        return {
+          ...current,
+          sessions: current.sessions.map((session: unknown) =>
+            typeof session === 'object' && session !== null && 'id' in session && session.id === 'forming-game-a'
+              ? { ...session, status: 'Running', seatsFilled: 2 }
+              : session
+          ),
+          playerSessions: [cashOutPlayer, remainingPlayer]
+        };
+      });
+    });
+
+    const currentTablesTrigger = Array.from(document.querySelectorAll<HTMLButtonElement>('.floor-workspace-dock button'))
+      .find((button) => button.textContent?.trim() === 'Current tables');
+    act(() => currentTablesTrigger?.click());
+
+    const cashOutSeat = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open details for Alex Optional at seat 1"]'
+    );
+    expect(cashOutSeat).not.toBeNull();
+    act(() => cashOutSeat?.click());
+    act(() => {
+      Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+        .find((button) => button.textContent?.trim() === 'Cash out and leave table')
+        ?.click();
+    });
+
+    const cashOutAmount = document.querySelector<HTMLInputElement>('.cash-out-modal input[type="number"]');
+    expect(cashOutAmount?.required).toBe(false);
+    expect(cashOutAmount?.closest('label')?.textContent).toContain('Cash-out amount (optional)');
+    const transitionTime = new Date().toISOString();
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('.cash-out-modal button[type="submit"]')?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(document.querySelector('.cash-out-modal')).toBeNull();
+
+    const readPersistedRecords = () => {
+      const stateKey = localStorage.getItem('table-manager-state-v1:last-account');
+      const serialized = stateKey ? localStorage.getItem(stateKey) : null;
+      if (!serialized) throw new Error('Expected persisted application state');
+      const parsed: unknown = JSON.parse(serialized);
+      if (typeof parsed !== 'object' || parsed === null) throw new Error('Expected persisted state object');
+      const requireRecords = (value: unknown, label: string) => {
+        if (!Array.isArray(value) || value.some((item) => typeof item !== 'object' || item === null)) {
+          throw new Error(`Expected ${label} records`);
+        }
+        return value as Record<string, unknown>[];
+      };
+      return {
+        playerLedger: requireRecords(Reflect.get(parsed, 'playerLedger'), 'player ledger'),
+        playerSessions: requireRecords(Reflect.get(parsed, 'playerSessions'), 'player session'),
+        sessions: requireRecords(Reflect.get(parsed, 'sessions'), 'session')
+      };
+    };
+
+    const afterCashOut = readPersistedRecords();
+    const cashOutEntry = afterCashOut.playerLedger.find((entry) => entry.type === 'Cash-Out');
+    expect(cashOutEntry).toMatchObject({
+      playerName: cashOutPlayer.playerName,
+      note: 'Player left table without a recorded cash-out amount'
+    });
+    expect(cashOutEntry).not.toHaveProperty('amount');
+    expect(afterCashOut.playerSessions.find((session) => session.id === cashOutPlayer.id)).toMatchObject({ leftAt: transitionTime });
+    expect(afterCashOut.playerSessions.find((session) => session.id === remainingPlayer.id)).not.toHaveProperty('leftAt');
+
+    const closeTableButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Close Main Table and clear 1 seated player"]'
+    );
+    expect(closeTableButton?.textContent?.trim()).toBe('Close table');
+    await act(async () => {
+      closeTableButton?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const afterClose = readPersistedRecords();
+    expect(afterClose.sessions.find((session) => session.id === 'forming-game-a')).toMatchObject({
+      status: 'Closed',
+      endedAt: transitionTime
+    });
+    expect(afterClose.playerSessions.find((session) => session.id === remainingPlayer.id)).toMatchObject({ leftAt: transitionTime });
+    expect(document.querySelector('.active-game-card')).toBeNull();
   });
 });

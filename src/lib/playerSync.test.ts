@@ -154,6 +154,13 @@ describe('player sync snapshots', () => {
       knownPlayersInHouse: 2,
       waitlistCount: 2
     });
+    expect(snapshot.timeAccess).toEqual({
+      enabled: true,
+      hourlyFeeCents: 0,
+      linked: true,
+      profileId: 'player-1',
+      savedMinutes: 0
+    });
     expect(Object.keys(snapshot).sort()).toEqual([
       'club',
       'games',
@@ -161,6 +168,7 @@ describe('player sync snapshots', () => {
       'memberships',
       'notifications',
       'social',
+      'timeAccess',
       'waitlists'
     ]);
     expect(snapshot).not.toHaveProperty('syncProtocolVersion');
@@ -192,14 +200,19 @@ describe('player sync snapshots', () => {
     expect(wait).toMatchObject({ type: 'waitlist-request', gameId: 'nlh-1-2', note: 'Can play short-handed' });
   });
 
-  it('carries a Core-defined membership plan and applies its duration', () => {
+  it('carries a Core-defined membership plan while deferring its duration until activation', () => {
     const player = { id: 'player-plan', name: 'Sam', email: 'sam@example.com', preferredGameIds: ['nlh-1-2'] };
     const plan = { id: 'weekend', name: 'Weekend Pass', priceLabel: '$25', durationDays: 3, active: true };
     const request = createMembershipRequest(player, 'lucky-lodge', '2026-05-20T12:00:00.000Z', plan);
     const joined = applyMembershipRequestToClubState(state, request);
 
     expect(request).toMatchObject({ planId: 'weekend', planName: 'Weekend Pass', planPriceLabel: '$25', membershipDurationDays: 3 });
-    expect(joined.profiles.find((profile) => profile.id === player.id)?.membershipExpirationDate).toBe('2026-05-23');
+    expect(joined.profiles.find((profile) => profile.id === player.id)).toMatchObject({
+      membershipDurationDays: 3,
+      membershipExpirationDate: '',
+      membershipPaymentStatus: 'Pending',
+      membershipStatus: 'Approved'
+    });
   });
 
   it('applies player membership and waitlist requests to club-side state', () => {
@@ -217,10 +230,12 @@ describe('player sync snapshots', () => {
 
     expect(joined.profiles.find((profile) => profile.id === 'player-2')).toMatchObject({
       name: 'Morgan',
-      membershipStartDate: '2026-05-20',
-      membershipExpirationDate: '2026-06-19',
+      membershipStartDate: '',
+      membershipExpirationDate: '',
+      membershipPaymentStatus: 'Pending',
+      membershipStatus: 'Approved',
       preferredGameIds: ['plo-1-2'],
-      notes: 'Player app: morgan@example.com, 555-0122 | Monthly membership - paid in app'
+      notes: 'Player app: morgan@example.com, 555-0122 | Monthly membership - online payment selected'
     });
 
     const wait = createWaitlistRequest(player, 'lucky-lodge', 'plo-1-2', {
@@ -478,7 +493,7 @@ describe('player sync snapshots', () => {
     });
   });
 
-  it('starts exact pass timers for app payments and keeps in-person passes pending', () => {
+  it('keeps app checkout and in-person passes pending until authoritative payment', () => {
     const dayPlayer = { id: 'player-day', name: 'Day Player', email: 'day@example.com', preferredGameIds: [] };
     const paid = applyMembershipRequestToClubState(
       state,
@@ -490,9 +505,10 @@ describe('player sync snapshots', () => {
     );
     expect(paid.profiles.find((profile) => profile.id === 'player-day')).toMatchObject({
       membershipPlan: 'day',
-      membershipStatus: 'Active',
-      membershipExpiresAt: '2026-05-21T12:00:00.000Z'
+      membershipStatus: 'Approved',
+      membershipPaymentStatus: 'Pending'
     });
+    expect(paid.profiles.find((profile) => profile.id === 'player-day')?.membershipExpiresAt).toBeUndefined();
 
     const walkInPlayer = { id: 'player-walkin', name: 'Walk In', email: 'walkin@example.com', preferredGameIds: [] };
     const pending = applyMembershipRequestToClubState(
@@ -505,12 +521,119 @@ describe('player sync snapshots', () => {
     );
     expect(pending.profiles.find((profile) => profile.id === 'player-walkin')).toMatchObject({
       membershipPlan: 'monthly',
-      membershipStatus: 'Requested',
+      membershipStatus: 'Approved',
+      membershipPaymentStatus: 'Pending',
       membershipExpirationDate: ''
     });
     expect(buildPlayerClubSnapshot(pending).memberships.find((membership) => membership.playerId === 'player-walkin')).toMatchObject({
-      status: 'Requested',
-      paymentMethod: 'in-person'
+      status: 'Approved',
+      paymentMethod: 'in-person',
+      paymentStatus: 'Pending'
+    });
+  });
+
+  it('uses stable player IDs instead of same-name fallback for membership and waitlist ownership', () => {
+    const sameNamePlayer = { id: 'player-same-name', name: 'Alex', email: 'other-alex@example.com', preferredGameIds: [] };
+    const joined = applyMembershipRequestToClubState(
+      state,
+      createMembershipRequest(sameNamePlayer, 'lucky-lodge', '2026-05-20T12:00:00.000Z', {
+        paymentMethod: 'in-person',
+        priceLabel: '$40'
+      })
+    );
+
+    expect(joined.profiles.find((profile) => profile.id === 'player-1')?.membershipExpirationDate).toBe('2099-01-01');
+    expect(joined.profiles.find((profile) => profile.id === sameNamePlayer.id)).toMatchObject({
+      name: 'Alex',
+      membershipStatus: 'Approved'
+    });
+    expect(buildPlayerClubSnapshot(joined, sameNamePlayer).memberships.map((membership) => membership.playerId)).toEqual([
+      sameNamePlayer.id
+    ]);
+
+    const withOwnedInterest = {
+      ...joined,
+      interests: [
+        ...joined.interests,
+        {
+          id: 'owned-interest',
+          profileId: sameNamePlayer.id,
+          playerName: 'Alex',
+          gameId: 'nlh-1-2',
+          status: 'Interested' as const,
+          interestedAt: '2026-05-20T12:05:00.000Z'
+        }
+      ]
+    };
+    const cancelled = applyWaitlistRequestToClubState(
+      withOwnedInterest,
+      createWaitlistRequest(sameNamePlayer, 'lucky-lodge', 'nlh-1-2', {
+        action: 'cancel',
+        requestedAt: '2026-05-20T12:10:00.000Z'
+      })
+    );
+    expect(cancelled.interests.find((interest) => interest.id === 'interest-1')?.status).toBe('Interested');
+    expect(cancelled.interests.find((interest) => interest.id === 'owned-interest')?.status).toBe('Removed');
+  });
+
+  it('preserves authoritative payment and an active window when a membership request arrives later', () => {
+    const paidProfile = {
+      ...state.profiles[0],
+      id: 'player-paid-first',
+      name: 'Paid First',
+      membershipStatus: 'Approved' as const,
+      membershipPaymentStatus: 'Paid' as const,
+      membershipPaymentTransactionId: 'checkout-paid-first',
+      membershipPaymentAmountCents: 4000,
+      identityReviewStatus: 'Pending' as const,
+      membershipStartDate: '',
+      membershipExpirationDate: ''
+    };
+    const activeProfile = {
+      ...paidProfile,
+      id: 'player-active-renewal',
+      name: 'Active Renewal',
+      membershipStatus: 'Active' as const,
+      identityReviewStatus: 'Approved' as const,
+      membershipPaymentTransactionId: 'checkout-active',
+      membershipStartDate: '2026-01-01',
+      membershipExpirationDate: '2099-01-01',
+      membershipExpiresAt: '2099-01-01T23:59:59.999Z'
+    };
+    const source = { ...state, profiles: [...state.profiles, paidProfile, activeProfile] };
+
+    const paidFirst = applyMembershipRequestToClubState(
+      source,
+      createMembershipRequest(
+        { id: paidProfile.id, name: paidProfile.name, email: 'paid@example.com', preferredGameIds: [] },
+        'lucky-lodge',
+        '2026-05-20T12:00:00.000Z',
+        { paymentMethod: 'app', priceLabel: '$40' }
+      )
+    );
+    expect(paidFirst.profiles.find((profile) => profile.id === paidProfile.id)).toMatchObject({
+      membershipStatus: 'Approved',
+      membershipPaymentStatus: 'Paid',
+      membershipPaymentTransactionId: 'checkout-paid-first',
+      membershipPaymentAmountCents: 4000
+    });
+
+    const activeRenewal = applyMembershipRequestToClubState(
+      source,
+      createMembershipRequest(
+        { id: activeProfile.id, name: activeProfile.name, email: 'active@example.com', preferredGameIds: [] },
+        'lucky-lodge',
+        '2026-05-20T12:00:00.000Z',
+        { paymentMethod: 'in-person', priceLabel: '$40' }
+      )
+    );
+    expect(activeRenewal.profiles.find((profile) => profile.id === activeProfile.id)).toMatchObject({
+      membershipStatus: 'Active',
+      membershipStartDate: '2026-01-01',
+      membershipExpirationDate: '2099-01-01',
+      membershipExpiresAt: '2099-01-01T23:59:59.999Z',
+      membershipPaymentStatus: 'Paid',
+      membershipPaymentTransactionId: 'checkout-active'
     });
   });
 

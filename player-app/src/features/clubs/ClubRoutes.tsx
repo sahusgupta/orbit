@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Modal, Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AnimatedButton } from '../../components/PlayerPresentation';
-import { getClubFeeProfile, getClubProductName } from '../../domain/clubAccess';
+import { getClubProductName, type ClubMembershipPrices } from '../../domain/clubAccess';
 import type {
   PlayerAccount,
   PlayerMembership,
@@ -13,11 +13,11 @@ import type {
   PlayerWaitlistEntry
 } from '../../domain/playerSync';
 import { getClubDistance, isActivePlayerGame } from '../../domain/discovery';
-import type { ClubAccessProduct, Coordinate, SeatRequestDraft } from '../../domain/playerTypes';
+import type { ClubAccessProduct, Coordinate, SeatRequestDraft, TimeAccessProduct } from '../../domain/playerTypes';
 import { isPlayerMembership } from '../../domain/playerSync';
 import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
-import { ClubHubSections } from './ClubHub';
+import { ClubHubSections, PlayerTimePanel } from './ClubHub';
 import { MembershipApplicationStatusCard, MembershipWalletCard } from './MembershipWallet';
 import { clubStyles } from './clubStyles';
 
@@ -35,6 +35,8 @@ export function ClubsScreen({
   tournaments,
   onSelectClub,
   onGame,
+  onAddTime,
+  timePurchaseBusy,
   onManageAccess,
   onViewEvents
 }: {
@@ -49,6 +51,8 @@ export function ClubsScreen({
   tournaments: PlayerTournament[];
   onSelectClub: (club: PlayerClubSnapshot) => void;
   onGame: (game: PlayerSyncGame) => void;
+  onAddTime: (club: PlayerClubSnapshot, product: TimeAccessProduct) => void;
+  timePurchaseBusy: boolean;
   onManageAccess: () => void;
   onViewEvents: () => void;
 }) {
@@ -78,7 +82,7 @@ export function ClubsScreen({
                 </Text>
               </View>
               <View style={styles.statusPill}>
-                <Text style={styles.statusText}>{membership?.status ?? 'Join'}</Text>
+                <Text style={styles.statusText}>{membership?.status ?? (club.timeAccess?.linked ? 'Core linked' : 'Join')}</Text>
               </View>
             </Pressable>
           );
@@ -115,6 +119,12 @@ export function ClubsScreen({
           />
         </>
       ) : null}
+      <PlayerTimePanel
+        club={selectedClub}
+        busy={timePurchaseBusy}
+        message={message}
+        onAddTime={(product) => onAddTime(selectedClub, product)}
+      />
     </>
   );
 }
@@ -129,7 +139,7 @@ export function ClubMembershipPlanScreen({
   onSubmit
 }: {
   club: PlayerClubSnapshot;
-  prices: { day: string; monthly: string; timePack: string };
+  prices: ClubMembershipPrices;
   message: string;
   player: PlayerAccount;
   busy: boolean;
@@ -140,10 +150,7 @@ export function ClubMembershipPlanScreen({
     ? club.club.membershipOptions
     : [
         { id: 'day', name: 'Day Pass', priceLabel: prices.day, durationDays: 1 },
-        { id: 'monthly', name: 'Monthly Membership', priceLabel: prices.monthly, durationDays: 30 },
-        ...(getClubFeeProfile(club).type === 'time'
-          ? [{ id: 'time-5', name: '5-Hour Time Pack', priceLabel: prices.timePack, durationDays: 1 }]
-          : [])
+        { id: 'monthly', name: 'Monthly Membership', priceLabel: prices.monthly, durationDays: 30 }
       ];
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const selectedOption = membershipOptions.find((option) => option.id === selectedOptionId);
@@ -182,7 +189,7 @@ export function ClubMembershipPlanScreen({
 
       <View>
         <Text style={styles.cardTitle}>Available options</Text>
-        <Text style={styles.muted}>Optional</Text>
+        <Text style={styles.muted}>Select one</Text>
       </View>
       <View style={styles.planGrid}>
         {membershipOptions.map((option) => (
@@ -198,9 +205,9 @@ export function ClubMembershipPlanScreen({
         ))}
       </View>
 
-      <AnimatedButton disabled={busy} variant="primary" onPress={() => onSubmit(selectedOption)} style={[styles.primaryButton, styles.fullWidthButton]}>
+      <AnimatedButton disabled={busy || !selectedOption} variant="primary" onPress={() => onSubmit(selectedOption)} style={[styles.primaryButton, styles.fullWidthButton]}>
         <Ionicons name="person-add-outline" size={18} color="#ffffff" />
-        <Text style={styles.primaryButtonText}>{busy ? 'Sending request...' : selectedOption ? `Request ${selectedOption.name}` : 'Request membership'}</Text>
+        <Text style={styles.primaryButtonText}>{busy ? 'Sending request...' : selectedOption ? `Continue with ${selectedOption.name}` : 'Choose an option'}</Text>
       </AnimatedButton>
       {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
     </View>
@@ -357,13 +364,19 @@ export function ClubAccessCheckoutScreen({
           </AnimatedButton>
         </>
       ) : null}
-      <Pressable disabled={busy} style={[styles.payInPersonButton, busy && styles.disabledAction]} onPress={onPayInPerson}>
-        <Ionicons name="storefront-outline" size={18} color={colors.ink} />
-        <View style={styles.payInPersonCopy}>
-          <Text style={styles.cardTitle}>{connectedCheckoutEnabled ? 'Pay in person' : 'Send membership application'}</Text>
-          <Text style={styles.muted}>{connectedCheckoutEnabled ? 'Staff will confirm payment and activate your access.' : 'The card room will review it. After approval, bring your ID and pay at the door.'}</Text>
-        </View>
-      </Pressable>
+      {!product.startsWith('time-') ? (
+        <Pressable disabled={busy} style={[styles.payInPersonButton, busy && styles.disabledAction]} onPress={onPayInPerson}>
+          <Ionicons name="storefront-outline" size={18} color={colors.ink} />
+          <View style={styles.payInPersonCopy}>
+            <Text style={styles.cardTitle}>{connectedCheckoutEnabled ? 'Pay in person' : 'Send membership application'}</Text>
+            <Text style={styles.muted}>{connectedCheckoutEnabled
+              ? 'Staff must review your physical ID and confirm payment before activating your access.'
+              : 'The card room will review it. Bring your physical ID and pay at the door; activation requires both ID approval and payment confirmation.'}</Text>
+          </View>
+        </Pressable>
+      ) : !connectedCheckoutEnabled ? (
+        <Text style={styles.privateGameStatus}>This time package is unavailable until the card house enables connected checkout.</Text>
+      ) : null}
       {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
     </View>
   );

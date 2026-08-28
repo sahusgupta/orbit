@@ -8,6 +8,8 @@ import { publicPages, resolvePublicOrigin } from '../download-site/public-config
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputRoot = path.join(repositoryRoot, 'download-dist');
 const publicOrigin = 'https://orbit-preview.invalid';
+const expectedVersion = '0.1.73';
+const expectedInstallerUrl = 'https://github.com/sahusgupta/orbit/releases/download/v0.1.73/Orbit-0.1.73-x64.exe';
 assert.equal(resolvePublicOrigin({}), 'http://127.0.0.1:4174');
 assert.equal(resolvePublicOrigin({ VERCEL_URL: 'orbit-branch-preview.invalid' }), 'https://orbit-branch-preview.invalid');
 assert.equal(resolvePublicOrigin({ ORBIT_PUBLIC_PREVIEW_ORIGIN: publicOrigin }), publicOrigin);
@@ -52,7 +54,10 @@ for (const [fileName, page] of Object.entries(publicPages)) {
   assert.equal(h1Count, 1, `${fileName} must contain one H1`);
   assert.doesNotThrow(() => JSON.parse(schemaText), `${fileName} JSON-LD must parse`);
   assert.match(html, page.indexable ? /name="robots" content="index,follow"/ : /name="robots" content="noindex,follow"/);
-  assert.doesNotMatch(html, /orbit-public-metadata|sahusgupta|orbitapp-one\.vercel\.app/i);
+  assert.doesNotMatch(
+    html.replaceAll(expectedInstallerUrl, ''),
+    /orbit-public-metadata|sahusgupta|orbitapp-one\.vercel\.app/i
+  );
   assert.ok(html.length > 1_000, `${fileName} must expose meaningful static HTML`);
   titles.add(title);
   descriptions.add(description);
@@ -99,5 +104,17 @@ const publicStyles = read(emittedFiles.find((fileName) => fileName.endsWith('.cs
 assert.doesNotMatch(publicStyles, /(?:linear|radial)-gradient|aurora|gradient-blob|backdrop-filter|noise-overlay/i);
 
 assert.equal(emittedFiles.some((fileName) => fileName.endsWith('.map')), false, 'Public source maps must not be emitted');
+
+const releaseManifest = JSON.parse(read('release-manifest.json'));
+assert.deepEqual(releaseManifest, {
+  schemaVersion: 1,
+  productName: 'Orbit',
+  version: expectedVersion,
+  publishedLabel: 'Verified stable release',
+  installerUrl: expectedInstallerUrl
+});
+const home = read('index.html');
+assert.ok(home.includes(`id="installer-link" href="${expectedInstallerUrl}"`));
+assert.ok(home.includes(`id="version">${expectedVersion}`));
 
 console.log(`Public site verification passed: ${Object.keys(publicPages).length} static pages, ${indexedPages.length} indexed routes, configured preview origin.`);

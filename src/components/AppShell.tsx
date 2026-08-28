@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Command } from 'cmdk';
 import * as Dialog from '@radix-ui/react-dialog';
-import { BarChart3, ChevronLeft, ChevronRight, CircleUserRound, Gamepad2, LayoutDashboard, Menu, Search, Settings, Trophy, Users, X } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, CircleUserRound, Gamepad2, LayoutDashboard, Menu, Search, Settings, Trophy, Undo2, Users, X } from 'lucide-react';
 import packageJson from '../../package.json';
 import { cn } from '../lib/utils';
 
@@ -14,6 +14,9 @@ type AppShellProps = {
   clubName: string;
   operator?: string;
   saveState?: string;
+  canUndo?: boolean;
+  undoLabel?: string;
+  onUndo?: () => void;
   onNavigate: (destination: PrimaryDestination) => void;
   onSignOut: () => void;
   commands?: ShellCommand[];
@@ -29,7 +32,7 @@ const destinations = [
   { id: 'settings', label: 'Settings', icon: Settings }
 ] as const;
 
-export default function AppShell({ active, clubName, operator, saveState, onNavigate, onSignOut, commands = [], children }: AppShellProps) {
+export default function AppShell({ active, clubName, operator, saveState, canUndo = false, undoLabel, onUndo, onNavigate, onSignOut, commands = [], children }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -79,6 +82,10 @@ export default function AppShell({ active, clubName, operator, saveState, onNavi
       : saveState === 'saved'
         ? 'Server saved'
         : 'Not yet saved';
+  const showUpdateNotice = updateStatus.state === 'downloaded'
+    || updateStatus.state === 'preserving-state'
+    || updateStatus.state === 'installing'
+    || (updateStatus.state === 'error' && updateStatus.updateReady === true);
 
   return (
     <div className={cn('orbit-shell', collapsed && 'sidebar-collapsed', mobileOpen && 'mobile-sidebar-open')}>
@@ -92,6 +99,14 @@ export default function AppShell({ active, clubName, operator, saveState, onNavi
         <div className="orbit-sidebar-footer">
           <div className="orbit-account-summary"><CircleUserRound size={20} /><div><strong>{operator || 'No operator'}</strong><span>{clubName}</span></div></div>
           <div className="orbit-sync-state" role="status" aria-live="polite"><i className={saveState === 'error' ? 'error' : ''} /><span>{saveLabel}</span></div>
+          <button
+            aria-label={canUndo ? `Undo ${undoLabel || 'last action'}` : 'Nothing to undo'}
+            className="orbit-undo"
+            disabled={!canUndo}
+            onClick={onUndo}
+            title={canUndo ? `Undo ${undoLabel || 'last action'}` : 'Nothing to undo'}
+            type="button"
+          ><Undo2 size={15} /><span>Undo {canUndo && undoLabel ? undoLabel.toLowerCase() : 'last action'}</span></button>
           <div className="orbit-version" aria-label={`Orbit version ${packageJson.version}`}>Version {packageJson.version}</div>
           <button className="orbit-signout" onClick={onSignOut}>Sign out</button>
         </div>
@@ -99,7 +114,7 @@ export default function AppShell({ active, clubName, operator, saveState, onNavi
       </aside>
       <div className="orbit-mobile-scrim" onClick={() => setMobileOpen(false)} />
       <div className="orbit-shell-content">
-        {['downloaded', 'preserving-state', 'installing', 'error'].includes(updateStatus.state) && (
+        {showUpdateNotice && (
           <section className="orbit-update-notice" role={updateStatus.state === 'error' ? 'alert' : 'status'} aria-live="polite">
             <div>
               <strong>{updateStatus.state === 'downloaded' ? `Orbit ${updateStatus.version || 'update'} is ready` : updateStatus.state === 'preserving-state' ? 'Preserving workspace' : updateStatus.state === 'installing' ? 'Installing update' : 'Update paused'}</strong>

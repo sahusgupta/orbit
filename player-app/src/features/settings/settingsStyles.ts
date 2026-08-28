@@ -69,5 +69,41 @@ export const settingsStyles = StyleSheet.create(applyDarkComponentTheme({
     lineHeight: 16,
     textAlign: 'center'
   },
+  identityDetailsCard: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 10,
+    padding: 14,
+    width: '100%'
+  },
+  identityDetailsTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: '800'
+  },
+  identityDetailRow: {
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+    gap: 3,
+    paddingBottom: 9
+  },
+  identityDetailLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase'
+  },
+  identityDetailValue: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '600'
+  },
+  identityReviewNote: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 16
+  },
   simpleMenu: { backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 16, borderWidth: 1, overflow: 'hidden' }
 }));

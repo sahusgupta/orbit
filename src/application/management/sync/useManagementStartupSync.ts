@@ -1,6 +1,6 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { normalizeState } from '../../../domain/state';
-import { hasPersistedSignIn } from '../../../domain/licensing';
+import { restorePersistedSignIn } from '../../../domain/licensing';
 import type { AppState } from '../../../domain/types';
 import { saveBrowserManagementState } from '../../../app/persistence/browserStateRepository';
 import { loadDesktopManagementState } from '../../../app/persistence/managementPersistence';
@@ -12,31 +12,38 @@ type ManagementSaveStatus =
   | { state: 'error'; message: string };
 
 type ManagementStartupSyncOptions = {
+  getCurrentState: () => AppState;
   hasAuthenticated: boolean;
   setHasAuthenticated: Dispatch<SetStateAction<boolean>>;
   setSaveStatus: (status: ManagementSaveStatus) => void;
   setState: Dispatch<SetStateAction<AppState>>;
-  setUndoStack: Dispatch<SetStateAction<AppState[]>>;
-  state: AppState;
+  clearUndo: () => void;
 };
 
 export const useManagementStartupSync = ({
+  getCurrentState,
   hasAuthenticated,
   setHasAuthenticated,
   setSaveStatus,
   setState,
-  setUndoStack,
-  state: _state
+  clearUndo
 }: ManagementStartupSyncOptions) => {
   useEffect(() => {
     // Browser state initializes the shell while the trusted desktop boundary
     // loads authoritative server state or its explicitly labelled offline cache.
-    loadDesktopManagementState()?.then((record) => {
+    const stateWhenLoadStarted = getCurrentState();
+    loadDesktopManagementState()?.then(async (record) => {
       if (record?.state) {
+        if (getCurrentState() !== stateWhenLoadStarted) {
+          console.info('[management-startup-sync] skipped stale hydration', {
+            reason: 'state-changed-during-load'
+          });
+          return;
+        }
         const next = normalizeState(record.state);
-        setUndoStack([]);
+        clearUndo();
         setState(next);
-        setHasAuthenticated(hasPersistedSignIn(next));
+        setHasAuthenticated(await restorePersistedSignIn(next));
         saveBrowserManagementState(next);
         setSaveStatus(record.authoritative === false
           ? { state: 'error', message: 'Offline cache loaded; server reconciliation required' }

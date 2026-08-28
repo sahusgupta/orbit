@@ -16,6 +16,7 @@
     "electron/embeddedBackend.cjs",
     "electron/main.cjs",
     "electron/localStore.cjs",
+    "electron/managementSessionStore.cjs",
     "electron/orbitApiClient.cjs",
     "electron/runtimeUtils.cjs",
     "electron/updateController.cjs",

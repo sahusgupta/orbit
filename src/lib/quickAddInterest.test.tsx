@@ -289,8 +289,11 @@ describe('Quick Add interest and direct-seat boundary', () => {
     await submitQuickAdd();
 
     const state = getLatestState();
+    expect(state.profiles).toHaveLength(1);
+    expect(state.profiles[0]).toMatchObject({ name: 'Quick Add Player', preferredGameIds: [game.id] });
     expect(state.interests).toHaveLength(1);
     expect(state.interests[0]).toMatchObject({
+      profileId: state.profiles[0].id,
       playerName: 'Quick Add Player',
       gameId: game.id,
       status,
@@ -314,6 +317,8 @@ describe('Quick Add interest and direct-seat boundary', () => {
       await submitQuickAdd();
 
       const state = getLatestState();
+      expect(state.profiles).toHaveLength(1);
+      expect(state.interests[0]).toMatchObject({ profileId: state.profiles[0].id });
       expect(state.interests).toHaveLength(1);
       expect(state.interests[0]).toMatchObject({ status, closedAt: now });
       expect(Reflect.get(state.interests[0], 'seatedAt')).toBeUndefined();

@@ -20,6 +20,7 @@ import type {
 } from './components/PokerTable';
 import AppShell, { type PrimaryDestination, type ShellCommand } from './components/AppShell';
 import FloorView from './components/FloorView';
+import StaffPinDialog from './components/StaffPinDialog';
 import {
   createBackupEnvelope,
   getGameFrequencyRank,
@@ -74,12 +75,15 @@ import {
 import {
   addPlayerBuyIn,
   addPlayerTime as addPlayerTimeInState,
+  applySavedPlayerTimeCredit,
   assignTableDealer,
   correctPlayerSession,
+  deductUnconsumedPlayerTime,
   endTableDealerAssignment,
   getPlayerSeatChangeError,
   markInterestPlayerLeft,
   markPlayerSessionLeft as markPlayerSessionLeftInState,
+  pauseAndStorePlayerTimeCredit,
   recordTableDrop,
   recordTableHands,
   setTableCollectionMode as setTableCollectionModeInState
@@ -100,17 +104,24 @@ import {
   updateTableSession
 } from './application/management/tableLifecycleCommands';
 import {
+  clearTableInState,
+  deleteTableInState,
+  mergeTableInState
+} from './application/management/tableOperationsCommands';
+import {
   buildPlayerProfile as buildPlayerProfileInState,
+  archiveProfile as archivePlayerProfileInState,
   checkProfileIntoClub,
   createActiveMemberProfile,
-  deleteProfile as deleteProfileFromState,
   mergeDuplicateProfiles as mergeDuplicateProfilesInState,
   removeProfileFromClub as removeProfileFromClubInState,
+  restoreProfile as restorePlayerProfileInState,
   saveEditedProfile
 } from './application/management/profileCommands';
 import {
-  activateInPersonMembership as activateInPersonMembershipInState,
-  approveMembershipRequest as approveMembershipRequestInState
+  approveMembershipRequest as approveMembershipRequestInState,
+  approvePlayerIdentity as approvePlayerIdentityInState,
+  markMembershipPaidInPerson as markMembershipPaidInPersonInState
 } from './application/management/membershipCommands';
 import {
   getNightCloseLockError,
@@ -121,6 +132,13 @@ import {
   signNightClose as signNightCloseInState
 } from './application/management/closeoutCommands';
 import {
+  activateStaffSelection,
+  hasActiveStaffAdministrator,
+  isStaffAdministratorRole,
+  isValidStaffPin,
+  type StaffSession
+} from './application/management/staffSelection';
+import {
   useStaffRequestNotifications,
   type StaffRequestNotice
 } from './application/management/sync/staffRequestNotifications';
@@ -129,8 +147,14 @@ import {
   useManagementStorageSync,
   useManagementUpdatePreservation
 } from './application/management/sync/useManagementPersistenceEvents';
+import { commitAuthoritativeTransition } from './application/management/sync/authoritativeTransition';
 import { useManagementPlayerUpdateSync } from './application/management/sync/useManagementPlayerUpdateSync';
 import { useManagementPilotAccessRefresh } from './application/management/sync/useManagementPilotAccessRefresh';
+import {
+  createManagementUndoEntry,
+  restoreManagementUndoEntry,
+  type ManagementUndoEntry
+} from './application/management/managementUndo';
 import {
   createTournamentActions,
   formatTournamentTime,
@@ -165,17 +189,19 @@ import {
   useReportingWorkspaceState
 } from './features/reporting/reportingWorkspace';
 import { useFloorWorkspaceState } from './features/floor/floorWorkspace';
-import TableBuyInLedger from './features/floor/TableBuyInLedger';
 import {
   useGamesWorkspaceState,
   type GroupMeCandidate
 } from './features/games/gamesWorkspace';
 import {
   canUseRendererFirebaseAuth,
+  loadDesktopManagementStateForAccount,
   loadExistingManagementStateForAccount,
   loadManagementState,
+  loadManagementStateFromLocalBridge,
   saveManagementState
 } from './app/persistence/managementPersistence';
+import { saveBrowserManagementState } from './app/persistence/browserStateRepository';
 import {
   getCollectionProfile,
   getTableFinancialOverview
@@ -186,6 +212,8 @@ import {
   isPilotAccessActive,
   managementStorageKey as storageKey,
   persistSignIn,
+  restorePersistedSignIn,
+  type ManagementSessionBinding,
   touchPersistedSignIn,
   safeAccountKeyPart,
   validatePilotKey
@@ -193,6 +221,7 @@ import {
 import { hashStaffPin, verifyStaffSecret } from './domain/staffAuth';
 import {
   buildAnalyticalReportPayload,
+  getAnalytics,
   type AnalyticalReportPayload
 } from './domain/analytics';
 import {
@@ -243,11 +272,19 @@ const SummaryView = React.lazy(() => import('./components/SummaryView'));
 const TableView = React.lazy(() => import('./components/TableView'));
 const TournamentsView = React.lazy(() => import('./components/TournamentsView'));
 const TournamentTvView = React.lazy(() => import('./components/TournamentTvView'));
+const TableBuyInLedger = React.lazy(() => import('./features/floor/TableBuyInLedger'));
 
-const withRouteLoadingBoundary = (content: React.ReactNode) => (
+const withRouteLoadingBoundary = (
+  content: React.ReactNode,
+  loadingVariant: 'default' | 'table-view' | 'tournament-tv' = 'default'
+) => (
   <RecoveryBoundary label="This workspace">
     <React.Suspense fallback={(
-      <main className="route-skeleton" aria-busy="true" aria-label="Loading view">
+      <main
+        className={loadingVariant === 'default' ? 'route-skeleton' : `route-skeleton route-skeleton-${loadingVariant}`}
+        aria-busy="true"
+        aria-label="Loading view"
+      >
         <span className="route-skeleton-title" />
         <span className="route-skeleton-toolbar" />
         <span className="route-skeleton-panel" />
@@ -299,17 +336,30 @@ declare global {
         revision?: number;
         error?: string;
       }>;
+      generateSelfCheckInKit: (payload: { access: PilotAccess; staffToken: string }) => Promise<{
+        ok: boolean;
+        canceled?: boolean;
+        filePath?: string;
+        rotatedPreviousCode?: boolean;
+        selfCheckIn?: AppState['selfCheckIn'];
+        error?: string;
+      }>;
+      persistManagementSession: (binding: ManagementSessionBinding) => Promise<{ ok: boolean; active: boolean; expiresAt?: string }>;
+      restoreManagementSession: (binding: ManagementSessionBinding) => Promise<{ ok: boolean; active: boolean; expiresAt?: string }>;
+      clearManagementSession: (accountKey: string) => Promise<{ ok: boolean; active: boolean }>;
       verifyStaffPin: (payload: { staffId: string; pin: string; access: PilotAccess }) => Promise<{
         ok: boolean;
         token?: string;
         staffId?: string;
         role?: StaffAccount['role'];
+        accountKey?: string;
         expiresAt?: string;
         error?: string;
       }>;
       authorizeStaffAction: (payload: { token: string; action: 'staff-sign' | 'manager-lock' | 'manager-reopen' | 'staff-admin' }) => Promise<{
         ok: boolean;
         error?: string;
+        reauthenticate?: boolean;
       }>;
       submitAnalyticalReport: (report: AnalyticalReportPayload) => Promise<ReportSubmissionResult>;
       recordClientEvent: (
@@ -452,9 +502,27 @@ const applyBrandTheme = (theme: BrandTheme) => {
   });
   document.body.style.setProperty('--brand-font-family', branding.theme.fontFamily);
 };
+const clearActiveStaffSelection = (current: AppState): AppState => current.settings.activeStaffId
+  ? {
+      ...current,
+      settings: { ...current.settings, activeStaffId: undefined }
+    }
+  : current;
+const projectTrustedStaffSelection = (current: AppState, session: StaffSession): AppState | null => {
+  if (session.accountKey !== getAccountKeyFromState(current)) return null;
+  const trustedStaff = current.settings.staffAccounts.find(
+    (staff) => staff.id === session.staffId && staff.active
+  );
+  if (!trustedStaff) return null;
+  if (current.settings.activeStaffId === session.staffId) return current;
+  return {
+    ...current,
+    settings: { ...current.settings, activeStaffId: session.staffId }
+  };
+};
 function App() {
   const [state, setState] = useState<AppState>(() => loadManagementState());
-  const [staffSession, setStaffSession] = useState<{ token: string; staffId: string; role: StaffAccount['role']; expiresAt: string } | null>(null);
+  const [staffSession, setStaffSession] = useState<StaffSession | null>(null);
   const getRouteFromHash = (): AppRoute =>
     window.location.hash.includes('tournament-tv')
       ? 'tournament-tv'
@@ -551,6 +619,7 @@ function App() {
     markStaffNotificationRead,
     replaceStaffNotifications,
     setStaffRequestNotice,
+    syncSelfCheckInStaffRequests,
     staffNotifications,
     staffRequestNotice
   } = useStaffRequestNotifications();
@@ -582,6 +651,8 @@ function App() {
     pilotKeyError,
     reportMessage,
     saveStatus,
+    selfCheckInKitMessage,
+    staffAccountNotice,
     settingsSection,
     setupDraft,
     staffDraft,
@@ -596,6 +667,8 @@ function App() {
     setPilotKeyError,
     setReportMessage,
     setSaveStatus,
+    setSelfCheckInKitMessage,
+    setStaffAccountNotice,
     setSettingsSection,
     setSetupDraft,
     setStaffDraft
@@ -607,8 +680,7 @@ function App() {
     const mismatch = matchesValue !== undefined && input.value !== matchesValue;
     setAccessFieldError(mismatch ? 'Password and confirmation do not match.' : input.validationMessage);
   };
-  // The undo control was removed before this refactor; keep its write cadence until product scope decides whether to restore or remove it.
-  const [, setUndoStack] = useState<AppState[]>([]);
+  const [undoAction, setUndoAction] = useState<{ entry: ManagementUndoEntry; label: string } | null>(null);
   const tournamentWorkspace = useTournamentWorkspaceState();
   const {
     selectedTournamentId,
@@ -625,6 +697,64 @@ function App() {
     tournamentView
   } = tournamentWorkspace;
   const stateRef = useRef(state);
+  const staffSessionRef = useRef<StaffSession | null>(null);
+  const staffSelectionAttemptRef = useRef(0);
+  const staffPinRequestSequenceRef = useRef(0);
+  const staffPinResolverRef = useRef<((pin: string | null) => void) | null>(null);
+  const [staffPinRequest, setStaffPinRequest] = useState<{
+    id: number;
+    staffId: string;
+    staffName: string;
+  } | null>(null);
+  const saveSequenceRef = useRef(0);
+  const pendingManagementSaveRef = useRef<Promise<{ ok: boolean; error?: string }>>(
+    Promise.resolve({ ok: true })
+  );
+  const setTrustedStaffSession = (session: StaffSession | null) => {
+    staffSessionRef.current = session;
+    setStaffSession(session);
+  };
+  const resolveStaffPinRequest = (pin: string | null) => {
+    const resolve = staffPinResolverRef.current;
+    staffPinResolverRef.current = null;
+    setStaffPinRequest(null);
+    resolve?.(pin);
+  };
+  const requestStaffPin = (staffId: string) => {
+    const previousResolve = staffPinResolverRef.current;
+    staffPinResolverRef.current = null;
+    previousResolve?.(null);
+    const staffName = stateRef.current.settings.staffAccounts.find((staff) => staff.id === staffId)?.name
+      || 'staff member';
+    const id = staffPinRequestSequenceRef.current + 1;
+    staffPinRequestSequenceRef.current = id;
+    return new Promise<string | null>((resolve) => {
+      staffPinResolverRef.current = resolve;
+      setStaffPinRequest({ id, staffId, staffName });
+    });
+  };
+  const applyTrustedStaffProjection = (
+    session: StaffSession,
+    current = stateRef.current
+  ): AppState | null => {
+    const next = projectTrustedStaffSelection(current, session);
+    if (!next) return null;
+    if (next !== current) {
+      stateRef.current = next;
+      setState(next);
+    }
+    return next;
+  };
+  const clearTrustedStaffSelection = () => {
+    staffSelectionAttemptRef.current += 1;
+    resolveStaffPinRequest(null);
+    setTrustedStaffSession(null);
+    setState((current) => {
+      const next = clearActiveStaffSelection(current);
+      stateRef.current = next;
+      return next;
+    });
+  };
   const {
     playerPopup,
     playerSection,
@@ -672,6 +802,40 @@ function App() {
     stateRef.current = state;
   }, [state]);
 
+  useEffect(() => () => {
+    const resolve = staffPinResolverRef.current;
+    staffPinResolverRef.current = null;
+    resolve?.(null);
+  }, []);
+
+  useEffect(() => {
+    const session = staffSessionRef.current;
+    const activeStaffId = state.settings.activeStaffId;
+    if (!session) {
+      if (activeStaffId) clearTrustedStaffSelection();
+      return;
+    }
+    if (!applyTrustedStaffProjection(session)) {
+      clearTrustedStaffSelection();
+    }
+  }, [
+    activeAccountKey,
+    state.settings.activeStaffId,
+    state.settings.staffAccounts,
+    staffSession?.accountKey,
+    staffSession?.staffId,
+    staffSession?.token
+  ]);
+
+  useEffect(() => {
+    if (!staffSession) return undefined;
+    const expiresIn = Date.parse(staffSession.expiresAt) - Date.now();
+    const timer = window.setTimeout(() => {
+      clearTrustedStaffSelection();
+    }, Number.isFinite(expiresIn) ? Math.max(0, expiresIn) : 0);
+    return () => window.clearTimeout(timer);
+  }, [staffSession?.expiresAt, staffSession?.token]);
+
   useTournamentSelectionRepair(state.tournaments, selectedTournamentId, setSelectedTournamentId);
 
   useEffect(() => {
@@ -697,6 +861,7 @@ function App() {
   const {
     activeMemberProfiles,
     approvedMembershipProfiles,
+    archivedProfiles,
     checkInMatches,
     duplicateProfiles,
     membershipDirectoryProfiles,
@@ -741,12 +906,12 @@ function App() {
   }, [inClubInterests, state]);
 
   useManagementStartupSync({
+    getCurrentState: () => stateRef.current,
     hasAuthenticated,
     setHasAuthenticated,
     setSaveStatus,
     setState,
-    setUndoStack,
-    state
+    clearUndo: () => setUndoAction(null)
   });
 
   useEffect(() => {
@@ -758,15 +923,16 @@ function App() {
   useEffect(() => {
     if (!hasAuthenticated) return;
     let idleTimer = 0;
-    const expireSession = () => {
-      persistSignIn(state, false);
-      setStaffSession(null);
+    const expireSession = async () => {
+      await persistSignIn(state, false);
+      await signOutOfFirebase().catch(() => undefined);
+      clearTrustedStaffSelection();
       setHasAuthenticated(false);
     };
     const refreshIdleSession = () => {
-      touchPersistedSignIn(state);
+      const staysSignedIn = touchPersistedSignIn(state);
       window.clearTimeout(idleTimer);
-      idleTimer = window.setTimeout(expireSession, 30 * 60 * 1000);
+      if (!staysSignedIn) idleTimer = window.setTimeout(() => void expireSession(), 30 * 60 * 1000);
     };
     refreshIdleSession();
     window.addEventListener('keydown', refreshIdleSession);
@@ -792,11 +958,11 @@ function App() {
       .catch(() => undefined);
   }, []);
 
-  useManagementPilotAccessRefresh({ setState, state });
+  useManagementPilotAccessRefresh({ getCurrentState: () => stateRef.current, setState, state });
 
   useSettingsWorkspaceSync({ setClubDraft, setHasAuthenticated, state });
 
-  useManagementStorageSync(setState);
+  useManagementStorageSync(setState, () => setUndoAction(null));
 
   useEffect(() => {
     const syncRoute = () => {
@@ -813,10 +979,14 @@ function App() {
     hasAuthenticated,
     setSaveStatus,
     setState,
-    setUndoStack,
+    clearUndo: () => setUndoAction(null),
     state,
     stateRef
   });
+
+  useEffect(() => {
+    syncSelfCheckInStaffRequests(state.staffRequests);
+  }, [state.staffRequests, syncSelfCheckInStaffRequests]);
 
   useEffect(() => {
     const reportError = (payload: {
@@ -858,7 +1028,12 @@ function App() {
 
   const withUsageEvent = (next: AppState, usage?: UsageDescriptor): AppState => {
     if (!usage) return next;
-    const activeStaff = next.settings.staffAccounts.find((staff) => staff.id === next.settings.activeStaffId);
+    const trustedSession = staffSessionRef.current;
+    const activeStaff = trustedSession?.accountKey === getAccountKeyFromState(next)
+      ? next.settings.staffAccounts.find((staff) =>
+          staff.id === next.settings.activeStaffId && staff.id === trustedSession.staffId
+        )
+      : undefined;
     const event: UsageEvent = {
       id: uid(),
       feature: usage.feature,
@@ -896,32 +1071,233 @@ function App() {
 
   const persist = (nextState: AppState, trackUndo = true, usage?: UsageDescriptor) => {
     const next = withUsageEvent(nextState, usage);
+    const previousState = stateRef.current;
+    const previousAccountKey = getAccountKeyFromState(previousState);
+    const nextAccountKey = getAccountKeyFromState(next);
     if (trackUndo) {
-      setUndoStack((previous) => [state, ...previous].slice(0, 5));
+      const entry = createManagementUndoEntry(previousState, next);
+      if (entry) setUndoAction({ entry, label: usage?.action ?? 'last action' });
     }
+    if (previousAccountKey !== nextAccountKey) {
+      staffSelectionAttemptRef.current += 1;
+      setTrustedStaffSession(null);
+      setUndoAction(null);
+    }
+    stateRef.current = next;
     setState(next);
     setSaveStatus({ state: 'saving', message: 'Saving...' });
-    saveManagementState(next)
+    const saveSequence = saveSequenceRef.current + 1;
+    saveSequenceRef.current = saveSequence;
+    const pendingSave = pendingManagementSaveRef.current
+      .catch(() => ({ ok: false }))
+      .then(() => saveManagementState(next))
       .then((result) => {
-        if (!result.ok) {
-          setSaveStatus({ state: 'error', message: result.error || 'Saved to cache only; server reconciliation required' });
-          return;
+        if (saveSequence === saveSequenceRef.current) {
+          if (!result.ok) {
+            setSaveStatus({ state: 'error', message: result.error || 'Saved to cache only; server reconciliation required' });
+          } else {
+            setSaveStatus({
+              state: result.cloud === 'failed' ? 'error' : 'saved',
+              message: result.cloud === 'published'
+                ? `Published ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+                : result.cloud === 'failed'
+                  ? 'Server saved; player projection failed and will retry'
+                  : 'Server saved; player projection pending'
+            });
+          }
         }
-        setSaveStatus({
-          state: result.cloud === 'failed' ? 'error' : 'saved',
-          message: result.cloud === 'published'
-            ? `Published ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
-            : result.cloud === 'failed'
-              ? 'Server saved; player projection failed and will retry'
-              : 'Server saved; player projection pending'
-        });
+        return result;
       })
       .catch((error) => {
+        const message = error instanceof Error ? `Save failed: ${error.message}` : 'Save failed';
+        if (saveSequence === saveSequenceRef.current) {
+          setSaveStatus({ state: 'error', message });
+        }
+        return { ok: false, error: message };
+      });
+    pendingManagementSaveRef.current = pendingSave;
+    return pendingSave;
+  };
+
+  const loadAuthoritativeStateForTransition = async (sourceState: AppState) => {
+    const access = sourceState.settings.pilotAccess;
+    if (!access) throw new Error('The active club license is unavailable.');
+
+    let desktopLoadError: unknown;
+    try {
+      const record = await loadDesktopManagementStateForAccount(access);
+      if (record?.state && record.authoritative !== false) {
+        return normalizeState({
+          ...record.state,
+          settings: { ...record.state.settings, pilotAccess: access }
+        });
+      }
+      if (record?.authoritative === false) {
+        desktopLoadError = new Error('The desktop returned an offline cache instead of authoritative club state.');
+      }
+    } catch (error) {
+      desktopLoadError = error;
+    }
+
+    try {
+      const record = await loadManagementStateFromLocalBridge(getAccountKeyFromState(sourceState));
+      if (record.status === 'available' && record.state) {
+        return normalizeState({
+          ...record.state,
+          settings: { ...record.state.settings, pilotAccess: access }
+        });
+      }
+    } catch (error) {
+      desktopLoadError ??= error;
+    }
+
+    throw desktopLoadError instanceof Error
+      ? desktopLoadError
+      : new Error('The latest club state could not be loaded after a save conflict.');
+  };
+
+  const reconcileFailedStaffTransition = async (
+    sourceState: AppState,
+    transition: (sourceState: AppState) => AppState,
+    saveError?: string
+  ) => {
+    const sourceAccountKey = getAccountKeyFromState(sourceState);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      let pendingSave = pendingManagementSaveRef.current;
+      await pendingSave;
+      while (pendingSave !== pendingManagementSaveRef.current) {
+        pendingSave = pendingManagementSaveRef.current;
+        await pendingSave;
+      }
+
+      const expectedSaveSequence = saveSequenceRef.current;
+      const expectedState = stateRef.current;
+      if (getAccountKeyFromState(expectedState) !== sourceAccountKey) return false;
+      let authoritativeState: AppState;
+      try {
+        authoritativeState = await loadAuthoritativeStateForTransition(sourceState);
+      } catch (error) {
+        if (
+          expectedSaveSequence !== saveSequenceRef.current ||
+          !Object.is(expectedState, stateRef.current)
+        ) continue;
         setSaveStatus({
           state: 'error',
-          message: error instanceof Error ? `Save failed: ${error.message}` : 'Save failed'
+          message: error instanceof Error
+            ? error.message
+              : saveError || 'The failed change could not be reconciled with the server.'
         });
-      });
+        return false;
+      }
+
+      if (
+        expectedSaveSequence !== saveSequenceRef.current ||
+        !Object.is(expectedState, stateRef.current)
+      ) continue;
+
+      saveBrowserManagementState(authoritativeState);
+      stateRef.current = authoritativeState;
+      setState(authoritativeState);
+      const authoritativeIncludesTransition = Object.is(
+        transition(authoritativeState),
+        authoritativeState
+      );
+      setSaveStatus(authoritativeIncludesTransition
+        ? { state: 'saved', message: 'Saved by a newer queued update' }
+        : {
+            state: 'error',
+            message: saveError || 'The change was not saved. The latest server state has been restored.'
+          });
+      return authoritativeIncludesTransition;
+    }
+    return false;
+  };
+
+  const commitStaffTransition = async (
+    transition: (sourceState: AppState) => AppState,
+    usage?: UsageDescriptor
+  ) => {
+    const initialState = stateRef.current;
+    let replayUsageEvent: UsageEvent | undefined;
+    let ownedState = initialState;
+    let ownedSaveSequence = saveSequenceRef.current;
+    const transitionWithUsage = (sourceState: AppState) => {
+      const nextState = transition(sourceState);
+      if (Object.is(nextState, sourceState) || !usage) return nextState;
+      if (!replayUsageEvent) {
+        const stateWithUsage = withUsageEvent(nextState, usage);
+        replayUsageEvent = stateWithUsage.usageEvents[0];
+        return stateWithUsage;
+      }
+      return {
+        ...nextState,
+        usageEvents: [
+          replayUsageEvent,
+          ...(nextState.usageEvents ?? []).filter((event) => event.id !== replayUsageEvent?.id)
+        ].slice(0, 5000)
+      };
+    };
+    let firstSave = true;
+    const result = await commitAuthoritativeTransition({
+      initialState,
+      transition: transitionWithUsage,
+      save: (nextState) => {
+        if (
+          !firstSave &&
+          (
+            saveSequenceRef.current !== ownedSaveSequence ||
+            !Object.is(stateRef.current, ownedState)
+          )
+        ) {
+          return Promise.resolve({
+            ok: false,
+            conflict: true,
+            error: 'A newer local change was made while the server state was being reconciled.'
+          });
+        }
+        const trackUndo = firstSave;
+        firstSave = false;
+        const pendingSave = persist(nextState, trackUndo);
+        ownedState = nextState;
+        ownedSaveSequence = saveSequenceRef.current;
+        return pendingSave;
+      },
+      loadAuthoritative: () => loadAuthoritativeStateForTransition(initialState)
+    });
+
+    const stillOwnsRenderedState =
+      saveSequenceRef.current === ownedSaveSequence &&
+      Object.is(stateRef.current, ownedState);
+    if (stillOwnsRenderedState) {
+      // A rejected optimistic save must never remain as either the rendered state
+      // or local recovery cache. Never replace a newer, separately queued change.
+      saveBrowserManagementState(result.state);
+      if (!Object.is(stateRef.current, result.state)) {
+        stateRef.current = result.state;
+        setState(result.state);
+      }
+      if (!result.ok) {
+        setSaveStatus({
+          state: 'error',
+          message: result.error || 'The change was not saved. The latest server state has been restored.'
+        });
+      } else if (result.adoptedAuthoritative) {
+        setSaveStatus({ state: 'saved', message: 'Already updated from the latest server state' });
+      }
+    } else if (!result.ok) {
+      return reconcileFailedStaffTransition(initialState, transition, result.error);
+    }
+    return result.ok;
+  };
+
+  const waitForPendingManagementSaves = async () => {
+    let pendingSave = pendingManagementSaveRef.current;
+    let result = await pendingSave;
+    while (pendingSave !== pendingManagementSaveRef.current) {
+      pendingSave = pendingManagementSaveRef.current;
+      result = await pendingSave;
+    }
+    return result;
   };
 
   const addInterest = (event: React.FormEvent) => {
@@ -984,7 +1360,11 @@ function App() {
       window.alert('No open seats are available for that game.');
       return;
     }
-    const result = upsertWaitlistInterest(state, {
+    const targetProfile = existingProfile ?? buildPlayerProfile(playerName, form.gameId, {
+      notes: 'Created from Quick Add'
+    });
+    const profileState = existingProfile ? state : { ...state, profiles: [...state.profiles, targetProfile] };
+    const result = upsertWaitlistInterest(profileState, {
       playerName,
       gameId: form.gameId,
       status: form.status,
@@ -993,7 +1373,11 @@ function App() {
     const nextState = applyWaitlistDemandPrompt(result.state, result.demandPrompt);
     persist(nextState, true, {
       feature: 'Waitlist',
-      action: result.updatedExisting ? 'Updated active member status' : 'Added interest',
+      action: result.updatedExisting
+        ? 'Updated active player status'
+        : existingProfile
+          ? 'Added interest'
+          : 'Created profile and added interest',
       metadata: { status: form.status, gameId: form.gameId }
     });
     setForm({ ...form, playerName: '', notes: '', tableId: '', seatNumber: '', initialBuyIn: '' });
@@ -1058,6 +1442,65 @@ function App() {
     setCustomTimeDrafts((drafts) => ({ ...drafts, [playerSession.id]: '' }));
   };
 
+  const deductPlayerTime = (playerSession: PlayerSession, minutes: number) => {
+    const reason = window.prompt('Why are you deducting this time?', 'Time added by mistake')?.trim();
+    if (!reason) return false;
+    const result = deductUnconsumedPlayerTime(
+      state,
+      playerSession.id,
+      minutes,
+      reason,
+      { createId: uid, nowIso, nowMs: Date.now }
+    );
+    if (!result.ok) {
+      if (result.error) window.alert(result.error);
+      return false;
+    }
+    persist(result.state, true, {
+      feature: 'Table time',
+      action: 'Deducted player time',
+      metadata: { minutes, reason, gameId: playerSession.gameId }
+    });
+    return true;
+  };
+
+  const pauseAndSavePlayerTime = (playerSession: PlayerSession) => {
+    const result = pauseAndStorePlayerTimeCredit(
+      state,
+      playerSession.id,
+      { nowIso, nowMs: Date.now }
+    );
+    if (!result.ok) {
+      if (result.error) window.alert(result.error);
+      return false;
+    }
+    persist(result.state, true, {
+      feature: 'Table time',
+      action: 'Paused and saved player time',
+      metadata: { profileId: playerSession.profileId ?? '', gameId: playerSession.gameId }
+    });
+    return true;
+  };
+
+  const useSavedPlayerTime = (playerSession: PlayerSession, minutes: number) => {
+    const result = applySavedPlayerTimeCredit(
+      state,
+      playerSession.id,
+      minutes,
+      { nowIso, nowMs: Date.now }
+    );
+    if (!result.ok) {
+      if (result.error) window.alert(result.error);
+      return false;
+    }
+    persist(result.state, true, {
+      feature: 'Table time',
+      action: 'Applied saved player time',
+      metadata: { minutes, profileId: playerSession.profileId ?? '', gameId: playerSession.gameId }
+    });
+    return true;
+  };
+
   const addBuyIn = (playerSession: PlayerSession, amountOverride?: number, noteOverride?: string) => {
     const draft = buyInDrafts[playerSession.id] ?? { amount: '', note: '' };
     const amount = amountOverride ?? Number(draft.amount);
@@ -1110,14 +1553,6 @@ function App() {
     }
     persist(result.state, true, { feature: 'Hand tracking', action: 'Recorded hands', metadata: { hands, tableId: session.id } });
     setHandCountDrafts((drafts) => ({ ...drafts, [session.id]: '' }));
-  };
-
-  const deleteInterest = (id: string) => {
-    if (!window.confirm('Remove this interest entry?')) return;
-    persist(removeWaitlistInterest(state, id), true, {
-      feature: 'Waitlist',
-      action: 'Removed interest'
-    });
   };
 
   const getSeatOptions = (gameId: string) =>
@@ -1252,9 +1687,6 @@ function App() {
     }
     return sourceState;
   };
-
-  const promptDemandAction = (sourceState: AppState, gameId: string) =>
-    applyWaitlistDemandPrompt(sourceState, getWaitlistDemandPrompt(sourceState, gameId));
 
   const getSeatPickerCandidates = (session: GameSession, query = '') => {
     const seatedProfileIds = new Set(
@@ -1447,17 +1879,38 @@ function App() {
   };
 
   const seatInterestAtTable = (interest: Interest, tableId?: string, seatNumber?: number) => {
+    const existingProfile = interest.profileId
+      ? state.profiles.find((profile) => profile.id === interest.profileId)
+      : state.profiles.find(
+          (profile) => profile.name.trim().toLowerCase() === interest.playerName.trim().toLowerCase()
+        );
+    const targetProfile = existingProfile ?? buildPlayerProfile(interest.playerName, interest.gameId, {
+      notes: 'Created from waitlist seating'
+    });
+    const seatingState: AppState = {
+      ...state,
+      profiles: existingProfile ? state.profiles : [...state.profiles, targetProfile],
+      interests: state.interests.map((candidate) =>
+        candidate.id === interest.id ? { ...candidate, profileId: targetProfile.id } : candidate
+      )
+    };
+    const linkedInterest = { ...interest, profileId: targetProfile.id };
     const table = tableId
-      ? state.sessions.find((session: { id: string; status: string; }) => session.id === tableId && session.status !== 'Closed' && session.status !== 'Failed to Start')
-      : state.sessions.find((session: { gameId: string; status: string; }) => session.gameId === interest.gameId && session.status !== 'Closed' && session.status !== 'Failed to Start');
+      ? seatingState.sessions.find((session: { id: string; status: string; }) => session.id === tableId && session.status !== 'Closed' && session.status !== 'Failed to Start')
+      : seatingState.sessions.find((session: { gameId: string; status: string; }) => session.gameId === interest.gameId && session.status !== 'Closed' && session.status !== 'Failed to Start');
     if (!table) {
-      updateInterest(interest.id, { status: 'Seated' });
+      const result = patchWaitlistInterest(seatingState, linkedInterest.id, { status: 'Seated' }, { nowIso });
+      persist(result.state, true, {
+        feature: 'Profiles',
+        action: existingProfile ? 'Updated player status' : 'Created profile and updated player status',
+        metadata: { profileId: targetProfile.id, status: 'Seated' }
+      });
       return;
     }
-    const result = seatPlayerInState(state, table.id, {
-      playerName: interest.playerName,
-      profileId: interest.profileId,
-      interestId: interest.id,
+    const result = seatPlayerInState(seatingState, table.id, {
+      playerName: linkedInterest.playerName,
+      profileId: linkedInterest.profileId,
+      interestId: linkedInterest.id,
       requestedSeatNumber: seatNumber,
       note: 'Seated from waitlist'
     });
@@ -1483,8 +1936,32 @@ function App() {
   const startSessionWithPlayers = (session: GameSession) => {
     const selectedIds = startPlayerDrafts[session.id] ?? [];
     const triggeringCardHouse = getClubDisplayName(state);
+    let preparedState = state;
+    selectedIds.forEach((interestId) => {
+      const interest = preparedState.interests.find((candidate) => candidate.id === interestId);
+      if (!interest) return;
+      const existingProfile = interest.profileId
+        ? preparedState.profiles.find((profile) => profile.id === interest.profileId)
+        : preparedState.profiles.find(
+            (profile) => profile.name.trim().toLowerCase() === interest.playerName.trim().toLowerCase()
+          );
+      const targetProfile = existingProfile ?? buildPlayerProfileInState(
+        preparedState,
+        interest.playerName,
+        interest.gameId,
+        { notes: 'Created when table started' },
+        { createProfileId: memberId, todayDate, nextYearDate }
+      );
+      preparedState = {
+        ...preparedState,
+        profiles: existingProfile ? preparedState.profiles : [...preparedState.profiles, targetProfile],
+        interests: preparedState.interests.map((candidate) =>
+          candidate.id === interest.id ? { ...candidate, profileId: targetProfile.id } : candidate
+        )
+      };
+    });
     const result = startTableWithPlayers(
-      state,
+      preparedState,
       session,
       selectedIds,
       triggeringCardHouse,
@@ -1539,27 +2016,131 @@ function App() {
   // Kept as a named application boundary: characterization coverage invokes this
   // transition directly even though the current view does not render its control.
   const markPlayerLeft = (interest: Interest) => {
-    const result = markInterestPlayerLeft(state, interest, { nowIso });
-    const finalState = result.notification
-      ? withGameFrequencyInAppNotifications(result.state, result.notification.gameId, result.notification.reason)
-      : result.state;
-    persist(finalState);
+    const timestamp = nowIso();
+    return commitStaffTransition((sourceState) => {
+      const currentInterest = sourceState.interests.find((item) => item.id === interest.id);
+      if (!currentInterest || currentInterest.status === 'Removed') return sourceState;
+      const result = markInterestPlayerLeft(sourceState, currentInterest, { nowIso: () => timestamp });
+      return result.notification
+        ? withGameFrequencyInAppNotifications(result.state, result.notification.gameId, result.notification.reason)
+        : result.state;
+    });
   };
 
-  const markPlayerSessionLeft = (playerSession: PlayerSession, cashOutAmount: number, cashOutNote = '') => {
-    const result = markPlayerSessionLeftInState(
-      state,
-      playerSession,
-      cashOutAmount,
-      cashOutNote,
-      { createId: uid, nowIso }
+  const getActivePlayerSessionForProfile = (sourceState: AppState, profile: PlayerProfile) =>
+    sourceState.playerSessions.find((session) => session.profileId === profile.id && !session.leftAt) ??
+    findUniqueProfileReference(
+      sourceState.playerSessions,
+      sourceState.profiles,
+      profile,
+      (session) => !session.leftAt
     );
-    const finalState = withGameFrequencyInAppNotifications(
-      result.state,
-      result.notification.gameId,
-      result.notification.reason
+
+  const getActivePlayerSessionForInterest = (sourceState: AppState, interest: Interest) => {
+    if (interest.profileId) {
+      return sourceState.playerSessions.find(
+        (session) =>
+          session.profileId === interest.profileId &&
+          session.gameId === interest.gameId &&
+          !session.leftAt
+      );
+    }
+    const normalizedName = interest.playerName.trim().toLowerCase();
+    const matches = sourceState.playerSessions.filter(
+      (session) =>
+        session.playerName.trim().toLowerCase() === normalizedName &&
+        session.gameId === interest.gameId &&
+        !session.leftAt
     );
-    persist(finalState, true, { feature: 'Seating', action: 'Marked player left', metadata: { gameId: playerSession.gameId, tableId: playerSession.tableId } });
+    return matches.length === 1 ? matches[0] : undefined;
+  };
+
+  const markPlayerSessionLeft = (
+    playerSession: PlayerSession,
+    cashOutAmount: number | undefined,
+    cashOutNote = ''
+  ) => {
+    const timestamp = nowIso();
+    return commitStaffTransition((sourceState) => {
+      const currentSession = sourceState.playerSessions.find(
+        (session) => session.id === playerSession.id && !session.leftAt
+      );
+      if (!currentSession) return sourceState;
+      const result = markPlayerSessionLeftInState(
+        sourceState,
+        currentSession,
+        cashOutAmount,
+        cashOutNote,
+        { createId: uid, nowIso: () => timestamp }
+      );
+      return withGameFrequencyInAppNotifications(
+        result.state,
+        result.notification.gameId,
+        result.notification.reason
+      );
+    }, {
+      feature: 'Seating',
+      action: 'Marked player left',
+      metadata: { gameId: playerSession.gameId, tableId: playerSession.tableId }
+    });
+  };
+
+  const deleteInterest = async (id: string) => {
+    const selectedInterest = stateRef.current.interests.find((interest) => interest.id === id);
+    if (!selectedInterest) return false;
+    const isInClub = selectedInterest.status === 'Arrived' || selectedInterest.status === 'Seated';
+    if (!isInClub) {
+      if (!window.confirm('Remove this interest entry?')) return false;
+      return commitStaffTransition((sourceState) => {
+        const currentInterest = sourceState.interests.find((interest) => interest.id === id);
+        if (
+          !currentInterest ||
+          currentInterest.status === 'Arrived' ||
+          currentInterest.status === 'Seated' ||
+          currentInterest.status === 'Removed'
+        ) return sourceState;
+        return removeWaitlistInterest(sourceState, id);
+      }, {
+        feature: 'Waitlist',
+        action: 'Removed interest'
+      });
+    }
+    if (!window.confirm(`Check out ${selectedInterest.playerName}?`)) return false;
+    const timestamp = nowIso();
+    return commitStaffTransition((sourceState) => {
+      const currentInterest = sourceState.interests.find(
+        (interest) => interest.id === id && (interest.status === 'Arrived' || interest.status === 'Seated')
+      );
+      if (!currentInterest) return sourceState;
+      const currentSession = getActivePlayerSessionForInterest(sourceState, currentInterest);
+      if (!currentSession) {
+        const result = markInterestPlayerLeft(sourceState, currentInterest, { nowIso: () => timestamp });
+        return result.notification
+          ? withGameFrequencyInAppNotifications(result.state, result.notification.gameId, result.notification.reason)
+          : result.state;
+      }
+      const sessionResult = markPlayerSessionLeftInState(
+        sourceState,
+        currentSession,
+        undefined,
+        'Checked out from the In Club list',
+        { createId: uid, nowIso: () => timestamp }
+      );
+      const interestResult = markInterestPlayerLeft(
+        sessionResult.state,
+        currentInterest,
+        { nowIso: () => timestamp }
+      );
+      return withGameFrequencyInAppNotifications(
+        interestResult.state,
+        sessionResult.notification.gameId,
+        sessionResult.notification.reason
+      );
+    }, {
+      feature: 'Profiles',
+      action: 'Checked player out from club',
+      metadata: { gameId: selectedInterest.gameId }
+    });
   };
 
   const requestPlayerCashOut = (playerSession: PlayerSession) => {
@@ -1644,11 +2225,34 @@ function App() {
   };
 
   const recordTableEvent = (session: GameSession, type: TableEventType, reason: string, note = '') => {
-    persist(
-      recordTableLifecycleEvent(state, session, type, reason, note, { createId: uid, nowIso }),
-      true,
-      { feature: 'Tables', action: type, metadata: { gameId: session.gameId, tableId: session.id, reason } }
-    );
+    const usage = { feature: 'Tables', action: type, metadata: { gameId: session.gameId, tableId: session.id, reason } };
+    if (type !== 'Closed' && type !== 'Broke') {
+      persist(
+        recordTableLifecycleEvent(state, session, type, reason, note, { createId: uid, nowIso }),
+        true,
+        usage
+      );
+      return;
+    }
+    const timestamp = nowIso();
+    return commitStaffTransition((sourceState) => {
+      const currentSession = sourceState.sessions.find(
+        (candidate) =>
+          candidate.id === session.id &&
+          candidate.status !== 'Closed' &&
+          candidate.status !== 'Failed to Start'
+      );
+      return currentSession
+        ? recordTableLifecycleEvent(
+            sourceState,
+            currentSession,
+            type,
+            reason,
+            note,
+            { createId: uid, nowIso: () => timestamp }
+          )
+        : sourceState;
+    }, usage);
   };
 
   const failFormingGame = (session: GameSession) => {
@@ -1684,11 +2288,15 @@ function App() {
     cancelEditProfile();
   };
 
-  const activateInPersonMembership = (profile: PlayerProfile) => {
-    const result = activateInPersonMembershipInState(
+  const approvePlayerIdentity = (profile: PlayerProfile) => {
+    const result = approvePlayerIdentityInState(
       state,
       profile,
-      { accountKey: getAccountKeyFromState(state), clubDisplayName: getClubDisplayName(state) },
+      {
+        accountKey: getAccountKeyFromState(state),
+        clubDisplayName: getClubDisplayName(state),
+        staffId: state.settings.activeStaffId
+      },
       { createId: uid, nowDate: () => new Date() }
     );
     if (!result.ok) {
@@ -1697,8 +2305,31 @@ function App() {
     }
     persist(result.state, true, {
       feature: 'Profiles',
-      action: 'Activated in-person membership',
-      metadata: { profileId: profile.id, plan: profile.membershipPlan || 'monthly' }
+      action: 'Approved player ID',
+      metadata: { profileId: profile.id, captureMethod: profile.identityCaptureMethod ?? 'unknown' }
+    });
+    setProfileFormMessage(result.message);
+  };
+
+  const markMembershipPaidInPerson = (profile: PlayerProfile) => {
+    const result = markMembershipPaidInPersonInState(
+      state,
+      profile,
+      {
+        accountKey: getAccountKeyFromState(state),
+        clubDisplayName: getClubDisplayName(state),
+        staffId: state.settings.activeStaffId
+      },
+      { createId: uid, nowDate: () => new Date() }
+    );
+    if (!result.ok) {
+      if (result.message) setProfileFormMessage(result.message);
+      return;
+    }
+    persist(result.state, true, {
+      feature: 'Profiles',
+      action: 'Recorded in-person membership payment',
+      metadata: { profileId: profile.id, transactionId: result.state.profiles.find((candidate) => candidate.id === profile.id)?.membershipPaymentTransactionId ?? 'not-required' }
     });
     setProfileFormMessage(result.message);
   };
@@ -1740,9 +2371,21 @@ function App() {
     setNewProfile(createNewProfileDraft());
   };
 
-  const deleteProfile = (id: string) => {
-    if (!window.confirm('Remove this profile? Existing sessions and interest entries will keep the player name.')) return;
-    persist(deleteProfileFromState(state, id));
+  const archivePlayerProfile = (profile: PlayerProfile) => {
+    if (!window.confirm(`Move ${profile.name} to Past players? Their history and saved time will be kept.`)) return;
+    persist(
+      archivePlayerProfileInState(state, profile.id, nowIso(), 'Archived by staff'),
+      true,
+      { feature: 'Profiles', action: 'Archived player profile', metadata: { profileId: profile.id } }
+    );
+  };
+
+  const restorePlayerProfile = (profile: PlayerProfile) => {
+    persist(
+      restorePlayerProfileInState(state, profile.id),
+      true,
+      { feature: 'Profiles', action: 'Restored player profile', metadata: { profileId: profile.id } }
+    );
   };
 
   const updateScriptTemplate = (index: number, value: string) => {
@@ -1824,17 +2467,45 @@ function App() {
     persist(mergeDuplicateProfilesInState(state, profilesToMerge));
   };
 
-  const addProfileToClub = (profile: PlayerProfile, sourceState = state) => {
-    const result = checkProfileIntoClub(sourceState, profile, { createId: uid, nowIso });
-    const nextState = promptDemandAction(result.state, result.preferredGameId);
-    persist(nextState, true, {
+  const addProfileToClub = (profile: PlayerProfile) => {
+    const timestamp = nowIso();
+    let demandChoice: string | null | undefined;
+    const preferredGameId = profile.preferredGameIds?.[0] || profile.preferredGameId;
+    return commitStaffTransition((sourceState) => {
+      const currentProfile = sourceState.profiles.find((candidate) => candidate.id === profile.id);
+      if (!currentProfile) return sourceState;
+      const alreadyCheckedIn = Boolean(getActivePlayerSessionForProfile(sourceState, currentProfile)) ||
+        hasProfileReference(getInClubInterests(sourceState), sourceState.profiles, currentProfile);
+      if (alreadyCheckedIn) return sourceState;
+
+      const result = checkProfileIntoClub(
+        sourceState,
+        currentProfile,
+        { createId: uid, nowIso: () => timestamp }
+      );
+      const demandPrompt = getWaitlistDemandPrompt(result.state, result.preferredGameId);
+      if (!demandPrompt) return result.state;
+      if (demandChoice === undefined) {
+        demandChoice = window.prompt(demandPrompt.message, demandPrompt.defaultChoice);
+      }
+      const normalizedChoice = demandChoice?.trim().toLowerCase() ?? '';
+      if (normalizedChoice.startsWith('switch')) return switchOpenTableToGame(result.state, demandPrompt.gameId);
+      if (normalizedChoice.startsWith('start')) {
+        return addSessionToState(
+          result.state,
+          demandPrompt.gameId,
+          `Prompted by ${demandPrompt.activeCount} interested players`
+        );
+      }
+      return result.state;
+    }, {
       feature: 'Profiles',
       action: 'Checked player into club',
-      metadata: { preferredGameId: result.preferredGameId, seated: false }
+      metadata: { preferredGameId, seated: false }
     });
   };
 
-  const handleMembershipQrCheckIn = (rawValue: string) => {
+  const handleMembershipQrCheckIn = async (rawValue: string) => {
     const sourceState = stateRef.current;
     const validation = validateMembershipQrCheckIn(rawValue, getAccountKeyFromState(sourceState), sourceState.profiles);
     if (!validation.ok) {
@@ -1850,15 +2521,19 @@ function App() {
     }
     const profile = validation.profile as PlayerProfile;
 
-    const alreadyInClub = hasProfileReference(getInClubInterests(sourceState), sourceState.profiles, profile);
-    if (alreadyInClub) {
+    const alreadyCheckedIn = Boolean(getActivePlayerSessionForProfile(sourceState, profile)) ||
+      hasProfileReference(getInClubInterests(sourceState), sourceState.profiles, profile);
+    if (alreadyCheckedIn) {
       setQrScanMessage(`${profile.name} is already checked in.`);
       return;
     }
 
-    addProfileToClub(profile, sourceState);
-    setQrManualValue('');
-    setQrScanMessage(`${profile.name} checked in successfully.`);
+    if (await addProfileToClub(profile)) {
+      setQrManualValue('');
+      setQrScanMessage(`${profile.name} checked in successfully.`);
+    } else {
+      setQrScanMessage(`${profile.name} could not be checked in. Try again.`);
+    }
   };
 
   useMembershipQrScanner({
@@ -1885,7 +2560,41 @@ function App() {
   });
 
   const removeProfileFromClub = (profile: PlayerProfile) => {
-    persist(removeProfileFromClubInState(state, profile));
+    const selectedSession = getActivePlayerSessionForProfile(stateRef.current, profile);
+    const timestamp = nowIso();
+    return commitStaffTransition((sourceState) => {
+      const currentProfile = sourceState.profiles.find((candidate) => candidate.id === profile.id);
+      if (!currentProfile) return sourceState;
+      const currentSession = getActivePlayerSessionForProfile(sourceState, currentProfile);
+      const sessionResult = currentSession
+        ? markPlayerSessionLeftInState(
+            sourceState,
+            currentSession,
+            undefined,
+            'Checked out from the player directory',
+            { createId: uid, nowIso: () => timestamp }
+          )
+        : null;
+      const nextState = removeProfileFromClubInState(
+        sessionResult?.state ?? sourceState,
+        currentProfile,
+        { nowIso: () => timestamp }
+      );
+      return sessionResult
+        ? withGameFrequencyInAppNotifications(
+            nextState,
+            sessionResult.notification.gameId,
+            sessionResult.notification.reason
+          )
+        : nextState;
+    }, {
+      feature: 'Profiles',
+      action: 'Checked player out from club',
+      metadata: {
+        gameId: selectedSession?.gameId || profile.preferredGameIds?.[0] || profile.preferredGameId,
+        seated: Boolean(selectedSession)
+      }
+    });
   };
 
   const profileImportContext: ProfileImportContext = {
@@ -1973,15 +2682,38 @@ function App() {
     return result.record;
   };
 
-  const authorizeStaffAction = async (action: 'staff-sign' | 'manager-lock' | 'manager-reopen' | 'staff-admin') => {
-    if (!staffSession || staffSession.staffId !== state.settings.activeStaffId || !window.tableManagerDesktop?.authorizeStaffAction) {
-      window.alert('Select and verify an active staff account before this action.');
+  const authorizeStaffAction = async (
+    action: 'staff-sign' | 'manager-lock' | 'manager-reopen' | 'staff-admin',
+    presentFailure: (message: string) => void = (message) => window.alert(message)
+  ) => {
+    const staffRequirement = action === 'staff-sign' ? 'an active staff account' : 'an Owner or Manager';
+    const trustedSession = staffSessionRef.current;
+    const authorize = window.tableManagerDesktop?.authorizeStaffAction;
+    const current = trustedSession ? applyTrustedStaffProjection(trustedSession) : null;
+    if (!trustedSession || !current || !authorize) {
+      clearTrustedStaffSelection();
+      presentFailure(`Select and verify ${staffRequirement} before this action.`);
       return false;
     }
-    const result = await window.tableManagerDesktop.authorizeStaffAction({ token: staffSession.token, action });
+    let result: { ok: boolean; error?: string; reauthenticate?: boolean };
+    try {
+      result = await authorize({ token: trustedSession.token, action });
+    } catch {
+      clearTrustedStaffSelection();
+      presentFailure('Staff authorization is temporarily unavailable. Select the staff account again.');
+      return false;
+    }
+    const latestSession = staffSessionRef.current;
+    if (
+      latestSession?.token !== trustedSession.token ||
+      !applyTrustedStaffProjection(trustedSession)
+    ) {
+      presentFailure('The active staff selection changed before authorization completed. Try again.');
+      return false;
+    }
     if (!result.ok) {
-      setStaffSession(null);
-      window.alert(result.error || 'Staff reauthentication is required.');
+      if (result.reauthenticate !== false) clearTrustedStaffSelection();
+      presentFailure(result.error || 'Staff reauthentication is required.');
       return false;
     }
     return true;
@@ -1989,10 +2721,17 @@ function App() {
 
   const signNightClose = async () => {
     if (!await authorizeStaffAction('staff-sign')) return;
+    const currentState = stateRef.current;
+    const workspace = getNightCloseWorkspace(currentState, nightCloseActuals);
     const result = signNightCloseInState(
-      state,
-      { current: currentNightClose, tables: nightCloseTables, warnings: nightCloseWarnings, notes: nightCloseNotes },
-      nightCloseTotals,
+      currentState,
+      {
+        current: workspace.currentNightClose,
+        tables: workspace.nightCloseTables,
+        warnings: workspace.nightCloseWarnings,
+        notes: nightCloseNotes
+      },
+      workspace.nightCloseTotals,
       { createId: uid, nowIso, todayDate }
     );
     if (!result.ok) {
@@ -2000,7 +2739,7 @@ function App() {
       return;
     }
     persist(result.state, true,
-      { feature: 'Night close', action: 'Staff signed reconciliation', route: 'summary', metadata: { discrepancy: Number(nightCloseTotals.discrepancy.toFixed(2)) } });
+      { feature: 'Night close', action: 'Staff signed reconciliation', route: 'summary', metadata: { discrepancy: Number(workspace.nightCloseTotals.discrepancy.toFixed(2)) } });
   };
 
   const approveAndLockNightClose = async () => {
@@ -2010,15 +2749,27 @@ function App() {
       return;
     }
     if (!await authorizeStaffAction('manager-lock')) return;
+    const currentState = stateRef.current;
+    const workspace = getNightCloseWorkspace(currentState, nightCloseActuals);
+    const latestValidationError = getNightCloseLockError(currentState, workspace.currentNightClose);
+    if (latestValidationError) {
+      window.alert(latestValidationError);
+      return;
+    }
     if (!window.confirm(
-      `Lock tonight's reconciliation with a ${nightCloseTotals.discrepancy < 0 ? '-' : '+'}$${Math.abs(nightCloseTotals.discrepancy).toFixed(2)} discrepancy?\n\nThis will close every current table, remove all seated players, and reset Recent Activity.`
+      `Lock tonight's reconciliation with a ${workspace.nightCloseTotals.discrepancy < 0 ? '-' : '+'}$${Math.abs(workspace.nightCloseTotals.discrepancy).toFixed(2)} discrepancy?\n\nThis will close every current table, remove all seated players, and reset Recent Activity.`
     )) return;
-    if (!currentNightClose) return;
+    if (!workspace.currentNightClose) return;
     const result = lockNightClose(
-      state,
-      { current: currentNightClose, tables: nightCloseTables, warnings: nightCloseWarnings, notes: nightCloseNotes },
-      nightCloseTotals,
-      analytics.currentNight,
+      currentState,
+      {
+        current: workspace.currentNightClose,
+        tables: workspace.nightCloseTables,
+        warnings: workspace.nightCloseWarnings,
+        notes: nightCloseNotes
+      },
+      workspace.nightCloseTotals,
+      getAnalytics(currentState).currentNight,
       { createId: uid, nowIso, todayDate }
     );
     if (!result.ok) {
@@ -2029,7 +2780,7 @@ function App() {
       feature: 'Night close',
       action: 'Manager approved and locked night',
       route: 'summary',
-      metadata: { discrepancy: Number(nightCloseTotals.discrepancy.toFixed(2)) }
+      metadata: { discrepancy: Number(workspace.nightCloseTotals.discrepancy.toFixed(2)) }
     });
   };
 
@@ -2040,9 +2791,21 @@ function App() {
       return;
     }
     if (!await authorizeStaffAction('manager-reopen')) return;
+    const currentState = stateRef.current;
+    const workspace = getNightCloseWorkspace(currentState, nightCloseActuals);
+    const latestValidationError = getNightCloseReopenError(currentState, workspace.currentNightClose);
+    if (latestValidationError) {
+      window.alert(latestValidationError);
+      return;
+    }
     const reason = window.prompt('Reason for reopening this locked reconciliation:')?.trim();
-    if (!reason || !currentNightClose) return;
-    const result = reopenNightCloseInState(state, currentNightClose, reason, { createId: uid, nowIso, todayDate });
+    if (!reason || !workspace.currentNightClose) return;
+    const result = reopenNightCloseInState(
+      currentState,
+      workspace.currentNightClose,
+      reason,
+      { createId: uid, nowIso, todayDate }
+    );
     if (!result.ok) {
       if (result.message) window.alert(result.message);
       return;
@@ -2301,6 +3064,14 @@ function App() {
     };
   };
 
+  const persistRequestedSignIn = async (next: AppState, staySignedIn: boolean) => {
+    const persisted = await persistSignIn(next, staySignedIn);
+    if (persisted) return true;
+    await signOutOfFirebase().catch(() => undefined);
+    setPilotKeyError('Orbit could not securely save this sign-in choice. Check local app storage access and try again.');
+    return false;
+  };
+
   const signInToAccount = async (event: React.FormEvent) => {
     event.preventDefault();
     const accountLogin = state.settings.accountLogin;
@@ -2335,7 +3106,7 @@ function App() {
         }
       }
     };
-    persistSignIn(next, loginDraft.staySignedIn);
+    if (!await persistRequestedSignIn(next, loginDraft.staySignedIn)) return;
     setHasAuthenticated(true);
     setPilotKeyError('');
     persist(next, false, { feature: 'Account', action: 'Signed in', route: 'access' });
@@ -2375,6 +3146,67 @@ function App() {
     setExpiredDataExportMessage(
       result.ok ? 'Room data exported.' : `Room data export failed: ${result.error}`
     );
+  };
+
+  const clearTable = (sessionId: string) => {
+    const session = state.sessions.find((item) => item.id === sessionId);
+    if (!session) return;
+    const seatedCount = getActivePlayerSessionsForTable(state, session.id).length;
+    if (!window.confirm(
+      `Clear ${session.label}? This closes the live session and removes ${seatedCount} seated player${seatedCount === 1 ? '' : 's'} without entering cash-out amounts.`
+    )) return;
+    const result = clearTableInState(state, session.id, { createId: uid, nowIso });
+    if (!result.ok) {
+      window.alert(result.error);
+      return;
+    }
+    persist(result.state, true, {
+      feature: 'Tables',
+      action: 'Cleared table',
+      metadata: { gameId: session.gameId, tableId: session.id, players: seatedCount }
+    });
+  };
+
+  const deleteTable = (tableId: string) => {
+    const physicalTable = (state.physicalTables ?? []).find((table) => table.id === tableId);
+    const session = state.sessions.find((item) =>
+      item.id === tableId || item.physicalTableId === tableId
+    );
+    const label = physicalTable?.label ?? session?.label ?? 'this table';
+    if (!window.confirm(
+      `Delete ${label}? The table will be removed from the floor. Any live session will be closed, while financial and audit history remains available.`
+    )) return;
+    const result = deleteTableInState(state, { id: tableId }, { createId: uid, nowIso });
+    if (!result.ok) {
+      window.alert(result.error);
+      return;
+    }
+    persist(result.state, true, {
+      feature: 'Tables',
+      action: 'Deleted table',
+      metadata: { tableId, label }
+    });
+  };
+
+  const mergeTable = (sourceSessionId: string, targetSessionId: string) => {
+    const source = state.sessions.find((session) => session.id === sourceSessionId);
+    const target = state.sessions.find((session) => session.id === targetSessionId);
+    const result = mergeTableInState(state, sourceSessionId, targetSessionId, { createId: uid, nowIso });
+    if (!result.ok) {
+      window.alert(result.error);
+      return;
+    }
+    persist(result.state, true, {
+      feature: 'Tables',
+      action: 'Merged tables',
+      metadata: {
+        fromTableId: sourceSessionId,
+        toTableId: targetSessionId,
+        players: result.movedPlayerCount ?? 0,
+        fromLabel: source?.label ?? sourceSessionId,
+        toLabel: target?.label ?? targetSessionId
+      }
+    });
   };
 
   const exportLegacyRoomDataFromExpiredAccess = () => {
@@ -2489,7 +3321,10 @@ function App() {
       if (canUseRendererFirebaseAuth()) {
         void signInToFirebaseWithEmail(recoveredLogin.username, loginDraft.password).catch(() => undefined);
       }
-      persistSignIn(next, loginDraft.staySignedIn);
+      if (!await persistRequestedSignIn(next, loginDraft.staySignedIn)) {
+        setPasswordRecoveryStage('owner-ready');
+        return;
+      }
       setHasAuthenticated(true);
       setPasswordRecoveryStage('idle');
       setPasswordRecoveryNotice('');
@@ -2529,7 +3364,10 @@ function App() {
           accountLogin: recoveredLogin
         }
       };
-      persistSignIn(next, loginDraft.staySignedIn);
+      if (!await persistRequestedSignIn(next, loginDraft.staySignedIn)) {
+        setPasswordRecoveryStage('sent');
+        return;
+      }
       setHasAuthenticated(true);
       setPasswordRecoveryStage('idle');
       setPasswordRecoveryNotice('');
@@ -2560,7 +3398,7 @@ function App() {
         accountLogin
       }
     };
-    persistSignIn(next, setupDraft.staySignedIn);
+    if (!await persistRequestedSignIn(next, setupDraft.staySignedIn)) return;
     setHasAuthenticated(true);
     setPilotKeyError('');
     persist(next, true, { feature: 'Account', action: 'Created login', route: 'access' });
@@ -2594,8 +3432,10 @@ function App() {
   const loadExistingAccountState = async (access: PilotAccess) => {
     const next = await loadExistingManagementStateForAccount(access);
     if (!next) return false;
-    setUndoStack([]);
-    setHasAuthenticated(hasPersistedSignIn(next));
+    staffSelectionAttemptRef.current += 1;
+    setTrustedStaffSession(null);
+    setUndoAction(null);
+    setHasAuthenticated(await restorePersistedSignIn(next));
     persist(next, false, { feature: 'Account', action: 'Loaded existing pilot key', route: 'access' });
     setPendingPilotAccess(null);
     setPilotKeyError('');
@@ -2660,7 +3500,8 @@ function App() {
           contactName: clubDraft.contactName.trim(),
           email: clubDraft.email.trim().toLowerCase(),
           phone: clubDraft.phone.trim(),
-          address: clubDraft.address.trim()
+          address: clubDraft.address.trim(),
+          minimumPlayerAge: clubDraft.minimumPlayerAge === 18 ? 18 : 21
         },
         accountLogin,
         defaultCollectionMode: setupDraft.defaultCollectionMode,
@@ -2674,7 +3515,7 @@ function App() {
         }))
       }
     });
-    persistSignIn(next, setupDraft.staySignedIn);
+    if (!await persistRequestedSignIn(next, setupDraft.staySignedIn)) return;
     setHasAuthenticated(true);
     persist(next, true, { feature: 'Account', action: 'Activated pilot key', route: 'access' });
     window.location.hash = '/floor';
@@ -2718,84 +3559,212 @@ function App() {
         contactName: clubDraft.contactName.trim(),
         email: clubDraft.email.trim().toLowerCase(),
         phone: clubDraft.phone.trim(),
-        address: clubDraft.address.trim()
+        address: clubDraft.address.trim(),
+        minimumPlayerAge: clubDraft.minimumPlayerAge === 18 ? 18 : 21
       }
     });
   };
 
   const addStaffAccount = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (state.settings.staffAccounts.some((staff) => staff.active) && !await authorizeStaffAction('staff-admin')) return;
     const name = staffDraft.name.trim();
     const pin = staffDraft.pin.trim();
-    if (!name || pin.length < 4) {
-      setBackupMessage('Staff name and a PIN with at least 4 digits are required.');
+    const role = staffDraft.role;
+    if (!name || !isValidStaffPin(pin)) {
+      setStaffAccountNotice({ kind: 'error', text: 'Staff name and a PIN with 4 to 12 digits are required.' });
       return;
     }
+    const accountKey = getAccountKeyFromState(stateRef.current);
     const salt = randomToken();
+    const pinHash = await hashStaffPin(pin, salt);
+    if (accountKey !== getAccountKeyFromState(stateRef.current)) {
+      setStaffAccountNotice({ kind: 'error', text: 'The active account changed. Add the staff account again.' });
+      return;
+    }
+    const hasActiveAdministrator = hasActiveStaffAdministrator(stateRef.current.settings.staffAccounts);
+    if (!hasActiveAdministrator && !isStaffAdministratorRole(role)) {
+      setStaffAccountNotice({
+        kind: 'error',
+        text: 'Add an Owner or Manager before adding Floor staff accounts.'
+      });
+      return;
+    }
+    if (
+      hasActiveAdministrator &&
+      !await authorizeStaffAction('staff-admin', (message) => {
+        setStaffAccountNotice({ kind: 'error', text: message });
+      })
+    ) return;
+    const current = stateRef.current;
+    if (accountKey !== getAccountKeyFromState(current)) {
+      setStaffAccountNotice({ kind: 'error', text: 'The active account changed. Add the staff account again.' });
+      return;
+    }
     const account: StaffAccount = {
       id: uid(),
       name,
-      role: staffDraft.role,
+      role,
       pinSalt: salt,
-      pinHash: await hashStaffPin(pin, salt),
+      pinHash,
       active: true,
       createdAt: nowIso(),
       lastSelectedAt: nowIso()
     };
-    persist({
-      ...state,
-      settings: {
-        ...state.settings,
-        staffAccounts: [...state.settings.staffAccounts, account],
-        activeStaffId: state.settings.activeStaffId
-      }
-    }, true, { feature: 'Staff accounts', action: 'Added staff account', metadata: { role: account.role } });
+    const saved = await commitStaffTransition((sourceState) => {
+      if (getAccountKeyFromState(sourceState) !== accountKey) return sourceState;
+      if (sourceState.settings.staffAccounts.some((staff) => staff.id === account.id)) return sourceState;
+      if (
+        !hasActiveStaffAdministrator(sourceState.settings.staffAccounts) &&
+        !isStaffAdministratorRole(account.role)
+      ) return sourceState;
+      return {
+        ...sourceState,
+        settings: {
+          ...sourceState.settings,
+          staffAccounts: [...sourceState.settings.staffAccounts, account],
+          activeStaffId: sourceState.settings.activeStaffId
+        }
+      };
+    }, {
+      feature: 'Staff accounts',
+      action: 'Added staff account',
+      metadata: { role: account.role }
+    });
+    const accountWasAdded = stateRef.current.settings.staffAccounts.some((staff) => staff.id === account.id);
+    if (!saved || !accountWasAdded) {
+      setStaffAccountNotice({
+        kind: 'error',
+        text: 'The staff account was not added. Refresh the active operator and try again.'
+      });
+      return;
+    }
     setStaffDraft({ name: '', role: 'Floor', pin: '' });
-    setBackupMessage('Staff account added.');
+    setStaffAccountNotice({ kind: 'success', text: 'Staff account added.' });
   };
 
   const selectActiveStaff = async (staffId: string) => {
+    const selectionAttempt = staffSelectionAttemptRef.current + 1;
+    staffSelectionAttemptRef.current = selectionAttempt;
     if (!staffId) {
-      setStaffSession(null);
-    } else {
-      const pin = window.prompt('Enter this staff member\'s PIN to activate their account:') || '';
-      const access = state.settings.pilotAccess;
-      const result = access && window.tableManagerDesktop?.verifyStaffPin
-        ? await window.tableManagerDesktop.verifyStaffPin({ staffId, pin, access })
-        : { ok: false, error: 'Trusted desktop staff verification is unavailable.' };
-      if (!result.ok || !result.token || !result.staffId || !result.role || !result.expiresAt) {
-        setStaffSession(null);
-        window.alert(result.error || 'Staff verification failed.');
-        return;
-      }
-      setStaffSession({ token: result.token, staffId: result.staffId, role: result.role, expiresAt: result.expiresAt });
+      setStaffAccountNotice(null);
+      setTrustedStaffSession(null);
+      await commitStaffTransition(clearActiveStaffSelection, {
+        feature: 'Staff accounts',
+        action: 'Cleared active staff'
+      });
+      return;
     }
-    persist({
-      ...state,
-      settings: {
-        ...state.settings,
-        activeStaffId: staffId || undefined,
-        staffAccounts: state.settings.staffAccounts.map((staff) =>
-          staff.id === staffId ? { ...staff, lastSelectedAt: nowIso() } : staff
-        )
-      }
-    }, true, { feature: 'Staff accounts', action: staffId ? 'Selected active staff' : 'Cleared active staff' });
+
+    const selectionState = stateRef.current;
+    const accountKey = getAccountKeyFromState(selectionState);
+    const result = await activateStaffSelection({
+      access: selectionState.settings.pilotAccess,
+      accountKey,
+      pendingSave: waitForPendingManagementSaves(),
+      requestPin: () => requestStaffPin(staffId),
+      staffId,
+      verifyStaffPin: window.tableManagerDesktop?.verifyStaffPin
+    });
+    if (
+      selectionAttempt !== staffSelectionAttemptRef.current ||
+      accountKey !== getAccountKeyFromState(stateRef.current)
+    ) {
+      return;
+    }
+    if (!result.ok) {
+      if ('canceled' in result) return;
+      clearTrustedStaffSelection();
+      setStaffAccountNotice({ kind: 'error', text: result.error });
+      return;
+    }
+    const current = stateRef.current;
+    const selectedStaff = current.settings.staffAccounts.find((staff) => staff.id === staffId && staff.active);
+    if (!selectedStaff) {
+      clearTrustedStaffSelection();
+      setStaffAccountNotice({ kind: 'error', text: 'This staff account is no longer active.' });
+      return;
+    }
+    const selectedAt = nowIso();
+    // Keep the verified projection active while the authoritative selection is
+    // persisted; otherwise the selection-repair effect correctly clears an
+    // untrusted activeStaffId before the save can finish.
+    setTrustedStaffSession(result.session);
+    const saved = await commitStaffTransition((sourceState) => {
+      if (
+        selectionAttempt !== staffSelectionAttemptRef.current ||
+        accountKey !== getAccountKeyFromState(sourceState)
+      ) return sourceState;
+      const currentStaff = sourceState.settings.staffAccounts.find(
+        (staff) => staff.id === staffId && staff.active
+      );
+      if (!currentStaff) return sourceState;
+      if (sourceState.settings.activeStaffId === staffId) return sourceState;
+      return {
+        ...sourceState,
+        settings: {
+          ...sourceState.settings,
+          activeStaffId: staffId,
+          staffAccounts: sourceState.settings.staffAccounts.map((staff) =>
+            staff.id === staffId ? { ...staff, lastSelectedAt: selectedAt } : staff
+          )
+        }
+      };
+    }, { feature: 'Staff accounts', action: 'Selected active staff' });
+    const committedStaff = stateRef.current.settings.staffAccounts.find(
+      (staff) => staff.id === staffId && staff.active
+    );
+    if (
+      !saved ||
+      !committedStaff ||
+      stateRef.current.settings.activeStaffId !== staffId ||
+      selectionAttempt !== staffSelectionAttemptRef.current
+    ) {
+      clearTrustedStaffSelection();
+      setStaffAccountNotice({
+        kind: 'error',
+        text: committedStaff
+          ? 'The active operator was not saved. Select the staff account again.'
+          : 'This staff account is no longer active.'
+      });
+      return;
+    }
+    setStaffAccountNotice({ kind: 'success', text: `${committedStaff.name} is now the active operator.` });
   };
 
   const deactivateStaffAccount = async (staffId: string) => {
-    if (!await authorizeStaffAction('staff-admin')) return;
-    if (staffSession?.staffId === staffId) setStaffSession(null);
-    persist({
-      ...state,
-      settings: {
-        ...state.settings,
-        activeStaffId: state.settings.activeStaffId === staffId ? undefined : state.settings.activeStaffId,
-        staffAccounts: state.settings.staffAccounts.map((staff) =>
-          staff.id === staffId ? { ...staff, active: false } : staff
-        )
-      }
-    }, true, { feature: 'Staff accounts', action: 'Deactivated staff account' });
+    if (!await authorizeStaffAction('staff-admin', (message) => {
+      setStaffAccountNotice({ kind: 'error', text: message });
+    })) return;
+    const current = stateRef.current;
+    const deactivatedStaff = current.settings.staffAccounts.find((staff) => staff.id === staffId);
+    if (staffSessionRef.current?.staffId === staffId) {
+      staffSelectionAttemptRef.current += 1;
+      setTrustedStaffSession(null);
+    }
+    const saved = await commitStaffTransition((sourceState) => {
+      const currentStaff = sourceState.settings.staffAccounts.find((staff) => staff.id === staffId);
+      if (!currentStaff || !currentStaff.active) return sourceState;
+      return {
+        ...sourceState,
+        settings: {
+          ...sourceState.settings,
+          activeStaffId: sourceState.settings.activeStaffId === staffId
+            ? undefined
+            : sourceState.settings.activeStaffId,
+          staffAccounts: sourceState.settings.staffAccounts.map((staff) =>
+            staff.id === staffId ? { ...staff, active: false } : staff
+          )
+        }
+      };
+    }, { feature: 'Staff accounts', action: 'Deactivated staff account' });
+    if (!saved || stateRef.current.settings.staffAccounts.find((staff) => staff.id === staffId)?.active) {
+      setStaffAccountNotice({ kind: 'error', text: 'The staff account was not deactivated. Try again.' });
+      return;
+    }
+    setStaffAccountNotice({
+      kind: 'success',
+      text: `${deactivatedStaff?.name || 'Staff account'} deactivated.`
+    });
   };
 
   const togglePanel = (panelId: string) => {
@@ -2826,7 +3795,12 @@ function App() {
     };
     window.location.hash = `/${routes[destination]}`;
   };
-  const activeStaffAccount = state.settings.staffAccounts.find((staff) => staff.id === state.settings.activeStaffId);
+  const activeStaffAccount = staffSession?.accountKey === activeAccountKey
+    ? state.settings.staffAccounts.find((staff) =>
+        staff.id === staffSession.staffId && staff.active
+      )
+    : undefined;
+  const activeStaffSelectionId = staffPinRequest?.staffId ?? activeStaffAccount?.id ?? '';
   const shellCommands: ShellCommand[] = [
     ...state.profiles.slice(0, 30).map((profile) => ({ id: `player-${profile.id}`, label: `Player: ${profile.name}`, group: 'Players', keywords: `${profile.phone} ${profile.preferredStakes}`, action: () => { setProfileSearch(profile.name); openRoute('profiles'); } })),
     ...state.sessions.filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start').map((session) => ({ id: `table-${session.id}`, label: `Open ${session.label}`, group: 'Tables', action: () => openTableView(session.id) })),
@@ -2839,22 +3813,82 @@ function App() {
     if (notification.kind === 'membership') {
       setPlayerSection('requests');
       navigatePrimary('players');
+    } else if (notification.kind === 'walk-in') {
+      setProfileSearch(notification.playerName ?? '');
+      navigatePrimary('players');
+      setStaffRequestNotice(notification);
     } else {
       navigatePrimary('floor');
     }
   };
+
+  const generateSelfCheckInKit = async () => {
+    const { runSelfCheckInKitWorkflow } = await import('./features/settings/selfCheckInKitWorkflow');
+    await runSelfCheckInKitWorkflow({
+      access: state.settings.pilotAccess,
+      bridge: window.tableManagerDesktop,
+      authorize: () => authorizeStaffAction('staff-admin', (message) => setSelfCheckInKitMessage(message)),
+      getStaffToken: () => staffSessionRef.current?.token,
+      hasExistingCode: Boolean(state.selfCheckIn?.capabilityGeneration),
+      confirmReplacement: () => window.confirm(
+        'Generating a new QR code will immediately deactivate every previously printed self-check-in code for this club. Continue?'
+      ),
+      setMessage: setSelfCheckInKitMessage,
+      applyConfiguration: (selfCheckIn) => setState((current) => ({ ...current, selfCheckIn }))
+    });
+  };
+  const markSelfCheckInRequestHandled = (notification: StaffRequestNotice) => {
+    if (!notification.staffRequestId) return;
+    const handledAt = nowIso();
+    persist({
+      ...state,
+      staffRequests: state.staffRequests.map((request) =>
+        request.id === notification.staffRequestId
+          ? {
+              ...request,
+              status: 'handled',
+              handledAt,
+              handledByStaffId: state.settings.activeStaffId
+            }
+          : request
+      )
+    }, false, { feature: 'Self check-in', action: 'Handled walk-in assistance request', route: 'profiles' });
+    markStaffNotificationRead(notification);
+    setStaffRequestNotice(null);
+  };
   const unreadStaffNotificationCount = staffNotifications.filter((notification) => !notification.read).length;
+  const undoLastAction = () => {
+    if (!undoAction) return;
+    const restored = restoreManagementUndoEntry(stateRef.current, undoAction.entry);
+    setUndoAction(null);
+    if (!restored) {
+      setSaveStatus({
+        state: 'error',
+        message: 'Undo was cleared because newer synced data changed the workspace.'
+      });
+      return;
+    }
+    void persist(restored, false, {
+      feature: 'Undo',
+      action: `Undid ${undoAction.label}`,
+      metadata: { originalAction: undoAction.label }
+    });
+  };
   const withShell = (active: PrimaryDestination, content: React.ReactNode) => (
     <AppShell
       active={active}
       clubName={state.settings.clubAccount?.clubName || 'Orbit Club'}
       operator={activeStaffAccount?.name}
       saveState={saveStatus.state}
+      canUndo={Boolean(undoAction)}
+      undoLabel={undoAction?.label}
+      onUndo={undoLastAction}
       onNavigate={navigatePrimary}
-      onSignOut={() => {
-        persistSignIn(state, false);
+      onSignOut={async () => {
+        await persistSignIn(state, false);
         // Local sign-out must complete even if the optional Firebase session cannot be cleared.
-        signOutOfFirebase().catch(() => undefined);
+        await signOutOfFirebase().catch(() => undefined);
+        clearTrustedStaffSelection();
         setHasAuthenticated(false);
       }}
       commands={shellCommands}
@@ -2875,6 +3909,14 @@ function App() {
             >
               Review
             </button>
+            {staffRequestNotice.kind === 'walk-in' ? (
+              <button
+                className="secondary-button"
+                onClick={() => markSelfCheckInRequestHandled(staffRequestNotice)}
+              >
+                Mark handled
+              </button>
+            ) : null}
             <button className="icon-button" onClick={() => setStaffRequestNotice(null)} aria-label="Dismiss notification">
               <X size={17} />
             </button>
@@ -2928,6 +3970,14 @@ function App() {
           </section>
         ) : null}
       </div>
+      {staffPinRequest ? (
+        <StaffPinDialog
+          key={staffPinRequest.id}
+          staffName={staffPinRequest.staffName}
+          onCancel={() => resolveStaffPinRequest(null)}
+          onSubmit={(pin) => resolveStaffPinRequest(pin)}
+        />
+      ) : null}
       {withRouteLoadingBoundary(content)}
     </AppShell>
   );
@@ -3091,6 +4141,15 @@ function App() {
               <label className="access-field">Club address
                 <input value={clubDraft.address} onChange={(event) => setClubDraft({ ...clubDraft, address: event.target.value })} placeholder="Street address" />
               </label>
+              <label className="access-field">Minimum player age
+                <select
+                  value={clubDraft.minimumPlayerAge}
+                  onChange={(event) => setClubDraft({ ...clubDraft, minimumPlayerAge: event.target.value === '18' ? 18 : 21 })}
+                >
+                  <option value={21}>21+</option>
+                  <option value={18}>18+</option>
+                </select>
+              </label>
               <label className="access-field">Login email
                 <input value={setupDraft.username} onChange={(event) => setSetupDraft({ ...setupDraft, username: event.target.value })} onBlur={validateAccessField} placeholder="Defaults to club email" type="email" aria-describedby="access-field-error" />
               </label>
@@ -3229,7 +4288,8 @@ function App() {
     return (
       tournament ? (
         withRouteLoadingBoundary(
-          <TournamentTvView tournament={tournament} nowMs={clockNow} remainingSeconds={remaining} prizePool={prizePool} />
+          <TournamentTvView tournament={tournament} nowMs={clockNow} remainingSeconds={remaining} prizePool={prizePool} />,
+          'tournament-tv'
         )
       ) : (
         <main className="orbit-tournament-display">
@@ -3304,6 +4364,7 @@ function App() {
     return withShell('settings', (
       <SettingsView
         state={state}
+        activeStaffSelectionId={activeStaffSelectionId}
         settingsSection={settingsSection}
         clubDraft={clubDraft}
         staffDraft={staffDraft}
@@ -3312,9 +4373,12 @@ function App() {
         saveStatus={saveStatus}
         backupMessage={backupMessage}
         reportMessage={reportMessage}
+        selfCheckInKitMessage={selfCheckInKitMessage}
+        staffAccountNotice={staffAccountNotice}
         closeRoute={closeRoute}
         applyReplacementPilotKey={applyReplacementPilotKey}
         saveClubAccount={saveClubAccount}
+        generateSelfCheckInKit={generateSelfCheckInKit}
         updateSettings={updateSettings}
         selectActiveStaff={selectActiveStaff}
         addStaffAccount={addStaffAccount}
@@ -3370,6 +4434,7 @@ function App() {
         state={state}
         activeMemberProfiles={activeMemberProfiles}
         approvedMembershipProfiles={approvedMembershipProfiles}
+        archivedProfiles={archivedProfiles}
         duplicateProfiles={duplicateProfiles}
         editingProfileId={editingProfileId}
         formatClock={formatClock}
@@ -3394,19 +4459,21 @@ function App() {
         qrScanMessage={qrScanMessage}
         qrVideoRef={qrVideoRef}
         todayPlayerActivity={todayPlayerActivity}
-        activateInPersonMembership={activateInPersonMembership}
+        approvePlayerIdentity={approvePlayerIdentity}
         addProfile={addProfile}
         addProfileToClub={addProfileToClub}
         approveMembershipRequest={approveMembershipRequest}
+        markMembershipPaidInPerson={markMembershipPaidInPerson}
         beginEditProfile={beginEditProfile}
         cancelEditProfile={cancelEditProfile}
         deleteInterest={deleteInterest}
-        deleteProfile={deleteProfile}
+        archiveProfile={archivePlayerProfile}
         mergeDuplicateProfiles={mergeDuplicateProfiles}
         onOpenQrScanner={openQrScanner}
         onRestartQrScanner={restartQrScanner}
         onSubmitQrManual={submitQrManual}
         removeProfileFromClub={removeProfileFromClub}
+        restoreProfile={restorePlayerProfile}
         saveProfileEdit={saveProfileEdit}
         setImportText={setImportText}
         setNewProfile={setNewProfile}
@@ -3640,21 +4707,23 @@ function App() {
     <div className="modal-backdrop cash-out-backdrop" role="dialog" aria-modal="true" aria-label={`Cash out ${cashOutPlayerSession.playerName}`}>
       <form
         className="cash-out-modal"
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
-          const amount = Number(cashOutDraft.amount);
-          if (!Number.isFinite(amount) || amount < 0) return;
-          markPlayerSessionLeft(cashOutPlayerSession, amount, cashOutDraft.note);
-          setCashOutDraft(null);
+          const amountInput = cashOutDraft.amount.trim();
+          const amount = amountInput ? Number(amountInput) : undefined;
+          if (amount !== undefined && (!Number.isFinite(amount) || amount < 0)) return;
+          if (await markPlayerSessionLeft(cashOutPlayerSession, amount, cashOutDraft.note)) {
+            setCashOutDraft(null);
+          }
         }}
       >
         <div className="cash-out-head">
           <div><span>Close player session</span><h2>{cashOutPlayerSession.playerName}</h2></div>
           <button className="icon-button" type="button" onClick={() => setCashOutDraft(null)}><X size={18} /></button>
         </div>
-        <label>Cash-out amount<input autoFocus type="number" min="0" step="0.01" required value={cashOutDraft.amount} onChange={(event) => setCashOutDraft({ ...cashOutDraft, amount: event.target.value })} placeholder="$0.00" /></label>
+        <label>Cash-out amount (optional)<input autoFocus type="number" min="0" step="0.01" value={cashOutDraft.amount} onChange={(event) => setCashOutDraft({ ...cashOutDraft, amount: event.target.value })} placeholder="$0.00" /></label>
         <label>Note<input value={cashOutDraft.note} onChange={(event) => setCashOutDraft({ ...cashOutDraft, note: event.target.value })} placeholder="Optional note" /></label>
-        <div className="cash-out-actions"><button className="ghost-button" type="button" onClick={() => setCashOutDraft(null)}>Cancel</button><button className="primary-button" type="submit">Record cash-out</button></div>
+        <div className="cash-out-actions"><button className="ghost-button" type="button" onClick={() => setCashOutDraft(null)}>Cancel</button><button className="primary-button" type="submit">Close player session</button></div>
       </form>
     </div>,
     document.body,
@@ -3665,7 +4734,9 @@ function App() {
     <div className="modal-backdrop cash-ledger-backdrop" role="dialog" aria-modal="true" aria-label={`${ledgerSession.label} buy-in ledger`}>
       <section className="cash-ledger-modal">
         <div className="cash-ledger-head"><div><span>{state.games.find((game) => game.id === ledgerSession.gameId)?.name ?? 'Table'}</span><h2>{ledgerSession.label} ledger</h2></div><button className="icon-button" onClick={() => setTableLedgerSessionId(null)}><X size={18} /></button></div>
-        <TableBuyInLedger state={state} session={ledgerSession} formatClock={formatClock} />
+        <React.Suspense fallback={<div className="cash-ledger-empty" aria-busy="true">Loading ledger...</div>}>
+          <TableBuyInLedger state={state} session={ledgerSession} formatClock={formatClock} />
+        </React.Suspense>
       </section>
     </div>,
     document.body,
@@ -3687,6 +4758,11 @@ function App() {
       const hours = getPlayerLoggedHours(state, playerSession);
       const buyIns = getSessionBuyIns(state, playerSession);
       const buyInTotal = buyIns.reduce((sum, buyIn) => sum + buyIn.amount, 0);
+      const playerProfile = state.profiles.find((profile) =>
+        playerSession.profileId
+          ? profile.id === playerSession.profileId
+          : profile.name.trim().toLowerCase() === playerSession.playerName.trim().toLowerCase()
+      );
       return {
         id: playerSession.id,
         seatNumber: playerSession.seatNumber ?? index + 1,
@@ -3695,6 +4771,7 @@ function App() {
         joinedAt: new Date(playerSession.seatedAt).getTime(),
         hourlyTimeLimit: isTimeCollection ? Math.max(1, playerSession.timePurchasedMinutes ?? 60) : undefined,
         timeRemainingSeconds: isTimeCollection ? getTimeRemainingSeconds(playerSession, clockNow) : undefined,
+        savedTimeCreditMinutes: playerProfile?.savedTimeCreditMinutes ?? 0,
         tonightHours: formatHours(hours.tonight),
         totalHours: formatHours(hours.total),
         buyInTotal,
@@ -3785,37 +4862,46 @@ function App() {
         }
       : undefined;
 
-    return <TableView
-      tableGame={tableGame}
-      tableSession={tableSession}
-      seatedPlayers={seatedPlayers}
-      tableAverageStack={tableAverageStack}
-      isTimeCollection={isTimeCollection}
-      seatPickerModal={seatPickerModal}
-      cashOutModal={cashOutModal}
-      tableLedgerModal={tableLedgerModal}
-      tableActivity={tableActivity}
-      tableBuyInRows={tableBuyInRows}
-      tableTimePlayers={tableTimePlayers}
-      pokerTablePlayers={pokerTablePlayers}
-      tableRevenueEstimate={tableRevenueEstimate}
-      tableDealerControl={tableDealerControl}
-      tableEventLogSessionId={tableEventLogSessionId}
-      seatPicker={seatPicker}
-      closeRoute={closeRoute}
-      formatClock={formatClock}
-      formatTimeLeft={formatTimeLeft}
-      getTimerStatusFromSeconds={getTimerStatusFromSeconds}
-      getMoveTargets={getMoveTargets}
-      openSeatPicker={openSeatPicker}
-      addPlayerTime={addPlayerTime}
-      addBuyIn={addBuyIn}
-      requestPlayerCashOut={requestPlayerCashOut}
-      changePlayerSeat={changePlayerSeat}
-      movePlayerToTable={movePlayerToTable}
-      setTableEventLogSessionId={setTableEventLogSessionId}
-      setTableLedgerSessionId={setTableLedgerSessionId}
-    />;
+    return withRouteLoadingBoundary(
+      <TableView
+        tableGame={tableGame}
+        tableSession={tableSession}
+        seatedPlayers={seatedPlayers}
+        tableAverageStack={tableAverageStack}
+        isTimeCollection={isTimeCollection}
+        seatPickerModal={seatPickerModal}
+        cashOutModal={cashOutModal}
+        tableLedgerModal={tableLedgerModal}
+        tableActivity={tableActivity}
+        tableBuyInRows={tableBuyInRows}
+        tableTimePlayers={tableTimePlayers}
+        pokerTablePlayers={pokerTablePlayers}
+        tableRevenueEstimate={tableRevenueEstimate}
+        tableDealerControl={tableDealerControl}
+        tableEventLogSessionId={tableEventLogSessionId}
+        seatPicker={seatPicker}
+        closeRoute={closeRoute}
+        canUndo={Boolean(undoAction)}
+        undoLabel={undoAction?.label}
+        undoLastAction={undoLastAction}
+        formatClock={formatClock}
+        formatTimeLeft={formatTimeLeft}
+        getTimerStatusFromSeconds={getTimerStatusFromSeconds}
+        getMoveTargets={getMoveTargets}
+        openSeatPicker={openSeatPicker}
+        addPlayerTime={addPlayerTime}
+        deductPlayerTime={deductPlayerTime}
+        pauseAndSavePlayerTime={pauseAndSavePlayerTime}
+        useSavedPlayerTime={useSavedPlayerTime}
+        addBuyIn={addBuyIn}
+        requestPlayerCashOut={requestPlayerCashOut}
+        changePlayerSeat={changePlayerSeat}
+        movePlayerToTable={movePlayerToTable}
+        setTableEventLogSessionId={setTableEventLogSessionId}
+        setTableLedgerSessionId={setTableLedgerSessionId}
+      />,
+      'table-view'
+    );
   }
 
   return withShell('floor', (
@@ -3879,6 +4965,9 @@ function App() {
       recordTableEvent={recordTableEvent}
       toggleStartPlayer={toggleStartPlayer}
       addPlayerTime={addPlayerTime}
+      deductPlayerTime={deductPlayerTime}
+      pauseAndSavePlayerTime={pauseAndSavePlayerTime}
+      useSavedPlayerTime={useSavedPlayerTime}
       addBuyIn={addBuyIn}
       requestPlayerCashOut={requestPlayerCashOut}
       changePlayerSeat={changePlayerSeat}
@@ -3892,6 +4981,10 @@ function App() {
       failFormingGame={failFormingGame}
       addPhysicalTable={addPhysicalTable}
       addSession={addSession}
+      setFloorViewMode={(mode) => updateSettings({ showPlayerGrid: mode === 'graphic' })}
+      clearTable={clearTable}
+      deleteTable={deleteTable}
+      mergeTable={mergeTable}
       addInterest={addInterest}
       checkInProfileFromSearch={checkInProfileFromSearch}
     />

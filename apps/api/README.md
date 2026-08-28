@@ -43,6 +43,7 @@ Nonpublic endpoints require an audience-appropriate identity: a scoped machine/p
 - `ORBIT_MACHINE_CREDENTIALS_JSON`: array of machine credential records with `id`, `key`, tenant `accountKey`, `scopes`, and `expiresAt`. Store it only in an approved secret provider.
 - `ORBIT_OWNER_API_KEY`: distinct owner automation credential. It does not authenticate ordinary client or dashboard-session traffic.
 - `ORBIT_DASHBOARD_PASSWORD` and `ORBIT_DASHBOARD_SESSION_SECRET`: create a short-lived HttpOnly/Secure/SameSite=Lax dashboard cookie. The signing secret must contain at least 32 characters.
+- `ORBIT_SELF_CHECK_IN_SECRET` and `ORBIT_SELF_CHECK_IN_ORIGIN`: sign revocable, tenant-bound printed check-in capabilities and identify the exact HTTPS API origin hosting `/check-in`. The signing secret must contain at least 32 characters and must not be reused for another purpose.
 - `ORBIT_ALLOWED_ORIGINS` and `ORBIT_TRUST_PROXY`: explicit CORS and proxy policy. Vercel's single, header-overwriting proxy hop is trusted automatically so HTTPS same-origin dashboard requests are recognized; other deployments must configure proxy trust only after their exact proxy is reviewed.
 - `ORBIT_ALLOW_INSECURE_LOOPBACK_AUTH`: explicit local-development bypass. It is rejected in production and Vercel runtimes.
 - `ORBIT_PHONE_CHALLENGE_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID`: server-side SMS OTP verification. No Twilio credential is shipped to Player clients.
@@ -181,6 +182,9 @@ http://<your-lan-ip>:4629/clients
 ## Current Data Endpoints
 
 - `POST /state`: compare-and-swap an Orbit venue state using `state`, `expectedRevision`, and a stable `mutationId`. Returns HTTP 409 for a stale revision.
+- `POST /management/self-check-in/qr`: issue or idempotently reissue a tenant-bound printable QR capability for an authenticated `client:write` identity. Requires a stable `mutationId`; the active generation remains server-owned.
+- `POST /player/check-in/lookup`: validate a printed club capability and exact normalized player name, then return a short-lived session plus currently available tables or create a bounded staff-assistance request.
+- `POST /player/check-in/seat`: recheck live capacity and seat the recognized player through a compare-and-swap state mutation.
 - `GET /state/latest`: fetch the most recently saved venue state.
 - `GET /state/:venueId`: fetch a stored venue state.
 - `GET /player/snapshot?accountKey=<venueId>`: fetch mobile/player-facing snapshot.
@@ -188,9 +192,10 @@ http://<your-lan-ip>:4629/clients
 - `POST /player/waitlist-requests`: apply a waitlist request to venue state.
 - `POST|DELETE /player/tournament-registrations`: apply the signed-in player's tournament registration through authoritative state.
 - `GET /publications` and `POST /publications/drain`: owner-protected inspection/retry controls for the durable Firebase publication outbox.
-- `POST /player/membership-checkout`: create a Stripe Checkout session after verifying the player's Firebase ID token.
-- `GET /player/identity/status`: return the signed-in player's sanitized age-eligibility status.
-- `POST /player/identity/session`: create or resume a hosted Stripe Identity verification session.
+- `POST /player/membership-checkout`: create a Stripe Checkout session after verifying the player's Firebase ID token. Paid memberships require a plan ID and use the club's authoritative active plan price and duration; five-hour time packages remain server-priced.
+- `GET /player/identity/status`: return the signed-in player's sanitized eligibility status and extracted name, date of birth, and address.
+- `POST /player/identity/capture`: accept only the signed-in player's confirmed name, date of birth, address, and mutation ID after an on-device PDF417 scan. Raw barcodes, ID numbers, photos, and selfies are rejected.
+- `POST /player/identity/session`: legacy compatibility for hosted Stripe Identity sessions; the current Player camera flow does not call it.
 - `DELETE /player/identity`: request Stripe redaction and remove Orbit's eligibility record during account deletion.
 - `POST /player/auth/phone/start` and `/player/auth/phone/complete`: prove phone ownership with a bounded SMS OTP challenge and exchange it for a Firebase custom token.
 - `DELETE /player/account`: run the resumable server-owned deletion/anonymization job after recent reauthentication and return every retained category.
@@ -200,6 +205,6 @@ http://<your-lan-ip>:4629/clients
 
 Desktop-specific behavior remains in Electron: windows, menus, local startup behavior, and `electron-updater`.
 
-For launch, activate Stripe Identity on Orbit's platform account and configure the Stripe webhook to send `identity.verification_session.processing`, `identity.verification_session.verified`, `identity.verification_session.requires_input`, `identity.verification_session.canceled`, and `identity.verification_session.redacted`. Orbit stores only provider session IDs and the sanitized eligibility result; date of birth, document numbers, and ID images remain with Stripe.
+The current Player flow scans the PDF417 barcode on the device and submits only the confirmed name, date of birth, and address. The API treats that result as provisional age eligibility; each card house must approve the physical ID on the player's first visit. The raw barcode, ID number, and ID image are never accepted by the endpoint or published to player-safe club documents.
 
-If `STRIPE_IDENTITY_VERIFICATION_FLOW_ID` is used, that Dashboard flow must collect a document date of birth and enable matching-selfie verification. The API fails closed when Stripe returns no date of birth.
+Legacy Stripe Identity records and webhooks remain readable for existing accounts. They are not required for new Player camera capture. Stripe Connect remains the payment provider for card-house checkout.

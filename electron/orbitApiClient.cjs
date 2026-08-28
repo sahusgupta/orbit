@@ -61,6 +61,21 @@ function createOrbitApiClient(dependencies) {
   let lastUpdateStatus = '';
   let lastUpdateEvent = '';
   const revisionByAccount = new Map();
+  const stateMutationQueueByAccount = new Map();
+
+  function enqueueAccountMutation(accountKey, mutation) {
+    const previousMutation = stateMutationQueueByAccount.get(accountKey) || Promise.resolve();
+    const pendingMutation = previousMutation
+      .catch(() => undefined)
+      .then(mutation);
+    stateMutationQueueByAccount.set(accountKey, pendingMutation);
+    void pendingMutation.finally(() => {
+      if (stateMutationQueueByAccount.get(accountKey) === pendingMutation) {
+        stateMutationQueueByAccount.delete(accountKey);
+      }
+    }).catch(() => undefined);
+    return pendingMutation;
+  }
 
   function getDeviceIdPath() {
     return path.join(userDataPath(), 'orbit-device.json');
@@ -269,7 +284,7 @@ function createOrbitApiClient(dependencies) {
     }
   }
 
-  async function loadStateFromApi(accountKey, access) {
+  async function peekStateFromApi(accountKey, access) {
     const resolvedAccountKey = sanitizeAccountKey(accountKey || getLocalAccountKey());
     const pathname = resolvedAccountKey ? `/state/${encodeURIComponent(resolvedAccountKey)}` : '/state/latest';
     const payload = await requestOrbitApi(pathname, { authKey: getClientAuthKeyFromAccess(access) || undefined });
@@ -284,8 +299,82 @@ function createOrbitApiClient(dependencies) {
       revision: Number(payload.revision || 0),
       publication: payload.publication || { status: 'not-queued' }
     };
-    revisionByAccount.set(record.accountKey, record.revision);
     return record;
+  }
+
+  async function loadStateFromApi(accountKey, access) {
+    const record = await peekStateFromApi(accountKey, access);
+    if (!record) return null;
+    const priorRevision = revisionByAccount.get(record.accountKey);
+    revisionByAccount.set(record.accountKey, record.revision);
+    if (priorRevision !== record.revision) {
+      try {
+        writeLocalDatabase(record.state);
+      } catch {
+        // The encrypted local cache is non-authoritative and best-effort.
+      }
+    }
+    return record;
+  }
+
+  async function createSelfCheckInQrKitApi(access) {
+    const authKey = getClientAuthKeyFromAccess(access);
+    if (!authKey) return { ok: false, error: 'A current pilot license key is required.' };
+    const accountKey = getAccountKeyFromAccess(access);
+    return enqueueAccountMutation(accountKey, async () => {
+      const knownRevision = revisionByAccount.get(accountKey);
+      const mutationId = `kit:${randomUUID()}`;
+      const requestKit = () => requestOrbitApi('/management/self-check-in/qr', {
+        method: 'POST',
+        authKey,
+        body: { mutationId },
+        timeoutMs: 10_000,
+        returnFailurePayload: true
+      });
+      let payload = await requestKit();
+      if (!payload) payload = await requestKit();
+      if (!payload) {
+        return {
+          ok: false,
+          error: 'Orbit could not confirm QR generation. Previously printed codes may have been deactivated; generate the PDF again before using an older print.'
+        };
+      }
+      const responseRevision = Number(payload.revision);
+      if (
+        !payload?.ok ||
+        typeof payload.accountKey !== 'string' ||
+        typeof payload.clubName !== 'string' ||
+        typeof payload.checkInUrl !== 'string' ||
+        typeof payload.expiresAt !== 'string' ||
+        !Number.isSafeInteger(responseRevision) ||
+        responseRevision < 0 ||
+        typeof payload.selfCheckIn?.capabilityGeneration !== 'string' ||
+        typeof payload.selfCheckIn?.generatedAt !== 'string'
+      ) {
+        return { ok: false, error: payload?.error || 'The club self-check-in code could not be generated.' };
+      }
+      const responseAccountKey = sanitizeAccountKey(payload.accountKey);
+      if (!responseAccountKey || (accountKey && responseAccountKey !== accountKey)) {
+        return { ok: false, error: 'The generated self-check-in code did not match the active club.' };
+      }
+      // A QR response contains only the server-managed self-check-in slice. It is
+      // safe to advance a full-state writer only when this was the sole revision.
+      if (
+        knownRevision !== undefined &&
+        responseRevision === knownRevision + 1 &&
+        revisionByAccount.get(responseAccountKey) === knownRevision
+      ) {
+        revisionByAccount.set(responseAccountKey, responseRevision);
+      }
+      return {
+        ok: true,
+        clubName: payload.clubName,
+        checkInUrl: payload.checkInUrl,
+        expiresAt: payload.expiresAt,
+        selfCheckIn: payload.selfCheckIn,
+        rotatedPreviousCode: Boolean(payload.rotatedPreviousCode)
+      };
+    });
   }
 
   async function getManagementRecoveryStatusApi(access) {
@@ -327,8 +416,7 @@ function createOrbitApiClient(dependencies) {
     };
   }
 
-  async function saveStateToApi(state) {
-    const accountKey = getAccountKeyFromState(state);
+  async function performStateSave(state, accountKey) {
     const expectedRevision = revisionByAccount.get(accountKey) || 0;
     const stateHash = crypto.createHash('sha256').update(JSON.stringify(state)).digest('hex').slice(0, 32);
     const mutationId = `desktop:${accountKey}:${expectedRevision}:${stateHash}`;
@@ -341,7 +429,6 @@ function createOrbitApiClient(dependencies) {
       returnFailurePayload: true
     });
     if (payload?.code === 'STATE_REVISION_CONFLICT') {
-      revisionByAccount.set(accountKey, Number(payload.currentRevision || 0));
       return {
         ok: false,
         path: 'orbit-api',
@@ -365,6 +452,11 @@ function createOrbitApiClient(dependencies) {
       publication: payload.publication || { status: 'pending' },
       authoritative: true
     };
+  }
+
+  function saveStateToApi(state) {
+    const accountKey = getAccountKeyFromState(state);
+    return enqueueAccountMutation(accountKey, () => performStateSave(state, accountKey));
   }
 
   async function submitAnalyticalReportToApi(report) {
@@ -492,6 +584,10 @@ function createOrbitApiClient(dependencies) {
       }
       return apiResult;
     }
+    // A revision conflict means this renderer state is stale. Persisting it to
+    // the offline cache would let a later fallback resurrect sessions that the
+    // authoritative API has already changed (for example, a QR check-in).
+    if (apiResult?.conflict) return apiResult;
     const cacheResult = await saveStateEverywhere(state);
     return {
       ...cacheResult,
@@ -509,6 +605,7 @@ function createOrbitApiClient(dependencies) {
   return {
     buildClientTelemetryPayload,
     completeManagementRecoveryApi,
+    createSelfCheckInQrKitApi,
     getApiConfig,
     getClientUpdateState,
     getOrCreateDeviceId,
@@ -516,6 +613,7 @@ function createOrbitApiClient(dependencies) {
     getManagementRecoveryStatusApi,
     loadStateApiFirst,
     loadStateFromApi,
+    peekStateFromApi,
     postClientTelemetry,
     requestOrbitApi,
     saveStateApiFirst,

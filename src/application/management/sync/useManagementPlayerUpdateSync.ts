@@ -1,7 +1,6 @@
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { AppState } from '../../../domain/types';
 import { normalizeState } from '../../../domain/state';
-import { mergeSyncedList } from '../../../lib/syncedList';
 import {
   hasManagementDesktopPersistence,
   loadDesktopManagementStateForAccount,
@@ -22,10 +21,36 @@ type ManagementPlayerUpdateSyncOptions = {
   hasAuthenticated: boolean;
   setSaveStatus: (status: ManagementSaveStatus) => void;
   setState: Dispatch<SetStateAction<AppState>>;
-  setUndoStack: Dispatch<SetStateAction<AppState[]>>;
+  clearUndo: () => void;
   state: AppState;
   stateRef: MutableRefObject<AppState>;
 };
+
+const incomingPlayerOperationKeys = [
+  'profiles',
+  'interests',
+  'sessions',
+  'playerSessions',
+  'playerLedger',
+  'staffRequests',
+  'selfCheckIn'
+] as const satisfies ReadonlyArray<keyof AppState>;
+
+const hasSameIncomingPlayerOperations = (latestState: AppState, remoteState: AppState) =>
+  incomingPlayerOperationKeys.every((key) =>
+    JSON.stringify(latestState[key]) === JSON.stringify(remoteState[key])
+  );
+
+export const mergeIncomingPlayerOperations = (latestState: AppState, remoteState: AppState): AppState => ({
+  ...latestState,
+  profiles: remoteState.profiles,
+  interests: remoteState.interests,
+  sessions: remoteState.sessions,
+  playerSessions: remoteState.playerSessions,
+  playerLedger: remoteState.playerLedger,
+  staffRequests: remoteState.staffRequests,
+  selfCheckIn: remoteState.selfCheckIn
+});
 
 export const useManagementPlayerUpdateSync = ({
   activeAccountKey,
@@ -33,7 +58,7 @@ export const useManagementPlayerUpdateSync = ({
   hasAuthenticated,
   setSaveStatus,
   setState,
-  setUndoStack: _setUndoStack,
+  clearUndo,
   state,
   stateRef
 }: ManagementPlayerUpdateSyncOptions) => {
@@ -56,19 +81,15 @@ export const useManagementPlayerUpdateSync = ({
         bridgeInitialized = true;
         if (cancelled || !record.state) return;
         const latestState = stateRef.current;
-        announceIncomingPlayerRequest(latestState, record.state);
-        const sameProfiles = JSON.stringify(record.state.profiles) === JSON.stringify(latestState.profiles);
-        const sameInterests = JSON.stringify(record.state.interests) === JSON.stringify(latestState.interests);
-        if (sameProfiles && sameInterests) return;
-        const mergedState: AppState = {
-          ...latestState,
-          profiles: mergeSyncedList(latestState.profiles, record.state.profiles ?? []),
-          interests: mergeSyncedList(latestState.interests, record.state.interests ?? [])
-        };
+        const remoteState = normalizeState(record.state);
+        if (hasSameIncomingPlayerOperations(latestState, remoteState)) return;
+        announceIncomingPlayerRequest(latestState, remoteState);
+        const mergedState = mergeIncomingPlayerOperations(latestState, remoteState);
+        clearUndo();
         stateRef.current = mergedState;
         setState(mergedState);
         saveBrowserManagementState(mergedState);
-        setSaveStatus({ state: 'saved', message: 'Player app updates synced' });
+        setSaveStatus({ state: 'saved', message: 'Player operations synced' });
       } catch {
         // The local bridge is optional when Core is running without the linked dev command.
       }
@@ -95,19 +116,14 @@ export const useManagementPlayerUpdateSync = ({
         if (cancelled || !record?.state) return;
         const remoteState = normalizeState(record.state);
         const latestState = stateRef.current;
-        const sameProfiles = JSON.stringify(remoteState.profiles) === JSON.stringify(latestState.profiles);
-        const sameInterests = JSON.stringify(remoteState.interests) === JSON.stringify(latestState.interests);
-        if (sameProfiles && sameInterests) return;
+        if (hasSameIncomingPlayerOperations(latestState, remoteState)) return;
 
         announceIncomingPlayerRequest(latestState, remoteState);
-        const mergedState: AppState = {
-          ...latestState,
-          profiles: mergeSyncedList(latestState.profiles, remoteState.profiles),
-          interests: mergeSyncedList(latestState.interests, remoteState.interests)
-        };
+        const mergedState = mergeIncomingPlayerOperations(latestState, remoteState);
+        clearUndo();
         stateRef.current = mergedState;
         setState(mergedState);
-        setSaveStatus({ state: 'saved', message: 'Player app updates synced' });
+        setSaveStatus({ state: 'saved', message: 'Player operations synced' });
       } catch {
         // The next authoritative API poll retries without accepting cache data as a commit.
       } finally {

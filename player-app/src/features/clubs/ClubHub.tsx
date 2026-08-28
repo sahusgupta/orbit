@@ -4,8 +4,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { MapPicker } from '../../components/MapPicker';
 import { AnimatedSurface, IconActionButton } from '../../components/PlayerPresentation';
 import { getClubDistance, getGameStatusLabel, isActivePlayerGame } from '../../domain/discovery';
+import { getClubMembershipPrices, getClubProductLabel, timeAccessOptions } from '../../domain/clubAccess';
+import type { TimeAccessProduct } from '../../domain/playerTypes';
 import {
   formatPassCountdown,
+  getApprovedMembershipActivationCopy,
   getPlayerGameStatusLabel,
   isMembershipCurrentlyActive,
   type PlayerClubSnapshot,
@@ -214,6 +217,7 @@ export function ClubMembershipPanel({
   const active = isMembershipCurrentlyActive(membership, nowMs);
   const requested = membership.status === 'Requested';
   const approved = membership.status === 'Approved';
+  const approvedCopy = getApprovedMembershipActivationCopy(membership);
   return (
     <View style={styles.loyaltyCard}>
       <View style={styles.loyaltyHeader}>
@@ -232,14 +236,14 @@ export function ClubMembershipPanel({
           <Text style={styles.passTimerTitle}>{requested
             ? 'Application under review'
             : approved
-              ? 'Visit the front desk to activate'
+              ? approvedCopy.title
             : active
               ? formatPassCountdown(membership.expiresAt, nowMs)
               : 'Pass expired, buy a new pass'}</Text>
           <Text style={styles.muted}>{requested
             ? 'The card room will approve or follow up on your application.'
             : approved
-              ? 'Bring your ID and pay the membership fee. Staff will activate you at the door.'
+              ? approvedCopy.body
             : membership.expiresAt
               ? `Ends ${new Date(membership.expiresAt).toLocaleString()}`
               : 'No active expiration time is set.'}</Text>
@@ -260,6 +264,53 @@ export function ClubHistoryPanel() {
       <Text style={styles.muted}>Check-in and cash-out history will appear here.</Text>
       <Text style={styles.sectionTitle}>Scheduled Games</Text>
       <Text style={styles.muted}>No scheduled games posted yet.</Text>
+    </View>
+  );
+}
+
+export function PlayerTimePanel({
+  club,
+  busy,
+  message,
+  onAddTime
+}: {
+  club: PlayerClubSnapshot;
+  busy: boolean;
+  message: string;
+  onAddTime: (product: TimeAccessProduct) => void;
+}) {
+  const access = club.timeAccess;
+  if (!access?.enabled || !access.linked) return null;
+  const session = access.activeSession;
+  const prices = getClubMembershipPrices(club);
+  return (
+    <View style={styles.accountCard}>
+      <View style={styles.membershipWalletTop}>
+        <View>
+          <Text style={styles.sectionTitle}>Table time</Text>
+          <Text style={styles.muted}>{session
+            ? `${session.gameName} · ${session.tableLabel}`
+            : 'Your Core profile is linked, but you are not seated at a time-fee table.'}</Text>
+        </View>
+        {session ? <View style={styles.statusPill}><Text style={styles.statusText}>{session.remainingMinutes} min left</Text></View> : null}
+      </View>
+      {access.savedMinutes > 0 ? <Text style={styles.muted}>{access.savedMinutes} saved minutes are also on your Core profile.</Text> : null}
+      {session ? timeAccessOptions.map((option) => {
+        const price = getClubProductLabel(option.product, prices);
+        return (
+          <Pressable
+            accessibilityLabel={`Add ${option.label} of time for ${price}`}
+            accessibilityRole="button"
+            disabled={busy}
+            key={option.product}
+            onPress={() => onAddTime(option.product)}
+            style={[styles.buyAnotherPassButton, busy && styles.disabledAction]}
+          >
+            <Text style={styles.buyAnotherPassText}>{busy ? 'Opening checkout…' : `Add ${option.label} · ${price}`}</Text>
+          </Pressable>
+        );
+      }) : null}
+      {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
     </View>
   );
 }

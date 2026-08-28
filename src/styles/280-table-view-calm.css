@@ -584,6 +584,21 @@
   padding-top: 10px;
 }
 
+.poker-seat-menu-workspace {
+  align-content: start;
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+}
+
+.poker-seat-menu-workspace.with-actions {
+  block-size: clamp(220px, 32dvh, 260px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 3px;
+  scrollbar-gutter: stable;
+}
+
 .poker-seat-menu-section-title {
   color: #a6b1c0;
   font-family: var(--font-mono);
@@ -670,6 +685,27 @@
 .poker-seat-submit-action {
   justify-content: center;
   width: 100%;
+}
+
+.table-view-shell button.table-view-utility-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.table-view-shell button.table-view-utility-button:disabled:hover {
+  background: rgba(148, 163, 184, 0.06);
+  border-color: rgba(148, 163, 184, 0.18);
+  color: #cbd5e1;
+}
+
+.deduct-time-action-panel .poker-seat-time-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.deduct-time-action-panel > small {
+  color: #a6b1c0;
+  font-size: 0.68rem;
+  line-height: 1.4;
 }
 
 .poker-table-center.with-controls {

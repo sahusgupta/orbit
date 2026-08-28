@@ -513,6 +513,47 @@
   padding: 8px 10px;
 }
 
+.floor-table-context-menu {
+  background: #0d1724;
+  border: 1px solid rgba(125, 160, 255, 0.34);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.54);
+  display: grid;
+  min-width: 216px;
+  overflow: hidden;
+  padding: 5px;
+  position: fixed;
+  z-index: 1200;
+}
+
+.floor-table-context-menu button {
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: #dbe4f1;
+  font-size: 0.82rem;
+  font-weight: 700;
+  min-height: 38px;
+  padding: 8px 11px;
+  text-align: left;
+}
+
+.floor-table-context-menu button:not(:disabled):hover,
+.floor-table-context-menu button:not(:disabled):focus-visible {
+  background: rgba(77, 124, 254, 0.16);
+  color: #f8fafc;
+  outline: none;
+}
+
+.floor-table-context-menu button:disabled {
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.floor-table-context-menu button:nth-child(2):not(:disabled) {
+  color: #ff9fa6;
+}
+
 @media (max-width: 900px) {
   .floor-room-map-header {
     align-items: flex-start;

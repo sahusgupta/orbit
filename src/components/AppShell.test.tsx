@@ -36,12 +36,12 @@ describe('AppShell', () => {
     container.remove();
   });
 
-  it('requires the operator to approve a downloaded desktop update', async () => {
+  it('shows only actionable desktop update notices', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const root = createRoot(container);
     const installDownloadedUpdate = vi.fn().mockResolvedValue({ ok: true });
-    let statusListener: ((status: { state: string; version?: string }) => void) | undefined;
+    let statusListener: ((status: { state: string; version?: string; message?: string; updateReady?: boolean }) => void) | undefined;
     window.tableManagerDesktop = {
       getUpdateStatus: vi.fn().mockResolvedValue({ state: 'idle' }),
       installDownloadedUpdate,
@@ -63,8 +63,61 @@ describe('AppShell', () => {
     await act(async () => button?.click());
     expect(installDownloadedUpdate).toHaveBeenCalledOnce();
 
+    await act(async () => statusListener?.({ state: 'error', message: 'Background update check failed.' }));
+    expect(container.querySelector('.orbit-update-notice')).toBeNull();
+
+    await act(async () => statusListener?.({
+      state: 'error',
+      message: 'The downloaded update could not be installed.',
+      updateReady: true
+    }));
+    expect(container.querySelector('.orbit-update-notice')?.getAttribute('role')).toBe('alert');
+    expect(container.textContent).toContain('The downloaded update could not be installed.');
+    expect(Array.from(container.querySelectorAll('button')).some((candidate) => candidate.textContent === 'Install update and restart')).toBe(true);
+
     act(() => root.unmount());
     delete window.tableManagerDesktop;
+    container.remove();
+  });
+
+  it('keeps Undo visible and enables it only when an operational action is available', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const onUndo = vi.fn();
+
+    act(() => {
+      root.render(
+        <AppShell
+          active="floor"
+          canUndo
+          clubName="Example Club"
+          onNavigate={vi.fn()}
+          onSignOut={vi.fn()}
+          onUndo={onUndo}
+          undoLabel="Added player time"
+        >
+          <main>Floor</main>
+        </AppShell>
+      );
+    });
+
+    const undo = container.querySelector<HTMLButtonElement>('.orbit-undo');
+    expect(undo?.disabled).toBe(false);
+    expect(undo?.getAttribute('aria-label')).toBe('Undo Added player time');
+    act(() => undo?.click());
+    expect(onUndo).toHaveBeenCalledOnce();
+
+    act(() => {
+      root.render(
+        <AppShell active="floor" clubName="Example Club" onNavigate={vi.fn()} onSignOut={vi.fn()}>
+          <main>Floor</main>
+        </AppShell>
+      );
+    });
+    expect(container.querySelector<HTMLButtonElement>('.orbit-undo')?.disabled).toBe(true);
+
+    act(() => root.unmount());
     container.remove();
   });
 });
