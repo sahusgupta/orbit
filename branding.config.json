@@ -91,6 +91,7 @@
     ]
   },
   "license": {
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJaSst4oTlOoCISL8ZO3AflnwLhsZ\nI3QQIyZDZGFUpzl01nb/pACX7HoAloAb5UWz7SaSBDFyBW7rowztYNN2eQ==\n-----END PUBLIC KEY-----\n"
     "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUqap8LD2y/g4926j+/sl6wtKWzfl\nGuMdVT9ls1h4mIddwyVOBIdwqafc5P5i7GA3C/aMXP7MBAKqw8ZFC5NpQQ==\n-----END PUBLIC KEY-----\n"
   }
 }

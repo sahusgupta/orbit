@@ -67,7 +67,19 @@ export type PlayerProfile = {
   orbitPlayerId?: string;
   email?: string;
   phone: string;
-  address?: string;
+  email?: string;
+  hasSSN?: boolean;
+  address?: {
+    street: string;
+    city: string;
+    state: string;
+    zipCode: string;
+  };
+  communicationPreferences?: {
+    email: boolean;
+    mail: boolean;
+    sms: boolean;
+  };
   birthday: string;
   membershipStartDate: string;
   membershipExpirationDate: string;

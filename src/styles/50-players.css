@@ -303,3 +303,42 @@
 .import-button {
   margin-bottom: 12px;
 }
+
+.club-data-import {
+  color: var(--ink);
+  display: grid;
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.club-data-import > strong {
+  color: var(--ink);
+}
+
+.club-data-import > p,
+.profile-import-message,
+.pasted-player-import {
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.club-data-import .license-file-button {
+  justify-content: center;
+  width: 100%;
+}
+
+.club-data-import .license-file-button.import-drop-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+
+.pasted-player-import summary {
+  cursor: pointer;
+}
+
+.pasted-player-import .import-box {
+  margin-top: 10px;
+}

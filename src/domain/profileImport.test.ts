@@ -125,6 +125,57 @@ describe('profile import domain boundary', () => {
     });
   });
 
+  it('imports the club CSV layout including member numbers, contact preferences, and split time totals', () => {
+    const context = createContext();
+    expect(profileFromImportedRecord({
+      createdDate: '2024-11-20',
+      playerNumber: 'ABC123456',
+      firstName: 'John',
+      lastName: 'Smith',
+      'address.street': '123 Main Street',
+      'address.city': 'College Station',
+      'address.state': 'TX',
+      'address.zipCode': '77840',
+      email: 'john@example.test',
+        phone: '555-010-0000',
+      hasSSN: 'TRUE',
+      birthday: '1990-02-03',
+      optInEmail: 'TRUE (T/F)',
+      optInMail: 'false',
+      optInSMS: 'T',
+      joinHours: 0,
+      joinMinutes: 30,
+      totalHours: 1,
+      totalMinutes: 33
+    }, context)).toMatchObject({
+      id: 'ABC123456',
+      name: 'John Smith',
+      email: 'john@example.test',
+        phone: '(555) 010-0000',
+      hasSSN: true,
+      address: { street: '123 Main Street', city: 'College Station', state: 'TX', zipCode: '77840' },
+      communicationPreferences: { email: true, mail: false, sms: true },
+      birthday: '1990-02-03',
+      membershipStartDate: '2024-11-20',
+      totalTimePlayedHours: 1.55,
+      lastSessionTimePlayedHours: 0.5
+    });
+    expect(profileFromImportedRecord({ hasSSN: 'TRUE', firstName: 'Safe', lastName: 'Player' }, context).hasSSN).toBe(true);
+    expect(profileFromImportedRecord({
+      hasSSN: '(Can be blank, autofill to No if blank, else keep value)',
+      firstName: 'Placeholder',
+      lastName: 'Player',
+      email: 'username@email.com (can be blank)',
+      phone: 'XXX-XXX-XXXX (Can be Nothing)'
+    }, context)).toMatchObject({ hasSSN: false, phone: '' });
+    expect(profileFromImportedRecord({
+      firstName: 'Formatted',
+      lastName: 'Phone',
+      email: 'valid@example.com',
+      phone: '+1 (979) 555-0100'
+    }, context)).toMatchObject({ email: 'valid@example.com', phone: '(979) 555-0100' });
+  });
+
   it('preserves JSON validation and malformed-JSON delimited fallback semantics', () => {
     const context = createContext();
     const jsonProfiles = parsePastedProfiles(JSON.stringify([

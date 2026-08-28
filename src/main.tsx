@@ -596,6 +596,7 @@ function App() {
     setProfileFormMessage,
     setProfileSearch
   } = useProfileFormState();
+  const [profileImportMessage, setProfileImportMessage] = useState('');
   const reportingWorkspace = useReportingWorkspaceState();
   const {
     kpiCategory,
@@ -2606,13 +2607,15 @@ function App() {
   };
 
   const commitImportedProfiles = (imported: PlayerProfile[]) => {
-    if (!imported.length) return;
+    if (!imported.length) return 0;
     const result = mergeImportedProfiles(state.profiles, imported);
+    if (!result.importedProfiles.length) return 0;
     persist({ ...state, profiles: result.profiles }, true, {
       feature: 'Profiles',
       action: 'Imported profiles',
       metadata: { count: result.importedProfiles.length }
     });
+    return result.importedProfiles.length;
   };
 
   const importProfileFile = async (file?: File) => {
@@ -2621,7 +2624,8 @@ function App() {
       if (file.name.toLowerCase().endsWith('.csv')) {
         await validateLocalImport(file, 'profile-csv');
         const rows = parseCsvRows(await file.text());
-        commitImportedProfiles(profilesFromImportedRecords(rows, profileImportContext));
+        const importedCount = commitImportedProfiles(profilesFromImportedRecords(rows, profileImportContext));
+        setProfileImportMessage(importedCount ? `Imported ${importedCount} player${importedCount === 1 ? '' : 's'} into this club.` : 'No new player records were found in this file.');
         setImportText('');
         return;
       }
@@ -2642,16 +2646,18 @@ function App() {
         }, {});
         if (Object.values(record).some((value) => String(value ?? '').trim())) rows.push(record);
       });
-      commitImportedProfiles(profilesFromImportedRecords(rows, profileImportContext));
+      const importedCount = commitImportedProfiles(profilesFromImportedRecords(rows, profileImportContext));
+      setProfileImportMessage(importedCount ? `Imported ${importedCount} player${importedCount === 1 ? '' : 's'} into this club.` : 'No new player records were found in this file.');
       setImportText('');
-    } catch {
-      window.alert('Unable to import that profile file.');
+    } catch (error) {
+      setProfileImportMessage(error instanceof Error ? error.message : 'Unable to import that player file.');
     }
   };
 
   const importProfiles = () => {
     if (!importText.trim()) return;
-    commitImportedProfiles(parsePastedProfiles(importText, profileImportContext));
+    const importedCount = commitImportedProfiles(parsePastedProfiles(importText, profileImportContext));
+    setProfileImportMessage(importedCount ? `Imported ${importedCount} player${importedCount === 1 ? '' : 's'} into this club.` : 'No new player records were found in this text.');
     setImportText('');
   };
 
@@ -4437,6 +4443,7 @@ function App() {
         getGamePlayEntries={getGamePlayEntries}
         getMostPlayedGameName={getMostPlayedGameName}
         importProfileFile={importProfileFile}
+        profileImportMessage={profileImportMessage}
         importProfiles={importProfiles}
         importText={importText}
         inClubInterests={inClubInterests}

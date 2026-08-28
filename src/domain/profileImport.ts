@@ -39,6 +39,31 @@ const importedNumber = (item: Record<string, unknown>, aliases: string[], fallba
   return Number.isFinite(value) ? value : fallback;
 };
 
+const importedHoursAndMinutes = (
+  item: Record<string, unknown>,
+  hourAliases: string[],
+  minuteAliases: string[]
+) => importedNumber(item, hourAliases) + importedNumber(item, minuteAliases) / 60;
+
+const importedBoolean = (item: Record<string, unknown>, aliases: string[], fallback = false) => {
+  const value = importedValue(item, aliases);
+  if (value === undefined || value === null || String(value).trim() === '') return fallback;
+  return /^(true|t|yes|y|1)(?:\b|[^a-z0-9])/i.test(String(value).trim());
+};
+
+const importedPhone = (item: Record<string, unknown>) => {
+  const value = importedString(item, ['phone', 'Phone', 'phoneNumber', 'Phone Number', 'mobile', 'Mobile', 'cell', 'Cell']);
+  const digits = value.replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('1')) return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  return '';
+};
+
+const importedEmail = (item: Record<string, unknown>) => {
+  const value = importedString(item, ['email', 'Email', 'emailAddress', 'Email Address']);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : '';
+};
+
 const isImportedObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -74,15 +99,41 @@ export function profileFromImportedRecord(
     .split(/[|;]/)
     .map((companionName) => companionName.trim())
     .filter(Boolean);
+  const email = importedEmail(item);
+    const hasSSNAliases = ['hasSSN', 'Has SSN', 'hasSocialSecurityNumber', 'Has Social Security Number'];
+    const hasSSNValue = importedValue(item, hasSSNAliases) !== undefined;
+    const hasSSN = importedBoolean(item, hasSSNAliases);
+  const address = {
+    street: importedString(item, ['address.street', 'Address Street', 'street', 'Street']),
+    city: importedString(item, ['address.city', 'Address City', 'city', 'City']),
+    state: importedString(item, ['address.state', 'Address State', 'state', 'State']),
+    zipCode: importedString(item, ['address.zipCode', 'Address Zip Code', 'zipCode', 'Zip Code', 'zip', 'ZIP'])
+  };
+  const preferenceAliases = [
+    'optInEmail', 'Opt In Email', 'emailOptIn', 'Email Opt In',
+    'optInMail', 'Opt In Mail', 'mailOptIn', 'Mail Opt In',
+    'optInSMS', 'Opt In SMS', 'smsOptIn', 'SMS Opt In'
+  ];
+  const hasCommunicationPreferences = preferenceAliases.some((alias) => importedValue(item, [alias]) !== undefined);
   return {
-    id: importedString(item, ['id', 'ID', 'memberId', 'Member ID', 'membershipId', 'Membership ID', 'playerId', 'Player ID', 'cardNumber', 'Card Number', 'cardId', 'Card ID'], context.createProfileId()),
+    id: importedString(item, ['id', 'ID', 'memberId', 'Member ID', 'membershipId', 'Membership ID', 'playerId', 'Player ID', 'playerNumber', 'Player Number', 'cardNumber', 'Card Number', 'cardId', 'Card ID'], context.createProfileId()),
     name,
-    phone: importedString(item, ['phone', 'Phone', 'phoneNumber', 'Phone Number', 'mobile', 'Mobile', 'cell', 'Cell']),
+    phone: importedPhone(item),
+    ...(email ? { email } : {}),
+      ...(hasSSNValue ? { hasSSN } : {}),
+    ...(Object.values(address).some(Boolean) ? { address } : {}),
+    ...(hasCommunicationPreferences ? {
+      communicationPreferences: {
+        email: importedBoolean(item, ['optInEmail', 'Opt In Email', 'emailOptIn', 'Email Opt In']),
+        mail: importedBoolean(item, ['optInMail', 'Opt In Mail', 'mailOptIn', 'Mail Opt In']),
+        sms: importedBoolean(item, ['optInSMS', 'Opt In SMS', 'smsOptIn', 'SMS Opt In'])
+      }
+    } : {}),
     birthday: importedDate(item, ['birthday', 'Birthday', 'dob', 'DOB', 'dateOfBirth', 'Date of Birth'], ''),
-    membershipStartDate: importedDate(item, ['membershipStartDate', 'Membership Start', 'memberSince', 'Member Since', 'joinDate', 'Join Date', 'createdAt', 'Created At'], context.todayDate()),
+    membershipStartDate: importedDate(item, ['membershipStartDate', 'Membership Start', 'memberSince', 'Member Since', 'joinDate', 'Join Date', 'createdAt', 'Created At', 'createdDate', 'Created Date'], context.todayDate()),
     membershipExpirationDate: importedDate(item, ['membershipExpirationDate', 'Membership Expiration', 'expiresAt', 'Expires At', 'expirationDate', 'Expiration Date', 'expiryDate', 'Expiry Date'], context.nextYearDate()),
-    totalTimePlayedHours: importedNumber(item, ['totalTimePlayedHours', 'totalTimePlayed', 'Total Time Played', 'lifetimeHours', 'Lifetime Hours']),
-    lastSessionTimePlayedHours: importedNumber(item, ['lastSessionTimePlayedHours', 'lastSessionTimePlayed', 'Last Session Time Played']),
+    totalTimePlayedHours: importedHoursAndMinutes(item, ['totalTimePlayedHours', 'totalTimePlayed', 'Total Time Played', 'lifetimeHours', 'Lifetime Hours', 'totalHours', 'Total Hours'], ['totalMinutes', 'Total Minutes']),
+    lastSessionTimePlayedHours: importedHoursAndMinutes(item, ['lastSessionTimePlayedHours', 'lastSessionTimePlayed', 'Last Session Time Played', 'joinHours', 'Join Hours'], ['joinMinutes', 'Join Minutes']),
     commonlyPlaysWithProfileIds: [],
     preferredGameId,
     preferredGameIds: preferredGameId ? [preferredGameId] : [],

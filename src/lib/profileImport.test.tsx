@@ -127,7 +127,7 @@ const getLatestState = () => {
   return harness.latestState;
 };
 
-const getReactHandler = (element: Element, name: 'onChange' | 'onClick') => {
+const getReactHandler = (element: Element, name: 'onChange' | 'onClick' | 'onDragEnter' | 'onDragOver' | 'onDragLeave' | 'onDrop') => {
   const reactPropsKey = Reflect.ownKeys(element).find(
     (key) => typeof key === 'string' && key.startsWith('__reactProps$')
   );
@@ -150,7 +150,7 @@ const importPastedProfiles = async (text: string) => {
   const textarea = document.querySelector<HTMLTextAreaElement>('textarea.import-box');
   if (!textarea) throw new Error('Expected the profile import textarea');
   const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
-    (candidate) => candidate.textContent?.trim() === 'Import Pasted People'
+    (candidate) => candidate.textContent?.trim() === 'Import pasted players'
   );
   if (!button) throw new Error('Expected the profile import button');
   await invoke(getReactHandler(textarea, 'onChange'), { target: { value: text } });
@@ -163,6 +163,20 @@ const importProfileFile = async (file: File) => {
   await act(async () => {
     await getReactHandler(input, 'onChange')({ target: { files: [file] } });
     await Promise.resolve();
+  });
+};
+
+const dropProfileFile = async (file: File) => {
+  const dropZone = document.querySelector<HTMLElement>('.club-data-import .license-file-button');
+  if (!dropZone) throw new Error('Expected the profile import drop zone');
+  await invoke(getReactHandler(dropZone, 'onDragEnter'), {
+    preventDefault: () => undefined,
+    currentTarget: dropZone,
+    target: dropZone
+  });
+  await invoke(getReactHandler(dropZone, 'onDrop'), {
+    preventDefault: () => undefined,
+    dataTransfer: { files: [file] }
   });
 };
 
@@ -268,12 +282,10 @@ describe('pasted profile import boundary', () => {
     expect(document.querySelector('.profile-search-row input')?.getAttribute('placeholder')).toBe(
       'Search players, stakes, companions, notes'
     );
-    expect(document.querySelector('textarea.import-box')?.getAttribute('placeholder')).toContain('Import CSV');
-    expect(
-      Array.from(document.querySelectorAll('.inline-actions > button, .inline-actions > label'), (control) =>
-        control.textContent?.trim()
-      )
-    ).toEqual(['Import Pasted People', 'Upload CSV / XLSX']);
+    expect(document.querySelector('#club-data-import-title')?.textContent).toBe('Import club player data');
+    expect(document.querySelector('.club-data-import p')?.textContent).toContain('CSV or XLSX');
+    expect(document.querySelector('textarea.import-box')?.getAttribute('placeholder')).toContain('Paste CSV');
+    expect(document.querySelector('.club-data-import .license-file-button')?.textContent).toContain('Choose or drop CSV/XLSX');
   });
 
   it('normalizes valid JSON arrays, aliases, arrays, and numeric strings without losing fields', async () => {
@@ -363,7 +375,7 @@ describe('pasted profile import boundary', () => {
     await importPastedProfiles(JSON.stringify([{ id: 'existing-bob', name: 'Bob' }]));
     const csv = [
       'Name,Phone,DOB,Member Since,Expires At,Game,Companions,Notes',
-      '" Alice, Jr. ",555-0100,1990-02-03,2025-01-02,2027-03-04,PLO,Bob|Carol,"Says ""hello"""',
+        '" Alice, Jr. ",555-010-0000,1990-02-03,2025-01-02,2027-03-04,PLO,Bob|Carol,"Says ""hello"""',
       'Bob,555-0199,,,,1/2 NLH,,Duplicate should be skipped'
     ].join('\n');
     const file = new File([csv], 'profiles.csv', { type: 'text/csv' });
@@ -374,7 +386,7 @@ describe('pasted profile import boundary', () => {
     expect(getLatestState().profiles[0]).toMatchObject({ id: 'existing-bob', name: 'Bob' });
     expect(getLatestState().profiles[1]).toMatchObject({
       name: 'Alice, Jr.',
-      phone: '555-0100',
+        phone: '(555) 010-0000',
       birthday: '1990-02-03',
       membershipStartDate: '2025-01-02',
       membershipExpirationDate: '2027-03-04',
@@ -408,6 +420,25 @@ describe('pasted profile import boundary', () => {
       preferredGameId: 'nlh-1-2',
       preferredGameIds: ['nlh-1-2'],
       willingnessToMove: true
+    });
+  });
+
+  it('imports the club CSV export when it is dropped onto the file control', async () => {
+    await resetProfiles();
+    const csv = [
+      'createdDate,playerNumber,firstName,lastName,address.street,address.city,address.state,address.zipCode,email,phone,hasSSN,birthday,optInEmail,optInMail,optInSMS,joinHours,joinMinutes,totalHours,totalMinutes',
+      '2024-11-20,ABC123456,John,Smith,123 Main Street,College Station,TX,77840,john@example.test,555-0100,,1990-02-03,T,F,T,0,30,1,33'
+    ].join('\n');
+
+    await dropProfileFile(new File([csv], 'Aggieland Poker Data.xlsx - Sheet1.csv', { type: 'text/csv' }));
+
+    expect(getLatestState().profiles[0]).toMatchObject({
+      id: 'ABC123456',
+      name: 'John Smith',
+      membershipStartDate: '2024-11-20',
+      totalTimePlayedHours: 1.55,
+      lastSessionTimePlayedHours: 0.5,
+      communicationPreferences: { email: true, mail: false, sms: true }
     });
   });
 
