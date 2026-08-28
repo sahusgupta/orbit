@@ -1,7 +1,8 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import type { Dispatch, FormEvent, RefObject, SetStateAction } from 'react';
-import { BadgeCheck, Bell, Clock, Edit3, Plus, Save, ScanLine, Trash2, Upload, Users, X } from 'lucide-react';
+import { Archive, ArchiveRestore, BadgeCheck, Bell, Clock, Edit3, Plus, Save, ScanLine, Upload, Users, X } from 'lucide-react';
 import { hasProfileReference } from '../lib/profileRelationships';
+import { calculatePlayerAge } from '../domain/governmentId';
 import type { AppState, Interest, InterestStatus, PlayerProfile } from '../domain/types';
 import type {
   NewProfileDraft,
@@ -10,11 +11,13 @@ import type {
   TodayPlayerRow
 } from '../features/profiles/profileWorkspace';
 import PanelTitle from './PanelTitle';
+import IdEnrollmentPanel from '../features/profiles/IdEnrollmentPanel';
 
 type ProfilesViewProps = {
   state: AppState;
   activeMemberProfiles: PlayerProfile[];
   approvedMembershipProfiles: PlayerProfile[];
+  archivedProfiles: PlayerProfile[];
   duplicateProfiles: PlayerProfile[][];
   editingProfileId: string | null;
   formatClock: (iso?: string) => string;
@@ -38,19 +41,21 @@ type ProfilesViewProps = {
   qrScanMessage: string;
   qrVideoRef: RefObject<HTMLVideoElement | null>;
   todayPlayerActivity: TodayPlayerRow[];
-  activateInPersonMembership: (profile: PlayerProfile) => void;
+  approvePlayerIdentity: (profile: PlayerProfile) => void;
   addProfile: (event: FormEvent) => void;
   addProfileToClub: (profile: PlayerProfile) => void;
   approveMembershipRequest: (profile: PlayerProfile) => void;
+  markMembershipPaidInPerson: (profile: PlayerProfile) => void;
   beginEditProfile: (profile: PlayerProfile) => void;
   cancelEditProfile: () => void;
   deleteInterest: (id: string) => void;
-  deleteProfile: (id: string) => void;
+  archiveProfile: (profile: PlayerProfile) => void;
   mergeDuplicateProfiles: (profiles: PlayerProfile[]) => void;
   onOpenQrScanner: () => void;
   onRestartQrScanner: () => void;
   onSubmitQrManual: (event: FormEvent) => void;
   removeProfileFromClub: (profile: PlayerProfile) => void;
+  restoreProfile: (profile: PlayerProfile) => void;
   saveProfileEdit: (event: FormEvent) => void;
   setImportText: Dispatch<SetStateAction<string>>;
   setNewProfile: Dispatch<SetStateAction<NewProfileDraft>>;
@@ -66,6 +71,7 @@ export default function ProfilesView({
   state,
   activeMemberProfiles,
   approvedMembershipProfiles,
+  archivedProfiles,
   duplicateProfiles,
   editingProfileId,
   formatClock,
@@ -89,19 +95,21 @@ export default function ProfilesView({
   qrScanMessage,
   qrVideoRef,
   todayPlayerActivity,
-  activateInPersonMembership,
+  approvePlayerIdentity,
   addProfile,
   addProfileToClub,
   approveMembershipRequest,
+  markMembershipPaidInPerson,
   beginEditProfile,
   cancelEditProfile,
   deleteInterest,
-  deleteProfile,
+  archiveProfile,
   mergeDuplicateProfiles,
   onOpenQrScanner,
   onRestartQrScanner,
   onSubmitQrManual,
   removeProfileFromClub,
+  restoreProfile,
   saveProfileEdit,
   setImportText,
   setNewProfile,
@@ -128,6 +136,7 @@ export default function ProfilesView({
             >
               <ScanLine size={19} />
             </button>
+            <button className="player-tool-icon" onClick={() => setPlayerPopup('id')} title="Scan or swipe government ID" aria-label="Scan or swipe government ID"><BadgeCheck size={19} /></button>
             <button className="player-tool-icon" onClick={() => setPlayerPopup('ledger')} title="Open player ledger" aria-label="Open player ledger"><Clock size={19} /></button>
             <button className="player-tool-icon primary" onClick={() => setPlayerPopup('add')} title="Add player" aria-label="Add player"><Plus size={19} /></button>
           </div>
@@ -139,10 +148,12 @@ export default function ProfilesView({
             <Dialog.Content className="player-popup-content">
               <div className="player-popup-header">
                 <div>
-                  <Dialog.Title>{playerPopup === 'add' ? 'Add member' : playerPopup === 'scan' ? 'Scan member QR' : 'Player ledger'}</Dialog.Title>
+                  <Dialog.Title>{playerPopup === 'add' ? 'Add member' : playerPopup === 'id' ? 'Scan or swipe ID' : playerPopup === 'scan' ? 'Scan member QR' : 'Player ledger'}</Dialog.Title>
                   <Dialog.Description>
                     {playerPopup === 'add'
                       ? 'Record a walk-in membership paid at the club.'
+                      : playerPopup === 'id'
+                        ? 'Extract profile details from a government ID before creating the member.'
                       : playerPopup === 'scan'
                         ? 'Scan an active membership from Orbit Player to check the member in.'
                         : 'Recent check-ins and transactions.'}
@@ -154,14 +165,29 @@ export default function ProfilesView({
                 <form className="player-popup-form" onSubmit={(event) => { addProfile(event); setPlayerPopup(null); }}>
                   <label><span>Player name</span><input autoFocus value={newProfile.name} onChange={(event) => setNewProfile({ ...newProfile, name: event.target.value })} placeholder="Full name" /></label>
                   <label><span>Phone</span><input value={newProfile.phone} onChange={(event) => setNewProfile({ ...newProfile, phone: event.target.value })} placeholder="Phone number" /></label>
+                  <label><span>Address</span><input value={newProfile.address} onChange={(event) => setNewProfile({ ...newProfile, address: event.target.value })} placeholder="Street, city, state, postal code" /></label>
                   <label><span>Preferred game</span><select value={newProfile.preferredGameId} onChange={(event) => setNewProfile({ ...newProfile, preferredGameId: event.target.value, preferredGameIds: [event.target.value] })}>{state.games.map((game) => <option key={game.id} value={game.id}>{game.name}</option>)}</select></label>
                   <div className="player-popup-form-grid">
                     <label><span>Pass type</span><select value={newProfile.membershipPlan} onChange={(event) => setNewProfile({ ...newProfile, membershipPlan: event.target.value as 'day' | 'monthly' })}><option value="day">Day pass (24 hours)</option><option value="monthly">Monthly (30 days)</option></select></label>
                     <label><span>Amount paid in person</span><input type="number" min="0" step="0.01" value={newProfile.membershipAmount} onChange={(event) => setNewProfile({ ...newProfile, membershipAmount: Number(event.target.value) })} placeholder="0.00" /></label>
                   </div>
-                  <label><span>Birthday</span><input type="date" value={newProfile.birthday} onChange={(event) => setNewProfile({ ...newProfile, birthday: event.target.value })} /></label>
+                  <label><span>Birthday{calculatePlayerAge(newProfile.birthday) != null ? ` · Age ${calculatePlayerAge(newProfile.birthday)}` : ''}</span><input type="date" value={newProfile.birthday} onChange={(event) => setNewProfile({ ...newProfile, birthday: event.target.value, identityCaptureMethod: undefined })} /></label>
                   <div className="player-popup-actions"><Dialog.Close asChild><button className="ghost-button" type="button">Cancel</button></Dialog.Close><button className="primary-button" type="submit">Add active member</button></div>
                 </form>
+              ) : playerPopup === 'id' ? (
+                <IdEnrollmentPanel
+                  minimumAge={state.settings.clubAccount?.minimumPlayerAge === 18 ? 18 : 21}
+                  onApply={(identity) => {
+                    setNewProfile((current) => ({
+                      ...current,
+                      name: identity.fullName,
+                      birthday: identity.dateOfBirth,
+                      address: identity.address,
+                      identityCaptureMethod: 'id-barcode'
+                    }));
+                    setPlayerPopup('add');
+                  }}
+                />
               ) : playerPopup === 'scan' ? (
                 <div className="membership-qr-scanner">
                   <div className="membership-qr-camera">
@@ -213,6 +239,9 @@ export default function ProfilesView({
           </button>
           <button className={playerSection === 'today' ? 'active' : ''} onClick={() => setPlayerSection('today')}>
             Today <span>{todayPlayerActivity.length}</span>
+          </button>
+          <button className={playerSection === 'archive' ? 'active' : ''} onClick={() => setPlayerSection('archive')}>
+            Past players <span>{archivedProfiles.length}</span>
           </button>
         </nav>
 
@@ -290,6 +319,7 @@ export default function ProfilesView({
                       <div className="profile-card-stats">
                         <span>Total <strong>{formatHours(profile.totalTimePlayedHours)}</strong></span>
                         <span>Last <strong>{formatHours(profile.lastSessionTimePlayedHours)}</strong></span>
+                        <span>Saved time <strong>{profile.savedTimeCreditMinutes ?? 0} min</strong></span>
                         <span>Most played <strong>{mostPlayedGame}</strong></span>
                       </div>
                       {gamePlayEntries.length ? (
@@ -303,6 +333,10 @@ export default function ProfilesView({
                       )}
                       <small>Membership: {profile.membershipStartDate || 'Not set'} to {profile.membershipExpirationDate || 'Not set'}</small>
                       {profile.phone ? <small>Phone: {profile.phone}</small> : null}
+                      {profile.email ? <small>Email: {profile.email}</small> : null}
+                      {profile.orbitPlayerId ? <small>Orbit Player account linked</small> : null}
+                      {profile.birthday ? <small>DOB: {profile.birthday}{calculatePlayerAge(profile.birthday) != null ? ` · Age ${calculatePlayerAge(profile.birthday)}` : ''}</small> : null}
+                      {profile.address ? <small>Address: {profile.address}</small> : null}
                       {companionNames.length > 0 ? <small>Plays with: {companionNames.join(', ')}</small> : null}
                       {editingProfileId === profile.id && profileEditDraft ? (
                         <form className="profile-edit-form" onSubmit={saveProfileEdit}>
@@ -316,6 +350,25 @@ export default function ProfilesView({
                             onChange={(event) => setProfileEditDraft({ ...profileEditDraft, phone: event.target.value })}
                             placeholder="Phone"
                           />
+                          <input
+                            type="email"
+                            value={profileEditDraft.email ?? ''}
+                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, email: event.target.value })}
+                            placeholder="Orbit account email"
+                          />
+                          <input
+                            value={profileEditDraft.address ?? ''}
+                            onChange={(event) => setProfileEditDraft({ ...profileEditDraft, address: event.target.value })}
+                            placeholder="Address"
+                          />
+                          <label>
+                            Birthday
+                            <input
+                              type="date"
+                              value={profileEditDraft.birthday}
+                              onChange={(event) => setProfileEditDraft({ ...profileEditDraft, birthday: event.target.value })}
+                            />
+                          </label>
                           <label>
                             Member since
                             <input
@@ -413,8 +466,8 @@ export default function ProfilesView({
                       <button className="secondary-button" onClick={() => (checkedIn ? removeProfileFromClub(profile) : addProfileToClub(profile))}>
                         {checkedIn ? 'Check out' : 'Check in'}
                       </button>
-                      <button aria-label={`Remove ${profile.name}`} className="icon-button danger" onClick={() => deleteProfile(profile.id)} title="Remove profile">
-                        <Trash2 size={17} />
+                      <button aria-label={`Archive ${profile.name}`} className="icon-button" onClick={() => archiveProfile(profile)} title="Move to past players">
+                        <Archive size={17} />
                       </button>
                     </div>
                   </article>
@@ -464,6 +517,13 @@ export default function ProfilesView({
                   onChange={(event: { target: { value: string; }; }) => setNewProfile({ ...newProfile, phone: event.target.value })}
                   placeholder="Phone"
                   title="Phone"
+                />
+                <input
+                  type="email"
+                  value={newProfile.email}
+                  onChange={(event) => setNewProfile({ ...newProfile, email: event.target.value })}
+                  placeholder="Orbit account email"
+                  title="Orbit account email"
                 />
                 <select
                   className="profile-form-game"
@@ -612,16 +672,34 @@ export default function ProfilesView({
 
             <section className="panel pending-membership-panel approved-membership-panel">
               <PanelTitle icon={<BadgeCheck />} title={`Approved, awaiting arrival (${approvedMembershipProfiles.length})`} />
-              <p className="muted-copy">Verify the player’s ID and payment at the front desk before activation.</p>
+              <p className="muted-copy">ID review and payment are tracked separately. Membership activates when both requirements are complete.</p>
               <div className="pending-membership-list">
                 {approvedMembershipProfiles.map((profile) => (
                   <article className="duplicate-card" key={profile.id}>
                     <span>
                       <strong>{profile.name}</strong> · {profile.membershipPlanName || (profile.membershipPlan === 'day' ? 'Day pass' : 'Monthly membership')}
-                      {profile.membershipPriceLabel ? ` · ${profile.membershipPriceLabel}` : ''}
-                      {profile.phone ? <small>{profile.phone}</small> : null}
-                    </span>
-                    <button className="primary-button" onClick={() => activateInPersonMembership(profile)}>Verify ID, mark paid &amp; activate</button>
+                       {profile.membershipPriceLabel ? ` · ${profile.membershipPriceLabel}` : ''}
+                       {profile.phone ? <small>{profile.phone}</small> : null}
+                       <small>ID: {profile.identityReviewStatus ?? 'Not required'} · Payment: {profile.membershipPaymentStatus ?? 'Not required'}{profile.membershipPaymentMethod === 'app' ? ' online' : ''}</small>
+                       {profile.identityReviewStatus === 'Pending' ? (
+                         <small>DOB: {profile.birthday || 'Not provided'}{calculatePlayerAge(profile.birthday) != null ? ` · Age ${calculatePlayerAge(profile.birthday)}` : ''} · Address: {profile.address || 'Not provided'}</small>
+                       ) : null}
+                     </span>
+                    <div className="duplicate-actions">
+                      {profile.identityReviewStatus === 'Pending' ? (
+                        <button className="primary-button" onClick={() => approvePlayerIdentity(profile)}>Approve ID</button>
+                      ) : null}
+                      {profile.membershipPaymentStatus === 'Pending' && profile.membershipPaymentMethod !== 'app' ? (
+                        <button className="primary-button" onClick={() => markMembershipPaidInPerson(profile)}>Mark paid in person</button>
+                      ) : null}
+                      {profile.membershipPaymentStatus === 'Not required' &&
+                      (profile.identityReviewStatus === 'Approved' || profile.identityReviewStatus === 'Not required') ? (
+                        <button className="primary-button" onClick={() => markMembershipPaidInPerson(profile)}>Activate no-fee membership</button>
+                      ) : null}
+                      {profile.membershipPaymentStatus === 'Pending' && profile.membershipPaymentMethod === 'app' ? (
+                        <small>Awaiting online payment confirmation</small>
+                      ) : null}
+                    </div>
                   </article>
                 ))}
                 {!approvedMembershipProfiles.length ? (
@@ -631,6 +709,43 @@ export default function ProfilesView({
                 ) : null}
               </div>
             </section>
+          </section>
+        ) : playerSection === 'archive' ? (
+          <section className="panel archived-players-panel">
+            <PanelTitle icon={<Archive />} title={`Past players (${archivedProfiles.length})`} />
+            <p className="muted-copy">Expired memberships and archived visitors stay here with their history and saved time intact.</p>
+            <div className="profile-grid archived-profile-grid">
+              {archivedProfiles.map((profile) => (
+                <article className="profile-card archived-profile-card" key={profile.id}>
+                  <div className="profile-card-main">
+                    <div className="profile-card-header">
+                      <div>
+                        <h3>{profile.name}</h3>
+                        <p>{getMostPlayedGameName(profile)}</p>
+                      </div>
+                      <span className="status-pill">{profile.archivedAt ? 'Archived' : 'Expired'}</span>
+                    </div>
+                    <div className="profile-card-stats">
+                      <span>Total <strong>{formatHours(profile.totalTimePlayedHours)}</strong></span>
+                      <span>Last <strong>{formatHours(profile.lastSessionTimePlayedHours)}</strong></span>
+                      <span>Saved time <strong>{profile.savedTimeCreditMinutes ?? 0} min</strong></span>
+                    </div>
+                    <small>Membership: {profile.membershipExpiresAt || profile.membershipExpirationDate || 'Not set'}</small>
+                    {profile.archivedReason ? <small>Archive note: {profile.archivedReason}</small> : null}
+                  </div>
+                  {profile.archivedAt ? (
+                    <div className="profile-actions">
+                      <button className="secondary-button" onClick={() => restoreProfile(profile)}>
+                        <ArchiveRestore size={16} /> Restore profile
+                      </button>
+                    </div>
+                  ) : (
+                    <small className="muted-copy">Renew or issue a new pass to return this player to the current directory.</small>
+                  )}
+                </article>
+              ))}
+              {!archivedProfiles.length ? <p className="muted-copy">No past players yet.</p> : null}
+            </div>
           </section>
         ) : (
           <section className="panel today-players-panel">

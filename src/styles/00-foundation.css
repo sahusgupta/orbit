@@ -320,6 +320,22 @@ button {
   justify-self: start;
 }
 
+.account-management-field {
+  display: grid;
+  gap: 4px;
+}
+
+.account-management-field span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.account-management-field small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .staff-account-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(112px, 0.72fr) minmax(88px, 0.6fr) auto;

@@ -5,12 +5,13 @@ import { registerForTournament, unregisterFromTournament, type FirebasePlayerIde
 
 type UsePlayerTournamentsOptions = {
   firebaseIdentity: FirebasePlayerIdentity | null;
+  getClubMinimumAge(clubId: string): 18 | 21;
   player: PlayerAccount;
-  requireVerifiedAge(returnScreen: Screen, action: string): boolean;
+  requireVerifiedAge(returnScreen: Screen, action: string, minimumAge?: 18 | 21): boolean;
   setTournamentRegistrations: Dispatch<SetStateAction<PlayerTournamentRegistration[]>>;
 };
 
-export function usePlayerTournaments({ firebaseIdentity, player, requireVerifiedAge, setTournamentRegistrations }: UsePlayerTournamentsOptions) {
+export function usePlayerTournaments({ firebaseIdentity, getClubMinimumAge, player, requireVerifiedAge, setTournamentRegistrations }: UsePlayerTournamentsOptions) {
   const [tournamentMessage, setTournamentMessage] = useState('');
   const [pendingTournamentIds, setPendingTournamentIds] = useState<string[]>([]);
   const inFlight = useRef(new Set<string>());
@@ -30,7 +31,7 @@ export function usePlayerTournaments({ firebaseIdentity, player, requireVerified
 
   const registerTournament = async (tournament: PlayerTournament) => {
     const actionKey = `register:${tournament.id}`;
-    if (!requireVerifiedAge('tournaments', 'registering for an event')) return;
+    if (!requireVerifiedAge('tournaments', 'registering for an event', getClubMinimumAge(tournament.clubId))) return;
     if (!firebaseIdentity || firebaseIdentity.uid !== player.id) {
       setTournamentMessage('Sign in to your Orbit Player account to register for this event.');
       return;

@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import QRCode from 'react-native-qrcode-svg';
 import { createMembershipQrValue } from '../../domain/membershipQr';
 import {
+  getApprovedMembershipActivationCopy,
   isMembershipCurrentlyActive,
   type PlayerAccount,
   type PlayerClubSnapshot
@@ -53,6 +54,7 @@ export function MembershipWalletCard({
 }) {
   const active = isMembershipCurrentlyActive(membership, nowMs);
   const approved = membership.status === 'Approved';
+  const approvedCopy = getApprovedMembershipActivationCopy(membership);
   const membershipPlayerId = membership.playerId || player.id;
   const credential = getMembershipDisplayId(club.club.id, membershipPlayerId);
   const qrValue = createMembershipQrValue(club.club.id, membershipPlayerId);
@@ -90,7 +92,7 @@ export function MembershipWalletCard({
       <View style={styles.checkedInBand}>
         <Ionicons name={approved ? 'id-card-outline' : 'scan-outline'} size={17} color="#bfdbfe" />
         <Text style={styles.checkedInText}>{approved
-          ? 'Approved. Bring your ID and pay the card-room fee at the front desk to activate.'
+          ? `${approvedCopy.title}. ${approvedCopy.body}`
           : 'Have staff scan this QR code to check you in.'}</Text>
       </View>
     </LinearGradient>

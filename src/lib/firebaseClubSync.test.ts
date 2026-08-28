@@ -405,7 +405,7 @@ describe('Firebase club synchronization transforms', () => {
     expect(first.profiles).toEqual(state.profiles);
   });
 
-  it('applies paid membership only by authoritative player ID and does not fabricate a profile without one', async () => {
+  it('applies paid membership only by authoritative player ID without bypassing an unset ID review', async () => {
     const wrongSameName = buildProfile('profile-wrong-name', 'Paid Player');
     const wrongEmailNote = buildProfile('profile-wrong-email', 'Another Player', { notes: 'Contact payer@example.test' });
     const authoritative = buildProfile('profile-authoritative', 'Authoritative Player');
@@ -443,8 +443,13 @@ describe('Firebase club synchronization transforms', () => {
     expect(result.profiles[1]).toBe(state.profiles[1]);
     expect(result.profiles[2]).toEqual({
       ...authoritative,
-      membershipStartDate: '2026-08-03',
-      membershipExpirationDate: '2026-09-02'
+      membershipStartDate: '',
+      membershipExpirationDate: '',
+      membershipExpiresAt: undefined,
+      membershipPaymentAmountCents: 5000,
+      membershipPaymentStatus: 'Paid',
+      membershipPaymentTransactionId: 'transaction-membership',
+      membershipStatus: 'Approved'
     });
     expect(result.profiles).toHaveLength(3);
     expect(result.revenueTransactions).toEqual([payment, missingPlayerId]);

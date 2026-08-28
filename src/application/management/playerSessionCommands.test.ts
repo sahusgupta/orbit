@@ -4,12 +4,15 @@ import type { AppState, GameSession, Interest, PlayerProfile, PlayerSession } fr
 import {
   addPlayerBuyIn,
   addPlayerTime,
+  applySavedPlayerTimeCredit,
   assignTableDealer,
   changePlayerSeat,
   correctPlayerSession,
+  deductUnconsumedPlayerTime,
   endTableDealerAssignment,
   markInterestPlayerLeft,
   markPlayerSessionLeft,
+  pauseAndStorePlayerTimeCredit,
   recordTableDrop,
   recordTableHands,
   setTableCollectionMode
@@ -192,6 +195,189 @@ describe('management player-session commands', () => {
     expect(timeAdded.state.timeFeeLogs[0]).toMatchObject({ id: 'created-1', minutes: 30, amount: 6, timestamp: now });
     expect(timeAdded.state.tableEvents[0]).toMatchObject({ id: 'created-2', reason: 'time added', playerCount: 2 });
     expect(addPlayerTime(source, playerSession, 0, dependencies())).toEqual({ ok: false });
+  });
+
+  it('deducts only unconsumed purchased time with negative fee and correction audit entries', () => {
+    const source = state({
+      timeFeeLogs: [{
+        id: 'original-time',
+        playerSessionId: playerSession.id,
+        tableId: playerSession.tableId,
+        gameId: playerSession.gameId,
+        playerName: playerSession.playerName,
+        minutes: 60,
+        amount: 12,
+        timestamp: playerSession.seatedAt
+      }]
+    });
+    const snapshot = structuredClone(source);
+
+    const result = deductUnconsumedPlayerTime(
+      source,
+      playerSession.id,
+      10,
+      '  Staff added the wrong amount  ',
+      dependencies()
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.state.playerSessions[0]).toMatchObject({
+      timePurchasedMinutes: 50,
+      timeRemainingMinutes: 5,
+      lastTimeTickAt: now,
+      timeFeeEnabled: true
+    });
+    expect(result.state.timeFeeLogs.at(-1)).toEqual({
+      id: 'created-1',
+      playerSessionId: playerSession.id,
+      tableId: playerSession.tableId,
+      gameId: playerSession.gameId,
+      playerName: playerSession.playerName,
+      minutes: -10,
+      amount: -2,
+      timestamp: now
+    });
+    expect(result.state.correctionLog[0]).toEqual({
+      id: 'created-2',
+      entity: playerSession.id,
+      field: 'timePurchasedMinutes',
+      note: 'Deducted 10 unconsumed purchased minutes: Staff added the wrong amount',
+      timestamp: now
+    });
+    expect(result.state.revenueTransactions).toBe(source.revenueTransactions);
+    expect(source).toEqual(snapshot);
+  });
+
+  it('rejects invalid or consumed time deductions without changing state', () => {
+    const source = state();
+
+    expect(deductUnconsumedPlayerTime(source, playerSession.id, 16, 'Too much', dependencies())).toEqual({
+      ok: false,
+      error: 'Only 15 unconsumed purchased minutes can be deducted.'
+    });
+    expect(deductUnconsumedPlayerTime(source, playerSession.id, 0, 'Invalid', dependencies())).toEqual({
+      ok: false,
+      error: 'Enter a whole number of minutes to deduct.'
+    });
+    expect(deductUnconsumedPlayerTime(source, playerSession.id, 1, ' ', dependencies())).toEqual({
+      ok: false,
+      error: 'Enter a reason for the time correction.'
+    });
+    expect(source.timeFeeLogs).toEqual([]);
+    expect(source.correctionLog).toEqual([]);
+  });
+
+  it('does not treat remaining applied credit as unconsumed purchased time', () => {
+    const source = state({
+      playerSessions: [{
+        ...playerSession,
+        timePurchasedMinutes: 30,
+        timeCreditAppliedMinutes: 60,
+        timeRemainingMinutes: 50,
+        lastTimeTickAt: now
+      }, peerSession]
+    });
+
+    expect(deductUnconsumedPlayerTime(source, playerSession.id, 1, 'Wrong purchase', dependencies())).toEqual({
+      ok: false,
+      error: 'Only 0 unconsumed purchased minutes can be deducted.'
+    });
+  });
+
+  it('pauses the countdown and stores all current remaining time on the stable profile without revenue', () => {
+    const targetProfile = { ...profile('profile-target', playerSession.playerName), savedTimeCreditMinutes: 20 };
+    const source = state({
+      profiles: [targetProfile, profile('profile-peer', peerSession.playerName)],
+      timeFeeLogs: [{
+        id: 'original-time',
+        playerSessionId: playerSession.id,
+        tableId: playerSession.tableId,
+        gameId: playerSession.gameId,
+        playerName: playerSession.playerName,
+        minutes: 60,
+        amount: 12,
+        timestamp: playerSession.seatedAt
+      }]
+    });
+
+    const result = pauseAndStorePlayerTimeCredit(source, playerSession.id, dependencies());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.state.profiles[0]).toMatchObject({ savedTimeCreditMinutes: 35 });
+    expect(result.state.playerSessions[0]).toMatchObject({
+      timePurchasedMinutes: 60,
+      timeRemainingMinutes: 0,
+      lastTimeTickAt: now,
+      timeFeeEnabled: false
+    });
+    expect(result.state.timeFeeLogs).toBe(source.timeFeeLogs);
+    expect(result.state.revenueTransactions).toBe(source.revenueTransactions);
+  });
+
+  it('uses a unique legacy profile fallback for saved time but never falls back from a broken stable link', () => {
+    const legacySession = { ...playerSession, profileId: undefined };
+    const legacyState = state({ playerSessions: [legacySession, peerSession] });
+    const stored = pauseAndStorePlayerTimeCredit(legacyState, legacySession.id, dependencies());
+    const brokenLinkState = state({
+      playerSessions: [{ ...playerSession, profileId: 'missing-profile' }, peerSession]
+    });
+
+    expect(stored.ok).toBe(true);
+    if (stored.ok) expect(stored.state.profiles[0]).toMatchObject({ savedTimeCreditMinutes: 15 });
+    expect(pauseAndStorePlayerTimeCredit(brokenLinkState, playerSession.id, dependencies())).toEqual({
+      ok: false,
+      error: 'The player session is linked to a profile that no longer exists.'
+    });
+  });
+
+  it('applies saved profile credit to the live countdown without recording new revenue', () => {
+    const source = state({
+      profiles: [
+        { ...profile('profile-target', playerSession.playerName), savedTimeCreditMinutes: 40 },
+        profile('profile-peer', peerSession.playerName)
+      ],
+      playerSessions: [{ ...playerSession, timeCreditAppliedMinutes: 5 }, peerSession]
+    });
+
+    const result = applySavedPlayerTimeCredit(source, playerSession.id, 20, dependencies());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.state.profiles[0]).toMatchObject({ savedTimeCreditMinutes: 20 });
+    expect(result.state.playerSessions[0]).toMatchObject({
+      timePurchasedMinutes: 60,
+      timeCreditAppliedMinutes: 25,
+      timeRemainingMinutes: 35,
+      lastTimeTickAt: now,
+      timeFeeEnabled: true
+    });
+    expect(result.state.timeFeeLogs).toBe(source.timeFeeLogs);
+    expect(result.state.revenueTransactions).toBe(source.revenueTransactions);
+  });
+
+  it('rejects unavailable saved credit and applying credit outside an open time table', () => {
+    const creditedProfiles = [
+      { ...profile('profile-target', playerSession.playerName), savedTimeCreditMinutes: 10 },
+      profile('profile-peer', peerSession.playerName)
+    ];
+    const source = state({ profiles: creditedProfiles });
+    const dropState = state({
+      profiles: creditedProfiles,
+      sessions: [{ ...table, collectionMode: 'Drop', timeFeeBased: false }]
+    });
+
+    expect(applySavedPlayerTimeCredit(source, playerSession.id, 11, dependencies())).toEqual({
+      ok: false,
+      error: 'Only 10 saved minutes are available.'
+    });
+    expect(applySavedPlayerTimeCredit(dropState, playerSession.id, 5, dependencies())).toEqual({
+      ok: false,
+      error: 'Saved time can only be applied at a time-collection table.'
+    });
+    expect(source.timeFeeLogs).toEqual([]);
+    expect(source.revenueTransactions).toEqual([]);
   });
 
   it('records buy-in, drop, dealer, and hand financial-operational shapes in their established order', () => {

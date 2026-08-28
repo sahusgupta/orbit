@@ -109,7 +109,6 @@ vi.mock('firebase/firestore', () => ({
 import {
   createClubMembershipCheckout,
   completePlayerPhoneSignIn,
-  createPlayerIdentityVerificationSession,
   deleteCurrentPlayerAccount,
   fetchAllClubSnapshots,
   fetchClubSnapshots,
@@ -124,6 +123,7 @@ import {
   startPlayerPhoneSignIn,
   registerForTournament,
   savePlayerProfile,
+  savePlayerIdentityCapture,
   signInOrCreatePlayerWithEmail,
   signOutCurrentPlayer,
   submitMembershipRequest,
@@ -368,8 +368,13 @@ afterEach(() => {
 describe('authenticated Orbit API boundaries', () => {
   it('requires a signed-in account without contacting fetch', async () => {
     await expect(fetchPlayerIdentityStatus()).rejects.toThrow('Sign in to your Orbit Player account first.');
-    await expect(createPlayerIdentityVerificationSession()).rejects.toThrow('Sign in to your Orbit Player account first.');
-    await expect(createClubMembershipCheckout({ clubId: 'club-1', product: 'day', playerName: 'Alex' })).rejects.toThrow('Sign in to your Orbit Player account first.');
+    await expect(savePlayerIdentityCapture({
+      fullName: 'Jordan Rivera',
+      dateOfBirth: '1990-01-02',
+      address: '100 Main St',
+      mutationId: 'identity:attempt-1'
+    })).rejects.toThrow('Sign in to your Orbit Player account first.');
+    await expect(createClubMembershipCheckout({ clubId: 'club-1', product: 'day', playerName: 'Alex', planId: 'day-pass' })).rejects.toThrow('Sign in to your Orbit Player account first.');
     expect(firebase.fetch).not.toHaveBeenCalled();
   });
 
@@ -378,10 +383,13 @@ describe('authenticated Orbit API boundaries', () => {
     const identity = {
       status: 'verified' as const,
       ageVerified: true,
+      ageEligible: true,
       ageLevel: 21,
       minimumAge: 21,
       verifiedAt: '2026-08-09T11:00:00.000Z',
-      failureCode: null
+      capturedAt: '2026-08-09T10:00:00.000Z',
+      failureCode: null,
+      reviewStatus: 'approved' as const
     };
     firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, identity }));
 
@@ -407,42 +415,87 @@ describe('authenticated Orbit API boundaries', () => {
     await expect(fetchPlayerIdentityStatus()).rejects.toThrow('Identity provider unavailable.');
   });
 
-  it('preserves identity-session and checkout HTTP methods, headers, bodies, and results', async () => {
+  it('preserves checkout HTTP methods, headers, bodies, and results', async () => {
     signedInUser();
-    const identity = {
-      status: 'requires_input' as const,
-      ageVerified: false,
-      ageLevel: 0,
-      minimumAge: 21,
-      verifiedAt: null,
-      failureCode: null
-    };
     firebase.fetch
-      .mockResolvedValueOnce(jsonResponse({ ok: true, identity, verificationUrl: 'https://verify.example/session' }))
-      .mockResolvedValueOnce(jsonResponse({ ok: true, checkoutUrl: 'https://checkout.example/session', sessionId: 'session-1' }));
+      .mockResolvedValueOnce(jsonResponse({ ok: true, checkoutUrl: 'https://checkout.example/session', sessionId: 'session-1' }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, checkoutUrl: 'https://checkout.example/time-pack', sessionId: 'session-2' }));
 
-    await expect(createPlayerIdentityVerificationSession()).resolves.toMatchObject({ identity, verificationUrl: 'https://verify.example/session' });
-    await expect(createClubMembershipCheckout({ clubId: 'club-1', product: 'monthly', playerName: 'Alex' })).resolves.toEqual({
+    await expect(createClubMembershipCheckout({ clubId: 'club-1', product: 'monthly', playerName: 'Alex', planId: 'monthly-standard' })).resolves.toEqual({
       ok: true,
       checkoutUrl: 'https://checkout.example/session',
       sessionId: 'session-1'
     });
+    await expect(createClubMembershipCheckout({ clubId: 'club-1', product: 'time-30', playerName: 'Alex' })).resolves.toEqual({
+      ok: true,
+      checkoutUrl: 'https://checkout.example/time-pack',
+      sessionId: 'session-2'
+    });
 
-    expect(firebase.fetch).toHaveBeenNthCalledWith(1, 'https://orbitapp-one.vercel.app/player/identity/session', expect.objectContaining({
-      method: 'POST',
-      headers: {
-        authorization: 'Bearer player-token',
-        'content-type': 'application/json'
-      }
-    }));
-    expect(firebase.fetch).toHaveBeenNthCalledWith(2, 'https://orbitapp-one.vercel.app/player/membership-checkout', expect.objectContaining({
+    expect(firebase.fetch).toHaveBeenNthCalledWith(1, 'https://orbitapp-one.vercel.app/player/membership-checkout', expect.objectContaining({
       method: 'POST',
       headers: {
         authorization: 'Bearer player-token',
         'content-type': 'application/json'
       },
-      body: JSON.stringify({ clubId: 'club-1', product: 'monthly', playerName: 'Alex' })
+      body: JSON.stringify({ clubId: 'club-1', product: 'monthly', playerName: 'Alex', planId: 'monthly-standard' })
     }));
+    expect(firebase.fetch).toHaveBeenNthCalledWith(2, 'https://orbitapp-one.vercel.app/player/membership-checkout', expect.objectContaining({
+      body: JSON.stringify({ clubId: 'club-1', product: 'time-30', playerName: 'Alex' })
+    }));
+  });
+
+  it('sends only confirmed identity fields with bearer auth and decodes the provisional response', async () => {
+    signedInUser();
+    const identity = {
+      status: 'provisional' as const,
+      ageVerified: false,
+      ageEligible: true,
+      ageLevel: 21,
+      minimumAge: 18,
+      verifiedAt: null,
+      capturedAt: '2026-08-28T12:00:00.000Z',
+      failureCode: null,
+      reviewStatus: 'pending-in-person' as const,
+      verifiedDetails: {
+        fullName: 'Jordan Rivera',
+        dateOfBirth: '1990-01-02',
+        address: '100 Main St'
+      }
+    };
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, identity }));
+    const confirmedInput = {
+      fullName: 'Jordan Rivera',
+      dateOfBirth: '1990-01-02',
+      address: '100 Main St',
+      mutationId: 'identity:attempt-1',
+      rawBarcode: 'RAW-PDF417-SECRET',
+      idNumber: 'ID-NUMBER-SECRET',
+      photo: 'PHOTO-SECRET',
+      selfie: 'SELFIE-SECRET'
+    };
+
+    await expect(savePlayerIdentityCapture(confirmedInput)).resolves.toEqual(identity);
+
+    expect(firebase.fetch).toHaveBeenCalledWith(
+      'https://orbitapp-one.vercel.app/player/identity/capture',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer player-token',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          fullName: 'Jordan Rivera',
+          dateOfBirth: '1990-01-02',
+          address: '100 Main St',
+          mutationId: 'identity:attempt-1'
+        })
+      })
+    );
+    const requestBody = JSON.parse(firebase.fetch.mock.calls[0][1].body as string) as Record<string, unknown>;
+    expect(Object.keys(requestBody).sort()).toEqual(['address', 'dateOfBirth', 'fullName', 'mutationId']);
+    expect(JSON.stringify(requestBody)).not.toMatch(/RAW-PDF417-SECRET|ID-NUMBER-SECRET|PHOTO-SECRET|SELFIE-SECRET/);
   });
 
   it('delegates complete account deletion to the trusted API and surfaces retained categories', async () => {

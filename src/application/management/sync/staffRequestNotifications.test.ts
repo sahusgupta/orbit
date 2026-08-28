@@ -71,7 +71,7 @@ describe('staff request notification policy', () => {
       id: 'membership-newer-2026-08-08T21:00:00.000Z',
       kind: 'membership',
       title: 'New membership request',
-      body: 'newer applied from the player app.',
+      body: 'newer signed up from the player app.',
       createdAt: clock.nowIso(),
       read: false
     });

@@ -37,7 +37,8 @@ export const emptyClubAccount: ClubAccount = {
   contactName: '',
   email: '',
   phone: '',
-  address: ''
+  address: '',
+  minimumPlayerAge: 21
 };
 
 export const useSettingsWorkspaceState = (state: AppState) => {

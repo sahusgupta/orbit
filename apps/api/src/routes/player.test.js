@@ -2,6 +2,32 @@ import { describe, expect, it } from 'vitest';
 import playerRoutes from './player';
 
 describe('Player response DTOs', () => {
+  it('derives membership price and duration only from the authoritative club plan', () => {
+    const state = { settings: { membershipPlans: [
+      { id: 'monthly-standard', name: 'Standard', priceLabel: '$35', durationDays: 30, active: true },
+      { id: 'free-day', name: 'Free Day', priceLabel: '$0', durationDays: 1, active: true }
+    ] } };
+    expect(playerRoutes.applyAuthoritativeMembershipPlan(state, {
+      planId: 'monthly-standard',
+      plan: 'day',
+      priceLabel: '$0',
+      membershipDurationDays: 9999
+    })).toMatchObject({
+      ok: true,
+      value: {
+        plan: 'monthly',
+        priceLabel: '$35',
+        membershipDurationDays: 30,
+        membershipPaymentRequired: true
+      }
+    });
+    expect(playerRoutes.applyAuthoritativeMembershipPlan(state, { planId: 'unknown' })).toMatchObject({ ok: false });
+    expect(playerRoutes.applyAuthoritativeMembershipPlan(state, { planId: 'free-day' })).toMatchObject({
+      ok: true,
+      value: { membershipPaymentRequired: false }
+    });
+  });
+
   it('returns player mutation fields without backend publication internals', () => {
     const response = playerRoutes.buildPlayerMutationResponse({
       accountKey: 'venue-one',

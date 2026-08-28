@@ -1,27 +1,55 @@
 import type { PlayerClubSnapshot, PlayerSyncGame } from './playerSync';
-import type { ClubAccessProduct } from './playerTypes';
+import type { ClubAccessProduct, TimeAccessProduct } from './playerTypes';
+
+export const timeAccessOptions: ReadonlyArray<{ product: TimeAccessProduct; minutes: number; label: string }> = [
+  { product: 'time-30', minutes: 30, label: '30 min' },
+  { product: 'time-60', minutes: 60, label: '1 hour' },
+  { product: 'time-120', minutes: 120, label: '2 hours' }
+];
+
+export function isTimeAccessProduct(product: ClubAccessProduct): product is TimeAccessProduct {
+  return product.startsWith('time-');
+}
 
 const clubFeeProfiles: Record<string, { type: 'time'; hourly: string } | { type: 'rake'; percent: string }> = {};
 
 export function getClubProductName(product: ClubAccessProduct) {
   if (product === 'day') return 'Day Pass';
   if (product === 'monthly') return 'Monthly Membership';
-  return '5-Hour Time Pack';
+  return timeAccessOptions.find((option) => option.product === product)?.label ?? 'Time Pack';
 }
 
 export function formatDropFee(value: string) {
   return value.toLowerCase().includes('drop') ? value : `${value} drop`;
 }
 
-export function getClubProductLabel(product: ClubAccessProduct, prices: { day: string; monthly: string; timePack: string }) {
+export type ClubMembershipPrices = {
+  day: string;
+  monthly: string;
+  time30: string;
+  time60: string;
+  time120: string;
+};
+
+export function getClubProductLabel(product: ClubAccessProduct, prices: ClubMembershipPrices) {
   if (product === 'day') return prices.day;
   if (product === 'monthly') return prices.monthly;
-  return prices.timePack;
+  if (product === 'time-30') return prices.time30;
+  if (product === 'time-60') return prices.time60;
+  return prices.time120;
 }
 
 export function getClubMembershipPrices(club: PlayerClubSnapshot) {
-  void club;
-  return { day: 'Club-priced day pass', monthly: 'Club-priced membership', timePack: 'Club-priced time package' };
+  const formatTimePrice = (minutes: number) => club.timeAccess?.hourlyFeeCents
+    ? `$${((club.timeAccess.hourlyFeeCents * minutes) / 6000).toFixed(2)}`
+    : 'Club-priced time';
+  return {
+    day: 'Club-priced day pass',
+    monthly: 'Club-priced membership',
+    time30: formatTimePrice(30),
+    time60: formatTimePrice(60),
+    time120: formatTimePrice(120)
+  };
 }
 
 export function getClubFeeProfile(club: PlayerClubSnapshot, game?: PlayerSyncGame) {

@@ -24,7 +24,9 @@ export type ProfileCommandDependencies = ProfileIdentityDependencies & {
 
 export type NewActiveProfileInput = {
   name: string;
+  email?: string;
   phone: string;
+  address?: string;
   birthday: string;
   membershipPlan: 'day' | 'monthly';
   membershipAmount: number;
@@ -41,6 +43,7 @@ export type NewActiveProfileInput = {
   preferredTags: TableTag[];
   usualCompanions: string;
   notes: string;
+  identityCaptureMethod?: 'id-barcode' | 'player-camera-pdf417';
 };
 
 export type ProfileValidationFailure = {
@@ -48,6 +51,11 @@ export type ProfileValidationFailure = {
   code: 'missing-name' | 'duplicate-name';
   message: string;
   profileName: string;
+};
+
+type ArchivablePlayerProfile = PlayerProfile & {
+  archivedAt?: string;
+  archivedReason?: string;
 };
 
 export function buildPlayerProfile(
@@ -62,7 +70,9 @@ export function buildPlayerProfile(
   return {
     id: patch.id ?? dependencies.createProfileId(),
     name: name.trim(),
+    email: patch.email?.trim().toLowerCase() || undefined,
     phone: patch.phone ?? '',
+    address: patch.address ?? '',
     birthday: patch.birthday ?? '',
     membershipStartDate: patch.membershipStartDate ?? dependencies.todayDate(),
     membershipExpirationDate: patch.membershipExpirationDate ?? dependencies.nextYearDate(),
@@ -115,6 +125,7 @@ export function saveEditedProfile(
     ...draft,
     name: profileName,
     phone: draft.phone.trim(),
+    address: draft.address?.trim() ?? '',
     membershipStartDate: draft.membershipStartDate,
     membershipExpirationDate: draft.membershipExpirationDate,
     preferredGameId: draft.preferredGameId || preferredGameIds[0],
@@ -177,7 +188,9 @@ export function createActiveMemberProfile(
   const profile: PlayerProfile = {
     id: dependencies.createProfileId(),
     name: profileName,
+    email: input.email?.trim().toLowerCase() || undefined,
     phone: input.phone.trim(),
+    address: input.address?.trim() ?? '',
     birthday: input.birthday,
     membershipStartDate: membership.startDate,
     membershipExpirationDate: membership.expirationDate,
@@ -187,6 +200,8 @@ export function createActiveMemberProfile(
     membershipStatus: 'Active',
     membershipRequestedAt: membership.startedAt.toISOString(),
     membershipPriceLabel: membershipAmount ? `$${membershipAmount.toFixed(2)}` : undefined,
+    membershipPaymentStatus: membershipAmount > 0 ? 'Paid' : 'Not required',
+    membershipPaymentAmountCents: Math.round(membershipAmount * 100),
     totalTimePlayedHours: input.totalTimePlayedHours,
     lastSessionTimePlayedHours: input.lastSessionTimePlayedHours,
     commonlyPlaysWithProfileIds: input.commonlyPlaysWithProfileIds,
@@ -201,7 +216,11 @@ export function createActiveMemberProfile(
     typicalAvailability: input.typicalAvailability.trim(),
     preferredTags: input.preferredTags,
     usualCompanions: input.usualCompanions.split(',').map((name) => name.trim()).filter(Boolean),
-    notes: input.notes.trim()
+    notes: input.notes.trim(),
+    identityCaptureMethod: input.identityCaptureMethod,
+    identityCapturedAt: input.identityCaptureMethod ? dependencies.nowIso() : undefined,
+    identityReviewStatus: input.identityCaptureMethod === 'player-camera-pdf417' ? 'Pending' : input.identityCaptureMethod === 'id-barcode' ? 'Approved' : 'Not required',
+    identityReviewedAt: input.identityCaptureMethod === 'id-barcode' ? dependencies.nowIso() : undefined
   };
   return {
     ok: true,
@@ -220,12 +239,53 @@ export function createActiveMemberProfile(
               occurredAt: membership.startedAt.toISOString(),
               paymentStatus: 'paid',
               source: 'manual',
+              playerId: profile.id,
               playerName: profileName,
               membershipPlan: input.membershipPlan
             }
           ]
         : state.revenueTransactions
     }
+  };
+}
+
+export function archiveProfile(
+  state: AppState,
+  profileId: string,
+  archivedAt: string,
+  archivedReason?: string
+): AppState {
+  const profile = state.profiles.find((candidate) => candidate.id === profileId) as ArchivablePlayerProfile | undefined;
+  if (!profile || profile.archivedAt) return state;
+  const normalizedReason = archivedReason?.trim();
+  return {
+    ...state,
+    profiles: state.profiles.map((candidate) =>
+      candidate.id === profileId
+        ? {
+            ...candidate,
+            archivedAt,
+            archivedReason: normalizedReason || undefined
+          }
+        : candidate
+    )
+  };
+}
+
+export function restoreProfile(state: AppState, profileId: string): AppState {
+  const profile = state.profiles.find((candidate) => candidate.id === profileId) as ArchivablePlayerProfile | undefined;
+  if (!profile?.archivedAt) return state;
+  return {
+    ...state,
+    profiles: state.profiles.map((candidate) => {
+      if (candidate.id !== profileId) return candidate;
+      const {
+        archivedAt: _archivedAt,
+        archivedReason: _archivedReason,
+        ...restored
+      } = candidate as ArchivablePlayerProfile;
+      return restored;
+    })
   };
 }
 

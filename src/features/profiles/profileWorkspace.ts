@@ -16,6 +16,8 @@ import { getTodayPlayerActivity, type TodayPlayerRowResult } from '../../lib/res
 
 export type NewProfileDraft = {
   name: string;
+  email: string;
+  address: string;
   birthday: string;
   membershipStartDate: string;
   membershipExpirationDate: string;
@@ -35,14 +37,46 @@ export type NewProfileDraft = {
   willingnessToMove: boolean;
   preferredTags: TableTag[];
   notes: string;
+  identityCaptureMethod?: 'id-barcode' | 'player-camera-pdf417';
 };
 
 export type TodayPlayerRow = TodayPlayerRowResult;
-export type PlayerPopup = 'add' | 'ledger' | 'scan' | null;
-export type PlayerSection = 'memberships' | 'requests' | 'today';
+export type PlayerPopup = 'add' | 'id' | 'ledger' | 'scan' | null;
+export type PlayerSection = 'memberships' | 'requests' | 'today' | 'archive';
+
+type ArchivablePlayerProfile = PlayerProfile & {
+  archivedAt?: string;
+  archivedReason?: string;
+};
+
+export const isArchivedOrExpiredProfile = (profile: PlayerProfile) => {
+  const archivableProfile = profile as ArchivablePlayerProfile;
+  if (archivableProfile.archivedAt || profile.membershipStatus === 'Expired') return true;
+  const expiresAt = profile.membershipExpiresAt || profile.membershipExpirationDate;
+  return profile.membershipStatus === 'Active' && Boolean(expiresAt) && !isFutureDate(expiresAt);
+};
+
+export const getProfileWorkspaceGroups = (profiles: PlayerProfile[]) => {
+  const archivedProfiles = profiles.filter(isArchivedOrExpiredProfile);
+  const availableProfiles = profiles.filter((profile) => !isArchivedOrExpiredProfile(profile));
+  return {
+    activeMemberProfiles: availableProfiles.filter((profile) =>
+      profile.membershipStatus === 'Active' &&
+      isFutureDate(profile.membershipExpiresAt || profile.membershipExpirationDate)
+    ),
+    approvedMembershipProfiles: availableProfiles.filter((profile) => profile.membershipStatus === 'Approved'),
+    archivedProfiles,
+    membershipDirectoryProfiles: availableProfiles.filter((profile) =>
+      profile.membershipStatus !== 'Requested' && profile.membershipStatus !== 'Approved'
+    ),
+    pendingMembershipProfiles: availableProfiles.filter((profile) => profile.membershipStatus === 'Requested')
+  };
+};
 
 export const createNewProfileDraft = (): NewProfileDraft => ({
   name: '',
+  email: '',
+  address: '',
   birthday: '',
   membershipStartDate: todayDate(),
   membershipExpirationDate: nextYearDate(),
@@ -134,6 +168,7 @@ export const useProfileWorkspaceSelectors = ({
       .sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime())
       .map((interest) => interest.playerName.toLowerCase());
     return state.profiles
+      .filter((profile) => !isArchivedOrExpiredProfile(profile))
       .map((profile) => ({
         profile,
         recentIndex: recentNames.indexOf(profile.name.toLowerCase()),
@@ -151,6 +186,7 @@ export const useProfileWorkspaceSelectors = ({
     const queryParts = checkInSearch.trim().toLowerCase().split(/\s+/).filter(Boolean);
     if (!queryParts.length) return recentProfiles;
     return state.profiles
+      .filter((profile) => !isArchivedOrExpiredProfile(profile))
       .filter((profile) => {
         const name = profile.name.toLowerCase();
         const nameParts = name.split(/\s+/);
@@ -167,6 +203,7 @@ export const useProfileWorkspaceSelectors = ({
       [
         profile.name,
         profile.id,
+        profile.email ?? '',
         profile.preferredStakes,
         profile.typicalAvailability,
         profile.usualCompanions.join(' '),
@@ -179,27 +216,13 @@ export const useProfileWorkspaceSelectors = ({
     );
   }, [state.profiles, profileSearch]);
 
-  const activeMemberProfiles = useMemo(
-    () => filteredProfiles.filter((profile) =>
-      profile.membershipStatus === 'Active' &&
-      isFutureDate(profile.membershipExpiresAt || profile.membershipExpirationDate)
-    ),
-    [filteredProfiles]
-  );
-  const pendingMembershipProfiles = useMemo(
-    () => filteredProfiles.filter((profile) => profile.membershipStatus === 'Requested'),
-    [filteredProfiles]
-  );
-  const approvedMembershipProfiles = useMemo(
-    () => filteredProfiles.filter((profile) => profile.membershipStatus === 'Approved'),
-    [filteredProfiles]
-  );
-  const membershipDirectoryProfiles = useMemo(
-    () => filteredProfiles.filter((profile) =>
-      profile.membershipStatus !== 'Requested' && profile.membershipStatus !== 'Approved'
-    ),
-    [filteredProfiles]
-  );
+  const {
+    activeMemberProfiles,
+    approvedMembershipProfiles,
+    archivedProfiles,
+    membershipDirectoryProfiles,
+    pendingMembershipProfiles
+  } = useMemo(() => getProfileWorkspaceGroups(filteredProfiles), [filteredProfiles]);
   const todayPlayerActivity = useMemo<TodayPlayerRow[]>(
     () => getTodayPlayerActivity(state, { currentDate: new Date(), toLocalDateValue, isFutureDate }),
     [state.games, state.interests, state.playerSessions, state.profiles, state.sessions]
@@ -216,6 +239,7 @@ export const useProfileWorkspaceSelectors = ({
   return {
     activeMemberProfiles,
     approvedMembershipProfiles,
+    archivedProfiles,
     checkInMatches,
     duplicateProfiles,
     membershipDirectoryProfiles,

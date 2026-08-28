@@ -6,6 +6,7 @@ const {
   sanitizeAccountKey
 } = require('../orbitCore');
 const {
+  capturePlayerIdentity,
   createPlayerIdentitySession,
   deletePlayerIdentity,
   getPlayerIdentityStatus,
@@ -50,6 +51,33 @@ function buildPlayerMutationResponse(result, extra = {}) {
     savedAt: result.savedAt,
     revision: result.revision,
     ...extra
+  };
+}
+
+function applyAuthoritativeMembershipPlan(state, requestPayload) {
+  const plans = (state.settings?.membershipPlans || []).filter((plan) => plan.active !== false);
+  const requestedPlanId = String(requestPayload.planId || '').trim();
+  const requestedKind = requestPayload.plan === 'day' ? 'day' : 'monthly';
+  const plan = requestedPlanId
+    ? plans.find((candidate) => String(candidate.id || '') === requestedPlanId)
+    : plans.find((candidate) => String(candidate.id || '') === requestedKind) ||
+      plans.find((candidate) => requestedKind === 'day' ? Number(candidate.durationDays) === 1 : Number(candidate.durationDays) > 1);
+  if (!plan) return { ok: false, error: 'The selected membership plan is not available at this club.' };
+  const priceLabel = String(plan.priceLabel || '').trim();
+  const priceMatch = priceLabel.replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+  const free = /\bfree\b/i.test(priceLabel) || Boolean(priceMatch && Number(priceMatch[0]) === 0);
+  return {
+    ok: true,
+    value: {
+      ...requestPayload,
+      plan: Number(plan.durationDays) === 1 ? 'day' : 'monthly',
+      planId: String(plan.id || ''),
+      planName: String(plan.name || ''),
+      priceLabel,
+      planPriceLabel: priceLabel,
+      membershipDurationDays: Math.max(1, Number(plan.durationDays) || 1),
+      membershipPaymentRequired: !free
+    }
   };
 }
 
@@ -202,12 +230,19 @@ async function handlePlayerMembershipRequest(request, response) {
     return;
   }
   const requestPayload = authenticatedRequest.value;
+  requestPayload.identitySummary = request.orbitIdentitySummary;
+  if (request.orbitIdentitySummary?.fullName) requestPayload.player.name = request.orbitIdentitySummary.fullName;
   const record = await loadState(requestPayload.clubId);
   if (!record?.state) {
     response.status(404).json({ ok: false, error: 'No matching club database was found for this membership request.' });
     return;
   }
-  const nextState = applyMembershipRequestToState(record.state, requestPayload);
+  const authoritativePlan = applyAuthoritativeMembershipPlan(record.state, requestPayload);
+  if (!authoritativePlan.ok) {
+    response.status(400).json({ ok: false, error: authoritativePlan.error });
+    return;
+  }
+  const nextState = applyMembershipRequestToState(record.state, authoritativePlan.value);
   const result = await saveState(nextState, {
     expectedRevision: record.revision,
     mutationId: `membership:${requestPayload.player.id}:${requestPayload.id}`,
@@ -234,6 +269,8 @@ async function handlePlayerWaitlistRequest(request, response) {
     return;
   }
   const requestPayload = authenticatedRequest.value;
+  requestPayload.identitySummary = request.orbitIdentitySummary;
+  if (request.orbitIdentitySummary?.fullName) requestPayload.player.name = request.orbitIdentitySummary.fullName;
   if (!requestPayload.gameId) {
     response.status(400).json({ ok: false, error: 'A game is required.' });
     return;
@@ -372,6 +409,7 @@ function registerPlayerRoutes(app) {
   app.get('/player/public/discovery', asyncRoute(handlePublicPlayerDiscovery));
   app.get('/player/public/clubs/:clubId', asyncRoute(handlePublicPlayerClub));
   app.get('/player/identity/status', requireFirebasePlayer, asyncRoute(getPlayerIdentityStatus));
+  app.post('/player/identity/capture', requireFirebasePlayer, asyncRoute(capturePlayerIdentity));
   app.post('/player/identity/session', requireFirebasePlayer, asyncRoute(createPlayerIdentitySession));
   app.delete('/player/identity', requireFirebasePlayer, asyncRoute(deletePlayerIdentity));
   app.delete('/player/account', requireFirebasePlayer, asyncRoute(deletePlayerAccount));
@@ -384,4 +422,4 @@ function registerPlayerRoutes(app) {
   app.delete('/player/tournament-registrations', requireFirebasePlayer, requireVerifiedPlayerAge, asyncRoute(handleTournamentUnregistration));
 }
 
-module.exports = { buildPlayerMutationResponse, buildPublicClubSnapshot, listPublicStatePage, registerPlayerRoutes };
+module.exports = { applyAuthoritativeMembershipPlan, buildPlayerMutationResponse, buildPublicClubSnapshot, listPublicStatePage, registerPlayerRoutes };

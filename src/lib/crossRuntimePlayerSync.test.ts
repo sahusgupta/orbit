@@ -245,8 +245,9 @@ describe('API and Electron player-sync boundary', () => {
       profiles: [{
         id: 'player-alex',
         membershipStatus: 'Active',
-        membershipExpirationDate: '2027-03-03',
-        membershipExpiresAt: '2027-03-03T12:00:00.000Z'
+        membershipPaymentStatus: 'Pending',
+        membershipExpirationDate: '2028-01-01',
+        membershipExpiresAt: '2028-01-01T23:59:59.999Z'
       }]
     });
     expect(apiWaitlistState).toMatchObject({
@@ -379,9 +380,9 @@ describe('intentional renderer/server sync ownership differences', () => {
     const server = apiCore.applyMembershipRequestToState(state, request) as ManagementClubState;
 
     expect(renderer.profiles[0].notes).toContain('Player app: alex@example.test');
-    expect(renderer.profiles[0].notes).toContain('Monthly - paid in app ($35)');
-    expect(server.profiles[0].notes).toContain('Player app: monthly pass paid in app (alex@example.test)');
-    expect(server.profiles[0].notes).not.toContain('Monthly - paid in app ($35)');
+    expect(renderer.profiles[0].notes).toContain('Monthly - online payment selected ($35)');
+    expect(server.profiles[0].notes).toContain('Player app: monthly pass requested; payment pending (alex@example.test)');
+    expect(server.profiles[0].notes).not.toContain('Monthly - online payment selected ($35)');
   });
 
   it('keeps renderer snapshot behavior independently characterized', () => {

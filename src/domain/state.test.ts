@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeState } from './state';
+import { normalizeState, seedState } from './state';
 
 describe('state normalization', () => {
   it('restores permanent table identities and keeps game-session bindings separate', () => {
@@ -95,6 +95,52 @@ describe('state normalization', () => {
 
     expect(restored.settings.defaultHourlyFee).toBe(15);
     expect(restored.settings.collectionProfiles[0].hourlyFee).toBe(15);
+  });
+
+  it('defaults persisted saved-time credits and preserves existing nonnegative balances', () => {
+    const profile = {
+      id: 'profile-time-credit',
+      name: 'Time Credit Player',
+      phone: '',
+      birthday: '',
+      membershipStartDate: '2026-01-01',
+      membershipExpirationDate: '2027-01-01',
+      totalTimePlayedHours: 0,
+      lastSessionTimePlayedHours: 0,
+      commonlyPlaysWithProfileIds: [],
+      preferredGameId: 'time-game',
+      preferredGameIds: ['time-game'],
+      gamePlayCounts: {},
+      mostPlayedGameId: 'time-game',
+      preferredStakes: '',
+      typicalBuyInMin: 0,
+      typicalBuyInMax: 0,
+      willingnessToMove: false,
+      typicalAvailability: '',
+      usualCompanions: [],
+      preferredTags: [],
+      notes: ''
+    };
+    const playerSession = {
+      id: 'session-time-credit',
+      playerName: profile.name,
+      profileId: profile.id,
+      gameId: 'time-game',
+      tableId: 'table-time-credit',
+      seatedAt: '2026-08-28T12:00:00.000Z'
+    };
+
+    const defaults = normalizeState({ ...structuredClone(seedState), profiles: [profile], playerSessions: [playerSession] });
+    const preserved = normalizeState({
+      ...structuredClone(seedState),
+      profiles: [{ ...profile, savedTimeCreditMinutes: 75 }],
+      playerSessions: [{ ...playerSession, timeCreditAppliedMinutes: 30 }]
+    });
+
+    expect(defaults.profiles[0].savedTimeCreditMinutes).toBe(0);
+    expect(defaults.playerSessions[0].timeCreditAppliedMinutes).toBe(0);
+    expect(preserved.profiles[0].savedTimeCreditMinutes).toBe(75);
+    expect(preserved.playerSessions[0].timeCreditAppliedMinutes).toBe(30);
   });
 
   it('preserves bounded self-check-in configuration and durable assistance status', () => {

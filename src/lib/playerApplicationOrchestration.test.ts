@@ -126,6 +126,6 @@ describe('Player storage and lifecycle orchestration contract', () => {
 
     expect(profileHydrationEffect).not.toContain("setScreen('findGames')");
     expect(liveClubEffect).toContain('setLiveDataPartial(result.partial === true)');
-    expect(lifecycleDigest).toBe('910d86479abe0112a3a40a3794612f40ec454ff58e01144d2e952eb545187463');
+    expect(lifecycleDigest).toBe('0edb2ea2f5082ffe6b75dd76183db3d9ba2677d1188578b3c766e5e8f539ab18');
   });
 });

@@ -129,6 +129,9 @@ function Harness({
       getMoveTargets={() => []}
       openSeatPicker={onOpenSeatPicker}
       addPlayerTime={onAddPlayerTime}
+      deductPlayerTime={vi.fn(() => true)}
+      pauseAndSavePlayerTime={vi.fn(() => true)}
+      useSavedPlayerTime={vi.fn(() => true)}
       addBuyIn={vi.fn()}
       requestPlayerCashOut={vi.fn()}
       changePlayerSeat={vi.fn()}

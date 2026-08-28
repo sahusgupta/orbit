@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { seedState } from '../../domain/state';
 import type { AppState, PlayerProfile } from '../../domain/types';
 import {
+  archiveProfile,
   buildPlayerProfile,
   checkProfileIntoClub,
   createActiveMemberProfile,
   deleteProfile,
   mergeDuplicateProfiles,
   removeProfileFromClub,
+  restoreProfile,
   saveEditedProfile
 } from './profileCommands';
 
@@ -65,6 +67,7 @@ const dependencies = () => {
 const newProfileInput = {
   name: '  New Member  ',
   phone: ' 555-0100 ',
+  address: ' 100 Main St, Austin, TX 78701 ',
   birthday: '1990-01-02',
   membershipPlan: 'monthly' as const,
   membershipAmount: 42.75,
@@ -80,7 +83,8 @@ const newProfileInput = {
   typicalAvailability: ' Friday ',
   preferredTags: ['Action' as const],
   usualCompanions: ' One, Two ,, ',
-  notes: ' Note '
+  notes: ' Note ',
+  identityCaptureMethod: 'id-barcode' as const
 };
 
 describe('management profile commands', () => {
@@ -96,6 +100,7 @@ describe('management profile commands', () => {
       id: 'provided-id',
       name: 'Quick Player',
       phone: '',
+      address: '',
       birthday: '',
       membershipStartDate: '2026-08-08',
       membershipExpirationDate: '2027-08-08',
@@ -128,6 +133,7 @@ describe('management profile commands', () => {
       id: 'profile-created',
       name: 'New Member',
       phone: '555-0100',
+      address: '100 Main St, Austin, TX 78701',
       membershipStartDate: '2026-08-08',
       membershipExpirationDate: '2026-09-07',
       membershipExpiresAt: '2026-09-07T20:00:00.000Z',
@@ -137,7 +143,9 @@ describe('management profile commands', () => {
       preferredStakes: 'Holdem',
       typicalAvailability: 'Friday',
       usualCompanions: ['One', 'Two'],
-      notes: 'Note'
+      notes: 'Note',
+      identityCaptureMethod: 'id-barcode',
+      identityCapturedAt: now
     });
     expect(result.state.revenueTransactions).toEqual([{
       id: 'created-1',
@@ -146,11 +154,39 @@ describe('management profile commands', () => {
       occurredAt: now,
       paymentStatus: 'paid',
       source: 'manual',
+      playerId: 'profile-created',
       playerName: 'New Member',
       membershipPlan: 'monthly'
     }]);
-    expect(result.state.revenueTransactions[0]).not.toHaveProperty('playerId');
     expect(source).toEqual(snapshot);
+  });
+
+  it('archives and restores a profile without changing any linked operational history', () => {
+    const target = profile('profile-archive', 'Archive Player');
+    const source = state({
+      profiles: [target],
+      interests: [{ id: 'interest', profileId: target.id, playerName: target.name, gameId: games[0].id, status: 'Arrived', timestamp: now, interestedAt: now, notes: '' }],
+      playerSessions: [{ id: 'session', profileId: target.id, playerName: target.name, gameId: games[0].id, tableId: 'table', seatedAt: now }],
+      buyIns: [{ id: 'buy-in', profileId: target.id, playerName: target.name, tableId: 'table', gameId: games[0].id, amount: 200, timestamp: now }],
+      playerLedger: [{ id: 'ledger', profileId: target.id, playerName: target.name, type: 'Check-In', timestamp: now }]
+    });
+
+    const archived = archiveProfile(source, target.id, now, '  Duplicate import  ');
+    expect(archived.profiles[0]).toMatchObject({ archivedAt: now, archivedReason: 'Duplicate import' });
+    expect(archived.interests).toBe(source.interests);
+    expect(archived.playerSessions).toBe(source.playerSessions);
+    expect(archived.buyIns).toBe(source.buyIns);
+    expect(archived.playerLedger).toBe(source.playerLedger);
+    expect(archiveProfile(archived, target.id, '2099-01-01T00:00:00.000Z', 'Changed')).toBe(archived);
+
+    const restored = restoreProfile(archived, target.id);
+    expect(restored.profiles[0]).toEqual(target);
+    expect(restored.interests).toBe(source.interests);
+    expect(restored.playerSessions).toBe(source.playerSessions);
+    expect(restored.buyIns).toBe(source.buyIns);
+    expect(restored.playerLedger).toBe(source.playerLedger);
+    expect(restoreProfile(restored, target.id)).toBe(restored);
+    expect(archiveProfile(source, 'missing', now)).toBe(source);
   });
 
   it('returns explicit name validation failures without fabricating profiles or revenue', () => {

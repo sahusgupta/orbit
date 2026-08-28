@@ -159,6 +159,18 @@ export default function SettingsView({
                   onChange={(event) => setClubDraft({ ...clubDraft, address: event.target.value })}
                   placeholder="Address"
                 />
+                <label className="account-management-field">
+                  <span>Minimum player age</span>
+                  <select
+                    aria-label="Minimum player age"
+                    value={clubDraft.minimumPlayerAge}
+                    onChange={(event) => setClubDraft({ ...clubDraft, minimumPlayerAge: event.target.value === '18' ? 18 : 21 })}
+                  >
+                    <option value={21}>21+</option>
+                    <option value={18}>18+</option>
+                  </select>
+                  <small>Choose the minimum allowed by the laws and licensing rules that apply to this club.</small>
+                </label>
                 <button className="primary-button" type="submit">
                   Save Account
                 </button>

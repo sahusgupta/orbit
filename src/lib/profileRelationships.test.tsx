@@ -351,7 +351,7 @@ describe('profile relationship mutations', () => {
     document.body.innerHTML = '';
   });
 
-  it('clears only the deleted profile ID while preserving record order, history, and inputs', async () => {
+  it('archives a profile while preserving record order, references, history, and inputs', async () => {
     const target = buildProfile('profile-target', 'Shared Name');
     const sameName = buildProfile('profile-other', 'Shared Name');
     const unrelated = buildProfile('profile-unrelated', 'Unrelated Player');
@@ -376,19 +376,19 @@ describe('profile relationship mutations', () => {
     const previousState = getLatestState();
     const previousSnapshot = structuredClone(previousState);
 
-    await click(getProfileAction(getProfileCard(0), 'Remove profile'));
+    await click(getProfileAction(getProfileCard(0), 'Move to past players'));
 
     const nextState = getLatestState();
     expect(globalThis.confirm).toHaveBeenCalledOnce();
     expect(previousState).toEqual(previousSnapshot);
-    expect(nextState.profiles).toEqual([sameName, unrelated]);
-    expect(nextState.interests).toEqual([
-      { ...targetInterest, profileId: undefined },
-      sameNameInterest,
-      unlinkedInterest,
-      unrelatedInterest
+    expect(nextState.profiles).toEqual([
+      { ...target, archivedAt: now, archivedReason: 'Archived by staff' },
+      sameName,
+      unrelated
     ]);
+    expect(nextState.interests).toEqual([targetInterest, sameNameInterest, unlinkedInterest, unrelatedInterest]);
     expect(nextState.playerSessions).toEqual([historicalSession]);
+    expect(nextState.interests[0]).toBe(previousState.interests[0]);
     expect(nextState.interests[1]).toBe(previousState.interests[1]);
     expect(nextState.interests[2]).toBe(previousState.interests[2]);
     expect(nextState.interests[3]).toBe(previousState.interests[3]);
@@ -1079,7 +1079,7 @@ describe('profile relationship mutations', () => {
         membershipPlan: 'monthly'
       })
     ]);
-    expect(nextState.revenueTransactions[0]).not.toHaveProperty('playerId');
+    expect(nextState.revenueTransactions[0]).toHaveProperty('playerId', nextState.profiles[0].id);
     expect(getPersistedState().profiles).toEqual(nextState.profiles);
     expect(getPersistedState().revenueTransactions).toEqual(nextState.revenueTransactions);
   });
@@ -1122,12 +1122,28 @@ describe('profile relationship mutations', () => {
     const approved = buildProfile('profile-approved', 'Approved Player', {
       membershipStatus: 'Approved',
       membershipPlan: 'monthly',
+      membershipPaymentMethod: 'in-person',
+      membershipPaymentStatus: 'Pending',
       membershipDurationDays: 30,
-      membershipPriceLabel: '$49.00/mo'
+      membershipPriceLabel: '$49.00/mo',
+      identityCaptureMethod: 'player-camera-pdf417',
+      identityReviewStatus: 'Pending'
     });
     await resetState({ profiles: [approved] });
     if (!document.querySelector('.membership-requests-layout')) await click(getButton('Requests 1'));
-    await click(getButton('Verify ID, mark paid & activate'));
+    await click(getButton('Approve ID'));
+
+    const reviewedState = getLatestState();
+    expect(reviewedState.profiles[0]).toMatchObject({
+      id: approved.id,
+      identityReviewStatus: 'Approved',
+      identityReviewedAt: now,
+      membershipPaymentStatus: 'Pending',
+      membershipStatus: 'Approved'
+    });
+    expect(reviewedState.revenueTransactions).toEqual([]);
+
+    await click(getButton('Mark paid in person'));
 
     const nextState = getLatestState();
     expect(nextState.profiles[0]).toMatchObject({
@@ -1136,11 +1152,14 @@ describe('profile relationship mutations', () => {
       membershipExpirationDate: '2026-09-06',
       membershipExpiresAt: '2026-09-06T22:00:00.000Z',
       membershipPaymentMethod: 'in-person',
+      membershipPaymentStatus: 'Paid',
+      membershipPaymentTransactionId: 'membership:profile-approved:legacy:in-person',
+      identityReviewStatus: 'Approved',
       membershipStatus: 'Active'
     });
     expect(nextState.revenueTransactions).toEqual([
       expect.objectContaining({
-        id: expect.any(String),
+        id: 'membership:profile-approved:legacy:in-person',
         type: 'membership',
         amountCents: 4900,
         occurredAt: now,

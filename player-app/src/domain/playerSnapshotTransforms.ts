@@ -97,18 +97,24 @@ export function filterSnapshotForPlayer(snapshot: PlayerClubSnapshot, player: Pi
   return {
     ...snapshot,
     games: snapshot.games.filter((game) => isPlayerVisibleGameName(game.name)),
-    memberships: snapshot.memberships.filter((membership) =>
-      Boolean(id && normalizeIdentity(membership.playerId) === id) ||
-      Boolean(name && normalizeIdentity(membership.playerName) === name)
-    ),
-    waitlists: snapshot.waitlists.filter((entry) =>
-      Boolean(id && normalizeIdentity(entry.playerId) === id) ||
-      Boolean(name && normalizeIdentity(entry.playerName) === name)
-    ),
+    memberships: snapshot.memberships.filter((membership) => {
+      const recordId = normalizeIdentity(membership.playerId);
+      return recordId
+        ? Boolean(id && recordId === id)
+        : Boolean(name && normalizeIdentity(membership.playerName) === name);
+    }),
+    waitlists: snapshot.waitlists.filter((entry) => {
+      const recordId = normalizeIdentity(entry.playerId);
+      return recordId
+        ? Boolean(id && recordId === id)
+        : Boolean(name && normalizeIdentity(entry.playerName) === name);
+    }),
     notifications: (snapshot.notifications ?? []).filter((notification) => {
-      const targetIds = (notification.targetPlayerIds ?? []).map(normalizeIdentity);
+      const targetIds = (notification.targetPlayerIds ?? []).map(normalizeIdentity).filter(Boolean);
       const targetNames = (notification.targetPlayerNames ?? []).map(normalizeIdentity);
-      return Boolean(id && targetIds.includes(id)) || Boolean(name && targetNames.includes(name));
+      return targetIds.length > 0
+        ? Boolean(id && targetIds.includes(id))
+        : Boolean(name && targetNames.includes(name));
     })
   };
 }
