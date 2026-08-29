@@ -54,6 +54,9 @@ jobs:
   verify-and-package:
     name: Verify and package Windows artifact
     runs-on: windows-2025
+    defaults:
+      run:
+        shell: bash
     outputs:
       artifact-name: ${{ steps.artifact.outputs.name }}
     env:

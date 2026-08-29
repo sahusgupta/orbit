@@ -1,8 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { useState, type Dispatch, type DragEvent, type FormEvent, type RefObject, type SetStateAction } from 'react';
-import { BadgeCheck, Bell, Clock, Edit3, Plus, Save, ScanLine, Trash2, Upload, Users, X } from 'lucide-react';
-import type { Dispatch, FormEvent, RefObject, SetStateAction } from 'react';
-import { Archive, ArchiveRestore, BadgeCheck, Bell, Clock, Edit3, Plus, Save, ScanLine, Upload, Users, X } from 'lucide-react';
+import { Archive, ArchiveRestore, BadgeCheck, Bell, Clock, Edit3, Plus, Save, ScanLine, Trash2, Upload, Users, X } from 'lucide-react';
 import { hasProfileReference } from '../lib/profileRelationships';
 import { calculatePlayerAge } from '../domain/governmentId';
 import type { AppState, Interest, InterestStatus, PlayerProfile } from '../domain/types';
@@ -126,17 +124,15 @@ export default function ProfilesView({
 }: ProfilesViewProps) {
   const [isImportDropActive, setIsImportDropActive] = useState(false);
 
-  const handleImportDrop = (event: DragEvent<HTMLLabelElement>) => {
+  const handleImportDrop = async (event: DragEvent<HTMLLabelElement>) => {
     event.preventDefault();
     setIsImportDropActive(false);
-    void importProfileFile(event.dataTransfer.files[0]);
-    setPlayerPopup(null);
+    await importProfileFile(event.dataTransfer.files[0]);
   };
 
-  const handleImportFileSelection = (file?: File) => {
+  const handleImportFileSelection = async (file?: File) => {
     if (!file) return;
-    void importProfileFile(file);
-    setPlayerPopup(null);
+    await importProfileFile(file);
   };
 
   return (
@@ -191,6 +187,34 @@ export default function ProfilesView({
                     <label><span>Amount paid in person</span><input type="number" min="0" step="0.01" value={newProfile.membershipAmount} onChange={(event) => setNewProfile({ ...newProfile, membershipAmount: Number(event.target.value) })} placeholder="0.00" /></label>
                   </div>
                   <label><span>Birthday{calculatePlayerAge(newProfile.birthday) != null ? ` · Age ${calculatePlayerAge(newProfile.birthday)}` : ''}</span><input type="date" value={newProfile.birthday} onChange={(event) => setNewProfile({ ...newProfile, birthday: event.target.value, identityCaptureMethod: undefined })} /></label>
+                  <div className="club-data-import player-popup-import">
+                    <strong>Import existing player data</strong>
+                    <span>Choose or drop the club CSV/XLSX export to add its players.</span>
+                    <label
+                      className={`secondary-button license-file-button${isImportDropActive ? ' import-drop-active' : ''}`}
+                      onDragEnter={(event) => {
+                        event.preventDefault();
+                        setIsImportDropActive(true);
+                      }}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDragLeave={(event) => {
+                        if (event.currentTarget === event.target) setIsImportDropActive(false);
+                      }}
+                      onDrop={handleImportDrop}
+                    >
+                      <Upload size={16} />
+                      <span>Choose or drop CSV/XLSX</span>
+                      <input
+                        type="file"
+                        accept=".csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        onChange={async (event) => {
+                          await handleImportFileSelection(event.target.files?.[0]);
+                          event.target.value = '';
+                        }}
+                      />
+                    </label>
+                    {profileImportMessage ? <p className="profile-import-message" role="status">{profileImportMessage}</p> : null}
+                  </div>
                   <div className="player-popup-actions"><Dialog.Close asChild><button className="ghost-button" type="button">Cancel</button></Dialog.Close><button className="primary-button" type="submit">Add active member</button></div>
                 </form>
               ) : playerPopup === 'id' ? (

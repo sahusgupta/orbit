@@ -67,14 +67,7 @@ export type PlayerProfile = {
   orbitPlayerId?: string;
   email?: string;
   phone: string;
-  email?: string;
-  hasSSN?: boolean;
-  address?: {
-    street: string;
-    city: string;
-    state: string;
-    zipCode: string;
-  };
+  address?: string;
   communicationPreferences?: {
     email: boolean;
     mail: boolean;

@@ -6,7 +6,7 @@ export type ScannedGovernmentId = {
 };
 
 const AAMVA_FIELDS = [
-  'DAQ', 'DCS', 'DAC', 'DAD', 'DCT', 'DBB', 'DAG', 'DAI', 'DAJ', 'DAK', 'DCG'
+  'DAQ', 'DCS', 'DAC', 'DAD', 'DCT', 'DBB', 'DAG', 'DAH', 'DAI', 'DAJ', 'DAK', 'DCG'
 ] as const;
 
 function cleanValue(value = '') {
@@ -62,7 +62,7 @@ export function parseGovernmentIdBarcode(rawValue: string, today = new Date()): 
   const middleName = readAamvaField(raw, 'DAD');
   const fullName = cleanValue([firstName, middleName, familyName].filter(Boolean).join(' '));
   const dateOfBirth = normalizeIdDate(readAamvaField(raw, 'DBB'));
-  const street = readAamvaField(raw, 'DAG');
+  const street = [readAamvaField(raw, 'DAG'), readAamvaField(raw, 'DAH')].filter(Boolean).join(', ');
   const city = readAamvaField(raw, 'DAI');
   const region = readAamvaField(raw, 'DAJ');
   const postalCode = readAamvaField(raw, 'DAK').replace(/[^A-Za-z0-9 -]/g, '').trim();

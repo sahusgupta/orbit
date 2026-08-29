@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 
 const mainSource = readFileSync(fileURLToPath(new URL('../main.tsx', import.meta.url)), 'utf8')
   .replace(/\r\n/g, '\n');
+const floorViewSource = readFileSync(fileURLToPath(new URL('../components/FloorView.tsx', import.meta.url)), 'utf8')
+  .replace(/\r\n/g, '\n');
 const loadingStyles = readFileSync(fileURLToPath(new URL('../styles/190-accessibility.css', import.meta.url)), 'utf8')
   .replace(/\r\n/g, '\n');
 
@@ -27,13 +29,22 @@ describe('management route loading boundary', () => {
     expect(mainSource).toContain("          'tournament-tv'\n        )");
     expect(mainSource).toContain('return withRouteLoadingBoundary(\n      <TableView');
     expect(mainSource).toContain("      'table-view'\n    );");
-
     deferredRoutes.forEach((component) => {
       expect(mainSource).toContain(
         `const ${component} = React.lazy(() => import('./components/${component}'));`
       );
       expect(mainSource).not.toMatch(new RegExp(`import\\s+${component}\\s+from`));
     });
+  });
+
+  it('defers mutually exclusive floor representations inside the synchronous floor route', () => {
+    expect(floorViewSource).toContain("const FloorRoomMap = lazy(() => import('./FloorRoomMap'));");
+    expect(floorViewSource).toContain("const FloorClassicOverview = lazy(() => import('./FloorClassicOverview'));");
+    expect(floorViewSource).toContain("const PokerTable = lazy(() => import('./PokerTable'));");
+    expect(floorViewSource).toContain('aria-label="Loading floor layout"');
+    expect(floorViewSource).not.toMatch(/import\s+FloorRoomMap(?:,|\s+from)/);
+    expect(floorViewSource).not.toMatch(/import\s+FloorClassicOverview\s+from/);
+    expect(floorViewSource).not.toMatch(/import\s+PokerTable(?:,|\s+from)/);
   });
 
   it('defers the modal-only buy-in ledger without deferring the default floor', () => {

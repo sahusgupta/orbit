@@ -202,6 +202,7 @@ import {
   saveManagementState
 } from './app/persistence/managementPersistence';
 import { saveBrowserManagementState } from './app/persistence/browserStateRepository';
+import { getManagementStatePayloadError } from './app/persistence/managementStatePayload';
 import {
   getCollectionProfile,
   getTableFinancialOverview
@@ -1071,6 +1072,11 @@ function App() {
 
   const persist = (nextState: AppState, trackUndo = true, usage?: UsageDescriptor) => {
     const next = withUsageEvent(nextState, usage);
+    const payloadError = getManagementStatePayloadError(next);
+    if (payloadError) {
+      setSaveStatus({ state: 'error', message: payloadError });
+      return Promise.resolve({ ok: false, error: payloadError });
+    }
     const previousState = stateRef.current;
     const previousAccountKey = getAccountKeyFromState(previousState);
     const nextAccountKey = getAccountKeyFromState(next);
@@ -2606,15 +2612,19 @@ function App() {
     validTableTags: gameQualityTags
   };
 
-  const commitImportedProfiles = (imported: PlayerProfile[]) => {
+  const commitImportedProfiles = async (imported: PlayerProfile[]) => {
     if (!imported.length) return 0;
-    const result = mergeImportedProfiles(state.profiles, imported);
+    const currentState = stateRef.current;
+    const result = mergeImportedProfiles(currentState.profiles, imported);
     if (!result.importedProfiles.length) return 0;
-    persist({ ...state, profiles: result.profiles }, true, {
+    const saveResult = await persist({ ...currentState, profiles: result.profiles }, true, {
       feature: 'Profiles',
       action: 'Imported profiles',
       metadata: { count: result.importedProfiles.length }
     });
+    if (!saveResult.ok) {
+      throw new Error(saveResult.error || 'The player import could not be saved to the authoritative club state.');
+    }
     return result.importedProfiles.length;
   };
 
@@ -2624,7 +2634,7 @@ function App() {
       if (file.name.toLowerCase().endsWith('.csv')) {
         await validateLocalImport(file, 'profile-csv');
         const rows = parseCsvRows(await file.text());
-        const importedCount = commitImportedProfiles(profilesFromImportedRecords(rows, profileImportContext));
+        const importedCount = await commitImportedProfiles(profilesFromImportedRecords(rows, profileImportContext));
         setProfileImportMessage(importedCount ? `Imported ${importedCount} player${importedCount === 1 ? '' : 's'} into this club.` : 'No new player records were found in this file.');
         setImportText('');
         return;
@@ -2646,7 +2656,7 @@ function App() {
         }, {});
         if (Object.values(record).some((value) => String(value ?? '').trim())) rows.push(record);
       });
-      const importedCount = commitImportedProfiles(profilesFromImportedRecords(rows, profileImportContext));
+      const importedCount = await commitImportedProfiles(profilesFromImportedRecords(rows, profileImportContext));
       setProfileImportMessage(importedCount ? `Imported ${importedCount} player${importedCount === 1 ? '' : 's'} into this club.` : 'No new player records were found in this file.');
       setImportText('');
     } catch (error) {
@@ -2654,11 +2664,15 @@ function App() {
     }
   };
 
-  const importProfiles = () => {
+  const importProfiles = async () => {
     if (!importText.trim()) return;
-    const importedCount = commitImportedProfiles(parsePastedProfiles(importText, profileImportContext));
-    setProfileImportMessage(importedCount ? `Imported ${importedCount} player${importedCount === 1 ? '' : 's'} into this club.` : 'No new player records were found in this text.');
-    setImportText('');
+    try {
+      const importedCount = await commitImportedProfiles(parsePastedProfiles(importText, profileImportContext));
+      setProfileImportMessage(importedCount ? `Imported ${importedCount} player${importedCount === 1 ? '' : 's'} into this club.` : 'No new player records were found in this text.');
+      setImportText('');
+    } catch (error) {
+      setProfileImportMessage(error instanceof Error ? error.message : 'Unable to import those player records.');
+    }
   };
 
   const {

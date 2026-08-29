@@ -110,30 +110,39 @@ describe('SalesMapApp Texas venue map', () => {
 
   it('keeps fixed-size route directions inside every city-area window', () => {
     const cities = Object.keys(TEXAS_CITY_COORDINATES) as Array<keyof typeof TEXAS_CITY_COORDINATES>;
+    const projectedCities = new Map(cities.map((city) => [city, projectTexasCity(city)] as const));
+    let checkedSegmentCount = 0;
     cities.forEach((focusCity) => {
-      const window = getTexasMapWindow('city', projectTexasCity(focusCity));
+      const window = getTexasMapWindow('city', projectedCities.get(focusCity)!);
       cities.forEach((startCity) => {
-        const start = projectTexasCity(startCity);
+        const start = projectedCities.get(startCity)!;
         const startVisible = start.x >= window.x && start.x <= window.x + window.width
           && start.y >= window.y && start.y <= window.y + window.height;
         cities.forEach((endCity) => {
           if (startCity === endCity) return;
-          const end = projectTexasCity(endCity);
+          const end = projectedCities.get(endCity)!;
           const endVisible = end.x >= window.x && end.x <= window.x + window.width
             && end.y >= window.y && end.y <= window.y + window.height;
           if (!startVisible && !endVisible) return;
           const segment = createVisibleRouteSegment(start, end, window, 660);
-          expect(segment).toBeTruthy();
-          if (!segment) return;
+          if (!segment) {
+            throw new Error(`Expected ${startCity} -> ${endCity} to intersect the ${focusCity} city window`);
+          }
           const arrowX = (segment.arrow.x - window.x) / window.width * 660;
           const arrowY = (segment.arrow.y - window.y) / window.height * (660 * .96);
-          expect(arrowX).toBeGreaterThanOrEqual(14.99);
-          expect(arrowX).toBeLessThanOrEqual(660 - 14.99);
-          expect(arrowY).toBeGreaterThanOrEqual(14.99);
-          expect(arrowY).toBeLessThanOrEqual(660 * .96 - 14.99);
+          if (
+            arrowX < 14.99
+            || arrowX > 660 - 14.99
+            || arrowY < 14.99
+            || arrowY > 660 * .96 - 14.99
+          ) {
+            throw new Error(`Expected ${startCity} -> ${endCity} arrow to stay inside the ${focusCity} city window`);
+          }
+          checkedSegmentCount += 1;
         });
       });
     });
+    expect(checkedSegmentCount).toBeGreaterThan(0);
   });
 
   it('reclusters and clamps markers for narrow maps while using major-city labels', () => {
