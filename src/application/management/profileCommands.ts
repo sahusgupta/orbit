@@ -4,7 +4,7 @@ import {
   getProfileReferenceMatches
 } from '../../lib/profileRelationships';
 import { inactiveInterestStatuses } from '../../domain/participants';
-import type { AppState, PlayerProfile, TableTag } from '../../domain/types';
+import type { AppState, IdentityCaptureMethod, PlayerProfile, TableTag } from '../../domain/types';
 import { ensureWaitlistInterest } from './waitlistCommands';
 
 export type ProfileIdentityDependencies = {
@@ -43,7 +43,7 @@ export type NewActiveProfileInput = {
   preferredTags: TableTag[];
   usualCompanions: string;
   notes: string;
-  identityCaptureMethod?: 'id-barcode' | 'player-camera-pdf417';
+  identityCaptureMethod?: IdentityCaptureMethod;
 };
 
 export type ProfileValidationFailure = {
@@ -219,7 +219,12 @@ export function createActiveMemberProfile(
     notes: input.notes.trim(),
     identityCaptureMethod: input.identityCaptureMethod,
     identityCapturedAt: input.identityCaptureMethod ? dependencies.nowIso() : undefined,
-    identityReviewStatus: input.identityCaptureMethod === 'player-camera-pdf417' ? 'Pending' : input.identityCaptureMethod === 'id-barcode' ? 'Approved' : 'Not required',
+    identityReviewStatus:
+      input.identityCaptureMethod === 'player-camera-pdf417' || input.identityCaptureMethod === 'id-image-pdf417' || input.identityCaptureMethod === 'id-image-ocr'
+        ? 'Pending'
+        : input.identityCaptureMethod === 'id-barcode'
+          ? 'Approved'
+          : 'Not required',
     identityReviewedAt: input.identityCaptureMethod === 'id-barcode' ? dependencies.nowIso() : undefined
   };
   return {

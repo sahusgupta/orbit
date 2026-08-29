@@ -11,7 +11,7 @@ import {
 import type { IScannerControls } from '@zxing/browser';
 import { nextYearDate, todayDate } from '../../domain/state';
 import { isFutureDate } from '../../domain/licensing';
-import type { AppState, PlayerProfile, TableTag } from '../../domain/types';
+import type { AppState, IdentityCaptureMethod, PlayerProfile, TableTag } from '../../domain/types';
 import { getTodayPlayerActivity, type TodayPlayerRowResult } from '../../lib/resultBuilders';
 
 export type NewProfileDraft = {
@@ -37,7 +37,7 @@ export type NewProfileDraft = {
   willingnessToMove: boolean;
   preferredTags: TableTag[];
   notes: string;
-  identityCaptureMethod?: 'id-barcode' | 'player-camera-pdf417';
+  identityCaptureMethod?: IdentityCaptureMethod;
 };
 
 export type TodayPlayerRow = TodayPlayerRowResult;

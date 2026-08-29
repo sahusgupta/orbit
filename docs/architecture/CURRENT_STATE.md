@@ -61,7 +61,7 @@ The tracked production files above 500 lines are deliberate current boundaries, 
 | `src/components/FloorView.tsx` | 1,118 | One management route and its characterized floor/table callback surface; transient workspace state and the ledger presentation have feature owners. |
 | `src/lib/playerSync.ts` | 847 | Renderer-specific management sync transformation boundary whose semantics intentionally differ from the server core. |
 | `src/lib/firebaseClubSync.ts` | 756 | Renderer Firebase publication/subscription and protocol-v2 boundary. |
-| `src/components/ProfilesView.tsx` | 689 | One management route and its characterized profile/import/relationship callback surface; draft and scanner contracts are feature-owned. |
+| `src/components/ProfilesView.tsx` | 689 | One management route and its characterized profile/relationship callback surface; draft and scanner contracts are feature-owned. |
 | `src/styles/91-dark-theme-compatibility.css` | 649 | Ordered equal-specificity compatibility pass; moving rules changes the preserved cascade. |
 | `apps/api/src/firebasePublisher.js` | 644 | API's sequential Firestore REST publisher, including child-first/parent-last protocol-v2 commit semantics. |
 | `src/components/SummaryView.tsx` | 572 | One management summary/closeout/report route boundary with feature-owned state and projection contracts. |
@@ -108,6 +108,8 @@ The fresh audit, reproducible metrics, target dependency direction, and active R
 API route/repository ownership, Electron module ownership, the server sync core, sync protocol-v2 invariants, and ordered CSS ownership remain deliberate current boundaries. The continuation begins with pure management commands and Player domain characterization before moving persistence or external-data adapters.
 
 REF-012 subsequently moved CSV/XLSX/pasted-profile validation, parsing, canonical construction, duplicate filtering, and companion-link enrichment into `src/domain/profileImport.ts`. `src/main.tsx` is now 5,464 lines and `App` is 4,858 lines; file selection, lazy ExcelJS decoding, UI feedback, usage reporting, and persistence remain with the application owner. The import boundary has seven renderer characterization cases and four direct pure cases.
+
+The current bulk-import presentation is restricted to Settings **Data**. `src/lib/profileWorkbookImport.ts` now owns bounded workbook archive handling and external-exporter namespace compatibility before the existing domain normalization boundary. Single-player government-ID capture is separate: hardware scanner parsing remains synchronous, while `src/features/profiles/governmentIdImage.ts` runs image PDF417 and bundled local OCR without persisting raw identity media or engine output; every image-derived capture retains pending-review semantics.
 
 REF-013 moved canonical non-seated interest upserts, patches, timestamp/session corrections, removal, check-in ensuring, and demand-prompt decisions into `src/application/management/waitlistCommands.ts`. `src/main.tsx` is now 5,353 lines and `App` is 4,738 lines. The application shell still owns direct seating, browser prompts, table creation/switching, usage events, and persistence. Existing renderer characterization remains at those boundaries while 12 direct command cases cover the pure owner.
 

@@ -250,6 +250,29 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+async function createSyntheticGovernmentIdImage(browser) {
+  const imagePage = await browser.newPage({ viewport: { width: 1800, height: 1100 } });
+  try {
+    await imagePage.setContent(`<!doctype html>
+      <html>
+        <body style="margin:0;background:#fff;color:#000;font:700 58px/1.5 Arial,sans-serif;letter-spacing:2px">
+          <main style="box-sizing:border-box;width:1800px;height:1100px;padding:110px">
+            <div style="font-size:70px;margin-bottom:35px">SYNTHETIC DRIVER LICENSE</div>
+            <div>LAST NAME: EXAMPLE</div>
+            <div>FIRST NAME: CASEY</div>
+            <div>DOB: 01/02/1990</div>
+            <div>ADDRESS: 100 TEST WAY</div>
+            <div>AUSTIN, TX 78701</div>
+            <div>LICENSE NUMBER: DO-NOT-PERSIST-9264</div>
+          </main>
+        </body>
+      </html>`);
+    return await imagePage.screenshot({ type: 'png' });
+  } finally {
+    await imagePage.close();
+  }
+}
+
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
 const pageErrors = [];
@@ -266,6 +289,19 @@ page.on('dialog', async (dialog) => {
 });
 
 try {
+  await page.route('**/*', async (route) => {
+    const requestUrl = new URL(route.request().url());
+    if (
+      requestUrl.protocol === 'data:'
+      || requestUrl.protocol === 'blob:'
+      || requestUrl.hostname === '127.0.0.1'
+      || requestUrl.hostname === 'localhost'
+    ) {
+      await route.continue();
+      return;
+    }
+    await route.abort('blockedbyclient');
+  });
   await page.addInitScript(({ accountStorageKey, authStorageKey, storageKey, seededState, expiresAt }) => {
     window.localStorage.clear();
     window.localStorage.setItem(accountStorageKey, JSON.stringify(seededState));
@@ -488,7 +524,109 @@ try {
   }
   await page.setViewportSize({ width: 1440, height: 900 });
 
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Data', exact: true }).click();
+  const settingsImporter = page.getByRole('region', { name: 'Import club player data' });
+  await settingsImporter.waitFor();
+  assert(await page.locator('#settings-data .club-data-import').count() === 1, 'Settings Data should contain the sole player importer.');
+  const settingsImportFile = settingsImporter.getByLabel('Choose or drop CSV/XLSX');
+  assert(await settingsImportFile.getAttribute('accept').then((value) => value?.includes('.xlsx')) === true, 'Settings importer should accept XLSX files.');
+  await settingsImporter.getByText('Paste player data instead', { exact: true }).click();
+  const pastedPlayerData = settingsImporter.getByRole('textbox', { name: 'Pasted player data' });
+  const pastedImportButton = settingsImporter.getByRole('button', { name: 'Import pasted players' });
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 900, height: 760 },
+    { width: 680, height: 760 },
+    { width: 390, height: 700 }
+  ]) {
+    await page.setViewportSize(viewport);
+    await settingsImporter.scrollIntoViewIfNeeded();
+    const dataTab = page.getByRole('button', { name: 'Data', exact: true });
+    await dataTab.scrollIntoViewIfNeeded();
+    assert(await dataTab.evaluate((button) => button.classList.contains('active')), `Data settings tab was not active at ${viewport.width}px.`);
+    const importerLayout = await settingsImporter.evaluate((importer) => {
+      const panel = importer.closest('#settings-data');
+      const fileButton = importer.querySelector('.license-file-button');
+      const textarea = importer.querySelector('textarea');
+      const importButton = importer.querySelector('.import-button');
+      const importerRect = importer.getBoundingClientRect();
+      const panelRect = panel?.getBoundingClientRect();
+      const contained = (element) => {
+        const rect = element?.getBoundingClientRect();
+        return Boolean(rect && rect.left >= importerRect.left - 1 && rect.right <= importerRect.right + 1);
+      };
+      return {
+        documentFits: document.documentElement.scrollWidth <= window.innerWidth,
+        fileButtonFits: contained(fileButton),
+        importButtonFits: contained(importButton),
+        importerFitsPanel: Boolean(panelRect && importerRect.left >= panelRect.left - 1 && importerRect.right <= panelRect.right + 1),
+        textareaFits: contained(textarea)
+      };
+    });
+    assert(importerLayout.documentFits, `Settings overflowed horizontally at ${viewport.width}px.`);
+    assert(importerLayout.importerFitsPanel, `Player importer escaped Settings Data at ${viewport.width}px.`);
+    assert(importerLayout.fileButtonFits && importerLayout.textareaFits && importerLayout.importButtonFits, `Player import controls overflowed at ${viewport.width}px.`);
+    await settingsImportFile.focus();
+    assert(await settingsImporter.locator('.license-file-button').evaluate((label) => label.matches(':focus-within')), `Player file chooser was not keyboard focusable at ${viewport.width}px.`);
+    await pastedPlayerData.focus();
+    await pastedImportButton.focus();
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await settingsImportFile.setInputFiles({
+    name: 'invalid.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('name\nSmoke Import')
+  });
+  const importValidationMessage = settingsImporter.getByRole('status');
+  await importValidationMessage.waitFor();
+  assert((await importValidationMessage.textContent())?.includes('comma-separated header row'), 'Settings importer did not surface file validation feedback.');
+
   await page.getByRole('button', { name: 'Players', exact: true }).click();
+  const idScannerButton = page.getByRole('button', { name: 'Scan or swipe government ID' });
+  await idScannerButton.click();
+  let idDialog = page.getByRole('dialog', { name: 'Scan or swipe ID' });
+  const scannerInput = idDialog.getByRole('textbox', { name: 'Government ID scanner input' });
+  await scannerInput.fill([
+    'DCSDOE',
+    'DACJANE',
+    'DBB01021990',
+    'DAG100 MAIN STREET',
+    'DAIAUSTIN',
+    'DAJTX',
+    'DAK78701'
+  ].join('\n'));
+  await idDialog.locator('[aria-label="Extracted ID details"]').waitFor({ timeout: 5000 });
+  assert((await idDialog.getByRole('status').textContent())?.includes('Scanner input detected'), 'Scanner burst was not detected by the ID workflow.');
+  assert((await idDialog.locator('[aria-label="Extracted ID details"]').textContent())?.includes('JANE DOE'), 'Scanner burst did not extract the expected ID fields.');
+  await idDialog.getByRole('button', { name: 'Close player form' }).click();
+
+  const syntheticIdImage = await createSyntheticGovernmentIdImage(browser);
+  await idScannerButton.click();
+  idDialog = page.getByRole('dialog', { name: 'Scan or swipe ID' });
+  await idDialog.getByLabel('Choose government ID image').setInputFiles({
+    name: 'synthetic-license.png',
+    mimeType: 'image/png',
+    buffer: syntheticIdImage
+  });
+  await idDialog.getByRole('status').filter({ hasText: 'Printed ID details were read locally' }).waitFor({ timeout: 60_000 });
+  const extractedOcrDetails = idDialog.locator('[aria-label="Extracted ID details"]');
+  assert((await extractedOcrDetails.textContent())?.includes('CASEY EXAMPLE'), 'Local OCR did not extract the expected synthetic name.');
+  assert((await extractedOcrDetails.textContent())?.includes('100 TEST WAY'), 'Local OCR did not extract the expected synthetic address.');
+  const ocrApplyButton = idDialog.getByRole('button', { name: 'Use details and continue' });
+  assert(await ocrApplyButton.isDisabled(), 'OCR details should require explicit comparison with the source image.');
+  await idDialog.getByRole('checkbox', { name: /I compared the extracted name/ }).check();
+  await ocrApplyButton.click();
+  const ocrAddPlayerDialog = page.getByRole('dialog', { name: 'Add member' });
+  assert(await ocrAddPlayerDialog.getByRole('textbox', { name: 'Player name' }).inputValue() === 'CASEY EXAMPLE', 'OCR name did not reach the member draft.');
+  assert(await ocrAddPlayerDialog.getByRole('textbox', { name: 'Address' }).inputValue() === '100 TEST WAY, AUSTIN, TX 78701', 'OCR address did not reach the member draft.');
+  assert(await ocrAddPlayerDialog.locator('input[type="date"]').inputValue() === '1990-01-02', 'OCR birth date did not reach the member draft.');
+  await ocrAddPlayerDialog.getByRole('button', { name: 'Add active member' }).click();
+  const ocrProfileCard = page.locator('.profile-card').filter({ hasText: 'CASEY EXAMPLE' });
+  await ocrProfileCard.waitFor({ timeout: 10000 });
+  assert((await ocrProfileCard.textContent())?.includes('Identity review: Pending'), 'Active OCR profile did not expose its pending review state.');
+  assert(await ocrProfileCard.getByRole('button', { name: 'Approve ID for CASEY EXAMPLE' }).isVisible(), 'Active OCR profile did not expose its normal staff review action.');
+
   const addPlayerButton = page.locator('button.player-tool-icon[aria-label="Add player"]');
   for (const viewport of [
     { width: 1440, height: 900 },
@@ -499,21 +637,8 @@ try {
     await page.setViewportSize(viewport);
     await addPlayerButton.click();
     const responsiveDialog = page.getByRole('dialog', { name: 'Add member' });
-    const importer = responsiveDialog.locator('.player-popup-import');
     const submitButton = responsiveDialog.getByRole('button', { name: 'Add active member' });
-    await importer.evaluate((element) => element.scrollIntoView({ block: 'nearest' }));
-    const importerLayout = await responsiveDialog.evaluate((dialog) => {
-      const importerElement = dialog.querySelector('.player-popup-import');
-      const dialogRect = dialog.getBoundingClientRect();
-      const importerRect = importerElement?.getBoundingClientRect();
-      return {
-        dialogTop: dialogRect.top,
-        dialogBottom: dialogRect.bottom,
-        importerTop: importerRect?.top,
-        importerBottom: importerRect?.bottom,
-        reachable: Boolean(importerRect && importerRect.top >= dialogRect.top - 1 && importerRect.bottom <= dialogRect.bottom + 1)
-      };
-    });
+    assert(await responsiveDialog.locator('.player-popup-import').count() === 0, 'Add member dialog should not contain the bulk importer.');
     await submitButton.evaluate((element) => element.scrollIntoView({ block: 'nearest' }));
     const dialogLayout = await responsiveDialog.evaluate((dialog) => {
       const form = dialog.querySelector('.player-popup-form');
@@ -522,16 +647,13 @@ try {
       const actionsRect = actions?.getBoundingClientRect();
       return {
         dialogInViewport: dialogRect.top >= 0 && dialogRect.bottom <= window.innerHeight,
-        formScrollable: Boolean(form && form.scrollHeight > form.clientHeight && getComputedStyle(form).overflowY === 'auto'),
+        formAllowsScrolling: Boolean(form && getComputedStyle(form).overflowY === 'auto'),
         actionsReachable: Boolean(actionsRect && actionsRect.top >= dialogRect.top - 1 && actionsRect.bottom <= dialogRect.bottom + 1)
       };
     });
     assert(dialogLayout.dialogInViewport, `Add member dialog escaped the ${viewport.width}x${viewport.height} viewport.`);
-    assert(importerLayout.reachable, `Player importer was unreachable at ${viewport.width}x${viewport.height}: ${JSON.stringify(importerLayout)}.`);
+    assert(dialogLayout.formAllowsScrolling, `Add member form could not scroll if needed at ${viewport.width}x${viewport.height}.`);
     assert(dialogLayout.actionsReachable, `Add member actions were unreachable at ${viewport.width}x${viewport.height}.`);
-    if (viewport.height < 900) {
-      assert(dialogLayout.formScrollable, `Add member form did not scroll at ${viewport.width}x${viewport.height}.`);
-    }
     await responsiveDialog.getByRole('button', { name: 'Close player form' }).click();
   }
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -552,12 +674,16 @@ try {
   assert(activePlayerSessions.some((session) => session.playerName === 'Evan Entry' && session.seatNumber > 0), 'Expected database player to be assigned an open seat.');
   assert((finalState.interests || []).some((interest) => interest.playerName === 'Evan Entry' && interest.status === 'Seated'), 'Expected non-checked-in player to be checked in and seated.');
   assert((finalState.profiles || []).some((profile) => profile.name === 'Smoke New Player'), 'New player profile was not persisted.');
+  const ocrProfile = (finalState.profiles || []).find((profile) => profile.name === 'CASEY EXAMPLE');
+  assert(ocrProfile?.identityCaptureMethod === 'id-image-ocr', 'OCR capture provenance was not persisted.');
+  assert(ocrProfile?.identityReviewStatus === 'Pending', 'OCR identity must remain pending for staff review.');
+  assert(!JSON.stringify(finalState).includes('DO-NOT-PERSIST-9264'), 'Raw license identifiers must not enter persisted application state.');
 
   if (pageErrors.length || consoleErrors.length || failedRequests.length) {
     throw new Error(JSON.stringify({ pageErrors, consoleErrors, failedRequests }, null, 2));
   }
 
-  console.log('Management production-bundle smoke passed: profile add, table start, seating, floor views/actions, table presentation, stable player actions, responsive floor, and clean console.');
+  console.log('Management production-bundle smoke passed: profile add, scanner input, local image OCR, Settings Data import, table start, seating, floor views/actions, table presentation, stable player actions, responsive floor, isolated networking, and clean console.');
 } finally {
   await browser.close();
 }

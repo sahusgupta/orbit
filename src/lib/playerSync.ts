@@ -273,7 +273,7 @@ type ManagementProfile = {
   membershipPaymentAmountCents?: number;
   address?: string;
   identityReviewStatus?: 'Pending' | 'Approved' | 'Rejected' | 'Not required';
-  identityCaptureMethod?: 'id-barcode' | 'player-camera-pdf417';
+  identityCaptureMethod?: 'id-barcode' | 'id-image-pdf417' | 'id-image-ocr' | 'player-camera-pdf417';
   identityCapturedAt?: string;
   identityReviewedAt?: string;
   identityReviewedByStaffId?: string;

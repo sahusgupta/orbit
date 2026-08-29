@@ -2640,22 +2640,8 @@ function App() {
         return;
       }
       await validateLocalImport(file, 'profile-xlsx');
-      const ExcelJS = await import('exceljs');
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(await file.arrayBuffer());
-      const sheet = workbook.worksheets[0];
-      const headerRow = sheet.getRow(1).values as unknown[];
-      const headers = headerRow.slice(1).map((value) => String(value ?? '').trim());
-      const rows: Record<string, unknown>[] = [];
-      sheet.eachRow((row, rowNumber) => {
-        if (rowNumber === 1) return;
-        const values = row.values as unknown[];
-        const record = headers.reduce<Record<string, unknown>>((next, header, index) => {
-          if (header) next[header] = values[index + 1] ?? '';
-          return next;
-        }, {});
-        if (Object.values(record).some((value) => String(value ?? '').trim())) rows.push(record);
-      });
+      const { parseProfileWorkbookRecords } = await import('./lib/profileWorkbookImport');
+      const rows = await parseProfileWorkbookRecords(await file.arrayBuffer());
       const importedCount = await commitImportedProfiles(profilesFromImportedRecords(rows, profileImportContext));
       setProfileImportMessage(importedCount ? `Imported ${importedCount} player${importedCount === 1 ? '' : 's'} into this club.` : 'No new player records were found in this file.');
       setImportText('');
@@ -4401,6 +4387,10 @@ function App() {
         exportRoomData={exportRoomData}
         exportJson={exportJson}
         importBackupFile={importBackupFile}
+        importProfileFile={importProfileFile}
+        profileImportMessage={profileImportMessage}
+        importProfiles={importProfiles}
+        importText={importText}
         submitAnalyticalReport={submitAnalyticalReport}
         exportPilotReport={exportPilotReport}
         applyDefaultCollectionToActiveTables={applyDefaultCollectionToActiveTables}
@@ -4408,6 +4398,7 @@ function App() {
         updateCollectionProfile={updateCollectionProfile}
         setBackendStatus={setBackendStatus}
         setClubDraft={setClubDraft}
+        setImportText={setImportText}
         setSettingsSection={setSettingsSection}
         setStaffDraft={setStaffDraft}
       />
@@ -4456,10 +4447,6 @@ function App() {
         getGameName={getGameName}
         getGamePlayEntries={getGamePlayEntries}
         getMostPlayedGameName={getMostPlayedGameName}
-        importProfileFile={importProfileFile}
-        profileImportMessage={profileImportMessage}
-        importProfiles={importProfiles}
-        importText={importText}
         inClubInterests={inClubInterests}
         membershipDirectoryProfiles={membershipDirectoryProfiles}
         newProfile={newProfile}
@@ -4489,7 +4476,6 @@ function App() {
         removeProfileFromClub={removeProfileFromClub}
         restoreProfile={restorePlayerProfile}
         saveProfileEdit={saveProfileEdit}
-        setImportText={setImportText}
         setNewProfile={setNewProfile}
         setPlayerPopup={setPlayerPopup}
         setPlayerSection={setPlayerSection}

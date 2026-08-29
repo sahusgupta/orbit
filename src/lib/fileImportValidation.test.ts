@@ -25,4 +25,31 @@ describe('local import validation', () => {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     }), 'profile-xlsx')).rejects.toThrow('XLSX signature');
   });
+
+  it('accepts bounded government ID images only when their extension, MIME, and signature agree', async () => {
+    const jpeg = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], 'license.jpg', { type: 'image/jpeg' });
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], 'license.png', { type: 'image/png' });
+    const webp = new File([new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50])], 'license.webp', { type: 'image/webp' });
+
+    await expect(validateLocalImport(jpeg, 'government-id-image')).resolves.toBeUndefined();
+    await expect(validateLocalImport(png, 'government-id-image')).resolves.toBeUndefined();
+    await expect(validateLocalImport(webp, 'government-id-image')).resolves.toBeUndefined();
+    await expect(validateLocalImport(new File(['not an image'], 'license.png', { type: 'image/png' }), 'government-id-image'))
+      .rejects.toThrow('valid JPEG, PNG, or WebP');
+    await expect(validateLocalImport(new File([new Uint8Array([0xff, 0xd8, 0xff])], 'license.png', { type: 'image/png' }), 'government-id-image'))
+      .rejects.toThrow('valid JPEG, PNG, or WebP');
+    await expect(validateLocalImport(new File([new Uint8Array([0xff, 0xd8, 0xff])], 'license.pdf', { type: 'image/jpeg' }), 'government-id-image'))
+      .rejects.toThrow('Allowed file types');
+  });
+
+  it('rejects an oversized government ID image before reading it', async () => {
+    const oversized = {
+      name: 'license.jpg',
+      size: 12 * 1024 * 1024 + 1,
+      type: 'image/jpeg',
+      slice: () => { throw new Error('must not read'); }
+    } as unknown as File;
+
+    await expect(validateLocalImport(oversized, 'government-id-image')).rejects.toThrow('12 MB limit');
+  });
 });

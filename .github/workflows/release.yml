@@ -131,6 +131,7 @@ jobs:
       - name: Run critical production-bundle smoke paths
         run: |
           npm run e2e:management
+          npm run e2e:ocr-file
           npm run e2e:public
 
       - name: Build unsigned Windows artifacts without publishing

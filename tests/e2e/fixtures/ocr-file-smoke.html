@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Orbit local OCR file smoke</title>
+  </head>
+  <body data-status="running">
+    <canvas id="license" width="1800" height="1100" hidden></canvas>
+    <script src="../../../node_modules/tesseract.js/dist/tesseract.min.js"></script>
+    <script>
+      (() => {
+        const complete = (status, detail) => {
+          document.body.dataset.status = status;
+          document.body.dataset.detail = String(detail || '').slice(0, 500);
+        };
+        const canvasBlob = (canvas) => new Promise((resolve, reject) => {
+          canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Canvas PNG encoding failed.')), 'image/png');
+        });
+
+        (async () => {
+          const canvas = document.querySelector('#license');
+          const context = canvas.getContext('2d');
+          context.fillStyle = '#fff';
+          context.fillRect(0, 0, canvas.width, canvas.height);
+          context.fillStyle = '#000';
+          context.font = '700 64px Arial, sans-serif';
+          [
+            'SYNTHETIC DRIVER LICENSE',
+            'LAST NAME: EXAMPLE',
+            'FIRST NAME: CASEY',
+            'DOB: 01/02/1990',
+            'ADDRESS: 100 TEST WAY',
+            'AUSTIN, TX 78701'
+          ].forEach((line, index) => context.fillText(line, 100, 150 + index * 140));
+
+          const ocrRoot = new URL('../../../dist/ocr/', window.location.href);
+          const worker = await window.Tesseract.createWorker('eng', window.Tesseract.OEM.LSTM_ONLY, {
+            workerPath: new URL('worker-entry.js', ocrRoot).href,
+            corePath: new URL('core/', ocrRoot).href,
+            langPath: new URL('lang/', ocrRoot).href,
+            workerBlobURL: false,
+            cacheMethod: 'none',
+            gzip: true
+          });
+          await worker.setParameters({ user_defined_dpi: '300' });
+          let rawText = '';
+          try {
+            const result = await worker.recognize(await canvasBlob(canvas), { rotateAuto: true });
+            rawText = String(result.data.text || '').replace(/\s+/g, ' ').toUpperCase();
+            const expected = ['EXAMPLE', 'CASEY', '1990', '100 TEST WAY', 'AUSTIN', 'TX 78701'];
+            if (!expected.every((value) => rawText.includes(value))) {
+              throw new Error('The packaged-file OCR assets did not extract every expected synthetic field.');
+            }
+            complete('passed', 'local OCR assets loaded from file URLs');
+          } finally {
+            rawText = '';
+            await worker.terminate();
+          }
+        })().catch((error) => complete('failed', error instanceof Error ? error.message : error));
+      })();
+    </script>
+  </body>
+</html>

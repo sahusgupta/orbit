@@ -62,6 +62,20 @@ function readMagstripeField(value: string, maximumLength: number) {
   return [value.slice(0, maximumLength), value.slice(maximumLength)] as const;
 }
 
+function normalizeOcrDate(value: string) {
+  const yearFirst = /\b((?:19|20)\d{2})[\s./-]+(\d{1,2})[\s./-]+(\d{1,2})\b/.exec(value);
+  if (yearFirst) return isoDate(Number(yearFirst[1]), Number(yearFirst[2]), Number(yearFirst[3]));
+  const monthFirst = /\b(\d{1,2})[\s./-]+(\d{1,2})[\s./-]+((?:19|20)\d{2})\b/.exec(value);
+  if (monthFirst) return isoDate(Number(monthFirst[3]), Number(monthFirst[1]), Number(monthFirst[2]));
+  const compact = /\b\d{8}\b/.exec(value);
+  if (compact) return normalizeIdDate(compact[0]);
+  const namedMonth = /\b(JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)\s+(\d{1,2})[,]?\s+((?:19|20)\d{2})\b/i.exec(value);
+  if (!namedMonth) return '';
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const month = months.indexOf(namedMonth[1].slice(0, 3).toUpperCase()) + 1;
+  return isoDate(Number(namedMonth[3]), month, Number(namedMonth[2]));
+}
+
 function parseMagstripe(raw: string) {
   const trackOne = /%([A-Z]{2})([^?]*)\?/i.exec(raw);
   const trackTwo = /;6\d{5}\d{1,13}=\d{4}(\d{8})(?:\d{1,5}|=)\?/i.exec(raw);
@@ -96,5 +110,79 @@ export function parseGovernmentIdScan(rawValue: string, today = new Date()): Sca
   const locality = cleanValue([city, [region, postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', '));
   const address = cleanValue([street, locality, country].filter(Boolean).join(', '));
   if (!fullName && !dateOfBirth && !address) return null;
+  return { fullName, dateOfBirth, address, age: calculatePlayerAge(dateOfBirth, today) };
+}
+
+const OCR_FIELD_LABELS = [
+  'LAST NAME', 'SURNAME', 'FAMILY NAME', 'LN',
+  'FIRST NAME', 'GIVEN NAMES', 'GIVEN NAME', 'FN',
+  'MIDDLE NAME', 'MN', 'NAME',
+  'DATE OF BIRTH', 'BIRTH DATE', 'DOB', 'BORN',
+  'ADDRESS', 'ADDR'
+] as const;
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function readOcrField(lines: string[], labels: readonly string[]) {
+  const labelPattern = labels.map(escapeRegExp).join('|');
+  for (let index = 0; index < lines.length; index += 1) {
+    const sameLine = new RegExp(`^(?:\\d+[.]?\\s*)?(?:${labelPattern})\\s*[:#-]?\\s+(.+)$`, 'i').exec(lines[index]);
+    if (sameLine?.[1]) return cleanValue(sameLine[1]);
+    if (new RegExp(`^(?:\\d+[.]?\\s*)?(?:${labelPattern})\\s*[:#-]?$`, 'i').test(lines[index])) {
+      const nextLine = cleanValue(lines[index + 1]);
+      if (nextLine && !OCR_FIELD_LABELS.some((label) => new RegExp(`^${escapeRegExp(label)}\\b`, 'i').test(nextLine))) {
+        return nextLine;
+      }
+    }
+  }
+  return '';
+}
+
+const cleanOcrName = (value: string) => cleanValue(value.replace(/[^\p{L}' -]+/gu, ' '));
+
+const streetSuffixPattern = '(?:ST(?:REET)?|RD|ROAD|AVE(?:NUE)?|BLVD|BOULEVARD|DR(?:IVE)?|LN|LANE|CT|COURT|CIR(?:CLE)?|HWY|HIGHWAY|PKWY|PARKWAY|PL(?:ACE)?|TER(?:RACE)?|TRL|TRAIL|WAY)';
+
+function readOcrAddress(lines: string[]) {
+  let street = readOcrField(lines, ['ADDRESS', 'ADDR']);
+  let streetIndex = street ? lines.findIndex((line) => line.includes(street)) : -1;
+  if (!street || !new RegExp(`^\\d{1,6}\\s+.+\\b${streetSuffixPattern}\\b`, 'i').test(street)) {
+    streetIndex = lines.findIndex((line) =>
+      new RegExp(`^\\d{1,6}\\s+[A-Z0-9][A-Z0-9 .#'-]{2,}\\b${streetSuffixPattern}\\b`, 'i').test(line)
+    );
+    street = streetIndex >= 0 ? lines[streetIndex] : '';
+  }
+  if (!street) return '';
+
+  const locality = cleanValue(lines[streetIndex + 1]);
+  const looksLikeLocality = /(?:,\s*|\s)\b[A-Z]{2}\b(?:\s+\d{5}(?:-\d{4})?|\s+[A-Z]\d[A-Z][ -]?\d[A-Z]\d)?\s*$/i.test(locality);
+  return cleanValue([street, looksLikeLocality ? locality : ''].filter(Boolean).join(', '));
+}
+
+/**
+ * Extracts only profile-safe fields from visible text on an ID image. OCR output is
+ * deliberately not returned so license numbers and other raw identity data cannot
+ * cross into application state.
+ */
+export function parseGovernmentIdOcrText(rawValue: string, today = new Date()): ScannedGovernmentId | null {
+  const raw = String(rawValue || '').slice(0, 100_000).trim();
+  if (!raw) return null;
+
+  const barcodeLike = parseGovernmentIdScan(raw, today);
+  if (barcodeLike?.dateOfBirth && (barcodeLike.fullName || barcodeLike.address)) return barcodeLike;
+
+  const lines = raw
+    .split(/[\r\n]+/)
+    .map((line) => cleanValue(line))
+    .filter(Boolean)
+    .slice(0, 200);
+  const familyName = cleanOcrName(readOcrField(lines, ['LAST NAME', 'SURNAME', 'FAMILY NAME', 'LN']));
+  const firstName = cleanOcrName(readOcrField(lines, ['FIRST NAME', 'GIVEN NAMES', 'GIVEN NAME', 'FN']));
+  const middleName = cleanOcrName(readOcrField(lines, ['MIDDLE NAME', 'MN']));
+  const labeledFullName = cleanOcrName(readOcrField(lines, ['NAME']));
+  const fullName = cleanValue([firstName, middleName, familyName].filter(Boolean).join(' ')) || labeledFullName;
+  const dateOfBirth = normalizeOcrDate(readOcrField(lines, ['DATE OF BIRTH', 'BIRTH DATE', 'DOB', 'BORN']));
+  const address = readOcrAddress(lines);
+  const fieldsFound = [fullName, dateOfBirth, address].filter(Boolean).length;
+  if (fieldsFound < 2) return null;
   return { fullName, dateOfBirth, address, age: calculatePlayerAge(dateOfBirth, today) };
 }
