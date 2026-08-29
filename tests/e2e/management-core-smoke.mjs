@@ -547,26 +547,47 @@ try {
     assert(await dataTab.evaluate((button) => button.classList.contains('active')), `Data settings tab was not active at ${viewport.width}px.`);
     const importerLayout = await settingsImporter.evaluate((importer) => {
       const panel = importer.closest('#settings-data');
+      const title = importer.querySelector('#club-data-import-title');
       const fileButton = importer.querySelector('.license-file-button');
       const textarea = importer.querySelector('textarea');
       const importButton = importer.querySelector('.import-button');
       const importerRect = importer.getBoundingClientRect();
       const panelRect = panel?.getBoundingClientRect();
+      const titleRect = title?.getBoundingClientRect();
+      const titleLineHeight = title ? Number.parseFloat(getComputedStyle(title).lineHeight) : 0;
+      const directChildRects = Array.from(importer.children, (child) => child.getBoundingClientRect())
+        .filter((rect) => rect.width > 0 && rect.height > 0);
       const contained = (element) => {
         const rect = element?.getBoundingClientRect();
         return Boolean(rect && rect.left >= importerRect.left - 1 && rect.right <= importerRect.right + 1);
       };
+      const alignedToOneColumn = directChildRects.length > 0
+        && Math.max(...directChildRects.map((rect) => rect.left)) - Math.min(...directChildRects.map((rect) => rect.left)) <= 1
+        && Math.max(...directChildRects.map((rect) => rect.right)) - Math.min(...directChildRects.map((rect) => rect.right)) <= 1;
       return {
+        alignedToOneColumn,
         documentFits: document.documentElement.scrollWidth <= window.innerWidth,
+        fileButtonUsesRow: Boolean(fileButton && fileButton.getBoundingClientRect().width >= importerRect.width * 0.75),
         fileButtonFits: contained(fileButton),
         importButtonFits: contained(importButton),
         importerFitsPanel: Boolean(panelRect && importerRect.left >= panelRect.left - 1 && importerRect.right <= panelRect.right + 1),
+        titleReadable: Boolean(
+          titleRect
+          && titleRect.width >= importerRect.width * 0.75
+          && (!titleLineHeight || titleRect.height <= titleLineHeight * 2.5)
+        ),
         textareaFits: contained(textarea)
       };
     });
     assert(importerLayout.documentFits, `Settings overflowed horizontally at ${viewport.width}px.`);
     assert(importerLayout.importerFitsPanel, `Player importer escaped Settings Data at ${viewport.width}px.`);
+    assert(importerLayout.alignedToOneColumn, `Player importer children did not share one readable column at ${viewport.width}px.`);
+    assert(importerLayout.titleReadable, `Player importer heading collapsed or wrapped excessively at ${viewport.width}px.`);
+    assert(importerLayout.fileButtonUsesRow, `Player importer file chooser collapsed at ${viewport.width}px.`);
     assert(importerLayout.fileButtonFits && importerLayout.textareaFits && importerLayout.importButtonFits, `Player import controls overflowed at ${viewport.width}px.`);
+    if (screenshotDirectory && (viewport.width === 1440 || viewport.width === 390)) {
+      await page.screenshot({ fullPage: true, path: path.join(screenshotDirectory, `settings-data-${viewport.width}.png`) });
+    }
     await settingsImportFile.focus();
     assert(await settingsImporter.locator('.license-file-button').evaluate((label) => label.matches(':focus-within')), `Player file chooser was not keyboard focusable at ${viewport.width}px.`);
     await pastedPlayerData.focus();
