@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { useState, type Dispatch, type DragEvent, type FormEvent, type RefObject, type SetStateAction } from 'react';
-import { Archive, ArchiveRestore, BadgeCheck, Bell, Clock, Edit3, Plus, Save, ScanLine, Trash2, Upload, Users, X } from 'lucide-react';
+import type { Dispatch, FormEvent, RefObject, SetStateAction } from 'react';
+import { Archive, ArchiveRestore, BadgeCheck, Bell, Clock, Edit3, Plus, Save, ScanLine, Trash2, Users, X } from 'lucide-react';
 import { hasProfileReference } from '../lib/profileRelationships';
 import { calculatePlayerAge } from '../domain/governmentId';
 import type { AppState, Interest, InterestStatus, PlayerProfile } from '../domain/types';
@@ -25,10 +25,6 @@ type ProfilesViewProps = {
   getGameName: (gameId?: string) => string;
   getGamePlayEntries: (profile: PlayerProfile) => [string, number][];
   getMostPlayedGameName: (profile: PlayerProfile) => string;
-  importProfileFile: (file?: File) => Promise<void>;
-  profileImportMessage: string;
-  importProfiles: () => void;
-  importText: string;
   inClubInterests: Interest[];
   membershipDirectoryProfiles: PlayerProfile[];
   newProfile: NewProfileDraft;
@@ -58,7 +54,6 @@ type ProfilesViewProps = {
   removeProfileFromClub: (profile: PlayerProfile) => void;
   restoreProfile: (profile: PlayerProfile) => void;
   saveProfileEdit: (event: FormEvent) => void;
-  setImportText: Dispatch<SetStateAction<string>>;
   setNewProfile: Dispatch<SetStateAction<NewProfileDraft>>;
   setPlayerPopup: Dispatch<SetStateAction<PlayerPopup>>;
   setPlayerSection: Dispatch<SetStateAction<PlayerSection>>;
@@ -80,10 +75,6 @@ export default function ProfilesView({
   getGameName,
   getGamePlayEntries,
   getMostPlayedGameName,
-  importProfileFile,
-  profileImportMessage,
-  importProfiles,
-  importText,
   inClubInterests,
   membershipDirectoryProfiles,
   newProfile,
@@ -113,7 +104,6 @@ export default function ProfilesView({
   removeProfileFromClub,
   restoreProfile,
   saveProfileEdit,
-  setImportText,
   setNewProfile,
   setPlayerPopup,
   setPlayerSection,
@@ -122,19 +112,6 @@ export default function ProfilesView({
   setQrManualValue,
   toLocalDateValue
 }: ProfilesViewProps) {
-  const [isImportDropActive, setIsImportDropActive] = useState(false);
-
-  const handleImportDrop = async (event: DragEvent<HTMLLabelElement>) => {
-    event.preventDefault();
-    setIsImportDropActive(false);
-    await importProfileFile(event.dataTransfer.files[0]);
-  };
-
-  const handleImportFileSelection = async (file?: File) => {
-    if (!file) return;
-    await importProfileFile(file);
-  };
-
   return (
       <main className="app-shell compact-shell">
         <header className="topbar">
@@ -187,46 +164,18 @@ export default function ProfilesView({
                     <label><span>Amount paid in person</span><input type="number" min="0" step="0.01" value={newProfile.membershipAmount} onChange={(event) => setNewProfile({ ...newProfile, membershipAmount: Number(event.target.value) })} placeholder="0.00" /></label>
                   </div>
                   <label><span>Birthday{calculatePlayerAge(newProfile.birthday) != null ? ` · Age ${calculatePlayerAge(newProfile.birthday)}` : ''}</span><input type="date" value={newProfile.birthday} onChange={(event) => setNewProfile({ ...newProfile, birthday: event.target.value, identityCaptureMethod: undefined })} /></label>
-                  <div className="club-data-import player-popup-import">
-                    <strong>Import existing player data</strong>
-                    <span>Choose or drop the club CSV/XLSX export to add its players.</span>
-                    <label
-                      className={`secondary-button license-file-button${isImportDropActive ? ' import-drop-active' : ''}`}
-                      onDragEnter={(event) => {
-                        event.preventDefault();
-                        setIsImportDropActive(true);
-                      }}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDragLeave={(event) => {
-                        if (event.currentTarget === event.target) setIsImportDropActive(false);
-                      }}
-                      onDrop={handleImportDrop}
-                    >
-                      <Upload size={16} />
-                      <span>Choose or drop CSV/XLSX</span>
-                      <input
-                        type="file"
-                        accept=".csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        onChange={async (event) => {
-                          await handleImportFileSelection(event.target.files?.[0]);
-                          event.target.value = '';
-                        }}
-                      />
-                    </label>
-                    {profileImportMessage ? <p className="profile-import-message" role="status">{profileImportMessage}</p> : null}
-                  </div>
                   <div className="player-popup-actions"><Dialog.Close asChild><button className="ghost-button" type="button">Cancel</button></Dialog.Close><button className="primary-button" type="submit">Add active member</button></div>
                 </form>
               ) : playerPopup === 'id' ? (
                 <IdEnrollmentPanel
                   minimumAge={state.settings.clubAccount?.minimumPlayerAge === 18 ? 18 : 21}
-                  onApply={(identity) => {
+                  onApply={(identity, captureMethod) => {
                     setNewProfile((current) => ({
                       ...current,
                       name: identity.fullName,
                       birthday: identity.dateOfBirth,
                       address: identity.address,
-                      identityCaptureMethod: 'id-barcode'
+                      identityCaptureMethod: captureMethod
                     }));
                     setPlayerPopup('add');
                   }}
@@ -380,6 +329,9 @@ export default function ProfilesView({
                       {profile.orbitPlayerId ? <small>Orbit Player account linked</small> : null}
                       {profile.birthday ? <small>DOB: {profile.birthday}{calculatePlayerAge(profile.birthday) != null ? ` · Age ${calculatePlayerAge(profile.birthday)}` : ''}</small> : null}
                       {profile.address ? <small>Address: {profile.address}</small> : null}
+                      {profile.identityReviewStatus && profile.identityReviewStatus !== 'Not required' ? (
+                        <small>Identity review: {profile.identityReviewStatus}</small>
+                      ) : null}
                       {companionNames.length > 0 ? <small>Plays with: {companionNames.join(', ')}</small> : null}
                       {editingProfileId === profile.id && profileEditDraft ? (
                         <form className="profile-edit-form" onSubmit={saveProfileEdit}>
@@ -502,6 +454,11 @@ export default function ProfilesView({
                       ) : null}
                     </div>
                     <div className="profile-actions">
+                      {profile.identityReviewStatus === 'Pending' ? (
+                        <button className="primary-button" onClick={() => approvePlayerIdentity(profile)} aria-label={`Approve ID for ${profile.name}`}>
+                          Approve ID
+                        </button>
+                      ) : null}
                       <button className="secondary-button" onClick={() => beginEditProfile(profile)}>
                         <Edit3 size={16} />
                         Edit
@@ -647,43 +604,6 @@ export default function ProfilesView({
                 </button>
               </form>
               {profileFormMessage ? <p className="profile-form-message">{profileFormMessage}</p> : null}
-              <section className="club-data-import" aria-labelledby="club-data-import-title">
-                <strong id="club-data-import-title">Import club player data</strong>
-                <p>Upload a CSV or XLSX export to add its players to this club. Orbit recognizes member number, names, contact details, membership date, preferences, and played time. SSN-related columns are not imported.</p>
-                <label
-                  className={`secondary-button license-file-button${isImportDropActive ? ' import-drop-active' : ''}`}
-                  onDragEnter={(event) => {
-                    event.preventDefault();
-                    setIsImportDropActive(true);
-                  }}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDragLeave={(event) => {
-                    if (event.currentTarget === event.target) setIsImportDropActive(false);
-                  }}
-                  onDrop={handleImportDrop}
-                >
-                  <Upload size={16} />
-                  <span>Choose or drop CSV/XLSX</span>
-                  <input
-                    type="file"
-                    accept=".csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    onChange={(event) => importProfileFile(event.target.files?.[0])}
-                  />
-                </label>
-                {profileImportMessage ? <p className="profile-import-message" role="status">{profileImportMessage}</p> : null}
-                <details className="pasted-player-import">
-                  <summary>Paste player data instead</summary>
-                  <textarea
-                    className="import-box"
-                    value={importText}
-                    onChange={(event) => setImportText(event.target.value)}
-                    placeholder="Paste CSV: name, preferred game, birthday, membership start, membership expiration, companions separated by |"
-                  />
-                  <button className="secondary-button import-button" onClick={importProfiles}>
-                    Import pasted players
-                  </button>
-                </details>
-              </section>
             </section>
 
             <section className="panel">

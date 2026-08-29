@@ -24,6 +24,7 @@ export type TableTag =
   | 'Fast-moving'
   | 'Slow-moving';
 export type TableCap = 6 | 8 | 10;
+export type IdentityCaptureMethod = 'id-barcode' | 'id-image-pdf417' | 'id-image-ocr' | 'player-camera-pdf417';
 
 export type PhysicalTable = {
   id: string;
@@ -106,7 +107,7 @@ export type PlayerProfile = {
   preferredTags: TableTag[];
   notes: string;
   identityReviewStatus?: 'Pending' | 'Approved' | 'Rejected' | 'Not required';
-  identityCaptureMethod?: 'id-barcode' | 'player-camera-pdf417';
+  identityCaptureMethod?: IdentityCaptureMethod;
   identityCapturedAt?: string;
   identityReviewedAt?: string;
   identityReviewedByStaffId?: string;

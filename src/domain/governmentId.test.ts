@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculatePlayerAge, normalizeIdDate, parseGovernmentIdScan } from './governmentId';
+import { calculatePlayerAge, normalizeIdDate, parseGovernmentIdOcrText, parseGovernmentIdScan } from './governmentId';
 
 describe('government ID scan parsing', () => {
   it('extracts only profile-safe AAMVA fields and calculates age', () => {
@@ -94,5 +94,51 @@ describe('government ID scan parsing', () => {
     expect(calculatePlayerAge('2005-08-27', new Date(2026, 7, 27))).toBe(21);
     expect(normalizeIdDate('02312000')).toBe('');
     expect(parseGovernmentIdScan('not an id')).toBeNull();
+  });
+
+  it('extracts profile-safe details from labeled visible license text', () => {
+    const raw = [
+      'TEXAS DRIVER LICENSE',
+      'DL 12345678',
+      'LAST NAME: DOE',
+      'FIRST NAME: JANE QUINN',
+      'DOB 01/02/1990',
+      'ADDRESS',
+      '100 MAIN STREET',
+      'AUSTIN, TX 78701',
+      'EXP 01/02/2030'
+    ].join('\n');
+
+    expect(parseGovernmentIdOcrText(raw, new Date(2026, 7, 27))).toEqual({
+      fullName: 'JANE QUINN DOE',
+      dateOfBirth: '1990-01-02',
+      address: '100 MAIN STREET, AUSTIN, TX 78701',
+      age: 36
+    });
+  });
+
+  it('supports labels and values on separate lines and named birth months', () => {
+    const raw = [
+      'SURNAME',
+      "O'NEIL",
+      'GIVEN NAMES',
+      'SAM RAE',
+      'DATE OF BIRTH',
+      'February 3, 1991',
+      '42 RIVER RD',
+      'DENVER CO 80202'
+    ].join('\n');
+
+    expect(parseGovernmentIdOcrText(raw, new Date(2026, 7, 27))).toEqual({
+      fullName: "SAM RAE O'NEIL",
+      dateOfBirth: '1991-02-03',
+      address: '42 RIVER RD, DENVER CO 80202',
+      age: 35
+    });
+  });
+
+  it('rejects OCR text that cannot corroborate at least two safe fields', () => {
+    expect(parseGovernmentIdOcrText('DRIVER LICENSE\nDL 12345678\nEXP 01/02/2030')).toBeNull();
+    expect(parseGovernmentIdOcrText('DOB 01/02/1990')).toBeNull();
   });
 });

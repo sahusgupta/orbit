@@ -35,7 +35,7 @@ requireMatch(includesAll(release, [
   'environment: production-release',
   'npm run security:dependencies', 'npm run check:release-controls', 'npm run audit:module-graph', 'npm run verify',
   'npm run check:renderer-bundle', 'npm run check:public-site', 'npm run check:brand',
-  'npm run e2e:management', 'npm run e2e:public', 'npm run e2e:packaged',
+  'npm run e2e:management', 'npm run e2e:ocr-file', 'npm run e2e:public', 'npm run e2e:packaged',
   'CSC_IDENTITY_AUTO_DISCOVERY: "false"',
   'npx --no-install electron-builder --win --publish never --config.forceCodeSigning=false',
   'apps/api/src/stateMigration.test.js', 'apps/api/src/stateArchitecture.test.js', 'electron/accountMigration.test.js',

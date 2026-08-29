@@ -136,11 +136,21 @@ describe('state normalization', () => {
       profiles: [{ ...profile, savedTimeCreditMinutes: 75 }],
       playerSessions: [{ ...playerSession, timeCreditAppliedMinutes: 30 }]
     });
+    const ocrIdentity = normalizeState({
+      ...structuredClone(seedState),
+      profiles: [{ ...profile, identityCaptureMethod: 'id-image-ocr' as const }]
+    });
+    const imageBarcodeIdentity = normalizeState({
+      ...structuredClone(seedState),
+      profiles: [{ ...profile, identityCaptureMethod: 'id-image-pdf417' as const }]
+    });
 
     expect(defaults.profiles[0].savedTimeCreditMinutes).toBe(0);
     expect(defaults.playerSessions[0].timeCreditAppliedMinutes).toBe(0);
     expect(preserved.profiles[0].savedTimeCreditMinutes).toBe(75);
     expect(preserved.playerSessions[0].timeCreditAppliedMinutes).toBe(30);
+    expect(ocrIdentity.profiles[0].identityReviewStatus).toBe('Pending');
+    expect(imageBarcodeIdentity.profiles[0].identityReviewStatus).toBe('Pending');
   });
 
   it('preserves bounded self-check-in configuration and durable assistance status', () => {

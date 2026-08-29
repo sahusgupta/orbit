@@ -24,17 +24,15 @@ const harness = vi.hoisted(() => ({
   stateSetter: undefined as unknown
 }));
 
-vi.mock('exceljs', () => ({
-  Workbook: class Workbook {
-    worksheets = [{
-      getRow: (rowNumber: number) => ({ values: harness.excelRows[rowNumber - 1] ?? [] }),
-      eachRow: (callback: (row: { values: unknown[] }, rowNumber: number) => void) => {
-        harness.excelRows.forEach((values, index) => callback({ values }, index + 1));
-      }
-    }];
-
-    xlsx = { load: vi.fn(async () => undefined) };
-  }
+vi.mock('./profileWorkbookImport', () => ({
+  parseProfileWorkbookRecords: vi.fn(async () => {
+    const [headerRow = [], ...dataRows] = harness.excelRows;
+    const headers = headerRow.slice(1).map((value) => String(value ?? '').trim());
+    return dataRows.map((values) => headers.reduce<Record<string, unknown>>((record, header, index) => {
+      if (header) record[header] = values[index + 1] ?? '';
+      return record;
+    }, {}));
+  })
 }));
 
 const isIdentifiedRecord = (value: unknown): value is IdentifiedRecord =>
@@ -145,10 +143,32 @@ const invoke = async (handler: (...args: unknown[]) => unknown, ...args: unknown
   });
 };
 
+const openShellDestination = async (label: 'Players' | 'Settings') => {
+  const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.orbit-sidebar-nav button')).find(
+    (candidate) => candidate.textContent?.trim() === label
+  );
+  if (!button) throw new Error(`Expected the ${label} navigation button`);
+  await invoke(getReactHandler(button, 'onClick'));
+};
+
+const openSettingsData = async () => {
+  await openShellDestination('Settings');
+  let dataTab: HTMLButtonElement | undefined;
+  await vi.waitFor(() => {
+    dataTab = Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-nav button')).find(
+      (candidate) => candidate.textContent?.trim() === 'Data'
+    );
+    expect(dataTab).toBeDefined();
+  });
+  if (!dataTab) throw new Error('Expected the Data settings tab');
+  await invoke(getReactHandler(dataTab, 'onClick'));
+};
+
 const importPastedProfiles = async (text: string) => {
-  const textarea = document.querySelector<HTMLTextAreaElement>('textarea.import-box');
+  await openSettingsData();
+  const textarea = document.querySelector<HTMLTextAreaElement>('#settings-data .settings-data-import textarea.import-box');
   if (!textarea) throw new Error('Expected the profile import textarea');
-  const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+  const button = Array.from(document.querySelectorAll<HTMLButtonElement>('#settings-data .settings-data-import button')).find(
     (candidate) => candidate.textContent?.trim() === 'Import pasted players'
   );
   if (!button) throw new Error('Expected the profile import button');
@@ -157,16 +177,18 @@ const importPastedProfiles = async (text: string) => {
 };
 
 const importProfileFile = async (file: File) => {
-  const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+  await openSettingsData();
+  const input = document.querySelector<HTMLInputElement>('#settings-data .settings-data-import input[type="file"]');
   if (!input) throw new Error('Expected the profile import file input');
   await act(async () => {
-    await getReactHandler(input, 'onChange')({ target: { files: [file] } });
+    await getReactHandler(input, 'onChange')({ target: { files: [file], value: `C:\\fakepath\\${file.name}` } });
     await Promise.resolve();
   });
 };
 
 const dropProfileFile = async (file: File) => {
-  const dropZone = document.querySelector<HTMLElement>('.club-data-import .license-file-button');
+  await openSettingsData();
+  const dropZone = document.querySelector<HTMLElement>('#settings-data .settings-data-import .license-file-button');
   if (!dropZone) throw new Error('Expected the profile import drop zone');
   await invoke(getReactHandler(dropZone, 'onDragEnter'), {
     preventDefault: () => undefined,
@@ -227,6 +249,7 @@ describe('pasted profile import boundary', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })));
     await act(async () => {
       await import('../components/ProfilesView');
+      await import('../components/SettingsView');
       await import('../main');
     });
   });
@@ -234,6 +257,7 @@ describe('pasted profile import boundary', () => {
   beforeEach(async () => {
     harness.excelRows = [];
     await resetProfiles();
+    await openShellDestination('Players');
   });
 
   afterAll(() => {
@@ -247,7 +271,7 @@ describe('pasted profile import boundary', () => {
     document.body.innerHTML = '';
   });
 
-  it('renders the memberships route navigation, directory panels, and profile import controls', () => {
+  it('renders the memberships route navigation and directory panels without bulk import controls', () => {
     expect(document.querySelector('h1')?.textContent).toBe('Players');
     expect(document.querySelector('.page-subtitle')?.textContent).toBe(
       "Active memberships and today's player activity"
@@ -281,13 +305,11 @@ describe('pasted profile import boundary', () => {
     expect(document.querySelector('.profile-search-row input')?.getAttribute('placeholder')).toBe(
       'Search players, stakes, companions, notes'
     );
-    expect(document.querySelector('#club-data-import-title')?.textContent).toBe('Import club player data');
-    expect(document.querySelector('.club-data-import p')?.textContent).toContain('CSV or XLSX');
-    expect(document.querySelector('textarea.import-box')?.getAttribute('placeholder')).toContain('Paste CSV');
-    expect(document.querySelector('.club-data-import .license-file-button')?.textContent).toContain('Choose or drop CSV/XLSX');
+    expect(document.querySelector('.club-data-import')).toBeNull();
+    expect(document.querySelector('textarea.import-box')).toBeNull();
   });
 
-  it('keeps the club data importer available in the OCR-enhanced Add member dialog', async () => {
+  it('keeps the OCR-enhanced Add member dialog focused on one member', async () => {
     const addPlayerButton = document.querySelector<HTMLButtonElement>('[aria-label="Add player"]');
     if (!addPlayerButton) throw new Error('Expected the Add player button');
     await invoke(getReactHandler(addPlayerButton, 'onClick'));
@@ -295,38 +317,33 @@ describe('pasted profile import boundary', () => {
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
     expect(dialog?.textContent).toContain('Address');
     expect(dialog?.textContent).toContain('Birthday');
-    expect(dialog?.querySelector('.player-popup-import .license-file-button')?.textContent).toContain(
-      'Choose or drop CSV/XLSX'
-    );
+    expect(dialog?.querySelector('.player-popup-import')).toBeNull();
+    expect(dialog?.textContent).not.toContain('Import existing player data');
 
     const closeButton = dialog?.querySelector<HTMLButtonElement>('[aria-label="Close player form"]');
     if (!closeButton) throw new Error('Expected the player dialog close button');
     act(() => closeButton.click());
   });
 
-  it('keeps the Add member dialog open and surfaces file validation feedback beside its importer', async () => {
-    const addPlayerButton = document.querySelector<HTMLButtonElement>('[aria-label="Add player"]');
-    if (!addPlayerButton) throw new Error('Expected the Add player button');
-    await invoke(getReactHandler(addPlayerButton, 'onClick'));
-
-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-    const fileInput = dialog?.querySelector<HTMLInputElement>('.player-popup-import input[type="file"]');
-    if (!dialog || !fileInput) throw new Error('Expected the Add member import control');
+  it('keeps file validation feedback beside the sole importer in Settings Data', async () => {
+    await openSettingsData();
+    const importer = document.querySelector<HTMLElement>('#settings-data .settings-data-import');
+    const fileInput = importer?.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!importer || !fileInput) throw new Error('Expected the Settings Data import control');
+    const target = {
+      files: [new File(['name\nAlice'], 'invalid.csv', { type: 'text/csv' })],
+      value: 'C:\\fakepath\\invalid.csv'
+    };
     await invoke(getReactHandler(fileInput, 'onChange'), {
-      target: {
-        files: [new File(['name\nAlice'], 'invalid.csv', { type: 'text/csv' })],
-        value: 'C:\\fakepath\\invalid.csv'
-      }
+      target
     });
 
-    expect(document.querySelector('[role="dialog"]')).toBe(dialog);
-    expect(dialog.querySelector('.player-popup-import .profile-import-message')?.textContent).toBe(
+    expect(document.querySelector('.settings-nav button.active')?.textContent).toBe('Data');
+    expect(document.querySelectorAll('.club-data-import')).toHaveLength(1);
+    expect(importer.querySelector('.profile-import-message')?.textContent).toBe(
       'The CSV must contain a comma-separated header row.'
     );
-
-    const closeButton = dialog.querySelector<HTMLButtonElement>('[aria-label="Close player form"]');
-    if (!closeButton) throw new Error('Expected the player dialog close button');
-    act(() => closeButton.click());
+    expect(target.value).toBe('');
   });
 
   it('normalizes valid JSON arrays, aliases, arrays, and numeric strings without losing fields', async () => {

@@ -1,5 +1,5 @@
 import { Download, FileText, KeyRound, Moon, Plus, Settings, Trash2, Upload, Users, X } from 'lucide-react';
-import type { Dispatch, FormEvent, SetStateAction } from 'react';
+import { useState, type Dispatch, type DragEvent, type FormEvent, type SetStateAction } from 'react';
 import PanelTitle from './PanelTitle';
 import { getCollectionProfile } from '../domain/reporting';
 import type { AppState, ClubAccount, CollectionProfile, TableCap } from '../domain/types';
@@ -40,6 +40,10 @@ type SettingsViewProps = {
   exportRoomData: () => void;
   exportJson: () => void;
   importBackupFile: (file?: File) => Promise<void>;
+  importProfileFile: (file?: File) => Promise<void>;
+  profileImportMessage: string;
+  importProfiles: () => void;
+  importText: string;
   submitAnalyticalReport: () => Promise<void>;
   exportPilotReport: () => void;
   applyDefaultCollectionToActiveTables: () => void;
@@ -50,6 +54,7 @@ type SettingsViewProps = {
   ) => void;
   setBackendStatus: Dispatch<SetStateAction<BackendStatus | null>>;
   setClubDraft: Dispatch<SetStateAction<ClubAccount>>;
+  setImportText: Dispatch<SetStateAction<string>>;
   setSettingsSection: Dispatch<SetStateAction<SettingsSection>>;
   setStaffDraft: Dispatch<SetStateAction<StaffDraft>>;
 };
@@ -79,6 +84,10 @@ export default function SettingsView({
   exportRoomData,
   exportJson,
   importBackupFile,
+  importProfileFile,
+  profileImportMessage,
+  importProfiles,
+  importText,
   submitAnalyticalReport,
   exportPilotReport,
   applyDefaultCollectionToActiveTables,
@@ -86,9 +95,23 @@ export default function SettingsView({
   updateCollectionProfile,
   setBackendStatus,
   setClubDraft,
+  setImportText,
   setSettingsSection,
   setStaffDraft
 }: SettingsViewProps) {
+  const [isImportDropActive, setIsImportDropActive] = useState(false);
+
+  const handleImportDrop = async (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setIsImportDropActive(false);
+    await importProfileFile(event.dataTransfer.files[0]);
+  };
+
+  const handleImportFileSelection = async (file?: File) => {
+    if (!file) return;
+    await importProfileFile(file);
+  };
+
   return (
       <main className={`app-shell compact-shell settings-page settings-view-${settingsSection}`}>
         <header className="topbar">
@@ -304,6 +327,51 @@ export default function SettingsView({
           <section className="panel settings-panel" id="settings-data">
             <PanelTitle icon={<Download />} title="Data Safety" />
             <div className="preference-list">
+              <section
+                className="preference-row club-data-import settings-data-import"
+                aria-labelledby="club-data-import-title"
+              >
+                <strong id="club-data-import-title">Import club player data</strong>
+                <p>Upload a CSV or XLSX export to add its players to this club. Orbit recognizes member number, names, contact details, membership date, preferences, and played time. SSN-related columns are not imported.</p>
+                <label
+                  className={`secondary-button license-file-button${isImportDropActive ? ' import-drop-active' : ''}`}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    setIsImportDropActive(true);
+                  }}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDragLeave={(event) => {
+                    if (event.currentTarget === event.target) setIsImportDropActive(false);
+                  }}
+                  onDrop={handleImportDrop}
+                >
+                  <Upload size={16} />
+                  <span>Choose or drop CSV/XLSX</span>
+                  <input
+                    className="settings-data-import-file"
+                    type="file"
+                    accept=".csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    onChange={async (event) => {
+                      await handleImportFileSelection(event.target.files?.[0]);
+                      event.target.value = '';
+                    }}
+                  />
+                </label>
+                {profileImportMessage ? <p className="profile-import-message" role="status">{profileImportMessage}</p> : null}
+                <details className="pasted-player-import">
+                  <summary>Paste player data instead</summary>
+                  <textarea
+                    aria-label="Pasted player data"
+                    className="import-box"
+                    value={importText}
+                    onChange={(event) => setImportText(event.target.value)}
+                    placeholder="Paste CSV: name, preferred game, birthday, membership start, membership expiration, companions separated by |"
+                  />
+                  <button className="secondary-button import-button" type="button" onClick={importProfiles}>
+                    Import pasted players
+                  </button>
+                </details>
+              </section>
               <article className="preference-row">
                 <div>
                   <strong>Export room data</strong>

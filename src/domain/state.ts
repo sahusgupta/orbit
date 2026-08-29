@@ -250,7 +250,7 @@ export function normalizeState(parsed: PersistedAppState): AppState {
         birthday: profile.birthday ?? '',
         identityReviewStatus:
           profile.identityReviewStatus ??
-          (profile.identityCaptureMethod === 'player-camera-pdf417'
+          (profile.identityCaptureMethod === 'player-camera-pdf417' || profile.identityCaptureMethod === 'id-image-pdf417' || profile.identityCaptureMethod === 'id-image-ocr'
             ? 'Pending'
             : profile.identityCaptureMethod === 'id-barcode'
               ? 'Approved'

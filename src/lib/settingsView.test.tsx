@@ -421,8 +421,16 @@ describe('settings route rendering', () => {
     act(() => dataTab!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
     expect(document.querySelector('.settings-nav button.active')?.textContent).toBe('Data');
+    const playerImporter = document.querySelector<HTMLElement>('#settings-data .settings-data-import');
+    expect(playerImporter?.getAttribute('aria-labelledby')).toBe('club-data-import-title');
+    expect(playerImporter?.querySelector('#club-data-import-title')?.textContent).toBe('Import club player data');
+    expect(playerImporter?.textContent).toContain('CSV or XLSX');
+    expect(playerImporter?.textContent).toContain('SSN-related columns are not imported.');
+    expect(playerImporter?.querySelector<HTMLInputElement>('input[type="file"]')?.accept).toContain('.xlsx');
+    expect(playerImporter?.querySelector('textarea')?.getAttribute('aria-label')).toBe('Pasted player data');
+    expect(document.querySelectorAll('#settings-data .club-data-import')).toHaveLength(1);
     const dataActions = Array.from(
-      document.querySelectorAll('#settings-data .preference-row button'),
+      document.querySelectorAll('#settings-data .preference-row:not(.settings-data-import) button'),
       (button) => button.textContent?.replace(/\s+/g, ' ').trim()
     );
     expect(dataActions.slice(0, 2)).toEqual(['Export Room Data', 'Export Restorable Backup']);

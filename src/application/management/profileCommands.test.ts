@@ -161,6 +161,40 @@ describe('management profile commands', () => {
     expect(source).toEqual(snapshot);
   });
 
+  it('keeps OCR-derived identity details pending for staff review', () => {
+    const result = createActiveMemberProfile(
+      state(),
+      { ...newProfileInput, identityCaptureMethod: 'id-image-ocr' },
+      dependencies()
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.profile).toMatchObject({
+      identityCaptureMethod: 'id-image-ocr',
+      identityCapturedAt: now,
+      identityReviewStatus: 'Pending'
+    });
+    expect(result.profile.identityReviewedAt).toBeUndefined();
+  });
+
+  it('keeps image-barcode identity details pending for staff review', () => {
+    const result = createActiveMemberProfile(
+      state(),
+      { ...newProfileInput, identityCaptureMethod: 'id-image-pdf417' },
+      dependencies()
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.profile).toMatchObject({
+      identityCaptureMethod: 'id-image-pdf417',
+      identityCapturedAt: now,
+      identityReviewStatus: 'Pending'
+    });
+    expect(result.profile.identityReviewedAt).toBeUndefined();
+  });
+
   it('archives and restores a profile without changing any linked operational history', () => {
     const target = profile('profile-archive', 'Archive Player');
     const source = state({
