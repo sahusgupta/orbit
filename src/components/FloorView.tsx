@@ -1,12 +1,10 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { useRef, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
+import { lazy, Suspense, useRef, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
 import { ChevronDown, ChevronUp, Eye, LayoutDashboard, LayoutGrid, List, MoreHorizontal, Plus, Users, WalletCards, X } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Button } from './ui/button';
-import FloorRoomMap, { getFloorLayoutStorageKey } from './FloorRoomMap';
-import FloorClassicOverview from './FloorClassicOverview';
 import FloorUtilities from './FloorUtilities';
-import PokerTable, { type Player as PokerTablePlayer } from './PokerTable';
+import type { Player as PokerTablePlayer } from './PokerTable';
 import PanelTitle from './PanelTitle';
 import { getAccountKeyFromState } from '../domain/licensing';
 import { hasProfileReference } from '../lib/profileRelationships';
@@ -21,6 +19,7 @@ import {
 } from '../domain/operations';
 import { activeInterestStatuses, getParticipantPool } from '../domain/participants';
 import type { FloorActivityItem } from '../features/floor/floorActivity';
+import { getFloorLayoutStorageKey } from '../features/floor/floorLayoutStorage';
 import type {
   AppState,
   GameConfig,
@@ -39,6 +38,10 @@ import type {
   QuickAddForm,
   SeatPickerState
 } from '../features/floor/floorWorkspace';
+
+const FloorRoomMap = lazy(() => import('./FloorRoomMap'));
+const FloorClassicOverview = lazy(() => import('./FloorClassicOverview'));
+const PokerTable = lazy(() => import('./PokerTable'));
 
 type FloorViewProps = {
   state: AppState;
@@ -298,38 +301,45 @@ export default function FloorView(props: FloorViewProps) {
       </Dialog.Root>
 
       <div className="floor-room-workspace">
-        {state.settings.showPlayerGrid ? (
-          <FloorRoomMap
-            key={floorLayoutStorageKey}
-            sessions={state.sessions}
-            physicalTables={state.physicalTables ?? []}
-            games={state.games}
-            playerSessions={state.playerSessions}
-            clockNow={clockNow}
-            layoutStorageKey={floorLayoutStorageKey}
-            getTimeRemainingSeconds={getTimeRemainingSeconds}
-            onOpenTable={openTableView}
-            onAddPhysicalTable={addPhysicalTable}
-            onStartGameAtTable={(physicalTableId, gameId) => addSession(gameId, physicalTableId)}
-            onClearTable={clearTable}
-            onDeleteTable={deleteTable}
-            onMergeTable={mergeTable}
-          />
-        ) : (
-          <FloorClassicOverview
-            sessions={state.sessions}
-            games={state.games}
-            playerSessions={state.playerSessions}
-            clockNow={clockNow}
-            getTimeRemainingSeconds={getTimeRemainingSeconds}
-            formatTimeLeft={formatTimeLeft}
-            onOpenTable={openTableView}
-            onManageTables={() => openFloorWorkspace('currentTables')}
-            onClearTable={clearTable}
-            onDeleteTable={deleteTable}
-            onMergeTable={mergeTable}
-          />
-        )}
+        <Suspense fallback={(
+          <div className="route-skeleton" aria-busy="true" aria-label="Loading floor layout">
+            <span className="route-skeleton-toolbar" />
+            <span className="route-skeleton-panel" />
+          </div>
+        )}>
+          {state.settings.showPlayerGrid ? (
+            <FloorRoomMap
+              key={floorLayoutStorageKey}
+              sessions={state.sessions}
+              physicalTables={state.physicalTables ?? []}
+              games={state.games}
+              playerSessions={state.playerSessions}
+              clockNow={clockNow}
+              layoutStorageKey={floorLayoutStorageKey}
+              getTimeRemainingSeconds={getTimeRemainingSeconds}
+              onOpenTable={openTableView}
+              onAddPhysicalTable={addPhysicalTable}
+              onStartGameAtTable={(physicalTableId, gameId) => addSession(gameId, physicalTableId)}
+              onClearTable={clearTable}
+              onDeleteTable={deleteTable}
+              onMergeTable={mergeTable}
+            />
+          ) : (
+            <FloorClassicOverview
+              sessions={state.sessions}
+              games={state.games}
+              playerSessions={state.playerSessions}
+              clockNow={clockNow}
+              getTimeRemainingSeconds={getTimeRemainingSeconds}
+              formatTimeLeft={formatTimeLeft}
+              onOpenTable={openTableView}
+              onManageTables={() => openFloorWorkspace('currentTables')}
+              onClearTable={clearTable}
+              onDeleteTable={deleteTable}
+              onMergeTable={mergeTable}
+            />
+          )}
+        </Suspense>
 
         <nav className="floor-workspace-dock" aria-label="Floor workspaces">
           <button
@@ -542,48 +552,50 @@ export default function FloorView(props: FloorViewProps) {
                       ) : null}
                       {tableExpanded ? (
                         <div className="poker-table-display">
-                          <PokerTable
-                            players={pokerTablePlayers}
-                            showTimeRemaining={isTimeCollection}
-                            maxPlayers={session.maxSeats}
-                            selectedSeatNumber={seatPicker?.sessionId === session.id ? seatPicker.seatNumber : undefined}
-                            moveTargets={getMoveTargets(session.id)}
-                            onSeatClick={(seatNumber) =>
-                              openSeatPicker(session, seatNumber)
-                            }
-                            onAddTime={(playerId, minutes) => {
-                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              if (playerSession) addPlayerTime(playerSession, minutes);
-                            }}
-                            onDeductTime={(playerId, minutes) => {
-                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              return playerSession ? deductPlayerTime(playerSession, minutes) : false;
-                            }}
-                            onPauseAndSaveTime={(playerId) => {
-                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              return playerSession ? pauseAndSavePlayerTime(playerSession) : false;
-                            }}
-                            onUseSavedTime={(playerId, minutes) => {
-                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              return playerSession ? useSavedPlayerTime(playerSession, minutes) : false;
-                            }}
-                            onAddBuyIn={(playerId, amount, note) => {
-                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              if (playerSession) addBuyIn(playerSession, amount, note);
-                            }}
-                            onRemovePlayer={(playerId) => {
-                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              if (playerSession) requestPlayerCashOut(playerSession);
-                            }}
-                            onChangeSeat={(playerId, seatNumber) => {
-                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              if (playerSession) changePlayerSeat(playerSession, seatNumber);
-                            }}
-                            onMovePlayer={(playerId, targetTableId) => {
-                              const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                              if (playerSession) movePlayerToTable(playerSession, targetTableId);
-                            }}
-                          />
+                          <Suspense fallback={<div className="cash-ledger-empty" aria-busy="true">Loading table...</div>}>
+                            <PokerTable
+                              players={pokerTablePlayers}
+                              showTimeRemaining={isTimeCollection}
+                              maxPlayers={session.maxSeats}
+                              selectedSeatNumber={seatPicker?.sessionId === session.id ? seatPicker.seatNumber : undefined}
+                              moveTargets={getMoveTargets(session.id)}
+                              onSeatClick={(seatNumber) =>
+                                openSeatPicker(session, seatNumber)
+                              }
+                              onAddTime={(playerId, minutes) => {
+                                const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                                if (playerSession) addPlayerTime(playerSession, minutes);
+                              }}
+                              onDeductTime={(playerId, minutes) => {
+                                const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                                return playerSession ? deductPlayerTime(playerSession, minutes) : false;
+                              }}
+                              onPauseAndSaveTime={(playerId) => {
+                                const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                                return playerSession ? pauseAndSavePlayerTime(playerSession) : false;
+                              }}
+                              onUseSavedTime={(playerId, minutes) => {
+                                const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                                return playerSession ? useSavedPlayerTime(playerSession, minutes) : false;
+                              }}
+                              onAddBuyIn={(playerId, amount, note) => {
+                                const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                                if (playerSession) addBuyIn(playerSession, amount, note);
+                              }}
+                              onRemovePlayer={(playerId) => {
+                                const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                                if (playerSession) requestPlayerCashOut(playerSession);
+                              }}
+                              onChangeSeat={(playerId, seatNumber) => {
+                                const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                                if (playerSession) changePlayerSeat(playerSession, seatNumber);
+                              }}
+                              onMovePlayer={(playerId, targetTableId) => {
+                                const playerSession = seatedPlayers.find((player) => player.id === playerId);
+                                if (playerSession) movePlayerToTable(playerSession, targetTableId);
+                              }}
+                            />
+                          </Suspense>
                         </div>
                       ) : (
                         <div className="table-collapsed-note">

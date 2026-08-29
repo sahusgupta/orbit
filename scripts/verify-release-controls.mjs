@@ -42,6 +42,7 @@ requireMatch(includesAll(release, [
   'Get-FileHash', 'actions/attest@v4', 'overwrite: false', '--prerelease'
 ]), 'Release workflow is missing an immutable verification, packaging, canary, promotion, or rollback control.');
 requireMatch(includesAll(release, ['group: orbit-desktop-release', 'cancel-in-progress: false']), 'Desktop release runs must be serialized without cancelling in-flight evidence.');
+requireMatch(/defaults:\r?\n\s+run:\r?\n\s+shell:\s+bash/.test(release), 'Windows release commands must use a fail-fast shell so an earlier native gate failure cannot be masked.');
 requireMatch(release.includes("promotion_confirmation must be exactly PROMOTE when promote=true."), 'Solo-maintainer promotion must require an explicit typed confirmation.');
 requireMatch(includesAll(release, ['INPUT_PROMOTION_CONFIRMATION: ${{ inputs.promotion_confirmation }}', '$env:INPUT_PROMOTION_CONFIRMATION']), 'Release confirmation input must cross the workflow boundary through an environment variable.');
 requireMatch(!release.includes('CSC_LINK') && !release.includes('CSC_KEY_PASSWORD'), 'The release workflow must not require signing credentials.');

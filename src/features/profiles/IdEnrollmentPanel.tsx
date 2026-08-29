@@ -15,13 +15,13 @@ export default function IdEnrollmentPanel({ minimumAge, onApply }: IdEnrollmentP
 
   const readScan = (value = rawScan) => {
     const parsed = parseGovernmentIdScan(value);
+    setRawScan('');
     if (!parsed) {
       setIdentity(null);
       setMessage('That scan was not recognized. Try again or use the regular Add member form.');
       return;
     }
     setIdentity(parsed);
-    setRawScan('');
     setMessage(parsed.fullName && parsed.dateOfBirth
       ? 'ID details extracted. Confirm them before continuing.'
       : 'The scan was incomplete. Try the PDF417 barcode on the back of the ID.');

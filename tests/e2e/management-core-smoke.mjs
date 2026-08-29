@@ -490,6 +490,51 @@ try {
 
   await page.getByRole('button', { name: 'Players', exact: true }).click();
   const addPlayerButton = page.locator('button.player-tool-icon[aria-label="Add player"]');
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 900, height: 760 },
+    { width: 680, height: 760 },
+    { width: 390, height: 700 }
+  ]) {
+    await page.setViewportSize(viewport);
+    await addPlayerButton.click();
+    const responsiveDialog = page.getByRole('dialog', { name: 'Add member' });
+    const importer = responsiveDialog.locator('.player-popup-import');
+    const submitButton = responsiveDialog.getByRole('button', { name: 'Add active member' });
+    await importer.evaluate((element) => element.scrollIntoView({ block: 'nearest' }));
+    const importerLayout = await responsiveDialog.evaluate((dialog) => {
+      const importerElement = dialog.querySelector('.player-popup-import');
+      const dialogRect = dialog.getBoundingClientRect();
+      const importerRect = importerElement?.getBoundingClientRect();
+      return {
+        dialogTop: dialogRect.top,
+        dialogBottom: dialogRect.bottom,
+        importerTop: importerRect?.top,
+        importerBottom: importerRect?.bottom,
+        reachable: Boolean(importerRect && importerRect.top >= dialogRect.top - 1 && importerRect.bottom <= dialogRect.bottom + 1)
+      };
+    });
+    await submitButton.evaluate((element) => element.scrollIntoView({ block: 'nearest' }));
+    const dialogLayout = await responsiveDialog.evaluate((dialog) => {
+      const form = dialog.querySelector('.player-popup-form');
+      const actions = dialog.querySelector('.player-popup-actions');
+      const dialogRect = dialog.getBoundingClientRect();
+      const actionsRect = actions?.getBoundingClientRect();
+      return {
+        dialogInViewport: dialogRect.top >= 0 && dialogRect.bottom <= window.innerHeight,
+        formScrollable: Boolean(form && form.scrollHeight > form.clientHeight && getComputedStyle(form).overflowY === 'auto'),
+        actionsReachable: Boolean(actionsRect && actionsRect.top >= dialogRect.top - 1 && actionsRect.bottom <= dialogRect.bottom + 1)
+      };
+    });
+    assert(dialogLayout.dialogInViewport, `Add member dialog escaped the ${viewport.width}x${viewport.height} viewport.`);
+    assert(importerLayout.reachable, `Player importer was unreachable at ${viewport.width}x${viewport.height}: ${JSON.stringify(importerLayout)}.`);
+    assert(dialogLayout.actionsReachable, `Add member actions were unreachable at ${viewport.width}x${viewport.height}.`);
+    if (viewport.height < 900) {
+      assert(dialogLayout.formScrollable, `Add member form did not scroll at ${viewport.width}x${viewport.height}.`);
+    }
+    await responsiveDialog.getByRole('button', { name: 'Close player form' }).click();
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await addPlayerButton.focus();
   await page.keyboard.press('Enter');
   const addPlayerDialog = page.getByRole('dialog', { name: 'Add member' });

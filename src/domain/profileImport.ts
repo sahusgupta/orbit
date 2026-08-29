@@ -100,15 +100,17 @@ export function profileFromImportedRecord(
     .map((companionName) => companionName.trim())
     .filter(Boolean);
   const email = importedEmail(item);
-    const hasSSNAliases = ['hasSSN', 'Has SSN', 'hasSocialSecurityNumber', 'Has Social Security Number'];
-    const hasSSNValue = importedValue(item, hasSSNAliases) !== undefined;
-    const hasSSN = importedBoolean(item, hasSSNAliases);
-  const address = {
+  const addressParts = {
     street: importedString(item, ['address.street', 'Address Street', 'street', 'Street']),
     city: importedString(item, ['address.city', 'Address City', 'city', 'City']),
     state: importedString(item, ['address.state', 'Address State', 'state', 'State']),
     zipCode: importedString(item, ['address.zipCode', 'Address Zip Code', 'zipCode', 'Zip Code', 'zip', 'ZIP'])
   };
+  const address = importedString(item, ['address', 'Address', 'fullAddress', 'Full Address']) || [
+    addressParts.street,
+    addressParts.city,
+    [addressParts.state, addressParts.zipCode].filter(Boolean).join(' ')
+  ].filter(Boolean).join(', ');
   const preferenceAliases = [
     'optInEmail', 'Opt In Email', 'emailOptIn', 'Email Opt In',
     'optInMail', 'Opt In Mail', 'mailOptIn', 'Mail Opt In',
@@ -120,8 +122,7 @@ export function profileFromImportedRecord(
     name,
     phone: importedPhone(item),
     ...(email ? { email } : {}),
-      ...(hasSSNValue ? { hasSSN } : {}),
-    ...(Object.values(address).some(Boolean) ? { address } : {}),
+    ...(address ? { address } : {}),
     ...(hasCommunicationPreferences ? {
       communicationPreferences: {
         email: importedBoolean(item, ['optInEmail', 'Opt In Email', 'emailOptIn', 'Email Opt In']),

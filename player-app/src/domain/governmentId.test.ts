@@ -44,4 +44,9 @@ describe('player government ID barcode parsing', () => {
     expect(parseGovernmentIdBarcode(raw.replace('100 MAIN STREET', '123 DAKOTA STREET'))?.address)
       .toBe('123 DAKOTA STREET, AUSTIN, TX 787010000, USA');
   });
+
+  it('keeps an optional second street-address line', () => {
+    expect(parseGovernmentIdBarcode(raw.replace('DAIAUSTIN', 'DAHAPT 4B\nDAIAUSTIN'))?.address)
+      .toBe('100 MAIN STREET, APT 4B, AUSTIN, TX 787010000, USA');
+  });
 });

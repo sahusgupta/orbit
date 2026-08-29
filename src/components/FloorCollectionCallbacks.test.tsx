@@ -331,6 +331,9 @@ describe('floor collection projections', () => {
 
     await act(async () => {
       await import('../main');
+      await import('./FloorRoomMap');
+      await import('./FloorClassicOverview');
+      await import('./PokerTable');
     });
   });
 

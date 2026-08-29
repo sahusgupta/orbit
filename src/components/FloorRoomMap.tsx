@@ -5,6 +5,8 @@ import { Check, LayoutGrid, Maximize2, Pencil, Plus, RotateCcw, X, ZoomIn, ZoomO
 import type { GameConfig, GameSession, PhysicalTable, PlayerSession, TableCap } from '../domain/types';
 import { getTimerStatusFromSeconds } from '../lib/appCore';
 
+export { getFloorLayoutStorageKey } from '../features/floor/floorLayoutStorage';
+
 type FloorPosition = { x: number; y: number };
 type FloorLayout = Record<string, FloorPosition>;
 type FloorRoomNode = {
@@ -62,9 +64,6 @@ const normalizePosition = ({ x, y }: FloorPosition): FloorPosition => ({
   x: clamp(x, minimumX, maximumX),
   y: clamp(y, minimumY, maximumY)
 });
-
-export const getFloorLayoutStorageKey = (accountKey: string) =>
-  `orbit-floor-layout-v1:${accountKey}`;
 
 const getFloorGridDimensions = (sessionCount: number) => {
   if (!sessionCount) return { columns: 1, rows: 1 };

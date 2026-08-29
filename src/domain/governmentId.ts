@@ -6,7 +6,7 @@ export type ScannedGovernmentId = {
 };
 
 const AAMVA_FIELDS = [
-  'DAQ', 'DCS', 'DAC', 'DAD', 'DCT', 'DBB', 'DAG', 'DAI', 'DAJ', 'DAK', 'DCG'
+  'DAQ', 'DCS', 'DAC', 'DAD', 'DCT', 'DBB', 'DAG', 'DAH', 'DAI', 'DAJ', 'DAK', 'DCG'
 ] as const;
 
 function cleanValue(value = '') {
@@ -14,20 +14,8 @@ function cleanValue(value = '') {
 }
 
 function readAamvaField(raw: string, field: typeof AAMVA_FIELDS[number]) {
-  const start = raw.indexOf(field);
-  if (start < 0) return '';
-  const valueStart = start + field.length;
-  let valueEnd = raw.length;
-  for (const candidate of AAMVA_FIELDS) {
-    if (candidate === field) continue;
-    const candidateIndex = raw.indexOf(candidate, valueStart);
-    if (candidateIndex >= 0 && candidateIndex < valueEnd) valueEnd = candidateIndex;
-  }
-  for (const separator of ['\n', '\r', '\u001d', '\u001e']) {
-    const separatorIndex = raw.indexOf(separator, valueStart);
-    if (separatorIndex >= 0 && separatorIndex < valueEnd) valueEnd = separatorIndex;
-  }
-  return cleanValue(raw.slice(valueStart, valueEnd));
+  const match = new RegExp(`(?:^|[\\r\\n\\u001d\\u001e])(?:DL|ID)?${field}([^\\r\\n\\u001d\\u001e]*)`, 'm').exec(raw);
+  return cleanValue(match?.[1]);
 }
 
 function isoDate(year: number, month: number, day: number) {
@@ -66,14 +54,28 @@ export function calculatePlayerAge(dateOfBirth: string, today = new Date()) {
   return age >= 0 && age < 130 ? age : null;
 }
 
-function parseMagstripeName(raw: string) {
-  const match = /%[A-Z]{2}[^\^]*\^([^\^]+)\^([^?]*)/i.exec(raw);
-  if (!match) return { fullName: '', address: '' };
-  const nameParts = match[1].split('$').map(cleanValue).filter(Boolean);
-  const [lastName, firstName, middleName] = nameParts;
+function readMagstripeField(value: string, maximumLength: number) {
+  const separatorIndex = value.indexOf('^');
+  if (separatorIndex >= 0 && separatorIndex <= maximumLength) {
+    return [value.slice(0, separatorIndex), value.slice(separatorIndex + 1)] as const;
+  }
+  return [value.slice(0, maximumLength), value.slice(maximumLength)] as const;
+}
+
+function parseMagstripe(raw: string) {
+  const trackOne = /%([A-Z]{2})([^?]*)\?/i.exec(raw);
+  const trackTwo = /;6\d{5}\d{1,13}=\d{4}(\d{8})(?:\d{1,5}|=)\?/i.exec(raw);
+  const [cityValue, afterCity] = readMagstripeField(trackOne?.[2] || '', 13);
+  const [nameValue, addressValue] = readMagstripeField(afterCity, 35);
+  const nameParts = nameValue.split('$').map(cleanValue).filter(Boolean);
+  const [lastName, firstName, suffix] = nameParts;
+  const street = cleanValue(addressValue.replace(/\^+$/, '').replace(/\$/g, ', '));
+  const city = cleanValue(cityValue);
+  const region = cleanValue(trackOne?.[1]);
   return {
-    fullName: cleanValue([firstName, middleName, lastName].filter(Boolean).join(' ')),
-    address: cleanValue(match[2])
+    fullName: cleanValue([firstName, lastName, suffix].filter(Boolean).join(' ')),
+    dateOfBirth: normalizeIdDate(trackTwo?.[1] || ''),
+    address: cleanValue([street, city, region].filter(Boolean).join(', '))
   };
 }
 
@@ -83,10 +85,10 @@ export function parseGovernmentIdScan(rawValue: string, today = new Date()): Sca
   const familyName = readAamvaField(raw, 'DCS');
   const firstName = readAamvaField(raw, 'DAC') || readAamvaField(raw, 'DCT');
   const middleName = readAamvaField(raw, 'DAD');
-  const magstripe = parseMagstripeName(raw);
+  const magstripe = parseMagstripe(raw);
   const fullName = cleanValue([firstName, middleName, familyName].filter(Boolean).join(' ')) || magstripe.fullName;
-  const dateOfBirth = normalizeIdDate(readAamvaField(raw, 'DBB'));
-  const street = readAamvaField(raw, 'DAG') || magstripe.address;
+  const dateOfBirth = normalizeIdDate(readAamvaField(raw, 'DBB')) || magstripe.dateOfBirth;
+  const street = [readAamvaField(raw, 'DAG'), readAamvaField(raw, 'DAH')].filter(Boolean).join(', ') || magstripe.address;
   const city = readAamvaField(raw, 'DAI');
   const region = readAamvaField(raw, 'DAJ');
   const postalCode = readAamvaField(raw, 'DAK').replace(/[^A-Za-z0-9 -]/g, '').trim();

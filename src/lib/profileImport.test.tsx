@@ -141,8 +141,7 @@ const getReactHandler = (element: Element, name: 'onChange' | 'onClick' | 'onDra
 
 const invoke = async (handler: (...args: unknown[]) => unknown, ...args: unknown[]) => {
   await act(async () => {
-    handler(...args);
-    await Promise.resolve();
+    await handler(...args);
   });
 };
 
@@ -288,6 +287,48 @@ describe('pasted profile import boundary', () => {
     expect(document.querySelector('.club-data-import .license-file-button')?.textContent).toContain('Choose or drop CSV/XLSX');
   });
 
+  it('keeps the club data importer available in the OCR-enhanced Add member dialog', async () => {
+    const addPlayerButton = document.querySelector<HTMLButtonElement>('[aria-label="Add player"]');
+    if (!addPlayerButton) throw new Error('Expected the Add player button');
+    await invoke(getReactHandler(addPlayerButton, 'onClick'));
+
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.textContent).toContain('Address');
+    expect(dialog?.textContent).toContain('Birthday');
+    expect(dialog?.querySelector('.player-popup-import .license-file-button')?.textContent).toContain(
+      'Choose or drop CSV/XLSX'
+    );
+
+    const closeButton = dialog?.querySelector<HTMLButtonElement>('[aria-label="Close player form"]');
+    if (!closeButton) throw new Error('Expected the player dialog close button');
+    act(() => closeButton.click());
+  });
+
+  it('keeps the Add member dialog open and surfaces file validation feedback beside its importer', async () => {
+    const addPlayerButton = document.querySelector<HTMLButtonElement>('[aria-label="Add player"]');
+    if (!addPlayerButton) throw new Error('Expected the Add player button');
+    await invoke(getReactHandler(addPlayerButton, 'onClick'));
+
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const fileInput = dialog?.querySelector<HTMLInputElement>('.player-popup-import input[type="file"]');
+    if (!dialog || !fileInput) throw new Error('Expected the Add member import control');
+    await invoke(getReactHandler(fileInput, 'onChange'), {
+      target: {
+        files: [new File(['name\nAlice'], 'invalid.csv', { type: 'text/csv' })],
+        value: 'C:\\fakepath\\invalid.csv'
+      }
+    });
+
+    expect(document.querySelector('[role="dialog"]')).toBe(dialog);
+    expect(dialog.querySelector('.player-popup-import .profile-import-message')?.textContent).toBe(
+      'The CSV must contain a comma-separated header row.'
+    );
+
+    const closeButton = dialog.querySelector<HTMLButtonElement>('[aria-label="Close player form"]');
+    if (!closeButton) throw new Error('Expected the player dialog close button');
+    act(() => closeButton.click());
+  });
+
   it('normalizes valid JSON arrays, aliases, arrays, and numeric strings without losing fields', async () => {
     await importPastedProfiles(
       JSON.stringify([
@@ -427,7 +468,7 @@ describe('pasted profile import boundary', () => {
     await resetProfiles();
     const csv = [
       'createdDate,playerNumber,firstName,lastName,address.street,address.city,address.state,address.zipCode,email,phone,hasSSN,birthday,optInEmail,optInMail,optInSMS,joinHours,joinMinutes,totalHours,totalMinutes',
-      '2024-11-20,ABC123456,John,Smith,123 Main Street,College Station,TX,77840,john@example.test,555-0100,,1990-02-03,T,F,T,0,30,1,33'
+      '2024-11-20,ABC123456,John,Smith,123 Main Street,College Station,TX,77840,john@example.test,555-010-0000,,1990-02-03,T,F,T,0,30,1,33'
     ].join('\n');
 
     await dropProfileFile(new File([csv], 'Aggieland Poker Data.xlsx - Sheet1.csv', { type: 'text/csv' }));
@@ -436,6 +477,9 @@ describe('pasted profile import boundary', () => {
       id: 'ABC123456',
       name: 'John Smith',
       membershipStartDate: '2024-11-20',
+      address: '123 Main Street, College Station, TX 77840',
+      email: 'john@example.test',
+      phone: '(555) 010-0000',
       totalTimePlayedHours: 1.55,
       lastSessionTimePlayedHours: 0.5,
       communicationPreferences: { email: true, mail: false, sms: true }
@@ -493,5 +537,24 @@ describe('pasted profile import boundary', () => {
       preferredGameId: 'nlh-1-2',
       preferredStakes: '1/2 NLH'
     });
+  });
+
+  it('rejects an import that would exceed the authoritative management-state save limit', async () => {
+    const saveState = vi.mocked(window.tableManagerDesktop!.saveState);
+    saveState.mockClear();
+
+    await importPastedProfiles(JSON.stringify([{
+      id: 'oversized-player',
+      name: 'Oversized Player',
+      notes: 'x'.repeat(2_000_000)
+    }]));
+
+    expect(getLatestState().profiles).toHaveLength(0);
+    expect(document.querySelector('.profile-import-message')?.textContent).toContain("above Orbit's 2,000,000-byte save limit");
+    expect(saveState).not.toHaveBeenCalled();
+
+    const textarea = document.querySelector<HTMLTextAreaElement>('textarea.import-box');
+    if (!textarea) throw new Error('Expected the profile import textarea');
+    await invoke(getReactHandler(textarea, 'onChange'), { target: { value: '' } });
   });
 });
