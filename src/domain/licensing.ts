@@ -233,7 +233,21 @@ export const verifyPilotSignature = async (payload: Record<string, unknown>, sig
   }
 };
 
-export const validatePilotKey = async (licenseFile: unknown, fileName?: string): Promise<{ access?: PilotAccess; error?: string }> => {
+export type PilotKeyValidationOptions = {
+  allowExpired?: boolean;
+};
+
+export type PilotKeyValidationResult = {
+  access?: PilotAccess;
+  expired?: boolean;
+  error?: string;
+};
+
+export const validatePilotKey = async (
+  licenseFile: unknown,
+  fileName?: string,
+  options: PilotKeyValidationOptions = {}
+): Promise<PilotKeyValidationResult> => {
   const file = licenseFile as Record<string, unknown>;
   const record = (file.payload ?? file) as Record<string, unknown>;
   const signature = String(file.signature ?? '').trim();
@@ -252,7 +266,8 @@ export const validatePilotKey = async (licenseFile: unknown, fileName?: string):
     return { error: 'Key file is missing a valid expiration date.' };
   }
 
-  if (!isFutureDate(expiresAt)) {
+  const expired = !isFutureDate(expiresAt);
+  if (expired && !options.allowExpired) {
     return { error: `This pilot key expired on ${expiresAt}.` };
   }
 
@@ -271,6 +286,7 @@ export const validatePilotKey = async (licenseFile: unknown, fileName?: string):
       issuedTo: String(record.issuedTo ?? ''),
       issuedAt: String(record.issuedAt ?? ''),
       licenseId: String(record.licenseId ?? '')
-    }
+    },
+    ...(expired ? { expired: true } : {})
   };
 };

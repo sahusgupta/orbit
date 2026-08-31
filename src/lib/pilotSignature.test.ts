@@ -330,4 +330,45 @@ describe('pilot licensing and staff authentication boundary', () => {
       error: 'This pilot key expired on 2026-08-06.'
     });
   });
+
+  it('can return an authentic expired key provisionally for online renewal confirmation', async () => {
+    vi.setSystemTime(new Date('2100-01-02T00:00:00.000Z'));
+    try {
+      await expect(validatePilotKey(
+        { payload, signature: toBase64(validRawSignature) },
+        'expired.orbit-key',
+        { allowExpired: true }
+      )).resolves.toEqual({
+        access: {
+          authorized: true,
+          authorizationCode: payload.authorizationCode,
+          expiresAt: payload.expiresAt,
+          activatedAt: '2100-01-02T00:00:00.000Z',
+          keyFileName: 'expired.orbit-key',
+          issuedTo: payload.issuedTo,
+          issuedAt: payload.issuedAt,
+          licenseId: payload.licenseId
+        },
+        expired: true
+      });
+    } finally {
+      vi.setSystemTime(new Date('2026-08-07T22:00:00.000Z'));
+    }
+  });
+
+  it('verifies an expired payload signature before it can be used for renewal confirmation', async () => {
+    vi.setSystemTime(new Date('2100-01-02T00:00:00.000Z'));
+    try {
+      await expect(validatePilotKey(
+        {
+          payload: { ...payload, issuedTo: 'Tampered Fixture Club' },
+          signature: toBase64(validRawSignature)
+        },
+        'tampered-expired.orbit-key',
+        { allowExpired: true }
+      )).resolves.toEqual({ error: 'License signature is invalid.' });
+    } finally {
+      vi.setSystemTime(new Date('2026-08-07T22:00:00.000Z'));
+    }
+  });
 });

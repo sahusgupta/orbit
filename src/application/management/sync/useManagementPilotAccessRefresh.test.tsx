@@ -148,4 +148,99 @@ describe('management pilot access refresh', () => {
     expect(persistence.saveDesktopState).not.toHaveBeenCalled();
     expect(persistence.validate).toHaveBeenCalledTimes(1);
   });
+
+  it('adopts and persists a matching active server-managed renewal', async () => {
+    const renderedState = buildState();
+    renderedState.settings.pilotAccess = {
+      ...access,
+      expiresAt: '2026-08-22'
+    };
+    persistence.validate.mockResolvedValue({
+      ok: true,
+      managed: true,
+      active: true,
+      license: {
+        accountKey: 'club-one',
+        licenseId: 'club-one',
+        issuedTo: 'Fixture Club',
+        status: 'active',
+        expiresAt: '2099-12-31T23:59:59.999Z'
+      }
+    });
+
+    await act(async () => {
+      root.render(<RefreshHarness state={renderedState} getCurrentState={() => renderedState} />);
+      await flush();
+    });
+
+    const expectedAccess = expect.objectContaining({
+      authorizationCode: 'pilot-code',
+      licenseId: 'club-one',
+      expiresAt: '2099-12-31T23:59:59.999Z',
+      serverManaged: true
+    });
+    expect(persistence.saveBrowserState).toHaveBeenCalledWith(expect.objectContaining({
+      settings: expect.objectContaining({ pilotAccess: expectedAccess })
+    }));
+    expect(persistence.saveDesktopState).toHaveBeenCalledWith(expect.objectContaining({
+      settings: expect.objectContaining({ pilotAccess: expectedAccess })
+    }));
+  });
+
+  it.each([
+    ['inactive', {
+      ok: true,
+      managed: true,
+      active: false,
+      license: {
+        accountKey: 'club-one',
+        licenseId: 'club-one',
+        status: 'revoked',
+        expiresAt: '2099-12-31T23:59:59.999Z'
+      }
+    }],
+    ['wrong account', {
+      ok: true,
+      managed: true,
+      active: true,
+      license: {
+        accountKey: 'club-two',
+        licenseId: 'club-two',
+        status: 'active',
+        expiresAt: '2099-12-31T23:59:59.999Z'
+      }
+    }],
+    ['wrong license identity', {
+      ok: true,
+      managed: true,
+      active: true,
+      license: {
+        accountKey: 'club-one',
+        licenseId: 'different-license',
+        status: 'active',
+        expiresAt: '2099-12-31T23:59:59.999Z'
+      }
+    }],
+    ['missing status', {
+      ok: true,
+      managed: true,
+      active: true,
+      license: {
+        accountKey: 'club-one',
+        licenseId: 'club-one',
+        expiresAt: '2099-12-31T23:59:59.999Z'
+      }
+    }]
+  ])('does not adopt an %s server response', async (_case, result) => {
+    persistence.validate.mockResolvedValue(result);
+    const renderedState = buildState();
+
+    await act(async () => {
+      root.render(<RefreshHarness state={renderedState} getCurrentState={() => renderedState} />);
+      await flush();
+    });
+
+    expect(persistence.saveBrowserState).not.toHaveBeenCalled();
+    expect(persistence.saveDesktopState).not.toHaveBeenCalled();
+  });
 });

@@ -181,9 +181,13 @@ const captureRestoreFunction = async (session: Session) => {
   restoreFunctionObjectId = restore.result.objectId;
 };
 
-const invokeRestore = async (session: Session) => {
+const invokeRestore = async (
+  session: Session,
+  options: { preserveCurrentAccount?: boolean } = {}
+) => {
   if (!restoreFunctionObjectId) throw new Error('Expected a captured restore function');
   Reflect.set(globalThis, '__orbitType009Access', access);
+  Reflect.set(globalThis, '__orbitType009RestoreOptions', options);
   let invocation:
     | {
         exceptionDetails?: object;
@@ -192,7 +196,7 @@ const invokeRestore = async (session: Session) => {
     | undefined;
   await act(async () => {
     invocation = await session.post('Runtime.evaluate', {
-      expression: 'globalThis.__orbitType009Restore(globalThis.__orbitType009Access)',
+      expression: 'globalThis.__orbitType009Restore(globalThis.__orbitType009Access, globalThis.__orbitType009RestoreOptions)',
       awaitPromise: true,
       returnByValue: true
     });
@@ -262,6 +266,7 @@ describe('persisted account restore boundary', () => {
     Reflect.deleteProperty(globalThis, '__orbitType009App');
     Reflect.deleteProperty(globalThis, '__orbitType009Access');
     Reflect.deleteProperty(globalThis, '__orbitType009Restore');
+    Reflect.deleteProperty(globalThis, '__orbitType009RestoreOptions');
     Reflect.deleteProperty(window, 'tableManagerDesktop');
     act(() => harness.root?.unmount());
     vi.useRealTimers();
@@ -312,6 +317,12 @@ describe('persisted account restore boundary', () => {
           showDashboardKpis: true,
           showRecentPlayers: false,
           pilotAccess: { ...access, licenseId: 'OLD-KEY' },
+          accountLogin: {
+            username: 'manager@fixture.test',
+            passwordSalt: 'fixture-salt',
+            passwordHash: 'fixture-hash',
+            createdAt: '2026-07-01T12:00:00.000Z'
+          },
           staffAccounts: []
         }
       }
@@ -326,8 +337,76 @@ describe('persisted account restore boundary', () => {
     expect(settings.lowLight).toBe(true);
     expect(settings.showPlayerGrid).toBe(false);
     expect(settings.pilotAccess).toEqual(access);
+    expect(settings.accountLogin).toEqual({
+      username: 'manager@fixture.test',
+      passwordSalt: 'fixture-salt',
+      passwordHash: 'fixture-hash',
+      createdAt: '2026-07-01T12:00:00.000Z'
+    });
     expect(harness.savedStates.length).toBeGreaterThanOrEqual(1);
     expect(window.location.hash).toBe('#/floor');
+  });
+
+  it('applies a same-account renewal without replacing newer in-memory club data', async () => {
+    const desktop = Reflect.get(window, 'tableManagerDesktop') as unknown as {
+      loadStateForAccount: ReturnType<typeof vi.fn>;
+    };
+    desktop.loadStateForAccount.mockClear();
+    harness.loadForAccountResult = {
+      schemaVersion: 4,
+      savedAt: '2026-08-07T20:00:00.000Z',
+      state: {
+        games: [{ id: 'stale-game', name: 'Stale Server Game', maxSeats: 6 }],
+        settings: {
+          pilotAccess: { ...access, expiresAt: '2026-08-01' },
+          accountLogin: {
+            username: 'stale@fixture.test',
+            passwordSalt: 'stale-salt',
+            passwordHash: 'stale-hash',
+            createdAt: '2026-06-01T12:00:00.000Z'
+          }
+        }
+      }
+    } satisfies PersistedRecord;
+
+    const stateSetter = harness.stateSetter as Dispatch<SetStateAction<unknown>>;
+    await act(async () => {
+      stateSetter((current: unknown) => {
+        if (!isAppState(current)) throw new Error('Expected the current application state');
+        const settings = Reflect.get(current, 'settings') as Record<string, unknown>;
+        return {
+          ...current,
+          games: [{ id: 'current-game', name: 'Current Unsynced Game', maxSeats: 9 }],
+          settings: {
+            ...settings,
+            pilotAccess: { ...access, expiresAt: '2026-08-01' },
+            accountLogin: {
+              username: 'manager@fixture.test',
+              passwordSalt: 'fixture-salt',
+              passwordHash: 'fixture-hash',
+              createdAt: '2026-07-01T12:00:00.000Z'
+            }
+          }
+        };
+      });
+    });
+
+    const result = await invokeRestore(inspectorSession, { preserveCurrentAccount: true });
+    const restored = readPersistedState();
+    const settings = Reflect.get(restored, 'settings') as Record<string, unknown>;
+
+    expect(result.result.value).toBe(true);
+    expect(desktop.loadStateForAccount).not.toHaveBeenCalled();
+    expect(Reflect.get(restored, 'games')).toEqual([
+      { id: 'current-game', name: 'Current Unsynced Game', maxSeats: 9 }
+    ]);
+    expect(settings.pilotAccess).toEqual(access);
+    expect(settings.accountLogin).toEqual({
+      username: 'manager@fixture.test',
+      passwordSalt: 'fixture-salt',
+      passwordHash: 'fixture-hash',
+      createdAt: '2026-07-01T12:00:00.000Z'
+    });
   });
 
   it('falls back to a local legacy state after a desktop bridge failure and supplies settings defaults', async () => {

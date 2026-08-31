@@ -150,6 +150,7 @@ import {
 import { commitAuthoritativeTransition } from './application/management/sync/authoritativeTransition';
 import { useManagementPlayerUpdateSync } from './application/management/sync/useManagementPlayerUpdateSync';
 import { useManagementPilotAccessRefresh } from './application/management/sync/useManagementPilotAccessRefresh';
+import { resolvePilotKeyImport } from './application/management/pilotKeyImport';
 import {
   createManagementUndoEntry,
   restoreManagementUndoEntry,
@@ -208,6 +209,7 @@ import {
   getTableFinancialOverview
 } from './domain/reporting';
 import {
+  getAccountKeyFromAccess,
   getAccountKeyFromState,
   hasPersistedSignIn,
   isPilotAccessActive,
@@ -216,8 +218,7 @@ import {
   restorePersistedSignIn,
   type ManagementSessionBinding,
   touchPersistedSignIn,
-  safeAccountKeyPart,
-  validatePilotKey
+  safeAccountKeyPart
 } from './domain/licensing';
 import { hashStaffPin, verifyStaffSecret } from './domain/staffAuth';
 import {
@@ -3429,7 +3430,35 @@ function App() {
     }, true, { feature: 'Settings', action: 'Updated collection profile', metadata: { gameId, collectionMode } });
   };
 
-  const loadExistingAccountState = async (access: PilotAccess) => {
+  const loadExistingAccountState = async (
+    access: PilotAccess,
+    options: { preserveCurrentAccount?: boolean } = {}
+  ) => {
+    if (
+      options.preserveCurrentAccount &&
+      getAccountKeyFromAccess(access) === getAccountKeyFromState(stateRef.current)
+    ) {
+      await waitForPendingManagementSaves();
+      const current = stateRef.current;
+      if (getAccountKeyFromAccess(access) === getAccountKeyFromState(current)) {
+        const next = {
+          ...current,
+          settings: {
+            ...current.settings,
+            pilotAccess: access
+          }
+        };
+        staffSelectionAttemptRef.current += 1;
+        setTrustedStaffSession(null);
+        setUndoAction(null);
+        persist(next, false, { feature: 'Account', action: 'Applied managed pilot renewal', route: 'access' });
+        setHasAuthenticated(await restorePersistedSignIn(next));
+        setPendingPilotAccess(null);
+        setPilotKeyError('');
+        window.location.hash = '/floor';
+        return true;
+      }
+    }
     const next = await loadExistingManagementStateForAccount(access);
     if (!next) return false;
     staffSelectionAttemptRef.current += 1;
@@ -3457,12 +3486,21 @@ function App() {
       return;
     }
 
-    const result = await validatePilotKey(parsed, file.name);
+    const result = await resolvePilotKeyImport(parsed, file.name);
     if (result.error || !result.access) {
       setPilotKeyError(result.error ?? 'Unable to validate this key file.');
       return;
     }
-    if (await loadExistingAccountState(result.access)) return;
+    if (await loadExistingAccountState(result.access, {
+      preserveCurrentAccount: result.renewedFromServer
+    })) return;
+    if (result.renewedFromServer) {
+      setPilotKeyError(
+        'Orbit confirmed this renewal but could not load the existing card-house account. '
+        + 'Check the internet connection and try again. No account data was changed.'
+      );
+      return;
+    }
     setPendingPilotAccess(result.access);
   };
 
@@ -3528,15 +3566,19 @@ function App() {
       await validateLocalImport(file, 'pilot-key-json');
       const text = await file.text();
       const parsed = JSON.parse(text);
-      const result = await validatePilotKey(parsed, file.name);
+      const result = await resolvePilotKeyImport(parsed, file.name);
       if (result.error || !result.access) {
         setPilotKeyError(result.error ?? 'Unable to validate this key file.');
         return;
       }
-      const loadedExistingAccount = await loadExistingAccountState(result.access);
+      const loadedExistingAccount = await loadExistingAccountState(result.access, {
+        preserveCurrentAccount: result.renewedFromServer
+      });
       if (!loadedExistingAccount) {
         setPilotKeyError(
-          'No separate card house account exists for that key on this installation. Current logs were left under this account.'
+          result.renewedFromServer
+            ? 'Orbit confirmed this renewal but could not load the existing card-house account. Check the internet connection and try again. No account data was changed.'
+            : 'No separate card house account exists for that key on this installation. Current logs were left under this account.'
         );
       }
     } catch {

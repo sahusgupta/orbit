@@ -91,6 +91,8 @@ For an active managed pilot license, the dashboard can create the venue's first 
 
 Pilot authorization codes are stable credentials. Their operational expiration is stored by the API in the server-only Firestore `pilotLicenses` collection, using a SHA-256 authorization-code identifier rather than storing the raw key. The desktop checks `GET /license/status` at startup and every five minutes. Changing a license expiration in the dashboard therefore updates connected installations without issuing another key file or changing the venue account identifier.
 
+If an installation must select its original file again after the file's signed expiration has passed, the desktop verifies the unchanged signature and uses that signed authorization code only to request the current managed status. It accepts the file only when the API confirms an active matching license with a future expiration, then loads the existing account before allowing sign-in. Offline, inactive, revoked, malformed, mismatched, and missing-account results fail closed and never offer blank account setup. The existing account login and club state remain unchanged; the server-confirmed expiration becomes the local access expiration.
+
 Open the protected dashboard at:
 
 ```text
