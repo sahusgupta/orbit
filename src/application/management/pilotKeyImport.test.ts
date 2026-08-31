@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PilotKeyValidationResult } from '../../domain/licensing';
 import type { PilotAccess } from '../../domain/types';
-import type { PilotAccessValidationResult } from '../../app/persistence/managementPersistence';
-import { resolvePilotKeyImport } from './pilotKeyImport';
+import {
+  resolvePilotKeyImport,
+  type PilotAccessValidationResult
+} from './pilotKeyImport';
 
 const expiredAccess: PilotAccess = {
   authorized: true,

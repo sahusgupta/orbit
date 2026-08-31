@@ -196,6 +196,7 @@ import {
 } from './features/games/gamesWorkspace';
 import {
   canUseRendererFirebaseAuth,
+  getManagementPilotAccessValidator,
   loadDesktopManagementStateForAccount,
   loadExistingManagementStateForAccount,
   loadManagementState,
@@ -3486,7 +3487,9 @@ function App() {
       return;
     }
 
-    const result = await resolvePilotKeyImport(parsed, file.name);
+    const result = await resolvePilotKeyImport(parsed, file.name, {
+      getPilotAccessValidator: getManagementPilotAccessValidator
+    });
     if (result.error || !result.access) {
       setPilotKeyError(result.error ?? 'Unable to validate this key file.');
       return;
@@ -3566,7 +3569,9 @@ function App() {
       await validateLocalImport(file, 'pilot-key-json');
       const text = await file.text();
       const parsed = JSON.parse(text);
-      const result = await resolvePilotKeyImport(parsed, file.name);
+      const result = await resolvePilotKeyImport(parsed, file.name, {
+        getPilotAccessValidator: getManagementPilotAccessValidator
+      });
       if (result.error || !result.access) {
         setPilotKeyError(result.error ?? 'Unable to validate this key file.');
         return;

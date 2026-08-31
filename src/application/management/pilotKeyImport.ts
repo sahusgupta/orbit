@@ -6,10 +6,20 @@ import {
   type PilotKeyValidationResult
 } from '../../domain/licensing';
 import type { PilotAccess } from '../../domain/types';
-import {
-  getManagementPilotAccessValidator,
-  type PilotAccessValidationResult
-} from '../../app/persistence/managementPersistence';
+
+export type PilotAccessValidationResult = {
+  ok: boolean;
+  managed: boolean;
+  active: boolean;
+  license?: {
+    licenseId?: string;
+    accountKey?: string;
+    issuedTo?: string;
+    expiresAt?: string;
+    status?: string;
+  } | null;
+  error?: string;
+};
 
 type PilotAccessValidator = (access: PilotAccess) => Promise<PilotAccessValidationResult>;
 
@@ -39,8 +49,7 @@ export const resolvePilotKeyImport = async (
   if (validation.error || !validation.access) return validation;
   if (!validation.expired) return { access: validation.access };
 
-  const getPilotAccessValidator = dependencies.getPilotAccessValidator ?? getManagementPilotAccessValidator;
-  const validatePilotAccess = getPilotAccessValidator();
+  const validatePilotAccess = dependencies.getPilotAccessValidator?.();
   const expiredAt = validation.access.expiresAt;
   if (!validatePilotAccess) return { error: renewalConfirmationError(expiredAt) };
 
