@@ -44,8 +44,13 @@ function isProtectedRoute(routePath) {
   return protectedPrefixes.some((prefix) => routePath === prefix || routePath.startsWith(`${prefix}/`));
 }
 
-async function authorizeFixtureSession(context) {
-  await context.addCookies([{
+async function authorizeFixtureSession(page) {
+  // Tear down any Firebase-disabled app document before installing the
+  // server-only fixture cookie. Its AuthProvider deliberately clears stale
+  // session cookies on mount, so mutating a live context here would race the
+  // next protected navigation.
+  await page.goto('about:blank');
+  await page.context().addCookies([{
     name: 'orbit-player-session',
     value: fixtureSessionToken,
     url: baseUrl,
@@ -123,7 +128,7 @@ await Promise.all(viewports.map(async (viewport) => {
   const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height }, reducedMotion: 'reduce' });
   const page = await context.newPage();
   for (const route of routes) {
-    if (isProtectedRoute(route.path)) await authorizeFixtureSession(context);
+    if (isProtectedRoute(route.path)) await authorizeFixtureSession(page);
     await assertRoute(page, route, viewport);
   }
   await context.close();
@@ -198,7 +203,7 @@ const completedScroll = await motionPage.evaluate(() => window.scrollY);
 if (intermediateScroll <= 0 || intermediateScroll >= completedScroll) failures.push('Landing smooth scroll did not visibly interpolate toward the poker-card story.');
 await motionContext.close();
 
-await authorizeFixtureSession(interactionContext);
+await authorizeFixtureSession(page);
 await page.goto(`${baseUrl}/games`, { waitUntil: 'networkidle' });
 const gameHeadingsBeforeSearch = await page.locator('.entity-row h3').allTextContents();
 const filterRouteRequests = [];
@@ -225,17 +230,18 @@ await page.waitForURL(/status=running/);
 await page.waitForLoadState('networkidle');
 if (await page.getByText('No games match those filters').count() !== 1) failures.push('Combined game filters did not show the honest empty state.');
 
-await authorizeFixtureSession(interactionContext);
-await page.goto(`${baseUrl}/clubs`, { waitUntil: 'networkidle' });
+await authorizeFixtureSession(page);
+const clubsResponse = await page.goto(`${baseUrl}/clubs`, { waitUntil: 'networkidle' });
 if (await page.getByLabel('City or area').count()) failures.push('Clubs exposes a removed manual-origin control.');
 if (await page.getByRole('combobox', { name: 'Distance' }).count()) failures.push('Clubs exposes a distance filter even though v1 has no player origin.');
 try {
   await page.getByRole('heading', { name: 'North Loop Poker Club', exact: true }).waitFor({ state: 'visible', timeout: 2_000 });
 } catch {
-  failures.push('Club discovery did not render venue-published data without an origin.');
+  const mainText = await page.locator('main').innerText().catch(() => 'main unavailable');
+  failures.push(`Club discovery did not render venue-published data without an origin at ${page.url()} (HTTP ${clubsResponse?.status() ?? 0}): ${JSON.stringify(mainText.slice(0, 800))}`);
 }
 
-await authorizeFixtureSession(interactionContext);
+await authorizeFixtureSession(page);
 await page.goto(`${baseUrl}/tournaments`, { waitUntil: 'networkidle' });
 await page.getByRole('combobox', { name: 'Interest' }).click();
 await page.getByRole('option', { name: 'Interest open' }).click();
@@ -249,7 +255,7 @@ try {
 if (await page.getByRole('heading', { name: 'Deep Stack Classic', exact: true }).count()) failures.push('Open tournament filtering retained a closed event.');
 if (await page.getByRole('combobox', { name: 'Distance' }).count()) failures.push('Tournaments exposes a distance filter even though v1 has no player origin.');
 
-await authorizeFixtureSession(interactionContext);
+await authorizeFixtureSession(page);
 await page.goto(`${baseUrl}/games/1-2-nlh-north-loop-poker-club--Y2x1Yi1hbHBoYQBnYW1lLXJ1bm5pbmc`, { waitUntil: 'networkidle' });
 await page.getByRole('link', { name: "I'm here" }).click();
 await page.waitForURL(/\/sign-in\?.*intent=waitlist/);
@@ -260,7 +266,7 @@ await page.goto(`${baseUrl}/me/profile`, { waitUntil: 'networkidle' });
 if (!page.url().includes('/sign-in?') || !page.url().includes('returnTo=%2Fme%2Fprofile')) failures.push('Protected profile route did not redirect to account access with its return destination.');
 if (await page.getByRole('heading', { name: 'Sign in' }).count() !== 1) failures.push('Protected profile redirect did not render account access.');
 
-await authorizeFixtureSession(interactionContext);
+await authorizeFixtureSession(page);
 await page.goto(`${baseUrl}/games`, { waitUntil: 'networkidle' });
 await page.keyboard.press('Tab');
 const focusedElement = await page.evaluate(() => ({
