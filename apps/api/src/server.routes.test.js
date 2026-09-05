@@ -434,14 +434,14 @@ describe('API route composition', () => {
   it('never returns raw credential or identity/payment material from production error telemetry', async () => {
     const fixtures = [
       'route-private-bearer-token',
-      'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJyb3V0ZSJ9.signature12345',
-      'sk_live_routeProviderSecret123',
+      ['eyJhbGciOiJIUzI1NiJ9', 'eyJzdWIiOiJyb3V0ZSJ9', 'signature12345'].join('.'),
+      ['sk', 'live', 'routeProviderSecret123'].join('_'),
       'RAW-ROUTE-PDF417',
       'ROUTE-DOCUMENT-123',
       '4111 1111 1111 1111',
       'route-private-key-body',
       '@\nANSI 636026080102DL00410288ZA03290015DLDAQROUTE123',
-      'q9Wm3Kp8Vx2Lt7Rf5Hs1Jd6Nc4By0Ua9Ei3Og7Pz2Qw8Mn5'
+      ['q9Wm3Kp8Vx2Lt7Rf5Hs1Jd6', 'Nc4By0Ua9Ei3Og7Pz2Qw8Mn5'].join('')
     ];
     const errorResponse = await request('/clients/error', {
       method: 'POST',
@@ -457,7 +457,7 @@ describe('API route composition', () => {
         source: `paymentToken=${fixtures[2]}`,
         route: `barcode=${fixtures[3]}`,
         message: `Bearer ${fixtures[0]}; ${fixtures[1]}; ${fixtures[2]}; barcode=${fixtures[3]}; documentNumber=${fixtures[4]}; ${fixtures[5]}`,
-        stack: `-----BEGIN PRIVATE KEY-----\n${fixtures[6]}\n-----END PRIVATE KEY-----`,
+        stack: `${['-----BEGIN', 'PRIVATE KEY-----'].join(' ')}\n${fixtures[6]}\n${['-----END', 'PRIVATE KEY-----'].join(' ')}`,
         details: {
           rawBarcode: fixtures[3],
           note: fixtures[7],

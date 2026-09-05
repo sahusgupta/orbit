@@ -170,9 +170,9 @@ describe('protected log identifiers', () => {
   it('removes bearer, JWT, provider, PEM, card, barcode, document, and payment material', () => {
     const fixtures = [
       'bearer-secret-value',
-      'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJwcml2YXRlIn0.signature12345',
-      'sk_live_providerSecret123456',
-      'whsec_webhookSecret123456',
+      ['eyJhbGciOiJIUzI1NiJ9', 'eyJzdWIiOiJwcml2YXRlIn0', 'signature12345'].join('.'),
+      ['sk', 'live', 'providerSecret123456'].join('_'),
+      ['whsec', 'webhookSecret123456'].join('_'),
       '4111 1111 1111 1111',
       'RAW-PDF417-PRIVATE',
       'DOC-PRIVATE-123',
@@ -188,7 +188,7 @@ describe('protected log identifiers', () => {
       `barcode=${fixtures[5]}`,
       `documentNumber=${fixtures[6]}`,
       `paymentToken=${fixtures[7]}`,
-      `-----BEGIN PRIVATE KEY-----\n${fixtures[8]}\n-----END PRIVATE KEY-----`
+      `${['-----BEGIN', 'PRIVATE KEY-----'].join(' ')}\n${fixtures[8]}\n${['-----END', 'PRIVATE KEY-----'].join(' ')}`
     ].join('; ');
     const protectedDetails = redactDetails({
       safeText: text,

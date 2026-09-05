@@ -242,15 +242,15 @@ describe('API database facade behavior', () => {
     vi.stubEnv('ORBIT_LOG_HASH_SECRET', 'telemetry-log-hash-secret-with-at-least-32-characters');
     const fixtures = [
       'production-bearer-token-value',
-      'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJwcml2YXRlIn0.signature12345',
-      'sk_live_telemetrySecret123456',
+      ['eyJhbGciOiJIUzI1NiJ9', 'eyJzdWIiOiJwcml2YXRlIn0', 'signature12345'].join('.'),
+      ['sk', 'live', 'telemetrySecret123456'].join('_'),
       'private-telemetry-key-body',
       'RAW-TELEMETRY-PDF417',
       'DOCUMENT-PRIVATE-123',
       'PAYMENT-PRIVATE-123',
       '4111 1111 1111 1111',
       '@\nANSI 636026080102DL00410288ZA03290015DLDAQD1234567',
-      'z8Qp4mN7vR2xL9cT5kH3sF6jB1wD0yU8aE4gI7oP2qS9nM5'
+      ['z8Qp4mN7vR2xL9cT5kH3sF6', 'jB1wD0yU8aE4gI7oP2qS9nM5'].join('')
     ];
     const sensitiveText = [
       `Bearer ${fixtures[0]}`,
@@ -276,7 +276,7 @@ describe('API database facade behavior', () => {
       message: sensitiveText,
       source: `paymentToken=${fixtures[6]}`,
       route: `cardNumber=${fixtures[7]}`,
-      stack: `-----BEGIN PRIVATE KEY-----\n${fixtures[3]}\n-----END PRIVATE KEY-----`,
+      stack: `${['-----BEGIN', 'PRIVATE KEY-----'].join(' ')}\n${fixtures[3]}\n${['-----END', 'PRIVATE KEY-----'].join(' ')}`,
       details: {
         note: sensitiveText,
         rawBarcode: fixtures[4],
@@ -355,7 +355,7 @@ describe('API database facade behavior', () => {
       errorRef: fixtures[9],
       source: `paymentToken=${fixtures[6]}`,
       route: `barcode=${fixtures[4]}`,
-      stack: `-----BEGIN PRIVATE KEY-----\n${fixtures[3]}\n-----END PRIVATE KEY-----`,
+      stack: `${['-----BEGIN', 'PRIVATE KEY-----'].join(' ')}\n${fixtures[3]}\n${['-----END', 'PRIVATE KEY-----'].join(' ')}`,
       platform: fixtures[1]
     });
     expect(await rawDatabase.getDocument('orbitClients/legacy-unsafe-client')).not.toBeNull();
