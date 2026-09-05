@@ -119,6 +119,56 @@ describe('classification-aware player account deletion', () => {
     })).toEqual([]);
   });
 
+  it.each([
+    ['missing', undefined],
+    ['stale', Date.parse('2026-09-04T17:54:59.000Z') / 1000]
+  ])('rejects a %s auth_time before starting any deletion side effects', async (_label, authTime) => {
+    const now = Date.parse('2026-09-04T18:00:00.000Z');
+    const getDatabaseForDeletion = vi.fn();
+    const subjectPseudonym = vi.fn();
+    const markPlayerDeletion = vi.fn();
+    const updateDeletionJob = vi.fn();
+    const deleteUser = vi.fn();
+    const getAdminSdk = vi.fn(() => ({ auth: () => ({ deleteUser }) }));
+    const handler = createDeletePlayerAccountHandler({
+      readDeletionPolicy: () => policy,
+      getDatabase: getDatabaseForDeletion,
+      subjectPseudonym,
+      markPlayerDeletion,
+      updateJob: updateDeletionJob,
+      getAdminSdk,
+      nowMs: () => now
+    });
+    const response = {
+      statusCode: 200,
+      body: undefined,
+      set: vi.fn(),
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; }
+    };
+    const orbitPlayer = authTime === undefined
+      ? { uid: 'recent-login-uid' }
+      : { uid: 'recent-login-uid', auth_time: authTime };
+
+    await handler({ orbitPlayer }, response);
+
+    expect(response).toMatchObject({
+      statusCode: 401,
+      body: {
+        ok: false,
+        code: 'RECENT_LOGIN_REQUIRED',
+        error: 'Sign in again before deleting this account.'
+      }
+    });
+    expect(response.set).toHaveBeenCalledWith('cache-control', 'no-store');
+    expect(getDatabaseForDeletion).not.toHaveBeenCalled();
+    expect(subjectPseudonym).not.toHaveBeenCalled();
+    expect(markPlayerDeletion).not.toHaveBeenCalled();
+    expect(updateDeletionJob).not.toHaveBeenCalled();
+    expect(getAdminSdk).not.toHaveBeenCalled();
+    expect(deleteUser).not.toHaveBeenCalled();
+  });
+
   it('deletes private game-session projections only through exact immutable identifiers', async () => {
     const database = await getDatabase();
     for (let index = 0; index < 100; index += 1) {
