@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { discovery } from '../fixtures.ts';
 
 const port = Number(process.env.ORBIT_QA_API_PORT || 4629);
@@ -92,7 +93,8 @@ const server = createServer(async (request, response) => {
   }
   if (request.method === 'POST' && url.pathname === '/player/tournament-interests') {
     const body = await readBody(request);
-    const tournament = authenticatedDiscovery.tournaments.find((candidate) => candidate.id === body.tournamentId);
+    const tournament = authenticatedDiscovery.tournaments.find((candidate) =>
+      candidate.clubId === body.clubId && candidate.id === body.tournamentId);
     if (!tournament) {
       send(response, 404, { ok: false, error: 'Tournament not found.' });
       return;
@@ -100,7 +102,7 @@ const server = createServer(async (request, response) => {
     send(response, 201, {
       ok: true,
       interest: {
-        id: `${tournament.id}:player-1`,
+        id: `fixture-interest-${createHash('sha256').update(JSON.stringify([tournament.clubId, tournament.id, 'player-1'])).digest('hex').slice(0, 32)}`,
         tournamentId: tournament.id,
         clubId: tournament.clubId,
         playerId: 'player-1',
@@ -112,6 +114,13 @@ const server = createServer(async (request, response) => {
     return;
   }
   if (request.method === 'DELETE' && url.pathname === '/player/tournament-interests') {
+    const body = await readBody(request);
+    const tournament = authenticatedDiscovery.tournaments.find((candidate) =>
+      candidate.clubId === body.clubId && candidate.id === body.tournamentId);
+    if (!tournament) {
+      send(response, 404, { ok: false, error: 'Tournament not found.' });
+      return;
+    }
     send(response, 200, { ok: true });
     return;
   }

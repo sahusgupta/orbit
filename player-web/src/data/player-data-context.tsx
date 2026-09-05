@@ -15,6 +15,7 @@ import type {
   SeatRequestInput
 } from '@/src/domain/types';
 import { scheduleAtBoundary } from '@/src/domain/boundary-timer';
+import { isSameTournamentInterest, isTournamentInterestFor } from '@orbit/player-domain/playerSync';
 import { getNextTournamentInterestBoundary } from '@/src/domain/selectors';
 import { getFirebaseBrowserClient } from './firebase-client';
 import {
@@ -198,7 +199,7 @@ function PlayerDataSession({
     assertActiveSession();
     setData((current) => ({
       ...current,
-      interests: [interest, ...current.interests.filter((item) => item.id !== interest.id)]
+      interests: [interest, ...current.interests.filter((item) => !isSameTournamentInterest(item, interest))]
     }));
     return interest;
   }, [assertActiveSession, runSessionOperation, user]);
@@ -209,7 +210,7 @@ function PlayerDataSession({
     assertActiveSession();
     setData((current) => ({
       ...current,
-      interests: current.interests.filter((item) => item.tournamentId !== tournament.id || item.playerId !== user.uid)
+      interests: current.interests.filter((item) => item.playerId !== user.uid || !isTournamentInterestFor(item, tournament))
     }));
   }, [assertActiveSession, runSessionOperation, user]);
 

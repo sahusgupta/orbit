@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  PlayerAccount,
-  PlayerClubSnapshot,
-  PlayerCoordinate,
-  PlayerSyncGame,
-  PlayerTournament,
-  PlayerTournamentInterest
+import {
+  tournamentScopeKey,
+  type PlayerAccount,
+  type PlayerClubSnapshot,
+  type PlayerCoordinate,
+  type PlayerSyncGame,
+  type PlayerTournament,
+  type PlayerTournamentInterest
 } from './playerSync';
 import * as discovery from './discovery';
 
@@ -222,6 +223,32 @@ describe('Player discovery factual boundaries', () => {
       tournamentFilter: 'open',
       nowMs: Date.parse('2026-08-10T17:00:00.000Z')
     })).toEqual([]);
+  });
+
+  it('joins tournament interest by venue and tournament when IDs collide across clubs', () => {
+    const firstClub = club('club-a', { name: 'Alpha' });
+    const secondClub = club('club-b', { name: 'Beta' });
+    const firstTournament = tournament({ clubId: firstClub.club.id, name: 'Alpha Event' });
+    const secondTournament = tournament({ clubId: secondClub.club.id, name: 'Beta Event' });
+    const options = {
+      clubs: [firstClub, secondClub],
+      originCoordinate: null,
+      playerId: player.id,
+      query: '',
+      interests: [interest({ clubId: firstClub.club.id })],
+      nowMs: Date.parse('2026-08-09T12:00:00.000Z'),
+      tournamentClubFilter: 'all',
+      tournamentDistanceFilter: 'none' as const,
+      tournamentFilter: 'all' as const,
+      tournaments: [firstTournament, secondTournament]
+    };
+
+    const listings = discovery.filterTournaments(options);
+    expect(listings.find((listing) => listing.tournament.clubId === firstClub.club.id)?.interest).toBeDefined();
+    expect(listings.find((listing) => listing.tournament.clubId === secondClub.club.id)?.interest).toBeUndefined();
+    expect(discovery.filterTournaments({ ...options, tournamentFilter: 'interested' }).map((listing) => listing.tournament.clubId))
+      .toEqual([firstClub.club.id]);
+    expect(tournamentScopeKey(firstTournament)).not.toBe(tournamentScopeKey(secondTournament));
   });
 
   it('uses neutral published game status labels and preserves zeros', () => {

@@ -1,6 +1,7 @@
 import {
   getPlayerSeatRequestAccess,
   isTournamentInterestOpen,
+  isTournamentInterestFor,
   type PlayerAccount,
   type PlayerClubSnapshot,
   type PlayerSyncGame,
@@ -77,7 +78,7 @@ export function filterTournaments({
   return tournaments
     .map((tournament) => {
       const club = clubs.find((item) => item.club.id === tournament.clubId);
-      const interest = interests.find((item) => item.tournamentId === tournament.id && item.playerId === playerId && item.status === 'interested');
+      const interest = interests.find((item) => isTournamentInterestFor(item, tournament) && item.playerId === playerId && item.status === 'interested');
       const distanceMiles = club ? getClubDistance(club, originCoordinate) : null;
       return { tournament, club, interest, distanceMiles };
     })

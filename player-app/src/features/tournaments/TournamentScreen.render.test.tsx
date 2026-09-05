@@ -4,7 +4,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlayerClubSnapshot, PlayerTournament, PlayerTournamentInterest } from '../../domain/playerSync';
+import { tournamentScopeKey, type PlayerClubSnapshot, type PlayerTournament, type PlayerTournamentInterest } from '../../domain/playerSync';
 import { TournamentScreen } from './TournamentScreen';
 
 vi.mock('react-native', async () => {
@@ -104,7 +104,7 @@ describe('TournamentScreen factual composition', () => {
           hasOrbitAccount={options.hasOrbitAccount ?? true}
           readOnly={options.readOnly ?? false}
           message={options.message ?? ''}
-          pendingTournamentIds={[]}
+          pendingTournamentKeys={[]}
           onSelectClub={vi.fn()}
           onExpressInterest={vi.fn()}
           onWithdrawInterest={vi.fn()}
@@ -175,7 +175,7 @@ describe('TournamentScreen factual composition', () => {
           hasOrbitAccount
           readOnly
           message=""
-          pendingTournamentIds={[]}
+          pendingTournamentKeys={[]}
           onSelectClub={vi.fn()}
           onExpressInterest={onExpressInterest}
           onWithdrawInterest={vi.fn()}
@@ -188,5 +188,43 @@ describe('TournamentScreen factual composition', () => {
     expect(action?.hasAttribute('disabled')).toBe(true);
     act(() => action?.click());
     expect(onExpressInterest).not.toHaveBeenCalled();
+  });
+
+  it('marks only the pending club-scoped tournament busy when venue IDs collide', () => {
+    const clubBeta: PlayerClubSnapshot = {
+      ...club,
+      club: { ...club.club, id: 'club-2', name: 'Second Published Club' }
+    };
+    const firstTournament = tournament({ name: 'First Sunday Event' });
+    const secondTournament = tournament({ clubId: clubBeta.club.id, name: 'Second Sunday Event' });
+    const onExpressInterest = vi.fn();
+
+    act(() => {
+      root.render(
+        <TournamentScreen
+          query=""
+          onQueryChange={vi.fn()}
+          onOpenFilters={vi.fn()}
+          opportunities={[
+            { tournament: firstTournament, club, distanceMiles: null, interest: undefined },
+            { tournament: secondTournament, club: clubBeta, distanceMiles: null, interest: undefined }
+          ]}
+          hasOrbitAccount
+          readOnly={false}
+          message=""
+          pendingTournamentKeys={[tournamentScopeKey(firstTournament)]}
+          onSelectClub={vi.fn()}
+          onExpressInterest={onExpressInterest}
+          onWithdrawInterest={vi.fn()}
+        />
+      );
+    });
+
+    const updating = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.startsWith('Updating'));
+    const available = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Express interest');
+    expect(updating?.hasAttribute('disabled')).toBe(true);
+    expect(available?.hasAttribute('disabled')).toBe(false);
+    act(() => available?.click());
+    expect(onExpressInterest).toHaveBeenCalledWith(secondTournament);
   });
 });

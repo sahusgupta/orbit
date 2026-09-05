@@ -230,7 +230,7 @@ export default function PlayerApp() {
     setSelectedClubId,
     setSyncStatus
   });
-  const { expressInterest, pendingTournamentIds, tournamentMessage, withdrawInterest } = usePlayerTournaments({
+  const { expressInterest, pendingTournamentKeys, tournamentMessage, withdrawInterest } = usePlayerTournaments({
     firebaseIdentity,
     getClubMinimumAge: (clubId) => clubs.find((club) => club.club.id === clubId)?.club.minimumAge === 18 ? 18 : 21,
     player,
@@ -729,7 +729,7 @@ export default function PlayerApp() {
                 hasOrbitAccount={Boolean(firebaseIdentity && firebaseIdentity.uid === player.id)}
                 readOnly={liveDataStatus !== 'ready' || Boolean(tournamentLoadError)}
                 message={tournamentMessage}
-                pendingTournamentIds={pendingTournamentIds}
+                pendingTournamentKeys={pendingTournamentKeys}
                 onSelectClub={(club) => {
                   setSelectedClubId(club.club.id);
                   setScreen('clubs');

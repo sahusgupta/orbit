@@ -15,7 +15,7 @@ import { TournamentsExplorer } from '@/src/components/discovery/tournaments-expl
 import { PublishedGameTables } from '@/src/components/discovery/published-game-tables';
 import { LiveRouteRefresh } from '@/src/components/discovery/live-route-refresh';
 import { OrbitFaq } from '@/src/components/home/orbit-faq';
-import { MyClubs } from '@/src/components/my-orbit/sections';
+import { MyClubs, MyOrbitOverview, MyTournaments } from '@/src/components/my-orbit/sections';
 import { SiteFooter } from '@/src/components/shell/site-footer';
 import { SiteHeader } from '@/src/components/shell/site-header';
 import { RouteShell } from '@/src/components/shell/route-shell';
@@ -26,7 +26,7 @@ import { SearchField, SelectField } from '@/src/components/ui/fields';
 import { EmptyState, ErrorState } from '@/src/components/ui/state-panels';
 import { LocationProvider } from '@/src/location/location-context';
 import { clubAlpha, clubBeta, discovery, formingGame, interest, openTournament, paidTournament, player, runningGame, scheduledGame } from '@/tests/fixtures';
-import { flattenGames } from '@/src/domain/selectors';
+import { flattenGames, tournamentRouteKey } from '@/src/domain/selectors';
 
 const testState = vi.hoisted(() => ({
   search: '',
@@ -416,6 +416,51 @@ describe('Player Web route and component behavior', () => {
   it('preserves logged-out tournament intent in the sign-in action', () => {
     render(<TournamentAction club={clubAlpha} tournament={openTournament} />);
     expect(screen.getByRole('link', { name: 'Express interest' })).toHaveAttribute('href', expect.stringContaining('intent=tournament'));
+  });
+
+  it('does not render another venue interest as confirmation for a colliding tournament ID', () => {
+    const duplicate = { ...openTournament, clubId: clubBeta.club.id, name: 'River Orbit Major' };
+    testState.auth.status = 'signed-in';
+    testState.auth.user = { uid: player.id };
+    testState.auth.player = player;
+    Object.assign(testState.data, discovery, { tournaments: [openTournament, duplicate], interests: [interest] });
+
+    render(<TournamentAction club={clubBeta} tournament={duplicate} />);
+
+    expect(screen.queryByText('Your interest was sent')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Express interest' })).toBeEnabled();
+  });
+
+  it('maps My Orbit interests to the matching venue when tournament IDs collide', () => {
+    const alphaTournament = { ...openTournament, id: 'shared-event', name: 'Wrong Alpha Event' };
+    const betaTournament = { ...openTournament, id: 'shared-event', clubId: clubBeta.club.id, name: 'Beta Scoped Event' };
+    const betaInterest = {
+      ...interest,
+      id: 'venue-local-interest',
+      tournamentId: betaTournament.id,
+      clubId: betaTournament.clubId
+    };
+    testState.auth.status = 'signed-in';
+    testState.auth.user = { uid: player.id };
+    testState.auth.player = player;
+    Object.assign(testState.data, discovery, {
+      clubs: [{ ...clubAlpha, memberships: [], waitlists: [] }, clubBeta],
+      tournaments: [alphaTournament, betaTournament],
+      interests: [betaInterest]
+    });
+
+    const view = render(<MyTournaments />);
+    expect(screen.getByText('Beta Scoped Event')).toBeVisible();
+    expect(screen.queryByText('Wrong Alpha Event')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Beta Scoped Event/ })).toHaveAttribute(
+      'href',
+      `/tournaments/${tournamentRouteKey(clubBeta, betaTournament)}`
+    );
+
+    view.unmount();
+    render(<MyOrbitOverview />);
+    expect(screen.getByText('Beta Scoped Event')).toBeVisible();
+    expect(screen.queryByText('Wrong Alpha Event')).not.toBeInTheDocument();
   });
 
   it.each([

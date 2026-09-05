@@ -7,6 +7,7 @@ import { useAuth } from '@/src/auth/auth-context';
 import { buildSignInHref } from '@/src/auth/intent';
 import { usePlayerData } from '@/src/data/player-data-context';
 import { scheduleAtBoundary } from '@/src/domain/boundary-timer';
+import { isTournamentInterestFor } from '@orbit/player-domain/playerSync';
 import { formatBuyIn, getNextTournamentInterestBoundary, getTournamentInterestLabel, getTournamentInterestState, tournamentRouteKey } from '@/src/domain/selectors';
 import type { PlayerClubSnapshot, PlayerTournament } from '@/src/domain/types';
 import { Button, ButtonLink } from '@/src/components/ui/button';
@@ -29,7 +30,7 @@ export function TournamentAction({ club, tournament }: { club: PlayerClubSnapsho
   const [open, setOpen] = useState(() => Boolean(user && interestOpen && searchParams.get('intent') === 'tournament'));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  const interest = playerData.interests.find((item) => item.tournamentId === tournament.id && item.playerId === user?.uid && item.status === 'interested');
+  const interest = playerData.interests.find((item) => isTournamentInterestFor(item, tournament) && item.playerId === user?.uid && item.status === 'interested');
   const canWithdraw = Boolean(interest && tournament.withdrawalAllowed && nowMs < Date.parse(tournament.startsAt));
   const href = `/tournaments/${tournamentRouteKey(club, tournament)}`;
   const disclaimer = 'Interest is nonbinding. It does not register you, reserve a seat, create a debt or payment, or claim a prize. The venue confirms participation separately.';

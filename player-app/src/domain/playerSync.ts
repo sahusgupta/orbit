@@ -274,6 +274,26 @@ export type PlayerTournamentInterest = {
   updatedAt: string;
 };
 
+type TournamentScope = Pick<PlayerTournament, 'clubId' | 'id'>;
+type TournamentInterestScope = Pick<PlayerTournamentInterest, 'clubId' | 'playerId' | 'tournamentId'>;
+
+export function tournamentScopeKey(tournament: TournamentScope) {
+  return JSON.stringify([tournament.clubId, tournament.id]);
+}
+
+export function isTournamentInterestFor(
+  interest: Pick<PlayerTournamentInterest, 'clubId' | 'tournamentId'>,
+  tournament: TournamentScope
+) {
+  return interest.clubId === tournament.clubId && interest.tournamentId === tournament.id;
+}
+
+export function isSameTournamentInterest(left: TournamentInterestScope, right: TournamentInterestScope) {
+  return left.playerId === right.playerId
+    && left.clubId === right.clubId
+    && left.tournamentId === right.tournamentId;
+}
+
 export type PlayerMembershipRequest = {
   id: string;
   type: 'membership-request';

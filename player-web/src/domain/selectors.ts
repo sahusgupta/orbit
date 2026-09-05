@@ -6,7 +6,8 @@ import {
   isActivePlayerGameRequest,
   isMembershipCurrentlyActive,
   isPlayerMembership,
-  isPlayerWaitlistEntry
+  isPlayerWaitlistEntry,
+  isTournamentInterestFor
 } from '@orbit/player-domain/playerSync';
 import type {
   ClubFilters,
@@ -63,14 +64,21 @@ export function findClubByRouteKey(clubs: PlayerClubSnapshot[], key: string) {
 }
 
 export function findGameByRouteKey(clubs: PlayerClubSnapshot[], key: string) {
-  return flattenGames(clubs).find(({ club, game }) => gameRouteKey(club, game) === key || game.id === key);
+  const games = flattenGames(clubs);
+  const canonicalMatch = games.find(({ club, game }) => gameRouteKey(club, game) === key);
+  if (canonicalMatch) return canonicalMatch;
+  const rawIdMatches = games.filter(({ game }) => game.id === key);
+  return rawIdMatches.length === 1 ? rawIdMatches[0] : undefined;
 }
 
 export function findTournamentByRouteKey(discovery: DiscoveryPayload, key: string) {
-  return discovery.tournaments.find((tournament) => {
+  const canonicalMatch = discovery.tournaments.find((tournament) => {
     const club = discovery.clubs.find((candidate) => candidate.club.id === tournament.clubId);
-    return tournamentRouteKey(club, tournament) === key || tournament.id === key;
+    return tournamentRouteKey(club, tournament) === key;
   });
+  if (canonicalMatch) return canonicalMatch;
+  const rawIdMatches = discovery.tournaments.filter((tournament) => tournament.id === key);
+  return rawIdMatches.length === 1 ? rawIdMatches[0] : undefined;
 }
 
 export function getGameState(game: PlayerSyncGame): GameState {
@@ -190,7 +198,7 @@ export function filterTournaments(
     .map((tournament) => {
       const club = discovery.clubs.find((candidate) => candidate.club.id === tournament.clubId);
       const interest = discovery.interests.find((candidate) =>
-        candidate.tournamentId === tournament.id && (!playerId || candidate.playerId === playerId));
+        isTournamentInterestFor(candidate, tournament) && (!playerId || candidate.playerId === playerId));
       return {
         tournament,
         club,

@@ -29,7 +29,7 @@ import {
   slugify,
   tournamentRouteKey
 } from './selectors';
-import { clubAlpha, clubBeta, discovery, formingGame, openTournament, paidTournament, player, runningGame, scheduledGame } from '@/tests/fixtures';
+import { clubAlpha, clubBeta, discovery, formingGame, interest, openTournament, paidTournament, player, runningGame, scheduledGame } from '@/tests/fixtures';
 
 const gameFilters = { query: '', gameType: 'all', stakes: 'all', venue: 'all', status: 'all', distance: '0' };
 
@@ -54,9 +54,25 @@ describe('Player Web domain selectors', () => {
     expect(findGameByRouteKey(discovery.clubs, 'game-forming')?.game).toBe(formingGame);
   });
 
+  it('requires a canonical game route when a raw ID is ambiguous across clubs', () => {
+    const duplicate = { ...runningGame, name: 'River NLH' };
+    const betaWithDuplicate = { ...clubBeta, games: [duplicate] };
+    expect(findGameByRouteKey([clubAlpha, betaWithDuplicate], runningGame.id)).toBeUndefined();
+    expect(findGameByRouteKey([clubAlpha, betaWithDuplicate], gameRouteKey(clubAlpha, runningGame))?.club).toBe(clubAlpha);
+    expect(findGameByRouteKey([clubAlpha, betaWithDuplicate], gameRouteKey(betaWithDuplicate, duplicate))?.club).toBe(betaWithDuplicate);
+  });
+
   it('resolves direct tournament links by route key and canonical id', () => {
     expect(findTournamentByRouteKey(discovery, tournamentRouteKey(clubAlpha, openTournament))).toBe(openTournament);
     expect(findTournamentByRouteKey(discovery, 'event-paid')).toBe(paidTournament);
+  });
+
+  it('requires a canonical tournament route when a raw ID is ambiguous across clubs', () => {
+    const duplicate = { ...openTournament, clubId: clubBeta.club.id, name: 'River Orbit Major' };
+    const collisions = { ...discovery, tournaments: [openTournament, duplicate] };
+    expect(findTournamentByRouteKey(collisions, openTournament.id)).toBeUndefined();
+    expect(findTournamentByRouteKey(collisions, tournamentRouteKey(clubAlpha, openTournament))).toBe(openTournament);
+    expect(findTournamentByRouteKey(collisions, tournamentRouteKey(clubBeta, duplicate))).toBe(duplicate);
   });
 
   it('distinguishes published table states without inventing a schedule', () => {
@@ -150,6 +166,17 @@ describe('Player Web domain selectors', () => {
 
   it('filters authenticated tournament discovery to expressed interests', () => {
     expect(filterTournaments(discovery, { query: '', club: 'all', distance: '0', interest: 'interested' }, player.id).map((item) => item.tournament.id)).toEqual(['event-open']);
+  });
+
+  it('does not attach one club interest to another club tournament with the same ID', () => {
+    const duplicate = { ...openTournament, clubId: clubBeta.club.id, name: 'River Orbit Major' };
+    const listings = filterTournaments(
+      { ...discovery, tournaments: [openTournament, duplicate] },
+      { query: '', club: 'all', distance: '0', interest: 'all' },
+      player.id
+    );
+    expect(listings.find((listing) => listing.tournament.clubId === clubAlpha.club.id)?.interest).toBe(interest);
+    expect(listings.find((listing) => listing.tournament.clubId === clubBeta.club.id)?.interest).toBeUndefined();
   });
 
   it('enforces the published tournament interest window even when a stale status says open', () => {

@@ -2,7 +2,7 @@ import type { User } from 'firebase/auth';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { clubAlpha, player, runningGame } from '@/tests/fixtures';
+import { clubAlpha, interest, openTournament, player, runningGame } from '@/tests/fixtures';
 import type { DiscoveryPayload, PlayerAccount } from '@/src/domain/types';
 
 const dataHarness = vi.hoisted(() => ({
@@ -72,6 +72,7 @@ function PlayerDataProbe({ onData }: { onData?(data: ReturnType<typeof usePlayer
     <div>
       <span data-testid="data-status">{data.status}</span>
       <span data-testid="club-ids">{data.clubs.map((club) => club.club.id).join(',') || 'none'}</span>
+      <span data-testid="interest-scopes">{data.interests.map((item) => `${item.clubId}/${item.tournamentId}`).sort().join(',') || 'none'}</span>
       <button type="button" onClick={() => void data.refresh()}>Refresh</button>
     </div>
   );
@@ -184,5 +185,38 @@ describe('Player Web private discovery account isolation', () => {
       await accountA.promise;
     });
     expect(screen.getByTestId('club-ids')).toHaveTextContent('none');
+  });
+
+  it('upserts and withdraws only the matching venue when tournament and interest IDs collide', async () => {
+    const firstTournament = { ...openTournament, id: 'shared-event', clubId: 'club-a', name: 'Alpha Event' };
+    const secondTournament = { ...openTournament, id: 'shared-event', clubId: 'club-b', name: 'Beta Event' };
+    const firstInterest = { ...interest, id: 'venue-local-interest', tournamentId: firstTournament.id, clubId: firstTournament.clubId };
+    const secondInterest = { ...interest, id: 'venue-local-interest', tournamentId: secondTournament.id, clubId: secondTournament.clubId };
+    const initial = {
+      ...discoveryFor('account-a'),
+      tournaments: [firstTournament, secondTournament],
+      interests: [secondInterest]
+    };
+    dataHarness.auth.user = makeUser(player.id);
+    dataHarness.auth.player = makePlayer(player.id);
+    dataHarness.fetchDiscovery.mockResolvedValue(initial);
+    dataHarness.expressInterest.mockResolvedValue(firstInterest);
+    dataHarness.withdrawInterest.mockResolvedValue(undefined);
+    let latestData: ReturnType<typeof usePlayerData> | undefined;
+    render(provider((data) => { latestData = data; }));
+
+    await waitFor(() => expect(screen.getByTestId('data-status')).toHaveTextContent('ready'));
+    if (!latestData) throw new Error('Player data context did not render.');
+    const activeData = latestData;
+    await act(async () => activeData.expressInterest(firstTournament));
+    expect(screen.getByTestId('interest-scopes')).toHaveTextContent('club-a/shared-event,club-b/shared-event');
+
+    await act(async () => activeData.withdrawInterest(firstTournament));
+    expect(screen.getByTestId('interest-scopes')).toHaveTextContent('club-b/shared-event');
+    expect(dataHarness.withdrawInterest).toHaveBeenCalledWith(
+      expect.objectContaining({ uid: player.id }),
+      firstTournament,
+      expect.any(AbortSignal)
+    );
   });
 });

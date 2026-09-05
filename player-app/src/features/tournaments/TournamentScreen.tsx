@@ -4,6 +4,7 @@ import { Chip } from '../../components/PlayerFields';
 import { SearchToolbar } from '../../components/PlayerPresentation';
 import {
   isTournamentInterestOpen,
+  tournamentScopeKey,
   type PlayerClubSnapshot,
   type PlayerTournament,
   type PlayerTournamentInterest
@@ -23,7 +24,7 @@ export function TournamentScreen({
   hasOrbitAccount,
   readOnly,
   message,
-  pendingTournamentIds,
+  pendingTournamentKeys,
   onSelectClub,
   onExpressInterest,
   onWithdrawInterest
@@ -35,7 +36,7 @@ export function TournamentScreen({
   hasOrbitAccount: boolean;
   readOnly: boolean;
   message: string;
-  pendingTournamentIds: string[];
+  pendingTournamentKeys: string[];
   onSelectClub: (club: PlayerClubSnapshot) => void;
   onExpressInterest: (tournament: PlayerTournament) => void;
   onWithdrawInterest: (tournament: PlayerTournament, interest: PlayerTournamentInterest) => void;
@@ -99,7 +100,7 @@ export function TournamentScreen({
                 interest={interest}
                 hasOrbitAccount={hasOrbitAccount}
                 readOnly={readOnly}
-                busy={pendingTournamentIds.includes(tournament.id)}
+                busy={pendingTournamentKeys.includes(tournamentScopeKey(tournament))}
                 onExpressInterest={() => onExpressInterest(tournament)}
                 onWithdrawInterest={() => interest && onWithdrawInterest(tournament, interest)}
               />

@@ -14,7 +14,7 @@ import {
   getPlayerMembership,
   tournamentRouteKey
 } from '@/src/domain/selectors';
-import { getPublishedMembershipPlanLabel, getWaitlistAheadText } from '@orbit/player-domain/playerSync';
+import { getPublishedMembershipPlanLabel, getWaitlistAheadText, isTournamentInterestFor } from '@orbit/player-domain/playerSync';
 import { ButtonLink } from '@/src/components/ui/button';
 import { EmptyState, ErrorState, SectionHeading, SkeletonList } from '@/src/components/ui/state-panels';
 import { StatusBadge } from '@/src/components/ui/status-badge';
@@ -35,13 +35,13 @@ function OverviewContent() {
   const data = usePlayerData();
   const memberships = data.clubs.map((club) => ({ club, state: getMembershipState(club, player), membership: getPlayerMembership(club, player) })).filter((item) => item.state !== 'none' && item.state !== 'expired');
   const requests = getActivePlayerRequests(data.clubs, player);
-  const interests = data.interests.filter((interest) => interest.status === 'interested').map((interest) => ({ interest, tournament: data.tournaments.find((event) => event.id === interest.tournamentId), club: data.clubs.find((candidate) => candidate.club.id === interest.clubId) })).filter((item) => item.tournament);
+  const interests = data.interests.filter((interest) => interest.status === 'interested').map((interest) => ({ interest, tournament: data.tournaments.find((event) => isTournamentInterestFor(interest, event)), club: data.clubs.find((candidate) => candidate.club.id === interest.clubId) })).filter((item) => item.tournament);
   const hasActivity = memberships.length || requests.length || interests.length;
   return (
     <div className="stack-2xl">
       <section><SectionHeading eyebrow="Right now" title={`Welcome back${player?.name ? `, ${player.name.split(' ')[0]}` : ''}.`} />{hasActivity ? <div className="commitment-grid">
         {requests.slice(0, 2).map(({ club, game, entry }) => <Link className="commitment-card commitment-card--live" key={entry.id} href={game ? `/games/${gameRouteKey(club, game)}` : `/clubs/${clubRouteKey(club)}`}><CircleDot aria-hidden="true" /><StatusBadge tone="live">{entry.status}</StatusBadge><h3>{game?.name ?? 'Game request'}</h3><p>{club.club.name}</p><strong>{getWaitlistAheadText(entry)}</strong></Link>)}
-        {interests.slice(0, 2).map(({ interest, tournament, club }) => tournament ? <Link className="commitment-card" key={interest.id} href={`/tournaments/${tournamentRouteKey(club, tournament)}`}><CalendarCheck aria-hidden="true" /><StatusBadge tone="success">Interested</StatusBadge><h3>{tournament.name}</h3><p>{club?.club.name ?? 'Venue unavailable'}</p><strong>{formatEventDate(tournament.startsAt)}</strong></Link> : null)}
+        {interests.slice(0, 2).map(({ interest, tournament, club }) => tournament ? <Link className="commitment-card" key={JSON.stringify([interest.clubId, interest.id])} href={`/tournaments/${tournamentRouteKey(club, tournament)}`}><CalendarCheck aria-hidden="true" /><StatusBadge tone="success">Interested</StatusBadge><h3>{tournament.name}</h3><p>{club?.club.name ?? 'Venue unavailable'}</p><strong>{formatEventDate(tournament.startsAt)}</strong></Link> : null)}
         {memberships.slice(0, 2).map(({ club, state }) => <Link className="commitment-card" key={club.club.id} href={`/clubs/${clubRouteKey(club)}`}><UserCheck aria-hidden="true" /><StatusBadge tone={state === 'active' ? 'success' : 'warning'}>{state === 'active' ? 'Active member' : 'Under review'}</StatusBadge><h3>{club.club.name}</h3><p>{club.club.address || 'Location unavailable'}</p><strong>{state === 'active' ? 'Ready for game requests' : 'Awaiting club action'}</strong></Link>)}
       </div> : <EmptyState title="Your next move starts with discovery" message="Join a club, request a game, or express interest in a tournament. It will appear here immediately." action={<ButtonLink href="/games">Find a game</ButtonLink>} />}</section>
       <section className="next-actions"><SectionHeading eyebrow="Keep moving" title="Fast paths" /><div><ButtonLink href="/games" tone="secondary">Browse games</ButtonLink><ButtonLink href="/tournaments" tone="secondary">Upcoming tournaments</ButtonLink><ButtonLink href="/clubs" tone="secondary">Find clubs</ButtonLink></div></section>
@@ -77,6 +77,6 @@ export function MyTournaments() {
 
 function MyTournamentsContent() {
   const data = usePlayerData();
-  const entries = data.interests.filter((interest) => interest.status === 'interested').map((interest) => ({ interest, tournament: data.tournaments.find((event) => event.id === interest.tournamentId), club: data.clubs.find((candidate) => candidate.club.id === interest.clubId) })).filter((item) => item.tournament);
-  return <section className="my-section"><SectionHeading eyebrow="Tournament interest" title="My Tournaments" />{entries.length ? <div className="my-list">{entries.map(({ interest, tournament, club }) => tournament ? <Link key={interest.id} href={`/tournaments/${tournamentRouteKey(club, tournament)}`}><CalendarCheck aria-hidden="true" /><div><StatusBadge tone="success">Interested</StatusBadge><h2>{tournament.name}</h2><p>{club?.club.name ?? 'Venue unavailable'}</p></div><strong>{formatEventDate(tournament.startsAt)}</strong></Link> : null)}</div> : <EmptyState title="No tournament interests" message="Browse event structure and timing, then express nonbinding interest when you find the right one." action={<ButtonLink href="/tournaments">Browse tournaments</ButtonLink>} />}</section>;
+  const entries = data.interests.filter((interest) => interest.status === 'interested').map((interest) => ({ interest, tournament: data.tournaments.find((event) => isTournamentInterestFor(interest, event)), club: data.clubs.find((candidate) => candidate.club.id === interest.clubId) })).filter((item) => item.tournament);
+  return <section className="my-section"><SectionHeading eyebrow="Tournament interest" title="My Tournaments" />{entries.length ? <div className="my-list">{entries.map(({ interest, tournament, club }) => tournament ? <Link key={JSON.stringify([interest.clubId, interest.id])} href={`/tournaments/${tournamentRouteKey(club, tournament)}`}><CalendarCheck aria-hidden="true" /><div><StatusBadge tone="success">Interested</StatusBadge><h2>{tournament.name}</h2><p>{club?.club.name ?? 'Venue unavailable'}</p></div><strong>{formatEventDate(tournament.startsAt)}</strong></Link> : null)}</div> : <EmptyState title="No tournament interests" message="Browse event structure and timing, then express nonbinding interest when you find the right one." action={<ButtonLink href="/tournaments">Browse tournaments</ButtonLink>} />}</section>;
 }
