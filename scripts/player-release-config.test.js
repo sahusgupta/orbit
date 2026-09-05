@@ -8,6 +8,9 @@ const {
   validateProductionUrl,
   v1DisabledFeatureVariables
 } = require('../player-app/release-config.cjs');
+const {
+  withoutExpoDefaultEmptyCollectedDataDeclaration
+} = require('../player-app/plugins/with-no-ios-url-schemes.cjs');
 
 function validProductionEnvironment() {
   return {
@@ -67,6 +70,23 @@ describe('Orbit Player production configuration', () => {
     expect(config.ios.config).not.toHaveProperty('googleMapsApiKey');
     expect(config.plugins.at(-1)).toBe('./plugins/with-no-ios-url-schemes.cjs');
     expect(JSON.stringify(config)).not.toContain('do-not-print');
+  });
+
+  it('removes only Expo\'s empty collected-data declaration from the generated privacy manifest', () => {
+    const generated = `<dict>
+  <key>NSPrivacyCollectedDataTypes</key>
+  <array/>
+  <key>NSPrivacyTracking</key>
+  <false/>
+</dict>`;
+    const reviewed = withoutExpoDefaultEmptyCollectedDataDeclaration(generated);
+
+    expect(reviewed).not.toContain('NSPrivacyCollectedDataTypes');
+    expect(reviewed).toContain('<key>NSPrivacyTracking</key>');
+    expect(() => withoutExpoDefaultEmptyCollectedDataDeclaration(`<dict>
+  <key>NSPrivacyCollectedDataTypes</key>
+  <array><dict/></array>
+</dict>`)).toThrow(/Refusing to remove a non-empty or malformed/);
   });
 
   it('keeps development usable without weakening production validation', () => {

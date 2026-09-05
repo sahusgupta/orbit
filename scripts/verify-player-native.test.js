@@ -93,6 +93,16 @@ describe('generated Orbit Player native verifier', () => {
     }))).toThrow(/exactly the reviewed required-reason APIs/);
   });
 
+  it('rejects an empty collected-data declaration injected into the app-owned manifest', () => {
+    const root = nativeFixture();
+    const manifest = path.join(root, 'OrbitPlayer', 'PrivacyInfo.xcprivacy');
+    fs.writeFileSync(manifest, fs.readFileSync(manifest, 'utf8').replace(
+      '<key>NSPrivacyTracking</key>',
+      '<key>NSPrivacyCollectedDataTypes</key><array/>\n<key>NSPrivacyTracking</key>'
+    ));
+    expect(() => verifyPlayerNative(root)).toThrow(/unverified collected-data declaration/);
+  });
+
   it('rejects a reviewed reason declared under the wrong required-reason API category', () => {
     expect(() => verifyPlayerNative(nativeFixture({
       appPrivacyReasons: {

@@ -32,7 +32,7 @@ The locked `expo-crypto` `15.0.9` package was also inspected after it became the
 | `NSPrivacyAccessedAPICategorySystemBootTime` | `35F9.1` | React Native boost |
 | `NSPrivacyAccessedAPICategoryUserDefaults` | `CA92.1` | Expo Constants and React Native core |
 
-The app-owned manifest declares `NSPrivacyTracking` as false. It intentionally does not declare `NSPrivacyCollectedDataTypes`; the app does collect linked account, identity, coarse home-area text, and operational activity off device when authenticated flows are used. Those answers live in [`APP_STORE_SUBMISSION.md`](./APP_STORE_SUBMISSION.md) and must be reconciled with the signed candidate. An empty collected-data array would misleadingly imply that Orbit collects nothing.
+The app-owned manifest declares `NSPrivacyTracking` as false. It intentionally does not declare `NSPrivacyCollectedDataTypes`; the app does collect linked account, identity, coarse home-area text, and operational activity off device when authenticated flows are used. Those answers live in [`APP_STORE_SUBMISSION.md`](./APP_STORE_SUBMISSION.md) and must be reconciled with the signed candidate. An empty collected-data array would misleadingly imply that Orbit collects nothing. Expo's SDK 54 prebuild serializer adds that empty array when the source field is absent, so the reviewed iOS config plugin removes only the generated empty declaration and fails closed if it ever contains data. The native-project verifier confirms the final app-owned manifest omits it.
 
 ## Map SDK finding and blocking archive gate
 

@@ -94,8 +94,18 @@ requireMatch(!/spawn(?:Sync)?\(\s*['\"]eas(?:\.cmd)?['\"]/.test(testFlightSubmis
 const appConfig = read('player-app/app.config.js');
 requireMatch(!/apps[\\/]api|readFileSync|require\(['"]fs['"]\)|dotenv/.test(appConfig), 'Expo app config must never load backend or dotenv files.');
 requireMatch(appConfig.includes("require('./release-config.cjs')"), 'Expo app config must delegate to the reviewed allowlist validator.');
-requireMatch(fs.existsSync(path.join(root, 'player-app', 'plugins', 'with-no-ios-url-schemes.cjs')), 'Expo URL-scheme removal plugin is missing.');
-requireMatch(read('player-app/release-config.cjs').includes('./plugins/with-no-ios-url-schemes.cjs'), 'Expo config must remove the default iOS bundle-identifier URL scheme.');
+const iosReleasePluginPath = path.join(root, 'player-app', 'plugins', 'with-no-ios-url-schemes.cjs');
+requireMatch(fs.existsSync(iosReleasePluginPath), 'Expo iOS release-policy plugin is missing.');
+requireMatch(read('player-app/release-config.cjs').includes('./plugins/with-no-ios-url-schemes.cjs'), 'Expo config must apply the reviewed iOS release policy.');
+const iosReleasePlugin = fs.readFileSync(iosReleasePluginPath, 'utf8');
+requireMatch(
+  iosReleasePlugin.includes('withInfoPlist') && iosReleasePlugin.includes('CFBundleURLTypes'),
+  'Expo config must remove the default iOS bundle-identifier URL scheme.'
+);
+requireMatch(
+  iosReleasePlugin.includes('withXcodeProject') && iosReleasePlugin.includes('NSPrivacyCollectedDataTypes'),
+  'Expo config must remove its generated empty collected-data declaration without weakening the native verifier.'
+);
 const firestoreIndexes = read('player-app/firestore.indexes.json');
 requireMatch(!/privateGames/i.test(firestoreIndexes), 'Production Firestore indexes must not retain a private-games collection group.');
 
