@@ -32,7 +32,7 @@ The locked `expo-crypto` `15.0.9` package was also inspected after it became the
 | `NSPrivacyAccessedAPICategorySystemBootTime` | `35F9.1` | React Native boost |
 | `NSPrivacyAccessedAPICategoryUserDefaults` | `CA92.1` | Expo Constants and React Native core |
 
-The app-owned manifest declares `NSPrivacyTracking` as false and makes the following conservative `NSPrivacyCollectedDataTypes` disclosure. Every entry is linked to the user and not used for tracking. The release and generated-native verifiers require the exact data types, linking/tracking flags, and purposes below; an absent, empty, extra, or changed declaration fails the repository gate.
+The app-owned manifest declares `NSPrivacyTracking` as false and makes the following conservative `NSPrivacyCollectedDataTypes` disclosure. Every entry is linked to the user and not used for tracking. Expo serializes an empty `NSPrivacyTrackingDomains` array into the generated native manifest; the native verifier requires that exact empty array and rejects any domain. The release and generated-native verifiers require the exact data types, linking/tracking flags, and purposes below; an absent, empty, extra, or changed declaration fails the repository gate.
 
 | App-owned collected data type | Purposes | Repository behavior |
 | --- | --- | --- |

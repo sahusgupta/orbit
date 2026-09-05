@@ -174,7 +174,7 @@ Current evidence status: `EXTERNAL GATE — no simulator/device captures are cla
 | Photos | No | No purpose string or reviewed feature |
 | Contacts | No | No purpose string or reviewed feature |
 | Device location/GPS | No | Users may enter home-area text. Venue pins use only validated venue-published coordinates; distance remains unavailable because v1 has no player origin. Opening Maps may send the displayed region, venue coordinates, and ordinary request metadata to the platform map provider; Directions additionally opens or sends the factual venue address. Orbit does not request device GPS or send a player-origin coordinate |
-| Tracking/ATT | No | `NSPrivacyTracking` is false and there is no tracking purpose string |
+| Tracking/ATT | No | `NSPrivacyTracking` is false, the generated tracking-domain array is empty, and there is no tracking purpose string |
 | Push notifications | No | No push entitlement or v1 feature |
 
 The generated iOS project must pass `npm run player:prebuild:ios`; the signed archive must independently confirm entitlements and aggregated privacy manifests. Expo Camera defaults can add microphone/audio access unless disabled, so the release pins explicit false settings per the [Expo Camera SDK 54 documentation](https://docs.expo.dev/versions/v54.0.0/sdk/camera/).
@@ -187,7 +187,8 @@ Repository and CI gates before any cloud build:
 - [x] TypeScript, root/API/Player/Player Web tests, and relevant rendered regression tests pass.
 - [x] Firestore Emulator allow/deny tests pass against `demo-orbit-release-ci`.
 - [x] Production config, Expo compatibility/Doctor, iOS export, permission/privacy checks, artwork checks, and JavaScript bundle scan pass.
-- [ ] Disposable managed iOS prebuild and generated-native scan pass on Ubuntu pull-request CI; the Windows host cannot produce that evidence.
+- [x] Disposable managed iOS prebuild and generated-native scan pass in an isolated Linux environment.
+- [ ] The same disposable prebuild and scan pass on the exact pushed SHA in Ubuntu pull-request CI.
 - [ ] Pull-request CI is green on the exact pushed 40-character source SHA.
 - [ ] Legal, privacy, age-rating, territory, Maps/provider, App Check/rules deployment, signing, and review-data gates have evidence.
 

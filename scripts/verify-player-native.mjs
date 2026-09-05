@@ -48,8 +48,13 @@ function appPrivacyManifest(plistText) {
   const parsed = plist.parse(plistText);
   assert.deepEqual(
     Object.keys(parsed).sort(),
-    ['NSPrivacyAccessedAPITypes', 'NSPrivacyCollectedDataTypes', 'NSPrivacyTracking'],
+    ['NSPrivacyAccessedAPITypes', 'NSPrivacyCollectedDataTypes', 'NSPrivacyTracking', 'NSPrivacyTrackingDomains'],
     'Generated app privacy manifest must contain only the reviewed top-level keys.'
+  );
+  assert.deepEqual(
+    parsed.NSPrivacyTrackingDomains,
+    [],
+    'Generated app privacy manifest must not declare any tracking domains.'
   );
   assert.ok(Array.isArray(parsed.NSPrivacyCollectedDataTypes), 'Generated app privacy manifest must declare collected data types.');
   for (const entry of parsed.NSPrivacyCollectedDataTypes) {

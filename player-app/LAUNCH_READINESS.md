@@ -9,7 +9,8 @@ The current, machine-checkable submission package is [`APP_STORE_SUBMISSION.md`]
 - [x] Player Web typecheck, lint, unit/component tests, rendered browser checks, and production build pass.
 - [x] Firestore Emulator rule tests pass against the isolated `demo-orbit-release-ci` project.
 - [x] Production Expo config validation, compatibility check, Expo Doctor, iOS export, permission/privacy checks, artwork checks, and JavaScript bundle scan pass.
-- [ ] Disposable iOS prebuild and generated-native scan pass on Ubuntu pull-request CI; the Windows host cannot generate an iOS project.
+- [x] Disposable iOS prebuild and generated-native scan pass in an isolated Linux environment.
+- [ ] The same disposable iOS prebuild and generated-native scan pass on the exact pushed SHA in Ubuntu pull-request CI.
 - [x] Icon and splash checks pass; the 1024×1024 app icon is opaque and the transparent splash mark renders on `#060C1A`.
 - [x] Repository and exported source contain no private-game UI/data access, Premium/IAP client, venue checkout, social authentication, operational tournament registration, fabricated location, or notification promise.
 - [x] Privacy/support/terms pages and the App Store package agree with the final code.
@@ -27,6 +28,10 @@ The current, machine-checkable submission package is [`APP_STORE_SUBMISSION.md`]
 - Real candidate screenshots captured at Apple-accepted dimensions.
 
 Do not treat Expo export or prebuild as a signed build. Do not create an EAS build, upload to TestFlight, deploy, or press Submit for Review until the applicable authority and evidence exist.
+
+## Future private-game gate
+
+Player-hosted/private games remain excluded from every production-v1 surface and data path. Re-enabling any private-game publishing, browsing, API, Firestore, configuration, or store claim is blocked until one reviewed design implements and tests all of the following together: authentication, an explicit field allowlist, automatic expiry, host close/delete controls, moderation, objectionable-content filtering, reporting, user blocking, an owned abuse-response process, audience controls, and published support contact information. A partial implementation does not satisfy this gate.
 
 ## Exact candidate handling
 

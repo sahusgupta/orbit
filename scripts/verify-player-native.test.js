@@ -32,6 +32,7 @@ function collectedDataEntries(entries) {
 function nativeFixture({
   appCollectedDataTypes = reviewedPlayerCollectedDataTypes,
   appPrivacyReasons = privacyReasons,
+  appTrackingDomains = [],
   buildNumber = '1',
   bundleIdentifier = 'com.orbit.player',
   infoAddition = '',
@@ -56,6 +57,7 @@ ${infoAddition}
   fs.writeFileSync(path.join(appRoot, 'PrivacyInfo.xcprivacy'), `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
 <key>NSPrivacyTracking</key><false/>
+<key>NSPrivacyTrackingDomains</key><array>${appTrackingDomains.map((domain) => `<string>${domain}</string>`).join('')}</array>
 <key>NSPrivacyCollectedDataTypes</key><array>${collectedDataEntries(appCollectedDataTypes)}</array>
 <key>NSPrivacyAccessedAPITypes</key><array>${privacyEntries(appPrivacyReasons)}</array>
 </dict></plist>`);
@@ -108,6 +110,11 @@ describe('generated Orbit Player native verifier', () => {
   it('rejects an empty app-owned collected-data declaration', () => {
     expect(() => verifyPlayerNative(nativeFixture({ appCollectedDataTypes: [] })))
       .toThrow(/exactly the reviewed linked, non-tracking Player data types and purposes/);
+  });
+
+  it('rejects any app-owned tracking domain', () => {
+    expect(() => verifyPlayerNative(nativeFixture({ appTrackingDomains: ['tracking.example'] })))
+      .toThrow(/must not declare any tracking domains/);
   });
 
   it('rejects incorrect linking, tracking, or purposes in collected-data declarations', () => {
