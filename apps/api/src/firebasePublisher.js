@@ -1,11 +1,66 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const { buildPlayerClubSnapshot, getAccountKeyFromState } = require('./orbitCore');
+const { protectedIdentifier } = require('./operations/dataProtection');
 
 const firebaseConfig = {
   projectId: 'tabletalk-s'
 };
 const orbitSyncProtocolVersion = 2;
+
+class FirebasePublicationError extends Error {
+  constructor(category, options = {}) {
+    const safeCategory = /^[a-z0-9-]{1,64}$/.test(String(category || ''))
+      ? String(category)
+      : 'provider-failure';
+    const status = Number(options.status);
+    const safeStatus = Number.isInteger(status) && status >= 100 && status <= 599 ? status : 0;
+    const pathRef = /^[a-f0-9]{16}$/.test(String(options.pathRef || '')) ? String(options.pathRef) : '';
+    const responseRef = /^[a-f0-9]{16}$/.test(String(options.responseRef || '')) ? String(options.responseRef) : '';
+    const details = [
+      `category=${safeCategory}`,
+      safeStatus ? `status=${safeStatus}` : '',
+      pathRef ? `pathRef=${pathRef}` : '',
+      responseRef ? `responseRef=${responseRef}` : ''
+    ].filter(Boolean).join(' ');
+    super(`Firebase publication provider failure (${details}).`);
+    this.name = 'FirebasePublicationError';
+    this.code = 'FIREBASE_PUBLICATION_FAILED';
+    this.category = safeCategory;
+    this.status = safeStatus;
+    this.pathRef = pathRef;
+    this.responseRef = responseRef;
+  }
+}
+
+async function firebaseResponseError(category, response, path = '') {
+  let responseText = '';
+  try {
+    responseText = String(await response.text()).slice(0, 4_096);
+  } catch {
+    responseText = 'unreadable-provider-response';
+  }
+  return new FirebasePublicationError(category, {
+    status: response.status,
+    pathRef: path ? protectedIdentifier(path) : '',
+    responseRef: protectedIdentifier(responseText || `empty-response:${response.status}`)
+  });
+}
+
+function firebaseRequestError(category, error, path = '') {
+  return new FirebasePublicationError(category, {
+    pathRef: path ? protectedIdentifier(path) : '',
+    responseRef: protectedIdentifier(error instanceof Error ? error.message : 'provider-request-failed')
+  });
+}
+
+async function fetchFirebase(category, input, init, path = '') {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    throw firebaseRequestError(category, error, path);
+  }
+}
 
 function base64Url(value) {
   return Buffer.from(value)
@@ -65,7 +120,8 @@ function getFirebasePublisherStatus() {
       configured: false,
       projectId: firebaseConfig.projectId,
       credentialSource: 'invalid',
-      error: error instanceof Error ? error.message : 'Invalid Firebase credentials.'
+      error: 'Firebase publisher credentials are invalid.',
+      errorRef: protectedIdentifier(error instanceof Error ? error.message : 'invalid-firebase-credentials')
     };
   }
 }
@@ -86,7 +142,7 @@ async function getServiceAccountToken(serviceAccount) {
     .replace(/=/g, '')
     .replace(/\+/g, '-')
     .replace(/\//g, '_');
-  const response = await fetch('https://oauth2.googleapis.com/token', {
+  const response = await fetchFirebase('token-request', 'https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -94,8 +150,14 @@ async function getServiceAccountToken(serviceAccount) {
       assertion: `${unsignedJwt}.${signature}`
     })
   });
-  if (!response.ok) throw new Error(`Firebase token request failed: ${response.status} ${await response.text()}`);
-  const accessToken = getRecordProperty(await response.json(), 'access_token');
+  if (!response.ok) throw await firebaseResponseError('token-request', response);
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    throw firebaseRequestError('token-response-invalid', error);
+  }
+  const accessToken = getRecordProperty(payload, 'access_token');
   if (typeof accessToken !== 'string' || !accessToken.trim()) {
     throw new Error('Firebase token response did not include an access token.');
   }
@@ -174,15 +236,21 @@ function getCollectionProfile(state, gameId) {
   const collectionProfiles = state.settings?.collectionProfiles || [];
   const configuredProfile = collectionProfiles.find((profile) => profile.gameId === gameId);
   const legacyRoomProfile = collectionProfiles.find((profile) => profile.collectionMode === 'Time') || collectionProfiles[0];
-  const roomHourlyFee = Number(state.settings?.defaultHourlyFee ?? legacyRoomProfile?.hourlyFee ?? 0);
+  const collectionMode = configuredProfile?.collectionMode === 'Time' || configuredProfile?.collectionMode === 'Drop'
+    ? configuredProfile.collectionMode
+    : state.settings?.defaultCollectionMode === 'Time' || state.settings?.defaultCollectionMode === 'Drop'
+      ? state.settings.defaultCollectionMode
+      : undefined;
+  const roomHourlyFee = state.settings?.defaultHourlyFee ?? legacyRoomProfile?.hourlyFee;
+  const estimatedDropPerSeatHour = configuredProfile?.estimatedDropPerSeatHour ?? state.settings?.defaultEstimatedDropPerSeatHour;
   return {
     ...(configuredProfile || {}),
     gameId,
-    collectionMode: configuredProfile?.collectionMode || state.settings?.defaultCollectionMode || 'Drop',
-    hourlyFee: Number.isFinite(roomHourlyFee) ? roomHourlyFee : 0,
-    estimatedDropPerSeatHour: Number(
-      configuredProfile?.estimatedDropPerSeatHour ?? state.settings?.defaultEstimatedDropPerSeatHour ?? 0
-    )
+    ...(collectionMode ? { collectionMode } : {}),
+    ...(typeof roomHourlyFee === 'number' && Number.isFinite(roomHourlyFee) ? { hourlyFee: roomHourlyFee } : {}),
+    ...(typeof estimatedDropPerSeatHour === 'number' && Number.isFinite(estimatedDropPerSeatHour)
+      ? { estimatedDropPerSeatHour }
+      : {})
   };
 }
 
@@ -193,22 +261,9 @@ function getSessionSeatHours(state, session) {
 }
 
 function getPlayerSessionsForProfile(state, profile) {
-  const profileName = String(profile?.name || '').trim().toLowerCase();
-  return (state.playerSessions || []).filter((session) =>
-    profile?.id
-      ? session.profileId === profile.id
-      : String(session.playerName || '').trim().toLowerCase() === profileName
-  );
-}
-
-function getSessionBuyInsForPlayer(state, playerSession) {
-  return (state.buyIns || []).filter((buyIn) =>
-    buyIn.tableId === playerSession.tableId &&
-    buyIn.gameId === playerSession.gameId &&
-    (playerSession.profileId
-      ? buyIn.profileId === playerSession.profileId
-      : String(buyIn.playerName || '').trim().toLowerCase() === String(playerSession.playerName || '').trim().toLowerCase())
-  );
+  const profileId = String(profile?.id || '').trim();
+  if (!profileId) return [];
+  return (state.playerSessions || []).filter((session) => session.profileId === profileId);
 }
 
 function getGamesPlayed(state, profile, playerSessions) {
@@ -235,7 +290,11 @@ function getPlayerContribution(state, playerSessions) {
     const session = (state.sessions || []).find((item) => item.id === playerSession.tableId);
     if (!session) continue;
     const profile = getCollectionProfile(state, playerSession.gameId);
-    const mode = session.collectionMode || (session.timeFeeBased ? 'Time' : profile.collectionMode);
+    const mode = session.collectionMode === 'Time' || session.collectionMode === 'Drop'
+      ? session.collectionMode
+      : session.timeFeeBased
+        ? 'Time'
+        : profile.collectionMode;
     if (mode === 'Time') {
       const timeFeeLogs = (state.timeFeeLogs || []).filter(
         (entry) => entry.playerSessionId === playerSession.id
@@ -254,6 +313,7 @@ function getPlayerContribution(state, playerSessions) {
       ) + (unloggedMinutes / 60) * (Number(profile.hourlyFee || 0) || 0);
       continue;
     }
+    if (mode !== 'Drop') continue;
 
     const playerHours = hoursBetween(playerSession.seatedAt, playerSession.leftAt);
     estimatedDropContribution += playerHours * (Number(profile.estimatedDropPerSeatHour || 0) || 0);
@@ -275,21 +335,25 @@ function getPlayerContribution(state, playerSessions) {
 function getClubFormat(state) {
   const modes = new Set((state.sessions || []).map((session) => session.collectionMode || (session.timeFeeBased ? 'Time' : '')).filter(Boolean));
   if (modes.size > 1) return 'Mixed';
-  return [...modes][0] || state.settings?.defaultCollectionMode || 'Drop';
+  if (modes.size === 1) return [...modes][0];
+  return state.settings?.defaultCollectionMode === 'Time' || state.settings?.defaultCollectionMode === 'Drop'
+    ? state.settings.defaultCollectionMode
+    : undefined;
 }
 
 function buildCanonicalPlayerDocs(state, clubId, savedAt) {
   return (state.profiles || []).map((profile) => {
     const sessions = getPlayerSessionsForProfile(state, profile);
-    const firstSessionDate = sessions.map((session) => session.seatedAt).filter(Boolean).sort()[0] || '';
-    const totalHoursPlayed = Number(profile.totalTimePlayedHours || 0) || sessions.reduce((sum, session) => sum + hoursBetween(session.seatedAt, session.leftAt), 0);
+    const totalHoursPlayed = typeof profile.totalTimePlayedHours === 'number' && Number.isFinite(profile.totalTimePlayedHours)
+      ? profile.totalTimePlayedHours
+      : sessions.reduce((sum, session) => sum + hoursBetween(session.seatedAt, session.leftAt), 0);
     const contribution = getPlayerContribution(state, sessions);
     const id = playerDocumentId(profile, clubId);
     return {
       id,
       sourceProfileId: profile.id || '',
       name: profile.name || '',
-      dateJoined: profile.membershipStartDate || firstSessionDate.slice(0, 10),
+      dateJoined: profile.membershipStartDate || '',
       dateMembershipStarted: profile.membershipStartDate || '',
       dateMembershipShouldEnd: profile.membershipExpirationDate || '',
       gamesPlayed: getGamesPlayed(state, profile, sessions),
@@ -365,10 +429,14 @@ function buildCanonicalGameDocs(state, clubId, savedAt) {
 
 function buildCanonicalClubDoc(state, clubId, snapshot, playerDocs, savedAt) {
   const account = state.settings?.clubAccount || {};
+  const publishedName = String(account.clubName || snapshot.club.name || '').trim();
   return {
     id: clubId,
-    name: account.clubName || snapshot.club.name || 'Local Poker Club',
+    ...(publishedName ? { name: publishedName } : {}),
     address: account.address || '',
+    ...(snapshot.club.minimumAge === 18 || snapshot.club.minimumAge === 21
+      ? { minimumAge: snapshot.club.minimumAge }
+      : {}),
     gamesOffered: (state.games || []).map((game) => ({
       id: game.id,
       name: game.name,
@@ -382,6 +450,10 @@ function buildCanonicalClubDoc(state, clubId, snapshot, playerDocs, savedAt) {
   };
 }
 
+function isPublishedNumber(value, minimum = 0, maximum = Number.MAX_SAFE_INTEGER) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
+}
+
 function buildPrivatePlayerNotificationDocs(snapshot, clubId) {
   return (snapshot.notifications || []).flatMap((notification) => {
     const targetPlayerIds = Array.from(new Set(
@@ -389,7 +461,7 @@ function buildPrivatePlayerNotificationDocs(snapshot, clubId) {
         .map((value) => String(value || '').trim())
         .filter(Boolean)
     ));
-    if (!targetPlayerIds.length) return [];
+    if (targetPlayerIds.length !== 1) return [];
     return [{
       id: firestoreDocumentId(notification.id),
       clubId,
@@ -404,40 +476,101 @@ function buildPrivatePlayerNotificationDocs(snapshot, clubId) {
   });
 }
 
-function buildPlayerTournamentDocs(state, clubId, savedAt) {
-  return (state.tournaments || []).map((tournament) => {
-    const startsAt = tournament.scheduledAt || tournament.startedAt || tournament.createdAt || savedAt;
+function buildPlayerTournamentDocs(state, clubId, savedAt, nowMs = Date.now()) {
+  const evaluatedAtMs = Number(nowMs);
+  return (state.tournaments || []).flatMap((tournament) => {
+    const startsAt = tournament.scheduledAt || tournament.startedAt;
+    const interestOpensAt = tournament.registrationOpensAt;
+    const interestClosesAt = tournament.registrationClosesAt;
+    const startsAtMs = Date.parse(String(startsAt || ''));
+    const interestOpensAtMs = Date.parse(String(interestOpensAt || ''));
+    const interestClosesAtMs = Date.parse(String(interestClosesAt || ''));
+    if (
+      tournament.status !== 'Draft' ||
+      !String(tournament.id || '').trim() ||
+      !String(tournament.name || '').trim() ||
+      !Number.isFinite(evaluatedAtMs) ||
+      !Number.isFinite(startsAtMs) ||
+      !Number.isFinite(interestOpensAtMs) ||
+      !Number.isFinite(interestClosesAtMs) ||
+      startsAtMs <= evaluatedAtMs ||
+      interestOpensAtMs >= interestClosesAtMs ||
+      interestClosesAtMs > startsAtMs ||
+      !isPublishedNumber(tournament.buyIn) ||
+      !isPublishedNumber(tournament.startingStack)
+    ) return [];
     const players = tournament.players || [];
-    const prizePool = players.reduce((sum, player) =>
-      sum + Number(player.buyIn ?? tournament.buyIn ?? 0)
-        + Number(player.rebuys || 0) * Number(tournament.rebuyPrice ?? tournament.buyIn ?? 0)
-        + Number(player.addOns || 0) * Number(tournament.addOnPrice ?? tournament.buyIn ?? 0), 0);
-    return {
+    const rebuysAllowed = tournament.rebuysAllowed === true;
+    const addOnsAllowed = tournament.addOnsAllowed === true;
+    return [{
       id: firestoreDocumentId(tournament.id),
       clubId,
-      name: tournament.name || 'Tournament',
+      name: tournament.name,
       startsAt,
-      registrationOpensAt: tournament.registrationOpensAt || tournament.createdAt || savedAt,
-      registrationClosesAt: tournament.registrationClosesAt || startsAt,
-      registrationStatus: tournament.registrationStatus || (tournament.status === 'Draft' ? 'open' : 'closed'),
-      buyIn: Number(tournament.buyIn || 0),
-      prizePoolLabel: tournament.prizePoolLabel || (prizePool ? `$${prizePool.toLocaleString()} current prize pool` : 'Prize pool updates as entries are recorded'),
-      startingStack: Number(tournament.startingStack || 0),
-      levelMinutes: Number(tournament.levels?.[0]?.durationMinutes || 20),
-      lateRegistrationThroughLevel: Number(tournament.lateRegistrationThroughLevel || 0),
-      rebuyPrice: Number(tournament.rebuyPrice ?? tournament.buyIn ?? 0),
-      rebuyStack: Number(tournament.rebuyStack ?? tournament.startingStack ?? 0),
-      unlimitedRebuys: Boolean(tournament.unlimitedRebuys ?? tournament.rebuyPrice),
-      addOnPrice: Number(tournament.addOnPrice || 0),
-      addOnStack: Number(tournament.addOnStack ?? tournament.startingStack ?? 0),
-      rules: tournament.rules || ['House rules and staff decisions are final.'],
-      unregisterAllowed: tournament.unregisterAllowed ?? tournament.status === 'Draft',
+      interestOpensAt,
+      interestClosesAt,
+      // This is explicit venue intent, not a clock-collapsed snapshot. Consumers
+      // enforce the published window and the mutation service authorizes it again.
+      interestStatus: tournament.registrationStatus === 'open' ? 'open' : 'closed',
+      buyIn: tournament.buyIn,
+      buyInPublished: true,
+      ...(typeof tournament.prizePoolLabel === 'string' && tournament.prizePoolLabel.trim()
+        ? { prizePoolLabel: tournament.prizePoolLabel.trim() }
+        : {}),
+      startingStack: tournament.startingStack,
+      ...(isPublishedNumber(tournament.levels?.[0]?.durationMinutes, 0, 1440)
+        ? { levelMinutes: tournament.levels[0].durationMinutes }
+        : {}),
+      ...(isPublishedNumber(tournament.lateRegistrationThroughLevel, 0, 1000)
+        ? { lateRegistrationThroughLevel: tournament.lateRegistrationThroughLevel }
+        : {}),
+      rebuysAllowed,
+      ...(rebuysAllowed && isPublishedNumber(tournament.rebuyPrice) ? { rebuyPrice: tournament.rebuyPrice } : {}),
+      ...(rebuysAllowed && isPublishedNumber(tournament.rebuyStack) ? { rebuyStack: tournament.rebuyStack } : {}),
+      unlimitedRebuys: rebuysAllowed && tournament.unlimitedRebuys === true,
+      addOnsAllowed,
+      ...(addOnsAllowed && isPublishedNumber(tournament.addOnPrice) ? { addOnPrice: tournament.addOnPrice } : {}),
+      ...(addOnsAllowed && isPublishedNumber(tournament.addOnStack) ? { addOnStack: tournament.addOnStack } : {}),
+      rules: Array.isArray(tournament.rules)
+        ? tournament.rules.filter((rule) => typeof rule === 'string').map((rule) => rule.slice(0, 500))
+        : [],
+      withdrawalAllowed: tournament.unregisterAllowed === true,
       entrantCount: players.length,
-      totalRebuys: players.reduce((sum, player) => sum + Number(player.rebuys || 0), 0),
-      totalAddOns: players.reduce((sum, player) => sum + Number(player.addOns || 0), 0),
+      ...(players.every((player) => isPublishedNumber(player.rebuys))
+        ? { totalRebuys: players.reduce((sum, player) => sum + player.rebuys, 0) }
+        : {}),
+      ...(players.every((player) => isPublishedNumber(player.addOns))
+        ? { totalAddOns: players.reduce((sum, player) => sum + player.addOns, 0) }
+        : {}),
       featured: Boolean(tournament.featured),
       updatedAt: savedAt
-    };
+    }];
+  });
+}
+
+function buildTournamentInterestDocs(state, clubId, savedAt) {
+  return (state.tournamentInterests || []).flatMap((interest) => {
+    if (
+      !interest ||
+      interest.clubId !== clubId ||
+      typeof interest.id !== 'string' ||
+      typeof interest.tournamentId !== 'string' ||
+      typeof interest.playerId !== 'string' ||
+      !['interested', 'withdrawn'].includes(interest.status) ||
+      !Number.isFinite(Date.parse(String(interest.createdAt || ''))) ||
+      !Number.isFinite(Date.parse(String(interest.updatedAt || ''))) ||
+      (interest.withdrawnAt && !Number.isFinite(Date.parse(String(interest.withdrawnAt))))
+    ) return [];
+    return [{
+      id: firestoreDocumentId(interest.id),
+      tournamentId: interest.tournamentId,
+      clubId,
+      playerId: interest.playerId,
+      status: interest.status,
+      createdAt: interest.createdAt,
+      updatedAt: interest.updatedAt,
+      ...(interest.withdrawnAt ? { withdrawnAt: String(interest.withdrawnAt) } : {})
+    }];
   });
 }
 
@@ -460,8 +593,10 @@ function buildBatchUpdate(projectId, documentPath, record) {
 
 async function batchWriteDocuments(projectId, token, writes, chunkSize = 250) {
   for (let offset = 0; offset < writes.length; offset += chunkSize) {
-    const response = await fetch(
-      `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:batchWrite`,
+    const endpoint = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:batchWrite`;
+    const response = await fetchFirebase(
+      'batch-write',
+      endpoint,
       {
         method: 'POST',
         headers: {
@@ -471,13 +606,14 @@ async function batchWriteDocuments(projectId, token, writes, chunkSize = 250) {
         body: JSON.stringify({ writes: writes.slice(offset, offset + chunkSize) })
       }
     );
-    if (!response.ok) throw new Error(`Firestore batch write failed: ${response.status} ${await response.text()}`);
+    if (!response.ok) throw await firebaseResponseError('batch-write', response, endpoint);
   }
   return writes.length;
 }
 
 async function patchDocument(projectId, token, path, record) {
-  const response = await fetch(`${restBase(projectId)}/${path}`, {
+  const endpoint = `${restBase(projectId)}/${path}`;
+  const response = await fetchFirebase('document-write', endpoint, {
     method: 'PATCH',
     headers: {
       authorization: `Bearer ${token}`,
@@ -485,7 +621,7 @@ async function patchDocument(projectId, token, path, record) {
     },
     body: JSON.stringify({ fields: jsToFirestoreFields(record) })
   });
-  if (!response.ok) throw new Error(`Firestore write failed for ${path}: ${response.status} ${await response.text()}`);
+  if (!response.ok) throw await firebaseResponseError('document-write', response, path);
 }
 
 async function deleteLegacyPlayerDocuments(projectId, token, clubId, playerDocs) {
@@ -500,15 +636,29 @@ async function deleteLegacyPlayerDocuments(projectId, token, clubId, playerDocs)
     const endpoint = new URL(`${restBase(projectId)}/clubs/${encodeURIComponent(clubId)}/players`);
     endpoint.searchParams.set('pageSize', '500');
     if (pageToken) endpoint.searchParams.set('pageToken', pageToken);
-    const response = await fetch(endpoint.toString(), { headers: { authorization: `Bearer ${token}` } });
-    if (!response.ok) throw new Error(`Firestore player listing failed for ${clubId}: ${response.status} ${await response.text()}`);
-    const payload = await response.json();
+    const response = await fetchFirebase(
+      'player-list',
+      endpoint.toString(),
+      { headers: { authorization: `Bearer ${token}` } },
+      `clubs/${clubId}/players`
+    );
+    if (!response.ok) throw await firebaseResponseError('player-list', response, `clubs/${clubId}/players`);
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw firebaseRequestError('player-list-response-invalid', error, `clubs/${clubId}/players`);
+    }
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      throw new Error(`Firestore player listing returned an invalid payload for ${clubId}.`);
+      throw new FirebasePublicationError('player-list-response-invalid', {
+        pathRef: protectedIdentifier(`clubs/${clubId}/players`)
+      });
     }
     const listedDocuments = getRecordProperty(payload, 'documents');
     if (listedDocuments !== undefined && !Array.isArray(listedDocuments)) {
-      throw new Error(`Firestore player listing returned an invalid document list for ${clubId}.`);
+      throw new FirebasePublicationError('player-list-response-invalid', {
+        pathRef: protectedIdentifier(`clubs/${clubId}/players`)
+      });
     }
     const documents = Array.isArray(listedDocuments) ? listedDocuments : [];
     stalePaths.push(...documents.flatMap((document) => {
@@ -527,6 +677,76 @@ async function deleteLegacyPlayerDocuments(projectId, token, clubId, playerDocs)
   return stalePaths.length;
 }
 
+const reconciledProjectionCollections = Object.freeze([
+  'players',
+  'games',
+  'gameSessions',
+  'memberships',
+  'waitlists',
+  'notifications',
+  'tournaments',
+  'tournamentInterests'
+]);
+
+async function deleteStaleOwnedProjectionDocuments(projectId, token, clubId, expectedIdsByCollection) {
+  const stalePaths = [];
+  for (const collectionName of reconciledProjectionCollections) {
+    const expectedIds = expectedIdsByCollection[collectionName] instanceof Set
+      ? expectedIdsByCollection[collectionName]
+      : new Set(expectedIdsByCollection[collectionName] || []);
+    let pageToken = '';
+    do {
+      const endpoint = new URL(
+        `${restBase(projectId)}/clubs/${encodeURIComponent(clubId)}/${encodeURIComponent(collectionName)}`
+      );
+      endpoint.searchParams.set('pageSize', '500');
+      if (pageToken) endpoint.searchParams.set('pageToken', pageToken);
+      const collectionPath = `clubs/${clubId}/${collectionName}`;
+      const response = await fetchFirebase(
+        'projection-list',
+        endpoint.toString(),
+        { headers: { authorization: `Bearer ${token}` } },
+        collectionPath
+      );
+      if (!response.ok) {
+        throw await firebaseResponseError('projection-list', response, collectionPath);
+      }
+      let payload;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        throw firebaseRequestError('projection-list-response-invalid', error, collectionPath);
+      }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        throw new FirebasePublicationError('projection-list-response-invalid', {
+          pathRef: protectedIdentifier(collectionPath)
+        });
+      }
+      const listedDocuments = getRecordProperty(payload, 'documents');
+      if (listedDocuments !== undefined && !Array.isArray(listedDocuments)) {
+        throw new FirebasePublicationError('projection-list-response-invalid', {
+          pathRef: protectedIdentifier(collectionPath)
+        });
+      }
+      for (const document of Array.isArray(listedDocuments) ? listedDocuments : []) {
+        const documentName = getRecordProperty(document, 'name');
+        const documentId = String(documentName || '').split('/').pop() || '';
+        const fields = getRecordProperty(document, 'fields');
+        const syncSource = getRecordProperty(getRecordProperty(fields, 'syncSource'), 'stringValue');
+        if (
+          typeof documentName === 'string' &&
+          documentId &&
+          syncSource === 'orbit-api' &&
+          !expectedIds.has(documentId)
+        ) stalePaths.push(documentName);
+      }
+      pageToken = String(getRecordProperty(payload, 'nextPageToken') || '');
+    } while (pageToken);
+  }
+  await batchWriteDocuments(projectId, token, stalePaths.map((documentName) => ({ delete: documentName })));
+  return stalePaths.length;
+}
+
 async function publishStateToFirebase(state, options = {}) {
   const serviceAccount = loadServiceAccount();
   if (!serviceAccount) return { ok: false, skipped: true, reason: 'missing-service-account' };
@@ -541,6 +761,7 @@ async function publishStateToFirebase(state, options = {}) {
   const gameDocs = buildPlayerGameDocs(snapshot, accountKey);
   const gameSessionDocs = buildCanonicalGameDocs(state, accountKey, savedAt);
   const tournamentDocs = buildPlayerTournamentDocs(state, accountKey, savedAt);
+  const tournamentInterestDocs = buildTournamentInterestDocs(state, accountKey, savedAt);
   const notificationDocs = buildPrivatePlayerNotificationDocs(snapshot, accountKey);
   const syncMetadata = buildSyncMetadata(savedAt, syncRevision, {
     games: gameDocs.length,
@@ -548,6 +769,7 @@ async function publishStateToFirebase(state, options = {}) {
     waitlists: (snapshot.waitlists || []).length,
     notifications: notificationDocs.length,
     tournaments: tournamentDocs.length,
+    tournamentInterests: tournamentInterestDocs.length,
     players: playerDocs.length
   });
   const clubDoc = {
@@ -603,39 +825,30 @@ async function publishStateToFirebase(state, options = {}) {
     `clubs/${accountKey}/tournaments/${firestoreDocumentId(tournament.id)}`,
     { ...tournament, ...syncMetadata }
   )));
-  for (const tournament of state.tournaments || []) {
-    for (const player of tournament.players || []) {
-      if (!player.registrationId) continue;
-      const status = player.status === 'Checked In' || player.status === 'Active'
-        ? 'checked-in'
-        : player.status === 'Eliminated'
-          ? 'eliminated'
-          : player.status === 'Finished'
-            ? 'finished'
-            : 'registered';
-      writes.push(buildBatchUpdate(
-        projectId,
-        `clubs/${accountKey}/tournamentRegistrations/${firestoreDocumentId(player.registrationId)}`,
-        {
-          id: player.registrationId,
-          tournamentId: tournament.id,
-          clubId: accountKey,
-          playerId: player.profileId || '',
-          playerName: player.name || '',
-          playerEmail: player.email || '',
-          status,
-          rebuys: Number(player.rebuys || 0),
-          addOns: Number(player.addOns || 0),
-          registeredAt: player.registeredAt || savedAt,
-          unregisterAllowed: tournament.status === 'Draft',
-          ...syncMetadata,
-          updatedAt: savedAt
-        }
-      ));
-    }
-  }
+  writes.push(...tournamentInterestDocs.map((interest) => buildBatchUpdate(
+    projectId,
+    `clubs/${accountKey}/tournamentInterests/${firestoreDocumentId(interest.id)}`,
+    { ...interest, ...syncMetadata }
+  )));
 
   const publicationWriteCount = await batchWriteDocuments(projectId, token, writes);
+  const staleProjectionDocumentsRemoved = await deleteStaleOwnedProjectionDocuments(
+    projectId,
+    token,
+    accountKey,
+    {
+      players: new Set(playerDocs.map((player) => firestoreDocumentId(player.id))),
+      games: new Set(gameDocs.map((game) => firestoreDocumentId(game.id))),
+      gameSessions: new Set(gameSessionDocs.map((gameSession) => firestoreDocumentId(gameSession.id))),
+      memberships: new Set((snapshot.memberships || []).map((membership) =>
+        firestoreDocumentId(membership.playerId || membership.id)
+      )),
+      waitlists: new Set((snapshot.waitlists || []).map((waitlist) => firestoreDocumentId(waitlist.id))),
+      notifications: new Set(notificationDocs.map((notification) => firestoreDocumentId(notification.id))),
+      tournaments: new Set(tournamentDocs.map((tournament) => firestoreDocumentId(tournament.id))),
+      tournamentInterests: new Set(tournamentInterestDocs.map((interest) => firestoreDocumentId(interest.id)))
+    }
+  );
   const legacyPlayersRemoved = await deleteLegacyPlayerDocuments(projectId, token, accountKey, playerDocs);
 
   // The parent club document is the commit marker. Publishing it last prevents
@@ -651,12 +864,15 @@ async function publishStateToFirebase(state, options = {}) {
     games: gameDocs.length,
     gameSessions: gameSessionDocs.length,
     tournaments: tournamentDocs.length,
-    publicationWriteCount: publicationWriteCount + 1 + legacyPlayersRemoved,
+    tournamentInterests: tournamentInterestDocs.length,
+    publicationWriteCount: publicationWriteCount + 1 + staleProjectionDocumentsRemoved + legacyPlayersRemoved,
+    staleProjectionDocumentsRemoved,
     legacyPlayersRemoved
   };
 }
 
 module.exports = {
+  FirebasePublicationError,
   batchWriteDocuments,
   buildBatchUpdate,
   buildPlayerGameDocs,
@@ -665,7 +881,10 @@ module.exports = {
   buildCanonicalPlayerDocs,
   buildPrivatePlayerNotificationDocs,
   buildPlayerTournamentDocs,
+  buildTournamentInterestDocs,
+  deleteStaleOwnedProjectionDocuments,
   getFirebasePublisherStatus,
   playerDocumentId,
+  patchDocument,
   publishStateToFirebase
 };

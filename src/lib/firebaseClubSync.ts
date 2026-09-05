@@ -38,14 +38,6 @@ export type ManagementRevenueTransaction = {
   stripeEventId?: string;
 };
 
-type PlayerTournamentRegistrationStatus =
-  | 'registered'
-  | 'checked-in'
-  | 'eliminated'
-  | 'rebought'
-  | 'add-on-purchased'
-  | 'finished';
-
 type ManagementTournamentPlayerStatus = 'Registered' | 'Checked In' | 'Active' | 'Eliminated' | 'Finished';
 
 export type ManagementTournamentPlayer = {
@@ -82,9 +74,11 @@ export type ManagementTournament = {
   buyIn: number;
   startingStack: number;
   rebuyPrizePercent: number;
+  rebuysAllowed?: boolean;
   rebuyPrice?: number;
   rebuyStack?: number;
   unlimitedRebuys?: boolean;
+  addOnsAllowed?: boolean;
   addOnPrice?: number;
   addOnStack?: number;
   lateRegistrationThroughLevel?: number;
@@ -105,23 +99,12 @@ export type ManagementTournament = {
   rules?: string[];
   unregisterAllowed?: boolean;
   featured?: boolean;
+  buyInPublished?: boolean;
 };
 
 export type FirebaseSyncState = ManagementClubState & {
   tournaments: ManagementTournament[];
   revenueTransactions: ManagementRevenueTransaction[];
-};
-
-type ValidTournamentRegistration = {
-  id: string;
-  tournamentId: string;
-  playerId: string;
-  playerName: string;
-  playerEmail?: string;
-  status: PlayerTournamentRegistrationStatus;
-  rebuys: number;
-  addOns: number;
-  registeredAt: string;
 };
 
 const firebaseSyncTimeoutMs = 2500;
@@ -292,11 +275,10 @@ export async function syncPlayerUpdatesToClubState(state: FirebaseSyncState): Pr
     }
   }
 
-  const [registrationDocs, transactionDocs] = await Promise.all([
-    withFirebaseTimeout(getDocs(collection(db, 'clubs', accountKey, 'tournamentRegistrations')), null),
-    withFirebaseTimeout(getDocs(collection(db, 'clubs', accountKey, 'transactions')), null)
-  ]);
-  nextState = applyTournamentRegistrations(nextState, registrationDocs?.docs.map((item) => item.data()) ?? []);
+  const transactionDocs = await withFirebaseTimeout(
+    getDocs(collection(db, 'clubs', accountKey, 'transactions')),
+    null
+  );
   nextState = applyRevenueTransactions(nextState, transactionDocs?.docs.map((item) => item.data()) ?? []);
 
   return nextState;
@@ -319,9 +301,7 @@ export function subscribeToPlayerRequestUpdates(accountKey: string, callback: ()
       onSnapshot(collection(db, 'clubStates', normalizedKey, collectionName), handleSnapshot, () => undefined)
     );
   });
-  ['tournamentRegistrations', 'transactions'].forEach((collectionName) => {
-    unsubscribers.push(onSnapshot(collection(db, 'clubs', normalizedKey, collectionName), handleSnapshot, () => undefined));
-  });
+  unsubscribers.push(onSnapshot(collection(db, 'clubs', normalizedKey, 'transactions'), handleSnapshot, () => undefined));
 
   globalThis.setTimeout(() => {
     initialized = true;
@@ -353,7 +333,10 @@ async function publishClubSnapshot(
   const membershipIds = new Set(snapshot.memberships.map((membership) => membership.playerId));
   const waitlistIds = new Set(snapshot.waitlists.map((entry) => entry.id));
   const notificationIds = new Set((snapshot.notifications ?? []).map((notification) => notification.id));
-  const publishedTournaments = (state.tournaments ?? []).map(toPlayerTournament);
+  const publishedTournaments = (state.tournaments ?? []).flatMap((tournament) => {
+    const published = toPlayerTournament(tournament);
+    return published ? [published] : [];
+  });
   const tournamentIds = new Set(publishedTournaments.map((tournament) => tournament.id));
   const syncMetadata = {
     syncProtocolVersion: orbitSyncProtocolVersion,
@@ -414,60 +397,73 @@ async function publishClubSnapshot(
   existingTournaments.docs.forEach((tournamentDoc) => {
     if (!tournamentIds.has(tournamentDoc.id)) batch.delete(tournamentDoc.ref);
   });
-  state.tournaments.forEach((tournament) => {
-    tournament.players.forEach((player) => {
-      if (!player.registrationId) return;
-      const status = player.status === 'Checked In' || player.status === 'Active'
-        ? 'checked-in'
-        : player.status === 'Eliminated'
-          ? 'eliminated'
-          : player.status === 'Finished'
-            ? 'finished'
-            : 'registered';
-      batch.set(
-        doc(db, 'clubs', accountKey, 'tournamentRegistrations', player.registrationId),
-        stripUndefinedForFirestore({
-          status,
-          rebuys: Number(player.rebuys ?? 0),
-          addOns: Number(player.addOns ?? 0),
-          updatedAt: serverTimestamp()
-        }),
-        { merge: true }
-      );
-    });
-  });
   await batch.commit();
 }
 
+function isPublishedNumber(value: unknown, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
+}
+
 function toPlayerTournament(tournament: ManagementTournament) {
-  const startsAt = tournament.scheduledAt || tournament.startedAt || tournament.createdAt || new Date().toISOString();
+  const startsAt = tournament.scheduledAt || tournament.startedAt;
+  const interestOpensAt = tournament.registrationOpensAt;
+  const interestClosesAt = tournament.registrationClosesAt;
+  const startsAtMs = Date.parse(startsAt || '');
+  const interestOpensAtMs = Date.parse(interestOpensAt || '');
+  const interestClosesAtMs = Date.parse(interestClosesAt || '');
+  if (
+    tournament.status !== 'Draft' ||
+    !tournament.id.trim() ||
+    !tournament.name.trim() ||
+    !Number.isFinite(startsAtMs) ||
+    !Number.isFinite(interestOpensAtMs) ||
+    !Number.isFinite(interestClosesAtMs) ||
+    startsAtMs <= Date.now() ||
+    interestOpensAtMs >= interestClosesAtMs ||
+    interestClosesAtMs > startsAtMs ||
+    !isPublishedNumber(tournament.buyIn) ||
+    !isPublishedNumber(tournament.startingStack)
+  ) return null;
   const entrants = tournament.players;
-  const prizePool = entrants.reduce((sum, player) =>
-    sum + Number(player.buyIn ?? tournament.buyIn ?? 0)
-      + Number(player.rebuys ?? 0) * Number(tournament.rebuyPrice ?? tournament.buyIn ?? 0)
-      + Number(player.addOns ?? 0) * Number(tournament.addOnPrice ?? tournament.buyIn ?? 0), 0);
+  const rebuysAllowed = tournament.rebuysAllowed === true;
+  const addOnsAllowed = tournament.addOnsAllowed === true;
   return {
     id: tournament.id,
     name: tournament.name,
     startsAt,
-    registrationOpensAt: tournament.registrationOpensAt || tournament.createdAt || new Date().toISOString(),
-    registrationClosesAt: tournament.registrationClosesAt || startsAt,
-    registrationStatus: tournament.registrationStatus || (tournament.status === 'Draft' ? 'open' : 'closed'),
-    buyIn: Number(tournament.buyIn ?? 0),
-    prizePoolLabel: tournament.prizePoolLabel || (prizePool ? `$${prizePool.toLocaleString()} current prize pool` : 'Prize pool updates as entries are recorded'),
-    startingStack: Number(tournament.startingStack ?? 0),
-    levelMinutes: Number(tournament.levels?.[0]?.durationMinutes ?? 20),
-    lateRegistrationThroughLevel: Number(tournament.lateRegistrationThroughLevel ?? 0),
-    rebuyPrice: Number(tournament.rebuyPrice ?? tournament.buyIn ?? 0),
-    rebuyStack: Number(tournament.rebuyStack ?? tournament.startingStack ?? 0),
-    unlimitedRebuys: Boolean(tournament.unlimitedRebuys ?? tournament.rebuyPrice),
-    addOnPrice: Number(tournament.addOnPrice ?? 0),
-    addOnStack: Number(tournament.addOnStack ?? tournament.startingStack ?? 0),
-    rules: tournament.rules ?? ['House rules and staff decisions are final.'],
-    unregisterAllowed: tournament.unregisterAllowed ?? tournament.status === 'Draft',
+    interestOpensAt,
+    interestClosesAt,
+    // Explicit venue intent stays live across future window boundaries. Player
+    // clients and the API mutation service independently enforce the timestamps.
+    interestStatus: tournament.registrationStatus === 'open' ? 'open' : 'closed',
+    buyIn: tournament.buyIn,
+    buyInPublished: true,
+    ...(typeof tournament.prizePoolLabel === 'string' && tournament.prizePoolLabel.trim()
+      ? { prizePoolLabel: tournament.prizePoolLabel.trim() }
+      : {}),
+    startingStack: tournament.startingStack,
+    ...(isPublishedNumber(tournament.levels?.[0]?.durationMinutes, 0, 1440)
+      ? { levelMinutes: tournament.levels[0].durationMinutes }
+      : {}),
+    ...(isPublishedNumber(tournament.lateRegistrationThroughLevel, 0, 1000)
+      ? { lateRegistrationThroughLevel: tournament.lateRegistrationThroughLevel }
+      : {}),
+    rebuysAllowed,
+    ...(rebuysAllowed && isPublishedNumber(tournament.rebuyPrice) ? { rebuyPrice: tournament.rebuyPrice } : {}),
+    ...(rebuysAllowed && isPublishedNumber(tournament.rebuyStack) ? { rebuyStack: tournament.rebuyStack } : {}),
+    unlimitedRebuys: rebuysAllowed && tournament.unlimitedRebuys === true,
+    addOnsAllowed,
+    ...(addOnsAllowed && isPublishedNumber(tournament.addOnPrice) ? { addOnPrice: tournament.addOnPrice } : {}),
+    ...(addOnsAllowed && isPublishedNumber(tournament.addOnStack) ? { addOnStack: tournament.addOnStack } : {}),
+    rules: Array.isArray(tournament.rules) ? tournament.rules.slice(0, 100) : [],
+    withdrawalAllowed: tournament.unregisterAllowed === true,
     entrantCount: entrants.length,
-    totalRebuys: entrants.reduce((sum, player) => sum + Number(player.rebuys ?? 0), 0),
-    totalAddOns: entrants.reduce((sum, player) => sum + Number(player.addOns ?? 0), 0),
+    ...(entrants.every((player) => isPublishedNumber(player.rebuys))
+      ? { totalRebuys: entrants.reduce((sum, player) => sum + Number(player.rebuys), 0) }
+      : {}),
+    ...(entrants.every((player) => isPublishedNumber(player.addOns))
+      ? { totalAddOns: entrants.reduce((sum, player) => sum + Number(player.addOns), 0) }
+      : {}),
     featured: Boolean(tournament.featured)
   };
 }
@@ -483,14 +479,6 @@ const revenueTransactionTypes: RevenueTransactionType[] = [
 ];
 const revenuePaymentStatuses: RevenuePaymentStatus[] = ['paid', 'refunded', 'partially_refunded', 'pending', 'failed'];
 const revenueSources: RevenueSource[] = ['stripe', 'manual', 'import'];
-const tournamentRegistrationStatuses: PlayerTournamentRegistrationStatus[] = [
-  'registered',
-  'checked-in',
-  'eliminated',
-  'rebought',
-  'add-on-purchased',
-  'finished'
-];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -514,10 +502,6 @@ function isRevenuePaymentStatus(value: unknown): value is RevenuePaymentStatus {
 
 function isRevenueSource(value: unknown): value is RevenueSource {
   return revenueSources.some((candidate) => candidate === value);
-}
-
-function isTournamentRegistrationStatus(value: unknown): value is PlayerTournamentRegistrationStatus {
-  return tournamentRegistrationStatuses.some((candidate) => candidate === value);
 }
 
 function optionalString(value: unknown) {
@@ -554,106 +538,10 @@ function parseRevenueTransaction(value: unknown): ManagementRevenueTransaction |
   };
 }
 
-function parseTournamentRegistration(value: unknown): ValidTournamentRegistration | undefined {
-  if (
-    !isRecord(value) ||
-    !isNonEmptyString(value.id) ||
-    !isNonEmptyString(value.tournamentId) ||
-    !isNonEmptyString(value.playerId) ||
-    !isNonEmptyString(value.playerName) ||
-    !isTournamentRegistrationStatus(value.status) ||
-    typeof value.rebuys !== 'number' ||
-    !Number.isFinite(value.rebuys) ||
-    value.rebuys < 0 ||
-    typeof value.addOns !== 'number' ||
-    !Number.isFinite(value.addOns) ||
-    value.addOns < 0 ||
-    !isValidTimestamp(value.registeredAt)
-  ) {
-    return undefined;
-  }
-  return {
-    id: value.id,
-    tournamentId: value.tournamentId,
-    playerId: value.playerId,
-    playerName: value.playerName,
-    playerEmail: optionalString(value.playerEmail),
-    status: value.status,
-    rebuys: value.rebuys,
-    addOns: value.addOns,
-    registeredAt: value.registeredAt
-  };
-}
-
 function uniqueAuthoritativeRecords<T extends { id: string }>(records: T[]) {
   const counts = new Map<string, number>();
   records.forEach((record) => counts.set(record.id, (counts.get(record.id) ?? 0) + 1));
   return records.filter((record) => counts.get(record.id) === 1);
-}
-
-function toManagementTournamentStatus(
-  status: PlayerTournamentRegistrationStatus,
-  existingStatus?: ManagementTournamentPlayerStatus
-): ManagementTournamentPlayerStatus {
-  if (status === 'checked-in') return 'Checked In';
-  if (status === 'eliminated') return 'Eliminated';
-  if (status === 'finished') return 'Finished';
-  if (status === 'rebought' || status === 'add-on-purchased') return existingStatus ?? 'Registered';
-  return 'Registered';
-}
-
-function applyTournamentRegistrations(state: FirebaseSyncState, rawRegistrations: unknown[]): FirebaseSyncState {
-  const registrations = uniqueAuthoritativeRecords(
-    rawRegistrations.map(parseTournamentRegistration).filter((registration) => registration !== undefined)
-  );
-  if (!registrations.length) return state;
-
-  let changed = false;
-  const tournaments = state.tournaments.map((tournament) => {
-    const registrationsById = new Map(
-      registrations
-        .filter((registration) => registration.tournamentId === tournament.id)
-        .map((registration) => [registration.id, registration])
-    );
-    if (!registrationsById.size) return tournament;
-
-    const players = tournament.players.map((player) => {
-      const registrationId = player.registrationId ?? player.id;
-      const registration = registrationsById.get(registrationId);
-      if (!registration) return player;
-      registrationsById.delete(registrationId);
-      changed = true;
-      return {
-        ...player,
-        registrationId: registration.id,
-        profileId: registration.playerId,
-        name: registration.playerName,
-        email: registration.playerEmail ?? player.email,
-        rebuys: registration.rebuys,
-        addOns: registration.addOns,
-        status: toManagementTournamentStatus(registration.status, player.status),
-        registeredAt: registration.registeredAt
-      };
-    });
-    const additions = [...registrationsById.values()].map((registration): ManagementTournamentPlayer => ({
-      id: registration.id,
-      registrationId: registration.id,
-      profileId: registration.playerId,
-      name: registration.playerName,
-      email: registration.playerEmail,
-      buyIn: tournament.buyIn,
-      rebuys: registration.rebuys,
-      addOns: registration.addOns,
-      startingStack: tournament.startingStack,
-      status: toManagementTournamentStatus(registration.status),
-      registeredAt: registration.registeredAt
-    }));
-    if (!additions.length && players.every((player, index) => player === tournament.players[index])) return tournament;
-    changed = true;
-    return { ...tournament, players: [...players, ...additions] };
-  });
-
-  return changed ? { ...state, tournaments } : state;
 }
 
 function applyRevenueTransactions(state: FirebaseSyncState, rawTransactions: unknown[]): FirebaseSyncState {
@@ -689,7 +577,6 @@ function applyRevenueTransactions(state: FirebaseSyncState, rawTransactions: unk
         return;
       }
       if (!transaction.playerName) return;
-      const preferredGameId = state.games[0]?.id ?? '';
       profiles.push({
         id: transaction.playerId,
         name: transaction.playerName,
@@ -707,7 +594,7 @@ function applyRevenueTransactions(state: FirebaseSyncState, rawTransactions: unk
         totalTimePlayedHours: 0,
         lastSessionTimePlayedHours: 0,
         commonlyPlaysWithProfileIds: [],
-        preferredGameId,
+        preferredGameId: '',
         preferredGameIds: [],
         preferredStakes: '',
         typicalBuyInMin: 0,

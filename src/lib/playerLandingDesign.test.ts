@@ -31,22 +31,22 @@ describe('Orbit Player landing design continuity', () => {
       'PlayerLandingHero',
       'OrbitMark',
       'PokerTableAtmosphere',
-      'Current live poker starts here',
+      'Current room listings start here',
       'Find your game.',
       'Current information published by rooms using Orbit Core',
       'Start matching',
-      "id: 'live'",
+      "id: 'current'",
       "id: 'forming'",
-      "id: 'registration'",
+      "id: 'interest'",
       'Pick a card',
       'Now on Orbit',
       'View matches',
-      'Registration is open',
+      'Interest open',
       'Current rooms',
       'OrbitJourney',
       'A shorter path to the table',
       'OrbitPlayerFaq',
-      'Straight answers for live play.',
+      'Straight answers for venue listings.',
       'OrbitPlayerFooter',
       'Developed by Caminus Labs, LLC'
     ]) expect(experience).toContain(token);
@@ -87,30 +87,29 @@ describe('Orbit Player landing design continuity', () => {
       "onBrowseTournaments={() => setScreen('tournaments')}",
       "onBrowseClubs={() => setScreen('clubs')}",
       "{screen === 'home' ? <OrbitJourney /> : null}",
-      "{screen === 'findGames' && !showHostScreen ? (",
+      "{screen === 'findGames' ? (",
       '<DiscoveryDeck',
       'Swipe left to pass or right to save.',
       "useState<CasinoFilter>('all')",
       'selectContinuousDiscoveryOpportunities(opportunities, broadOpportunities)',
       'No exact filter matches. Showing other published games',
       "setScreen(gameDetailsReturnScreen)",
-      "else if (showHostScreen)",
-      "setShowHostScreen(false)",
       "backLabel={gameDetailsReturnScreen === 'home' ? 'Home' : 'Matches'}",
       "tab.id === 'home' && screen === 'findGames'",
       'accessibilityRole="tablist"',
       'accessibilityState={{ selected: active }}'
     ]) expect(playerApp).toContain(token);
+    expect(playerApp).not.toMatch(/showHostScreen|PrivateGame|PremiumPaywall/);
     expect(playerTypes).toContain("| 'home'");
     expect(playerApp).not.toContain('discoveryStartY');
-    expect(discoveryDeck).toContain('Looking for live matches');
-    expect(discoveryDeck).toContain('Live matches unavailable');
-    expect(discoveryDeck).toContain('Loading live matches');
+    expect(discoveryDeck).toContain('Loading published matches');
+    expect(discoveryDeck).toContain('Published matches unavailable');
+    expect(discoveryDeck).toContain('More matches are loading');
     expect(discoveryDeck).toContain('No matches are in the rooms loaded so far. More rooms are still refreshing.');
     expect(discoveryDeck).toContain('Orbit checks again automatically');
     expect(discoveryDetails).toContain('accessibilityLabel={`Back to ${backLabel}`}');
     expect(discoveryDetails).toContain('<Text style={styles.gameDetailsBackText}>{backLabel}</Text>');
-    expect(read('player-app/src/features/home/PlayerLandingExperience.tsx')).toContain('Live games unavailable');
+    expect(read('player-app/src/features/home/PlayerLandingExperience.tsx')).toContain('Published games unavailable');
     expect(playerApp.match(/inventoryStatus=\{liveDataStatus\}/g)).toHaveLength(2);
     expect(playerApp.match(/inventoryPartial=\{liveDataPartial\}/g)).toHaveLength(2);
     expect(onboarding).toContain('<PlayerAmbientFlow />');

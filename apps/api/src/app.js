@@ -9,8 +9,15 @@ const { registerClientRoutes } = require('./routes/client');
 const { registerDashboardRoutes } = require('./routes/dashboard');
 const { registerPlayerRoutes } = require('./routes/player');
 const { registerSelfCheckInRoutes } = require('./routes/selfCheckIn');
+const { registerMembershipQrRoutes } = require('./routes/membershipQr');
 const { registerHealthRoute, registerLegalRoutes } = require('./routes/system');
 const { getDatabaseStatus } = require('./database');
+const { scheduleDeletionFinalizationDrain } = require('./accountDeletionService');
+const { registerAccountDeletionFinalizationScheduler } = require('./operations/accountDeletionFinalization');
+const { scheduleIdentityProviderCleanupDrain } = require('./identityService');
+const { assertLogHashConfiguration } = require('./http/dataProtection');
+
+registerAccountDeletionFinalizationScheduler(scheduleDeletionFinalizationDrain);
 
 function applySelfCheckInPrivacyHeaders(_request, response, next) {
   response.set('cache-control', 'private, no-store, max-age=0');
@@ -19,7 +26,17 @@ function applySelfCheckInPrivacyHeaders(_request, response, next) {
   next();
 }
 
+function resumePendingAccountDeletionFinalizers(_request, _response, next) {
+  // A finalizing job is durable before Firebase Auth is removed. Opportunistic
+  // bounded drains on later requests make the last marker replayable after a
+  // process crash, including on serverless runtimes without a resident worker.
+  void scheduleDeletionFinalizationDrain().catch(() => undefined);
+  void scheduleIdentityProviderCleanupDrain().catch(() => undefined);
+  next();
+}
+
 function createApp() {
+  assertLogHashConfiguration();
   // Validate the server-only authoritative Firestore configuration during cold
   // start. Hosted production must never fall back to an in-memory test store.
   getDatabaseStatus();
@@ -33,6 +50,7 @@ function createApp() {
   if (trustedProxy) app.set('trust proxy', trustedProxy === 'true' ? 1 : trustedProxy);
 
   app.use(assignRequestId);
+  app.use(resumePendingAccountDeletionFinalizers);
   app.use(recordRequestTiming);
   app.use(responseCompression);
   app.use([
@@ -57,6 +75,7 @@ function createApp() {
   app.use('/player/check-in/lookup', createRateLimit({ name: 'self-check-in-lookup', identity: 'address', maximum: 120, windowMs: 10 * 60_000 }));
   app.use('/player/check-in/seat', createRateLimit({ name: 'self-check-in-seat', identity: 'address', maximum: 120, windowMs: 10 * 60_000 }));
   app.use('/management/self-check-in', createRateLimit({ name: 'self-check-in-issuer', maximum: 10, windowMs: 15 * 60_000 }));
+  app.use('/management/membership-qr/redeem', createRateLimit({ name: 'membership-qr-redeem', maximum: 30, windowMs: 15 * 60_000 }));
   app.use('/webhooks', createRateLimit({ name: 'webhook', maximum: 300, windowMs: 60_000 }));
   app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), handleStripeWebhook);
   app.post('/webhooks/revenuecat', express.json({ limit: '256kb' }), asyncRoute(handleRevenueCatWebhook));
@@ -64,6 +83,7 @@ function createApp() {
 
   registerHealthRoute(app, startedAt);
   registerSelfCheckInRoutes(app);
+  registerMembershipQrRoutes(app);
   registerPlayerRoutes(app);
   registerLegalRoutes(app);
   registerDashboardRoutes(app, liveUpdates, startedAt);

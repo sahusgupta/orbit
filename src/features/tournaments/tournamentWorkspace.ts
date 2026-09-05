@@ -36,6 +36,11 @@ export type TournamentDraft = {
   levelMinutes: string;
   rebuyPrizePercent: string;
   tableSize: string;
+  scheduledAt?: string;
+  registrationOpensAt?: string;
+  registrationClosesAt?: string;
+  registrationStatus?: 'open' | 'closed';
+  unregisterAllowed?: boolean;
   payouts?: TournamentPayoutDraft[];
 };
 
@@ -51,6 +56,13 @@ export const formatTournamentTime = (seconds: number) => {
   const minutes = Math.floor(safeSeconds / 60);
   const remainingSeconds = safeSeconds % 60;
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+};
+
+export const toDateTimeLocalValue = (value?: string) => {
+  const date = new Date(String(value || ''));
+  if (!Number.isFinite(date.getTime())) return '';
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
 export const getTournamentLevel = (tournament?: Tournament | null) =>
@@ -105,6 +117,11 @@ export const useTournamentWorkspaceState = () => {
     levelMinutes: '20',
     rebuyPrizePercent: '100',
     tableSize: '9',
+    scheduledAt: '',
+    registrationOpensAt: '',
+    registrationClosesAt: '',
+    registrationStatus: 'closed',
+    unregisterAllowed: false,
     payouts: createDefaultTournamentPayoutDrafts()
   });
   const [tournamentPlayerDraft, setTournamentPlayerDraft] = useState<TournamentPlayerDraft>({
@@ -191,6 +208,11 @@ export const createTournamentActions = ({
       levelMinutes: String(tournament.levels[0]?.durationMinutes ?? 20),
       rebuyPrizePercent: String(tournament.rebuyPrizePercent ?? 100),
       tableSize: String(tournament.tableSize ?? 9),
+      scheduledAt: toDateTimeLocalValue(tournament.scheduledAt),
+      registrationOpensAt: toDateTimeLocalValue(tournament.registrationOpensAt),
+      registrationClosesAt: toDateTimeLocalValue(tournament.registrationClosesAt),
+      registrationStatus: tournament.registrationStatus === 'open' ? 'open' : 'closed',
+      unregisterAllowed: tournament.unregisterAllowed === true,
       payouts: tournament.payouts.map((payout) => ({
         place: payout.place,
         percent: String(payout.percent)

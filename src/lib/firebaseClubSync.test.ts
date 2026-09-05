@@ -480,7 +480,7 @@ describe('Firebase club synchronization transforms', () => {
     expect(result.revenueTransactions).toEqual([]);
   });
 
-  it('imports every valid registration status and skips unknown or missing authoritative identity', async () => {
+  it('ignores legacy registration documents so they cannot rehydrate tournament entrants', async () => {
     const tournament = buildTournament('tournament-one');
     const unrelatedTournament = buildTournament('tournament-unrelated');
     const registrations = [
@@ -580,31 +580,11 @@ describe('Firebase club synchronization transforms', () => {
 
     expect(state).toEqual(stateSnapshot);
     expect(registrations).toEqual(rawSnapshot);
-    expect(result.tournaments[0]).toMatchObject({
-      id: tournament.id,
-      preservedTournamentField: tournament.preservedTournamentField
-    });
-    expect(result.tournaments[0].players.map((player) => [player.id, player.status])).toEqual([
-      ['registration-registered', 'Registered'],
-      ['registration-checked-in', 'Checked In'],
-      ['registration-eliminated', 'Eliminated'],
-      ['registration-finished', 'Finished'],
-      ['registration-rebought', 'Registered'],
-      ['registration-add-on', 'Registered']
-    ]);
-    expect(result.tournaments[0].players[2]).toMatchObject({
-      profileId: 'profile-eliminated',
-      name: 'Eliminated Player',
-      buyIn: 100,
-      rebuys: 2,
-      addOns: 1,
-      startingStack: 20_000,
-      registeredAt: '2026-08-05T12:02:00.000Z'
-    });
-    expect(result.tournaments[1]).toBe(state.tournaments[1]);
+    expect(result).toBe(state);
+    expect(result.tournaments).toEqual([tournament, unrelatedTournament]);
   });
 
-  it('updates existing registrations by authoritative ID while preserving unrelated player fields and idempotency', async () => {
+  it('does not apply legacy registration updates to existing entrants', async () => {
     const existingPlayer: ManagementTournamentPlayer = {
       id: 'registration-existing',
       registrationId: 'registration-existing',
@@ -639,17 +619,12 @@ describe('Firebase club synchronization transforms', () => {
     const second = await syncPlayerUpdatesToClubState(first);
 
     expect(state).toEqual(stateSnapshot);
-    expect(first.tournaments[0]).not.toBe(state.tournaments[0]);
-    expect(first.tournaments[0].players[0]).toEqual({
-      ...existingPlayer,
-      rebuys: 3,
-      addOns: 1,
-      status: 'Finished'
-    });
-    expect(second).toEqual(first);
+    expect(first).toBe(state);
+    expect(second).toBe(first);
+    expect(first.tournaments[0].players[0]).toEqual(existingPlayer);
   });
 
-  it('treats rebuy and add-on statuses as count updates without replacing the established tournament status', async () => {
+  it('does not import legacy rebuy or add-on registration counters', async () => {
     const rebuyPlayer: ManagementTournamentPlayer = {
       id: 'registration-rebuy-update',
       registrationId: 'registration-rebuy-update',
@@ -700,15 +675,13 @@ describe('Firebase club synchronization transforms', () => {
 
     const result = await syncPlayerUpdatesToClubState(state);
 
-    expect(result.tournaments[0].players).toEqual([
-      { ...rebuyPlayer, rebuys: 2, status: 'Checked In' },
-      { ...addOnPlayer, addOns: 1, status: 'Active' }
-    ]);
+    expect(result).toBe(state);
+    expect(result.tournaments[0].players).toEqual([rebuyPlayer, addOnPlayer]);
   });
 });
 
 describe('Firebase club publication', () => {
-  it('publishes protocol-v2 metadata, complete tournament projections, and canonical registration statuses', async () => {
+  it('publishes protocol-v2 tournament summaries without entrant registration documents', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-07T22:00:00.000Z'));
     const state = buildState({
@@ -759,7 +732,7 @@ describe('Firebase club publication', () => {
           ]),
           scheduledAt: '2026-08-08T18:00:00.000Z',
           registrationOpensAt: '2026-08-01T18:00:00.000Z',
-          registrationClosesAt: '2026-08-08T18:30:00.000Z',
+          registrationClosesAt: '2026-08-08T17:30:00.000Z',
           registrationStatus: 'open',
           lateRegistrationThroughLevel: 4,
           rules: ['Published rule'],
@@ -817,7 +790,7 @@ describe('Firebase club publication', () => {
       id: 'tournament-published',
       name: 'Tournament tournament-published',
       startsAt: '2026-08-08T18:00:00.000Z',
-      registrationStatus: 'open',
+      interestStatus: 'open',
       buyIn: 100,
       entrantCount: 3,
       totalRebuys: 3,
@@ -826,16 +799,7 @@ describe('Firebase club publication', () => {
       syncProtocolVersion: 2,
       syncRevision: result.syncRevision
     });
-    expect(getSetOperation(`clubs/${clubId}/tournamentRegistrations/registration-checked`).data).toMatchObject({
-      status: 'checked-in',
-      rebuys: 1,
-      addOns: 0
-    });
-    expect(getSetOperation(`clubs/${clubId}/tournamentRegistrations/registration-finished`).data).toMatchObject({
-      status: 'finished',
-      rebuys: 2,
-      addOns: 1
-    });
+    expect(firebaseHarness.batchOperations.some((operation) => operation.path.includes('/tournamentRegistrations/'))).toBe(false);
     expect(firebaseHarness.batchOperations.some((operation) => operation.path.endsWith('/player-local-only'))).toBe(false);
     vi.useRealTimers();
   });

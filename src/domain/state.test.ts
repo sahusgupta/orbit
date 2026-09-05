@@ -1,7 +1,51 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeState, seedState } from './state';
+import { decodePersistedAppState, normalizeState, seedState } from './state';
 
 describe('state normalization', () => {
+  it('preserves immutable player references on normalized table audit events', () => {
+    const tableEvent = {
+      id: 'event-player-bearing',
+      type: 'Started' as const,
+      gameId: 'game-one',
+      tableId: 'table-one',
+      timestamp: '2026-09-01T00:00:00.000Z',
+      playerCount: 2,
+      note: 'Started with two players',
+      profileId: 'profile-one',
+      profileIds: ['profile-one', 'profile-two']
+    };
+
+    const decoded = decodePersistedAppState({ tableEvents: [tableEvent] });
+    expect(decoded?.tableEvents).toEqual([tableEvent]);
+    expect(normalizeState(decoded ?? {}).tableEvents).toEqual([
+      { ...tableEvent, reason: '' }
+    ]);
+  });
+
+  it('does not seed membership products or publish legacy plans without explicit activation', () => {
+    expect(seedState.settings.membershipPlans).toEqual([]);
+    expect(normalizeState({}).settings.membershipPlans).toEqual([]);
+
+    const legacyPlan = {
+      id: 'legacy-monthly',
+      name: 'Legacy Monthly',
+      priceLabel: '$40',
+      durationDays: 30
+    } as unknown as (typeof seedState.settings.membershipPlans)[number];
+    const malformedPlan = {
+      id: 'malformed',
+      name: 'Malformed',
+      priceLabel: '$0',
+      durationDays: ''
+    } as unknown as (typeof seedState.settings.membershipPlans)[number];
+    const restored = normalizeState({ settings: { membershipPlans: [legacyPlan, malformedPlan] } });
+
+    expect(restored.settings.membershipPlans).toEqual([
+      { ...legacyPlan, active: false },
+      { ...malformedPlan, durationDays: 0, active: false }
+    ]);
+  });
+
   it('restores permanent table identities and keeps game-session bindings separate', () => {
     const restored = normalizeState({
       games: [{

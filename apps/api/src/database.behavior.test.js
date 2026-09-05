@@ -1,5 +1,6 @@
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import database from './database.js';
+import connection from './db/connection';
 
 const {
   closeDatabase,
@@ -67,6 +68,7 @@ afterAll(async () => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
 });
 
 describe('API database facade behavior', () => {
@@ -232,6 +234,186 @@ describe('API database facade behavior', () => {
     expect(await listClientErrors({ venueId: 'Character Club' })).toEqual([error]);
     expect((await getClient('device-1'))?.lastError).toBe('Renderer failed');
     expect(await getTelemetrySummary()).toMatchObject({ clients: 1, events: 2, errors: 1, tableStarts24h: 1 });
+  });
+
+  it('stores and lists production telemetry without raw credentials or identity/payment payloads', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('ORBIT_FIRESTORE_MEMORY', 'true');
+    vi.stubEnv('ORBIT_LOG_HASH_SECRET', 'telemetry-log-hash-secret-with-at-least-32-characters');
+    const fixtures = [
+      'production-bearer-token-value',
+      'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJwcml2YXRlIn0.signature12345',
+      'sk_live_telemetrySecret123456',
+      'private-telemetry-key-body',
+      'RAW-TELEMETRY-PDF417',
+      'DOCUMENT-PRIVATE-123',
+      'PAYMENT-PRIVATE-123',
+      '4111 1111 1111 1111',
+      '@\nANSI 636026080102DL00410288ZA03290015DLDAQD1234567',
+      'z8Qp4mN7vR2xL9cT5kH3sF6jB1wD0yU8aE4gI7oP2qS9nM5'
+    ];
+    const sensitiveText = [
+      `Bearer ${fixtures[0]}`,
+      fixtures[1],
+      fixtures[2],
+      `barcode=${fixtures[4]}`,
+      `documentNumber=${fixtures[5]}`,
+      `paymentToken=${fixtures[6]}`,
+      fixtures[7]
+    ].join('; ');
+
+    const recorded = await recordClientError({
+      ...clientPayload,
+      deviceId: 'sensitive-telemetry-device',
+      venueId: 'Sensitive Telemetry Room',
+      venueName: `Sensitive Telemetry Room barcode=${fixtures[4]}`,
+      deviceName: `Bearer ${fixtures[0]}`,
+      appVersion: fixtures[2],
+      platform: fixtures[1],
+      environment: `documentNumber=${fixtures[5]}`,
+      updateStatus: `paymentToken=${fixtures[6]}`,
+      updateEvent: `barcode=${fixtures[4]}`,
+      message: sensitiveText,
+      source: `paymentToken=${fixtures[6]}`,
+      route: `cardNumber=${fixtures[7]}`,
+      stack: `-----BEGIN PRIVATE KEY-----\n${fixtures[3]}\n-----END PRIVATE KEY-----`,
+      details: {
+        note: sensitiveText,
+        rawBarcode: fixtures[4],
+        document: fixtures[5],
+        paymentCard: fixtures[7]
+      }
+    });
+    const clientAfterError = await getClient('sensitive-telemetry-device');
+    const usage = await recordTelemetryEvent({
+      ...clientPayload,
+      deviceId: 'sensitive-telemetry-device',
+      venueId: 'Sensitive Telemetry Room',
+      event: `Bearer ${fixtures[0]}`,
+      category: fixtures[9],
+      route: fixtures[2],
+      appVersion: `barcode=${fixtures[4]}`,
+      platform: `documentNumber=${fixtures[5]}`,
+      details: { note: fixtures[8], opaqueValue: fixtures[9], labeled: sensitiveText }
+    });
+    await recordUpdateEvent({
+      ...clientPayload,
+      deviceId: 'sensitive-telemetry-device',
+      venueId: 'Sensitive Telemetry Room',
+      updateEvent: `paymentToken=${fixtures[6]}`,
+      updateStatus: `cardNumber=${fixtures[7]}`,
+      appVersion: fixtures[2],
+      details: { note: fixtures[8], opaqueValue: fixtures[9], labeled: sensitiveText }
+    });
+    const opaqueClient = await upsertClient({
+      ...clientPayload,
+      deviceId: 'opaque-client-label-device',
+      venueId: fixtures[9],
+      venueName: fixtures[9],
+      deviceName: fixtures[9]
+    });
+    const rawDatabase = await connection.getDatabase();
+    const legacyBase = {
+      id: 'legacy-unsafe-record',
+      deviceId: 'legacy-unsafe-client',
+      venueId: 'legacy-unsafe-room',
+      event: fixtures[9],
+      appVersion: fixtures[2],
+      details: { raw: fixtures[8], opaque: fixtures[9] },
+      unexpectedRaw: fixtures[9],
+      occurredAt: '2026-08-07T17:00:00.000Z',
+      createdAt: '2026-08-07T17:00:00.000Z'
+    };
+    await rawDatabase.createDocument('orbitClients/legacy-unsafe-client', {
+      ...clientPayload,
+      deviceId: 'legacy-unsafe-client',
+      venueId: 'legacy-unsafe-room',
+      venueName: fixtures[9],
+      deviceName: fixtures[9],
+      appVersion: fixtures[2],
+      platform: fixtures[1],
+      environment: `barcode=${fixtures[4]}`,
+      updateStatus: `documentNumber=${fixtures[5]}`,
+      updateEvent: `paymentToken=${fixtures[6]}`,
+      lastError: sensitiveText,
+      currentUser: { barcode: fixtures[4], name: fixtures[9] }
+    });
+    await rawDatabase.createDocument('orbitTelemetryEvents/legacy-unsafe-event', {
+      ...legacyBase,
+      category: fixtures[9],
+      route: fixtures[2],
+      platform: fixtures[1]
+    });
+    await rawDatabase.createDocument('orbitClientUpdateEvents/legacy-unsafe-update', {
+      ...legacyBase,
+      status: `documentNumber=${fixtures[5]}`,
+      error: sensitiveText
+    });
+    await rawDatabase.createDocument('orbitClientErrors/legacy-unsafe-error', {
+      ...legacyBase,
+      message: sensitiveText,
+      errorRef: fixtures[9],
+      source: `paymentToken=${fixtures[6]}`,
+      route: `barcode=${fixtures[4]}`,
+      stack: `-----BEGIN PRIVATE KEY-----\n${fixtures[3]}\n-----END PRIVATE KEY-----`,
+      platform: fixtures[1]
+    });
+    expect(await rawDatabase.getDocument('orbitClients/legacy-unsafe-client')).not.toBeNull();
+    const databaseDependencies = { database: rawDatabase };
+    const legacyClient = await getClient('legacy-unsafe-client', databaseDependencies);
+    const legacyEvents = await listTelemetryEvents({ deviceId: 'legacy-unsafe-client' }, databaseDependencies);
+    const legacyUpdates = await listClientUpdateEvents('legacy-unsafe-client', {}, databaseDependencies);
+    const legacyErrors = await listClientErrors({ deviceId: 'legacy-unsafe-client' }, databaseDependencies);
+    const listed = await listClientErrors({ venueId: 'Sensitive Telemetry Room' });
+    const listedEvents = await listTelemetryEvents({ venueId: 'Sensitive Telemetry Room' });
+    const listedUpdates = await listClientUpdateEvents('sensitive-telemetry-device');
+    const client = await getClient('sensitive-telemetry-device');
+    const serialized = JSON.stringify({
+      recorded,
+      usage,
+      listed,
+      listedEvents,
+      listedUpdates,
+      clientAfterError,
+      client,
+      opaqueClient,
+      legacyClient,
+      legacyEvents,
+      legacyUpdates,
+      legacyErrors
+    });
+
+    expect(recorded).toMatchObject({
+      message: expect.stringMatching(/^Client error recorded\. reference:[a-f0-9]{16}$/),
+      errorRef: expect.stringMatching(/^[a-f0-9]{16}$/),
+      stack: expect.stringMatching(/^fingerprint:[a-f0-9]{16}$/),
+      details: null
+    });
+    expect(listed).toEqual([recorded]);
+    expect(clientAfterError?.lastError).toMatch(/^Client error recorded\. reference:[a-f0-9]{16}$/);
+    expect(opaqueClient).toMatchObject({
+      venueId: expect.stringMatching(/^protected-[a-f0-9]{16}$/),
+      venueName: expect.stringMatching(/^Protected client label [a-f0-9]{16}$/),
+      deviceName: expect.stringMatching(/^Protected client label [a-f0-9]{16}$/)
+    });
+    expect(legacyClient).toMatchObject({
+      venueName: expect.stringMatching(/^Protected client label [a-f0-9]{16}$/),
+      deviceName: expect.stringMatching(/^Protected client label [a-f0-9]{16}$/),
+      lastError: expect.stringMatching(/^Client error recorded\. reference:[a-f0-9]{16}$/),
+      currentUser: null
+    });
+    expect(legacyEvents).toEqual([expect.objectContaining({ details: null })]);
+    expect(legacyUpdates).toEqual([expect.objectContaining({
+      details: null,
+      error: expect.stringMatching(/^Client update error recorded\. reference:[a-f0-9]{16}$/)
+    })]);
+    expect(legacyErrors).toEqual([expect.objectContaining({
+      message: expect.stringMatching(/^Client error recorded\. reference:[a-f0-9]{16}$/),
+      errorRef: expect.stringMatching(/^[a-f0-9]{16}$/),
+      stack: expect.stringMatching(/^fingerprint:[a-f0-9]{16}$/),
+      details: null
+    })]);
+    for (const fixture of fixtures) expect(serialized).not.toContain(fixture);
   });
 
   it('round-trips normalized revisioned state, venue joins, reports, and close/reopen persistence', async () => {

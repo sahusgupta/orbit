@@ -13,6 +13,11 @@ export type TournamentDraft = {
   levelMinutes: string;
   rebuyPrizePercent: string;
   tableSize: string;
+  scheduledAt?: string;
+  registrationOpensAt?: string;
+  registrationClosesAt?: string;
+  registrationStatus?: 'open' | 'closed';
+  unregisterAllowed?: boolean;
   payouts?: TournamentPayoutDraft[];
 };
 
@@ -81,6 +86,68 @@ const normalizeTournamentDraft = (draft: TournamentDraft) => ({
   tableSize: Math.min(10, Math.max(2, Number(draft.tableSize) || 9))
 });
 
+const normalizePublicationDate = (value?: string) => {
+  const timestamp = Date.parse(String(value || '').trim());
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : undefined;
+};
+
+function normalizeTournamentPublicationDraft(draft: TournamentDraft) {
+  const fieldsWereProvided = [
+    draft.scheduledAt,
+    draft.registrationOpensAt,
+    draft.registrationClosesAt,
+    draft.registrationStatus,
+    draft.unregisterAllowed
+  ].some((value) => value !== undefined);
+  if (!fieldsWereProvided) return { valid: true, mode: 'preserve' as const, value: {} };
+
+  const scheduledAtInput = String(draft.scheduledAt || '').trim();
+  const opensAtInput = String(draft.registrationOpensAt || '').trim();
+  const closesAtInput = String(draft.registrationClosesAt || '').trim();
+  if (
+    !scheduledAtInput &&
+    !opensAtInput &&
+    !closesAtInput &&
+    draft.registrationStatus !== 'open' &&
+    draft.unregisterAllowed !== true
+  ) {
+    return {
+      valid: true,
+      mode: 'replace' as const,
+      value: {
+        scheduledAt: undefined,
+        registrationOpensAt: undefined,
+        registrationClosesAt: undefined,
+        registrationStatus: 'closed' as const,
+        unregisterAllowed: false
+      }
+    };
+  }
+
+  const scheduledAt = normalizePublicationDate(scheduledAtInput);
+  const registrationOpensAt = normalizePublicationDate(opensAtInput);
+  const registrationClosesAt = normalizePublicationDate(closesAtInput);
+  if (
+    !scheduledAt ||
+    !registrationOpensAt ||
+    !registrationClosesAt ||
+    Date.parse(registrationOpensAt) >= Date.parse(registrationClosesAt) ||
+    Date.parse(registrationClosesAt) > Date.parse(scheduledAt)
+  ) return { valid: false, mode: 'replace' as const, value: {} };
+
+  return {
+    valid: true,
+    mode: 'replace' as const,
+    value: {
+      scheduledAt,
+      registrationOpensAt,
+      registrationClosesAt,
+      registrationStatus: draft.registrationStatus === 'open' ? 'open' as const : 'closed' as const,
+      unregisterAllowed: draft.unregisterAllowed === true
+    }
+  };
+}
+
 export function createTournament(
   state: AppState,
   draft: TournamentDraft,
@@ -89,6 +156,8 @@ export function createTournament(
   const name = draft.name.trim();
   if (!name) return null;
   const normalized = normalizeTournamentDraft(draft);
+  const publication = normalizeTournamentPublicationDraft(draft);
+  if (!publication.valid) return null;
   const payoutValidation = validateTournamentPayoutDrafts(
     draft.payouts ?? createDefaultTournamentPayoutDrafts()
   );
@@ -98,6 +167,7 @@ export function createTournament(
     name,
     status: 'Draft',
     createdAt: dependencies.nowIso(),
+    ...publication.value,
     currentLevelIndex: 0,
     buyIn: normalized.buyIn,
     startingStack: normalized.startingStack,
@@ -116,6 +186,8 @@ export function updateTournamentSettings(
   draft: TournamentDraft
 ): AppState | null {
   const normalized = normalizeTournamentDraft(draft);
+  const publication = normalizeTournamentPublicationDraft(draft);
+  if (!publication.valid) return null;
   const payoutValidation = draft.payouts
     ? validateTournamentPayoutDrafts(draft.payouts)
     : null;
@@ -127,6 +199,7 @@ export function updateTournamentSettings(
     startingStack: normalized.startingStack,
     rebuyPrizePercent: normalized.rebuyPrizePercent,
     tableSize: normalized.tableSize,
+    ...(publication.mode === 'replace' ? publication.value : {}),
     levels: tournament.levels.map((level) => ({ ...level, durationMinutes: normalized.levelMinutes })),
     payouts: payoutValidation?.payouts ?? tournament.payouts
   }));
@@ -143,6 +216,11 @@ export function rerunTournament(
     name: source.name,
     createdAt: dependencies.nowIso(),
     status: 'Draft',
+    scheduledAt: undefined,
+    registrationOpensAt: undefined,
+    registrationClosesAt: undefined,
+    registrationStatus: 'closed',
+    unregisterAllowed: false,
     startedAt: undefined,
     pausedAt: undefined,
     completedAt: undefined,

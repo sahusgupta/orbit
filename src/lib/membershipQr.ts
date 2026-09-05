@@ -1,59 +1,113 @@
-export type MembershipQrCredential = {
-  version: 1;
-  clubId: string;
-  playerId: string;
+const opaqueMembershipQrPattern = /^omq1_[A-Za-z0-9_-]{43}$/;
+
+type MembershipQrStaffSession = { token: string };
+
+type MembershipQrRemoteResult<State> = {
+  ok: boolean;
+  status?: 'checked-in' | 'already-checked-in';
+  playerName?: string;
+  state?: State;
+  error?: string;
+  reauthenticate?: boolean;
 };
 
-export type MembershipQrProfile = {
-  id: string;
-  name: string;
-  membershipStatus?: 'Requested' | 'Approved' | 'Active' | 'Expired';
-  membershipExpiresAt?: string;
-  membershipExpirationDate?: string;
-};
+type MembershipQrRedemptionOutcome<State> =
+  | { kind: 'authorization-failed' }
+  | { kind: 'session-changed' }
+  | { kind: 'transport-failed' }
+  | { kind: 'rejected' | 'accepted'; result: MembershipQrRemoteResult<State> };
 
-export type MembershipQrValidation =
-  | { ok: true; credential: MembershipQrCredential; profile: MembershipQrProfile }
-  | { ok: false; code: 'invalid' | 'wrong-club' | 'not-found' | 'approved-not-active' | 'inactive'; profile?: MembershipQrProfile };
-
-const membershipQrPrefix = 'orbit-membership:v1:';
-
-export function createMembershipQrValue(clubId: string, playerId: string) {
-  return `${membershipQrPrefix}${encodeURIComponent(clubId.trim())}:${encodeURIComponent(playerId.trim())}`;
+/**
+ * This is format screening only. Authenticity, expiry, venue binding,
+ * membership state, and single-use consumption are server-authoritative.
+ */
+export function isOpaqueMembershipQrToken(value: string) {
+  return opaqueMembershipQrPattern.test(value.trim());
 }
 
-export function parseMembershipQrValue(value: string): MembershipQrCredential | null {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith(membershipQrPrefix)) return null;
-  const encodedParts = trimmed.slice(membershipQrPrefix.length).split(':');
-  if (encodedParts.length !== 2) return null;
+/**
+ * Binds redemption to the exact staff session returned by authorization.
+ * A rejection may clear only that same session, never a newer reauthentication.
+ */
+export async function redeemMembershipQrWithAuthorizedSession<Access, State>(
+  rawValue: string,
+  ports: {
+    authorize(): Promise<MembershipQrStaffSession | null>;
+    readCurrentContext(): { access: Access | null; session: MembershipQrStaffSession | null };
+    redeem(payload: { access: Access; staffToken: string; token: string }): Promise<MembershipQrRemoteResult<State>>;
+    clearCurrentSession(): void;
+  }
+): Promise<MembershipQrRedemptionOutcome<State>> {
+  const authorizedSession = await ports.authorize();
+  if (!authorizedSession) return { kind: 'authorization-failed' };
+
+  const context = ports.readCurrentContext();
+  if (!context.access || context.session?.token !== authorizedSession.token) {
+    return { kind: 'session-changed' };
+  }
+
+  let result: MembershipQrRemoteResult<State>;
   try {
-    const clubId = decodeURIComponent(encodedParts[0]).trim();
-    const playerId = decodeURIComponent(encodedParts[1]).trim();
-    if (!clubId || !playerId) return null;
-    return { version: 1, clubId, playerId };
+    result = await ports.redeem({
+      access: context.access,
+      staffToken: authorizedSession.token,
+      token: rawValue.trim()
+    });
   } catch {
-    return null;
+    return { kind: 'transport-failed' };
   }
+
+  if (!result.ok) {
+    const latestSession = ports.readCurrentContext().session;
+    if (result.reauthenticate && latestSession?.token === authorizedSession.token) {
+      ports.clearCurrentSession();
+    }
+    return { kind: 'rejected', result };
+  }
+  return { kind: 'accepted', result };
 }
 
-export function validateMembershipQrCheckIn(
-  value: string,
-  currentClubId: string,
-  profiles: MembershipQrProfile[],
-  nowMs = Date.now()
-): MembershipQrValidation {
-  const credential = parseMembershipQrValue(value);
-  if (!credential) return { ok: false, code: 'invalid' };
-  if (credential.clubId.trim().toLowerCase() !== currentClubId.trim().toLowerCase()) {
-    return { ok: false, code: 'wrong-club' };
+export async function runMembershipQrCheckIn<Access, State>(
+  rawValue: string,
+  ports: {
+    authorize(): Promise<MembershipQrStaffSession | null>;
+    readCurrentContext(): { access: Access | null; session: MembershipQrStaffSession | null };
+    redeem?: (payload: { access: Access; staffToken: string; token: string }) => Promise<MembershipQrRemoteResult<State>>;
+    clearCurrentSession(): void;
+    applyState(state: State): void;
+    clearInput(): void;
+    setMessage(message: string): void;
   }
-  const profile = profiles.find((candidate) => candidate.id === credential.playerId);
-  if (!profile) return { ok: false, code: 'not-found' };
-  if (profile.membershipStatus === 'Approved') return { ok: false, code: 'approved-not-active', profile };
-  const expiration = profile.membershipExpiresAt || profile.membershipExpirationDate;
-  if (profile.membershipStatus !== 'Active' || !expiration || Date.parse(expiration) <= nowMs) {
-    return { ok: false, code: 'inactive', profile };
+) {
+  if (!ports.redeem) {
+    ports.setMessage('Select and verify an active staff account, then scan again.');
+    return;
   }
-  return { ok: true, credential, profile };
+  const outcome = await redeemMembershipQrWithAuthorizedSession(rawValue, {
+    ...ports,
+    redeem: (payload) => {
+      ports.setMessage('Validating this membership with Orbit…');
+      return ports.redeem!(payload);
+    }
+  });
+  if (outcome.kind === 'authorization-failed') return;
+  if (outcome.kind === 'session-changed') {
+    ports.setMessage('The active staff selection changed before validation began. Scan again.');
+    return;
+  }
+  if (outcome.kind === 'transport-failed') {
+    ports.setMessage('Orbit could not verify this membership. No check-in was recorded.');
+    return;
+  }
+  const result = outcome.result;
+  if (!result.ok) {
+    ports.setMessage(result.error || 'Orbit rejected this membership QR. No check-in was recorded.');
+    return;
+  }
+  if (result.state) ports.applyState(result.state);
+  ports.clearInput();
+  const playerName = result.playerName || 'Member';
+  ports.setMessage(result.status === 'already-checked-in'
+    ? `${playerName} is already checked in.`
+    : `${playerName} checked in successfully.`);
 }

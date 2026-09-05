@@ -679,7 +679,7 @@ describe('persisted account restore boundary', () => {
     }]);
     expect(settings.membershipPlans).toEqual([{
       ...legacyState.settings.membershipPlans[0],
-      durationDays: 1
+      durationDays: 0
     }]);
     expect(settings.accountLogin).toEqual({
       ...legacyState.settings.accountLogin,

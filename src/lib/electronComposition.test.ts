@@ -75,6 +75,7 @@ describe('Electron IPC and preload composition audit', () => {
       'get-management-recovery-status',
       'complete-management-recovery',
       'generate-self-check-in-kit',
+      'redeem-membership-qr',
       'persist-management-session',
       'restore-management-session',
       'clear-management-session',
@@ -122,6 +123,7 @@ describe('Electron IPC and preload composition audit', () => {
       'getManagementRecoveryStatus',
       'completeManagementRecovery',
       'generateSelfCheckInKit',
+      'redeemMembershipQr',
       'persistManagementSession',
       'restoreManagementSession',
       'clearManagementSession',
@@ -142,6 +144,7 @@ describe('Electron IPC and preload composition audit', () => {
     const getManagementRecoveryStatus = bridge.getManagementRecoveryStatus as (access: unknown) => Promise<unknown>;
     const completeManagementRecovery = bridge.completeManagementRecovery as (payload: unknown) => Promise<unknown>;
     const generateSelfCheckInKit = bridge.generateSelfCheckInKit as (payload: unknown) => Promise<unknown>;
+    const redeemMembershipQr = bridge.redeemMembershipQr as (payload: unknown) => Promise<unknown>;
     const persistManagementSession = bridge.persistManagementSession as (binding: unknown) => Promise<unknown>;
     const restoreManagementSession = bridge.restoreManagementSession as (binding: unknown) => Promise<unknown>;
     const clearManagementSession = bridge.clearManagementSession as (accountKey: string) => Promise<unknown>;
@@ -153,6 +156,7 @@ describe('Electron IPC and preload composition audit', () => {
     await getManagementRecoveryStatus({ authorizationCode: 'pilot-code' });
     await completeManagementRecovery({ access: { authorizationCode: 'pilot-code' }, password: 'new-password' });
     await generateSelfCheckInKit({ access: { authorizationCode: 'pilot-code' }, staffToken: 'staff-token' });
+    await redeemMembershipQr({ access: { authorizationCode: 'pilot-code' }, staffToken: 'staff-token', token: 'omq1_token' });
     await persistManagementSession({ accountKey: 'club-one' });
     await restoreManagementSession({ accountKey: 'club-one' });
     await clearManagementSession('club-one');
@@ -165,6 +169,7 @@ describe('Electron IPC and preload composition audit', () => {
       ['get-management-recovery-status', { authorizationCode: 'pilot-code' }],
       ['complete-management-recovery', { access: { authorizationCode: 'pilot-code' }, password: 'new-password' }],
       ['generate-self-check-in-kit', { access: { authorizationCode: 'pilot-code' }, staffToken: 'staff-token' }],
+      ['redeem-membership-qr', { access: { authorizationCode: 'pilot-code' }, staffToken: 'staff-token', token: 'omq1_token' }],
       ['persist-management-session', { accountKey: 'club-one' }],
       ['restore-management-session', { accountKey: 'club-one' }],
       ['clear-management-session', 'club-one'],
@@ -272,6 +277,27 @@ describe('Electron IPC and preload composition audit', () => {
       ok: false,
       error: 'Staff reauthentication is required.'
     });
+  });
+
+  it('requires a tenant-matched staff session before forwarding a membership QR redemption', async () => {
+    const authorize = vi.fn().mockReturnValue({ ok: true, accountKey: 'club-one' });
+    const redeemMembershipQrApi = vi.fn().mockResolvedValue({ ok: true, status: 'checked-in', playerName: 'Member One' });
+    const handler = loadIpcHandler<(payload: unknown) => Promise<Record<string, unknown>>>('redeem-membership-qr', {
+      boundedPayload: (value: unknown) => value,
+      getAccountKeyFromAccess: () => 'club-one',
+      redeemMembershipQrApi,
+      staffAuthorization: { authorize },
+      String,
+      trustedIpc: (candidate: unknown) => candidate
+    });
+    const payload = { access: { licenseId: 'club-one' }, staffToken: 'staff-token', token: `omq1_${'A'.repeat(43)}` };
+    await expect(handler(payload)).resolves.toMatchObject({ ok: true, playerName: 'Member One' });
+    expect(authorize).toHaveBeenCalledWith({ token: 'staff-token', action: 'staff-sign' });
+    expect(redeemMembershipQrApi).toHaveBeenCalledWith(payload.access, payload.token);
+
+    authorize.mockReturnValueOnce({ ok: true, accountKey: 'club-two' });
+    await expect(handler(payload)).resolves.toMatchObject({ ok: false, error: expect.stringContaining('active club') });
+    expect(redeemMembershipQrApi).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -75,6 +75,7 @@ beforeAll(async () => {
       ORBIT_DASHBOARD_USER: 'character-admin',
       ORBIT_DASHBOARD_PASSWORD: 'local-dashboard-password',
       ORBIT_DASHBOARD_SESSION_SECRET: 'local-dashboard-session-secret-at-least-32',
+      ORBIT_LOG_HASH_SECRET: 'local-route-log-hash-secret-at-least-32-characters',
       ORBIT_PUBLIC_ORIGIN: 'https://orbit-public-preview.invalid',
       ORBIT_SELF_CHECK_IN_ORIGIN: 'https://self-check-in-route-test.invalid',
       ORBIT_SELF_CHECK_IN_SECRET: 'local-self-check-in-signing-secret-at-least-32-characters',
@@ -104,6 +105,11 @@ afterAll(async () => {
 });
 
 describe('API route composition', () => {
+  it('does not expose standalone identity deletion in the conservative Player release', async () => {
+    const response = await request('/player/identity', { method: 'DELETE' });
+    expect(response.status).toBe(404);
+  });
+
   it('applies a rate-limit policy before every public, protected, and missing route', async () => {
     const probes = [
       ['/health'],
@@ -143,7 +149,7 @@ describe('API route composition', () => {
     const privacyHtml = await privacy.text();
     expect(privacyHtml).toContain('Orbit Privacy Policy');
     expect(privacyHtml).toContain('Google Firebase and Google Cloud');
-    expect(privacyHtml).toContain('built with assistance from AI development tools, including OpenAI Codex');
+    expect(privacyHtml).not.toMatch(/OpenAI Codex|AI-development disclosure|AI-assisted development/);
     expect(privacyHtml).not.toContain('Orbit Technologies LLC');
   });
 
@@ -178,9 +184,11 @@ describe('API route composition', () => {
     expect(await stylesheet.text()).toContain('min-height: 48px');
     expect(script.headers.get('content-type')).toMatch(/javascript/);
     const scriptSource = await script.text();
-    expect(scriptSource).toContain("'/player/check-in/context'");
-    expect(scriptSource).toContain("'x-orbit-check-in-token'");
-    expect(scriptSource).toContain("'x-orbit-check-in-session'");
+    expect(pageHtml).toContain('Printed self-check-in is unavailable');
+    expect(pageHtml).toContain('short-lived membership QR');
+    expect(scriptSource).toContain("removeItem('orbit.selfCheckIn.capability')");
+    expect(scriptSource).not.toContain('fetch(');
+    expect(scriptSource).not.toContain('/player/check-in/');
     expect(scriptSource).not.toContain('innerHTML');
   });
 
@@ -204,8 +212,8 @@ describe('API route composition', () => {
       },
       body: '{}'
     });
-    expect(invalidContext.status).toBe(401);
-    expect(await invalidContext.json()).toMatchObject({ ok: false, code: 'INVALID_CHECK_IN_TOKEN' });
+    expect(invalidContext.status).toBe(410);
+    expect(await invalidContext.json()).toMatchObject({ ok: false, code: 'PUBLIC_PLAYER_CHECK_IN_DISABLED' });
     expect(Number(invalidContext.headers.get('x-ratelimit-limit'))).toBe(120);
     expect(invalidContext.headers.get('cache-control')).toContain('no-store');
     expect(invalidContext.headers.get('x-robots-tag')).toBe('noindex, nofollow');
@@ -215,8 +223,8 @@ describe('API route composition', () => {
       headers: { 'content-type': 'text/plain' },
       body: 'Alex Player'
     });
-    expect(nonJsonLookup.status).toBe(415);
-    expect(await nonJsonLookup.json()).toMatchObject({ ok: false, code: 'JSON_REQUIRED' });
+    expect(nonJsonLookup.status).toBe(410);
+    expect(await nonJsonLookup.json()).toMatchObject({ ok: false, code: 'PUBLIC_PLAYER_CHECK_IN_DISABLED' });
     expect(Number(nonJsonLookup.headers.get('x-ratelimit-limit'))).toBe(120);
     expect(Number(nonJsonLookup.headers.get('x-ratelimit-remaining'))).toBeGreaterThanOrEqual(0);
     expect(nonJsonLookup.headers.get('cache-control')).toContain('no-store');
@@ -228,11 +236,42 @@ describe('API route composition', () => {
       body: '{"name":'
     });
     expect(malformedLookup.status).toBe(400);
-    expect(await malformedLookup.json()).toMatchObject({ ok: false, code: 'INVALID_REQUEST' });
+    expect(await malformedLookup.json()).toMatchObject({
+      ok: false, error: 'Request validation failed.', code: 'INVALID_REQUEST'
+    });
     expect(Number(malformedLookup.headers.get('x-ratelimit-limit'))).toBe(120);
     expect(Number(malformedLookup.headers.get('x-ratelimit-remaining'))).toBeGreaterThanOrEqual(0);
     expect(malformedLookup.headers.get('cache-control')).toContain('no-store');
     expect(malformedLookup.headers.get('x-robots-tag')).toBe('noindex, nofollow');
+
+    const impersonationLookup = await request('/player/check-in/lookup', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Another Player' })
+    });
+    expect(impersonationLookup.status).toBe(410);
+    expect(await impersonationLookup.json()).toMatchObject({
+      ok: false, code: 'PUBLIC_PLAYER_CHECK_IN_DISABLED'
+    });
+    const impersonationSeat = await request('/player/check-in/seat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Another Player', tableId: 'table-one' })
+    });
+    expect(impersonationSeat.status).toBe(410);
+    expect(await impersonationSeat.json()).toMatchObject({
+      ok: false, code: 'PUBLIC_PLAYER_CHECK_IN_DISABLED'
+    });
+
+    const authenticatedIssuer = await request('/management/self-check-in/qr', {
+      method: 'POST',
+      headers: withClientKey({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ mutationId: 'opaque-kit-request' })
+    });
+    expect(authenticatedIssuer.status).toBe(410);
+    expect(await authenticatedIssuer.json()).toMatchObject({
+      ok: false, code: 'PUBLIC_SELF_CHECK_IN_KIT_DISABLED'
+    });
 
     let limitedIssuer;
     for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -245,6 +284,17 @@ describe('API route composition', () => {
     expect(limitedIssuer.status).toBe(429);
     expect(limitedIssuer.headers.get('cache-control')).toContain('no-store');
     expect(limitedIssuer.headers.get('x-robots-tag')).toBe('noindex, nofollow');
+  });
+
+  it('applies the credential-scoped membership QR redemption limit before authentication', async () => {
+    const response = await request('/management/membership-qr/redeem', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-orbit-api-key': 'unrecognized-tenant-key' },
+      body: JSON.stringify({ token: `omq1_${'A'.repeat(43)}`, mutationId: 'opaque-scan-request' })
+    });
+    expect(response.status).toBe(401);
+    expect(Number(response.headers.get('x-ratelimit-limit'))).toBe(30);
+    expect(Number(response.headers.get('x-ratelimit-remaining'))).toBe(29);
   });
 
   it('uses an HttpOnly dashboard session without browser-stored or query-string keys', async () => {
@@ -299,7 +349,7 @@ describe('API route composition', () => {
       ok: true,
       clubs: [],
       tournaments: [],
-      registrations: [],
+      interests: [],
       page: { count: 0, hasMore: false }
     });
 
@@ -359,21 +409,84 @@ describe('API route composition', () => {
       })
     });
     expect(heartbeat.status).toBe(202);
-    expect(await heartbeat.json()).toMatchObject({
+    const heartbeatPayload = /** @type {any} */ (await heartbeat.json());
+    expect(heartbeatPayload).toMatchObject({
       ok: true,
-      client: { deviceId: 'route-venue:route-device', venueId: 'route-venue', currentUser: null }
+      client: {
+        deviceId: expect.stringMatching(/^protected:[a-f0-9]{16}$/),
+        venueId: 'route-venue',
+        currentUser: null
+      }
     });
 
     const clients = await request('/clients', { headers: { 'x-orbit-api-key': 'local-owner-key' } });
     expect(clients.status).toBe(200);
     expect(await clients.json()).toMatchObject({
       ok: true,
-      clients: [expect.objectContaining({ deviceId: 'route-venue:route-device' })]
+      clients: [expect.objectContaining({ deviceId: heartbeatPayload.client.deviceId })]
     });
 
     const state = await request('/state/route-venue', { headers: withClientKey() });
     expect(state.status).toBe(404);
     expect(await state.json()).toEqual({ ok: false, error: 'Venue state not found.' });
+  });
+
+  it('never returns raw credential or identity/payment material from production error telemetry', async () => {
+    const fixtures = [
+      'route-private-bearer-token',
+      'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJyb3V0ZSJ9.signature12345',
+      'sk_live_routeProviderSecret123',
+      'RAW-ROUTE-PDF417',
+      'ROUTE-DOCUMENT-123',
+      '4111 1111 1111 1111',
+      'route-private-key-body',
+      '@\nANSI 636026080102DL00410288ZA03290015DLDAQROUTE123',
+      'q9Wm3Kp8Vx2Lt7Rf5Hs1Jd6Nc4By0Ua9Ei3Og7Pz2Qw8Mn5'
+    ];
+    const errorResponse = await request('/clients/error', {
+      method: 'POST',
+      headers: withClientKey({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        deviceId: 'sensitive-route-device',
+        deviceName: `Bearer ${fixtures[0]}`,
+        appVersion: fixtures[2],
+        platform: fixtures[1],
+        environment: `barcode=${fixtures[3]}`,
+        updateStatus: `documentNumber=${fixtures[4]}`,
+        updateEvent: `cardNumber=${fixtures[5]}`,
+        source: `paymentToken=${fixtures[2]}`,
+        route: `barcode=${fixtures[3]}`,
+        message: `Bearer ${fixtures[0]}; ${fixtures[1]}; ${fixtures[2]}; barcode=${fixtures[3]}; documentNumber=${fixtures[4]}; ${fixtures[5]}`,
+        stack: `-----BEGIN PRIVATE KEY-----\n${fixtures[6]}\n-----END PRIVATE KEY-----`,
+        details: {
+          rawBarcode: fixtures[3],
+          note: fixtures[7],
+          opaqueValue: fixtures[8],
+          paymentCard: fixtures[5]
+        }
+      })
+    });
+    expect(errorResponse.status).toBe(202);
+    const recorded = /** @type {any} */ (await errorResponse.json());
+    expect(recorded).toMatchObject({
+      ok: true,
+      error: {
+        message: expect.stringMatching(/^Client error recorded\. reference:[a-f0-9]{16}$/),
+        errorRef: expect.stringMatching(/^[a-f0-9]{16}$/),
+        stack: expect.stringMatching(/^fingerprint:[a-f0-9]{16}$/)
+      }
+    });
+
+    const historyResponse = await request(
+      '/telemetry/errors?deviceId=route-venue%3Asensitive-route-device',
+      { headers: { 'x-orbit-api-key': 'local-owner-key' } }
+    );
+    expect(historyResponse.status).toBe(200);
+    const history = /** @type {any} */ (await historyResponse.json());
+    expect(history).toMatchObject({ ok: true, errors: [expect.objectContaining({ errorRef: recorded.error.errorRef })] });
+
+    const serialized = JSON.stringify({ recorded, history, output });
+    for (const fixture of fixtures) expect(serialized).not.toContain(fixture);
   });
 
   it('preserves report storage and centralized JSON error responses', async () => {

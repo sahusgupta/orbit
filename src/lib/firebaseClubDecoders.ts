@@ -106,7 +106,6 @@ export function decodeWaitlistRequest(value: unknown): PlayerWaitlistRequest {
     !isOptionalString(record.availabilityStartTime) ||
     !isOptionalString(record.availabilityEndTime) ||
     !isOptionalString(record.tableId) ||
-    !isOptionalString(record.note) ||
     !isNonEmptyString(record.requestedAt)
   ) {
     throw new TypeError('Waitlist request record is malformed.');
@@ -125,7 +124,6 @@ export function decodeWaitlistRequest(value: unknown): PlayerWaitlistRequest {
     availabilityStartTime: record.availabilityStartTime,
     availabilityEndTime: record.availabilityEndTime,
     tableId: record.tableId,
-    note: record.note,
     requestedAt: record.requestedAt
   };
 }

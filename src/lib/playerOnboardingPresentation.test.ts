@@ -24,14 +24,7 @@ const componentNames = [
   'EmailStep',
   'PhoneStep',
   'HomeAreaStep',
-  'LocationStep',
-  'RadiusStep',
-  'GameStep',
-  'StakesStep',
-  'StepHeader',
-  'MapPicker',
-  'Field',
-  'Chip'
+  'Field'
 ] as const;
 
 const styleNames = [
@@ -69,27 +62,8 @@ const styleNames = [
   'orbitPattern',
   'orbitRing',
   'sectionTitle',
-  'stepHeader',
-  'stepHeaderIcon',
-  'stepHeaderText',
-  'mapCard',
-  'mapCanvas',
-  'liveMap',
-  'mapFooter',
-  'cardTitle',
-  'muted',
-  'field',
-  'fieldLabel',
-  'fieldLabelLight',
-  'input',
-  'inputLight',
-  'inputError',
-  'fieldError',
-  'fieldErrorLight',
-  'chip',
-  'chipActive',
-  'chipText',
-  'chipTextActive'
+  'secondaryActionButton',
+  'secondaryActionText'
 ] as const;
 
 type ParsedSource = {
@@ -210,18 +184,24 @@ describe('Player onboarding presentation contract', () => {
       '<OnboardingFlow'
     ];
 
-    expect(componentDigest).toBe('377a8db107faa79761749da3892d72de73f35dfe8f633bdeba89d1765cc502ad');
+    expect(componentDigest).toBe('22c285f74317791bd448a0f015903fe25d1b350b953f90288156b2c65bd8d6ee');
     orderedShellTokens.forEach((token) => expect(shell).toContain(token));
     for (let index = 1; index < orderedShellTokens.length; index += 1) {
       expect(shell.indexOf(orderedShellTokens[index])).toBeGreaterThan(shell.indexOf(orderedShellTokens[index - 1]));
     }
+    const onboardingFlow = findFunction(sources, 'OnboardingFlow');
+    const homeAreaStep = findFunction(sources, 'HomeAreaStep');
+    expect(onboardingFlow).toContain('hasAdultDeclaration(draftPlayer)');
+    expect(homeAreaStep).toContain('I confirm that I am 18 or older');
+    expect(homeAreaStep).toContain('accessibilityRole="checkbox"');
+    expect(onboardingFlow).not.toMatch(/LocationStep|MapPicker|device location|text updates/i);
   });
 
   it('preserves every onboarding-owned and shared style value byte-for-byte', () => {
     const sources = parseSources([onboardingFeatureRoot]);
     const styleDigest = digest(styleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('84c330c07bfb648c1646a74ab6f96a196eed59308df7e626313807e27d6c4c44');
+    expect(styleDigest).toBe('0341f87c2759420bc3faccb124ea0c953f98128a00d393ccaf601b7991f28c69');
   });
 });
 
@@ -232,12 +212,7 @@ const discoveryComponentNames = [
   "MapExploreScreen",
   "GameFilterPanel",
   "MapFilterControls",
-  "DistanceFilterControl",
   "IconActionButton",
-  "PremiumPaywall",
-  "HostControlPanel",
-  "PrivateGameComposer",
-  "PrivateGameCard",
   "DiscoveryDeck",
   "DiscoveryCardContent",
   "AnimatedDiscoveryCardBackground",
@@ -246,20 +221,15 @@ const discoveryComponentNames = [
   "GameDetailsScreen",
   "DiscoveryDetailsModal",
   "DetailRow",
-  "OpportunitySectionList",
-  "OpportunityCard",
-  "GameCard",
   "MyGamesSection",
   "AnimatedSurface",
   "AnimatedButton",
-  "getClubProductName",
-  "formatDropFee",
-  "getClubProductLabel",
-  "getClubMembershipPrices",
   "getClubFeeProfile",
-  "getAccessProfileText"
+  "getAccessProfileText",
+  "getSeatRequestActionLabel",
+  "getMapClubPrimaryAction"
 ] as const;
-const discoveryStyleNames = 'agentCopy,agentHeader,agentIcon,agentKicker,agentPanel,animatedButtonShadow,buttonGradient,cardCornerAction,cardDetailsAction,cardHouseScroller,cardPickAction,cardRejectAction,cardSelectionRow,cardTitle,clubAvatar,clubAvatarText,clubCard,clubFolder,clubFolderAvatar,clubFolderAvatarText,clubFolderCopy,clubFolderGames,clubFolderHeader,clubFolderTitleRow,clubMain,compatibilityBadge,compatibilityLabel,compatibilityValue,composerGrid,contextChip,contextRow,contextText,detailRow,detailRowLabel,detailRowValue,detailsActionRow,detailsDisclosureGroup,detailsDisclosureLabel,detailsDisclosureRow,detailsInfoCard,detailsPrimaryButton,detailsQuickDivider,detailsQuickSummary,detailsQuickValue,detailsSecondaryButton,detailsSecondaryText,disabledButton,discoveryAccentGlow,discoveryAnimatedBackground,discoveryBuyInLabel,discoveryBuyInRow,discoveryBuyInValue,discoveryCard,discoveryCardBehind,discoveryCardBody,discoveryCardHero,discoveryCardHeroCompact,discoveryCardHeroTop,discoveryCardTop,discoveryClubName,discoveryDeck,discoveryDeckSection,discoveryDetailsContent,discoveryDetailsHeader,discoveryDetailsScore,discoveryDetailsScoreValue,discoveryDetailsSheet,discoveryDetailsTitleBlock,discoveryEmpty,discoveryEmptyIcon,discoveryEmptyTitle,discoveryGameTitle,discoveryHeroBottom,discoveryLocation,discoveryMetric,discoveryMetricLabel,discoveryMetricValue,discoveryMetrics,discoveryNotice,discoveryNoticeText,discoveryProgressFill,discoveryProgressRow,discoveryProgressText,discoveryProgressTrack,discoveryQuickFilter,discoveryQuickFilterActive,discoveryQuickFilterText,discoveryQuickFilterTextActive,discoveryQuickFilters,discoveryResetButton,discoveryResetText,discoverySavedCount,discoverySearchBackdrop,discoverySearchClose,discoverySearchDone,discoverySearchDoneText,discoverySearchHeader,discoverySearchInput,discoverySearchInputShell,discoverySearchPopup,discoverySearchTitle,discoveryToolbar,discoveryToolbarButton,discoveryToolbarButtonActive,discoveryToolbarText,discoveryToolbarTextActive,distanceChip,distanceChipActive,distanceChipText,distanceChipTextActive,distanceRow,emptyState,favoriteBadge,favoriteBadgeText,feeInfoBand,feeInfoText,feeTypePill,feeTypePillText,feedAvatar,feedAvatarText,field,fieldLabel,filterChipRow,filterGrid,filterPanel,filterSheetBackdrop,filterSheetCard,filterSheetContent,filterSheetDismiss,filterSheetDoneAction,filterSheetDoneText,filterSheetHandle,filterSheetHeader,filterSheetHeaderAction,filterSheetResetText,filterSheetTitle,fitBreakdown,fullWidthButton,gameActionRow,gameCard,gameDetailsBack,gameDetailsBackText,gameDetailsClub,gameDetailsFacts,gameDetailsHero,gameDetailsHeroCopy,gameDetailsHeroTop,gameDetailsLivePill,gameDetailsLiveText,gameDetailsLocation,gameDetailsNav,gameDetailsPage,gameDetailsReason,gameDetailsScore,gameDetailsScoreValue,gameDetailsSection,gameDetailsSectionHeading,gameDetailsSectionIcon,gameDetailsSectionTitle,gameDetailsStatus,gameDetailsTitle,gameHeader,gameTitleBlock,hostPromptCard,hostPromptCopy,hostPromptIcon,iconActionButton,iconActionButtonActive,iconActionButtonDisabled,iconActionRow,iconTooltip,iconTooltipText,inlineBackAction,inlineBackText,liveDot,liveDotWarm,liveMap,liveStatusRow,liveStatusText,lockedFilterRow,lockedFilterRowActive,lockedFilterText,lockedRecommendationBand,lockedRecommendationText,mapCanvasLarge,mapCard,mapFooter,membershipTitle,modalBackdrop,modalCloseButton,muted,myGameActions,myGameCard,myGameCardCopy,myGameCardHeader,myGameMerchantNote,myGamePrimaryAction,myGamePrimaryActionText,myGameSecondaryAction,myGameSecondaryActionText,myGameStatusBand,myGameStatusDetail,myGameStatusIcon,myGameStatusLabel,myGamesCount,myGamesCountText,myGamesRail,myGamesSection,notificationPromise,notificationPromiseCopy,notificationPromiseIcon,offeredGameBand,offeredGameText,openPill,paywallHeader,paywallIcon,paywallPanel,plainFiltersButton,plainFiltersText,plainSearchBar,preferenceBand,preferenceText,priceRow,priceText,primaryButton,primaryButtonText,privateBadge,privateBadgeText,privateGameCard,privateGameComposer,privateGameMarker,privateGameMarkerInner,privateGameStatus,publishPrivateGame,publishPrivateGameDisabled,publishPrivateGameText,rakeTypePill,rakeTypePillText,recommendationBadge,recommendationBadgeText,recommendationBand,recommendationText,savedGameCopy,savedGameRow,savedGameScore,savedGameScoreValue,savedGamesHeader,savedGamesSection,searchInput,searchToolbar,sectionHeader,sectionTitle,sheetField,sheetHandle,sheetTextInput,statusPill,statusText,storeButton,storeButtonCopy,storeButtonText,swipeFeedback,swipeFeedbackPass,swipeFeedbackPick,swipeStamp,swipeStampPass,swipeStampPick,swipeStampText,swipeStampTextPass,swipeStampTextPick,tableName,tableRow,tableSeats,valuePill,valuePillText,valueRow,venueTypeBadge,venueTypeText,waitlistAheadBand,waitlistAheadText,waitlistPill,waitlistPillText'.split(',');
+const discoveryStyleNames = 'agentKicker,cardCornerAction,cardDetailsAction,cardHouseScroller,cardPickAction,cardRejectAction,cardSelectionRow,cardTitle,clubAvatar,clubAvatarText,clubCard,clubMain,compactButton,compactButtonText,compatibilityBadge,compatibilityLabel,compatibilityValue,detailRow,detailRowLabel,detailRowValue,detailsActionRow,detailsDisclosureGroup,detailsDisclosureLabel,detailsDisclosureRow,detailsInfoCard,detailsPrimaryButton,detailsQuickDivider,detailsQuickSummary,detailsQuickValue,detailsSecondaryButton,detailsSecondaryText,discoveryAccentGlow,discoveryAnimatedBackground,discoveryBuyInLabel,discoveryBuyInRow,discoveryBuyInValue,discoveryCard,discoveryCardBehind,discoveryCardBody,discoveryCardHero,discoveryCardHeroCompact,discoveryCardHeroTop,discoveryCardTop,discoveryClubName,discoveryDeck,discoveryDeckSection,discoveryDetailsContent,discoveryDetailsHeader,discoveryDetailsScore,discoveryDetailsScoreValue,discoveryDetailsSheet,discoveryDetailsTitleBlock,discoveryEmpty,discoveryEmptyIcon,discoveryEmptyTitle,discoveryGameTitle,discoveryHeroBottom,discoveryLocation,discoveryMetric,discoveryMetricLabel,discoveryMetrics,discoveryMetricValue,discoveryNotice,discoveryNoticeText,discoveryProgressFill,discoveryProgressRow,discoveryProgressText,discoveryProgressTrack,discoveryResetButton,discoveryResetText,discoverySavedCount,discoverySearchBackdrop,discoverySearchClose,discoverySearchDone,discoverySearchDoneText,discoverySearchHeader,discoverySearchInput,discoverySearchInputShell,discoverySearchPopup,discoverySearchTitle,emptyState,field,fieldLabel,filterChipRow,filterGrid,filterPanel,filterSheetDismiss,fitBreakdown,formError,gameDetailsBack,gameDetailsBackText,gameDetailsClub,gameDetailsFacts,gameDetailsHero,gameDetailsHeroCopy,gameDetailsHeroTop,gameDetailsLivePill,gameDetailsLiveText,gameDetailsLocation,gameDetailsNav,gameDetailsPage,gameDetailsReason,gameDetailsScore,gameDetailsScoreValue,gameDetailsSection,gameDetailsSectionHeading,gameDetailsSectionIcon,gameDetailsSectionTitle,gameDetailsStatus,gameDetailsTitle,iconActionRow,inlineBackAction,inlineBackText,liveDot,liveDotWarm,liveMap,liveStatusRow,liveStatusText,lockedFilterRow,lockedFilterRowActive,lockedFilterText,mapCanvasLarge,mapCard,mapFooter,membershipTitle,modalBackdrop,modalCloseButton,muted,myGameActions,myGameCard,myGameCardCopy,myGameCardHeader,myGamesCount,myGamesCountText,myGameSecondaryAction,myGameSecondaryActionText,myGamesRail,myGamesSection,myGameStatusBand,myGameStatusDetail,myGameStatusIcon,myGameStatusLabel,notificationPromise,notificationPromiseCopy,notificationPromiseIcon,primaryButton,primaryButtonText,savedGameCopy,savedGameRow,savedGameScore,savedGameScoreValue,savedGamesHeader,savedGamesSection,sectionHeader,sectionTitle,sheetField,sheetHandle,storeButton,storeButtonCopy,storeButtonText,swipeFeedback,swipeFeedbackPass,swipeFeedbackPick,swipeStamp,swipeStampPass,swipeStampPick,swipeStampText,swipeStampTextPass,swipeStampTextPick,venueTypeBadge,venueTypeText'.split(',');
 
 describe('Player discovery presentation contract', () => {
   it('preserves the characterized screens, controls, cards, callbacks, animations, and fee labels', () => {
@@ -267,7 +237,7 @@ describe('Player discovery presentation contract', () => {
     const componentDigest = digest(discoveryComponentNames.map((name) => findFunction(sources, name)));
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
 
-    expect(componentDigest).toBe('dfd9e74a349d50c84f59bb3a0c57113660ff592543b38e5a123ed636e34ae7b2');
+    expect(componentDigest).toBe('d9fe6426e63d447b34e9618ca2927a1e8c5997b414fa7dbc8ed70f8983180230');
     [
       '<GameDetailsScreen',
       '<MyGamesSection',
@@ -275,57 +245,62 @@ describe('Player discovery presentation contract', () => {
       '<DiscoveryDeck',
       '<SavedGamesStrip',
       '<MapExploreScreen',
-      '<HostControlPanel',
-      '<PrivateGameComposer',
-      '<PremiumPaywall',
       '<GameFilterPanel',
       '<MapFilterControls'
     ].forEach((token) => expect(playerApp).toContain(token));
+    expect(playerApp).not.toMatch(/HostControlPanel|PrivateGame|PremiumPaywall|showHostScreen/);
   });
 
   it('preserves every discovery-owned and shared style value byte-for-byte', () => {
     const sources = parseSources([discoveryFeatureRoot]);
     const styleDigest = digest(discoveryStyleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('05afe4a318ce1f1cd71d7b6529ccba3855370a0093daeaaa476f3bc54da95168');
+    expect(styleDigest).toBe('c2c6c217bebf8b4711dc5ef35dac55fd6c8acded9c41762b788906ea89e2f024');
   });
 });
 
-const tournamentComponentNames = ["TournamentCard","formatEventDate","TournamentFilterControls"] as const;
-const tournamentStyleNames = 'cardTitle,clubMain,compactButton,compactButtonText,disabledAction,emptyState,fieldLabel,filterChipRow,filterPanel,muted,secondaryActionButton,secondaryActionText,sectionHeader,sectionTitle,sheetField,sheetTextInput,statusPill,statusText,tournamentCard,tournamentCardFeatured,tournamentClosedPill,tournamentClubHeader,tournamentClubSection,tournamentConfirmation,tournamentIcon,tournamentMessage,tournamentMoneyGrid,tournamentMoneyItem,tournamentMoneyItemWide,tournamentMoneyValue,tournamentOpenPill,tournamentPrize,tournamentRule,tournamentRules,tournamentStatLabel,tournamentStatValue,tournamentStats,tournamentStructure,tournamentTitleRow'.split(',');
+const tournamentComponentNames = ["TournamentCard","formatPublishedNumber","formatRebuy","formatRebuyStructure","formatAddOnStructure","formatVenueTotals","formatEventDate","TournamentFilterControls"] as const;
+const tournamentStyleNames = 'cardTitle,clubMain,compactButton,compactButtonText,disabledAction,emptyState,fieldLabel,filterChipRow,filterPanel,muted,secondaryActionButton,secondaryActionText,sectionHeader,sectionTitle,sheetField,statusPill,statusText,tournamentCard,tournamentCardFeatured,tournamentClosedPill,tournamentClubHeader,tournamentClubSection,tournamentConfirmation,tournamentIcon,tournamentMessage,tournamentMoneyGrid,tournamentMoneyItem,tournamentMoneyItemWide,tournamentMoneyValue,tournamentOpenPill,tournamentPrize,tournamentRule,tournamentRules,tournamentStatLabel,tournamentStats,tournamentStatValue,tournamentStructure,tournamentTitleRow'.split(',');
 
 describe('Player tournament presentation contract', () => {
-  it('preserves the characterized cards, date labels, filters, registration callbacks, and route composition', () => {
+  it('preserves the characterized cards, factual structure labels, filters, interest callbacks, and route composition', () => {
     const sources = parseSources([tournamentFeatureRoot]);
     const componentDigest = digest(tournamentComponentNames.map((name) => findFunction(sources, name)));
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
     const tournamentScreen = findFunction(sources, 'TournamentScreen');
+    const tournamentCard = findFunction(sources, 'TournamentCard');
 
-    expect(componentDigest).toBe('6934283c085b039e9a228f01bb340e6e14b7e75274517b8f70d533b2d937f516');
+    expect(componentDigest).toBe('dcebc1b3d568b49d655448b24a0fc663529dff9ff07a2f8985ed7ce075658e3f');
     ['<TournamentScreen', '<TournamentFilterControls'].forEach((token) => expect(playerApp).toContain(token));
     ['<TournamentCard', '<SearchToolbar'].forEach((token) => expect(tournamentScreen).toContain(token));
+    expect(tournamentCard).toContain('Express interest');
+    expect(tournamentScreen).toContain('does not register you, guarantee a seat, create a debt, collect payment, or establish prize eligibility');
+    expect(tournamentScreen).toContain('Venue staff separately confirms participation.');
+    expect(tournamentScreen.match(/establish prize eligibility/g)).toHaveLength(1);
+    expect(tournamentScreen).not.toMatch(/Register free|Registration confirmed|Your entry is free/);
   });
 
   it('preserves every tournament-owned and shared style value byte-for-byte', () => {
     const sources = parseSources([tournamentFeatureRoot]);
     const styleDigest = digest(tournamentStyleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('42b9dc43f1ed214b7ae1aa9effd3c1da09f473f5f9614fa02491351c08e2f6f8');
+    expect(styleDigest).toBe('c404d3c4684d471c0783f296abc18eaf742dde05aa84ea86a76143b092ff78a0');
   });
 });
 
-const clubComponentNames = ["NearbyCheckInPanel","ClubMembershipPlanScreen","SeatRequestModal","ClubAccessCheckoutScreen","MembershipPlanCard","formatFamiliar","MembershipApplicationStatusCard","MembershipWalletCard","MembershipQrCode","getMembershipDisplayId","ClubHubSections","SimpleMenuRow","ClubMembershipPanel","ClubHistoryPanel"] as const;
-const clubStyleNames = 'accountCard,agentKicker,attendanceChoice,attendanceChoiceActive,attendanceChoiceBody,attendanceChoiceRow,attendanceChoiceTextActive,attendanceChoiceTitle,buyAnotherPassButton,buyAnotherPassText,cardTitle,checkedInBand,checkedInText,clubAvatar,clubAvatarActive,clubAvatarText,clubAvatarTextActive,clubCard,clubGameGroupLabel,clubHub,clubHubCopy,clubHubIcon,clubHubPanel,clubHubRow,clubMain,clubRequestHeader,compactEventRow,compactGameAction,compactGameActionMuted,compactGameCopy,compactGameRow,compactManageButton,compactManageText,compactStatLabel,compactStatValue,emptyState,formError,fullWidthButton,iconActionRow,inlineBackAction,inlineBackText,inputLabel,loyaltyBadge,loyaltyBadgeText,loyaltyCard,loyaltyHeader,membershipApplicationCard,membershipApplicationStatus,membershipApplicationStatusCopy,membershipApplicationStatusIcon,membershipCompactStats,membershipHero,membershipHeroCopy,membershipHeroIcon,membershipHeroText,membershipIdentityLabel,membershipIdentityRow,membershipIdentityValue,membershipNumberBlock,membershipProfileAvatar,membershipProfileAvatarText,membershipProfileCopy,membershipProfileSummary,membershipQrCode,membershipQrCopy,membershipQrMember,membershipQrShell,membershipQrTitle,membershipScreen,membershipStatusBadge,membershipStatusBadgeInactive,membershipStatusDot,membershipStatusDotInactive,membershipStatusText,membershipTitle,membershipWalletBrand,membershipWalletCard,membershipWalletClub,membershipWalletMonogram,membershipWalletMonogramText,membershipWalletPlan,membershipWalletTop,merchantBand,merchantBandText,modalBackdrop,modalCloseButton,muted,passTimer,passTimerActive,passTimerCopy,passTimerInactive,passTimerTitle,payInPersonButton,payInPersonCopy,paymentPlaceholder,paymentPlaceholderIcon,planCard,planCardCopy,planCardFeatured,planCardPriceBlock,planCompactPrice,planGrid,planIcon,points,primaryButton,primaryButtonText,privateGameStatus,requestGameRow,seatRequestHeader,seatRequestHeaderCopy,seatRequestModal,seatTimeField,seatTimeInput,sectionHeader,sectionTitle,selectedCard,simpleMenuCopy,simpleMenuIcon,simpleMenuRow,statusPill,statusText,timeRangeInput,timeRangeRow'.split(',');
+const clubComponentNames = ["ClubMembershipPlanScreen","SeatRequestModal","MembershipPlanCard","formatFamiliar","MembershipApplicationStatusCard","MembershipWalletCard","MembershipQrCode","MembershipQrIssuer","formatQrExpiry","ClubHubSections","PlayerTimePanel","SimpleMenuRow"] as const;
+const clubStyleNames = 'accountCard,actionStatus,agentKicker,attendanceChoice,attendanceChoiceActive,attendanceChoiceBody,attendanceChoiceRow,attendanceChoiceTextActive,attendanceChoiceTitle,cardTitle,checkedInBand,checkedInText,clubAvatar,clubAvatarActive,clubAvatarText,clubAvatarTextActive,clubCard,clubGameGroupLabel,clubHub,clubHubCopy,clubHubIcon,clubHubPanel,clubHubRow,clubMain,clubRequestHeader,compactEventRow,compactGameAction,compactGameActionMuted,compactGameCopy,compactGameRow,compactManageButton,compactManageText,compactStatLabel,compactStatValue,disabledAction,emptyState,formError,fullWidthButton,inlineBackAction,inlineBackText,inputLabel,membershipApplicationCard,membershipApplicationStatus,membershipApplicationStatusCopy,membershipApplicationStatusIcon,membershipCompactStats,membershipHero,membershipHeroCopy,membershipHeroIcon,membershipHeroText,membershipIdentityLabel,membershipIdentityRow,membershipIdentityValue,membershipProfileAvatar,membershipProfileAvatarText,membershipProfileCopy,membershipProfileSummary,membershipQrCode,membershipQrCopy,membershipQrMember,membershipQrShell,membershipQrTitle,membershipScreen,membershipStatusBadge,membershipStatusBadgeInactive,membershipStatusDot,membershipStatusDotInactive,membershipStatusText,membershipTitle,membershipWalletBrand,membershipWalletCard,membershipWalletClub,membershipWalletMonogram,membershipWalletMonogramText,membershipWalletPlan,membershipWalletTop,modalBackdrop,modalCloseButton,muted,planCard,planCardCopy,planCardFeatured,planCardPriceBlock,planCompactPrice,planGrid,planIcon,primaryButton,primaryButtonText,qrActionButton,qrActionText,requestGameRow,seatRequestHeader,seatRequestHeaderCopy,seatRequestModal,seatTimeField,seatTimeInput,sectionTitle,selectedCard,statusPill,statusText,timeRangeInput,timeRangeRow'.split(',');
 
 describe('Player clubs and membership presentation contract', () => {
-  it('preserves the characterized club, plan, checkout, wallet, QR, seat-request, and hub components', () => {
+  it('preserves the characterized club, plan, wallet, expiring QR, seat-request, and hub components', () => {
     const sources = parseSources([clubsFeatureRoot, tournamentFeatureRoot]);
     const componentDigest = digest(clubComponentNames.map((name) => findFunction(sources, name)));
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
     const clubsScreen = findFunction(sources, 'ClubsScreen');
 
-    expect(componentDigest).toBe('6c13ded1b96c05ca1830e54e78cb80857a37e49dff91e774d16a4d56c92dcf19');
-    ['<ClubsScreen', '<ClubMembershipPlanScreen', '<ClubAccessCheckoutScreen', '<SeatRequestModal'].forEach((token) => expect(playerApp).toContain(token));
+    expect(componentDigest).toBe('e406dcc19628a80a2ebdba5763c42a3046e44a49b9fbfd2b6c153804a459c21d');
+    ['<ClubsScreen', '<ClubMembershipPlanScreen', '<SeatRequestModal'].forEach((token) => expect(playerApp).toContain(token));
+    expect(playerApp).not.toMatch(/ClubAccessCheckoutScreen|NearbyCheckInPanel/);
     expect(clubsScreen).toContain('<ClubHubSections');
   });
 
@@ -333,21 +308,24 @@ describe('Player clubs and membership presentation contract', () => {
     const sources = parseSources([clubsFeatureRoot, tournamentFeatureRoot]);
     const styleDigest = digest(clubStyleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('5ecff9fa0adc610399f875e882be73c31d55c9af7c7f4a2d7a717441bba5a064');
+    expect(styleDigest).toBe('4146c16d924c2ea41ec664ed30eebdad2482ea3753aeb0b3c6d36a73a7f898c2');
   });
 });
 
 const settingsComponentNames = [
+  'SettingsScreen',
   'IdentityVerificationScreen',
+  'IdentityPreview',
+  'IdentityDetail',
   'InAppNotificationPopup',
   'getScreenTitle',
   'getIdentityStatusLabel',
   'getLatestInAppNotification'
 ] as const;
-const settingsStyleNames = 'accountCard,alertPopup,alertPopupBody,alertPopupClose,alertPopupCopy,alertPopupIcon,alertPopupTitle,alertToastHost,cardTitle,chipRow,compactButton,compactButtonText,disabledAction,emailAuthPanel,fieldLabel,fullWidthButton,googleAuthBody,googleAuthIcon,googleAuthPanel,identityCard,identityCopy,identityIcon,identityPrivacy,muted,primaryButton,primaryButtonText,privateGameStatus,searchInput,searchInputRow,secondaryActionButton,secondaryActionText,sectionHeader,sectionTitle,simpleMenu,simpleMenuCopy,simpleMenuIcon,simpleMenuRow'.split(',');
+const settingsStyleNames = 'accountCard,actionStatus,ageNotice,camera,cameraCaption,cameraGuide,cameraShell,captureActions,cardTitle,chipRow,compactButton,compactButtonText,detailLabel,detailRow,detailValue,disabledAction,emailAuthPanel,emptyState,fieldError,fieldLabel,fullWidthButton,googleAuthBody,googleAuthIcon,googleAuthPanel,identityCard,identityCopy,identityIcon,identityPrivacy,muted,previewCard,previewTitle,primaryButton,primaryButtonText,searchInput,searchInputRow,secondaryActionButton,secondaryActionText,sectionHeader,sectionTitle,simpleMenu'.split(',');
 
 describe('Player identity and settings presentation contract', () => {
-  it('preserves the settings hierarchy, copy, account actions, preferences, legal links, and premium controls', () => {
+  it('preserves the settings hierarchy, guarded editing, account actions, preferences, and legal links', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const settings = findSettingsPresentationSource(sources);
     const orderedTokens = [
@@ -356,10 +334,8 @@ describe('Player identity and settings presentation contract', () => {
       'onPress={connectPlayerAccount}',
       'title="Identity & age"',
       "onPress={() => showIdentityVerification('settings')}",
-      'playerPremiumEnabled ? (',
-      'onPress={openPremiumCheckout}',
-      'onPress={restorePremiumPurchases}',
-      '<Field label="Name"',
+      'Restoring your signed-in profile',
+      'label="Name"',
       '<Text style={styles.fieldLabel}>Preferred games</Text>',
       'togglePreferredGame(current, game.id)',
       'title="Support"',
@@ -373,20 +349,22 @@ describe('Player identity and settings presentation contract', () => {
     for (let index = 1; index < orderedTokens.length; index += 1) {
       expect(settings.indexOf(orderedTokens[index])).toBeGreaterThan(settings.indexOf(orderedTokens[index - 1]));
     }
+    expect(settings).toContain("firebaseIdentity ? 'Delete account' : 'Delete local profile and data'");
+    expect(settings).not.toMatch(/Premium|Purchase|Restore purchases|private game/i);
   });
 
   it('preserves identity, notification, title, label, and notification-selection behavior byte-for-byte', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const componentDigest = digest(settingsComponentNames.map((name) => findFunction(sources, name)));
 
-    expect(componentDigest).toBe('3515c6404fce6a37e412112e272e6c972f5c1968ba02c9ca9381ee78fae7b4f1');
+    expect(componentDigest).toBe('e6a7dbc3df90097f3b0d956ffbc7dfe9d14276f037e8cbdacc3fe6e572aacbaa');
   });
 
   it('preserves every identity/settings-owned and shared style value byte-for-byte', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const styleDigest = digest(settingsStyleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('37728a689cf40a072fff128496a9ac574b7b241ea1fffcf66b170c01b3883286');
+    expect(styleDigest).toBe('eabc34d5040cd19c989aaea1136d4f08621780dbe311857ecb606ed66dc20081');
   });
 });
 

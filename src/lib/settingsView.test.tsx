@@ -196,13 +196,36 @@ describe('settings route rendering', () => {
       'Address'
     ]);
     expect(document.querySelector('#settings-club > .preference-list > .account-management-form > button')?.textContent?.trim()).toBe('Save Account');
-    expect(document.querySelector('#settings-club')?.textContent).toContain('Player self-check-in QR');
-    expect(Array.from(document.querySelectorAll('#settings-club button')).some((button) => button.textContent?.includes('Generate QR PDF'))).toBe(true);
+    expect(document.querySelector('#settings-club')?.textContent).toContain('Printed player self-check-in');
+    expect(document.querySelector('#settings-club')?.textContent).toContain('Name-based printed check-in is unavailable');
+    expect(document.querySelector('#settings-club')?.textContent).toContain(
+      'Players request an option; staff verifies and completes any payment in person.'
+    );
+    expect(Array.from(document.querySelectorAll('#settings-club button')).some((button) =>
+      button.textContent?.includes('Unavailable in this release') && button.hasAttribute('disabled')
+    )).toBe(true);
     expect(document.querySelector('.membership-plan-heading button')?.textContent?.trim()).toBe('Add plan');
 
     const staffPin = document.querySelector<HTMLInputElement>('.staff-account-form input[type="password"]');
     expect(staffPin).toMatchObject({ inputMode: 'numeric', minLength: 4, maxLength: 12 });
     expect(staffPin?.pattern).toBe('[0-9]{4,12}');
+  });
+
+  it('creates a blank inactive membership option instead of a published product', async () => {
+    const addPlan = document.querySelector<HTMLButtonElement>('.membership-plan-heading button');
+    expect(addPlan).not.toBeNull();
+    await act(async () => {
+      addPlan!.click();
+      await Promise.resolve();
+    });
+
+    const plan = document.querySelector<HTMLElement>('.membership-plan-heading + .preference-list .preference-row');
+    const inputs = Array.from(plan?.querySelectorAll<HTMLInputElement>('input') ?? []);
+    expect(inputs.slice(0, 4).map((input) => input.value)).toEqual(['', '', '', '']);
+    const publish = inputs.find((input) => input.type === 'checkbox');
+    expect(publish?.checked).toBe(false);
+    expect(publish?.disabled).toBe(true);
+    expect(plan?.textContent).toContain('Publish to players');
   });
 
   it('leaves the operator unchanged when the in-app PIN dialog is canceled', async () => {
@@ -266,7 +289,7 @@ describe('settings route rendering', () => {
     });
   });
 
-  it('selects staff through the in-app PIN dialog and carries the trusted token into QR generation', async () => {
+  it('selects staff through the in-app PIN dialog while keeping printed self-check-in disabled', async () => {
     desktop.verifyStaffPin.mockClear();
     desktop.authorizeStaffAction.mockClear();
     desktop.generateSelfCheckInKit.mockClear();
@@ -392,27 +415,16 @@ describe('settings route rendering', () => {
     act(() => clubTab!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
     const qrButton = Array.from(document.querySelectorAll<HTMLButtonElement>('#settings-club button')).find(
-      (button) => button.textContent?.includes('Generate QR PDF')
+      (button) => button.textContent?.includes('Unavailable in this release')
     );
     expect(qrButton).toBeDefined();
+    expect(qrButton?.disabled).toBe(true);
     await act(async () => {
       qrButton!.click();
       await Promise.resolve();
       await Promise.resolve();
     });
-
-    await act(async () => {
-      await vi.waitFor(() => {
-        expect(desktop.authorizeStaffAction).toHaveBeenCalledWith({
-          token: 'settings-staff-token',
-          action: 'staff-admin'
-        });
-        expect(desktop.generateSelfCheckInKit).toHaveBeenCalledWith({
-          access: expect.objectContaining({ licenseId: 'REF-006G-LICENSE' }),
-          staffToken: 'settings-staff-token'
-        });
-      });
-    });
+    expect(desktop.generateSelfCheckInKit).not.toHaveBeenCalled();
   });
 
   it('keeps portable room data separate from the restorable backup and downloads the sanitized export', () => {

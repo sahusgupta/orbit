@@ -1,4 +1,6 @@
+import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
+import { decodePlayerTournament } from '../../../player-app/src/domain/decoders/playerBoundaryDecoders';
 import { seedState } from '../../domain/state';
 import type { AppState, PlayerProfile, Tournament } from '../../domain/types';
 import {
@@ -17,6 +19,9 @@ import {
   updateTournamentSettings,
   validateTournamentPayoutDrafts
 } from './tournamentCommands';
+
+const require = createRequire(import.meta.url);
+const tournamentPublisher = require('../../../apps/api/src/firebasePublisher.js');
 
 const now = '2026-08-08T22:00:00.000Z';
 const tournament = (overrides: Partial<Tournament> = {}): Tournament => ({
@@ -137,6 +142,96 @@ describe('management tournament commands', () => {
       payouts: [{ place: 1, percent: '90' }]
     })).toBeNull();
     expect(source).toEqual(snapshot);
+  });
+
+  it('requires a complete ordered publication schedule and preserves or clears it explicitly', () => {
+    const publicationDraft = {
+      ...draft,
+      scheduledAt: '2026-08-10T18:00',
+      registrationOpensAt: '2026-08-08T20:00',
+      registrationClosesAt: '2026-08-10T17:00',
+      registrationStatus: 'open' as const,
+      unregisterAllowed: true
+    };
+    const created = createTournament(state([]), publicationDraft, dependencies());
+    expect(created?.tournament).toMatchObject({
+      scheduledAt: new Date('2026-08-10T18:00').toISOString(),
+      registrationOpensAt: new Date('2026-08-08T20:00').toISOString(),
+      registrationClosesAt: new Date('2026-08-10T17:00').toISOString(),
+      registrationStatus: 'open',
+      unregisterAllowed: true
+    });
+    expect(createTournament(state([]), {
+      ...publicationDraft,
+      registrationClosesAt: ''
+    }, dependencies())).toBeNull();
+    expect(createTournament(state([]), {
+      ...publicationDraft,
+      registrationClosesAt: '2026-08-10T19:00'
+    }, dependencies())).toBeNull();
+    if (!created) return;
+
+    const preserved = updateTournamentSettings(created.state, created.tournament.id, draft);
+    expect(preserved?.tournaments[0]).toMatchObject({
+      scheduledAt: created.tournament.scheduledAt,
+      registrationOpensAt: created.tournament.registrationOpensAt,
+      registrationClosesAt: created.tournament.registrationClosesAt,
+      registrationStatus: 'open',
+      unregisterAllowed: true
+    });
+    const cleared = updateTournamentSettings(created.state, created.tournament.id, {
+      ...draft,
+      scheduledAt: '',
+      registrationOpensAt: '',
+      registrationClosesAt: '',
+      registrationStatus: 'closed',
+      unregisterAllowed: false
+    });
+    expect(cleared?.tournaments[0]).toMatchObject({ registrationStatus: 'closed', unregisterAllowed: false });
+    expect(cleared?.tournaments[0].scheduledAt).toBeUndefined();
+    expect(cleared?.tournaments[0].registrationOpensAt).toBeUndefined();
+    expect(cleared?.tournaments[0].registrationClosesAt).toBeUndefined();
+
+    const rerun = rerunTournament(created.state, created.tournament, dependencies()).tournament;
+    expect(rerun).toMatchObject({ registrationStatus: 'closed', unregisterAllowed: false });
+    expect(rerun.scheduledAt).toBeUndefined();
+    expect(rerun.registrationOpensAt).toBeUndefined();
+    expect(rerun.registrationClosesAt).toBeUndefined();
+  });
+
+  it('publishes and decodes a tournament created through the management command', () => {
+    const created = createTournament(state([]), {
+      ...draft,
+      scheduledAt: '2026-08-10T18:00:00.000Z',
+      registrationOpensAt: '2026-08-08T20:00:00.000Z',
+      registrationClosesAt: '2026-08-10T17:00:00.000Z',
+      registrationStatus: 'open',
+      unregisterAllowed: true
+    }, dependencies());
+    expect(created).not.toBeNull();
+    if (!created) return;
+    const [published] = tournamentPublisher.buildPlayerTournamentDocs(
+      created.state,
+      'club-one',
+      now,
+      Date.parse(now)
+    );
+    expect(published).toMatchObject({
+      id: created.tournament.id,
+      clubId: 'club-one',
+      interestStatus: 'open',
+      withdrawalAllowed: true,
+      rules: []
+    });
+    expect(decodePlayerTournament(published)).toMatchObject({
+      id: created.tournament.id,
+      clubId: 'club-one',
+      startsAt: '2026-08-10T18:00:00.000Z',
+      interestOpensAt: '2026-08-08T20:00:00.000Z',
+      interestClosesAt: '2026-08-10T17:00:00.000Z',
+      interestStatus: 'open',
+      withdrawalAllowed: true
+    });
   });
 
   it('registers authoritative profiles and draws only non-eliminated players deterministically', () => {

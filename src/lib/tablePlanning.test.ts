@@ -528,7 +528,7 @@ describe('forming and balanced table planning', () => {
         clubId: accountKey,
         gameId: game.id,
         title: game.name,
-        body: `${game.name} is forming right now at Local Planning Club! Text back to get on the waitlist`,
+        body: `${game.name} is forming now at Local Planning Club. Open or refresh Orbit Player to view current availability and request a seat.`,
         reason: 'game-forming',
         createdAt: now,
         expiresAt: '2026-08-08T02:00:00.000Z',
@@ -690,6 +690,7 @@ describe('forming and balanced table planning', () => {
         tableId: sourceTable.id,
         timestamp: now,
         playerCount: 6,
+        profileIds: [moveB.profileId, moveA.profileId],
         note: `Table B created from Table A balance option: ${moveB.playerName}, ${moveA.playerName}`
       }
     ]);
@@ -806,6 +807,7 @@ describe('forming and balanced table planning', () => {
       tableId: formingTable.id,
       timestamp: now,
       playerCount: 2,
+      profileIds: nextState.playerSessions.map((playerSession) => playerSession.profileId),
       note: `Started with ${selectedA.playerName}, ${selectedB.playerName} - messaging trigger: Local Planning Club`
     }]);
     expect(nextState.usageEvents).toEqual([expect.objectContaining({
