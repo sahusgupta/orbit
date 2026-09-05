@@ -54,6 +54,8 @@ TableTalk-Releases/
 player-app/.agents/
 player-app/*.log
 player-app/dist-*/
+player-app/android/
+player-app/ios/
 player-web/.next/
 player-web/out/
 

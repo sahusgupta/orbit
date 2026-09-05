@@ -12,8 +12,10 @@ const preload = read('electron/preload.cjs');
 const main = read('electron/main.cjs');
 const managementSmoke = read('scripts/run-management-smoke.mjs');
 const publicSmoke = read('scripts/run-public-smoke.mjs');
+const playerWebSmoke = read('scripts/run-player-web-smoke.mjs');
 const managementBrowser = read('tests/e2e/management-core-smoke.mjs');
 const publicBrowser = read('tests/e2e/public-site-smoke.mjs');
+const playerWebBrowser = read('tests/e2e/player-web-smoke.mjs');
 const vite = read('vite.config.ts');
 const fixtureBoundary = read('src/lib/e2eFixtureMode.ts');
 const dependencyAudit = read('scripts/audit-production-dependencies.mjs');
@@ -53,9 +55,9 @@ requireMatch(!packageJson.scripts['dist:win:publish'], 'The legacy direct-publis
 requireMatch(/sourcemap:\s*false/.test(vite), 'Desktop renderer source maps must be explicitly disabled.');
 requireMatch(dependencyAudit.includes("{ name: 'web', prefix: 'player-web' }"), 'The production dependency audit must cover Player Web.');
 requireMatch(Array.isArray(dependencyPolicy.scopes?.web?.allowed), 'The dependency advisory policy must define a Player Web scope.');
-requireMatch(apiPackage.engines?.node === '22.x', 'The production API runtime must stay aligned with CI Node 22.');
+requireMatch(apiPackage.engines?.node === '22.16.0' && apiPackage.engines?.npm === '10.9.2', 'The production API runtime must pin Node 22.16.0 and npm 10.9.2.');
 requireMatch(apiVercel.git?.deploymentEnabled === false, 'API Git auto-deployments must remain disabled so exact-SHA candidates can be tested before promotion.');
-requireMatch(playerWebPackage.engines?.node === '22.x', 'The production Player Web runtime must stay aligned with CI Node 22.');
+requireMatch(playerWebPackage.engines?.node === '22.16.0' && playerWebPackage.engines?.npm === '10.9.2', 'The production Player Web runtime must pin Node 22.16.0 and npm 10.9.2.');
 
 const downloadedHandler = updater.slice(updater.indexOf("autoUpdater.on('update-downloaded'"), updater.indexOf("nativeAutoUpdater.on('before-quit-for-update'"));
 requireMatch(updater.includes('autoUpdater.autoInstallOnAppQuit = false'), 'The updater must not install automatically on app quit.');
@@ -65,13 +67,28 @@ requireMatch(includesAll(updater, ['update-install-blocked-state-not-preserved',
 requireMatch(includesAll(preload, ["ipcRenderer.invoke('get-update-status')", "ipcRenderer.invoke('install-downloaded-update')", "ipcRenderer.on('update-status'"]), 'The reviewed preload bridge must expose update status and explicit installation.');
 requireMatch(includesAll(main, ["ipcMain.handle('get-update-status'", "ipcMain.handle('install-downloaded-update'"]), 'Trusted main-process IPC handlers must own update installation.');
 
-for (const gate of ['security:dependencies', 'check:release-controls', 'audit:module-graph', 'verify', 'check:renderer-bundle', 'check:public-site', 'check:brand', 'e2e:management', 'e2e:public']) {
+for (const gate of ['security:dependencies', 'check:release-controls', 'check:independent-locks', 'audit:module-graph', 'verify', 'check:renderer-bundle', 'check:public-site', 'check:brand', 'e2e:management', 'e2e:public', 'web:e2e']) {
   requireMatch(ci.includes(`npm run ${gate}`), `CI is missing npm run ${gate}.`);
 }
+requireMatch(ci.includes('permissions:\n  contents: read') || ci.includes('permissions:\r\n  contents: read'), 'CI must use explicit read-only repository permissions.');
+requireMatch(ci.includes('node-version: 22.16.0') && ci.includes('npm install --global npm@10.9.2'), 'CI must pin Node 22.16.0 and npm 10.9.2.');
+for (const playerGate of ['player:release:verify', 'player:config:verify', 'player:expo:check', 'player:expo:doctor', 'player:export:ios', 'player:prebuild:ios', 'test:firestore-rules']) {
+  requireMatch(ci.includes(`npm run ${playerGate}`), `CI is missing npm run ${playerGate}.`);
+}
+const rootInstallIndex = ci.search(/^\s*- run: npm ci\r?$/m);
+requireMatch(
+  rootInstallIndex >= 0 &&
+    ci.indexOf('npm ci --prefix player-app') < rootInstallIndex &&
+    ci.indexOf('npm run player:expo:doctor') < rootInstallIndex,
+  'CI must install and run Expo Doctor for the standalone Player tree before installing parent dependencies.'
+);
+requireMatch(!/EAS_TOKEN|EXPO_TOKEN|GOOGLE_APPLICATION_CREDENTIALS|FIREBASE_PRIVATE_KEY/.test(ci), 'Pull-request CI must not request production build, submit, or server credentials.');
 requireMatch(includesAll(managementSmoke, ["'build'", "'preview'"]), 'Management smoke must build and serve the production bundle.');
 requireMatch(includesAll(fixtureBoundary, ["apiUrl === 'http://127.0.0.1:4185'", "firebaseSync === 'false'", "hostname === '127.0.0.1'", "hostname === '::1'"]), 'Production-bundle fixture mode must remain bound to disabled sync, isolated API, and loopback runtime origins.');
 requireMatch(includesAll(publicSmoke, ["'build'", "'preview'"]), 'Public smoke must build and serve the production bundle.');
-for (const [name, browserSource] of [['management', managementBrowser], ['public', publicBrowser]]) {
+requireMatch(includesAll(playerWebSmoke, ["nextCli, 'build'", "nextCli, 'start'", "NEXT_PUBLIC_ENABLE_FIREBASE_SYNC: 'false'", 'ORBIT_API_URL: apiTarget', 'fixture-api.mjs']), 'Player Web smoke must build and serve a production bundle against the isolated fixture API with browser Firebase disabled.');
+requireMatch(packageJson.scripts['web:e2e'] === 'node scripts/run-player-web-smoke.mjs', 'Player Web browser smoke must use the isolated production wrapper.');
+for (const [name, browserSource] of [['management', managementBrowser], ['public', publicBrowser], ['player-web', playerWebBrowser]]) {
   requireMatch(includesAll(browserSource, ["page.on('pageerror'", "page.on('console'", "page.on('requestfailed'"]), `${name} production smoke must fail on page, console, and request errors.`);
 }
 requireMatch(fs.existsSync(path.join(root, 'docs', 'operations', 'RELEASE_AND_ROLLBACK.md')), 'Release and rollback operations must be documented.');

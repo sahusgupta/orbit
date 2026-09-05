@@ -12,14 +12,11 @@
         "@expo/cli",
         "@expo/metro",
         "@expo/metro-config",
-        "@react-native/community-cli-plugin",
         "expo",
         "image-size",
         "metro",
         "metro-config",
-        "metro-transform-worker",
-        "react-native",
-        "react-native-purchases"
+        "metro-transform-worker"
       ]
     },
     "web": {

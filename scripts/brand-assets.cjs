@@ -14,8 +14,7 @@ const exportsBySource = new Map([
   ['build/icon.ico', ['player-web/app/favicon.ico']],
   ['build/icon.png', [
     'player-app/assets/icon.png',
-    'player-app/assets/adaptive-icon.png',
-    'player-app/assets/splash-icon.png'
+    'player-app/assets/adaptive-icon.png'
   ]]
 ]);
 

@@ -56,12 +56,15 @@ async function authorizeFixtureSession(context) {
 async function assertRoute(page, route, viewport) {
   const consoleErrors = [];
   const pageErrors = [];
+  const requestFailures = [];
   const onConsole = (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text());
   };
   const onPageError = (error) => pageErrors.push(error.message);
+  const onRequestFailed = (request) => requestFailures.push(`${request.method()} ${request.url()}: ${request.failure()?.errorText || 'failed'}`);
   page.on('console', onConsole);
   page.on('pageerror', onPageError);
+  page.on('requestfailed', onRequestFailed);
   const response = await page.goto(`${baseUrl}${route.path}`, { waitUntil: 'networkidle' });
   await page.locator('main').waitFor({ state: 'visible' });
   const layout = await page.evaluate(() => ({
@@ -103,6 +106,7 @@ async function assertRoute(page, route, viewport) {
   }
   if (layout.nextError) failures.push(`${viewport.name} ${route.path}: Next.js error overlay is present`);
   if (pageErrors.length) failures.push(`${viewport.name} ${route.path}: page errors: ${pageErrors.join(' | ')}`);
+  if (requestFailures.length) failures.push(`${viewport.name} ${route.path}: request failures: ${requestFailures.join(' | ')}`);
   if (allowedConsoleErrors.length) failures.push(`${viewport.name} ${route.path}: console errors: ${allowedConsoleErrors.join(' | ')}`);
   await page.screenshot({
     path: path.join(outputDirectory, `${viewport.name}--${route.name}.png`),
@@ -112,6 +116,7 @@ async function assertRoute(page, route, viewport) {
   if (viewport.name === 'mobile-375') metadataByRoute.set(route.path, { title: layout.title, description: layout.description });
   page.off('console', onConsole);
   page.off('pageerror', onPageError);
+  page.off('requestfailed', onRequestFailed);
 }
 
 await Promise.all(viewports.map(async (viewport) => {
@@ -131,12 +136,36 @@ await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
 const landing = page.locator('.player-landing');
 if (!(await landing.isVisible())) failures.push('Interactive landing root is not visible.');
 if (!(await page.locator('.player-landing__nav').isVisible())) failures.push('Landing navigation is not visible.');
+const landingText = await landing.innerText();
+for (const invented of ['The Commerce Club', 'Hollywood Park', 'West LA', "You're #3", 'Room notified', 'Seat Requested', '$2 / $5']) {
+  if (landingText.includes(invented)) failures.push(`Landing includes a fabricated preview fact: ${invented}`);
+}
+const assertLandingChapterDisclosure = async (sectionIndex, expectedText) => {
+  const scrollTarget = await page.locator('#how-it-works').evaluate((element, index) => {
+    const top = element.getBoundingClientRect().top + window.scrollY;
+    const scrollableHeight = Math.max(0, element.offsetHeight - window.innerHeight);
+    return top + scrollableHeight * ((index + 0.5) / 4);
+  }, sectionIndex);
+  await page.evaluate((top) => window.scrollTo({ top, behavior: 'auto' }), scrollTarget);
+  try {
+    await page.getByText(expectedText, { exact: true }).waitFor({ state: 'visible', timeout: 2_000 });
+  } catch {
+    failures.push(`Landing omits the truthful illustrative-data disclosure in scroll chapter ${sectionIndex + 1}: ${expectedText}`);
+  }
+};
+await assertLandingChapterDisclosure(1, 'No live game facts in this preview');
+await assertLandingChapterDisclosure(2, 'No live queue value in this preview');
+await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'auto' }));
 for (const legacyShellSelector of ['.site-header', '.site-footer', '.ambient-flow']) {
   if (await page.locator(legacyShellSelector).count()) failures.push(`Landing mounted unnecessary application shell content: ${legacyShellSelector}`);
 }
 if (await page.getByRole('link', { name: 'Orbit Player home' }).first().getAttribute('href') !== '/') failures.push('Landing brand does not return home.');
 if (await page.getByRole('link', { name: 'Open My Orbit' }).getAttribute('href') !== '/me') failures.push('Landing My Orbit action is invalid.');
-if (await page.getByRole('link', { name: 'Find games near me' }).getAttribute('href') !== '/games') failures.push('Landing nearby-game action is invalid.');
+const publishedGameLinks = page.getByRole('link', { name: 'Browse published games', exact: true });
+if (!(await publishedGameLinks.count())) failures.push('Landing published-game action is missing.');
+for (let index = 0; index < await publishedGameLinks.count(); index += 1) {
+  if (await publishedGameLinks.nth(index).getAttribute('href') !== '/games') failures.push('Landing published-game action is invalid.');
+}
 if (await page.getByRole('link', { name: 'Manage memberships', exact: true }).first().getAttribute('href') !== '/me/clubs') failures.push('Landing membership action is invalid.');
 const scrollCue = page.getByRole('link', { name: 'Scroll to how Orbit Player works' });
 if (await scrollCue.getAttribute('href') !== '#player-card-story') failures.push('Landing scroll cue does not target the poker-card story.');
@@ -171,6 +200,7 @@ await motionContext.close();
 
 await authorizeFixtureSession(interactionContext);
 await page.goto(`${baseUrl}/games`, { waitUntil: 'networkidle' });
+const gameHeadingsBeforeSearch = await page.locator('.entity-row h3').allTextContents();
 const filterRouteRequests = [];
 const recordFilterRequest = (request) => {
   const url = new URL(request.url());
@@ -181,31 +211,43 @@ await page.getByRole('searchbox', { name: 'Search games or clubs' }).fill('PLO')
 await page.waitForURL(/q=PLO/);
 page.off('request', recordFilterRequest);
 if (filterRouteRequests.length) failures.push(`Game search issued ${filterRouteRequests.length} route request(s) while typing.`);
-const locationControlGap = await page.evaluate(() => {
-  const status = document.querySelector('.location-control__status')?.getBoundingClientRect();
-  const action = document.querySelector('.location-control .button')?.getBoundingClientRect();
-  return status && action ? action.top - status.bottom : Number.POSITIVE_INFINITY;
-});
-if (locationControlGap > 40) failures.push(`Mobile location controls contain a ${Math.round(locationControlGap)}px dead gap.`);
-if (await page.getByText('2/5 PLO').count() !== 1) failures.push('Game search did not isolate the PLO listing.');
+if (await page.getByRole('combobox', { name: 'Distance' }).count()) failures.push('Games exposes a distance filter even though v1 has no player origin.');
+if (await page.getByText('Distance unavailable in this release').count() !== 1) failures.push('Games does not disclose unavailable distance.');
+try {
+  await page.getByRole('heading', { name: '2/5 PLO', exact: true }).waitFor({ state: 'visible', timeout: 2_000 });
+} catch {
+  const resultText = await page.locator('.results-panel').innerText();
+  failures.push(`Game search did not isolate the PLO listing at ${page.url()} (initial games: ${JSON.stringify(gameHeadingsBeforeSearch)}): ${JSON.stringify(resultText)}`);
+}
 await page.getByRole('combobox', { name: 'Status' }).click();
 await page.getByRole('option', { name: 'Running now' }).click();
 await page.waitForURL(/status=running/);
+await page.waitForLoadState('networkidle');
 if (await page.getByText('No games match those filters').count() !== 1) failures.push('Combined game filters did not show the honest empty state.');
 
 await authorizeFixtureSession(interactionContext);
 await page.goto(`${baseUrl}/clubs`, { waitUntil: 'networkidle' });
-await page.getByLabel('City or area').fill('Dallas');
-await page.getByRole('button', { name: 'Set area' }).click();
-if (await page.getByText('Dallas', { exact: true }).count() === 0) failures.push('Manual location fallback did not retain the selected area.');
+if (await page.getByLabel('City or area').count()) failures.push('Clubs exposes a removed manual-origin control.');
+if (await page.getByRole('combobox', { name: 'Distance' }).count()) failures.push('Clubs exposes a distance filter even though v1 has no player origin.');
+try {
+  await page.getByRole('heading', { name: 'North Loop Poker Club', exact: true }).waitFor({ state: 'visible', timeout: 2_000 });
+} catch {
+  failures.push('Club discovery did not render venue-published data without an origin.');
+}
 
 await authorizeFixtureSession(interactionContext);
 await page.goto(`${baseUrl}/tournaments`, { waitUntil: 'networkidle' });
-await page.getByRole('combobox', { name: 'Registration' }).click();
-await page.getByRole('option', { name: 'Registration open' }).click();
-await page.waitForURL(/registration=open/);
-if (await page.getByText('Sunday Orbit Major').count() !== 1) failures.push('Open tournament filtering did not retain the available event.');
-if (await page.getByText('Deep Stack Classic').count() !== 0) failures.push('Open tournament filtering retained a closed event.');
+await page.getByRole('combobox', { name: 'Interest' }).click();
+await page.getByRole('option', { name: 'Interest open' }).click();
+await page.waitForURL(/interest=open/);
+await page.waitForLoadState('networkidle');
+try {
+  await page.getByRole('heading', { name: 'Sunday Orbit Major', exact: true }).waitFor({ state: 'visible', timeout: 2_000 });
+} catch {
+  failures.push('Open tournament filtering did not retain the available event.');
+}
+if (await page.getByRole('heading', { name: 'Deep Stack Classic', exact: true }).count()) failures.push('Open tournament filtering retained a closed event.');
+if (await page.getByRole('combobox', { name: 'Distance' }).count()) failures.push('Tournaments exposes a distance filter even though v1 has no player origin.');
 
 await authorizeFixtureSession(interactionContext);
 await page.goto(`${baseUrl}/games/1-2-nlh-north-loop-poker-club--Y2x1Yi1hbHBoYQBnYW1lLXJ1bm5pbmc`, { waitUntil: 'networkidle' });
@@ -231,9 +273,10 @@ if (focusedElement.outlineStyle === 'none' || focusedElement.outlineWidth === '0
 
 const sourceResponse = await fetch(`${baseUrl}/`);
 const source = await sourceResponse.text();
-if (!source.includes('Find poker games near you.')) failures.push('Homepage nearby-game message is absent from raw view-source HTML.');
+if (!source.includes('Browse venue-published poker games.')) failures.push('Homepage published-game message is absent from raw view-source HTML.');
 if (!source.includes('Keep every membership together.')) failures.push('Homepage membership message is absent from raw view-source HTML.');
 if (!source.includes('Find a game you')) failures.push('Poker-card product story is absent from raw view-source HTML.');
+if (/near you|near me|match your distance|updated \d+ seconds/i.test(source)) failures.push('Homepage source contains a location or freshness claim v1 cannot support.');
 
 const robotsText = await (await fetch(`${baseUrl}/robots.txt`)).text();
 for (const crawler of ['GPTBot', 'ChatGPT-User', 'OAI-SearchBot', 'ClaudeBot', 'PerplexityBot', 'Google-Extended']) {
@@ -274,7 +317,7 @@ const report = {
   routeCount: routes.length,
   viewportCount: viewports.length,
   screenshotCount: routes.length * viewports.length,
-  interactionChecks: 36,
+  interactionChecks: 42,
   failures,
   observations
 };
