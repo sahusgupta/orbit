@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
+import { reviewedPlayerCollectedDataTypes } from './player-privacy-manifest.mjs';
 
 const require = createRequire(import.meta.url);
 const {
@@ -8,9 +9,6 @@ const {
   validateProductionUrl,
   v1DisabledFeatureVariables
 } = require('../player-app/release-config.cjs');
-const {
-  withoutExpoDefaultEmptyCollectedDataDeclaration
-} = require('../player-app/plugins/with-no-ios-url-schemes.cjs');
 
 function validProductionEnvironment() {
   return {
@@ -72,21 +70,22 @@ describe('Orbit Player production configuration', () => {
     expect(JSON.stringify(config)).not.toContain('do-not-print');
   });
 
-  it('removes only Expo\'s empty collected-data declaration from the generated privacy manifest', () => {
-    const generated = `<dict>
-  <key>NSPrivacyCollectedDataTypes</key>
-  <array/>
-  <key>NSPrivacyTracking</key>
-  <false/>
-</dict>`;
-    const reviewed = withoutExpoDefaultEmptyCollectedDataDeclaration(generated);
+  it('preserves the reviewed collected-data declaration for Expo serialization', () => {
+    const config = createExpoConfig({
+      ios: {
+        privacyManifests: {
+          NSPrivacyTracking: false,
+          NSPrivacyCollectedDataTypes: reviewedPlayerCollectedDataTypes
+        }
+      },
+      android: {},
+      plugins: []
+    }, validProductionEnvironment());
 
-    expect(reviewed).not.toContain('NSPrivacyCollectedDataTypes');
-    expect(reviewed).toContain('<key>NSPrivacyTracking</key>');
-    expect(() => withoutExpoDefaultEmptyCollectedDataDeclaration(`<dict>
-  <key>NSPrivacyCollectedDataTypes</key>
-  <array><dict/></array>
-</dict>`)).toThrow(/Refusing to remove a non-empty or malformed/);
+    expect(config.ios.privacyManifests).toEqual({
+      NSPrivacyTracking: false,
+      NSPrivacyCollectedDataTypes: reviewedPlayerCollectedDataTypes
+    });
   });
 
   it('keeps development usable without weakening production validation', () => {

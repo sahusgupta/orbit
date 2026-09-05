@@ -23,7 +23,7 @@ The locked `expo-crypto` `15.0.9` package was also inspected after it became the
 
 ## App-owned declaration mapping
 
-`app.json` declares only the reasons found above that can be aggregated into the reviewed non-Google iOS target:
+`app.json` declares the required-reason APIs found above that can be aggregated into the reviewed non-Google iOS target:
 
 | App-owned category | App-owned reasons | Evidence source |
 | --- | --- | --- |
@@ -32,7 +32,22 @@ The locked `expo-crypto` `15.0.9` package was also inspected after it became the
 | `NSPrivacyAccessedAPICategorySystemBootTime` | `35F9.1` | React Native boost |
 | `NSPrivacyAccessedAPICategoryUserDefaults` | `CA92.1` | Expo Constants and React Native core |
 
-The app-owned manifest declares `NSPrivacyTracking` as false. It intentionally does not declare `NSPrivacyCollectedDataTypes`; the app does collect linked account, identity, coarse home-area text, and operational activity off device when authenticated flows are used. Those answers live in [`APP_STORE_SUBMISSION.md`](./APP_STORE_SUBMISSION.md) and must be reconciled with the signed candidate. An empty collected-data array would misleadingly imply that Orbit collects nothing. Expo's SDK 54 prebuild serializer adds that empty array when the source field is absent, so the reviewed iOS config plugin removes only the generated empty declaration and fails closed if it ever contains data. The native-project verifier confirms the final app-owned manifest omits it.
+The app-owned manifest declares `NSPrivacyTracking` as false and makes the following conservative `NSPrivacyCollectedDataTypes` disclosure. Every entry is linked to the user and not used for tracking. The release and generated-native verifiers require the exact data types, linking/tracking flags, and purposes below; an absent, empty, extra, or changed declaration fails the repository gate.
+
+| App-owned collected data type | Purposes | Repository behavior |
+| --- | --- | --- |
+| `NSPrivacyCollectedDataTypeName` | App functionality | Authenticated profile and user-confirmed identity name |
+| `NSPrivacyCollectedDataTypeEmailAddress` | App functionality | Firebase-verified email account/contact path |
+| `NSPrivacyCollectedDataTypePhoneNumber` | App functionality | Optional account phone and phone-authentication path |
+| `NSPrivacyCollectedDataTypePhysicalAddress` | App functionality | User-confirmed PDF417 address; no image, raw barcode, or document number leaves the device |
+| `NSPrivacyCollectedDataTypeCoarseLocation` | App functionality; product personalization | Optional saved home-area text and discovery preference; no GPS or player-origin coordinate |
+| `NSPrivacyCollectedDataTypeOtherUserContent` | App functionality; product personalization | Saved game/stakes/favorite/availability preferences and user-entered availability text |
+| `NSPrivacyCollectedDataTypeUserID` | App functionality | Firebase/player/request identifiers used for identity, isolation, and idempotency |
+| `NSPrivacyCollectedDataTypePurchaseHistory` | App functionality | Selected membership option/price/duration and later status/history; Apple includes purchase tendencies in this category |
+| `NSPrivacyCollectedDataTypeProductInteraction` | App functionality; product personalization | Membership, waitlist, check-in, tournament-interest, and favorite/preference activity and timestamps |
+| `NSPrivacyCollectedDataTypeOtherDataTypes` | App functionality | Date of birth/adult state plus deletion, security, and audit state not covered by a narrower category |
+
+The native membership request sends the constant channel `in-person`, never a card, bank account, payment credential, or user-selected payment instrument. The app-owned baseline therefore does not declare `NSPrivacyCollectedDataTypePaymentInfo`; because Apple lists “form of payment” as an example, the privacy owner must explicitly confirm that this constant is only a request channel or add the linked, non-tracking App Functionality declaration before submission. Native support opens the hosted support page and has no support-content form or API, so Customer Support is not duplicated in the app-owned manifest; App Store Connect answers must still account for actual support-provider intake and retention.
 
 ## Map SDK finding and blocking archive gate
 
@@ -52,5 +67,7 @@ This is a blocking external candidate gate until signed-archive evidence exists.
 ## Primary sources
 
 - [Apple: Adding a privacy manifest to your app or third-party SDK](https://developer.apple.com/documentation/bundleresources/adding-a-privacy-manifest-to-your-app-or-third-party-sdk)
+- [Apple: Adding data collection details to your privacy manifest](https://developer.apple.com/documentation/technotes/tn3184-adding-data-collection-details-to-your-privacy-manifest)
+- [Apple: Describing data use in privacy manifests](https://developer.apple.com/documentation/bundleresources/describing-data-use-in-privacy-manifests)
 - [Apple: Describing use of required reason API](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api)
 - [Expo: Privacy manifests](https://docs.expo.dev/guides/apple-privacy/)

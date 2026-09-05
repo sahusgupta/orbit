@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { reviewedPlayerCollectedDataTypes } from './player-privacy-manifest.mjs';
 import { verifyPlayerNative } from './verify-player-native.mjs';
 
 const temporaryRoots = [];
@@ -19,7 +20,17 @@ function privacyEntries(reasonMap) {
 </dict>`).join('');
 }
 
+function collectedDataEntries(entries) {
+  return entries.map((entry) => `<dict>
+<key>NSPrivacyCollectedDataType</key><string>${entry.NSPrivacyCollectedDataType}</string>
+<key>NSPrivacyCollectedDataTypeLinked</key><${entry.NSPrivacyCollectedDataTypeLinked ? 'true' : 'false'}/>
+<key>NSPrivacyCollectedDataTypeTracking</key><${entry.NSPrivacyCollectedDataTypeTracking ? 'true' : 'false'}/>
+<key>NSPrivacyCollectedDataTypePurposes</key><array>${entry.NSPrivacyCollectedDataTypePurposes.map((purpose) => `<string>${purpose}</string>`).join('')}</array>
+</dict>`).join('');
+}
+
 function nativeFixture({
+  appCollectedDataTypes = reviewedPlayerCollectedDataTypes,
   appPrivacyReasons = privacyReasons,
   buildNumber = '1',
   bundleIdentifier = 'com.orbit.player',
@@ -45,6 +56,7 @@ ${infoAddition}
   fs.writeFileSync(path.join(appRoot, 'PrivacyInfo.xcprivacy'), `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
 <key>NSPrivacyTracking</key><false/>
+<key>NSPrivacyCollectedDataTypes</key><array>${collectedDataEntries(appCollectedDataTypes)}</array>
 <key>NSPrivacyAccessedAPITypes</key><array>${privacyEntries(appPrivacyReasons)}</array>
 </dict></plist>`);
   if (sdkPrivacyReasons.length) {
@@ -93,14 +105,26 @@ describe('generated Orbit Player native verifier', () => {
     }))).toThrow(/exactly the reviewed required-reason APIs/);
   });
 
-  it('rejects an empty collected-data declaration injected into the app-owned manifest', () => {
-    const root = nativeFixture();
-    const manifest = path.join(root, 'OrbitPlayer', 'PrivacyInfo.xcprivacy');
-    fs.writeFileSync(manifest, fs.readFileSync(manifest, 'utf8').replace(
-      '<key>NSPrivacyTracking</key>',
-      '<key>NSPrivacyCollectedDataTypes</key><array/>\n<key>NSPrivacyTracking</key>'
-    ));
-    expect(() => verifyPlayerNative(root)).toThrow(/unverified collected-data declaration/);
+  it('rejects an empty app-owned collected-data declaration', () => {
+    expect(() => verifyPlayerNative(nativeFixture({ appCollectedDataTypes: [] })))
+      .toThrow(/exactly the reviewed linked, non-tracking Player data types and purposes/);
+  });
+
+  it('rejects incorrect linking, tracking, or purposes in collected-data declarations', () => {
+    const linked = reviewedPlayerCollectedDataTypes.map((entry, index) => index === 0
+      ? { ...entry, NSPrivacyCollectedDataTypeLinked: false }
+      : entry);
+    const tracking = reviewedPlayerCollectedDataTypes.map((entry, index) => index === 1
+      ? { ...entry, NSPrivacyCollectedDataTypeTracking: true }
+      : entry);
+    const purposes = reviewedPlayerCollectedDataTypes.map((entry, index) => index === 2
+      ? { ...entry, NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAnalytics'] }
+      : entry);
+
+    for (const entries of [linked, tracking, purposes]) {
+      expect(() => verifyPlayerNative(nativeFixture({ appCollectedDataTypes: entries })))
+        .toThrow(/exactly the reviewed linked, non-tracking Player data types and purposes/);
+    }
   });
 
   it('rejects a reviewed reason declared under the wrong required-reason API category', () => {

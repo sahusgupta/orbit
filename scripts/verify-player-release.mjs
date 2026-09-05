@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { verifyPlayerAssets } from './verify-player-assets.mjs';
+import { reviewedPlayerCollectedDataTypes } from './player-privacy-manifest.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
@@ -67,7 +68,10 @@ requireMatch(app.scheme === undefined, 'Unused production URL schemes must remai
 requireMatch(app.splash?.image === './assets/splash-icon-transparent.png', 'Expo must use the transparent splash artwork.');
 requireMatch(app.icon === './assets/icon.png', 'Expo must retain the reviewed App Store icon.');
 requireMatch(app.ios?.privacyManifests?.NSPrivacyTracking === false, 'The app-owned privacy manifest must explicitly disable tracking.');
-requireMatch(!('NSPrivacyCollectedDataTypes' in (app.ios?.privacyManifests || {})), 'Do not publish an unverified collected-data array in the app-owned manifest.');
+requireMatch(
+  JSON.stringify(app.ios?.privacyManifests?.NSPrivacyCollectedDataTypes) === JSON.stringify(reviewedPlayerCollectedDataTypes),
+  'The app-owned privacy manifest must declare exactly the reviewed linked, non-tracking Player data types and purposes.'
+);
 
 for (const dependency of ['expo-auth-session', 'expo-dev-client', 'expo-web-browser', 'react-native-purchases']) {
   requireMatch(!playerPackage.dependencies?.[dependency], `Production Player dependency ${dependency} must be absent.`);
@@ -102,10 +106,7 @@ requireMatch(
   iosReleasePlugin.includes('withInfoPlist') && iosReleasePlugin.includes('CFBundleURLTypes'),
   'Expo config must remove the default iOS bundle-identifier URL scheme.'
 );
-requireMatch(
-  iosReleasePlugin.includes('withXcodeProject') && iosReleasePlugin.includes('NSPrivacyCollectedDataTypes'),
-  'Expo config must remove its generated empty collected-data declaration without weakening the native verifier.'
-);
+requireMatch(!iosReleasePlugin.includes('withXcodeProject'), 'The iOS URL-scheme plugin must not rewrite the reviewed privacy manifest.');
 const firestoreIndexes = read('player-app/firestore.indexes.json');
 requireMatch(!/privateGames/i.test(firestoreIndexes), 'Production Firestore indexes must not retain a private-games collection group.');
 

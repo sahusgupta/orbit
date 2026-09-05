@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { localPlayerBinary, playerRoot, productionPlayerEnvironment } from './player-release-environment.mjs';
+import { reviewedPlayerCollectedDataTypes } from './player-privacy-manifest.mjs';
 import { verifyPlayerBundle } from './verify-player-bundle.mjs';
 
 const action = process.argv[2];
@@ -37,6 +38,12 @@ function inspectResolvedConfig() {
   assert.equal(publicConfig.version, '1.0.0');
   assert.equal(publicConfig.ios?.bundleIdentifier, 'com.orbit.player');
   assert.equal(publicConfig.ios?.infoPlist?.ITSAppUsesNonExemptEncryption, false);
+  assert.equal(publicConfig.ios?.privacyManifests?.NSPrivacyTracking, false);
+  assert.deepEqual(
+    publicConfig.ios?.privacyManifests?.NSPrivacyCollectedDataTypes,
+    reviewedPlayerCollectedDataTypes,
+    'Production config must preserve the reviewed app-owned collected-data declaration'
+  );
   assert.equal(publicConfig.scheme, undefined, 'Production config must not expose an unused URL scheme');
   assert.deepEqual(Object.keys(publicConfig.extra || {}), ['eas'], 'Only the public EAS project identifier may remain in Expo extra');
 

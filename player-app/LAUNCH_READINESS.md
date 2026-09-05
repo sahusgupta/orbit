@@ -22,7 +22,8 @@ The current, machine-checkable submission package is [`APP_STORE_SUBMISSION.md`]
 - Explicit confirmation that Expo owner `saussy`, slug `tabletalk-player`, EAS project `bb2059b7-91b3-4a6b-a66e-d5618e794fd3`, the Apple signing team, and the `com.orbit.player` App Store record are the intended Caminus Labs, LLC release identities.
 - Production API/site deployment, Firebase rules/App Check activation, and required server-secret provisioning.
 - Sanitized reviewer account/data placed in App Store Connect without committing credentials.
-- Signed EAS archive, Xcode privacy aggregation report, App Store privacy/age/export answers, and physical-device TestFlight acceptance.
+- Privacy-owner classification of the constant `in-person` membership request channel, support/provider/IP retention, and conditional SDK device/diagnostic data.
+- Signed EAS archive, Xcode privacy aggregation report reconciled to the app-owned ten-type baseline, App Store privacy/age/export answers, and physical-device TestFlight acceptance.
 - Real candidate screenshots captured at Apple-accepted dimensions.
 
 Do not treat Expo export or prebuild as a signed build. Do not create an EAS build, upload to TestFlight, deploy, or press Submit for Review until the applicable authority and evidence exist.

@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import {
+  reviewedPlayerCollectedDataTypes,
+  reviewedPlayerPrivacyEntryKeys
+} from './player-privacy-manifest.mjs';
+
+const playerRequire = createRequire(new URL('../player-app/package.json', import.meta.url));
+const plist = playerRequire('@expo/plist').default;
 
 function filesUnder(root) {
   return fs.readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
@@ -34,6 +42,25 @@ function appPrivacyReasonMap(plistText) {
     match[1],
     [...match[2].matchAll(/<string>([^<]+)<\/string>/g)].map((reason) => reason[1]).sort()
   ]));
+}
+
+function appPrivacyManifest(plistText) {
+  const parsed = plist.parse(plistText);
+  assert.deepEqual(
+    Object.keys(parsed).sort(),
+    ['NSPrivacyAccessedAPITypes', 'NSPrivacyCollectedDataTypes', 'NSPrivacyTracking'],
+    'Generated app privacy manifest must contain only the reviewed top-level keys.'
+  );
+  assert.ok(Array.isArray(parsed.NSPrivacyCollectedDataTypes), 'Generated app privacy manifest must declare collected data types.');
+  for (const entry of parsed.NSPrivacyCollectedDataTypes) {
+    assert.ok(entry && typeof entry === 'object' && !Array.isArray(entry), 'Every collected-data declaration must be a dictionary.');
+    assert.deepEqual(
+      Object.keys(entry).sort(),
+      reviewedPlayerPrivacyEntryKeys,
+      'Every collected-data dictionary must contain exactly Apple\'s four reviewed keys.'
+    );
+  }
+  return JSON.parse(JSON.stringify(parsed));
 }
 
 export function verifyPlayerNative(iosRoot) {
@@ -116,13 +143,18 @@ export function verifyPlayerNative(iosRoot) {
   assert.ok(fs.existsSync(appPrivacyPath), 'Generated app target must own PrivacyInfo.xcprivacy beside its Info.plist.');
   assert.ok(projectText.includes('PrivacyInfo.xcprivacy'), 'Generated app target must include its privacy manifest in the Xcode project.');
   const appPrivacy = fs.readFileSync(appPrivacyPath, 'utf8');
+  const parsedAppPrivacy = appPrivacyManifest(appPrivacy);
   assert.deepEqual(
     Object.fromEntries(Object.entries(appPrivacyReasonMap(appPrivacy)).map(([category, reasons]) => [category, reasons])),
     Object.fromEntries(Object.entries(reviewedPrivacyReasons).map(([category, reasons]) => [category, [...reasons].sort()])),
     'Generated app privacy manifest must declare exactly the reviewed required-reason APIs and category-specific reasons.'
   );
-  assert.match(appPrivacy, /<key>NSPrivacyTracking<\/key>\s*<false\s*\/>/);
-  assert.ok(!appPrivacy.includes('NSPrivacyCollectedDataTypes'), 'App-owned manifest must not make an unverified collected-data declaration');
+  assert.equal(parsedAppPrivacy.NSPrivacyTracking, false, 'Generated app privacy manifest must explicitly disable tracking.');
+  assert.deepEqual(
+    parsedAppPrivacy.NSPrivacyCollectedDataTypes,
+    reviewedPlayerCollectedDataTypes,
+    'Generated app privacy manifest must declare exactly the reviewed linked, non-tracking Player data types and purposes.'
+  );
   console.log('Generated Orbit Player iOS identity, permissions, URL schemes, and app privacy manifest passed.');
   console.log(configuredEntitlementFiles.length ? 'Generated app target entitlements are present and empty.' : 'Generated app target declares no entitlements file.');
   console.log('CocoaPods/archive privacy aggregation remains a signed-candidate evidence gate.');
