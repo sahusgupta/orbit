@@ -24,8 +24,8 @@ export function TournamentsExplorer({ discovery }: { discovery: DiscoveryPayload
   const filters = useMemo<TournamentFilters>(() => ({
     query: searchParams.get('q') ?? '',
     club: searchParams.get('club') ?? 'all',
-    distance: searchParams.get('distance') ?? '0',
-    registration: searchParams.get('registration') ?? 'all'
+    distance: '0',
+    interest: searchParams.get('interest') ?? 'all'
   }), [searchParams]);
   const matches = useMemo(() => filterTournaments(source, filters, user?.uid ?? '', coordinate), [coordinate, filters, source, user?.uid]);
   const update = (key: string, value: string) => {
@@ -38,15 +38,14 @@ export function TournamentsExplorer({ discovery }: { discovery: DiscoveryPayload
       <Disclosure title="Refine events">
         <div className="inline-filter-bar">
           <SearchField label="Search tournaments" value={filters.query} onChange={(event) => update('q', event.target.value)} placeholder="Event, club, or prize" />
-          <SelectField label="Registration" value={filters.registration} onValueChange={(value) => update('registration', value)} options={[{ value: 'all', label: 'All events' }, { value: 'open', label: 'Registration open' }, { value: 'free', label: 'Freerolls' }, ...(user ? [{ value: 'registered', label: 'My registered events' }] : [])]} />
+          <SelectField label="Interest" value={filters.interest} onValueChange={(value) => update('interest', value)} options={[{ value: 'all', label: 'All events' }, { value: 'open', label: 'Interest open' }, ...(user ? [{ value: 'interested', label: 'Events I’m interested in' }] : [])]} />
           <SelectField label="Club" value={filters.club} onValueChange={(value) => update('club', value)} options={[{ value: 'all', label: 'Any club' }, ...source.clubs.map((club) => ({ value: club.club.id, label: club.club.name }))]} />
-          <SelectField label="Distance" value={filters.distance} onValueChange={(value) => update('distance', value)} options={[{ value: '0', label: 'Any distance' }, { value: '5', label: 'Within 5 mi' }, { value: '10', label: 'Within 10 mi' }, { value: '20', label: 'Within 20 mi' }, { value: '50', label: 'Within 50 mi' }]} />
         </div>
         <LocationControl />
       </Disclosure>
       <section aria-live="polite">
         <div className="results-summary"><strong>{matches.length}</strong><span>event{matches.length === 1 ? '' : 's'} matched</span></div>
-        {matches.length ? <div className="tournament-list">{matches.map((listing) => <TournamentCard key={`${listing.tournament.clubId}:${listing.tournament.id}`} listing={listing} />)}</div> : <EmptyState title="No tournaments match those filters" message="Try another club, widen the distance, or include closed registration." />}
+        {matches.length ? <div className="tournament-list">{matches.map((listing) => <TournamentCard key={`${listing.tournament.clubId}:${listing.tournament.id}`} listing={listing} />)}</div> : <EmptyState title="No tournaments match those filters" message="Try another club or include events with closed interest." />}
       </section>
     </div>
   );

@@ -1,10 +1,11 @@
 import { firebaseConfig } from './firebaseConfig';
+import { orbitApiBaseUrl } from './api/playerHttpApi';
 
 export {
-  createClubMembershipCheckout,
   fetchPublicPlayerDiscovery,
   fetchRemotePlayerDiscovery,
   fetchPlayerIdentityStatus,
+  issueRemoteMembershipQr,
   orbitApiBaseUrl,
   savePlayerIdentityCapture
 } from './api/playerHttpApi';
@@ -13,6 +14,7 @@ export type { PlayerIdentityStatus } from './api/playerHttpApi';
 export {
   ensureSignedInIdentity,
   completePlayerPhoneSignIn,
+  getCurrentFirebaseAuthUid,
   getCurrentFirebasePlayer,
   onFirebasePlayerChanged,
   requestPlayerPasswordReset,
@@ -33,23 +35,18 @@ export {
 } from './firebase/clubSnapshotRepository';
 
 export {
+  completePlayerAdultDeclarationIfMissing,
+  createPlayerProfileIfMissing,
   fetchPlayerProfile,
-  savePlayerProfile,
-  updatePlayerClubMembership
+  savePlayerProfile
 } from './firebase/playerProfileRepository';
 
 export {
   fetchPlayerTournaments,
-  registerForTournament,
+  expressTournamentInterest,
   subscribeToPlayerTournaments,
-  unregisterFromTournament
+  withdrawTournamentInterest
 } from './firebase/playerTournamentRepository';
-
-export {
-  fetchPrivateGameListings,
-  submitPrivateGameListing,
-  subscribeToPrivateGameListings
-} from './firebase/privateGameRepository';
 
 export {
   submitMembershipRequest,
@@ -66,5 +63,5 @@ export { normalizePublishedGames } from '../domain/decoders/playerGameDecoder';
 export const syncBaseUrl = `firebase://${firebaseConfig.projectId}/clubs`;
 
 export function isSyncConfigured() {
-  return true;
+  return Boolean(orbitApiBaseUrl);
 }

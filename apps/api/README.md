@@ -1,6 +1,27 @@
 # Orbit API
 
-Standalone backend foundation for Orbit desktop, the future mobile app, and a future admin dashboard.
+Standalone backend for Orbit desktop, Orbit Player, and the operator dashboard.
+
+## Orbit Player iOS v1 boundary
+
+The conservative Player iOS v1 uses authenticated membership/waitlist requests, nonbinding tournament interest, short-lived check-in credentials, profile/deletion operations, phone OTP when chosen, and on-device PDF417 capture. It does not expose Player Premium, RevenueCat purchases, player-hosted/private games, venue membership checkout, or operational tournament registration. Legacy payment/subscription routes may remain server-side for non-v1 compatibility, but they are not reachable from or enabled by the reviewed iOS client.
+
+`POST|DELETE /player/tournament-registrations` deliberately rejects Player requests. V1 uses `/player/tournament-interests`, stored separately from entrants and financial state. Hosted Stripe Identity remains a conditional web/compatibility verification flow; it is distinct from Stripe payment/checkout behavior, which is absent from iOS v1.
+
+### Player App Check activation gate
+
+Player App Check is an explicit fail-closed production gate, not a switch to enable before every active protected client is ready. Complete this order:
+
+1. Register and configure the native iOS Firebase App for the reviewed bundle identifier, then configure App Attest as its Firebase App Check provider. Register and configure the operational Player Web Firebase App with an appropriate Web App Check provider as well.
+2. Ship reviewed native iOS and Player Web clients that each obtain App Check tokens and attach `x-firebase-appcheck` to phone-auth start/complete and every other protected Player API call. If Player Web is intentionally disabled instead, record that operational decision and verify its protected operations are unreachable.
+3. In a nonproduction environment, verify that the API accepts each exact registered client Firebase App ID and rejects absent, invalid, wrong-client, and other-app tokens.
+4. Set `ORBIT_PLAYER_APP_CHECK_APP_IDS` to the comma-separated exact Firebase App IDs for every active protected client, then set `ORBIT_REQUIRE_PLAYER_APP_CHECK=true` and rerun the protected route tests before production promotion.
+
+Enabling the requirement before both active clients ship App Check support fails closed and makes their protected Player flows unusable. Enabling it without an allowlist returns `503 APP_CHECK_NOT_CONFIGURED`; missing, invalid, or non-allowlisted attestations are rejected with `401`. The boundary is covered by `apps/api/src/appCheckService.test.js` and the server route tests. Do not record App Check as launch-ready until nonproduction token evidence exists for every active client.
+
+### Scale-out rate-limit gate
+
+The current `createRateLimit` implementation stores counters in a process-local `Map`. Its state resets with the process and is neither shared nor atomic across replicas, so it is not sufficient protection for a scaled production deployment. Before running more than one API replica, choose and provision a shared durable limiter—such as a Firestore transactional counter design, a managed rate-limit service, or an appropriately scoped edge/WAF rule—then add multi-instance/retry tests and operational evidence for the selected boundary. Process-local test coverage is not evidence that this external gate is complete.
 
 ## Run Locally
 
@@ -43,10 +64,15 @@ Nonpublic endpoints require an audience-appropriate identity: a scoped machine/p
 - `ORBIT_MACHINE_CREDENTIALS_JSON`: array of machine credential records with `id`, `key`, tenant `accountKey`, `scopes`, and `expiresAt`. Store it only in an approved secret provider.
 - `ORBIT_OWNER_API_KEY`: distinct owner automation credential. It does not authenticate ordinary client or dashboard-session traffic.
 - `ORBIT_DASHBOARD_PASSWORD` and `ORBIT_DASHBOARD_SESSION_SECRET`: create a short-lived HttpOnly/Secure/SameSite=Lax dashboard cookie. The signing secret must contain at least 32 characters.
-- `ORBIT_SELF_CHECK_IN_SECRET` and `ORBIT_SELF_CHECK_IN_ORIGIN`: sign revocable, tenant-bound printed check-in capabilities and identify the exact HTTPS API origin hosting `/check-in`. The signing secret must contain at least 32 characters and must not be reused for another purpose.
+- `ORBIT_SELF_CHECK_IN_SECRET` and `ORBIT_SELF_CHECK_IN_ORIGIN`: legacy printed-check-in compatibility settings. Conservative v1 does not issue or accept name-based printed check-in credentials; the management issuer and all public action endpoints return `410`.
 - `ORBIT_ALLOWED_ORIGINS` and `ORBIT_TRUST_PROXY`: explicit CORS and proxy policy. Vercel's single, header-overwriting proxy hop is trusted automatically so HTTPS same-origin dashboard requests are recognized; other deployments must configure proxy trust only after their exact proxy is reviewed.
 - `ORBIT_ALLOW_INSECURE_LOOPBACK_AUTH`: explicit local-development bypass. It is rejected in production and Vercel runtimes.
+- `ORBIT_LOG_HASH_SECRET`: independent server-only HMAC secret of at least 32 characters required in every hosted or production runtime. It protects player, request, provider-error, and audit references from offline guessing; do not reuse the dashboard-session, QR, phone-challenge, or deletion secret. Local/test runtimes use a process-ephemeral fallback rather than a checked-in correlation key.
 - `ORBIT_PHONE_CHALLENGE_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID`: server-side SMS OTP verification. No Twilio credential is shipped to Player clients.
+- `ORBIT_MEMBERSHIP_QR_SECRET`: independent server-only HMAC secret of at least 32 characters for opaque membership check-in credentials. Provision it through the production secret manager; never place the value in source, a client variable, or release evidence.
+- `ORBIT_MEMBERSHIP_QR_TTL_MS`: optional credential lifetime in milliseconds. The API clamps it to 30,000 through 300,000 milliseconds and defaults to 120,000; record the deployed value without exposing the signing secret.
+- `ORBIT_PLAYER_APP_CHECK_APP_IDS`: comma-separated allowlist of exact Firebase App IDs permitted at the Player App Check boundary. It must cover native iOS and operational Player Web (or any later active protected client); configure and verify every entry in nonproduction before enforcement.
+- `ORBIT_REQUIRE_PLAYER_APP_CHECK`: exact literal `true` enables fail-closed App Check enforcement for protected Player routes, including phone-auth routes. It is intentionally off unless explicitly activated after every active client and allowlist gate above passes.
 - `ORBIT_ACCOUNT_DELETION_POLICY_JSON` and `ORBIT_DELETION_PSEUDONYM_SECRET`: explicit deletion/anonymization dispositions and stable protected subject identifiers. See `docs/architecture/DATA_CLASSIFICATION.md`; no legal retention policy is inferred.
 - `ORBIT_LICENSE_PUBLIC_KEY_PEM`: optional newline-escaped P-256 public key override used to verify an administrator-provisioned signed pilot-license envelope. The checked-in branding public key is the default.
 - `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`: one approved Firebase Admin credential source is required by the API. Firestore is Orbit's only server datastore. The API also publishes player-safe live game documents at `clubs/{licenseKey}/games/{gameId}`, operational session history at `clubs/{licenseKey}/gameSessions/{sessionId}`, and canonical player documents at `clubs/{licenseKey}/players/{playerId}`. Membership players are documents in the `players` subcollection and are not duplicated as an array on the club document.
@@ -56,14 +82,11 @@ Nonpublic endpoints require an audience-appropriate identity: a scoped machine/p
 - `NODE_ENV`: `development`, `staging`, or `production`.
 - `STRIPE_SECRET_KEY`: Stripe server secret used only by the API.
 - `STRIPE_WEBHOOK_SECRET`: signing secret for `POST /webhooks/stripe`.
-- `ORBIT_IDENTITY_RETURN_URL`: trusted deep link Stripe returns to after hosted verification, for example `orbitplayer://identity-complete`.
+- `ORBIT_IDENTITY_RETURN_URL`: exact trusted HTTPS Player Web callback used by the separately configured hosted Stripe Identity compatibility flow, for example `https://orbitapp-one.vercel.app/me/profile`. The API ignores a client-supplied return URL. The iOS v1 has no custom URL scheme and uses its separate on-device PDF417 flow.
 - `STRIPE_IDENTITY_VERIFICATION_FLOW_ID`: optional Stripe Dashboard verification-flow ID. Without it, the API creates a document check directly.
 - `ORBIT_IDENTITY_REQUIRE_SELFIE`: matching-selfie checks default to on; set this to `false` only if the launch policy intentionally accepts document-only verification.
-- `REVENUECAT_WEBHOOK_AUTH_TOKEN`: bearer token configured on the RevenueCat webhook for `POST /webhooks/revenuecat`.
-- `REVENUECAT_PREMIUM_ENTITLEMENT_ID`: Player Premium entitlement ID; defaults to `player_premium`.
-- `ORBIT_PAYMENT_SUCCESS_URL` and `ORBIT_PAYMENT_CANCEL_URL`: approved checkout return URLs.
-- `ORBIT_DAY_PASS_PRICE_CENTS` and `ORBIT_MONTHLY_MEMBERSHIP_PRICE_CENTS`: authoritative server-side membership prices (defaults: `1000` and `3500`).
-- `ORBIT_PAYMENT_CURRENCY`: three-letter currency code, defaults to `usd`.
+- `REVENUECAT_WEBHOOK_AUTH_TOKEN` and `REVENUECAT_PREMIUM_ENTITLEMENT_ID`: legacy server compatibility only. The iOS v1 has no RevenueCat client or Premium entitlement.
+- `ORBIT_PAYMENT_SUCCESS_URL`, `ORBIT_PAYMENT_CANCEL_URL`, server-side membership price variables, and `ORBIT_PAYMENT_CURRENCY`: legacy/non-v1 checkout compatibility only. They are not public Player configuration and the iOS v1 does not call checkout.
 
 `src/database.js` is the stable asynchronous persistence facade. `src/db/connection.js` owns the server-only Firebase Admin Firestore boundary; the focused client, telemetry, state, report, recovery, security-audit, and publication-outbox repositories use it. Firestore is the sole server persistence implementation.
 
@@ -136,6 +159,12 @@ Desktop state/report operations are API-first:
 
 Firestore publication uses sync protocol v2. The API tags every child document with a unique `syncRevision` and writes `clubs/{licenseKey}` last as the commit marker. This allows mobile clients to retain the previous complete snapshot while a multi-document API publish is in flight and to ignore stale documents from older revisions.
 
+Player deletion places a durable per-account publication fence before projection cleanup. A deletion cannot remove Firebase Auth or report completion until every affected account's exact tombstoned authoritative revision is durably `published`, all older claimed attempts have acknowledged their postflight state, and the final exact-ID projection scrub has run again. A crashed publisher is never reclaimed from elapsed time alone. After the operator has independently verified that the owning runtime is terminated, the owner-authenticated `POST /publications/recover` accepts the exact account, revision, claim ID, `runtimeTerminated: true`, and an opaque evidence reference; the API uses its own clock, converts the abandoned attempt to safe-state compensation, and keeps deletion pending until that compensation completes. The same recovery applies to a crashed compensation attempt. Caller-supplied timestamps are ignored, and an unverified live attempt must not be recovered.
+
+The canonical club commit marker publishes `minimumAge` only when management explicitly stores the supported value `18` or `21`. Existing venue documents do not gain that field until their authoritative state is saved and republished; no migration or client default is presented as a venue-authored age policy.
+
+Player discovery batches central pilot-license inspection once per fetched venue page. Public/detail/authenticated snapshots and venue-bound Player mutations require both a matching unexpired local license record and an active matching managed license; revoked or expired venues are omitted or rejected, and an unavailable central inspection fails closed rather than serving stale venue state.
+
 The legacy embedded desktop HTTP backend is no longer started by default. It can be temporarily re-enabled for compatibility with:
 
 ```powershell
@@ -184,29 +213,37 @@ http://<your-lan-ip>:4629/clients
 ## Current Data Endpoints
 
 - `POST /state`: compare-and-swap an Orbit venue state using `state`, `expectedRevision`, and a stable `mutationId`. Returns HTTP 409 for a stale revision.
-- `POST /management/self-check-in/qr`: issue or idempotently reissue a tenant-bound printable QR capability for an authenticated `client:write` identity. Requires a stable `mutationId`; the active generation remains server-owned.
-- `POST /player/check-in/lookup`: validate a printed club capability and exact normalized player name, then return a short-lived session plus currently available tables or create a bounded staff-assistance request.
-- `POST /player/check-in/seat`: recheck live capacity and seat the recognized player through a compare-and-swap state mutation.
+- `POST /management/self-check-in/qr`: deliberately returns `410 PUBLIC_SELF_CHECK_IN_KIT_DISABLED`; conservative v1 does not issue a reusable printed, name-based credential.
+- `POST /player/check-in/context`, `/lookup`, and `/seat`: deliberately return `410 PUBLIC_PLAYER_CHECK_IN_DISABLED`. The static `/check-in` page clears legacy bearer fragments and directs signed-in players to show their short-lived membership QR to staff.
 - `GET /state/latest`: fetch the most recently saved venue state.
 - `GET /state/:venueId`: fetch a stored venue state.
 - `GET /player/snapshot?accountKey=<venueId>`: fetch mobile/player-facing snapshot.
-- `POST /player/membership-requests`: apply a membership request to venue state.
-- `POST /player/waitlist-requests`: apply a waitlist request to venue state.
-- `POST|DELETE /player/tournament-registrations`: apply the signed-in player's tournament registration through authoritative state.
-- `GET /publications` and `POST /publications/drain`: owner-protected inspection/retry controls for the durable Firebase publication outbox.
-- `POST /player/membership-checkout`: create a Stripe Checkout session after verifying the player's Firebase ID token. Paid memberships require a plan ID and use the club's authoritative active plan price and duration; five-hour time packages remain server-priced.
+- `POST /player/membership-requests`: apply a server-timestamped membership request to venue state as `Requested`, never as an approval, activation, or payment.
+- `POST /player/waitlist-requests`: apply or cancel the signed-in player's own request. A join rechecks active, unexpired membership plus the game/table target at the authoritative transaction clock and stamps the committed request from that same clock; an owned cancellation remains available after membership expiry.
+- `POST /player/membership-qr`: issue an opaque, short-lived membership check-in token only for the signed-in player's active membership after current identity age eligibility is verified against the venue's current 18+/21+ policy. Membership expiry and the issued/expiry timestamps are evaluated from one fresh clock inside the authoritative transaction.
+- `POST /management/membership-qr/redeem`: redeem a token with tenant-scoped staff authority. The single state transaction rechecks token expiry, membership expiry, the token subject's current identity record, and current venue minimum age before it consumes the token and records check-in; a missing, expired, revoked, or newly insufficient condition leaves the token unused.
+- `POST|DELETE /player/tournament-registrations`: reject legacy/direct Player attempts to create an operational registration.
+- `POST|DELETE /player/tournament-interests`: idempotently create or withdraw the signed-in player's bounded, nonbinding interest without changing entrants or financial state. A fresh transaction clock rechecks the configured open/close/start boundary, explicit withdrawal permission, and committed activity timestamp; an identical receipt replay returns its original committed result without reopening the window.
+- `GET /publications`, `POST /publications/drain`, and `POST /publications/recover`: owner-protected inspection, retry, and explicitly evidenced terminated-runtime recovery controls for the durable Firebase publication outbox.
+- `POST /player/membership-checkout`: legacy/non-v1 compatibility. The production iOS v1 has checkout disabled and contains no caller or purchase UI.
 - `GET /player/identity/status`: return the signed-in player's sanitized eligibility status and extracted name, date of birth, and address.
 - `POST /player/identity/capture`: accept only the signed-in player's confirmed name, date of birth, address, and mutation ID after an on-device PDF417 scan. Raw barcodes, ID numbers, photos, and selfies are rejected.
-- `POST /player/identity/session`: legacy compatibility for hosted Stripe Identity sessions; the current Player camera flow does not call it.
-- `DELETE /player/identity`: request Stripe redaction and remove Orbit's eligibility record during account deletion.
+- `POST /player/identity/session`: conditional hosted Stripe Identity verification used by the web/compatibility flow; it is not a payment endpoint.
+- Standalone `DELETE /player/identity` is not registered in the conservative Player release. Identity-provider redaction is orchestrated only by authenticated `DELETE /player/account`, so a delayed verified webhook cannot restore a separately deleted eligibility record while provider redaction is pending.
 - `POST /player/auth/phone/start` and `/player/auth/phone/complete`: prove phone ownership with a bounded SMS OTP challenge and exchange it for a Firebase custom token.
-- `DELETE /player/account`: run the resumable server-owned deletion/anonymization job after recent reauthentication and return every retained category.
+- `DELETE /player/account`: after recent reauthentication, start the server-owned deletion/anonymization job and return every retained category. The running phase uses a transactionally owned, renewed lease and persists a pseudonym-keyed cleanup manifest before destructive work; a concurrent request joins the live job. A bounded server drain claims only expired running leases and repeats idempotent preparation from the stored authenticated UID/manifest without another player login; a stale prior lease cannot write after that claim. Orbit-controlled cleanup and exact sanitized projection acknowledgement finish before Firebase Auth removal. If an Identity creation intent, publication acknowledgement, Auth removal, post-Auth cleanup, or the terminal marker still needs replay, the API returns `202 DELETION_FINALIZATION_PENDING`; bounded server finalization resumes opportunistically without further user reauthentication, does not remove Auth while an Identity intent is unresolved, treats an already-missing Auth user as success, and replaces transient running/finalizing state containing `pendingAuthUid` with a pseudonymous `complete` state that contains no raw UID or cleanup manifest. Anti-resurrection enforcement deliberately retains a server-only `playerDeletionBlocks/{firebaseUid}` document (the UID remains in that document path for Firestore-rule lookup) and a separate `orbitPlayerDeletionMarkers/deleted_<sha256(uid)>` marker. The repository defines no expiry for these security markers; completed deletion-job payloads remain UID-free.
 - `POST /webhooks/stripe`: verify Stripe events and write paid memberships plus immutable revenue transactions to Firestore.
-- `POST /webhooks/revenuecat`: verify the configured bearer token and synchronize Apple Player Premium entitlements to the server-managed Firebase player profile.
+- `POST /webhooks/revenuecat`: legacy server compatibility; the production iOS v1 has no RevenueCat client or Premium product.
 - `POST /analytical-reports`: store an analytical report.
 
 Desktop-specific behavior remains in Electron: windows, menus, local startup behavior, and `electron-updater`.
 
 The current Player flow scans the PDF417 barcode on the device and submits only the confirmed name, date of birth, and address. The API treats that result as provisional age eligibility; each card house must approve the physical ID on the player's first visit. The raw barcode, ID number, and ID image are never accepted by the endpoint or published to player-safe club documents.
 
-Legacy Stripe Identity records and webhooks remain readable for existing accounts. They are not required for new Player camera capture. Stripe Connect remains the payment provider for card-house checkout.
+Hosted Stripe Identity records and webhooks remain available for the conditional web/compatibility verification flow. The native Player camera flow does not require it. Stripe Connect checkout remains server-side legacy/non-v1 compatibility and is not exposed by the production iOS v1.
+
+### Stripe Identity session creation and cleanup
+
+`POST /player/identity/session` establishes a server-only `orbitIdentityProviderCleanup` creation intent before it calls Stripe. The intent contains the exact retry parameters, an opaque idempotency key, a protected deletion-marker reference, and—after Stripe responds—the provider session reference. It contains no player email, ID image, barcode, document number, or verified identity output. The Firebase immutable subject identifier remains temporarily present in the provider creation parameters because it is required to deterministically reconcile the existing webhook contract; clients cannot read or write this collection.
+
+The successful Firestore transaction persists the same provider session on the private identity record and deletes its creation intent atomically. If Stripe returns but the reference write or identity transaction fails, the API never returns the verification URL: it first attempts cancellation/redaction and retains the intent when provider cleanup cannot be confirmed. A bounded request-triggered worker replays session creation with the same Stripe idempotency key to recover a response lost to a process crash, then confirms cancellation/redaction before deleting the creation intent. Abandoned creation sessions may be cancelled, but a provider session already linked to an identity record uses an explicit redaction-only intent. Stripe `processing` and `canceled` states remain pending; Orbit removes that intent only after Stripe reports `redacted` or the resource is confirmed missing. The signed redacted webhook and bounded cleanup worker both wake the durable account-deletion finalizer, whose serverless continuation is registered with Vercel when available. Account-deletion markers independently block delayed identity events from restoring Player data. No fixed retention duration is asserted: a failed cleanup intent remains server-only and retryable until the required provider cleanup is confirmed, and its disposition must be included in operational deletion/provider-record review.

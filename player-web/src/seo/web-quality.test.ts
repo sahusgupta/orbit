@@ -126,21 +126,28 @@ describe('public web quality contracts', () => {
     expect(ambient).not.toContain('addEventListener');
   });
 
-  it('publishes a code-backed privacy inventory and AI-development disclosure', () => {
+  it('publishes a code-backed runtime privacy inventory', () => {
     const privacy = read('app/privacy/page.tsx');
     const footer = read('src/components/shell/site-footer.tsx');
     const sitemap = read('app/sitemap.ts');
 
-    for (const service of ['Google Firebase and Google Cloud', 'Vercel', 'Stripe', 'Twilio', 'RevenueCat', 'Apple App Store', 'OpenStreetMap Foundation', 'Expo Application Services', 'GitHub']) {
+    for (const service of ['Google Firebase and Google Cloud', 'Vercel', 'Twilio', 'Stripe Identity', 'Apple Maps or Google Maps', 'Expo Application Services and Apple', 'Participating venues', 'Support and email providers']) {
       expect(privacy).toContain(service);
     }
-    expect(privacy).toContain('built with assistance from AI development tools, including OpenAI Codex');
-    expect(privacy).toContain('currently has no user-facing generative-AI runtime feature');
+    expect(privacy).not.toContain('RevenueCat');
+    expect(privacy).toContain('not payment or checkout');
+    expect(privacy).not.toMatch(/OpenAI Codex|AI-assisted development/);
     expect(privacy.match(/<h1>/g)).toHaveLength(1);
     expect(footer).toContain('<Link href="/privacy">Privacy</Link>');
     expect(sitemap).toContain("absoluteUrl('/privacy')");
     expect(sitemap).not.toContain("absoluteUrl('/games')");
     expect(sitemap).not.toContain('getPublicDiscovery');
+  });
+
+  it('does not assert a schema event lifecycle status that the Player projection does not carry', () => {
+    const tournamentDetail = read('app/tournaments/[entity]/page.tsx');
+    expect(tournamentDetail).not.toContain('EventScheduled');
+    expect(tournamentDetail).toContain('getTournamentInterestLabel');
   });
 
   it('uses concise visible route titles without explanatory tab subtitles', () => {
@@ -162,9 +169,18 @@ describe('public web quality contracts', () => {
     const landing = read('src/components/home/player-landing.tsx');
 
     expect(home).toContain('<PlayerLanding />');
-    expect(landing).toContain('Find poker games near you.');
+    expect(landing).toContain('Browse venue-published poker games.');
     expect(landing).toContain('Keep every membership together.');
-    expect(landing).toContain('manage all your poker-club memberships in one place');
+    expect(landing).toContain('manage your poker-club memberships in one place');
+    for (const truthfulPreview of [
+      'No live game facts in this preview',
+      'No live queue value in this preview',
+      'Illustration only · no request sent'
+    ]) {
+      expect(landing).toContain(truthfulPreview);
+    }
+    expect(landing).not.toMatch(/near you|near me|match your distance|updated \d+ seconds/i);
+    expect(landing).not.toMatch(/The Commerce Club|Hollywood Park|West LA|You(?:'|’)re #3|Room notified|Seat Requested|\$\d+\s*\/\s*\$\d+|reaches the room operator immediately/i);
     expect(landing).toContain('style={{ height: "500vh", position: "relative" }}');
     expect(landing).toContain('className="sticky top-0 overflow-hidden flex"');
   });

@@ -1,39 +1,69 @@
 {
   "cli": {
-    "version": ">= 13.0.0",
-    "appVersionSource": "remote"
+    "version": "23.2.0",
+    "appVersionSource": "remote",
+    "requireCommit": true
   },
   "build": {
     "development": {
-      "developmentClient": true,
       "distribution": "internal",
+      "node": "22.16.0",
+      "npm": "10.9.2",
       "env": {
-        "APP_ENV": "development",
-        "EXPO_PUBLIC_ORBIT_API_URL": "https://orbitapp-one.vercel.app",
+        "ORBIT_APP_ENV": "development",
+        "EXPO_PUBLIC_ORBIT_API_URL": "http://127.0.0.1:4629",
         "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://orbitapp-one.vercel.app/privacy",
-        "EXPO_PUBLIC_TERMS_OF_SERVICE_URL": "https://orbitapp-one.vercel.app/terms"
+        "EXPO_PUBLIC_SUPPORT_URL": "https://orbitapp-one.vercel.app/support",
+        "EXPO_PUBLIC_TERMS_OF_SERVICE_URL": "https://orbitapp-one.vercel.app/terms",
+        "ORBIT_V1_CARD_HOUSE_CHECKOUT_ENABLED": "false",
+        "ORBIT_V1_DEMO_DATA_ENABLED": "false",
+        "ORBIT_V1_PLAYER_PREMIUM_ENABLED": "false",
+        "ORBIT_V1_PRIVATE_GAMES_ENABLED": "false",
+        "ORBIT_V1_PUSH_NOTIFICATIONS_ENABLED": "false",
+        "ORBIT_V1_SOCIAL_AUTH_ENABLED": "false",
+        "ORBIT_V1_TOURNAMENT_REGISTRATION_ENABLED": "false"
       }
     },
     "preview": {
       "distribution": "internal",
+      "node": "22.16.0",
+      "npm": "10.9.2",
       "env": {
-        "APP_ENV": "preview",
+        "ORBIT_APP_ENV": "preview",
         "EXPO_PUBLIC_ORBIT_API_URL": "https://orbitapp-one.vercel.app",
         "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://orbitapp-one.vercel.app/privacy",
-        "EXPO_PUBLIC_TERMS_OF_SERVICE_URL": "https://orbitapp-one.vercel.app/terms"
+        "EXPO_PUBLIC_SUPPORT_URL": "https://orbitapp-one.vercel.app/support",
+        "EXPO_PUBLIC_TERMS_OF_SERVICE_URL": "https://orbitapp-one.vercel.app/terms",
+        "ORBIT_V1_CARD_HOUSE_CHECKOUT_ENABLED": "false",
+        "ORBIT_V1_DEMO_DATA_ENABLED": "false",
+        "ORBIT_V1_PLAYER_PREMIUM_ENABLED": "false",
+        "ORBIT_V1_PRIVATE_GAMES_ENABLED": "false",
+        "ORBIT_V1_PUSH_NOTIFICATIONS_ENABLED": "false",
+        "ORBIT_V1_SOCIAL_AUTH_ENABLED": "false",
+        "ORBIT_V1_TOURNAMENT_REGISTRATION_ENABLED": "false"
       }
     },
     "production": {
       "autoIncrement": true,
       "distribution": "store",
+      "node": "22.16.0",
+      "npm": "10.9.2",
       "ios": {
         "simulator": false
       },
       "env": {
-        "APP_ENV": "production",
+        "ORBIT_APP_ENV": "production",
         "EXPO_PUBLIC_ORBIT_API_URL": "https://orbitapp-one.vercel.app",
         "EXPO_PUBLIC_PRIVACY_POLICY_URL": "https://orbitapp-one.vercel.app/privacy",
-        "EXPO_PUBLIC_TERMS_OF_SERVICE_URL": "https://orbitapp-one.vercel.app/terms"
+        "EXPO_PUBLIC_SUPPORT_URL": "https://orbitapp-one.vercel.app/support",
+        "EXPO_PUBLIC_TERMS_OF_SERVICE_URL": "https://orbitapp-one.vercel.app/terms",
+        "ORBIT_V1_CARD_HOUSE_CHECKOUT_ENABLED": "false",
+        "ORBIT_V1_DEMO_DATA_ENABLED": "false",
+        "ORBIT_V1_PLAYER_PREMIUM_ENABLED": "false",
+        "ORBIT_V1_PRIVATE_GAMES_ENABLED": "false",
+        "ORBIT_V1_PUSH_NOTIFICATIONS_ENABLED": "false",
+        "ORBIT_V1_SOCIAL_AUTH_ENABLED": "false",
+        "ORBIT_V1_TOURNAMENT_REGISTRATION_ENABLED": "false"
       }
     }
   },

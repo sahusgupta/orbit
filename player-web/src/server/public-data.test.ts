@@ -25,14 +25,14 @@ describe('public Player Web discovery transport', () => {
         ok: true,
         clubs: [clubAlpha],
         tournaments: [],
-        registrations: [],
+        interests: [],
         page: { count: 1, hasMore: true, nextCursor: clubAlpha.club.id }
       }))
       .mockResolvedValueOnce(jsonResponse({
         ok: true,
         clubs: [clubBeta],
         tournaments: discovery.tournaments,
-        registrations: [],
+        interests: [],
         page: { count: 1, hasMore: false, nextCursor: null }
       }));
 

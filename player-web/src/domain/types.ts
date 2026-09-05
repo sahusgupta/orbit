@@ -4,7 +4,7 @@ import type {
   PlayerMembershipOption,
   PlayerSyncGame,
   PlayerTournament,
-  PlayerTournamentRegistration,
+  PlayerTournamentInterest,
   PlayerWaitlistEntry
 } from '@orbit/player-domain/playerSync';
 import type { Coordinate } from '@orbit/player-domain/playerTypes';
@@ -16,7 +16,7 @@ export type {
   PlayerMembershipOption,
   PlayerSyncGame,
   PlayerTournament,
-  PlayerTournamentRegistration,
+  PlayerTournamentInterest,
   PlayerWaitlistEntry
 };
 
@@ -29,7 +29,7 @@ export type DiscoveryPage = {
 export type DiscoveryPayload = {
   clubs: PlayerClubSnapshot[];
   tournaments: PlayerTournament[];
-  registrations: PlayerTournamentRegistration[];
+  interests: PlayerTournamentInterest[];
   page: DiscoveryPage;
 };
 
@@ -37,13 +37,13 @@ export type DataResult<T> =
   | { status: 'ready'; data: T }
   | { status: 'error'; message: string };
 
-export type GameState = 'running' | 'forming' | 'paused' | 'scheduled';
+export type GameState = 'running' | 'forming' | 'paused' | 'unavailable';
 
 export type GameListing = {
   club: PlayerClubSnapshot;
   game: PlayerSyncGame;
   state: GameState;
-  distanceMiles: number;
+  distanceMiles: number | null;
   stakes: string;
 };
 
@@ -66,14 +66,14 @@ export type TournamentFilters = {
   query: string;
   club: string;
   distance: string;
-  registration: string;
+  interest: string;
 };
 
 export type TournamentListing = {
   club: PlayerClubSnapshot | undefined;
   tournament: PlayerTournament;
-  registration: PlayerTournamentRegistration | undefined;
-  distanceMiles: number;
+  interest: PlayerTournamentInterest | undefined;
+  distanceMiles: number | null;
 };
 
 export type SeatRequestInput = {

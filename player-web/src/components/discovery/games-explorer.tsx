@@ -24,7 +24,7 @@ export function GamesExplorer({ clubs }: { clubs: PlayerClubSnapshot[] }) {
     stakes: searchParams.get('stakes') ?? defaults.stakes,
     venue: searchParams.get('venue') ?? defaults.venue,
     status: searchParams.get('status') ?? defaults.status,
-    distance: searchParams.get('distance') ?? defaults.distance
+    distance: defaults.distance
   }), [searchParams]);
   const listings = useMemo(() => filterGames(clubs, filters, coordinate), [clubs, coordinate, filters]);
   const stakes = useMemo(() => Array.from(new Set(clubs.flatMap((club) => club.games.map(getStakesLabel)))).sort(), [clubs]);
@@ -43,18 +43,17 @@ export function GamesExplorer({ clubs }: { clubs: PlayerClubSnapshot[] }) {
         <Disclosure title="Refine games">
           <SearchField label="Search games or clubs" value={filters.query} onChange={(event) => update('q', event.target.value)} placeholder="Game, club, or area" />
           <div className="filter-grid">
-            <SelectField label="Status" value={filters.status} onValueChange={(value) => update('status', value)} options={[{ value: 'all', label: 'Any status' }, { value: 'running', label: 'Running now' }, { value: 'forming', label: 'Forming' }, { value: 'scheduled', label: 'Scheduled' }, { value: 'paused', label: 'Paused' }]} />
+            <SelectField label="Status" value={filters.status} onValueChange={(value) => update('status', value)} options={[{ value: 'all', label: 'Any status' }, { value: 'running', label: 'Running now' }, { value: 'forming', label: 'Forming' }, { value: 'paused', label: 'Paused' }, { value: 'unavailable', label: 'Status unavailable' }]} />
             <SelectField label="Game" value={filters.gameType} onValueChange={(value) => update('type', value)} options={[{ value: 'all', label: 'Any game' }, ...gameTypes.map((gameType) => ({ value: gameType, label: gameType.toUpperCase() }))]} />
             <SelectField label="Stakes" value={filters.stakes} onValueChange={(value) => update('stakes', value)} options={[{ value: 'all', label: 'Any stakes' }, ...stakes.map((stake) => ({ value: stake, label: stake }))]} />
             <SelectField label="Venue" value={filters.venue} onValueChange={(value) => update('venue', value)} options={[{ value: 'all', label: 'Any venue' }, ...clubs.map((club) => ({ value: club.club.id, label: club.club.name }))]} />
-            <SelectField label="Distance" value={filters.distance} onValueChange={(value) => update('distance', value)} options={[{ value: '0', label: 'Any distance' }, { value: '5', label: 'Within 5 mi' }, { value: '10', label: 'Within 10 mi' }, { value: '20', label: 'Within 20 mi' }, { value: '50', label: 'Within 50 mi' }]} />
           </div>
           <LocationControl />
         </Disclosure>
       </aside>
       <section className="results-panel" aria-live="polite">
         <div className="results-summary"><strong>{listings.length}</strong><span>game{listings.length === 1 ? '' : 's'} matched</span></div>
-        {listings.length ? <div className="entity-list">{listings.map((listing) => <GameCard key={`${listing.club.club.id}:${listing.game.id}`} listing={listing} />)}</div> : <EmptyState title="No games match those filters" message="Try a wider distance, another venue, or clear the search." />}
+        {listings.length ? <div className="entity-list">{listings.map((listing) => <GameCard key={`${listing.club.club.id}:${listing.game.id}`} listing={listing} />)}</div> : <EmptyState title="No games match those filters" message="Try another venue, change the game filters, or clear the search." />}
       </section>
     </div>
   );

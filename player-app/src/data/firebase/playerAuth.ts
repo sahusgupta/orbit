@@ -9,6 +9,7 @@ import {
   type User
 } from 'firebase/auth';
 import { readFirebaseErrorCode } from '../../domain/decoders/playerBoundaryDecoders';
+import { e164PhoneRequirement, normalizeE164Phone } from '../../domain/playerPhone';
 import { exchangePlayerPhoneCode, requestPlayerPhoneCode } from '../api/playerPhoneAuthApi';
 import { auth } from './firebaseClient';
 
@@ -26,6 +27,10 @@ export function getCurrentFirebasePlayer() {
   return auth.currentUser && isVerifiedPlayerUser(auth.currentUser) ? toFirebasePlayerIdentity(auth.currentUser) : null;
 }
 
+export function getCurrentFirebaseAuthUid() {
+  return auth.currentUser?.uid ?? null;
+}
+
 export function onFirebasePlayerChanged(callback: (identity: FirebasePlayerIdentity | null) => void) {
   return onAuthStateChanged(auth, (user) => callback(user && isVerifiedPlayerUser(user) ? toFirebasePlayerIdentity(user) : null));
 }
@@ -37,8 +42,11 @@ export async function signInOrCreatePlayerWithEmail(email: string, password: str
   try {
     const result = await signInWithEmailAndPassword(auth, normalizedEmail, password);
     if (!result.user.emailVerified) {
-      await sendEmailVerification(result.user);
-      await signOut(auth);
+      try {
+        await sendEmailVerification(result.user);
+      } finally {
+        await signOut(auth);
+      }
       throw new Error('Verify your email using the new link we sent, then sign in again.');
     }
     return toFirebasePlayerIdentity(result.user);
@@ -46,8 +54,13 @@ export async function signInOrCreatePlayerWithEmail(email: string, password: str
     if (signInError instanceof Error && signInError.message.startsWith('Verify your email')) throw signInError;
     try {
       const result = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
-      await sendEmailVerification(result.user);
-      await signOut(auth);
+      try {
+        await sendEmailVerification(result.user);
+      } finally {
+        // Auth is durable on native. Never leave an unverified newly-created
+        // session persisted, including when sending the verification email fails.
+        await signOut(auth);
+      }
       throw new Error('Check your email to verify the account before signing in.');
     } catch (createError) {
       if (createError instanceof Error && createError.message.startsWith('Check your email')) throw createError;
@@ -58,15 +71,16 @@ export async function signInOrCreatePlayerWithEmail(email: string, password: str
 }
 
 export function startPlayerPhoneSignIn(phone: string) {
-  if (!/^\+[1-9]\d{9,14}$/.test(phone.replace(/[\s().-]/g, ''))) {
-    throw new Error('Enter a valid phone number including country code.');
-  }
-  return requestPlayerPhoneCode(phone);
+  const normalizedPhone = normalizeE164Phone(phone);
+  if (!normalizedPhone) throw new Error(`Enter a valid phone number. ${e164PhoneRequirement}`);
+  return requestPlayerPhoneCode(normalizedPhone);
 }
 
 export async function completePlayerPhoneSignIn(phone: string, code: string, challenge: string) {
+  const normalizedPhone = normalizeE164Phone(phone);
+  if (!normalizedPhone) throw new Error(`Enter a valid phone number. ${e164PhoneRequirement}`);
   if (!/^\d{4,10}$/.test(code.trim())) throw new Error('Enter the SMS verification code.');
-  const customToken = await exchangePlayerPhoneCode(phone, code.trim(), challenge);
+  const customToken = await exchangePlayerPhoneCode(normalizedPhone, code.trim(), challenge);
   const result = await signInWithCustomToken(auth, customToken);
   if (!result.user.phoneNumber) {
     await signOut(auth);
@@ -100,11 +114,12 @@ export function signOutFirebasePlayer() {
 }
 
 function toFirebasePlayerIdentity(user: User): FirebasePlayerIdentity {
-  const provider = user.phoneNumber ? 'phone' : 'email';
+  const provider = user.email && user.emailVerified ? 'email' : 'phone';
+  const displayName = user.displayName?.trim() ?? '';
   return {
     uid: user.uid,
     email: user.email ?? '',
-    name: user.displayName ?? user.email?.split('@')[0] ?? 'Player',
+    name: displayName,
     ...(user.phoneNumber ? { phone: user.phoneNumber } : {}),
     photoUrl: user.photoURL ?? undefined,
     provider,

@@ -1,6 +1,6 @@
 # Orbit data classification and enforcement
 
-This document turns the Refactor P2 classification into repository controls. It is an engineering control map, not a legal retention policy. Legal/company attribution and production-domain ownership remain deferred founder decisions.
+This document turns the Refactor P2 classification into repository controls. It is an engineering control map, not a legal retention policy. Caminus Labs, LLC is the repository-authoritative operator identity; retention periods, record dispositions, controller roles beyond that identity, and production-domain ownership still require approved decisions.
 
 ## Classes
 
@@ -26,7 +26,7 @@ This document turns the Refactor P2 classification into repository controls. It 
 
 ## Account deletion and retention configuration
 
-`DELETE /player/account` is a resumable server-owned orchestration. It removes the Firebase player login and profile, operational membership/waitlist/tournament/private-game/notification data, anonymizes or deletes authoritative venue references, redacts telemetry, and records progress in `account_deletion_jobs`.
+`DELETE /player/account` is a resumable server-owned orchestration. It removes the Firebase player login and profile, operational membership/waitlist/tournament/private-game/notification data, anonymizes or deletes authoritative venue references, redacts telemetry, and records progress in `orbitAccountDeletionJobs`. A bounded scheduler resumes expired `running` leases from the durable authenticated subject and pseudonym, so a process exit cannot permanently strand an accepted deletion.
 
 Orbit does not infer a legal retention policy. Production must configure all three explicit dispositions through `ORBIT_ACCOUNT_DELETION_POLICY_JSON`:
 
@@ -38,10 +38,14 @@ Orbit does not infer a legal retention policy. Production must configure all thr
 }
 ```
 
-Financial and audit values may be `delete`, `anonymize`, or `retain`. Provider records currently support only `retain`, because Orbit cannot invent a provider/legal deletion obligation or erase provider-controlled records from this repository. The JSON above illustrates the schema only; it is not an approved production policy. `ORBIT_DELETION_PSEUDONYM_SECRET` must also contain an approved secret of at least 32 characters. Until both are configured, deletion fails honestly with `DELETION_POLICY_NOT_CONFIGURED`. A successful response and the Player UI enumerate every retained category and disposition.
+Repository-controlled financial and audit values must be `delete` or `anonymize`; raw `retain` is rejected. Provider records currently support only `retain`, because Orbit cannot invent a provider/legal deletion obligation or erase provider-controlled records from this repository. The JSON above illustrates the schema only; it is not an approved production policy. `ORBIT_DELETION_PSEUDONYM_SECRET` must also contain an approved secret of at least 32 characters. Until both are configured, deletion fails honestly with `DELETION_POLICY_NOT_CONFIGURED`. A successful response and the Player UI enumerate every retained category and disposition.
+
+Deletion permanently retains two server-controlled anti-resurrection records: `playerDeletionBlocks/{firebaseUid}` keeps the Firebase Auth UID in its document path so Firestore rules can deny later self-profile writes, while `orbitPlayerDeletionMarkers/deleted_<sha256(uid)>` uses a one-way document identifier for API, webhook, and delayed-provider checks. Clients cannot read or write either collection. The repository defines no deletion schedule for these security records. While cleanup is active, the pseudonym-keyed `orbitAccountDeletionJobs` record temporarily retains the pending Auth UID, an opaque running lease, exact linked identifiers/account keys needed for idempotent retry, and exact sanitized publication revisions. `orbitPublicationFences` temporarily blocks affected accounts from accepting stale projections. A live lease admits one running worker; the bounded server drain can claim an expired lease and resume without another user login. Completion replaces the job payload and removes its UID, lease, cleanup manifest, linked identifiers, and publication requirements.
+
+The server-only `orbitIdentityProviderCleanup` collection is a temporary provider-reference inventory for an Identity session whose creation has not yet been committed to the private Player identity record or whose provider redaction is still pending. It holds deterministic retry parameters, an opaque provider idempotency key, a protected deletion-marker reference, and, when known, the provider session reference. The exact create parameters temporarily include the Firebase immutable subject identifier required by the current Stripe webhook linkage, but omit email and all scanned/verified identity contents. A successful identity transaction deletes its creation intent atomically; an abandoned or deletion-raced creation session is replayed idempotently if necessary and that intent is deleted only after cancellation or redaction is confirmed. A session already linked to the private identity record instead receives a redaction-only intent: provider `processing` and `canceled` states remain pending, and only `redacted` or confirmed resource absence completes it. Confirmed cleanup wakes the durable account-deletion finalizer, including the serverless continuation hook. No retention duration is invented for an unavailable provider: the restricted record remains pending for the bounded opportunistic cleanup worker, is not exposed to clients, and must be treated as an unresolved provider-cleanup item rather than a completed Orbit deletion.
 
 ## Operational responsibilities
 
 - Credential validity and rotation require authorized access to the relevant provider/secret store. Repository automation must never read or print secret contents.
-- Retention durations, legal holds, controller/company attribution, and provider deletion obligations require approved policy outside this document.
+- Retention durations, legal holds, controller roles beyond the repository-authoritative operator identity, and provider deletion obligations require approved policy outside this document.
 - DNS, registrar records, certificates, canonical production hostname, and production cutover are not changed by this architecture.

@@ -10,8 +10,23 @@ const {
   recordTelemetryEvent,
   recordUpdateEvent
 } = require('./db/telemetry');
-const { getPublicationStatus, listStatePage, listVenues, loadLatestState, loadState, saveState, StateConflictError } = require('./db/state');
-const { drainPublicationOutbox, listPublicationOutbox, schedulePublicationDrain } = require('./db/publicationOutbox');
+const {
+  getPublicationStatus,
+  listStatePage,
+  listVenues,
+  loadGlobalMutationReceipt,
+  loadStateMutationReceipt,
+  loadLatestState,
+  loadState,
+  saveState,
+  StateConflictError
+} = require('./db/state');
+const {
+  drainPublicationOutbox,
+  listPublicationOutbox,
+  recoverAbandonedPublicationClaim,
+  schedulePublicationDrain
+} = require('./db/publicationOutbox');
 const { storeAnalyticalReport } = require('./db/reports');
 const {
   claimManagementRecoveryOverride,
@@ -47,6 +62,8 @@ module.exports = {
   listLegacyStates,
   listStatePage,
   listVenues,
+  loadGlobalMutationReceipt,
+  loadStateMutationReceipt,
   loadLatestState,
   loadLegacyState,
   loadState,
@@ -54,6 +71,7 @@ module.exports = {
   recordManagementSecurityEvent,
   recordTelemetryEvent,
   recordUpdateEvent,
+  recoverAbandonedPublicationClaim,
   releaseManagementRecoveryClaim,
   revokeManagementRecoveryOverride,
   saveState,

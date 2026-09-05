@@ -13,6 +13,7 @@ const {
   recordManagementSecurityEvent,
   recordTelemetryEvent,
   recordUpdateEvent,
+  recoverAbandonedPublicationClaim,
   schedulePublicationDrain,
   saveState,
   storeAnalyticalReport,
@@ -21,17 +22,73 @@ const {
 const { getAccountKeyFromState, sanitizeAccountKey } = require('../orbitCore');
 const { asyncRoute, blockLatestStateForPilotAuth, requireClientAuth, requireOwnerApiKey } = require('../http/auth');
 const { logDomainChange, logStateChanges } = require('../http/domainEvents');
-const { protectedIdentifier } = require('../http/dataProtection');
+const { protectedIdentifier, redactText } = require('../http/dataProtection');
 const { getManagementAccountService } = require('../managementAccountService');
+const {
+  analyticalReportContainsDeletedPlayer,
+  enforcePlayerPrivacyTombstones
+} = require('../accountDeletionService');
 
 function preserveServerManagedState(incomingState, authoritativeState) {
-  const state = { ...incomingState };
+  let state = { ...incomingState };
   if (authoritativeState?.selfCheckIn) {
     state.selfCheckIn = authoritativeState.selfCheckIn;
   } else {
     delete state.selfCheckIn;
   }
+  for (const key of ['membershipQrTokens', 'playerPrivacyTombstones', 'tournamentInterests']) {
+    if (authoritativeState && Object.hasOwn(authoritativeState, key)) state[key] = authoritativeState[key];
+  }
+  state = enforcePlayerPrivacyTombstones(state, authoritativeState);
   return state;
+}
+
+function createAnalyticalReportHandler(dependencies = {}) {
+  const readState = dependencies.loadState || loadState;
+  const storeReport = dependencies.storeAnalyticalReport || storeAnalyticalReport;
+  const containsDeletedPlayer = dependencies.analyticalReportContainsDeletedPlayer
+    || analyticalReportContainsDeletedPlayer;
+  return async function handleAnalyticalReport(request, response) {
+    const accountKey = request.orbitAuth?.accountKey;
+    const suppliedAccount = request.body?.account?.accountKey || request.body?.account?.licenseId;
+    if (accountKey && suppliedAccount && sanitizeAccountKey(suppliedAccount) !== accountKey) {
+      response.status(403).json({ ok: false, error: 'Authenticated tenant does not match the report account.' });
+      return;
+    }
+    const report = accountKey
+      ? { ...request.body, account: { ...(request.body?.account || {}), accountKey } }
+      : request.body;
+    const authoritative = accountKey ? await readState(accountKey) : null;
+    if (await containsDeletedPlayer(report, authoritative?.state, dependencies)) {
+      response.status(409).json({
+        ok: false,
+        code: 'REPORT_CONTAINS_DELETED_PLAYER_DATA',
+        error: 'Regenerate this analytical report from the current venue state before uploading it.'
+      });
+      return;
+    }
+    response.status(201).json(await storeReport(report));
+  };
+}
+
+function createPublicationRecoveryHandler(dependencies = {}) {
+  const recoverClaim = dependencies.recoverAbandonedPublicationClaim || recoverAbandonedPublicationClaim;
+  const scheduleDrain = dependencies.schedulePublicationDrain || schedulePublicationDrain;
+  return async function recoverPublicationClaim(request, response) {
+    const result = await recoverClaim({
+      accountKey: request.body?.accountKey,
+      revision: request.body?.revision,
+      claimId: request.body?.claimId,
+      runtimeTerminated: request.body?.runtimeTerminated,
+      evidenceRef: request.body?.evidenceRef
+    });
+    if (!result.recovered) {
+      response.status(409).json({ ok: false, code: 'PUBLICATION_CLAIM_NOT_RECOVERABLE' });
+      return;
+    }
+    void Promise.resolve(scheduleDrain({ force: true })).catch(() => undefined);
+    response.json({ ok: true, recovered: true });
+  };
 }
 
 function registerClientRoutes(app, liveUpdates) {
@@ -67,10 +124,14 @@ function registerClientRoutes(app, liveUpdates) {
       return null;
     }
     const rawDeviceId = String(payload.deviceId || '').trim();
+    const redactedDeviceId = redactText(rawDeviceId, 120);
+    const safeDeviceId = redactedDeviceId === rawDeviceId
+      ? rawDeviceId.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 120)
+      : `protected-${protectedIdentifier(rawDeviceId)}`;
     return {
       ...payload,
       venueId: accountKey,
-      deviceId: rawDeviceId ? `${accountKey}:${rawDeviceId.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 120)}` : ''
+      deviceId: rawDeviceId ? `${accountKey}:${safeDeviceId}` : ''
     };
   };
 
@@ -253,6 +314,14 @@ function registerClientRoutes(app, liveUpdates) {
     response.json({ ok: true, processed: results.length, results });
   }));
 
+  // Recovery is deliberately owner-authenticated and evidence-gated. An
+  // expired timestamp alone never steals a possibly live remote writer.
+  app.post(
+    '/publications/recover',
+    requireOwnerApiKey,
+    asyncRoute(createPublicationRecoveryHandler())
+  );
+
   app.post('/state', asyncRoute(async (request, response) => {
     const state = request.body?.state;
     const expectedRevision = Number(request.body?.expectedRevision);
@@ -296,18 +365,12 @@ function registerClientRoutes(app, liveUpdates) {
     response.json({ ok: true, ...record });
   }));
 
-  app.post('/analytical-reports', asyncRoute(async (request, response) => {
-    const accountKey = request.orbitAuth?.accountKey;
-    const suppliedAccount = request.body?.account?.accountKey || request.body?.account?.licenseId;
-    if (accountKey && suppliedAccount && sanitizeAccountKey(suppliedAccount) !== accountKey) {
-      response.status(403).json({ ok: false, error: 'Authenticated tenant does not match the report account.' });
-      return;
-    }
-    const report = accountKey
-      ? { ...request.body, account: { ...(request.body?.account || {}), accountKey } }
-      : request.body;
-    response.status(201).json(await storeAnalyticalReport(report));
-  }));
+  app.post('/analytical-reports', asyncRoute(createAnalyticalReportHandler()));
 }
 
-module.exports = { preserveServerManagedState, registerClientRoutes };
+module.exports = {
+  createAnalyticalReportHandler,
+  createPublicationRecoveryHandler,
+  preserveServerManagedState,
+  registerClientRoutes
+};

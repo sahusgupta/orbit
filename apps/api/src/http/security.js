@@ -29,7 +29,7 @@ function enforceCors(request, response, next) {
   response.set('vary', 'Origin');
   response.set('access-control-allow-credentials', 'true');
   response.set('access-control-allow-methods', 'GET,HEAD,POST,DELETE,OPTIONS');
-  response.set('access-control-allow-headers', 'authorization,content-type,x-orbit-api-key,x-orbit-auth-key,x-orbit-client-key,x-orbit-check-in-session,x-orbit-check-in-token,x-orbit-csrf,x-orbit-mutation-id,x-orbit-request-id');
+  response.set('access-control-allow-headers', 'authorization,content-type,x-firebase-appcheck,x-orbit-api-key,x-orbit-auth-key,x-orbit-client-key,x-orbit-check-in-session,x-orbit-check-in-token,x-orbit-csrf,x-orbit-mutation-id,x-orbit-request-id');
   if (request.method === 'OPTIONS') {
     response.status(204).end();
     return;

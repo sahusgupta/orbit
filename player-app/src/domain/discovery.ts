@@ -1,11 +1,12 @@
-import { normalizedIdentity } from './playerSync';
-import type {
-  PlayerAccount,
-  PlayerClubSnapshot,
-  PlayerPrivateGameListing,
-  PlayerSyncGame,
-  PlayerTournament,
-  PlayerTournamentRegistration
+import {
+  getPlayerSeatRequestAccess,
+  isTournamentInterestOpen,
+  isTournamentInterestFor,
+  type PlayerAccount,
+  type PlayerClubSnapshot,
+  type PlayerSyncGame,
+  type PlayerTournament,
+  type PlayerTournamentInterest
 } from './playerSync';
 import type {
   CasinoFilter,
@@ -19,83 +20,55 @@ import type {
   TournamentOpportunity
 } from './playerTypes';
 
-const clubCoordinates: Record<string, Coordinate> = {};
-const findGamesClubOrder: string[] = [];
-const findGamesClubNames: string[] = [];
-
-export const homeCoordinate: Coordinate = { latitude: 30.613, longitude: -96.342 };
-
-const texasAddressCoordinates: Array<{ keywords: string[]; coordinate: Coordinate }> = [
-  { keywords: ['dallas', '75226', '2711 main'], coordinate: { latitude: 32.7867, longitude: -96.7997 } },
-  { keywords: ['austin', '78701', '78705', 'congress', '26th street'], coordinate: { latitude: 30.2679, longitude: -97.743 } },
-  { keywords: ['college station', 'bryan', '77803', '77840', 'main street bryan'], coordinate: { latitude: 30.6205, longitude: -96.3269 } },
-  { keywords: ['houston', '77002', 'prairie', 'san jacinto'], coordinate: { latitude: 29.7608, longitude: -95.3608 } },
-  { keywords: ['durant', 'choctaw', '74701'], coordinate: { latitude: 33.952, longitude: -96.4122 } },
-  { keywords: ['thackerville', 'winstar', '73459'], coordinate: { latitude: 33.7913, longitude: -97.1456 } },
-  { keywords: ['el paso', 'elpaso', '79901', '79902'], coordinate: { latitude: 31.7619, longitude: -106.485 } }
-];
-
 const degreesToRadians = (degrees: number) => (degrees * Math.PI) / 180;
-
-export function filterPrivateGames(
-  privateGames: PlayerPrivateGameListing[],
-  gameQuery: string,
-  stakesFilter: string,
-  gameTypeFilter: GameTypeFilter
-) {
-  const query = gameQuery.trim().toLowerCase();
-  const stakesQuery = stakesFilter.trim().toLowerCase();
-  const typeAllowsPrivate = gameTypeFilter === 'none'
-    || gameTypeFilter === 'all'
-    || gameTypeFilter === 'private'
-    || gameTypeFilter === 'home-game';
-  if (!typeAllowsPrivate) return [];
-  return privateGames.filter((game) => {
-    const haystack = `${game.name} ${game.location} ${game.note}`.toLowerCase();
-    return (!query || haystack.includes(query))
-      && (!stakesQuery || game.name.toLowerCase().includes(stakesQuery));
-  });
-}
 
 export function filterMapClubs(
   clubs: PlayerClubSnapshot[],
   mapQuery: string,
   mapDistanceFilter: DistanceFilter,
   mapVenueFilter: MapVenueFilter,
-  originCoordinate: Coordinate
+  originCoordinate: Coordinate | null
 ) {
   const query = mapQuery.trim().toLowerCase();
   return clubs
     .filter((club) => {
       const haystack = `${club.club.name} ${club.club.address ?? ''} ${club.games.map((game) => game.name).join(' ')}`.toLowerCase();
       if (query && !haystack.includes(query)) return false;
-      if (mapDistanceFilter !== 'none' && getClubDistance(club, originCoordinate) > mapDistanceFilter) return false;
+      const distance = getClubDistance(club, originCoordinate);
+      if (mapDistanceFilter !== 'none' && (distance == null || distance > mapDistanceFilter)) return false;
       if (mapVenueFilter === 'casino' && !isCasinoClub(club)) return false;
       if (mapVenueFilter === 'card-house' && getVenueKind(club) !== 'Card house') return false;
       if (mapVenueFilter === 'club' && getVenueKind(club) !== 'Poker club') return false;
       return true;
     })
-    .sort((left, right) => getClubDistance(left, originCoordinate) - getClubDistance(right, originCoordinate));
+    .sort((left, right) => compareOptionalDistances(getClubDistance(left, originCoordinate), getClubDistance(right, originCoordinate)));
 }
 
 export type FilterTournamentsOptions = {
   clubs: PlayerClubSnapshot[];
-  originCoordinate: Coordinate;
+  originCoordinate: Coordinate | null;
   playerId: string;
   query: string;
-  registrations: PlayerTournamentRegistration[];
+  interests: PlayerTournamentInterest[];
+  nowMs?: number;
   tournamentClubFilter: string;
   tournamentDistanceFilter: DistanceFilter;
   tournamentFilter: TournamentFilter;
   tournaments: PlayerTournament[];
 };
 
+export function isUpcomingTournament(tournament: Pick<PlayerTournament, 'startsAt'>, nowMs = Date.now()) {
+  const startsAt = Date.parse(tournament.startsAt);
+  return Number.isFinite(startsAt) && startsAt > nowMs;
+}
+
 export function filterTournaments({
   clubs,
   originCoordinate,
   playerId,
   query: rawQuery,
-  registrations,
+  interests,
+  nowMs = Date.now(),
   tournamentClubFilter,
   tournamentDistanceFilter,
   tournamentFilter,
@@ -105,18 +78,20 @@ export function filterTournaments({
   return tournaments
     .map((tournament) => {
       const club = clubs.find((item) => item.club.id === tournament.clubId);
-      const registration = registrations.find((item) => item.tournamentId === tournament.id && item.playerId === playerId);
-      const distanceMiles = club ? getClubDistance(club, originCoordinate) : Number.POSITIVE_INFINITY;
-      return { tournament, club, registration, distanceMiles };
+      const interest = interests.find((item) => isTournamentInterestFor(item, tournament) && item.playerId === playerId && item.status === 'interested');
+      const distanceMiles = club ? getClubDistance(club, originCoordinate) : null;
+      return { tournament, club, interest, distanceMiles };
     })
-    .filter(({ tournament, club, registration, distanceMiles }) => {
-      const haystack = `${tournament.name} ${club?.club.name ?? ''} ${club?.club.address ?? ''} ${tournament.prizePoolLabel} ${tournament.rules.join(' ')}`.toLowerCase();
+    .filter(({ tournament, club, interest, distanceMiles }) => {
+      if (!club) return false;
+      if (!isUpcomingTournament(tournament, nowMs)) return false;
+      const haystack = `${tournament.name} ${club?.club.name ?? ''} ${club?.club.address ?? ''} ${tournament.prizePoolLabel ?? ''} ${tournament.rules.join(' ')}`.toLowerCase();
       if (query && !haystack.includes(query)) return false;
       if (tournamentClubFilter !== 'all' && tournament.clubId !== tournamentClubFilter) return false;
-      if (tournamentDistanceFilter !== 'none' && club && distanceMiles > tournamentDistanceFilter) return false;
-      if (tournamentFilter === 'open' && tournament.registrationStatus !== 'open') return false;
+      if (tournamentDistanceFilter !== 'none' && (distanceMiles == null || distanceMiles > tournamentDistanceFilter)) return false;
+      if (tournamentFilter === 'open' && !isTournamentInterestOpen(tournament, nowMs)) return false;
       if (tournamentFilter === 'free' && tournament.buyIn !== 0) return false;
-      if (tournamentFilter === 'registered' && !registration) return false;
+      if (tournamentFilter === 'interested' && !interest) return false;
       return true;
     })
     .sort((left, right) => Date.parse(left.tournament.startsAt) - Date.parse(right.tournament.startsAt));
@@ -131,8 +106,9 @@ export type BuildGameOpportunitiesOptions = {
   gameQuery: string;
   gameTypeFilter: GameTypeFilter;
   joinedClubIds: Set<string>;
+  nowMs?: number;
   player: PlayerAccount;
-  playerHomeCoordinate: Coordinate;
+  playerHomeCoordinate: Coordinate | null;
   selectedCasinoFilter: CasinoFilter;
   selectedFilterClubId: string;
   stakesFilter: string;
@@ -147,6 +123,7 @@ export function buildGameOpportunities({
   gameQuery,
   gameTypeFilter,
   joinedClubIds,
+  nowMs = Date.now(),
   player,
   playerHomeCoordinate,
   selectedCasinoFilter,
@@ -160,6 +137,7 @@ export function buildGameOpportunities({
     .flatMap<GameOpportunity>((club) => {
       const distanceMiles = getClubDistance(club, playerHomeCoordinate);
       const isJoined = joinedClubIds.has(club.club.id);
+      const seatRequestAccess = getPlayerSeatRequestAccess(club, player, nowMs);
       const clubSearchText = getClubSearchText(club);
       const casinoClub = isCasinoClub(club);
       if (gameTypeFilter === 'favorites' && !favoriteClubIds.includes(club.club.id)) return [];
@@ -182,15 +160,14 @@ export function buildGameOpportunities({
             game,
             distanceMiles,
             isJoined,
-            isPreferred
+            isPreferred,
+            seatRequestAccess
           };
         });
     })
     .filter((item) => !hasLocationFilter
       || distanceFilter === 'none'
-      || isCasinoClub(item.club)
-      || item.distanceMiles <= distanceFilter
-      || Boolean(query && getClubSearchText(item.club).includes(query)))
+      || (item.distanceMiles != null && item.distanceMiles <= distanceFilter))
     .sort((left, right) => {
       const activityDifference = getActiveGameActivityTime(right.game) - getActiveGameActivityTime(left.game);
       if (activityDifference) return activityDifference;
@@ -200,10 +177,12 @@ export function buildGameOpportunities({
       if (fitScoreFilterEnabled) {
         if (left.isPreferred !== right.isPreferred) return left.isPreferred ? -1 : 1;
         if (left.isJoined !== right.isJoined) return left.isJoined ? -1 : 1;
-        if (left.game.availableSeats !== right.game.availableSeats) return right.game.availableSeats - left.game.availableSeats;
+        const leftRunningSeats = getRunningAvailableSeats(left.game);
+        const rightRunningSeats = getRunningAvailableSeats(right.game);
+        if (leftRunningSeats !== rightRunningSeats) return rightRunningSeats - leftRunningSeats;
         if (left.game.waitlistCount !== right.game.waitlistCount) return left.game.waitlistCount - right.game.waitlistCount;
       }
-      return left.distanceMiles - right.distanceMiles;
+      return compareOptionalDistances(left.distanceMiles, right.distanceMiles);
     });
 }
 
@@ -246,17 +225,17 @@ export function getActiveDiscoveryOpportunity(
   if (!selectedOpportunity) return null;
   return opportunities.find(
     (item) => getOpportunityKey(item) === getOpportunityKey(selectedOpportunity)
-  ) ?? selectedOpportunity;
+  ) ?? null;
 }
 
-export function resolveAddressCoordinate(address?: string) {
-  const normalized = (address ?? '').trim().toLowerCase();
-  if (!normalized) return homeCoordinate;
-  const match = texasAddressCoordinates.find((entry) => entry.keywords.some((keyword) => normalized.includes(keyword)));
-  return match?.coordinate ?? homeCoordinate;
+export function resolveAddressCoordinate(_address?: string): Coordinate | null {
+  // Typed place names are not coordinates. A future geocoding flow must return a
+  // validated coordinate with explicit user consent before distance is enabled.
+  return null;
 }
 
 export function getDistanceMiles(from: Coordinate, to: Coordinate) {
+  if (!isValidCoordinate(from) || !isValidCoordinate(to)) return null;
   const earthRadiusMiles = 3958.8;
   const latitudeDelta = degreesToRadians(to.latitude - from.latitude);
   const longitudeDelta = degreesToRadians(to.longitude - from.longitude);
@@ -268,8 +247,9 @@ export function getDistanceMiles(from: Coordinate, to: Coordinate) {
   return earthRadiusMiles * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 }
 
-export function getClubDistance(club: PlayerClubSnapshot, originCoordinate = homeCoordinate) {
-  return getDistanceMiles(originCoordinate, getClubCoordinate(club));
+export function getClubDistance(club: PlayerClubSnapshot, originCoordinate: Coordinate | null) {
+  const coordinate = getClubCoordinate(club);
+  return originCoordinate && coordinate ? getDistanceMiles(originCoordinate, coordinate) : null;
 }
 
 export function getOpportunityKey(item: GameOpportunity) {
@@ -279,43 +259,86 @@ export function getOpportunityKey(item: GameOpportunity) {
 export function getOpportunityLabel(item: GameOpportunity) {
   if (item.isPreferred) return 'Preferred';
   if (item.isJoined) return 'Member';
-  if (item.game.availableSeats) return 'Seats open';
-  if (item.distanceMiles <= 10) return 'Nearby';
-  return 'Available';
+  if (getRunningAvailableSeats(item.game)) return 'Seats open';
+  return 'Published game';
 }
 
 export function getCompatibilitySummary(item: GameOpportunity) {
-  if (item.isPreferred && item.game.knownPlayersCount) return `Your stakes, ${item.game.knownPlayersCount} familiar player${item.game.knownPlayersCount === 1 ? '' : 's'}, and live seats make this a strong fit.`;
-  if (item.isPreferred) return 'This matches your preferred game and has a seat profile that fits how you play.';
-  if (item.game.knownPlayersCount) return `${item.game.knownPlayersCount} player${item.game.knownPlayersCount === 1 ? '' : 's'} you know ${item.game.knownPlayersCount === 1 ? 'is' : 'are'} already connected to this game.`;
-  if (item.game.availableSeats) return `${item.game.availableSeats} live seat${item.game.availableSeats === 1 ? '' : 's'} and a manageable wait make this worth a look.`;
-  return 'This host regularly spreads games close to your preferred stakes and location.';
+  if (item.isPreferred && item.game.knownPlayersCount) return `This matches a saved game preference, and the venue reports ${item.game.knownPlayersCount} familiar player${item.game.knownPlayersCount === 1 ? '' : 's'}.`;
+  if (item.isPreferred) return 'This matches a saved game preference.';
+  if (item.game.knownPlayersCount) return `The venue reports ${item.game.knownPlayersCount} familiar player${item.game.knownPlayersCount === 1 ? '' : 's'} for this game.`;
+  const runningSeats = getRunningAvailableSeats(item.game);
+  if (runningSeats) return `The venue reports ${runningSeats} open seat${runningSeats === 1 ? '' : 's'} at a running table.`;
+  return `${item.club.club.name} published this game in its current room inventory.`;
 }
 
 export function getGameStatusLabel(game: PlayerSyncGame) {
-  if (!game.openTables.length) return 'Planning next game';
-  if (game.availableSeats) return `${game.availableSeats} seats open`;
-  if (game.formingCount) return 'Table forming';
-  return `${game.waitlistCount} on waitlist`;
+  const runningTables = game.openTables.filter((table) => table.status === 'Running');
+  if (runningTables.length) {
+    const runningSeats = getRunningAvailableSeats(game);
+    const tableLabel = runningTables.length === 1 ? 'Running table' : `${runningTables.length} running tables`;
+    return runningSeats ? `${runningSeats} ${runningSeats === 1 ? 'seat' : 'seats'} open` : `${tableLabel} · 0 seats open`;
+  }
+  if (game.openTables.some((table) => table.status === 'Forming')) return 'Table forming';
+  if (game.openTables.some((table) => table.status === 'Paused')) return 'Table paused';
+  return 'No open table published';
+}
+
+export function getRunningAvailableSeats(game: Pick<PlayerSyncGame, 'openTables'>) {
+  return game.openTables
+    .filter((table) => table.status === 'Running')
+    .reduce((total, table) => total + table.availableSeats, 0);
+}
+
+export function hasRunningTable(game: Pick<PlayerSyncGame, 'openTables'>) {
+  return game.openTables.some((table) => table.status === 'Running');
+}
+
+export function getPublishedAvailabilityLabel(game: Pick<PlayerSyncGame, 'openTables' | 'waitlistCount'>) {
+  if (hasRunningTable(game)) {
+    const runningSeats = getRunningAvailableSeats(game);
+    const seatLabel = runningSeats === 1 ? 'seat' : 'seats';
+    return `${runningSeats} ${seatLabel} open · ${game.waitlistCount} waiting`;
+  }
+  if (game.openTables.some((table) => table.status === 'Forming')) return `Table forming · ${game.waitlistCount} waiting`;
+  if (game.openTables.some((table) => table.status === 'Paused')) return `Table paused · ${game.waitlistCount} waiting`;
+  return `No open table published · ${game.waitlistCount} waiting`;
+}
+
+export function getClubAvailabilityLabel(club: Pick<PlayerClubSnapshot, 'games'>) {
+  const tables = club.games.flatMap((game) => game.openTables);
+  const runningTables = tables.filter((table) => table.status === 'Running');
+  if (runningTables.length) {
+    const seats = runningTables.reduce((total, table) => total + table.availableSeats, 0);
+    return `${seats} ${seats === 1 ? 'seat' : 'seats'} open`;
+  }
+  if (tables.some((table) => table.status === 'Forming')) return 'Table forming';
+  if (tables.some((table) => table.status === 'Paused')) return 'Table paused';
+  return 'No open table published';
+}
+
+export function getPublishedTableSummary(game: Pick<PlayerSyncGame, 'openTables'>) {
+  const counts = game.openTables.reduce((result, table) => ({
+    ...result,
+    [table.status]: result[table.status] + 1
+  }), { Running: 0, Forming: 0, Paused: 0 });
+  const parts = [
+    counts.Running ? `${counts.Running} running` : '',
+    counts.Forming ? `${counts.Forming} forming` : '',
+    counts.Paused ? `${counts.Paused} paused` : ''
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'No table published';
 }
 
 export function getVenueKind(club: PlayerClubSnapshot) {
-  if (isCasinoClub(club)) return 'Casino';
-  const identity = `${club.club.id} ${club.club.name}`.toLowerCase();
-  if (identity.includes('card') || identity.includes('poker hall') || identity.includes('room')) return 'Card house';
-  return 'Poker club';
+  return club.club.venueKind ?? 'Venue';
 }
 
 export function getClubCity(club: PlayerClubSnapshot) {
   const address = club.club.address ?? '';
   const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
   if (parts.length >= 2) return parts[parts.length - 2];
-  if (address.toLowerCase().includes('dallas')) return 'Dallas';
-  if (address.toLowerCase().includes('austin')) return 'Austin';
-  if (address.toLowerCase().includes('houston')) return 'Houston';
-  if (address.toLowerCase().includes('bryan')) return 'Bryan';
-  if (address.toLowerCase().includes('college station')) return 'College Station';
-  return 'Texas';
+  return address.trim() || 'Location unavailable';
 }
 
 export function getClubSearchText(club: PlayerClubSnapshot) {
@@ -323,37 +346,11 @@ export function getClubSearchText(club: PlayerClubSnapshot) {
 }
 
 export function isCasinoClub(club: PlayerClubSnapshot) {
-  const text = getClubSearchText(club);
-  return club.club.id.includes('casino') || text.includes('casino') || text.includes('choctaw') || text.includes('winstar');
+  return club.club.venueKind === 'Casino';
 }
 
 export function getClubCoordinate(club: PlayerClubSnapshot) {
-  const known = clubCoordinates[club.club.id];
-  if (known) return known;
-  const seed = Array.from(club.club.id).reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  return {
-    latitude: homeCoordinate.latitude + ((seed % 17) - 8) * 0.006,
-    longitude: homeCoordinate.longitude + (((seed * 3) % 17) - 8) * 0.006
-  };
-}
-
-export function findGamesClubKey(club: PlayerClubSnapshot) {
-  const normalizedId = normalizedIdentity(club.club.id).replace(/\s+/g, '-');
-  const normalizedName = normalizedIdentity(club.club.name);
-  const idIndex = findGamesClubOrder.indexOf(normalizedId);
-  if (idIndex >= 0) return findGamesClubOrder[idIndex];
-  const nameIndex = findGamesClubNames.indexOf(normalizedName);
-  return nameIndex >= 0 ? findGamesClubOrder[nameIndex] : '';
-}
-
-export function isFindGamesClub(club: PlayerClubSnapshot) {
-  return Boolean(findGamesClubKey(club));
-}
-
-export function compareFindGamesClubOrder(left: PlayerClubSnapshot, right: PlayerClubSnapshot) {
-  const leftIndex = findGamesClubOrder.indexOf(findGamesClubKey(left));
-  const rightIndex = findGamesClubOrder.indexOf(findGamesClubKey(right));
-  return leftIndex - rightIndex || left.club.name.localeCompare(right.club.name);
+  return isValidCoordinate(club.club.coordinate) ? club.club.coordinate : null;
 }
 
 export function buildFindGameClubs(clubs: PlayerClubSnapshot[]) {
@@ -374,64 +371,74 @@ export function getActiveGameActivityTime(game: PlayerSyncGame) {
 }
 
 export function groupOpportunitiesByClub(opportunities: GameOpportunity[]) {
-  const folders = new Map<string, { club: PlayerClubSnapshot; distanceMiles: number; items: GameOpportunity[] }>();
+  const folders = new Map<string, { club: PlayerClubSnapshot; distanceMiles: number | null; items: GameOpportunity[] }>();
   opportunities.forEach((item) => {
     const current = folders.get(item.club.club.id);
     if (current) {
       current.items.push(item);
-      current.distanceMiles = Math.min(current.distanceMiles, item.distanceMiles);
+      if (item.distanceMiles != null && (current.distanceMiles == null || item.distanceMiles < current.distanceMiles)) {
+        current.distanceMiles = item.distanceMiles;
+      }
       return;
     }
     folders.set(item.club.club.id, { club: item.club, distanceMiles: item.distanceMiles, items: [item] });
   });
-  return Array.from(folders.values()).sort((left, right) => compareFindGamesClubOrder(left.club, right.club));
+  return Array.from(folders.values()).sort((left, right) => left.club.club.name.localeCompare(right.club.club.name));
 }
 
-export function getOpportunityTableLabel(item: GameOpportunity, index: number) {
+export function getOpportunityTableLabel(item: GameOpportunity, _index: number) {
   if (!(item.game.openTables ?? []).length) return undefined;
   const tableLabel = item.game.openTables[0]?.label?.trim();
-  if (!tableLabel) return `Table ${index + 1}`;
-  if (/^table\s+\d+/i.test(tableLabel)) return tableLabel;
-  return `Table ${index + 1}: ${tableLabel}`;
+  return tableLabel || undefined;
 }
 
-export function matchesGameTypeFilter(club: PlayerClubSnapshot, game: PlayerSyncGame, filter: GameTypeFilter) {
+export function matchesGameTypeFilter(club: PlayerClubSnapshot, _game: PlayerSyncGame, filter: GameTypeFilter) {
   if (filter === 'none') return true;
   if (filter === 'all') return true;
   if (filter === 'favorites') return true;
-  const text = `${club.club.name} ${game.name}`.toLowerCase();
-  if (filter === 'home-game') return text.includes('home');
-  if (filter === 'private') return text.includes('private');
-  if (filter === 'public') return !text.includes('private') && !text.includes('home');
-  return !text.includes('private') && !text.includes('home');
+  if (filter === 'card-house') return getVenueKind(club) === 'Card house';
+  return true;
 }
 
 export function getRecommendationReason(item: GameOpportunity) {
+  const runningSeats = getRunningAvailableSeats(item.game);
   const reasons = [
-    item.game.availableSeats
-      ? `${item.game.availableSeats} open seats`
-      : item.game.formingCount
+    hasRunningTable(item.game)
+      ? runningSeats ? `${runningSeats} open seats` : 'running table with 0 open seats'
+      : item.game.openTables.some((table) => table.status === 'Forming')
         ? 'forming table'
-        : (item.game.openTables ?? []).length || item.game.waitlistCount
-          ? 'waitlist only'
-          : 'configured - no open table yet',
+        : item.game.openTables.some((table) => table.status === 'Paused')
+          ? 'paused table'
+          : 'no open table published',
     item.isPreferred ? 'matches your profile' : '',
-    item.isJoined ? 'club access ready' : 'membership needed',
+    item.isJoined ? 'active membership shown' : 'no active membership shown',
     item.game.knownPlayersCount ? `${item.game.knownPlayersCount} familiar players` : '',
-    `${item.distanceMiles.toFixed(1)} mi away`
+    item.distanceMiles == null ? '' : `${item.distanceMiles.toFixed(1)} mi away`
   ].filter(Boolean);
   return reasons.join(' / ');
 }
 
-export function isValidEmail(value: string) {
-  return /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(value.trim());
+export function isValidCoordinate(value: Coordinate | null | undefined): value is Coordinate {
+  return Boolean(
+    value &&
+    Number.isFinite(value.latitude) &&
+    Number.isFinite(value.longitude) &&
+    value.latitude >= -90 &&
+    value.latitude <= 90 &&
+    value.longitude >= -180 &&
+    value.longitude <= 180
+  );
 }
 
-export function isValidPhoneNumber(value: string, optional = false) {
-  const trimmed = value.trim();
-  if (!trimmed) return optional;
-  const digits = trimmed.replace(/\D/g, '');
-  return digits.length === 10 || (digits.length === 11 && digits.startsWith('1'));
+function compareOptionalDistances(left: number | null, right: number | null) {
+  if (left == null && right == null) return 0;
+  if (left == null) return 1;
+  if (right == null) return -1;
+  return left - right;
+}
+
+export function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(value.trim());
 }
 
 export function togglePreferredGame(player: PlayerAccount, gameId: string): PlayerAccount {

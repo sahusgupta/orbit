@@ -202,7 +202,10 @@ export function addPlayerTime(
           timestamp,
           playerCount: state.sessions.find((session) => session.id === playerSession.tableId)?.seatsFilled ?? 0,
           reason: 'time added',
-          note: `${minutes} minutes added for ${playerSession.playerName}`
+          ...(playerSession.profileId ? { profileId: playerSession.profileId } : {}),
+          note: playerSession.profileId
+            ? `${minutes} minutes added for ${playerSession.playerName}`
+            : `${minutes} minutes added for player`
         }
       ]
     }

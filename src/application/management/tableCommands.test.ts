@@ -334,7 +334,11 @@ describe('management table-planning commands', () => {
       plannedPlayerIds: [mover.id],
       collectionMode: 'Time'
     });
-    expect(balanced.tableEvents[0]).toMatchObject({ id: 'created-2', note: 'Table B created from Table A balance option: Mover' });
+    expect(balanced.tableEvents[0]).toMatchObject({
+      id: 'created-2',
+      profileIds: [mover.profileId],
+      note: 'Table B created from Table A balance option: Mover'
+    });
   });
 
   it('binds planned and balanced creation to capacity-appropriate permanent tables and no-ops when none are available', () => {
@@ -428,9 +432,52 @@ describe('management table-planning commands', () => {
       id: 'created-5',
       type: 'Started',
       playerCount: 2,
+      profileIds: [selectedA.profileId, selectedB.profileId],
       note: 'Started with Selected A, Selected B - messaging trigger: Direct Club'
     });
     expect(result).toMatchObject({ playerCount: 2, selectedPlayerCount: 2, alreadySeatedCount: 0, skippedErrors: [] });
     expect(source).toEqual(snapshot);
+  });
+
+  it('uses generic table-event notes when a multi-player event has only partial immutable identity', () => {
+    const linked = interest('linked', 'Linked Player');
+    const unlinked = { ...interest('unlinked', 'Unlinked Player'), profileId: undefined };
+    const sourceTable = {
+      ...runningTable,
+      gameId: game.id,
+      maxSeats: game.maxSeats,
+      seatsFilled: 4,
+      plannedPlayerIds: [linked.id, unlinked.id]
+    };
+    const source = state({ interests: [linked, unlinked], sessions: [sourceTable] });
+    const balanced = createBalancedTable(source, {
+      game,
+      fromTable: sourceTable,
+      moveCandidates: [
+        { playerName: linked.playerName, interest: linked },
+        { playerName: unlinked.playerName, interest: unlinked }
+      ],
+      tableASeatsAfterMove: 2,
+      tableBProjectedSeats: 2
+    }, dependencies());
+    expect(balanced?.tableEvents[0]).toMatchObject({
+      profileIds: [linked.profileId],
+      note: 'Table B created from Table A balance option with 2 players'
+    });
+    expect(balanced?.tableEvents[0].note).not.toMatch(/Linked Player|Unlinked Player/);
+
+    const formingTable = { ...sourceTable, status: 'Forming' as const, seatsFilled: 0 };
+    const started = startTableWithPlayers(
+      state({ interests: [linked, unlinked], sessions: [formingTable] }),
+      formingTable,
+      [linked.id, unlinked.id],
+      'Direct Club',
+      dependencies()
+    );
+    expect(started.state.tableEvents[0]).toMatchObject({
+      profileIds: [linked.profileId],
+      note: 'Started with 2 players - messaging trigger: Direct Club'
+    });
+    expect(started.state.tableEvents[0].note).not.toMatch(/Linked Player|Unlinked Player/);
   });
 });

@@ -1,6 +1,6 @@
 # Orbit Player
 
-> Orbit Player is a connected poker-room player network developed by Caminus Labs, LLC. Its public landing page explains the service; verified accounts can browse nearby room-published games and manage club memberships, waitlists, and tournament registrations.
+> Orbit Player is a connected poker-room player network developed by Caminus Labs, LLC. Its public landing page explains the service; verified accounts can browse room-published games and manage club memberships, waitlists, and nonbinding tournament interest.
 
 Intended public site: https://orbitpoker.com/
 Developer: https://caminuslabs.com/
@@ -19,11 +19,11 @@ Source: https://github.com/sahusgupta/orbit
 - `/clubs` and `/clubs/{entity}`: Search participating poker rooms and inspect their current inventory.
 - `/me`: Authenticated player account overview.
 - `/me/games`: Authenticated waitlist and game-request state.
-- `/me/tournaments`: Authenticated tournament-registration state.
+- `/me/tournaments`: Authenticated tournament-interest state.
 - `/me/clubs`: Authenticated club-membership state.
 - `/me/profile`: Authenticated player profile.
 
-All product and account routes other than the landing page require verified authentication and are excluded from search and AI crawler indexing. Joining a game, registering for a tournament, and requesting club membership are sent to the Orbit API with an independently verified Firebase token. The landing page contains presentation-only examples and does not expose protected discovery data.
+All product and account routes other than the landing page require verified authentication and are excluded from search and AI crawler indexing. Game requests, nonbinding tournament-interest mutations, and club-membership requests are sent to the Orbit API with an independently verified Firebase token. Tournament interest is not registration, a seat reservation, a debt, a payment, or a prize claim. The landing page is presentation-only and does not expose protected discovery data.
 
 ## Data interpretation
 

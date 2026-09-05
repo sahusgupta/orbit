@@ -6,7 +6,7 @@ import { createPageMetadata } from '@/src/seo/site';
 
 export const metadata: Metadata = createPageMetadata({
   title: 'Sign in',
-  description: 'Connect a verified Orbit account to memberships, game requests, tournament registration, and My Orbit.',
+  description: 'Connect a verified Orbit account to memberships, game requests, tournament interest, and My Orbit.',
   path: '/sign-in',
   noIndex: true
 });

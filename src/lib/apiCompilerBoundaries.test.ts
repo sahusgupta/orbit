@@ -98,6 +98,7 @@ describe('API Firebase REST compiler boundaries', () => {
         base64Url: (value: string) => Buffer.from(value).toString('base64url'),
         crypto: { createSign: vi.fn(() => signer) },
         fetch,
+        fetchFirebase: (_category: string, input: string, init: unknown) => fetch(input, init),
         getRecordProperty: getFirebaseRecordProperty,
         URLSearchParams
       }
@@ -150,6 +151,7 @@ describe('API Firebase REST compiler boundaries', () => {
         encodeURIComponent,
         batchWriteDocuments,
         fetch,
+        fetchFirebase: (_category: string, input: string, init: unknown) => fetch(input, init),
         getRecordProperty: getFirebaseRecordProperty,
         restBase: (projectId: string) => `https://firestore.googleapis.test/v1/projects/${projectId}/documents`,
         URL
@@ -201,6 +203,7 @@ describe('API Firebase REST compiler boundaries', () => {
         base64Url: (value: string) => Buffer.from(value).toString('base64url'),
         crypto: { createSign: vi.fn(() => signer) },
         fetch: tokenFetch,
+        fetchFirebase: (_category: string, input: string, init: unknown) => tokenFetch(input, init),
         getRecordProperty: getFirebaseRecordProperty,
         URLSearchParams
       }
@@ -223,7 +226,19 @@ describe('API Firebase REST compiler boundaries', () => {
       {
         encodeURIComponent,
         fetch: listingFetch,
+        fetchFirebase: (_category: string, input: string, init: unknown) => listingFetch(input, init),
+        FirebasePublicationError: class extends Error {
+          category: string;
+          pathRef: string;
+
+          constructor(category: string, options: { pathRef?: string } = {}) {
+            super(`Firebase publication provider failure (category=${category}).`);
+            this.category = category;
+            this.pathRef = options.pathRef || '';
+          }
+        },
         getRecordProperty: getFirebaseRecordProperty,
+        protectedIdentifier: () => '0123456789abcdef',
         restBase: (projectId: string) => `https://firestore.googleapis.test/v1/projects/${projectId}/documents`
       }
     );
@@ -232,7 +247,7 @@ describe('API Firebase REST compiler boundaries', () => {
       'local-token',
       'club-a',
       [{ id: 'player-a', sourceProfileId: 'profile-a' }]
-    )).rejects.toThrow('Firestore player listing returned an invalid document list for club-a.');
+    )).rejects.toThrow('Firebase publication provider failure (category=player-list-response-invalid).');
   });
 });
 

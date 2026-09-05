@@ -1,43 +1,104 @@
-import { describe, expect, it } from 'vitest';
-import { createMembershipQrValue, parseMembershipQrValue, validateMembershipQrCheckIn } from './membershipQr';
+import { describe, expect, it, vi } from 'vitest';
+import { isOpaqueMembershipQrToken, redeemMembershipQrWithAuthorizedSession, runMembershipQrCheckIn } from './membershipQr';
 
-describe('membership QR credentials', () => {
-  it('round-trips a club and player identity', () => {
-    const value = createMembershipQrValue('club:one', 'player/123');
-    expect(parseMembershipQrValue(value)).toEqual({
-      version: 1,
-      clubId: 'club:one',
-      playerId: 'player/123'
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((next) => { resolve = next; });
+  return { promise, resolve };
+}
+
+describe('membership QR format boundary', () => {
+  it('accepts only the opaque server-issued token envelope', () => {
+    expect(isOpaqueMembershipQrToken(`omq1_${'A'.repeat(43)}`)).toBe(true);
+    expect(isOpaqueMembershipQrToken(`  omq1_${'a'.repeat(43)}  `)).toBe(true);
+    expect(isOpaqueMembershipQrToken(`omq1_${'A'.repeat(42)}`)).toBe(false);
+    expect(isOpaqueMembershipQrToken(`omq1_${'A'.repeat(44)}`)).toBe(false);
+  });
+
+  it('prohibits identity-bearing static and URL credentials', () => {
+    const removedStaticCredential = ['orbit', 'membership', 'v1', 'club-one', 'player-one'].join(':').replace('orbit:', 'orbit-');
+    expect(isOpaqueMembershipQrToken(removedStaticCredential)).toBe(false);
+    expect(isOpaqueMembershipQrToken('https://example.test/member/player-one')).toBe(false);
+  });
+});
+
+describe('membership QR staff-session binding', () => {
+  it('redeems with the freshly authorized session rather than a token observed before authorization', async () => {
+    type Session = { token: string };
+    const authorization = deferred<Session | null>();
+    let session: Session | null = { token: 'session-a' };
+    const redeem = vi.fn(async () => ({ ok: true as const, status: 'checked-in' as const }));
+
+    const pending = redeemMembershipQrWithAuthorizedSession('  omq1_opaque  ', {
+      authorize: () => authorization.promise,
+      readCurrentContext: () => ({ access: { licenseId: 'club-one' }, session }),
+      redeem,
+      clearCurrentSession: vi.fn()
+    });
+    session = { token: 'session-b' };
+    authorization.resolve(session);
+
+    await expect(pending).resolves.toMatchObject({ kind: 'accepted' });
+    expect(redeem).toHaveBeenCalledWith({
+      access: { licenseId: 'club-one' },
+      staffToken: 'session-b',
+      token: 'omq1_opaque'
     });
   });
 
-  it('rejects unrelated and malformed QR values', () => {
-    expect(parseMembershipQrValue('https://example.com')).toBeNull();
-    expect(parseMembershipQrValue('orbit-membership:v1:club-only')).toBeNull();
-    expect(parseMembershipQrValue('orbit-membership:v1::player')).toBeNull();
-    expect(parseMembershipQrValue('orbit-membership:v2:club:player')).toBeNull();
+  it('applies an accepted authoritative state and reports duplicate check-in truthfully', async () => {
+    const applyState = vi.fn();
+    const clearInput = vi.fn();
+    const setMessage = vi.fn();
+    await runMembershipQrCheckIn('omq1_opaque', {
+      authorize: async () => ({ token: 'session-a' }),
+      readCurrentContext: () => ({ access: { licenseId: 'club-one' }, session: { token: 'session-a' } }),
+      redeem: async () => ({
+        ok: true,
+        status: 'already-checked-in',
+        playerName: 'Alex',
+        state: { revision: 2 }
+      }),
+      clearCurrentSession: vi.fn(),
+      applyState,
+      clearInput,
+      setMessage
+    });
+
+    expect(applyState).toHaveBeenCalledWith({ revision: 2 });
+    expect(clearInput).toHaveBeenCalledOnce();
+    expect(setMessage).toHaveBeenLastCalledWith('Alex is already checked in.');
   });
 
-  it('only accepts active, unexpired members from the current club', () => {
-    const value = createMembershipQrValue('club-one', 'player-one');
-    const activeProfile = {
-      id: 'player-one',
-      name: 'Active Player',
-      membershipStatus: 'Active' as const,
-      membershipExpiresAt: '2027-01-01T00:00:00.000Z'
-    };
-    expect(validateMembershipQrCheckIn(value, 'club-one', [activeProfile], Date.parse('2026-07-27T00:00:00.000Z'))).toMatchObject({
-      ok: true,
-      profile: activeProfile
+  it('does not redeem if the authorized session expires before the current context is bound', async () => {
+    const redeem = vi.fn();
+    await expect(redeemMembershipQrWithAuthorizedSession('omq1_opaque', {
+      authorize: async () => ({ token: 'expired-session' }),
+      readCurrentContext: () => ({ access: { licenseId: 'club-one' }, session: null }),
+      redeem,
+      clearCurrentSession: vi.fn()
+    })).resolves.toEqual({ kind: 'session-changed' });
+    expect(redeem).not.toHaveBeenCalled();
+  });
+
+  it('never clears a newer session when an in-flight redemption rejects the prior token', async () => {
+    type Session = { token: string };
+    const response = deferred<{ ok: false; error: string; reauthenticate: true }>();
+    let session: Session | null = { token: 'session-a' };
+    const clearCurrentSession = vi.fn();
+    const redeem = vi.fn(() => response.promise);
+    const pending = redeemMembershipQrWithAuthorizedSession('omq1_opaque', {
+      authorize: async () => session!,
+      readCurrentContext: () => ({ access: { licenseId: 'club-one' }, session }),
+      redeem,
+      clearCurrentSession
     });
-    expect(validateMembershipQrCheckIn(value, 'club-two', [activeProfile])).toEqual({ ok: false, code: 'wrong-club' });
-    expect(validateMembershipQrCheckIn(value, 'club-one', [{ ...activeProfile, membershipStatus: 'Approved' }])).toMatchObject({
-      ok: false,
-      code: 'approved-not-active'
-    });
-    expect(validateMembershipQrCheckIn(value, 'club-one', [activeProfile], Date.parse('2027-01-02T00:00:00.000Z'))).toMatchObject({
-      ok: false,
-      code: 'inactive'
-    });
+
+    await vi.waitFor(() => expect(redeem).toHaveBeenCalledOnce());
+    session = { token: 'session-b' };
+    response.resolve({ ok: false, error: 'Session expired.', reauthenticate: true });
+
+    await expect(pending).resolves.toMatchObject({ kind: 'rejected' });
+    expect(clearCurrentSession).not.toHaveBeenCalled();
   });
 });

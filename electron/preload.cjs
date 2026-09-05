@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('tableManagerDesktop', {
   getManagementRecoveryStatus: (access) => ipcRenderer.invoke('get-management-recovery-status', access),
   completeManagementRecovery: (payload) => ipcRenderer.invoke('complete-management-recovery', payload),
   generateSelfCheckInKit: (payload) => ipcRenderer.invoke('generate-self-check-in-kit', payload),
+  redeemMembershipQr: (payload) => ipcRenderer.invoke('redeem-membership-qr', payload),
   persistManagementSession: (binding) => ipcRenderer.invoke('persist-management-session', binding),
   restoreManagementSession: (binding) => ipcRenderer.invoke('restore-management-session', binding),
   clearManagementSession: (accountKey) => ipcRenderer.invoke('clear-management-session', accountKey),

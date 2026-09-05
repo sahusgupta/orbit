@@ -1,89 +1,44 @@
-# Orbit Player Launch Readiness
+# Orbit Player iOS launch readiness
 
-## Ready In Code
+The current, machine-checkable submission package is [`APP_STORE_SUBMISSION.md`](./APP_STORE_SUBMISSION.md). Superseded Premium/IAP/private-game drafts were removed because those products are not in the conservative first release.
 
-- Player onboarding persists locally with AsyncStorage.
-- Firebase Google auth is wired for player and browser-based management sync clients.
-- Player app reads club snapshots from Firestore.
-- Player app writes membership and waitlist requests to Firestore.
-- Management app publishes club state to Firestore on save.
-- Live map UI is wired through `react-native-maps`.
-- EAS build profiles are configured in `eas.json`.
-- Firestore rules and indexes are included for deployment.
-- Apple In-App Purchase is wired for Player Premium through StoreKit and RevenueCat.
-- Restore Purchases and in-app account deletion are available in Profile & Settings.
-- Production builds do not inject demo clubs, games, tournaments, friends, or session history.
+## Repository gates
 
-## Required External Setup
+- [x] Exact Node 22.16.0/npm 10.9.2 clean installs succeed for every package root.
+- [x] `npm run verify` passes with production access disabled and an unreachable local API.
+- [x] Player Web typecheck, lint, unit/component tests, rendered browser checks, and production build pass.
+- [x] Firestore Emulator rule tests pass against the isolated `demo-orbit-release-ci` project.
+- [x] Production Expo config validation, compatibility check, Expo Doctor, iOS export, permission/privacy checks, artwork checks, and JavaScript bundle scan pass.
+- [x] Disposable iOS prebuild and generated-native scan pass in an isolated Linux environment.
+- [ ] The same disposable iOS prebuild and generated-native scan pass on the exact pushed SHA in Ubuntu pull-request CI.
+- [x] Icon and splash checks pass; the 1024×1024 app icon is opaque and the transparent splash mark renders on `#060C1A`.
+- [x] Repository and exported source contain no private-game UI/data access, Premium/IAP client, venue checkout, social authentication, operational tournament registration, fabricated location, or notification promise.
+- [x] Privacy/support/terms pages and the App Store package agree with the final code.
+- [ ] Pull-request CI is green on the exact pushed SHA.
 
-1. Enable Firestore in Firebase project `tabletalk-s`.
-2. Keep Google sign-in disabled until the account/auth model is finalized.
-3. Deploy Firestore rules from this directory:
+## External gates
 
-   ```bash
-   firebase deploy --only firestore:rules,firestore:indexes
-   ```
+- Legal classification, licensing, and territory approval.
+- Caminus Labs, LLC seller/account verification and Apple agreements.
+- Explicit confirmation that Expo owner `saussy`, slug `tabletalk-player`, EAS project `bb2059b7-91b3-4a6b-a66e-d5618e794fd3`, the Apple signing team, and the `com.orbit.player` App Store record are the intended Caminus Labs, LLC release identities.
+- Production API/site deployment, Firebase rules/App Check activation, and required server-secret provisioning.
+- Sanitized reviewer account/data placed in App Store Connect without committing credentials.
+- Privacy-owner classification of the constant `in-person` membership request channel, support/provider/IP retention, and conditional SDK device/diagnostic data.
+- Signed EAS archive, Xcode privacy aggregation report reconciled to the app-owned ten-type baseline, App Store privacy/age/export answers, and physical-device TestFlight acceptance.
+- Real candidate screenshots captured at Apple-accepted dimensions.
 
-4. Open the management app and save once for each club account so `clubStates/{accountKey}` is created.
-5. Create Google Maps API keys:
-   - iOS key with Maps SDK for iOS enabled.
-   - Android key with Maps SDK for Android enabled.
-6. Set these for production builds:
+Do not treat Expo export or prebuild as a signed build. Do not create an EAS build, upload to TestFlight, deploy, or press Submit for Review until the applicable authority and evidence exist.
 
-   ```bash
-   GOOGLE_MAPS_IOS_API_KEY=...
-   GOOGLE_MAPS_ANDROID_API_KEY=...
-   ```
+## Future private-game gate
 
-7. Create Apple Developer and Google Play Console app records.
-8. Deploy `download-site/privacy.html` and `download-site/support.html` over HTTPS, then configure the privacy and support URLs in App Store Connect.
-9. Create the App Store subscription `com.orbit.player.premium.monthly`, RevenueCat entitlement `player_premium`, and production RevenueCat Apple API key.
+Player-hosted/private games remain excluded from every production-v1 surface and data path. Re-enabling any private-game publishing, browsing, API, Firestore, configuration, or store claim is blocked until one reviewed design implements and tests all of the following together: authentication, an explicit field allowlist, automatic expiry, host close/delete controls, moderation, objectionable-content filtering, reporting, user blocking, an owned abuse-response process, audience controls, and published support contact information. A partial implementation does not satisfy this gate.
 
-## Beta Build
+## Exact candidate handling
 
-```bash
-cd player-app
-npm install
-npm run typecheck
-npx eas build --profile preview --platform ios
-npx eas build --profile preview --platform android
+The production EAS profile creates a store-distribution iOS build and uses remote build-number auto-increment. After all repository and pull-request gates pass, the release operator records the exact pushed source SHA and EAS build ID. Submission must use:
+
+```text
+npm run submit:testflight --prefix player-app -- --build-id <EAS_BUILD_ID> --source-sha <40_CHAR_PUSHED_SHA> --confirm UPLOAD_EXACT_TESTFLIGHT_BUILD
 ```
 
-## Production Build
-
-```bash
-cd player-app
-npm run build:testflight
-npm run submit:testflight
-```
-
-The production iOS profile creates a physical-device App Store archive, uses a remotely auto-incremented build number, points the app to the production Orbit API, and exposes the hosted privacy policy from Profile & Settings. `submit:testflight` uploads the latest successful production build to App Store Connect; Apple account access and an App Store Connect app record for `com.orbit.player` are still required.
-
-## Important Production Hardening
-
-The included Firestore rules are pilot-ready, not final public-launch security. They currently permit narrow unauthenticated player request writes and broad management publishing so the desktop pilot can sync without admin auth. Before wide public launch, move club-state writes to one of these:
-
-- Firebase Admin SDK behind Cloud Functions.
-- Custom claims for club/admin users.
-- A separate private collection readable/writable only by club admins.
-
-Player clients should ultimately write only request documents, not the authoritative club state.
-
-## Payments Boundary
-
-Player Premium must use Apple In-App Purchase. Do not add an external digital-premium checkout link to the iOS app.
-
-Card-house payments are allowed only for clearly labeled real-world services sold and fulfilled by that venue. Keep table stakes, wagers, deposits, and gambling entries outside Orbit checkout.
-
-## Acceptance Test
-
-1. Start management app.
-2. Add or update a game/table/profile.
-3. Confirm Firestore has `clubStates/{accountKey}`.
-4. Install/open player app.
-5. Create a player account.
-6. Confirm clubs/games appear from Firebase.
-7. Join a club.
-8. Join a waitlist.
-9. Confirm Firestore has request documents.
-10. Confirm management app can load or apply those requests.
+The command queries the requested EAS build, verifies its source commit/platform/status, and submits that ID only. No command in repository verification deploys or submits anything.

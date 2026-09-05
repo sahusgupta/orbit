@@ -724,6 +724,7 @@ describe('player table transitions', () => {
         tableId: targetTable.id,
         timestamp: now,
         playerCount: 2,
+        profileId: movingSession.profileId,
         reason: 'player moved',
         note: 'Moving Player moved from Source Table to Target Table'
       }
@@ -876,7 +877,7 @@ describe('player table transitions', () => {
         clubId: accountKey,
         gameId: game.id,
         title: game.name,
-        body: 'A seat has opened for Departure Holdem at Local Test Club! Text back to get on the waitlist',
+        body: 'A seat has opened for Departure Holdem at Local Test Club. Open or refresh Orbit Player to view current availability and request a seat.',
         reason: 'seat-opened',
         createdAt: now,
         expiresAt: '2026-08-08T02:00:00.000Z',

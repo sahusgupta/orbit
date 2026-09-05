@@ -285,6 +285,11 @@ export const discoveryStyles = StyleSheet.create(applyDarkComponentTheme({
     shadowOpacity: 0.03,
     shadowRadius: 12
   },
+  formError: {
+    color: colors.coral,
+    fontSize: 12,
+    fontWeight: '700'
+  },
   gameDetailsBack: { alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 44, paddingRight: 12 },
   gameDetailsBackText: { color: colors.ink, fontSize: 14, fontWeight: '700' },
   gameDetailsClub: { color: '#ffffff', fontSize: 18, fontWeight: '700' },
@@ -421,33 +426,6 @@ export const discoveryStyles = StyleSheet.create(applyDarkComponentTheme({
   openPill: {
     backgroundColor: colors.tealSoft
   },
-  paywallHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 11
-  },
-  paywallIcon: {
-    alignItems: 'center',
-    backgroundColor: colors.tealSoft,
-    borderColor: 'rgba(21,127,109,0.15)',
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 44,
-    justifyContent: 'center',
-    width: 44
-  },
-  paywallPanel: {
-    backgroundColor: '#fbfffc',
-    borderColor: 'rgba(21,127,109,0.18)',
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 12,
-    padding: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.03,
-    shadowRadius: 12
-  },
   preferenceBand: {
     alignItems: 'center',
     backgroundColor: colors.tealSoft,
@@ -462,76 +440,6 @@ export const discoveryStyles = StyleSheet.create(applyDarkComponentTheme({
     color: colors.teal,
     flex: 1,
     fontSize: 13,
-    fontWeight: '700'
-  },
-  priceRow: {
-    alignItems: 'baseline',
-    flexDirection: 'row',
-    gap: 8
-  },
-  priceText: {
-    color: colors.ink,
-    fontSize: 24,
-    fontWeight: '700'
-  },
-  privateBadge: {
-    backgroundColor: colors.tealSoft,
-    borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 5
-  },
-  privateBadgeText: {
-    color: colors.teal,
-    fontSize: 12,
-    fontWeight: '700'
-  },
-  privateGameCard: {
-    backgroundColor: '#fbfffc',
-    borderColor: 'rgba(15,118,110,0.18)'
-  },
-  privateGameComposer: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 11,
-    padding: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.03,
-    shadowRadius: 12
-  },
-  privateGameMarker: {
-    alignItems: 'center',
-    borderColor: colors.teal,
-    borderRadius: 999,
-    borderWidth: 2,
-    height: 40,
-    justifyContent: 'center',
-    width: 40
-  },
-  privateGameMarkerInner: {
-    backgroundColor: colors.teal,
-    borderRadius: 999,
-    height: 16,
-    width: 16
-  },
-  publishPrivateGame: {
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: colors.primary,
-    borderRadius: 10,
-    flexDirection: 'row',
-    gap: 7,
-    minHeight: 40,
-    paddingHorizontal: 13
-  },
-  publishPrivateGameDisabled: {
-    backgroundColor: '#9aa3a0'
-  },
-  publishPrivateGameText: {
-    color: '#ffffff',
-    fontSize: 14,
     fontWeight: '700'
   },
   rakeTypePill: {

@@ -1,7 +1,12 @@
 import { isPlayerVisibleClubName, isPlayerVisibleGameName } from './clubVisibility';
 import type { PlayerAccount, PlayerClubSnapshot, PlayerRecordDocument } from './playerSync';
 import { hasUncommittedFutureRevision, selectCommittedGames, selectRevisionCompatibleRecords } from './syncProtocol';
-import { decodePlayerRecord, decodePublishedClubRecord } from './decoders/playerSnapshotDecoders';
+import {
+  decodePlayerMembership,
+  decodePlayerNotification,
+  decodePlayerWaitlist
+} from './decoders/playerBoundaryDecoders';
+import { decodePublishedClubRecord } from './decoders/playerSnapshotDecoders';
 
 export function mergeSnapshotSources(...sources: PlayerClubSnapshot[][]) {
   const clubs = new Map<string, PlayerClubSnapshot>();
@@ -48,9 +53,12 @@ export function buildPublishedClubSnapshot(
     {
       club: {
         id: club.id || clubDoc.id,
-        name: club.name || 'Local Poker Club',
+        name: club.name,
         address: club.address,
         phone: club.phone,
+        minimumAge: club.minimumAge,
+        coordinate: club.coordinate,
+        venueKind: club.venueKind,
         membershipOptions: club.membershipOptions,
         syncProtocolVersion: club.syncProtocolVersion,
         syncRevision: club.syncRevision,
@@ -60,8 +68,8 @@ export function buildPublishedClubSnapshot(
       memberships: committedMemberships,
       waitlists: committedWaitlists,
       notifications: committedNotifications,
-      social: club.social ?? { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: 0 },
-      generatedAt: club.generatedAt ?? club.publishedAt ?? club.savedAt ?? new Date().toISOString(),
+      ...(club.social ? { social: club.social } : {}),
+      generatedAt: club.generatedAt ?? club.publishedAt ?? club.savedAt ?? '',
       syncProtocolVersion: club.syncProtocolVersion,
       syncRevision: club.syncRevision
     },
@@ -71,14 +79,9 @@ export function buildPublishedClubSnapshot(
 
 export function mergeClubSnapshots(clubs: PlayerClubSnapshot[]): PlayerClubSnapshot {
   const [first] = clubs;
-  return {
-    ...first,
-    club: { id: '__all__', name: 'All Clubs' },
-    games: clubs.flatMap((club) => club.games),
-    memberships: clubs.flatMap((club) => club.memberships),
-    waitlists: clubs.flatMap((club) => club.waitlists),
-    notifications: clubs.flatMap((club) => club.notifications ?? []),
-    social: clubs.reduce(
+  const { social: _firstSocial, ...firstWithoutSocial } = first;
+  const social = clubs.every((club) => club.social)
+    ? clubs.reduce(
       (summary, club) => ({
         activePlayerCount: summary.activePlayerCount + (club.social?.activePlayerCount ?? 0),
         adminCount: summary.adminCount + (club.social?.adminCount ?? 0),
@@ -86,49 +89,54 @@ export function mergeClubSnapshots(clubs: PlayerClubSnapshot[]): PlayerClubSnaps
         waitlistCount: summary.waitlistCount + (club.social?.waitlistCount ?? 0)
       }),
       { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: 0 }
-    ),
-    generatedAt: new Date().toISOString()
+    )
+    : undefined;
+  const generatedAt = clubs
+    .map((club) => club.generatedAt)
+    .filter((value) => Number.isFinite(Date.parse(value)))
+    .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? '';
+  return {
+    ...firstWithoutSocial,
+    club: { id: '__all__', name: 'All Clubs' },
+    games: clubs.flatMap((club) => club.games),
+    memberships: clubs.flatMap((club) => club.memberships),
+    waitlists: clubs.flatMap((club) => club.waitlists),
+    notifications: clubs.flatMap((club) => club.notifications ?? []),
+    ...(social ? { social } : {}),
+    generatedAt
   };
 }
 
 export function filterSnapshotForPlayer(snapshot: PlayerClubSnapshot, player: Pick<PlayerAccount, 'id' | 'name'>): PlayerClubSnapshot {
   const id = normalizeIdentity(player.id);
-  const name = normalizeIdentity(player.name);
   return {
     ...snapshot,
     games: snapshot.games.filter((game) => isPlayerVisibleGameName(game.name)),
     memberships: snapshot.memberships.filter((membership) => {
       const recordId = normalizeIdentity(membership.playerId);
-      return recordId
-        ? Boolean(id && recordId === id)
-        : Boolean(name && normalizeIdentity(membership.playerName) === name);
+      return Boolean(id && recordId && recordId === id);
     }),
     waitlists: snapshot.waitlists.filter((entry) => {
       const recordId = normalizeIdentity(entry.playerId);
-      return recordId
-        ? Boolean(id && recordId === id)
-        : Boolean(name && normalizeIdentity(entry.playerName) === name);
+      return Boolean(id && recordId && recordId === id);
     }),
     notifications: (snapshot.notifications ?? []).filter((notification) => {
       const targetIds = (notification.targetPlayerIds ?? []).map(normalizeIdentity).filter(Boolean);
-      const targetNames = (notification.targetPlayerNames ?? []).map(normalizeIdentity);
-      return targetIds.length > 0
-        ? Boolean(id && targetIds.includes(id))
-        : Boolean(name && targetNames.includes(name));
+      return Boolean(id && targetIds.includes(id));
     })
   };
 }
 
 export function decodeRevisionedMembership(value: unknown) {
-  return decodePlayerRecord<PlayerClubSnapshot['memberships'][number] & { publishedAt?: string; syncRevision?: string }>(value, 'Membership');
+  return decodePlayerMembership(value);
 }
 
 export function decodeRevisionedWaitlist(value: unknown) {
-  return decodePlayerRecord<PlayerClubSnapshot['waitlists'][number] & { publishedAt?: string; syncRevision?: string }>(value, 'Waitlist');
+  return decodePlayerWaitlist(value);
 }
 
 export function decodeRevisionedNotification(value: unknown) {
-  return decodePlayerRecord<PlayerClubSnapshot['notifications'][number] & { publishedAt?: string; syncRevision?: string }>(value, 'Notification');
+  return decodePlayerNotification(value);
 }
 
 function normalizeIdentity(value?: string) {

@@ -8,8 +8,8 @@ export const clubStyles = StyleSheet.create(applyDarkComponentTheme({
   attendanceChoiceRow: { flexDirection: 'row', gap: 10 },
   attendanceChoiceTextActive: { color: '#ffffff' },
   attendanceChoiceTitle: { color: colors.ink, fontSize: 14, fontWeight: '700' },
-  buyAnotherPassButton: { alignItems: 'center', backgroundColor: colors.primaryDark, borderRadius: 11, minHeight: 42, justifyContent: 'center', paddingHorizontal: 14 },
-  buyAnotherPassText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
+  qrActionButton: { alignItems: 'center', backgroundColor: colors.primaryDark, borderRadius: 11, minHeight: 42, justifyContent: 'center', paddingHorizontal: 14 },
+  qrActionText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
   checkedInBand: { alignItems: 'center', backgroundColor: 'rgba(74,222,128,0.12)', borderRadius: 10, flexDirection: 'row', gap: 7, padding: 9 },
   checkedInText: { color: '#dcfce7', flex: 1, fontSize: 10, fontWeight: '700' },
   clubAvatarActive: {
@@ -36,29 +36,6 @@ export const clubStyles = StyleSheet.create(applyDarkComponentTheme({
   compactStatValue: { color: colors.ink, fontSize: 14, fontWeight: '700', textAlign: 'center' },
   formError: { color: '#b42318', fontSize: 12, fontWeight: '700' },
   inputLabel: { color: colors.ink, fontSize: 12, fontWeight: '700' },
-  loyaltyBadge: {
-    backgroundColor: colors.tealSoft,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7
-  },
-  loyaltyBadgeText: {
-    color: colors.teal,
-    fontWeight: '700'
-  },
-  loyaltyCard: {
-    backgroundColor: colors.panel,
-    borderColor: colors.line,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 12,
-    padding: 16
-  },
-  loyaltyHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between'
-  },
   membershipApplicationCard: {
     backgroundColor: colors.panel,
     borderColor: colors.line,
@@ -104,7 +81,6 @@ export const clubStyles = StyleSheet.create(applyDarkComponentTheme({
   membershipIdentityLabel: { color: 'rgba(255,255,255,0.55)', fontSize: 8, fontWeight: '700', letterSpacing: 1 },
   membershipIdentityRow: { flexDirection: 'row', justifyContent: 'space-between' },
   membershipIdentityValue: { color: '#ffffff', fontSize: 13, fontWeight: '700', marginTop: 3 },
-  membershipNumberBlock: { alignItems: 'flex-end' },
   membershipProfileAvatar: { alignItems: 'center', backgroundColor: colors.primarySoft, borderRadius: 10, height: 40, justifyContent: 'center', width: 40 },
   membershipProfileAvatarText: { color: colors.primary, fontSize: 17, fontWeight: '700' },
   membershipProfileCopy: { flex: 1, gap: 2 },
@@ -129,35 +105,11 @@ export const clubStyles = StyleSheet.create(applyDarkComponentTheme({
   membershipWalletMonogramText: { color: '#ffffff', fontSize: 18, fontWeight: '700' },
   membershipWalletPlan: { color: 'rgba(255,255,255,0.65)', fontSize: 9, fontWeight: '700', letterSpacing: 0.8 },
   membershipWalletTop: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
-  merchantBand: { alignItems: 'flex-start', backgroundColor: colors.tealSoft, borderColor: 'rgba(21,127,109,0.20)', borderRadius: 13, borderWidth: 1, flexDirection: 'row', gap: 9, padding: 12 },
-  merchantBandText: { color: colors.teal, flex: 1, fontSize: 12, fontWeight: '700', lineHeight: 17 },
   passTimer: { alignItems: 'center', borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 13 },
   passTimerActive: { backgroundColor: colors.tealSoft, borderColor: 'rgba(21,127,109,0.20)' },
   passTimerCopy: { flex: 1, gap: 2 },
   passTimerInactive: { backgroundColor: '#f4f4f1', borderColor: colors.line },
   passTimerTitle: { color: colors.ink, fontSize: 14, fontWeight: '700' },
-  payInPersonButton: { alignItems: 'center', backgroundColor: '#ffffff', borderColor: colors.line, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: 12, padding: 15 },
-  payInPersonCopy: { flex: 1, gap: 2 },
-  paymentPlaceholder: {
-    alignItems: 'center',
-    backgroundColor: '#fbfffc',
-    borderColor: colors.line,
-    borderRadius: 12,
-    borderStyle: 'dashed',
-    borderWidth: 1,
-    gap: 10,
-    minHeight: 220,
-    justifyContent: 'center',
-    padding: 20
-  },
-  paymentPlaceholderIcon: {
-    alignItems: 'center',
-    backgroundColor: colors.primarySoft,
-    borderRadius: 16,
-    height: 56,
-    justifyContent: 'center',
-    width: 56
-  },
   planCard: {
     alignItems: 'center',
     backgroundColor: colors.panel,
@@ -190,11 +142,6 @@ export const clubStyles = StyleSheet.create(applyDarkComponentTheme({
     height: 40,
     justifyContent: 'center',
     width: 40
-  },
-  points: {
-    color: colors.ink,
-    fontSize: 34,
-    fontWeight: '700'
   },
   requestGameRow: { backgroundColor: '#f1f7f6', borderColor: 'rgba(15,118,110,0.18)', borderWidth: 1 },
   seatRequestHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 12 },

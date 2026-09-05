@@ -12,6 +12,7 @@ type OrbitApiClient = {
   getManagementRecoveryStatusApi: (access: unknown) => Promise<Record<string, unknown>>;
   completeManagementRecoveryApi: (access: unknown, password: string) => Promise<Record<string, unknown>>;
   createSelfCheckInQrKitApi: (access: unknown) => Promise<Record<string, unknown>>;
+  redeemMembershipQrApi: (access: unknown, token: string) => Promise<Record<string, unknown>>;
   getOrCreateDeviceId: () => string;
   loadStateApiFirst: (accountKey?: string, access?: unknown) => Promise<unknown>;
   loadStateFromApi: (accountKey?: string, access?: unknown) => Promise<unknown>;
@@ -253,6 +254,76 @@ describe('Electron Orbit API transport', () => {
     });
     expect(JSON.parse(String((fetch.mock.calls[1][1] as RequestInit).body))).toMatchObject({ expectedRevision: 0 });
     expect(JSON.stringify(writeOrbitApiLog.mock.calls)).not.toContain('signed-capability');
+  });
+
+  it('redeems an opaque membership QR with a stable retry ID and refreshes only authoritative state', async () => {
+    const token = `omq1_${'A'.repeat(43)}`;
+    const refreshedState = { games: [], settings: { pilotAccess: { licenseId: 'club-one' } } };
+    const fetch = vi.fn()
+      .mockRejectedValueOnce(new Error('unknown result'))
+      .mockResolvedValueOnce(response(JSON.stringify({
+        ok: true,
+        status: 'checked-in',
+        playerName: 'Member One',
+        duplicate: true
+      })))
+      .mockResolvedValueOnce(response(JSON.stringify({
+        ok: true,
+        accountKey: 'club-one',
+        revision: 9,
+        state: refreshedState
+      })));
+    const writeOrbitApiLog = vi.fn();
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, writeOrbitApiLog }));
+
+    await expect(client.redeemMembershipQrApi(
+      { licenseId: 'club-one', authorizationCode: 'pilot-code' },
+      token
+    )).resolves.toEqual({
+      ok: true,
+      status: 'checked-in',
+      playerName: 'Member One',
+      duplicate: true,
+      state: refreshedState
+    });
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      'http://127.0.0.1:4310/management/membership-qr/redeem',
+      'http://127.0.0.1:4310/management/membership-qr/redeem',
+      'http://127.0.0.1:4310/state/club-one'
+    ]);
+    const firstBody = JSON.parse(String((fetch.mock.calls[0][1] as RequestInit).body));
+    const retryBody = JSON.parse(String((fetch.mock.calls[1][1] as RequestInit).body));
+    expect(firstBody).toEqual({ token, mutationId: 'scan:request-001' });
+    expect(retryBody).toEqual(firstBody);
+    expect(JSON.stringify(writeOrbitApiLog.mock.calls)).not.toContain(token);
+  });
+
+  it('rejects non-opaque membership values without transport', async () => {
+    const fetch = vi.fn();
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch }));
+    await expect(client.redeemMembershipQrApi(
+      { licenseId: 'club-one', authorizationCode: 'pilot-code' },
+      ['orbit', 'membership', 'v1', 'club-one', 'player-one'].join(':').replace('orbit:', 'orbit-')
+    )).resolves.toMatchObject({ ok: false, code: 'INVALID_INPUT' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('never reports or applies a check-in when both authoritative attempts are unconfirmed', async () => {
+    const token = `omq1_${'B'.repeat(43)}`;
+    const fetch = vi.fn().mockRejectedValue(new Error('offline'));
+    const writeLocalDatabase = vi.fn();
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, writeLocalDatabase }));
+
+    await expect(client.redeemMembershipQrApi(
+      { licenseId: 'club-one', authorizationCode: 'pilot-code' },
+      token
+    )).resolves.toEqual({
+      ok: false,
+      code: 'MEMBERSHIP_QR_REDEEM_UNCONFIRMED',
+      error: 'Orbit could not confirm this check-in. Scan the same code again.'
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(writeLocalDatabase).not.toHaveBeenCalled();
   });
 
   it('serializes state writes per account before assigning expected revisions', async () => {

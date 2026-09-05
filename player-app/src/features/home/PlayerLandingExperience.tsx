@@ -3,19 +3,19 @@ import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle, Defs, Ellipse, LinearGradient as SvgGradient, Path, Rect, Stop } from 'react-native-svg';
-import { getGameStatusLabel } from '../../domain/discovery';
+import { getGameStatusLabel, getRunningAvailableSeats, hasRunningTable } from '../../domain/discovery';
 import type { GameOpportunity } from '../../domain/playerTypes';
 import { colors } from '../../styles/playerTheme';
 import { playerLandingStyles as styles } from './playerLandingStyles';
 
 const featureCards = [
   {
-    id: 'live',
+    id: 'current',
     rank: 'A',
     suit: '♠',
     tone: 'ink',
-    label: 'Live',
-    title: 'Running now',
+    label: 'Published',
+    title: 'Room listings',
     detail: 'Room-published games, tables, and open-seat context.',
     left: 18,
     rotation: '-9deg'
@@ -32,13 +32,13 @@ const featureCards = [
     rotation: '0deg'
   },
   {
-    id: 'registration',
+    id: 'interest',
     rank: 'Q',
     suit: '♥',
     tone: 'red',
     label: 'Open',
-    title: 'Registration open',
-    detail: 'Find published tournaments that are currently accepting entries.',
+    title: 'Interest open',
+    detail: 'Find published tournaments where venues accept nonbinding interest.',
     left: 150,
     rotation: '9deg'
   }
@@ -54,7 +54,7 @@ const journeySteps = [
 const faqItems = [
   {
     id: 'browse',
-    question: 'What information is live?',
+    question: 'What information is published?',
     answer: 'Participating rooms publish their current games, tables, seats, and tournament state from Orbit Core.'
   },
   {
@@ -65,12 +65,12 @@ const faqItems = [
   {
     id: 'location',
     question: 'Can I use Orbit without sharing my location?',
-    answer: 'Yes. Location improves distance sorting, but discovery remains usable without permission. You can enter a city or area manually.'
+    answer: 'Yes. Orbit lists venue-published addresses and does not require precise device location for discovery.'
   },
   {
     id: 'payments',
     question: 'How do memberships and tournament payments work?',
-    answer: 'Orbit shows only options a room has published. Payment and activation follow the supported process stated by the room.'
+    answer: 'Orbit shows only options a room has published. Any membership or tournament fee is confirmed and collected by the venue in person.'
   }
 ] as const;
 
@@ -116,19 +116,19 @@ export function PlayerLandingHero({
   onBrowseTournaments: () => void;
   onBrowseClubs: () => void;
 }) {
-  const [activeFeatureId, setActiveFeatureId] = useState<(typeof featureCards)[number]['id']>('live');
+  const [activeFeatureId, setActiveFeatureId] = useState<(typeof featureCards)[number]['id']>('current');
   const activeFeature = featureCards.find((feature) => feature.id === activeFeatureId) ?? featureCards[0];
   const currentGames = opportunities.slice(0, 3);
-  let emptyInventoryTitle = 'Loading live games';
+  let emptyInventoryTitle = 'Loading published games';
   let emptyInventoryCopy = 'Orbit is checking the latest updates from current rooms.';
   if (inventoryPartial) {
-    emptyInventoryTitle = 'More live games are loading';
+    emptyInventoryTitle = 'More published games are loading';
     emptyInventoryCopy = 'No matches are in the rooms loaded so far. More rooms are still refreshing.';
   } else if (inventoryStatus === 'ready') {
-    emptyInventoryTitle = 'No live games published yet';
+    emptyInventoryTitle = 'No current games published yet';
     emptyInventoryCopy = 'Browse current rooms while they update their floors.';
   } else if (inventoryStatus === 'error') {
-    emptyInventoryTitle = 'Live games unavailable';
+    emptyInventoryTitle = 'Published games unavailable';
     emptyInventoryCopy = 'Orbit could not refresh current games. Try again when your connection returns.';
   }
 
@@ -140,14 +140,14 @@ export function PlayerLandingHero({
         </View>
         <View>
           <Text style={styles.brandName}>Orbit</Text>
-          <Text style={styles.brandDescriptor}>Live player network</Text>
+          <Text style={styles.brandDescriptor}>Room-published player network</Text>
         </View>
       </View>
 
       <View style={styles.heroCopy}>
         <View style={styles.eyebrowRow}>
           <Ionicons color={colors.teal} name="sparkles-outline" size={15} />
-          <Text style={styles.eyebrow}>Current live poker starts here</Text>
+          <Text style={styles.eyebrow}>Current room listings start here</Text>
         </View>
         <Text accessibilityRole="header" style={styles.heroTitle}>Find your game.</Text>
         <View style={styles.heroActions}>
@@ -211,7 +211,7 @@ export function PlayerLandingHero({
         </View>
       </View>
 
-      <View accessibilityLabel="Useful live poker activity" style={styles.nowBoard}>
+      <View accessibilityLabel="Useful published poker activity" style={styles.nowBoard}>
         <View style={styles.nowBoardHeader}>
           <View style={styles.nowBoardTitleRow}>
             <View style={styles.liveDot} />
@@ -234,20 +234,20 @@ export function PlayerLandingHero({
               >
                 <View style={styles.liveGameCopy}>
                   <View style={styles.liveGameStatusRow}>
-                    <View style={[styles.liveGameStatusDot, !item.game.availableSeats && styles.formingGameStatusDot]} />
+                    <View style={[styles.liveGameStatusDot, !hasRunningTable(item.game) && styles.formingGameStatusDot]} />
                     <Text style={styles.liveGameKicker}>{getGameStatusLabel(item.game)}</Text>
                   </View>
                   <Text numberOfLines={1} style={styles.liveGameTitle}>{item.game.name}</Text>
-                  <Text numberOfLines={1} style={styles.liveGameMeta}>{item.club.club.name} · {item.distanceMiles.toFixed(1)} mi</Text>
+                  <Text numberOfLines={1} style={styles.liveGameMeta}>{[item.club.club.name, item.distanceMiles == null ? null : `${item.distanceMiles.toFixed(1)} mi`].filter(Boolean).join(' · ')}</Text>
                 </View>
                 <View style={styles.liveGameFacts}>
                   <View>
-                    <Text style={styles.liveGameFactLabel}>Seats</Text>
-                    <Text style={styles.liveGameFactValue}>{item.game.availableSeats || '—'}</Text>
+                    <Text style={styles.liveGameFactLabel}>Open seats</Text>
+                    <Text style={styles.liveGameFactValue}>{hasRunningTable(item.game) ? getRunningAvailableSeats(item.game) : '—'}</Text>
                   </View>
                   <View>
                     <Text style={styles.liveGameFactLabel}>Wait</Text>
-                    <Text style={styles.liveGameFactValue}>{item.game.waitlistCount || '—'}</Text>
+                    <Text style={styles.liveGameFactValue}>{item.game.waitlistCount}</Text>
                   </View>
                 </View>
                 <Ionicons color="#8ca7ff" name="chevron-forward" size={18} />
@@ -270,11 +270,11 @@ export function PlayerLandingHero({
           <View style={styles.spotlightIcon}>
             <Ionicons color="#8ca7ff" name="calendar-outline" size={20} />
           </View>
-          <Text style={styles.spotlightEyebrow}>Plan the next game</Text>
-          <Text style={styles.spotlightTitle}>Registration is open</Text>
+          <Text style={styles.spotlightEyebrow}>Review venue listings</Text>
+          <Text style={styles.spotlightTitle}>Published events</Text>
           <View style={styles.spotlightFooter}>
             <Text style={styles.spotlightCount}>{openTournamentCount}</Text>
-            <Text style={styles.spotlightMeta}>{openTournamentCount === 1 ? 'event' : 'events'}</Text>
+            <Text style={styles.spotlightMeta}>{openTournamentCount === 1 ? 'open interest window' : 'open interest windows'}</Text>
             <Ionicons color="#8ca7ff" name="arrow-forward" size={16} />
           </View>
         </Pressable>
@@ -324,7 +324,7 @@ export function OrbitPlayerFaq() {
           <Ionicons color="#8ca7ff" name="help-circle-outline" size={23} />
         </View>
         <Text style={styles.faqEyebrow}>Before you go</Text>
-        <Text accessibilityRole="header" style={styles.faqTitle}>Straight answers for live play.</Text>
+        <Text accessibilityRole="header" style={styles.faqTitle}>Straight answers for venue listings.</Text>
       </View>
       <View style={styles.faqList}>
         {faqItems.map((item, index) => {

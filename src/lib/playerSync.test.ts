@@ -6,8 +6,7 @@ import {
   buildPlayerClubSnapshot,
   createMembershipRequest,
   createWaitlistRequest,
-  getClubIdFromState,
-  getPlayerLoyalty
+  getClubIdFromState
 } from './playerSync';
 
 const state = {
@@ -135,28 +134,28 @@ describe('player sync snapshots', () => {
     expect(snapshot.games[0]).toMatchObject({
       id: 'nlh-1-2',
       availableSeats: 2,
-      waitlistCount: 2,
+      waitlistCount: 0,
       formingCount: 0,
-      knownPlayersCount: 2
+      knownPlayersCount: 1
     });
     expect(snapshot.games[0].openTables).toHaveLength(1);
     expect(snapshot.games[0].openTables[0].social).toMatchObject({
       seatedPlayerCount: 2,
       adminCount: 1,
-      knownPlayersCount: 2
+      knownPlayersCount: 1
     });
-    expect(snapshot.games[1]).toMatchObject({ availableSeats: 4, formingCount: 1 });
-    expect(snapshot.waitlists.map((entry) => entry.playerName)).toEqual(['Alex', 'Riley']);
-    expect(snapshot.memberships[0].loyalty).toMatchObject({ tier: 'Preferred', points: 550, nextTierAtHours: 120 });
+    expect(snapshot.games[1]).toMatchObject({ availableSeats: 0, formingCount: 1 });
+    expect(snapshot.games[1].openTables[0]).toMatchObject({ status: 'Forming', availableSeats: 4 });
+    expect(snapshot.waitlists).toEqual([]);
+    expect(snapshot.memberships[0]).not.toHaveProperty('loyalty');
     expect(snapshot.social).toMatchObject({
       activePlayerCount: 2,
       adminCount: 1,
-      knownPlayersInHouse: 2,
-      waitlistCount: 2
+      knownPlayersInHouse: 1,
+      waitlistCount: 0
     });
     expect(snapshot.timeAccess).toEqual({
       enabled: true,
-      hourlyFeeCents: 0,
       linked: true,
       profileId: 'player-1',
       savedMinutes: 0
@@ -175,12 +174,24 @@ describe('player sync snapshots', () => {
     expect(snapshot).not.toHaveProperty('syncRevision');
   });
 
-  it('derives stable club ids and loyalty tiers', () => {
+  it('derives a stable club id without publishing a synthetic loyalty product', () => {
     expect(getClubIdFromState(state)).toBe('lucky-lodge');
-    expect(getPlayerLoyalty('club-a', 0).tier).toBe('New');
-    expect(getPlayerLoyalty('club-a', 12).tier).toBe('Regular');
-    expect(getPlayerLoyalty('club-a', 50).tier).toBe('Preferred');
-    expect(getPlayerLoyalty('club-a', 120).tier).toBe('Anchor');
+    expect(buildPlayerClubSnapshot(state).memberships.every((membership) => !('loyalty' in membership))).toBe(true);
+  });
+
+  it('does not treat an unrelated same-name session as a familiar player', () => {
+    const snapshot = buildPlayerClubSnapshot({
+      ...state,
+      profiles: [{
+        ...state.profiles[0], commonlyPlaysWithProfileIds: [], usualCompanions: ['Same Name']
+      }],
+      playerSessions: [{
+        id: 'same-name-seat', playerName: 'Same Name', profileId: 'unrelated-profile',
+        gameId: 'nlh-1-2', tableId: 'table-1'
+      }]
+    }, { id: 'player-1', name: 'Alex', email: 'alex@example.com' });
+    expect(snapshot.games[0].openTables[0].social.knownPlayersCount).toBe(0);
+    expect(snapshot.social.knownPlayersInHouse).toBe(0);
   });
 
   it('creates portable player action requests for club ingestion', () => {
@@ -192,12 +203,16 @@ describe('player sync snapshots', () => {
     };
     const join = createMembershipRequest(player, 'lucky-lodge', '2026-05-20T12:00:00.000Z');
     const wait = createWaitlistRequest(player, 'lucky-lodge', 'nlh-1-2', {
-      requestedAt: '2026-05-20T12:01:00.000Z',
-      note: 'Can play short-handed'
+      requestedAt: '2026-05-20T12:01:00.000Z'
     });
 
     expect(join).toMatchObject({ type: 'membership-request', clubId: 'lucky-lodge', player });
-    expect(wait).toMatchObject({ type: 'waitlist-request', gameId: 'nlh-1-2', note: 'Can play short-handed' });
+    expect(wait).toMatchObject({ type: 'waitlist-request', gameId: 'nlh-1-2' });
+    expect(wait).not.toHaveProperty('note');
+    expect(join.id).toMatch(/^join_[0-9a-f-]{36}$/i);
+    expect(wait.id).toMatch(/^wait_[0-9a-f-]{36}$/i);
+    expect(`${join.id}:${wait.id}`).not.toContain('alex');
+    expect(`${join.id}:${wait.id}`).not.toContain('lucky-lodge');
   });
 
   it('carries a Core-defined membership plan while deferring its duration until activation', () => {
@@ -209,10 +224,16 @@ describe('player sync snapshots', () => {
     expect(request).toMatchObject({ planId: 'weekend', planName: 'Weekend Pass', planPriceLabel: '$25', membershipDurationDays: 3 });
     expect(joined.profiles.find((profile) => profile.id === player.id)).toMatchObject({
       membershipDurationDays: 3,
+      membershipPlanName: 'Weekend Pass',
       membershipExpirationDate: '',
       membershipPaymentStatus: 'Pending',
-      membershipStatus: 'Approved'
+      membershipStatus: 'Requested',
+      preferredGameId: '',
+      notes: 'Player app membership request received'
     });
+    const published = buildPlayerClubSnapshot(joined, player).memberships[0];
+    expect(published).toMatchObject({ planName: 'Weekend Pass', membershipDurationDays: 3 });
+    expect(published).not.toHaveProperty('joinedAt');
   });
 
   it('applies player membership and waitlist requests to club-side state', () => {
@@ -233,14 +254,13 @@ describe('player sync snapshots', () => {
       membershipStartDate: '',
       membershipExpirationDate: '',
       membershipPaymentStatus: 'Pending',
-      membershipStatus: 'Approved',
+      membershipStatus: 'Requested',
       preferredGameIds: ['plo-1-2'],
-      notes: 'Player app: morgan@example.com, 555-0122 | Monthly membership - online payment selected'
+      notes: 'Player app membership request received'
     });
 
     const wait = createWaitlistRequest(player, 'lucky-lodge', 'plo-1-2', {
-      requestedAt: '2026-05-20T12:05:00.000Z',
-      note: 'Short-handed is fine'
+      requestedAt: '2026-05-20T12:05:00.000Z'
     });
     const waiting = applyWaitlistRequestToClubState(joined, wait);
 
@@ -250,7 +270,7 @@ describe('player sync snapshots', () => {
       playerName: 'Morgan',
       gameId: 'plo-1-2',
       status: 'Interested',
-      notes: 'Interested | Short-handed is fine'
+      notes: 'Interested'
     });
   });
 
@@ -269,7 +289,7 @@ describe('player sync snapshots', () => {
       membershipStartDate: '',
       membershipExpirationDate: '',
       preferredGameIds: ['nlh-1-2'],
-      notes: 'Player app: jamie@example.com, 555-0199'
+      notes: 'Player app game request received'
     });
     expect(next.interests.at(-1)).toMatchObject({
       profileId: 'player-new',
@@ -363,7 +383,7 @@ describe('player sync snapshots', () => {
       membershipExpirationDate: '2027-05-21',
       preferredGameIds: ['plo-1-2'],
       preferredStakes: '1/2 PLO',
-      notes: 'Player app: taylor@example.com'
+      notes: 'Player profile synchronized'
     });
   });
 
@@ -505,7 +525,7 @@ describe('player sync snapshots', () => {
     );
     expect(paid.profiles.find((profile) => profile.id === 'player-day')).toMatchObject({
       membershipPlan: 'day',
-      membershipStatus: 'Approved',
+      membershipStatus: 'Requested',
       membershipPaymentStatus: 'Pending'
     });
     expect(paid.profiles.find((profile) => profile.id === 'player-day')?.membershipExpiresAt).toBeUndefined();
@@ -521,12 +541,12 @@ describe('player sync snapshots', () => {
     );
     expect(pending.profiles.find((profile) => profile.id === 'player-walkin')).toMatchObject({
       membershipPlan: 'monthly',
-      membershipStatus: 'Approved',
+      membershipStatus: 'Requested',
       membershipPaymentStatus: 'Pending',
       membershipExpirationDate: ''
     });
     expect(buildPlayerClubSnapshot(pending).memberships.find((membership) => membership.playerId === 'player-walkin')).toMatchObject({
-      status: 'Approved',
+      status: 'Requested',
       paymentMethod: 'in-person',
       paymentStatus: 'Pending'
     });
@@ -545,7 +565,7 @@ describe('player sync snapshots', () => {
     expect(joined.profiles.find((profile) => profile.id === 'player-1')?.membershipExpirationDate).toBe('2099-01-01');
     expect(joined.profiles.find((profile) => profile.id === sameNamePlayer.id)).toMatchObject({
       name: 'Alex',
-      membershipStatus: 'Approved'
+      membershipStatus: 'Requested'
     });
     expect(buildPlayerClubSnapshot(joined, sameNamePlayer).memberships.map((membership) => membership.playerId)).toEqual([
       sameNamePlayer.id
@@ -612,7 +632,7 @@ describe('player sync snapshots', () => {
       )
     );
     expect(paidFirst.profiles.find((profile) => profile.id === paidProfile.id)).toMatchObject({
-      membershipStatus: 'Approved',
+      membershipStatus: 'Requested',
       membershipPaymentStatus: 'Paid',
       membershipPaymentTransactionId: 'checkout-paid-first',
       membershipPaymentAmountCents: 4000
@@ -700,5 +720,34 @@ describe('player sync snapshots', () => {
       planPriceLabel: '$35/mo',
       membershipDurationDays: 30
     });
+  });
+
+  it('refuses incoherent attendance/table combinations at the shared state boundary', () => {
+    const player = { id: 'player-intent', name: 'Intent Player', email: 'intent@example.com' };
+    const base = createWaitlistRequest(player, 'lucky-lodge', 'nlh-1-2', {
+      requestedAt: '2026-05-20T18:00:00.000Z'
+    });
+    expect(applyWaitlistRequestToClubState(state, { ...base, attendance: 'arrived', tableId: undefined })).toBe(state);
+    expect(applyWaitlistRequestToClubState(state, { ...base, attendance: 'interested', tableId: 'table-1' })).toBe(state);
+    expect(applyWaitlistRequestToClubState(state, { ...base, attendance: 'confirmed', tableId: 'table-1' }).interests.at(-1)).toMatchObject({
+      status: 'Confirmed Coming', tableId: 'table-1'
+    });
+  });
+
+  it('publishes no membership option from an unactivated legacy plan', () => {
+    const legacyState = {
+      ...state,
+      settings: {
+        ...state.settings,
+        membershipPlans: [{
+          id: 'legacy-plan',
+          name: 'Legacy inferred plan',
+          priceLabel: '$40',
+          durationDays: 30
+        }]
+      }
+    };
+
+    expect(buildPlayerClubSnapshot(legacyState).club.membershipOptions).toEqual([]);
   });
 });

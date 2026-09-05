@@ -3,6 +3,8 @@ const { spawnSync } = require('child_process');
 const checks = [
   { name: 'Root TypeScript', script: 'typecheck' },
   { name: 'Player TypeScript', script: 'player:typecheck' },
+  { name: 'Player release contract', script: 'player:release:verify' },
+  { name: 'Player release artwork', script: 'player:assets:verify' },
   { name: 'Player Web TypeScript', script: 'web:typecheck' },
   { name: 'Player Web lint', script: 'web:lint' },
   { name: 'Player Web focused tests', script: 'web:test' },

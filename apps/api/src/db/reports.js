@@ -6,6 +6,7 @@ const { firestoreDocumentId, getDatabase } = require('./connection');
 const reportsCollection = 'orbitAnalyticalReports';
 const reportChunkSize = 400_000;
 const maximumReportBytes = 8_000_000;
+const deletionPageSize = 100;
 
 async function storeAnalyticalReport(report) {
   if (!report || typeof report !== 'object') throw new Error('Report payload must be an object.');
@@ -45,4 +46,47 @@ async function storeAnalyticalReport(report) {
   return { ok: true, id, accountKey, createdAt, deliveryStatus: 'stored' };
 }
 
-module.exports = { reportsCollection, storeAnalyticalReport };
+async function deleteAnalyticalReportDocument(database, reportId) {
+  const reportPath = `${reportsCollection}/${String(reportId)}`;
+  let deletedChunks = 0;
+  while (true) {
+    const chunks = await database.queryCollection(`${reportPath}/chunks`, { limit: deletionPageSize });
+    if (!chunks.length) break;
+    await Promise.all(chunks.map((chunk) => database.deleteDocument(`${reportPath}/chunks/${chunk.id}`)));
+    deletedChunks += chunks.length;
+  }
+  await database.deleteDocument(reportPath);
+  return deletedChunks;
+}
+
+async function deleteAnalyticalReportsForAccounts(accountKeys, dependencies = {}) {
+  const database = dependencies.database || await (dependencies.getDatabase || getDatabase)();
+  const normalizedAccountKeys = [...new Set((accountKeys || [])
+    .map((accountKey) => sanitizeAccountKey(accountKey))
+    .filter(Boolean))];
+  let deletedReports = 0;
+  let deletedChunks = 0;
+  for (const accountKey of normalizedAccountKeys) {
+    while (true) {
+      const reports = await database.queryCollection(reportsCollection, {
+        filters: [{ field: 'accountKey', op: '==', value: accountKey }],
+        limit: deletionPageSize
+      });
+      if (!reports.length) break;
+      for (const report of reports) {
+        deletedChunks += await deleteAnalyticalReportDocument(database, report.id);
+        deletedReports += 1;
+      }
+    }
+  }
+  return {
+    deletedAnalyticalReports: deletedReports,
+    deletedAnalyticalReportChunks: deletedChunks
+  };
+}
+
+module.exports = {
+  deleteAnalyticalReportsForAccounts,
+  reportsCollection,
+  storeAnalyticalReport
+};

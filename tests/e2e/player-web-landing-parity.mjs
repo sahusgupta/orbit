@@ -191,7 +191,7 @@ try {
   assert(response?.status() === 200, `Target landing returned HTTP ${response?.status() || 0}.`);
   const routeContract = await page.evaluate(() => ({
     home: document.querySelector('.player-landing__nav a[aria-label="Orbit Player home"]')?.getAttribute('href'),
-    games: [...document.querySelectorAll('.player-landing a')].find((link) => link.textContent?.trim() === 'Find games near me')?.getAttribute('href'),
+    games: [...document.querySelectorAll('.player-landing a')].find((link) => link.textContent?.trim() === 'Browse published games')?.getAttribute('href'),
     memberships: [...document.querySelectorAll('.player-landing a')].find((link) => link.textContent?.trim() === 'Manage memberships')?.getAttribute('href'),
     myOrbit: [...document.querySelectorAll('.player-landing a')].find((link) => link.textContent?.trim() === 'Open My Orbit')?.getAttribute('href'),
     pokerCards: document.querySelectorAll('.player-poker-card').length,
@@ -201,7 +201,7 @@ try {
     logoSources: [...document.querySelectorAll('.player-landing img')].map((image) => image.getAttribute('src'))
   }));
   assert(routeContract.home === '/', 'Landing brand is not wired to home.');
-  assert(routeContract.games === '/games', 'Landing nearby-game action is not wired to discovery.');
+  assert(routeContract.games === '/games', 'Landing published-game action is not wired to discovery.');
   assert(routeContract.memberships === '/me/clubs', 'Landing membership action is not wired to My Clubs.');
   assert(routeContract.myOrbit === '/me', 'Landing My Orbit action is not wired to the player hub.');
   assert(routeContract.pokerCards === 3, 'Landing does not render the adapted three-card poker hand.');

@@ -1,6 +1,14 @@
 const compression = require('compression');
 const requestMetrics = [];
 
+function requestMetricPath(request) {
+  const baseUrl = String(request.baseUrl || '').replace(/[^A-Za-z0-9/_-]/g, '').slice(0, 80);
+  const routePath = typeof request.route?.path === 'string'
+    ? request.route.path.replace(/[^A-Za-z0-9/:._-]/g, '').slice(0, 160)
+    : '';
+  return routePath ? `${baseUrl}${routePath}` : 'unmatched-route';
+}
+
 const responseCompression = compression({
   level: 6,
   threshold: 1024,
@@ -36,7 +44,7 @@ function recordRequestTiming(request, response, next) {
     requestMetrics.push({
       durationMs: Number(process.hrtime.bigint() - startedAt) / 1e6,
       method: request.method,
-      path: request.path,
+      path: requestMetricPath(request),
       responseBytes,
       status: response.statusCode,
       recordedAt: new Date().toISOString()
@@ -48,4 +56,4 @@ function recordRequestTiming(request, response, next) {
 
 const getApiRequestMetrics = () => requestMetrics.slice();
 
-module.exports = { getApiRequestMetrics, recordRequestTiming, responseCompression };
+module.exports = { getApiRequestMetrics, recordRequestTiming, requestMetricPath, responseCompression };

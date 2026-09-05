@@ -4,11 +4,21 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import { useAuth } from '@/src/auth/auth-context';
 import { getFirebaseBrowserClient, isFirebaseBrowserSyncEnabled } from '@/src/data/firebase-client';
+import { scheduleAtBoundary } from '@/src/domain/boundary-timer';
+import { getNextTournamentInterestBoundary } from '@/src/domain/selectors';
+import type { PlayerTournament } from '@/src/domain/types';
 
-export function LiveRouteRefresh() {
+export function LiveRouteRefresh({ tournaments = [] }: { tournaments?: PlayerTournament[] }) {
   const router = useRouter();
   const { user } = useAuth();
   const ready = useRef(false);
+  const nextTournamentBoundary = getNextTournamentInterestBoundary(tournaments);
+
+  useEffect(() => {
+    if (nextTournamentBoundary == null) return;
+    return scheduleAtBoundary(nextTournamentBoundary, () => router.refresh());
+  }, [nextTournamentBoundary, router]);
+
   useEffect(() => {
     if (user || !isFirebaseBrowserSyncEnabled()) return;
     let disposed = false;
