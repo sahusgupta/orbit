@@ -22,7 +22,7 @@ const landingMono = DM_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.origin),
-  title: { default: 'Orbit Player | Find poker games near you', template: '%s | Orbit Player' },
+  title: { default: 'Orbit Player | Browse published poker games', template: '%s | Orbit Player' },
   description: siteConfig.description,
   applicationName: siteConfig.name,
   authors: [{ name: siteConfig.developer.name, url: siteConfig.developer.url }],
@@ -33,14 +33,14 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: siteConfig.name,
-    title: 'Orbit Player | Find poker games near you',
+    title: 'Orbit Player | Browse published poker games',
     description: siteConfig.description,
     url: '/',
     images: [siteConfig.image]
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Orbit Player | Find poker games near you',
+    title: 'Orbit Player | Browse published poker games',
     description: siteConfig.description,
     images: [{ url: siteConfig.image.url, alt: siteConfig.image.alt }]
   },

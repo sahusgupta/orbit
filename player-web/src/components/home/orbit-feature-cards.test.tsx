@@ -22,18 +22,18 @@ afterEach(() => {
 });
 
 describe('Orbit feature cards', () => {
-  it('connects the poker-card story to nearby games and membership management', async () => {
+  it('connects the poker-card story to published games and membership management', async () => {
     render(<OrbitFeatureCards />);
 
-    const nearby = screen.getByRole('button', { name: 'Preview nearby feature' });
+    const published = screen.getByRole('button', { name: 'Preview published feature' });
     const memberships = screen.getByRole('button', { name: 'Preview my clubs feature' });
-    expect(nearby).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText('Live games near you')).toBeVisible();
-    expect(screen.getByRole('link', { name: /Browse nearby games/ })).toHaveAttribute('href', '/games');
+    expect(published).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Venue-published games')).toBeVisible();
+    expect(screen.getByRole('link', { name: /Browse published games/ })).toHaveAttribute('href', '/games');
 
     await userEvent.click(memberships);
 
-    expect(nearby).toHaveAttribute('aria-pressed', 'false');
+    expect(published).toHaveAttribute('aria-pressed', 'false');
     expect(memberships).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText('Every membership in one place')).toBeVisible();
     expect(screen.getByText(/active, pending, and expired poker-club memberships/i)).toBeVisible();

@@ -6,7 +6,10 @@ import {
   formatDistance,
   formatEventDate,
   gameRouteKey,
+  getGameAvailabilityLabel,
   getGameStateLabel,
+  getTournamentInterestLabel,
+  getTournamentInterestState,
   getVenueLabel,
   tournamentRouteKey
 } from '@/src/domain/selectors';
@@ -22,13 +25,6 @@ function gameTone(state: GameListing['state']): StatusTone {
 
 export function GameCard({ listing, compact = false }: { listing: GameListing; compact?: boolean }) {
   const { club, game, state, distanceMiles, stakes } = listing;
-  const seatText = state === 'running'
-    ? game.availableSeats > 0
-      ? `${game.availableSeats} open seat${game.availableSeats === 1 ? '' : 's'}`
-      : `${game.waitlistCount} waiting`
-    : state === 'forming'
-      ? `${game.waitlistCount || game.knownPlayersCount} interested`
-      : 'Club schedule';
   return (
     <Link className={compact ? 'entity-row entity-row--compact' : 'entity-row'} href={`/games/${gameRouteKey(club, game)}`}>
       <article>
@@ -39,7 +35,7 @@ export function GameCard({ listing, compact = false }: { listing: GameListing; c
           <p className="entity-row__meta">{stakes} · {getVenueLabel(club)}</p>
         </div>
         <dl className="entity-row__facts">
-          <div><dt>Availability</dt><dd>{seatText}</dd></div>
+          <div><dt>Availability</dt><dd>{getGameAvailabilityLabel(game)}</dd></div>
           <div><dt>Location</dt><dd>{formatDistance(distanceMiles)}</dd></div>
         </dl>
         <ArrowUpRight className="entity-row__arrow" aria-hidden="true" size={20} />
@@ -48,7 +44,7 @@ export function GameCard({ listing, compact = false }: { listing: GameListing; c
   );
 }
 
-export function ClubCard({ club, distanceMiles }: { club: PlayerClubSnapshot; distanceMiles: number }) {
+export function ClubCard({ club, distanceMiles }: { club: PlayerClubSnapshot; distanceMiles: number | null }) {
   const running = club.games.filter((game) => game.openTables.some((table) => table.status === 'Running')).length;
   const forming = club.games.filter((game) => game.openTables.some((table) => table.status === 'Forming')).length;
   return (
@@ -56,7 +52,7 @@ export function ClubCard({ club, distanceMiles }: { club: PlayerClubSnapshot; di
       <article>
         <div className="club-listing__identity">
           <span className="club-monogram" aria-hidden="true">{club.club.name.slice(0, 1).toUpperCase()}</span>
-          <div><p className="eyebrow">{getVenueLabel(club)}</p><h3>{club.club.name}</h3><p><MapPin aria-hidden="true" size={15} />{club.club.address || 'Location available from the club'}</p></div>
+          <div><p className="eyebrow">{getVenueLabel(club)}</p><h3>{club.club.name}</h3><p><MapPin aria-hidden="true" size={15} />{club.club.address || 'Location unavailable'}</p></div>
         </div>
         <dl>
           <div><dt>Running</dt><dd>{running}</dd></div>
@@ -70,8 +66,8 @@ export function ClubCard({ club, distanceMiles }: { club: PlayerClubSnapshot; di
 }
 
 export function TournamentCard({ listing, compact = false }: { listing: TournamentListing; compact?: boolean }) {
-  const { club, tournament, registration, distanceMiles } = listing;
-  const registrationOpen = tournament.registrationStatus === 'open';
+  const { club, tournament, interest, distanceMiles } = listing;
+  const interestOpen = getTournamentInterestState(tournament) === 'open';
   return (
     <Link className={compact ? 'tournament-listing tournament-listing--compact' : 'tournament-listing'} href={`/tournaments/${tournamentRouteKey(club, tournament)}`}>
       <article>
@@ -81,16 +77,16 @@ export function TournamentCard({ listing, compact = false }: { listing: Tourname
         </div>
         <div className="tournament-listing__main">
           <div className="tournament-listing__badges">
-            <StatusBadge tone={registrationOpen ? 'success' : 'neutral'}>{registrationOpen ? 'Registration open' : 'Registration closed'}</StatusBadge>
-            {registration ? <StatusBadge tone="live">Registered</StatusBadge> : null}
+            <StatusBadge tone={interestOpen ? 'success' : 'neutral'}>{getTournamentInterestLabel(tournament)}</StatusBadge>
+            {interest?.status === 'interested' ? <StatusBadge tone="live">Interested</StatusBadge> : null}
           </div>
-          <p className="entity-row__kicker">{club?.club.name ?? 'Orbit club'}</p>
+          <p className="entity-row__kicker">{club?.club.name ?? 'Venue unavailable'}</p>
           <h3>{tournament.name}</h3>
           <p>{formatEventDate(tournament.startsAt)} · {formatBuyIn(tournament)}</p>
         </div>
         <dl>
-          <div><CalendarDays aria-hidden="true" size={15} /><span>{tournament.levelMinutes} min levels</span></div>
-          <div><UsersRound aria-hidden="true" size={15} /><span>{tournament.entrantCount} entrants</span></div>
+          <div><CalendarDays aria-hidden="true" size={15} /><span>{tournament.levelMinutes == null ? 'Level time unavailable' : `${tournament.levelMinutes} min levels`}</span></div>
+          <div><UsersRound aria-hidden="true" size={15} /><span>{tournament.entrantCount == null ? 'Entrants unavailable' : `${tournament.entrantCount} entrants`}</span></div>
           <div><MapPin aria-hidden="true" size={15} /><span>{formatDistance(distanceMiles)}</span></div>
         </dl>
         <ArrowUpRight aria-hidden="true" size={20} />

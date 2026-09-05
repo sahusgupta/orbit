@@ -414,7 +414,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
     fontSize: 15,
     fontWeight: '700'
   },
-  privateGameStatus: {
+  actionStatus: {
     color: colors.muted,
     fontSize: 12,
     fontWeight: '600',

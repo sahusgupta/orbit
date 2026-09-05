@@ -19,7 +19,11 @@ import { auth, db } from './firebaseClient';
 
 const discoveryPageSize = 50;
 const maximumDiscoveryPages = 20;
-type DiscoveryPageFetcher = typeof fetchRemotePlayerDiscovery;
+type DiscoveryPageFetcher = (cursor?: string, limit?: number) => ReturnType<typeof fetchRemotePlayerDiscovery>;
+type DiscoveryFallbackOptions = {
+  /** Explicit test/development escape hatch. Production subscriptions never set this. */
+  allowLocalDevelopmentFallback?: true;
+};
 
 async function fetchDiscoveryCatalog(
   fetchPage: DiscoveryPageFetcher,
@@ -93,46 +97,61 @@ export async function fetchClubSnapshots(player: Pick<PlayerAccount, 'id' | 'nam
     const snapshots = await getDocs(query(collection(db, 'clubStates'), limit(50)));
     const clubs = snapshots.docs
       .map((snapshot) => decodeLegacyClubStateRecord(snapshot.data()))
-      .filter((record) => record.snapshot)
+      .filter((record): record is NonNullable<typeof record> => Boolean(record?.snapshot))
       .map((record) => filterSnapshotForPlayer(record.snapshot, player));
-    if (!clubs.length) return { ok: false, error: 'No card houses have been published yet.' };
+    if (!clubs.length) return { ok: false, error: 'No venues have been published yet.' };
+    const mergedSnapshot = mergeClubSnapshots(clubs);
     return {
       ok: true,
       accountKey: clubs[0].club.id,
-      savedAt: new Date().toISOString(),
-      snapshot: mergeClubSnapshots(clubs)
+      savedAt: mergedSnapshot.generatedAt,
+      snapshot: mergedSnapshot
     };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Unable to read Firebase clubs.' };
   }
 }
 
-export async function fetchAllClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>) {
-  const [localAttempt, discoveryAttempt] = await Promise.allSettled([
-    fetchLocalClubSnapshot(player),
-    fetchDiscoveryCatalog(auth.currentUser ? fetchRemotePlayerDiscovery : fetchPublicPlayerDiscovery, player)
-  ]);
-  const localResult = localAttempt.status === 'fulfilled' ? localAttempt.value : { ok: false as const, error: 'Local bridge unavailable.' };
-  const localClubs = localResult.ok ? [filterSnapshotForPlayer(localResult.snapshot, player)] : [];
+export async function fetchAllClubSnapshots(
+  player: Pick<PlayerAccount, 'id' | 'name'>,
+  options: DiscoveryFallbackOptions = {}
+) {
+  const signedInUid = auth.currentUser?.uid;
+  const discoveryFetcher: DiscoveryPageFetcher = signedInUid === player.id
+    ? (cursor, pageSize) => fetchRemotePlayerDiscovery(cursor, pageSize, player.id)
+    : fetchPublicPlayerDiscovery;
+  const discoveryAttempt = await Promise.allSettled([fetchDiscoveryCatalog(discoveryFetcher, player)]).then(([result]) => result);
   if (discoveryAttempt.status === 'fulfilled') {
     return {
       ok: true as const,
-      clubs: mergeSnapshotSources(discoveryAttempt.value.clubs, localClubs),
+      clubs: discoveryAttempt.value.clubs,
       page: discoveryAttempt.value.page
     };
   }
-  if (auth.currentUser) {
+  if (signedInUid === player.id) {
     try {
       const publicDiscovery = await fetchDiscoveryCatalog(fetchPublicPlayerDiscovery, player);
       return {
         ok: true as const,
-        clubs: mergeSnapshotSources(publicDiscovery.clubs, localClubs),
+        clubs: publicDiscovery.clubs,
         page: publicDiscovery.page
       };
     } catch {
-      // The public Firestore projection remains available if both API reads fail.
+      // Both API routes enforce the server's current venue publication/license policy.
     }
   }
+  if (!options.allowLocalDevelopmentFallback) {
+    return {
+      ok: false as const,
+      error: discoveryAttempt.reason instanceof Error
+        ? discoveryAttempt.reason.message
+        : 'Unable to refresh published venue data from the Orbit API.'
+    };
+  }
+
+  const localResult = await fetchLocalClubSnapshot(player);
+  const localClubs = localResult.ok ? [filterSnapshotForPlayer(localResult.snapshot, player)] : [];
+  if (localClubs.length) return { ok: true as const, clubs: localClubs };
   try {
     const publishedClubs = await getPublishedClubSnapshots(player);
     if (publishedClubs.length || localClubs.length) {
@@ -175,15 +194,23 @@ export function playerNotificationCollection(clubId: string, playerId?: string) 
 
 async function getPublishedClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>) {
   const clubDocs = await getDocs(query(collection(db, 'clubs'), limit(50)));
-  return Promise.all(
-    clubDocs.docs
-      .filter((clubDoc) => isPlayerVisibleClubName(clubDoc.data()?.name))
-      .map((clubDoc) => getPublishedClubSnapshot(clubDoc, player))
+  const settled = await Promise.allSettled(
+    clubDocs.docs.flatMap((clubDoc) => {
+      const decoded = decodePublishedClubRecord({ ...clubDoc.data(), id: clubDoc.data()?.id ?? clubDoc.id });
+      return decoded && isPlayerVisibleClubName(decoded.name)
+        ? [getPublishedClubSnapshot(clubDoc, player, decoded)]
+        : [];
+    })
   );
+  return settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
 }
 
-async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: Pick<PlayerAccount, 'id' | 'name'>) {
-  const club = decodePublishedClubRecord(clubDoc.data());
+async function getPublishedClubSnapshot(
+  clubDoc: QueryDocumentSnapshot,
+  player: Pick<PlayerAccount, 'id' | 'name'>,
+  decodedClub?: NonNullable<ReturnType<typeof decodePublishedClubRecord>>
+) {
+  const club = decodedClub ?? decodePublishedClubRecord({ ...clubDoc.data(), id: clubDoc.data()?.id ?? clubDoc.id });
   if (!club || !isPlayerVisibleClubName(club.name)) throw new Error(`Club ${clubDoc.id} is not player-visible.`);
   const emptyPlayerRecords = { docs: [] };
   const games = await getDocs(query(collection(db, 'clubs', clubDoc.id, 'games'), limit(100)));
@@ -203,9 +230,18 @@ async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: 
       readPlayerRecords(playerNotificationCollection(clubDoc.id, player.id))
     ])
     : [emptyPlayerRecords, emptyPlayerRecords, emptyPlayerRecords];
-  const membershipRecords = memberships.docs.map((membershipDoc) => decodeRevisionedMembership(membershipDoc.data()));
-  const waitlistRecords = waitlists.docs.map((waitlistDoc) => decodeRevisionedWaitlist(waitlistDoc.data()));
-  const notificationRecords = notifications.docs.map((notificationDoc) => decodeRevisionedNotification(notificationDoc.data()));
+  const membershipRecords = memberships.docs.flatMap((membershipDoc) => {
+    const decoded = decodeRevisionedMembership(membershipDoc.data());
+    return decoded ? [decoded] : [];
+  });
+  const waitlistRecords = waitlists.docs.flatMap((waitlistDoc) => {
+    const decoded = decodeRevisionedWaitlist(waitlistDoc.data());
+    return decoded ? [decoded] : [];
+  });
+  const notificationRecords = notifications.docs.flatMap((notificationDoc) => {
+    const decoded = decodeRevisionedNotification(notificationDoc.data());
+    return decoded ? [decoded] : [];
+  });
   const committedGames = selectCommittedGames(club, normalizePublishedGames(games.docs));
   if (!committedGames) {
     throw new Error(`${club.name || clubDoc.id} is publishing a newer game revision.`);
@@ -220,9 +256,12 @@ async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: 
   const snapshot: PlayerClubSnapshot = {
     club: {
       id: club.id || clubDoc.id,
-      name: club.name || 'Local Poker Club',
+      name: club.name,
       address: club.address,
       phone: club.phone,
+      minimumAge: club.minimumAge,
+      coordinate: club.coordinate,
+      venueKind: club.venueKind,
       membershipOptions: club.membershipOptions,
       syncProtocolVersion: club.syncProtocolVersion,
       syncRevision: club.syncRevision,
@@ -232,8 +271,8 @@ async function getPublishedClubSnapshot(clubDoc: QueryDocumentSnapshot, player: 
     memberships: selectRevisionCompatibleRecords(club, membershipRecords),
     waitlists: selectRevisionCompatibleRecords(club, waitlistRecords),
     notifications: selectRevisionCompatibleRecords(club, notificationRecords),
-    social: club.social ?? { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: 0 },
-    generatedAt: club.generatedAt ?? club.publishedAt ?? club.savedAt ?? new Date().toISOString(),
+    ...(club.social ? { social: club.social } : {}),
+    generatedAt: club.generatedAt ?? club.publishedAt ?? club.savedAt ?? '',
     syncProtocolVersion: club.syncProtocolVersion,
     syncRevision: club.syncRevision
   };
@@ -244,7 +283,7 @@ async function getLegacyClubSnapshots(player: Pick<PlayerAccount, 'id' | 'name'>
   const snapshots = await getDocs(query(collection(db, 'clubStates'), limit(50)));
   return snapshots.docs
     .map((snapshot) => decodeLegacyClubStateRecord(snapshot.data()))
-    .filter((record) => record.snapshot && isPlayerVisibleClubName(record.snapshot.club?.name))
+    .filter((record): record is NonNullable<typeof record> => Boolean(record?.snapshot && isPlayerVisibleClubName(record.snapshot.club?.name)))
     .map((record) => filterSnapshotForPlayer(record.snapshot, player));
 }
 

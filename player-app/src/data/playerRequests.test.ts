@@ -1,57 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import type { PlayerClubSnapshot, PlayerMembershipRequest } from '../domain/playerSync';
-import { applyMembershipRequest } from './playerRequests';
+import type { PlayerAccount, PlayerMembershipOption } from '../domain/playerSync';
+import { buildJoinRequest } from './playerRequests';
 
-const snapshot: PlayerClubSnapshot = {
-  club: { id: 'club-1', name: 'Club One' },
-  games: [],
-  memberships: [],
-  waitlists: [],
-  notifications: [],
-  social: { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: 0 },
-  generatedAt: '2026-08-28T00:00:00.000Z'
-};
+const player: PlayerAccount = { id: 'opaque-player-id', name: 'Alex', email: 'alex@example.test', preferredGameIds: [] };
 
-function request(overrides: Partial<PlayerMembershipRequest> = {}): PlayerMembershipRequest {
-  return {
-    id: 'membership-request-1',
-    type: 'membership-request',
-    clubId: 'club-1',
-    player: {
-      id: 'player-1',
-      name: 'Alex Rivera',
-      email: 'alex@example.test',
-      preferredGameIds: []
-    },
-    plan: 'monthly',
-    paymentMethod: 'app',
-    priceLabel: '$50',
-    requestedAt: '2026-08-28T00:01:00.000Z',
-    ...overrides
-  };
-}
-
-describe('offline membership request projection', () => {
-  it('never treats an unconfirmed app payment or unreviewed ID as active', () => {
-    const membership = applyMembershipRequest(snapshot, request()).memberships[0];
-
-    expect(membership).toMatchObject({
-      status: 'Approved',
-      paymentMethod: 'app',
-      paymentStatus: 'Pending',
-      identityReviewStatus: 'Pending'
+describe('membership request construction', () => {
+  it.each([
+    { id: 'seven-day', name: 'Seven-day summer access', priceLabel: '$25', durationDays: 7 },
+    { id: 'annual', name: 'Venue annual access', priceLabel: '$0', durationDays: 365 },
+    { id: 'single-day', name: 'Venue single-day access', priceLabel: '$10', durationDays: 1 }
+  ] as PlayerMembershipOption[])('preserves the selected published option without inventing payment semantics', (option) => {
+    const request = buildJoinRequest(player, 'club-opaque', option);
+    expect(request).toMatchObject({
+      clubId: 'club-opaque', paymentMethod: 'in-person', planId: option.id,
+      planName: option.name, planPriceLabel: option.priceLabel, membershipDurationDays: option.durationDays
     });
-    expect(membership.expiresAt).toBeUndefined();
+    expect(request).not.toHaveProperty('plan');
+    expect(request.id).not.toMatch(/alex|example|club-opaque/i);
   });
 
-  it('records a free plan as payment-not-required while keeping ID review pending', () => {
-    const membership = applyMembershipRequest(snapshot, request({ priceLabel: 'Free' })).memberships[0];
-
-    expect(membership).toMatchObject({
-      status: 'Approved',
-      paymentStatus: 'Not required',
-      identityReviewStatus: 'Pending'
-    });
-    expect(membership.expiresAt).toBeUndefined();
+  it('fails closed when no published option is supplied', () => {
+    const callWithoutOption = buildJoinRequest as unknown as (player: PlayerAccount, clubId: string, option?: PlayerMembershipOption) => unknown;
+    expect(() => callWithoutOption(player, 'club-opaque')).toThrow();
   });
 });

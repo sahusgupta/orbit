@@ -2,9 +2,11 @@
   "name": "@orbit/player-web",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "npm@10.9.2",
   "type": "module",
   "engines": {
-    "node": "22.x"
+    "node": "22.16.0",
+    "npm": "10.9.2"
   },
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1 --port 4175",

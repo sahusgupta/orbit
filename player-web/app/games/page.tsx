@@ -9,7 +9,7 @@ import { createPageMetadata } from '@/src/seo/site';
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = createPageMetadata({
   title: 'Games',
-  description: 'Browse running, forming, paused, and scheduled poker games by status, stakes, venue, and distance.',
+  description: 'Browse venue-published poker games by known live status, stakes, and venue; unavailable status is labeled explicitly.',
   path: '/games',
   noIndex: true
 });

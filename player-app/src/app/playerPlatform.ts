@@ -1,14 +1,9 @@
 import { Alert, AppState, Linking, Platform } from 'react-native';
-import * as WebBrowser from 'expo-web-browser';
 
 export type PlayerAppState = 'active' | 'background' | 'inactive' | 'unknown' | 'extension';
 
 export const playerPlatform = {
   os: Platform.OS,
-
-  completeAuthSession() {
-    WebBrowser.maybeCompleteAuthSession();
-  },
 
   getCurrentAppState(): PlayerAppState | null {
     return AppState.currentState;
@@ -17,14 +12,6 @@ export const playerPlatform = {
   subscribeToAppState(listener: (state: PlayerAppState) => void) {
     const subscription = AppState.addEventListener('change', listener);
     return () => subscription.remove();
-  },
-
-  openAuthSession(url: string, returnUrl?: string) {
-    return WebBrowser.openAuthSessionAsync(url, returnUrl);
-  },
-
-  openBrowser(url: string) {
-    return WebBrowser.openBrowserAsync(url);
   },
 
   openDirections(destination: string) {
@@ -49,12 +36,52 @@ export const playerPlatform = {
     );
   },
 
-  showAccountDeletionResult(retainedCategories: string[]) {
+  confirmLocalProfileDeletion(onConfirm: () => void) {
     Alert.alert(
-      'Orbit account deleted',
-      retainedCategories.length
-        ? `Your profile and sign-in were deleted. These categories remain without your direct identity: ${retainedCategories.join(', ')}.`
-        : 'Your profile and sign-in were deleted. The configured policy retained no Orbit record categories.'
+      'Delete local profile and data?',
+      'This permanently deletes the Orbit Player profile and preferences stored on this device. It does not delete a signed-in account or venue records.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete local data', style: 'destructive', onPress: onConfirm }
+      ]
+    );
+  },
+
+  openAppSettings() {
+    return Linking.openSettings();
+  },
+
+  showLocalProfileDeletionResult() {
+    Alert.alert('Local profile deleted', 'The Orbit Player profile and preferences stored on this device were deleted.');
+  },
+
+  showAccountDeletionResult(result: {
+    currentAccountPreserved: boolean;
+    localDataCleared: boolean;
+    retainedCategories: string[];
+    signedOut: boolean;
+    status: 'complete' | 'pending';
+  }) {
+    const retainedCopy = result.retainedCategories.length
+      ? ` These categories may be retained under Orbit's privacy and legal policy: ${result.retainedCategories.join(', ')}.`
+      : ' The configured policy retained no Orbit record categories.';
+    const signOutCopy = result.signedOut
+      ? ''
+      : ' This device could not confirm secure sign-out. The app will remain blocked until you retry and finish device cleanup.';
+    if (result.currentAccountPreserved) {
+      Alert.alert(
+        result.status === 'pending' ? 'Prior account deletion accepted' : 'Prior Orbit account deleted',
+        `${result.status === 'pending'
+          ? 'Deletion of the previously signed-in Orbit account was accepted and is still being finalized by the server.'
+          : 'The previously signed-in Orbit account was deleted.'} The account now signed in on this device remained signed in, and its local profile and identity were preserved.${retainedCopy}`
+      );
+      return;
+    }
+    Alert.alert(
+      result.status === 'pending' ? 'Account deletion accepted' : 'Orbit account deleted',
+      result.status === 'pending'
+        ? `Your Orbit profile data and local profile were deleted. Firebase sign-in deletion is still being finalized by the server; no server retry is required.${retainedCopy}${signOutCopy}`
+        : `Your profile, sign-in, and local Orbit data were deleted.${retainedCopy}${signOutCopy}`
     );
   }
 };

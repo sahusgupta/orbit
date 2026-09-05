@@ -10,53 +10,30 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == playerId;
     }
 
-    function hasVerifiedPlayerAge() {
-      return isSignedIn()
-        && request.auth.token.ageVerified == true
-        && request.auth.token.ageLevel is int
-        && request.auth.token.ageLevel >= 21;
-    }
-
     function hasEmail() {
-      return isSignedIn() && request.auth.token.email is string;
+      return isSignedIn()
+        && request.auth.token.keys().hasAll(['email', 'email_verified'])
+        && request.auth.token.email is string
+        && request.auth.token.email_verified == true;
     }
 
-    function ownsStoredClub(clubId) {
-      return hasEmail()
-        && exists(/databases/$(database)/documents/clubStates/$(clubId))
-        && (
-          get(/databases/$(database)/documents/clubStates/$(clubId)).data.state.settings.accountLogin.username == request.auth.token.email
-          || get(/databases/$(database)/documents/clubStates/$(clubId)).data.state.settings.clubAccount.email == request.auth.token.email
-        );
-    }
-
-    function createsOwnedClub() {
-      return hasEmail()
-        && request.resource.data.state.settings.accountLogin.username == request.auth.token.email;
+    function hasPhone() {
+      return isSignedIn()
+        && request.auth.token.keys().hasAll(['phone_number'])
+        && request.auth.token.phone_number is string;
     }
 
     function isClubAdmin(clubId) {
       return isSignedIn()
         && (
-          ownsStoredClub(clubId)
-          ||
-          request.auth.token.admin == true
-          || request.auth.token.clubAdmin == true
-          || request.auth.token.clubId == clubId
-          || (request.auth.token.clubIds != null && request.auth.token.clubIds[clubId] == true)
-        );
-    }
-
-    function playerDocPath(playerId) {
-      return /databases/$(database)/documents/players/$(playerId);
-    }
-
-    function hasActivePlayerPremium(playerId) {
-      return isSelf(playerId)
-        && exists(playerDocPath(playerId))
-        && (
-          get(playerDocPath(playerId)).data.premium.status == 'active'
-          || get(playerDocPath(playerId)).data.subscriptionStatus == 'active'
+          (request.auth.token.keys().hasAll(['admin']) && request.auth.token.admin == true)
+          || (request.auth.token.keys().hasAll(['clubId'])
+            && request.auth.token.clubId is string
+            && request.auth.token.clubId == clubId)
+          || (request.auth.token.keys().hasAll(['clubIds'])
+            && request.auth.token.clubIds is map
+            && request.auth.token.clubIds.keys().hasAll([clubId])
+            && request.auth.token.clubIds[clubId] == true)
         );
     }
 
@@ -92,20 +69,6 @@ service cloud.firestore {
         && request.resource.data.id.size() > 0
         && request.resource.data.player.id.size() > 0
         && request.resource.data.player.name.size() > 0;
-    }
-
-    function isPrivateGameListing(gameId) {
-      return request.resource.data.id == gameId
-        && request.resource.data.status == 'Open'
-        && request.resource.data.hostPlayerId is string
-        && request.resource.data.hostPlayerPath == 'players/' + request.resource.data.hostPlayerId
-        && request.resource.data.hostPlayerName is string
-        && request.resource.data.name is string
-        && request.resource.data.location is string
-        && request.resource.data.createdAt is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.location.size() > 0
-        && request.resource.data.hostPlayerId.size() > 0;
     }
 
     function marksRequestAppliedOnly() {
@@ -166,12 +129,13 @@ service cloud.firestore {
         allow read: if isClubAdmin(clubId)
           || (isSignedIn()
             && resource.data.targetPlayerIds is list
+            && resource.data.targetPlayerIds.size() == 1
             && resource.data.targetPlayerIds.hasAny([request.auth.uid]));
         allow create, update, delete: if false;
       }
 
       match /announcements/{announcementId} {
-        allow read: if true;
+        allow read: if false;
         allow create, update, delete: if false;
       }
 
@@ -181,6 +145,11 @@ service cloud.firestore {
       }
 
       match /tournamentRegistrations/{registrationId} {
+        allow read: if false;
+        allow create, update, delete: if false;
+      }
+
+      match /tournamentInterests/{interestId} {
         allow read: if isClubAdmin(clubId) || (isSignedIn() && resource.data.playerId == request.auth.uid);
         allow create, update, delete: if false;
       }
@@ -206,35 +175,95 @@ service cloud.firestore {
     }
 
     match /players/{playerId} {
-      allow create: if isSelf(playerId) && hasNoServerManagedBilling();
-      allow update: if isSelf(playerId) && doesNotChangeServerManagedBilling();
+      allow create: if isSelf(playerId)
+        && !playerDeletionBlocked(playerId)
+        && hasNoServerManagedBilling()
+        && request.resource.data.keys().hasOnly(playerWritableFields())
+        && validSelfPlayerDocument(playerId);
+      allow update: if isSelf(playerId)
+        && !playerDeletionBlocked(playerId)
+        && doesNotChangeServerManagedBilling()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(playerWritableFields())
+        && validSelfPlayerDocument(playerId);
       allow read: if isSelf(playerId);
-      allow delete: if isSelf(playerId);
+      allow delete: if false;
 
       match /members/{memberId} {
-        allow read: if true;
+        allow read: if false;
         allow create, update, delete: if false;
       }
     }
 
     match /games/{rootDocument} {
-      allow read: if true;
+      allow read: if false;
       allow create, update, delete: if false;
 
       match /{clubName}/{gameId} {
-        allow read: if true;
+        allow read: if false;
         allow create, update, delete: if false;
       }
     }
 
     match /privateGames/{gameId} {
-      allow read: if true;
-      allow create: if hasVerifiedPlayerAge()
-        && isPrivateGameListing(gameId)
-        && isSelf(request.resource.data.hostPlayerId)
-        && hasActivePlayerPremium(request.resource.data.hostPlayerId)
-        && !request.resource.data.keys().hasAny(['hostPlayerEmail']);
+      allow read, create: if false;
       allow update, delete: if false;
+    }
+
+    match /playerDeletionBlocks/{playerId} {
+      allow read, write: if false;
+    }
+
+    function playerWritableFields() {
+      return [
+        'id', 'uid', 'name', 'email', 'phone', 'homeLocation',
+        'searchRadiusMiles', 'preferredGameIds', 'favoriteClubIds',
+        'preferredStakes', 'typicalAvailability', 'adultDeclaredAt',
+        'adultDeclarationVersion', 'updatedAt'
+      ];
+    }
+
+    function playerDeletionBlocked(playerId) {
+      return exists(/databases/$(database)/documents/playerDeletionBlocks/$(playerId));
+    }
+
+    function validSelfPlayerDocument(playerId) {
+      return request.resource.data.id == playerId
+        && request.resource.data.uid == playerId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 320
+        && (
+          (hasEmail() && request.resource.data.email == request.auth.token.email)
+          || (!hasEmail()
+            && hasPhone()
+            && request.resource.data.email == ''
+            && request.resource.data.phone is string
+            && request.resource.data.phone == request.auth.token.phone_number)
+        )
+        && request.resource.data.preferredGameIds is list
+        && request.resource.data.preferredGameIds.size() <= 50
+        && request.resource.data.adultDeclaredAt is string
+        && request.resource.data.adultDeclaredAt.size() >= 20
+        && request.resource.data.adultDeclaredAt.size() <= 40
+        && request.resource.data.adultDeclaredAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,9})?Z$')
+        && request.resource.data.adultDeclarationVersion == 'v1'
+        && (!request.resource.data.keys().hasAny(['phone'])
+          || (request.resource.data.phone is string && request.resource.data.phone.size() <= 40))
+        && (!request.resource.data.keys().hasAny(['homeLocation'])
+          || (request.resource.data.homeLocation is string && request.resource.data.homeLocation.size() <= 240))
+        && (!request.resource.data.keys().hasAny(['searchRadiusMiles'])
+          || ((request.resource.data.searchRadiusMiles is int || request.resource.data.searchRadiusMiles is float)
+            && request.resource.data.searchRadiusMiles >= 1
+            && request.resource.data.searchRadiusMiles <= 500))
+        && (!request.resource.data.keys().hasAny(['favoriteClubIds'])
+          || (request.resource.data.favoriteClubIds is list && request.resource.data.favoriteClubIds.size() <= 100))
+        && (!request.resource.data.keys().hasAny(['preferredStakes'])
+          || (request.resource.data.preferredStakes is string && request.resource.data.preferredStakes.size() <= 80))
+        && (!request.resource.data.keys().hasAny(['typicalAvailability'])
+          || (request.resource.data.typicalAvailability is string && request.resource.data.typicalAvailability.size() <= 240))
+        && request.resource.data.updatedAt is timestamp;
     }
 
     // Firebase Admin is the only reader/writer for every unmatched collection,

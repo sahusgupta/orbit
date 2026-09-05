@@ -4,7 +4,7 @@ import type {
   PlayerClubSnapshot,
   PlayerSyncGame,
   PlayerTournament,
-  PlayerTournamentRegistration
+  PlayerTournamentInterest
 } from '@/src/domain/types';
 
 export const player: PlayerAccount = {
@@ -61,7 +61,7 @@ export const formingGame: PlayerSyncGame = {
   }],
   waitlistCount: 4,
   formingCount: 1,
-  availableSeats: 5,
+  availableSeats: 0,
   knownPlayersCount: 0
 };
 
@@ -131,9 +131,9 @@ export const openTournament: PlayerTournament = {
   clubId: 'club-alpha',
   name: 'Sunday Orbit Major',
   startsAt: '2030-06-16T18:00:00.000Z',
-  registrationOpensAt: '2030-06-01T00:00:00.000Z',
-  registrationClosesAt: '2030-06-16T17:00:00.000Z',
-  registrationStatus: 'open',
+  interestOpensAt: '2026-01-01T00:00:00.000Z',
+  interestClosesAt: '2030-06-16T17:00:00.000Z',
+  interestStatus: 'open',
   buyIn: 0,
   prizePoolLabel: '$5,000 guaranteed',
   startingStack: 30000,
@@ -142,10 +142,12 @@ export const openTournament: PlayerTournament = {
   rebuyPrice: 0,
   rebuyStack: 0,
   unlimitedRebuys: false,
+  rebuysAllowed: false,
   addOnPrice: 0,
   addOnStack: 0,
+  addOnsAllowed: false,
   rules: ['House rules apply.'],
-  unregisterAllowed: true,
+  withdrawalAllowed: true,
   entrantCount: 28,
   totalRebuys: 0,
   totalAddOns: 0
@@ -156,28 +158,24 @@ export const paidTournament: PlayerTournament = {
   id: 'event-paid',
   clubId: 'club-beta',
   name: 'Deep Stack Classic',
-  registrationStatus: 'closed',
+  interestStatus: 'closed',
   buyIn: 240,
   prizePoolLabel: '$20,000 guaranteed'
 };
 
-export const registration: PlayerTournamentRegistration = {
+export const interest: PlayerTournamentInterest = {
   id: 'event-open:player-1',
   tournamentId: 'event-open',
   clubId: 'club-alpha',
   playerId: 'player-1',
-  playerName: 'Avery Stone',
-  playerEmail: 'avery@example.com',
-  status: 'registered',
-  rebuys: 0,
-  addOns: 0,
-  registeredAt: '2030-06-01T12:00:00.000Z',
+  status: 'interested',
+  createdAt: '2030-06-01T12:00:00.000Z',
   updatedAt: '2030-06-01T12:00:00.000Z'
 };
 
 export const discovery: DiscoveryPayload = {
   clubs: [clubAlpha, clubBeta],
   tournaments: [openTournament, paidTournament],
-  registrations: [registration],
+  interests: [interest],
   page: { count: 2, hasMore: false, nextCursor: null }
 };

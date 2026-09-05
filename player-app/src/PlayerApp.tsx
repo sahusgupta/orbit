@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -7,14 +7,11 @@ import { InAppNotificationPopup } from './components/InAppNotificationPopup';
 import { FiltersBottomSheet } from './components/PlayerPresentation';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  getClubMembershipPrices,
-  getClubProductLabel
-} from './domain/clubAccess';
-import {
   isActivePlayerGameRequest,
   isMembershipCurrentlyActive,
   isPlayerMembership,
   isPlayerWaitlistEntry,
+  isTournamentInterestOpen,
   type PlayerAccount
 } from './domain/playerSync';
 import {
@@ -22,20 +19,18 @@ import {
   buildFindGameClubs,
   buildGameOpportunities,
   filterMapClubs,
-  filterPrivateGames,
   filterTournaments,
   getActiveDiscoveryOpportunity,
   getDiscoveryDeck,
   getOpportunityKey,
   getSavedOpportunities,
-  resolveAddressCoordinate,
   selectContinuousDiscoveryOpportunities
 } from './domain/discovery';
+import { deriveClubsViewState } from './domain/playerClubViewState';
 import { getLatestInAppNotification } from './domain/playerNotifications';
 import type {
   CasinoFilter,
   DiscoveryDecision,
-  DistanceFilter,
   GameOpportunity,
   GameTypeFilter,
   MapVenueFilter,
@@ -47,13 +42,12 @@ import { OnboardingScreen } from './features/onboarding/OnboardingScreen';
 import { DiscoveryDeck, SavedGamesStrip } from './features/discovery/DiscoveryDeck';
 import { DiscoverySearchModal, GameFilterPanel, MapFilterControls } from './features/discovery/DiscoveryFilters';
 import { GameDetailsScreen } from './features/discovery/DiscoveryGameDetails';
-import { HostControlPanel, PremiumPaywall, PrivateGameCard, PrivateGameComposer } from './features/discovery/DiscoveryHosting';
 import { MyGamesSection } from './features/discovery/DiscoveryLists';
 import { MapExploreScreen } from './features/discovery/MapExploreScreen';
 import { discoveryStyles } from './features/discovery/discoveryStyles';
 import { TournamentFilterControls, TournamentScreen } from './features/tournaments/TournamentScreen';
 import { tournamentStyles } from './features/tournaments/tournamentStyles';
-import { ClubAccessCheckoutScreen, ClubMembershipPlanScreen, ClubsScreen, SeatRequestModal } from './features/clubs/ClubRoutes';
+import { ClubMembershipPlanScreen, ClubsScreen, SeatRequestModal } from './features/clubs/ClubRoutes';
 import { clubStyles } from './features/clubs/clubStyles';
 import { OrbitJourney, PlayerAmbientFlow, PlayerLandingHero } from './features/home/PlayerLandingExperience';
 import { IdentityVerificationScreen } from './features/settings/IdentityVerificationScreen';
@@ -63,13 +57,9 @@ import { applyDarkComponentTheme, colors } from './styles/playerTheme';
 import { usePlayerStorage } from './application/usePlayerStorage';
 import { usePlayerIdentity } from './application/usePlayerIdentity';
 import { playerPlatform } from './app/playerPlatform';
-import { usePlayerPremium } from './application/usePlayerPremium';
 import { usePlayerLiveData } from './application/usePlayerLiveData';
-import { usePlayerPrivateGames } from './application/usePlayerPrivateGames';
 import { usePlayerTournaments } from './application/usePlayerTournaments';
 import { usePlayerClubs } from './application/usePlayerClubs';
-
-playerPlatform.completeAuthSession();
 
 const tabs: Array<{ id: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
   { id: 'home', label: 'Home', icon: 'home-outline' },
@@ -85,15 +75,11 @@ const emptyPlayer: PlayerAccount = {
   email: '',
   phone: '',
   homeLocation: '',
-  searchRadiusMiles: 20,
   preferredGameIds: [],
   favoriteClubIds: [],
   preferredStakes: '',
   typicalAvailability: ''
 };
-const playerPremiumEnabled = process.env.EXPO_PUBLIC_ENABLE_PLAYER_PREMIUM === 'true';
-const cardHouseCheckoutEnabled = process.env.EXPO_PUBLIC_ENABLE_CARD_HOUSE_CHECKOUT === 'true';
-
 export default function PlayerApp() {
   const {
     accountLoaded,
@@ -105,26 +91,24 @@ export default function PlayerApp() {
     hasAccount,
     onboardingStep,
     player,
+    playerStorageError,
+    retryPlayerStorage,
     setDraftPlayer,
     setHasAccount,
     setOnboardingStep,
     setPlayer
   } = usePlayerStorage(emptyPlayer);
   const [screen, setScreen] = useState<Screen>('home');
-  const [showHostScreen, setShowHostScreen] = useState(false);
   const [gameQuery, setGameQuery] = useState('');
   const [tournamentQuery, setTournamentQuery] = useState('');
   const [tournamentFilter, setTournamentFilter] = useState<TournamentFilter>('all');
   const [tournamentClubFilter, setTournamentClubFilter] = useState('all');
-  const [tournamentDistanceFilter, setTournamentDistanceFilter] = useState<DistanceFilter>('none');
   const [selectedCasinoFilter, setSelectedCasinoFilter] = useState<CasinoFilter>('all');
   const [mapQuery, setMapQuery] = useState('');
-  const [mapDistanceFilter, setMapDistanceFilter] = useState<DistanceFilter>('none');
   const [mapVenueFilter, setMapVenueFilter] = useState<MapVenueFilter>('all');
   const [gameTypeFilter, setGameTypeFilter] = useState<GameTypeFilter>('all');
   const [selectedFilterClubId, setSelectedFilterClubId] = useState('all');
   const [stakesFilter, setStakesFilter] = useState('');
-  const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>('none');
   const [fitScoreFilterEnabled, setFitScoreFilterEnabled] = useState(false);
   const [showDiscoveryFilters, setShowDiscoveryFilters] = useState(false);
   const [showDiscoverySearch, setShowDiscoverySearch] = useState(false);
@@ -138,9 +122,11 @@ export default function PlayerApp() {
   const [avatarHovered, setAvatarHovered] = useState(false);
   const mainScrollRef = useRef<ScrollView>(null);
   const [syncStatus, setSyncStatus] = useState(
-    isSyncConfigured() ? 'Connecting to Firebase club sync...' : 'Live club sync is not configured.'
+    isSyncConfigured() ? 'Connecting to published venue data...' : 'Published venue sync is not configured.'
   );
   const {
+    authLoaded,
+    authInitializationError,
     authStatus,
     completeAccount,
     connectPlayerAccount,
@@ -157,9 +143,11 @@ export default function PlayerApp() {
     playerAuthPassword,
     playerAuthPhone,
     playerPhoneChallenge,
+    profileSyncPaused,
     recoverPlayerAccount,
     refreshIdentityVerification,
     requireVerifiedAge,
+    retryAuthInitialization,
     setPlayerAuthEmail,
     setPlayerAuthCode,
     setPlayerAuthMethod,
@@ -170,84 +158,69 @@ export default function PlayerApp() {
     signOutPlayer,
     startIdentityVerification
   } = usePlayerIdentity({
+    accountLoaded,
     clearLocalPlayer,
     draftPlayer,
     platform: playerPlatform,
     player,
     setDraftPlayer,
     setHasAccount,
+    setOnboardingStep,
     setPlayer,
     setScreen,
     setSyncStatus
-  });
-  const {
-    hasPlayerPremium,
-    openPremiumCheckout,
-    premiumMessage,
-    premiumMonthlyPriceLabel,
-    restorePremiumPurchases,
-    setPremiumMessage,
-    setPremiumStatus
-  } = usePlayerPremium({
-    accountLoaded,
-    enabled: playerPremiumEnabled,
-    hasAccount,
-    platformOS: playerPlatform.os,
-    playerId: player.id
   });
   const {
     clockNow,
     clubMembershipMessage,
+    clubSelectionNotice,
     clubs,
-    privateGames,
-    privateGameStatus,
     liveDataPartial,
     liveDataStatus,
+    profileEditingReady,
+    profileSyncNotice,
     retryLiveData,
     selectedClubId,
     setClubMembershipMessage,
+    setClubSelectionNotice,
     setClubs,
-    setPrivateGames,
-    setPrivateGameStatus,
     setSelectedClubId,
-    setTournamentRegistrations,
-    tournamentRegistrations,
+    setTournamentInterests,
+    tournamentInterests,
     tournamentLoadError,
     tournaments
   } = usePlayerLiveData({
-    accountLoaded,
+    accountLoaded: accountLoaded && authLoaded,
     firebaseIdentity,
     hasAccount,
     platform: playerPlatform,
     player,
+    profileSyncPaused,
     setDraftPlayer,
     setPlayer,
-    setPremiumStatus,
     setScreen,
     setSyncStatus
   });
+  const retryPlayerPersistence = () => {
+    retryPlayerStorage();
+    retryLiveData();
+  };
   const {
     cancelWaitlist,
     clubActionPending,
-    completeClubPayment,
+    gameRequestMessage,
     joinWaitlist,
-    openClubPayment,
     openClubSignup,
     openDirections,
-    openPlayerTimePurchase,
-    pendingClubProduct,
-    pendingMembershipOption,
-    requestInPersonMembership,
     seatRequestDraft,
     seatRequestMessage,
-    setPendingClubProduct,
     setSeatRequestDraft,
     setSeatRequestMessage,
     submitMembershipApplication,
     submitSeatRequest
   } = usePlayerClubs({
+    actionsReady: liveDataStatus === 'ready',
     clockNow,
-    firebaseIdentity,
     platform: playerPlatform,
     player,
     requireVerifiedAge,
@@ -257,30 +230,20 @@ export default function PlayerApp() {
     setSelectedClubId,
     setSyncStatus
   });
-  const { privateGameDraft, publishPrivateGame, setPrivateGameDraft } = usePlayerPrivateGames({
-    hasPlayerPremium,
-    player,
-    requireVerifiedAge,
-    setPremiumMessage,
-    setPrivateGames,
-    setPrivateGameStatus
-  });
-  const { pendingTournamentIds, registerTournament, tournamentMessage, unregisterTournament } = usePlayerTournaments({
+  const { expressInterest, pendingTournamentIds, tournamentMessage, withdrawInterest } = usePlayerTournaments({
     firebaseIdentity,
     getClubMinimumAge: (clubId) => clubs.find((club) => club.club.id === clubId)?.club.minimumAge === 18 ? 18 : 21,
     player,
     requireVerifiedAge,
-    setTournamentRegistrations
+    setTournamentInterests
   });
 
-  const selectedClub = clubs.find((club) => club.club.id === selectedClubId) ?? clubs[0];
+  const selectedClub = clubs.find((club) => club.club.id === selectedClubId);
   const activeInAppNotification = useMemo(
     () => dismissedAlertsLoaded ? getLatestInAppNotification(clubs, dismissedNotificationIds) : null,
     [clubs, dismissedAlertsLoaded, dismissedNotificationIds]
   );
   const memberships = clubs.flatMap((club) => club.memberships.filter((membership) => isPlayerMembership(membership, player)));
-  const selectedMembership = selectedClub?.memberships.find((membership) => isPlayerMembership(membership, player));
-  const playerWaitlists = selectedClub?.waitlists.filter((entry) => isPlayerWaitlistEntry(entry, player)) ?? [];
   const activePlayerGames = useMemo(
     () => clubs.flatMap((club) =>
       club.waitlists
@@ -300,17 +263,16 @@ export default function PlayerApp() {
   const membershipClubIds = new Set(memberships.map((membership) => membership.clubId));
   const favoriteClubIds = player.favoriteClubIds ?? [];
   const memberClubs = clubs.filter((club) => membershipClubIds.has(club.club.id) || club.timeAccess?.linked);
-  const selectedClubTournaments = selectedClub ? tournaments.filter((tournament) => tournament.clubId === selectedClub.club.id) : [];
+  const selectedMemberClub = memberClubs.find((club) => club.club.id === selectedClubId);
+  const clubsViewState = deriveClubsViewState(liveDataStatus, memberClubs, selectedMemberClub, liveDataPartial, clubSelectionNotice);
+  const selectedMembership = selectedMemberClub?.memberships.find((membership) => isPlayerMembership(membership, player));
+  const playerWaitlists = selectedMemberClub?.waitlists.filter((entry) => isPlayerWaitlistEntry(entry, player)) ?? [];
+  const selectedClubTournaments = selectedMemberClub ? tournaments.filter((tournament) => tournament.clubId === selectedMemberClub.club.id) : [];
   const findGameClubs = useMemo(() => buildFindGameClubs(clubs), [clubs]);
-  const playerHomeCoordinate = useMemo(() => resolveAddressCoordinate(player.homeLocation), [player.homeLocation]);
-  const visiblePrivateGames = useMemo(
-    () => filterPrivateGames(privateGames, gameQuery, stakesFilter, gameTypeFilter),
-    [gameQuery, gameTypeFilter, privateGames, stakesFilter]
-  );
-  const hostedPrivateGames = useMemo(() => privateGames.filter((game) => game.hostPlayerId === player.id), [privateGames, player.id]);
+  const playerHomeCoordinate = null;
   const mappedClubs = useMemo(
-    () => filterMapClubs(findGameClubs, mapQuery, mapDistanceFilter, mapVenueFilter, playerHomeCoordinate),
-    [findGameClubs, mapDistanceFilter, mapQuery, mapVenueFilter, playerHomeCoordinate]
+    () => filterMapClubs(findGameClubs, mapQuery, 'none', mapVenueFilter, playerHomeCoordinate),
+    [findGameClubs, mapQuery, mapVenueFilter]
   );
   const visibleTournaments = useMemo(
     () => filterTournaments({
@@ -318,14 +280,40 @@ export default function PlayerApp() {
       originCoordinate: playerHomeCoordinate,
       playerId: player.id,
       query: tournamentQuery,
-      registrations: tournamentRegistrations,
+      interests: tournamentInterests,
+      nowMs: clockNow,
       tournamentClubFilter,
-      tournamentDistanceFilter,
+      tournamentDistanceFilter: 'none',
       tournamentFilter,
       tournaments
     }),
-    [clubs, player.id, playerHomeCoordinate, tournamentClubFilter, tournamentDistanceFilter, tournamentFilter, tournamentQuery, tournamentRegistrations, tournaments]
+    [clockNow, clubs, player.id, tournamentClubFilter, tournamentFilter, tournamentQuery, tournamentInterests, tournaments]
   );
+
+  useEffect(() => {
+    if (hasAccount) return;
+    setScreen('home');
+    setGameQuery('');
+    setTournamentQuery('');
+    setTournamentFilter('all');
+    setTournamentClubFilter('all');
+    setSelectedCasinoFilter('all');
+    setMapQuery('');
+    setMapVenueFilter('all');
+    setGameTypeFilter('all');
+    setSelectedFilterClubId('all');
+    setStakesFilter('');
+    setFitScoreFilterEnabled(false);
+    setDiscoveryDecisions({});
+    setDiscoveryCycleDecisions({});
+    setSelectedDiscoveryOpportunity(null);
+    setDiscoveryNotice('');
+    setSeatRequestDraft(null);
+    setSeatRequestMessage('');
+    setClubMembershipMessage('');
+    setClubSelectionNotice('');
+    setSelectedClubId('');
+  }, [hasAccount]);
 
   useEffect(() => {
     mainScrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -336,27 +324,26 @@ export default function PlayerApp() {
     setSeatRequestDraft(null);
     setSeatRequestMessage('');
     if (screen !== 'gameDetails') setSelectedDiscoveryOpportunity(null);
-    if (screen !== 'findGames') setShowHostScreen(false);
-    if (screen !== 'clubPayment') setPendingClubProduct(null);
   }, [screen]);
 
   const opportunities = useMemo(
     () => buildGameOpportunities({
       activePlayerGameKeys,
-      distanceFilter,
+      distanceFilter: 'none',
       favoriteClubIds,
       findGameClubs,
       fitScoreFilterEnabled,
       gameQuery,
       gameTypeFilter,
       joinedClubIds,
+      nowMs: clockNow,
       player,
       playerHomeCoordinate,
       selectedCasinoFilter,
       selectedFilterClubId,
       stakesFilter
     }),
-    [activePlayerGameKeys, distanceFilter, favoriteClubIds, findGameClubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, joinedClubIds, player.homeLocation, player.preferredGameIds, playerHomeCoordinate, selectedCasinoFilter, selectedFilterClubId, stakesFilter]
+    [activePlayerGameKeys, clockNow, favoriteClubIds, findGameClubs, fitScoreFilterEnabled, gameQuery, gameTypeFilter, joinedClubIds, player, selectedCasinoFilter, selectedFilterClubId, stakesFilter]
   );
 
   const broadOpportunities = useMemo(
@@ -369,13 +356,14 @@ export default function PlayerApp() {
       gameQuery: '',
       gameTypeFilter: 'all',
       joinedClubIds,
+      nowMs: clockNow,
       player,
       playerHomeCoordinate,
       selectedCasinoFilter: 'all',
       selectedFilterClubId: 'all',
       stakesFilter: ''
     }),
-    [activePlayerGameKeys, favoriteClubIds, findGameClubs, joinedClubIds, player.homeLocation, player.preferredGameIds, playerHomeCoordinate]
+    [activePlayerGameKeys, clockNow, favoriteClubIds, findGameClubs, joinedClubIds, player]
   );
   const discoverySelection = useMemo(
     () => selectContinuousDiscoveryOpportunities(opportunities, broadOpportunities),
@@ -391,16 +379,20 @@ export default function PlayerApp() {
     [discoveryDecisions, displayedOpportunities]
   );
   const activeDiscoveryOpportunity = useMemo(
-    () => getActiveDiscoveryOpportunity(displayedOpportunities, selectedDiscoveryOpportunity),
-    [displayedOpportunities, selectedDiscoveryOpportunity]
+    () => getActiveDiscoveryOpportunity(broadOpportunities, selectedDiscoveryOpportunity),
+    [broadOpportunities, selectedDiscoveryOpportunity]
   );
+
+  useEffect(() => {
+    if (screen === 'clubSignup' && !selectedClub) setScreen('clubs');
+  }, [screen, selectedClub]);
 
   const decideDiscoveryOpportunity = (item: GameOpportunity, decision: DiscoveryDecision) => {
     const key = getOpportunityKey(item);
     setDiscoveryDecisions((current) => ({ ...current, [key]: decision }));
     setDiscoveryCycleDecisions((current) => advanceDiscoveryCycle(displayedOpportunities, current, item, decision));
     if (decision === 'saved') {
-      setDiscoveryNotice(`${item.game.name} saved. Review the join options and game alerts.`);
+      setDiscoveryNotice(`${item.game.name} saved. Review the venue's published details and request options.`);
       setSelectedDiscoveryOpportunity(item);
       setGameDetailsReturnScreen('findGames');
       setScreen('gameDetails');
@@ -427,15 +419,13 @@ export default function PlayerApp() {
       if (screen === 'gameDetails') {
         setSelectedDiscoveryOpportunity(null);
         setScreen(gameDetailsReturnScreen);
-      } else if (showHostScreen) {
-        setShowHostScreen(false);
       } else {
         setScreen('home');
       }
       return true;
     });
     return () => subscription.remove();
-  }, [gameDetailsReturnScreen, screen, showHostScreen]);
+  }, [gameDetailsReturnScreen, screen]);
 
   const clearDiscoveryFilters = () => {
     setGameQuery('');
@@ -443,7 +433,6 @@ export default function PlayerApp() {
     setSelectedFilterClubId('all');
     setSelectedCasinoFilter('all');
     setStakesFilter('');
-    setDistanceFilter('none');
     setFitScoreFilterEnabled(false);
   };
 
@@ -457,14 +446,46 @@ export default function PlayerApp() {
     }
   };
 
-  if (!accountLoaded) {
+  if (!accountLoaded || !authLoaded) {
     return (
       <SafeAreaProvider>
         <SafeAreaView accessibilityLabel="Loading Orbit Player" accessibilityRole="progressbar" style={styles.safeArea}>
           <View style={[styles.content, { gap: 14, paddingTop: 36 }]}>
             <View style={[styles.emptyState, { minHeight: 94 }]} />
             <View style={[styles.emptyState, { minHeight: 180 }]} />
-            <Text style={styles.muted}>Restoring your Orbit Player account...</Text>
+            <Text style={styles.muted}>Restoring your Orbit Player account and secure sign-in...</Text>
+          </View>
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  if (authInitializationError) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.safeArea}>
+          <View accessibilityRole="alert" style={[styles.content, styles.emptyState]}>
+            <Text style={styles.cardTitle}>Secure sign-in needs attention</Text>
+            <Text style={styles.muted}>{authInitializationError}</Text>
+            <Pressable accessibilityRole="button" onPress={retryAuthInitialization} style={styles.compactButton}>
+              <Text style={styles.compactButtonText}>Retry secure sign-in cleanup</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  if (playerStorageError && !hasAccount) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.safeArea}>
+          <View accessibilityRole="alert" style={[styles.content, styles.emptyState]}>
+            <Text style={styles.cardTitle}>Saved profile data is unavailable</Text>
+            <Text style={styles.muted}>{playerStorageError}</Text>
+            <Pressable accessibilityRole="button" onPress={retryPlayerStorage} style={styles.compactButton}>
+              <Text style={styles.compactButtonText}>Retry saved profile</Text>
+            </Pressable>
           </View>
         </SafeAreaView>
       </SafeAreaProvider>
@@ -493,8 +514,8 @@ export default function PlayerApp() {
           {screen !== 'gameDetails' && screen !== 'home' ? (
             <View style={styles.header}>
               <View>
-                <Text style={[styles.eyebrow, styles.darkShellEyebrow]}>{screen === 'clubs' ? 'Your memberships' : screen === 'tournaments' ? 'Upcoming games' : screen === 'map' ? 'Browse nearby' : 'Orbit Player'}</Text>
-                <Text style={[styles.title, styles.darkShellTitle]}>{screen === 'clubSignup' || screen === 'clubPayment' ? 'Card House Store' : getScreenTitle(screen)}</Text>
+                <Text style={[styles.eyebrow, styles.darkShellEyebrow]}>{screen === 'clubs' ? 'Your memberships' : screen === 'tournaments' ? 'Upcoming games' : screen === 'map' ? 'Published venues' : 'Orbit Player'}</Text>
+                <Text style={[styles.title, styles.darkShellTitle]}>{screen === 'clubSignup' ? 'Membership request' : getScreenTitle(screen)}</Text>
               </View>
               <Pressable
                 accessibilityLabel="Open settings"
@@ -514,12 +535,21 @@ export default function PlayerApp() {
           ) : null}
 
           <ScrollView ref={mainScrollRef} showsVerticalScrollIndicator={screen === 'tournaments' || screen === 'gameDetails'} contentContainerStyle={styles.content}>
+            {playerStorageError || profileSyncNotice ? (
+              <View accessibilityRole="alert" style={styles.emptyState}>
+                <Text style={styles.cardTitle}>Profile changes need attention</Text>
+                <Text style={styles.muted}>{playerStorageError || profileSyncNotice}</Text>
+                <Pressable accessibilityRole="button" onPress={retryPlayerPersistence} style={styles.compactButton}>
+                  <Text style={styles.compactButtonText}>Retry profile save</Text>
+                </Pressable>
+              </View>
+            ) : null}
             {screen === 'home' ? (
               <PlayerLandingHero
                 opportunities={broadOpportunities}
                 inventoryPartial={liveDataPartial}
                 inventoryStatus={liveDataStatus}
-                openTournamentCount={visibleTournaments.filter(({ tournament }) => tournament.registrationStatus === 'open').length}
+                openTournamentCount={visibleTournaments.filter(({ tournament }) => isTournamentInterestOpen(tournament, clockNow)).length}
                 clubCount={findGameClubs.length}
                 onFindGame={() => setScreen('findGames')}
                 onOpenGame={openDiscoveryGame}
@@ -529,42 +559,48 @@ export default function PlayerApp() {
             ) : null}
             {screen === 'home' ? <OrbitJourney /> : null}
             {liveDataStatus === 'loading' && !clubs.length ? (
-              <View accessibilityLabel="Loading live card houses" accessibilityRole="progressbar" style={[styles.emptyState, { minHeight: 132 }]}>
-                <Text style={styles.cardTitle}>Loading live card houses...</Text>
+              <View accessibilityLabel="Loading published venues" accessibilityRole="progressbar" style={[styles.emptyState, { minHeight: 132 }]}>
+                <Text style={styles.cardTitle}>Loading published venues...</Text>
                 <Text style={styles.muted}>Your saved account remains available while Orbit reconnects.</Text>
               </View>
             ) : null}
             {liveDataStatus === 'error' ? (
               <View accessibilityRole="alert" style={styles.emptyState}>
-                <Text style={styles.cardTitle}>Live card-house data is unavailable</Text>
+                <Text style={styles.cardTitle}>Published venue data is unavailable</Text>
                 <Text style={styles.muted}>{syncStatus}</Text>
                 <Pressable accessibilityRole="button" onPress={retryLiveData} style={styles.compactButton}>
-                  <Text style={styles.compactButtonText}>Retry live data</Text>
+                  <Text style={styles.compactButtonText}>Retry published data</Text>
                 </Pressable>
               </View>
             ) : null}
-            {liveDataStatus !== 'error' && (tournamentLoadError || privateGameStatus) ? (
+            {liveDataStatus !== 'error' && tournamentLoadError ? (
               <View accessibilityRole="alert" style={styles.emptyState}>
-                <Text style={styles.cardTitle}>Some live data could not be refreshed</Text>
-                <Text style={styles.muted}>{tournamentLoadError || privateGameStatus}</Text>
+                <Text style={styles.cardTitle}>Some published data could not be refreshed</Text>
+                <Text style={styles.muted}>{tournamentLoadError}</Text>
                 <Pressable accessibilityRole="button" onPress={retryLiveData} style={styles.compactButton}>
-                  <Text style={styles.compactButtonText}>Retry live data</Text>
+                  <Text style={styles.compactButtonText}>Retry published data</Text>
                 </Pressable>
               </View>
             ) : null}
-            {screen === 'gameDetails' && activeDiscoveryOpportunity ? (
+            {screen === 'gameDetails' && selectedDiscoveryOpportunity ? (
               <GameDetailsScreen
-                key={getOpportunityKey(activeDiscoveryOpportunity)}
+                key={getOpportunityKey(selectedDiscoveryOpportunity)}
                 item={activeDiscoveryOpportunity}
                 player={player}
                 backLabel={gameDetailsReturnScreen === 'home' ? 'Home' : 'Matches'}
                 onBack={closeDiscoveryGame}
-                onDirections={() => openDirections(activeDiscoveryOpportunity.club)}
+                onDirections={() => {
+                  if (activeDiscoveryOpportunity) openDirections(activeDiscoveryOpportunity.club);
+                }}
                 onJoin={() => {
                   const item = activeDiscoveryOpportunity;
-                  joinWaitlist(item.club, item.game);
+                  if (item) joinWaitlist(item.club, item.game);
                 }}
-                onViewStore={() => openClubSignup(activeDiscoveryOpportunity.club)}
+                onRefresh={retryLiveData}
+                readOnly={liveDataStatus !== 'ready'}
+                onViewStore={() => {
+                  if (activeDiscoveryOpportunity) openClubSignup(activeDiscoveryOpportunity.club);
+                }}
               />
             ) : null}
             {screen === 'identityVerification' ? (
@@ -575,12 +611,13 @@ export default function PlayerApp() {
                 message={identityMessage}
                 requiredMinimumAge={identityRequiredMinimumAge}
                 onBack={() => setScreen(identityReturnScreen)}
+                onOpenSettings={playerPlatform.openAppSettings}
                 onSignIn={() => setScreen('settings')}
                 onStart={startIdentityVerification}
                 onRefresh={refreshIdentityVerification}
               />
             ) : null}
-            {screen === 'findGames' && !showHostScreen ? (
+            {screen === 'findGames' ? (
               <>
                 <Pressable accessibilityLabel="Back to Home" accessibilityRole="button" style={styles.inlineBackAction} onPress={() => setScreen('home')}>
                   <Ionicons name="chevron-back" size={17} color={colors.primary} />
@@ -588,7 +625,8 @@ export default function PlayerApp() {
                 </Pressable>
                 <MyGamesSection
                   games={activePlayerGames}
-                  onBuyTime={openPlayerTimePurchase}
+                  message={gameRequestMessage}
+                  readOnly={liveDataStatus !== 'ready'}
                   onCancel={(club, game, entry) => cancelWaitlist(club, game, entry)}
                 />
                 <View style={styles.sectionHeader}>
@@ -679,30 +717,6 @@ export default function PlayerApp() {
                 {savedOpportunities.length ? (
                   <SavedGamesStrip opportunities={savedOpportunities} onOpen={openDiscoveryGame} />
                 ) : null}
-                {playerPremiumEnabled ? (
-                  <Pressable style={styles.hostPromptCard} onPress={() => setShowHostScreen(true)}>
-                    <View style={styles.hostPromptIcon}>
-                      <Ionicons name="home-outline" size={18} color={colors.primary} />
-                    </View>
-                    <View style={styles.hostPromptCopy}>
-                      <Text style={styles.cardTitle}>Hosting a group?</Text>
-                      <Text style={styles.muted}>Publish a private game for nearby players.</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={colors.muted} />
-                  </Pressable>
-                ) : null}
-
-                {visiblePrivateGames.length ? (
-                  <>
-                    <View style={styles.sectionHeader}>
-                      <Text style={styles.sectionTitle}>Groups playing nearby</Text>
-                      <Text style={styles.muted}>{visiblePrivateGames.length} open</Text>
-                    </View>
-                    {visiblePrivateGames.map((game) => (
-                      <PrivateGameCard key={game.id} game={game} />
-                    ))}
-                  </>
-                ) : null}
               </>
             ) : null}
 
@@ -713,14 +727,15 @@ export default function PlayerApp() {
                 onOpenFilters={() => setShowTournamentFilters(true)}
                 opportunities={visibleTournaments}
                 hasOrbitAccount={Boolean(firebaseIdentity && firebaseIdentity.uid === player.id)}
+                readOnly={liveDataStatus !== 'ready' || Boolean(tournamentLoadError)}
                 message={tournamentMessage}
                 pendingTournamentIds={pendingTournamentIds}
                 onSelectClub={(club) => {
                   setSelectedClubId(club.club.id);
                   setScreen('clubs');
                 }}
-                onRegister={registerTournament}
-                onUnregister={unregisterTournament}
+                onExpressInterest={expressInterest}
+                onWithdrawInterest={withdrawInterest}
               />
             ) : null}
 
@@ -729,8 +744,8 @@ export default function PlayerApp() {
             {screen === 'map' ? (
               <MapExploreScreen
                 clubs={mappedClubs}
-                originCoordinate={playerHomeCoordinate}
                 query={mapQuery}
+                readOnly={liveDataStatus !== 'ready'}
                 setQuery={setMapQuery}
                 onOpenFilters={() => setShowMapFilters(true)}
                 onDirections={openDirections}
@@ -738,77 +753,43 @@ export default function PlayerApp() {
                   setSelectedFilterClubId(club.club.id);
                   setScreen('findGames');
                 }}
+                onRequestAccess={openClubSignup}
               />
-            ) : null}
-
-            {playerPremiumEnabled && screen === 'findGames' && showHostScreen ? (
-              <>
-                <Pressable accessibilityLabel="Back to game matches" accessibilityRole="button" style={styles.inlineBackAction} onPress={() => setShowHostScreen(false)}>
-                  <Ionicons name="chevron-back" size={17} color={colors.primary} />
-                  <Text style={styles.inlineBackText}>Find Games</Text>
-                </Pressable>
-                {hasPlayerPremium ? (
-                  <>
-                    <HostControlPanel playerName={player.name} hostedCount={hostedPrivateGames.length} />
-                    <PrivateGameComposer
-                      draft={privateGameDraft}
-                      setDraft={setPrivateGameDraft}
-                      onPublish={publishPrivateGame}
-                    />
-                  </>
-                ) : (
-                  <PremiumPaywall
-                    title="Host Games with Premium"
-                    body="Player-hosted game posting is included with Player Premium, so your private table appears for nearby players."
-                    priceLabel={premiumMonthlyPriceLabel}
-                    message={premiumMessage || privateGameStatus}
-                    onUpgrade={openPremiumCheckout}
-                  />
-                )}
-                {privateGameStatus ? <Text style={styles.privateGameStatus}>{privateGameStatus}</Text> : null}
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Your posted games</Text>
-                  <Text style={styles.muted}>{hostedPrivateGames.length} open</Text>
-                </View>
-                {hostedPrivateGames.length ? hostedPrivateGames.map((game) => (
-                  <PrivateGameCard key={game.id} game={game} />
-                )) : (
-                  <View style={styles.emptyState}>
-                    <Text style={styles.cardTitle}>No hosted games yet</Text>
-                    <Text style={styles.muted}>Post a game above and it will appear for nearby players in Find Games.</Text>
-                  </View>
-                )}
-              </>
             ) : null}
 
             {screen === 'clubs' ? (
               <ClubsScreen
                 memberClubs={memberClubs}
-                selectedClub={selectedClub}
                 selectedMembership={selectedMembership}
+                viewState={clubsViewState}
                 player={player}
                 originCoordinate={playerHomeCoordinate}
                 nowMs={clockNow}
                 message={clubMembershipMessage}
                 waitlists={playerWaitlists}
                 tournaments={selectedClubTournaments}
-                onSelectClub={(club) => setSelectedClubId(club.club.id)}
-                onGame={(game) => joinWaitlist(selectedClub, game)}
-                onAddTime={openPlayerTimePurchase}
-                timePurchaseBusy={clubActionPending}
-                onManageAccess={() => openClubSignup(selectedClub)}
+                onSelectClub={(club) => {
+                  setClubSelectionNotice('');
+                  setSelectedClubId(club.club.id);
+                }}
+                onGame={(game) => {
+                  if (selectedMemberClub) joinWaitlist(selectedMemberClub, game);
+                }}
+                onManageAccess={() => {
+                  if (selectedMemberClub) openClubSignup(selectedMemberClub);
+                }}
                 onViewEvents={() => {
-                  setTournamentClubFilter(selectedClub.club.id);
+                  if (!selectedMemberClub) return;
+                  setTournamentClubFilter(selectedMemberClub.club.id);
                   setScreen('tournaments');
                 }}
               />
             ) : null}
 
-            {screen === 'clubSignup' && selectedClub ? (
+            {screen === 'clubSignup' && selectedClub && liveDataStatus === 'ready' ? (
               <ClubMembershipPlanScreen
                 key={selectedClub.club.id}
                 club={selectedClub}
-                prices={getClubMembershipPrices(selectedClub)}
                 message={clubMembershipMessage}
                 player={player}
                 busy={clubActionPending}
@@ -816,19 +797,16 @@ export default function PlayerApp() {
                 onSubmit={(membershipOption) => submitMembershipApplication(selectedClub, membershipOption)}
               />
             ) : null}
-
-            {screen === 'clubPayment' && selectedClub && pendingClubProduct ? (
-              <ClubAccessCheckoutScreen
-                club={selectedClub}
-                product={pendingClubProduct}
-                price={pendingMembershipOption?.priceLabel ?? getClubProductLabel(pendingClubProduct, getClubMembershipPrices(selectedClub))}
-                message={clubMembershipMessage}
-                connectedCheckoutEnabled={cardHouseCheckoutEnabled}
-                busy={clubActionPending}
-                onBack={() => setScreen('clubSignup')}
-                onPayInApp={() => completeClubPayment(selectedClub, pendingClubProduct)}
-                onPayInPerson={() => requestInPersonMembership(selectedClub, pendingClubProduct)}
-              />
+            {screen === 'clubSignup' && (!selectedClub || liveDataStatus !== 'ready') ? (
+              <View accessibilityRole="alert" style={styles.emptyState}>
+                <Text style={styles.cardTitle}>{selectedClub ? 'Club access is temporarily read-only' : 'That club is no longer available'}</Text>
+                <Text style={styles.muted}>{selectedClub
+                  ? 'Orbit must refresh the current venue catalog before you can send a membership request.'
+                  : 'Return to the current club list or refresh published data.'}</Text>
+                <Pressable accessibilityRole="button" onPress={retryLiveData} style={styles.compactButton}>
+                  <Text style={styles.compactButtonText}>Refresh published data</Text>
+                </Pressable>
+              </View>
             ) : null}
 
             {screen === 'settings' ? (
@@ -850,13 +828,8 @@ export default function PlayerApp() {
                 recoverPlayerAccount={recoverPlayerAccount}
                 restartPlayerPhoneSignIn={restartPlayerPhoneSignIn}
                 identityStatus={identityStatus}
+                profileEditingReady={profileEditingReady}
                 showIdentityVerification={showIdentityVerification}
-                playerPremiumEnabled={playerPremiumEnabled}
-                hasPlayerPremium={hasPlayerPremium}
-                premiumMonthlyPriceLabel={premiumMonthlyPriceLabel}
-                premiumMessage={premiumMessage}
-                openPremiumCheckout={openPremiumCheckout}
-                restorePremiumPurchases={restorePremiumPurchases}
                 player={player}
                 setPlayer={setPlayer}
                 signOutPlayer={signOutPlayer}
@@ -877,7 +850,6 @@ export default function PlayerApp() {
                     onPress={() => {
                       setScreen(tab.id);
                       setSelectedDiscoveryOpportunity(null);
-                      setShowHostScreen(false);
                     }}
                     style={[styles.tab, active && styles.activeTab]}
                   >
@@ -897,16 +869,6 @@ export default function PlayerApp() {
             clearDiscoveryFilters();
           }}
         >
-          <View style={styles.sheetField}>
-            <Text style={styles.fieldLabel}>Location</Text>
-            <TextInput
-              value={player.homeLocation ?? ''}
-              onChangeText={(homeLocation) => setPlayer((current) => ({ ...current, homeLocation }))}
-              placeholder="Your address or city"
-              placeholderTextColor={colors.muted}
-              style={styles.sheetTextInput}
-            />
-          </View>
           <GameFilterPanel
             clubs={findGameClubs}
             gameType={gameTypeFilter}
@@ -917,8 +879,6 @@ export default function PlayerApp() {
             setSelectedCasinoId={setSelectedCasinoFilter}
             stakes={stakesFilter}
             setStakes={setStakesFilter}
-            distance={distanceFilter}
-            setDistance={setDistanceFilter}
             fitScoreEnabled={fitScoreFilterEnabled}
             setFitScoreEnabled={setFitScoreFilterEnabled}
           />
@@ -930,27 +890,14 @@ export default function PlayerApp() {
           onReset={() => {
             setTournamentFilter('all');
             setTournamentClubFilter('all');
-            setTournamentDistanceFilter('none');
           }}
         >
-          <View style={styles.sheetField}>
-            <Text style={styles.fieldLabel}>Location</Text>
-            <TextInput
-              value={player.homeLocation ?? ''}
-              onChangeText={(homeLocation) => setPlayer((current) => ({ ...current, homeLocation }))}
-              placeholder="Your address or city"
-              placeholderTextColor={colors.muted}
-              style={styles.sheetTextInput}
-            />
-          </View>
           <TournamentFilterControls
             clubs={clubs}
             eventFilter={tournamentFilter}
             setEventFilter={setTournamentFilter}
             clubFilter={tournamentClubFilter}
             setClubFilter={setTournamentClubFilter}
-            distance={tournamentDistanceFilter}
-            setDistance={setTournamentDistanceFilter}
           />
         </FiltersBottomSheet>
         <FiltersBottomSheet
@@ -959,30 +906,18 @@ export default function PlayerApp() {
           onClose={() => setShowMapFilters(false)}
           onReset={() => {
             setMapVenueFilter('all');
-            setMapDistanceFilter('none');
           }}
         >
-          <View style={styles.sheetField}>
-            <Text style={styles.fieldLabel}>Location</Text>
-            <TextInput
-              value={player.homeLocation ?? ''}
-              onChangeText={(homeLocation) => setPlayer((current) => ({ ...current, homeLocation }))}
-              placeholder="Your address or city"
-              placeholderTextColor={colors.muted}
-              style={styles.sheetTextInput}
-            />
-          </View>
           <MapFilterControls
             venue={mapVenueFilter}
             setVenue={setMapVenueFilter}
-            distance={mapDistanceFilter}
-            setDistance={setMapDistanceFilter}
           />
         </FiltersBottomSheet>
         <SeatRequestModal
           draft={seatRequestDraft}
           message={seatRequestMessage}
           busy={clubActionPending}
+          readOnly={liveDataStatus !== 'ready'}
           onChange={setSeatRequestDraft}
           onClose={() => setSeatRequestDraft(null)}
           onSubmit={submitSeatRequest}

@@ -40,6 +40,7 @@ export function IdentityVerificationScreen({
   message,
   requiredMinimumAge,
   onBack,
+  onOpenSettings,
   onSignIn,
   onStart,
   onRefresh
@@ -50,6 +51,7 @@ export function IdentityVerificationScreen({
   message: string;
   requiredMinimumAge: 18 | 21;
   onBack: () => void;
+  onOpenSettings: () => void;
   onSignIn: () => void;
   onStart: (details: Pick<ScannedGovernmentId, 'fullName' | 'dateOfBirth' | 'address'>) => void | Promise<void>;
   onRefresh: () => void | Promise<unknown>;
@@ -104,11 +106,11 @@ export function IdentityVerificationScreen({
         </Text>
         <Text style={styles.muted}>
           {approved
-            ? 'Staff approved your physical ID.'
+            ? 'Identity and age verification approved.'
             : provisional
-              ? 'You may continue registering and choosing payment. Card-house staff must check the physical ID on your first visit.'
+              ? 'You may continue sharing nonbinding tournament interest and sending membership or waitlist requests. Venue staff must check the physical ID on your first visit.'
             : underage
-              ? `This card house requires players to be age ${requiredMinimumAge} or older.`
+              ? `This venue action requires players to be age ${requiredMinimumAge} or older.`
               : 'Use the camera on the PDF417 barcode on the back of a government-issued ID. Orbit reads the name, date of birth, and address on this device.'}
         </Text>
       </View>
@@ -145,7 +147,7 @@ export function IdentityVerificationScreen({
           </View>
         </>
       ) : Platform.OS === 'web' ? (
-        <Text style={styles.privateGameStatus}>ID barcode scanning is available in the Orbit Player iOS and Android apps.</Text>
+        <Text style={styles.actionStatus}>ID barcode scanning is available in the Orbit Player iOS and Android apps.</Text>
       ) : permission?.granted ? (
         <View style={styles.cameraShell}>
           <CameraView
@@ -157,18 +159,25 @@ export function IdentityVerificationScreen({
           <View pointerEvents="none" style={styles.cameraGuide} />
           <Text style={styles.cameraCaption}>Center the barcode inside the frame</Text>
         </View>
+      ) : permission && permission.canAskAgain === false ? (
+        <View style={styles.captureActions}>
+          <Text style={styles.muted}>Camera access is blocked in device settings. Orbit cannot scan the PDF417 barcode until you enable camera access there.</Text>
+          <Pressable onPress={onOpenSettings} style={[styles.primaryButton, styles.fullWidthButton]}>
+            <Text style={styles.primaryButtonText}>Open device settings</Text>
+          </Pressable>
+        </View>
       ) : (
         <Pressable onPress={() => void requestPermission()} style={[styles.primaryButton, styles.fullWidthButton]}>
           <Text style={styles.primaryButtonText}>Allow camera access</Text>
         </Pressable>
       )}
-      {scanMessage ? <Text style={styles.privateGameStatus}>{scanMessage}</Text> : null}
-      {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
+      {scanMessage ? <Text style={styles.actionStatus}>{scanMessage}</Text> : null}
+      {message ? <Text style={styles.actionStatus}>{message}</Text> : null}
       <Pressable onPress={onBack} style={styles.secondaryActionButton}>
         <Text style={styles.secondaryActionText}>{provisional || approved ? 'Back' : 'Not now'}</Text>
       </Pressable>
       <Text style={styles.identityPrivacy}>
-        Orbit does not take or retain an ID photo. The raw barcode and ID number stay on this device and are discarded after the name, date of birth, and address are read. Only those three details are saved to your signed-in Orbit account and shared with card houses you choose to register with.
+        Orbit does not take or retain an ID photo. The raw barcode and ID number stay on this device and are discarded after reading. Orbit sends your name, date of birth, address, and an opaque request identifier. The server records the capture method/time, calculated age eligibility and level, review status, and audit timestamps. Those verification details and statuses may be shared with a venue when you request its age-restricted services.
       </Text>
     </View>
   );

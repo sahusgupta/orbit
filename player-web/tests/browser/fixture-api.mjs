@@ -11,7 +11,7 @@ const publicDiscovery = {
     waitlists: [],
     notifications: []
   })),
-  registrations: []
+  interests: []
 };
 
 function send(response, status, payload) {
@@ -90,7 +90,7 @@ const server = createServer(async (request, response) => {
     send(response, 201, { ok: true, accountKey: club.club.id, snapshot: club });
     return;
   }
-  if (request.method === 'POST' && url.pathname === '/player/tournament-registrations') {
+  if (request.method === 'POST' && url.pathname === '/player/tournament-interests') {
     const body = await readBody(request);
     const tournament = authenticatedDiscovery.tournaments.find((candidate) => candidate.id === body.tournamentId);
     if (!tournament) {
@@ -99,23 +99,19 @@ const server = createServer(async (request, response) => {
     }
     send(response, 201, {
       ok: true,
-      registration: {
+      interest: {
         id: `${tournament.id}:player-1`,
         tournamentId: tournament.id,
         clubId: tournament.clubId,
         playerId: 'player-1',
-        playerName: 'Avery Stone',
-        playerEmail: 'avery@example.com',
-        status: 'registered',
-        rebuys: 0,
-        addOns: 0,
-        registeredAt: '2030-06-01T12:00:00.000Z',
+        status: 'interested',
+        createdAt: '2030-06-01T12:00:00.000Z',
         updatedAt: '2030-06-01T12:00:00.000Z'
       }
     });
     return;
   }
-  if (request.method === 'DELETE' && url.pathname === '/player/tournament-registrations') {
+  if (request.method === 'DELETE' && url.pathname === '/player/tournament-interests') {
     send(response, 200, { ok: true });
     return;
   }

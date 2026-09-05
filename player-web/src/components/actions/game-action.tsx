@@ -13,6 +13,7 @@ import { usePlayerData } from '@/src/data/player-data-context';
 import {
   gameRouteKey,
   getActivePlayerRequests,
+  getFirstRunningTable,
   getGamePrimaryAction,
   getMembershipState
 } from '@/src/domain/selectors';
@@ -27,7 +28,7 @@ export function GameAction({ club, game }: { club: PlayerClubSnapshot; game: Pla
   const playerData = usePlayerData();
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(() => Boolean(user && searchParams.get('intent') === 'waitlist'));
-  const [attendance, setAttendance] = useState<SeatRequestInput['attendance']>(game.openTables.some((table) => table.status === 'Forming') ? 'interested' : 'confirmed');
+  const [attendance, setAttendance] = useState<SeatRequestInput['attendance']>(() => getFirstRunningTable(game) ? 'arrived' : 'interested');
   const [expectedArrivalTime, setExpectedArrivalTime] = useState('');
   const [availabilityStartTime, setAvailabilityStartTime] = useState('');
   const [availabilityEndTime, setAvailabilityEndTime] = useState('');
@@ -35,6 +36,10 @@ export function GameAction({ club, game }: { club: PlayerClubSnapshot; game: Pla
   const [message, setMessage] = useState('');
   const liveClub = playerData.clubs.find((candidate) => candidate.club.id === club.club.id) ?? club;
   const liveGame = liveClub.games.find((candidate) => candidate.id === game.id) ?? game;
+  const runningTable = getFirstRunningTable(liveGame);
+  const effectiveAttendance: SeatRequestInput['attendance'] = runningTable
+    ? attendance === 'confirmed' ? 'confirmed' : 'arrived'
+    : 'interested';
   const membershipState = getMembershipState(liveClub, player);
   const activeRequest = useMemo(() => getActivePlayerRequests([liveClub], player).find((item) => item.entry.gameId === game.id), [game.id, liveClub, player]);
   const href = `/games/${gameRouteKey(club, game)}`;
@@ -56,7 +61,7 @@ export function GameAction({ club, game }: { club: PlayerClubSnapshot; game: Pla
         <StatusBadge tone="success">Request active</StatusBadge>
         <h2>{activeRequest.entry.status === 'Interested' ? 'Interest sent' : activeRequest.entry.status}</h2>
         <p>Orbit Core has your current commitment. Changes stay authoritative and visible to the club.</p>
-        <dl className="action-summary"><div><dt>Game</dt><dd>{liveGame.name}</dd></div><div><dt>Position</dt><dd>{activeRequest.entry.position || 'Club confirmed'}</dd></div></dl>
+        <dl className="action-summary"><div><dt>Game</dt><dd>{liveGame.name}</dd></div><div><dt>Position</dt><dd>{activeRequest.entry.position ?? 'Position unavailable'}</dd></div></dl>
         {message ? <p className="form-message" role="status">{message}</p> : null}
         <Button tone="secondary" disabled={busy} onClick={async () => {
           setBusy(true); setMessage('');
@@ -83,8 +88,13 @@ export function GameAction({ club, game }: { club: PlayerClubSnapshot; game: Pla
     setBusy(true);
     setMessage('');
     try {
-      await playerData.requestSeat(liveClub, liveGame, { attendance, expectedArrivalTime, availabilityStartTime, availabilityEndTime });
-      setMessage('Your request is confirmed in Orbit.');
+      const input: SeatRequestInput = effectiveAttendance === 'interested'
+        ? { attendance: 'interested', availabilityStartTime, availabilityEndTime }
+        : effectiveAttendance === 'confirmed'
+          ? { attendance: 'confirmed', expectedArrivalTime }
+          : { attendance: 'arrived' };
+      await playerData.requestSeat(liveClub, liveGame, input);
+      setMessage(effectiveAttendance === 'interested' ? 'Your interest was sent to the club.' : 'Your seat request was sent to the club.');
       setOpen(false);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Your request could not be sent.');
@@ -98,24 +108,29 @@ export function GameAction({ club, game }: { club: PlayerClubSnapshot; game: Pla
       <div className="action-panel">
         <p className="eyebrow">Player action</p>
         <h2>{getGamePrimaryAction(liveGame)}</h2>
-        <p>Tell the room where you are in one clear step. You can change this later.</p>
+        <p>{runningTable
+          ? 'Tell the room whether you are already there or when you expect to arrive.'
+          : 'No Running table is published. Share when you would come as nonbinding interest.'}</p>
         {message ? <p className="form-message" role="alert">{message}</p> : null}
         <Button onClick={() => setOpen(true)}>{getGamePrimaryAction(liveGame)}</Button>
       </div>
       <Dialog open={open} onOpenChange={setOpen} title={`Your plan for ${liveGame.name}`} description={`${liveClub.club.name} will receive this through Orbit Core.`}>
         <Form className="dialog-form" onFormSubmit={() => void submit()}>
-          <Fieldset.Root className="choice-grid">
-            <Fieldset.Legend>Where are you now?</Fieldset.Legend>
-            <RadioGroup className="choice-grid__options" name="attendance" value={attendance} onValueChange={(value) => setAttendance(value)}>
-              <label><Radio.Root className="radio-control" value="arrived"><Radio.Indicator className="radio-control__indicator" /></Radio.Root><MapPin aria-hidden="true" /><span><strong>I’m here</strong><small>Ready to check in</small></span></label>
-              <label><Radio.Root className="radio-control" value="confirmed"><Radio.Indicator className="radio-control__indicator" /></Radio.Root><Clock3 aria-hidden="true" /><span><strong>I’m coming</strong><small>Share an arrival time</small></span></label>
-              <label><Radio.Root className="radio-control" value="interested"><Radio.Indicator className="radio-control__indicator" /></Radio.Root><UsersRound aria-hidden="true" /><span><strong>I’m interested</strong><small>Help this game form</small></span></label>
-            </RadioGroup>
-          </Fieldset.Root>
-          {attendance === 'confirmed' ? <TextField id="expected-arrival" label="Expected arrival" name="expectedArrivalTime" type="time" value={expectedArrivalTime} onChange={(event) => setExpectedArrivalTime(event.target.value)} required /> : null}
-          {attendance === 'interested' ? <div className="field-pair"><TextField id="availability-start" label="Available from" name="availabilityStartTime" type="time" value={availabilityStartTime} onChange={(event) => setAvailabilityStartTime(event.target.value)} /><TextField id="availability-end" label="Available until" name="availabilityEndTime" type="time" value={availabilityEndTime} onChange={(event) => setAvailabilityEndTime(event.target.value)} /></div> : null}
+          {runningTable ? (
+            <Fieldset.Root className="choice-grid">
+              <Fieldset.Legend>Where are you now?</Fieldset.Legend>
+              <RadioGroup className="choice-grid__options" name="attendance" value={effectiveAttendance} onValueChange={(value) => setAttendance(value)}>
+                <label><Radio.Root className="radio-control" value="arrived"><Radio.Indicator className="radio-control__indicator" /></Radio.Root><MapPin aria-hidden="true" /><span><strong>I’m here</strong><small>Ready to check in</small></span></label>
+                <label><Radio.Root className="radio-control" value="confirmed"><Radio.Indicator className="radio-control__indicator" /></Radio.Root><Clock3 aria-hidden="true" /><span><strong>I’m coming</strong><small>Share an arrival time</small></span></label>
+              </RadioGroup>
+            </Fieldset.Root>
+          ) : (
+            <div className="notice-box"><UsersRound aria-hidden="true" /><strong>Interest only</strong><p>The club has not published a Running table for this game. Share when you would come so the club can consider forming one.</p></div>
+          )}
+          {effectiveAttendance === 'confirmed' ? <TextField id="expected-arrival" label="Expected arrival" name="expectedArrivalTime" type="time" value={expectedArrivalTime} onChange={(event) => setExpectedArrivalTime(event.target.value)} required /> : null}
+          {effectiveAttendance === 'interested' ? <div className="field-pair"><TextField id="availability-start" label="Available from" name="availabilityStartTime" type="time" value={availabilityStartTime} onChange={(event) => setAvailabilityStartTime(event.target.value)} required /><TextField id="availability-end" label="Available until" name="availabilityEndTime" type="time" value={availabilityEndTime} onChange={(event) => setAvailabilityEndTime(event.target.value)} /></div> : null}
           {message ? <p className="form-message" role="alert">{message}</p> : null}
-          <Button type="submit" disabled={busy}><CheckCircle2 aria-hidden="true" size={18} />{busy ? 'Sending…' : 'Confirm with club'}</Button>
+          <Button type="submit" disabled={busy}><CheckCircle2 aria-hidden="true" size={18} />{busy ? 'Sending…' : effectiveAttendance === 'interested' ? 'Send interest' : 'Confirm with club'}</Button>
         </Form>
       </Dialog>
     </>

@@ -3,9 +3,8 @@ import type {
   PlayerAccount,
   PlayerClubSnapshot,
   PlayerMembershipRequest,
-  PlayerPrivateGameListing,
   PlayerTournament,
-  PlayerTournamentRegistration,
+  PlayerTournamentInterest,
   PlayerWaitlistRequest
 } from '../domain/playerSync';
 
@@ -42,11 +41,14 @@ type SnapshotListener = {
   unsubscribe: ReturnType<typeof vi.fn>;
 };
 
-const firebase = vi.hoisted(() => ({
+const firebase = vi.hoisted(() => {
+  process.env.EXPO_PUBLIC_ORBIT_API_URL = 'http://127.0.0.1:4629';
+  return ({
   app: {},
   auth: { currentUser: null as FakeUser | null },
   collection: vi.fn(),
   createUserWithEmailAndPassword: vi.fn(),
+  deleteField: vi.fn(),
   deleteDoc: vi.fn(),
   deleteUser: vi.fn(),
   doc: vi.fn(),
@@ -64,11 +66,14 @@ const firebase = vi.hoisted(() => ({
   sendPasswordResetEmail: vi.fn(),
   serverTimestamp: vi.fn(),
   setDoc: vi.fn(),
+  transactionSet: vi.fn(),
+  transactionUpdate: vi.fn(),
   signInWithCustomToken: vi.fn(),
   signInWithEmailAndPassword: vi.fn(),
   signOut: vi.fn(),
   where: vi.fn()
-}));
+  });
+});
 
 vi.mock('firebase/app', () => ({
   getApps: () => [firebase.app],
@@ -76,10 +81,10 @@ vi.mock('firebase/app', () => ({
 }));
 
 vi.mock('firebase/auth', () => ({
+  browserLocalPersistence: { type: 'LOCAL' },
   createUserWithEmailAndPassword: firebase.createUserWithEmailAndPassword,
   deleteUser: firebase.deleteUser,
   getAuth: () => firebase.auth,
-  inMemoryPersistence: { type: 'NONE' },
   initializeAuth: () => firebase.auth,
   onAuthStateChanged: firebase.onAuthStateChanged,
   sendEmailVerification: firebase.sendEmailVerification,
@@ -91,6 +96,7 @@ vi.mock('firebase/auth', () => ({
 
 vi.mock('firebase/firestore', () => ({
   collection: firebase.collection,
+  deleteField: firebase.deleteField,
   deleteDoc: firebase.deleteDoc,
   doc: firebase.doc,
   getDoc: firebase.getDoc,
@@ -107,8 +113,9 @@ vi.mock('firebase/firestore', () => ({
 }));
 
 import {
-  createClubMembershipCheckout,
+  completePlayerAdultDeclarationIfMissing,
   completePlayerPhoneSignIn,
+  createPlayerProfileIfMissing,
   deleteCurrentPlayerAccount,
   fetchAllClubSnapshots,
   fetchClubSnapshots,
@@ -116,23 +123,21 @@ import {
   fetchPlayerIdentityStatus,
   fetchPlayerProfile,
   fetchPlayerTournaments,
-  fetchPrivateGameListings,
+  issueRemoteMembershipQr,
   normalizePublishedGames,
   onFirebasePlayerChanged,
   requestPlayerPasswordReset,
   startPlayerPhoneSignIn,
-  registerForTournament,
+  expressTournamentInterest,
   savePlayerProfile,
   savePlayerIdentityCapture,
   signInOrCreatePlayerWithEmail,
   signOutCurrentPlayer,
   submitMembershipRequest,
-  submitPrivateGameListing,
   submitWaitlistRequest,
   subscribeToAllClubSnapshots,
   subscribeToPlayerTournaments,
-  subscribeToPrivateGameListings,
-  unregisterFromTournament
+  withdrawTournamentInterest
 } from './orbitSyncApi';
 
 const collectionDocs = new Map<string, FakeDocument[]>();
@@ -189,7 +194,7 @@ function rejectedJsonResponse(ok = true) {
   } as unknown as Response;
 }
 
-function signedInUser(uid = 'player-1') {
+function signedInUser(uid = 'player-1', overrides: Partial<FakeUser> = {}) {
   const user: FakeUser = {
     uid,
     email: 'alex@example.com',
@@ -197,7 +202,8 @@ function signedInUser(uid = 'player-1') {
     photoURL: null,
     phoneNumber: null,
     emailVerified: true,
-    getIdToken: vi.fn().mockResolvedValue('player-token')
+    getIdToken: vi.fn().mockResolvedValue('player-token'),
+    ...overrides
   };
   firebase.auth.currentUser = user;
   return user;
@@ -215,6 +221,51 @@ function player(overrides: Partial<PlayerAccount> = {}): PlayerAccount {
     favoriteClubIds: [],
     preferredStakes: '1/2',
     typicalAvailability: 'Evenings',
+    adultDeclaredAt: '2026-08-09T11:00:00.000Z',
+    adultDeclarationVersion: 'v1',
+    ...overrides
+  };
+}
+
+function tournament(overrides: Partial<PlayerTournament> = {}): PlayerTournament {
+  return {
+    id: 'event-1',
+    clubId: 'club-1',
+    name: 'Sunday Major',
+    startsAt: '2026-08-10T18:00:00.000Z',
+    interestOpensAt: '2026-08-01T00:00:00.000Z',
+    interestClosesAt: '2026-08-10T17:00:00.000Z',
+    interestStatus: 'open',
+    buyIn: 100,
+    prizePoolLabel: '$10,000',
+    startingStack: 20_000,
+    levelMinutes: 20,
+    lateRegistrationThroughLevel: 6,
+    rebuyPrice: 100,
+    rebuyStack: 20_000,
+    unlimitedRebuys: false,
+    rebuysAllowed: true,
+    addOnPrice: 50,
+    addOnStack: 10_000,
+    addOnsAllowed: true,
+    rules: [],
+    withdrawalAllowed: true,
+    entrantCount: 0,
+    totalRebuys: 0,
+    totalAddOns: 0,
+    ...overrides
+  };
+}
+
+function tournamentInterest(overrides: Partial<PlayerTournamentInterest> = {}): PlayerTournamentInterest {
+  return {
+    id: 'opaque-interest-1',
+    tournamentId: 'event-1',
+    clubId: 'club-1',
+    playerId: 'player-1',
+    status: 'interested',
+    createdAt: '2026-08-09T10:00:00.000Z',
+    updatedAt: '2026-08-09T10:00:00.000Z',
     ...overrides
   };
 }
@@ -279,13 +330,16 @@ function setPublishedClubGraph({
 
 function membershipRequest(): PlayerMembershipRequest {
   return {
-    id: 'join-club-1-player-1',
+    id: 'join_opaque_membership_1',
     type: 'membership-request',
     clubId: 'club-1',
     player: player(),
-    plan: 'monthly',
-    paymentMethod: 'app',
+    paymentMethod: 'in-person',
     priceLabel: '$30',
+    planId: 'venue-annual',
+    planName: 'Venue annual access',
+    planPriceLabel: '$30',
+    membershipDurationDays: 365,
     requestedAt: '2026-08-09T12:00:00.000Z'
   };
 }
@@ -305,6 +359,12 @@ function waitlistRequest(): PlayerWaitlistRequest {
 
 async function flushPromises() {
   for (let index = 0; index < 8; index += 1) await Promise.resolve();
+}
+
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((next) => { resolve = next; });
+  return { promise, resolve };
 }
 
 beforeEach(() => {
@@ -342,6 +402,7 @@ beforeEach(() => {
     return unsubscribe;
   });
   firebase.serverTimestamp.mockReturnValue({ __serverTimestamp: true });
+  firebase.deleteField.mockReturnValue({ __deleteField: true });
   firebase.setDoc.mockResolvedValue(undefined);
   firebase.deleteDoc.mockResolvedValue(undefined);
   firebase.deleteUser.mockResolvedValue(undefined);
@@ -351,9 +412,11 @@ beforeEach(() => {
   firebase.runTransaction.mockImplementation(async (_database: unknown, operation: (transaction: {
     get: (reference: unknown) => Promise<FakeDocument>;
     set: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
   }) => Promise<unknown>) => operation({
     get: async (reference) => documentDocs.get(referencePath(reference)) ?? fakeDocument('', undefined, false),
-    set: vi.fn()
+    set: firebase.transactionSet,
+    update: firebase.transactionUpdate
   }));
   firebase.fetch.mockReset();
   vi.stubGlobal('fetch', firebase.fetch);
@@ -373,8 +436,8 @@ describe('authenticated Orbit API boundaries', () => {
       dateOfBirth: '1990-01-02',
       address: '100 Main St',
       mutationId: 'identity:attempt-1'
-    })).rejects.toThrow('Sign in to your Orbit Player account first.');
-    await expect(createClubMembershipCheckout({ clubId: 'club-1', product: 'day', playerName: 'Alex', planId: 'day-pass' })).rejects.toThrow('Sign in to your Orbit Player account first.');
+    }, 'player-1')).rejects.toThrow('Sign in to your Orbit Player account first.');
+    await expect(issueRemoteMembershipQr('club-1', 'qr-mutation-1', 'player-1')).rejects.toThrow('Sign in to your Orbit Player account first.');
     expect(firebase.fetch).not.toHaveBeenCalled();
   });
 
@@ -396,7 +459,7 @@ describe('authenticated Orbit API boundaries', () => {
     await expect(fetchPlayerIdentityStatus(true)).resolves.toEqual(identity);
 
     expect(firebase.fetch).toHaveBeenCalledWith(
-      'https://orbitapp-one.vercel.app/player/identity/status',
+      'http://127.0.0.1:4629/player/identity/status',
       expect.objectContaining({ headers: { authorization: 'Bearer player-token' }, signal: expect.any(AbortSignal) })
     );
     expect(user.getIdToken).toHaveBeenNthCalledWith(1, true);
@@ -415,33 +478,21 @@ describe('authenticated Orbit API boundaries', () => {
     await expect(fetchPlayerIdentityStatus()).rejects.toThrow('Identity provider unavailable.');
   });
 
-  it('preserves checkout HTTP methods, headers, bodies, and results', async () => {
+  it('issues only an online opaque membership QR with an explicit mutation ID', async () => {
     signedInUser();
-    firebase.fetch
-      .mockResolvedValueOnce(jsonResponse({ ok: true, checkoutUrl: 'https://checkout.example/session', sessionId: 'session-1' }))
-      .mockResolvedValueOnce(jsonResponse({ ok: true, checkoutUrl: 'https://checkout.example/time-pack', sessionId: 'session-2' }));
+    const qr = {
+      ok: true as const,
+      token: 'opaque-qr-token',
+      issuedAt: '2026-08-09T12:00:00.000Z',
+      expiresAt: '2026-08-09T12:05:00.000Z'
+    };
+    firebase.fetch.mockResolvedValueOnce(jsonResponse(qr));
 
-    await expect(createClubMembershipCheckout({ clubId: 'club-1', product: 'monthly', playerName: 'Alex', planId: 'monthly-standard' })).resolves.toEqual({
-      ok: true,
-      checkoutUrl: 'https://checkout.example/session',
-      sessionId: 'session-1'
-    });
-    await expect(createClubMembershipCheckout({ clubId: 'club-1', product: 'time-30', playerName: 'Alex' })).resolves.toEqual({
-      ok: true,
-      checkoutUrl: 'https://checkout.example/time-pack',
-      sessionId: 'session-2'
-    });
-
-    expect(firebase.fetch).toHaveBeenNthCalledWith(1, 'https://orbitapp-one.vercel.app/player/membership-checkout', expect.objectContaining({
+    await expect(issueRemoteMembershipQr('club-1', 'qr-mutation-1', 'player-1')).resolves.toEqual(qr);
+    expect(firebase.fetch).toHaveBeenCalledWith('http://127.0.0.1:4629/player/membership-qr', expect.objectContaining({
       method: 'POST',
-      headers: {
-        authorization: 'Bearer player-token',
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({ clubId: 'club-1', product: 'monthly', playerName: 'Alex', planId: 'monthly-standard' })
-    }));
-    expect(firebase.fetch).toHaveBeenNthCalledWith(2, 'https://orbitapp-one.vercel.app/player/membership-checkout', expect.objectContaining({
-      body: JSON.stringify({ clubId: 'club-1', product: 'time-30', playerName: 'Alex' })
+      headers: { authorization: 'Bearer player-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ clubId: 'club-1', mutationId: 'qr-mutation-1' })
     }));
   });
 
@@ -475,10 +526,10 @@ describe('authenticated Orbit API boundaries', () => {
       selfie: 'SELFIE-SECRET'
     };
 
-    await expect(savePlayerIdentityCapture(confirmedInput)).resolves.toEqual(identity);
+    await expect(savePlayerIdentityCapture(confirmedInput, 'player-1')).resolves.toEqual(identity);
 
     expect(firebase.fetch).toHaveBeenCalledWith(
-      'https://orbitapp-one.vercel.app/player/identity/capture',
+      'http://127.0.0.1:4629/player/identity/capture',
       expect.objectContaining({
         method: 'POST',
         headers: {
@@ -498,23 +549,226 @@ describe('authenticated Orbit API boundaries', () => {
     expect(JSON.stringify(requestBody)).not.toMatch(/RAW-PDF417-SECRET|ID-NUMBER-SECRET|PHOTO-SECRET|SELFIE-SECRET/);
   });
 
-  it('delegates complete account deletion to the trusted API and surfaces retained categories', async () => {
-    const user = signedInUser();
-    firebase.fetch.mockResolvedValueOnce(jsonResponse({ error: 'Recent login required.' }, false));
+  it('never sends an identity capture, membership QR, or account deletion after the signed-in account changes', async () => {
+    const identityUser = signedInUser();
+    identityUser.getIdToken.mockImplementationOnce(async () => {
+      signedInUser('player-2');
+      return 'player-token';
+    });
+    await expect(savePlayerIdentityCapture({
+      fullName: 'Jordan Rivera',
+      dateOfBirth: '1990-01-02',
+      address: '100 Main St',
+      mutationId: 'identity:attempt-race'
+    }, 'player-1')).rejects.toThrow('account changed before the request was sent');
+    expect(firebase.fetch).not.toHaveBeenCalled();
 
-    await expect(deleteCurrentPlayerAccount()).rejects.toThrow('Recent login required.');
+    const qrUser = signedInUser();
+    qrUser.getIdToken.mockImplementationOnce(async () => {
+      signedInUser('player-2');
+      return 'player-token';
+    });
+    await expect(issueRemoteMembershipQr('club-1', 'qr-mutation-race', 'player-1'))
+      .rejects.toThrow('account changed before the request was sent');
+    expect(firebase.fetch).not.toHaveBeenCalled();
+
+    const deletingUser = signedInUser();
+    deletingUser.getIdToken.mockImplementationOnce(async () => {
+      signedInUser('player-2');
+      return 'player-token';
+    });
+    await expect(deleteCurrentPlayerAccount()).rejects.toThrow('account changed before deletion');
+    expect(firebase.fetch).not.toHaveBeenCalled();
+    expect(firebase.signOut).not.toHaveBeenCalled();
+  });
+
+  it('rejects stale identity, request, tournament, and QR responses after the account changes', async () => {
+    const identity = {
+      status: 'provisional' as const,
+      ageVerified: false,
+      ageEligible: true,
+      ageLevel: 21,
+      minimumAge: 18,
+      verifiedAt: null,
+      capturedAt: '2026-08-28T12:00:00.000Z',
+      failureCode: null,
+      reviewStatus: 'pending-in-person' as const
+    };
+    const snapshot = publishedClubSnapshot();
+    const futureTournament = tournament({
+      startsAt: '2099-08-10T18:00:00.000Z',
+      interestOpensAt: '2020-08-01T00:00:00.000Z',
+      interestClosesAt: '2099-08-10T17:00:00.000Z'
+    });
+    const futureInterest = tournamentInterest();
+    const cases: Array<{
+      name: string;
+      payload: unknown;
+      run(): Promise<unknown>;
+      syncFailure?: boolean;
+    }> = [
+      {
+        name: 'identity refresh',
+        payload: { ok: true, identity },
+        run: () => fetchPlayerIdentityStatus(false, 'player-1')
+      },
+      {
+        name: 'identity capture',
+        payload: { ok: true, identity },
+        run: () => savePlayerIdentityCapture({
+          fullName: 'Jordan Rivera',
+          dateOfBirth: '1990-01-02',
+          address: '100 Main St',
+          mutationId: 'identity-race'
+        }, 'player-1')
+      },
+      {
+        name: 'membership request',
+        payload: { ok: true, accountKey: 'club-1', snapshot },
+        run: () => submitMembershipRequest(membershipRequest()),
+        syncFailure: true
+      },
+      {
+        name: 'waitlist request',
+        payload: { ok: true, accountKey: 'club-1', snapshot },
+        run: () => submitWaitlistRequest(waitlistRequest()),
+        syncFailure: true
+      },
+      {
+        name: 'tournament interest',
+        payload: { ok: true, interest: futureInterest },
+        run: () => expressTournamentInterest(futureTournament, player(), 'tournament-race')
+      },
+      {
+        name: 'tournament withdrawal',
+        payload: { ok: true, interest: { ...futureInterest, status: 'withdrawn' } },
+        run: () => withdrawTournamentInterest(futureTournament, futureInterest, 'withdraw-race')
+      },
+      {
+        name: 'membership QR',
+        payload: {
+          ok: true,
+          token: 'stale-qr',
+          issuedAt: '2026-08-09T12:00:00.000Z',
+          expiresAt: '2099-08-09T12:05:00.000Z'
+        },
+        run: () => issueRemoteMembershipQr('club-1', 'qr-race', 'player-1')
+      }
+    ];
+
+    for (const testCase of cases) {
+      firebase.fetch.mockReset();
+      signedInUser('player-1');
+      const response = deferred<Response>();
+      firebase.fetch.mockReturnValueOnce(response.promise);
+      const pending = testCase.run();
+      await vi.waitFor(() => expect(firebase.fetch, testCase.name).toHaveBeenCalledOnce());
+      signedInUser('player-2');
+      response.resolve(jsonResponse(testCase.payload));
+      if (testCase.syncFailure) {
+        await expect(pending, testCase.name).resolves.toEqual({
+          ok: false,
+          error: 'The signed-in Orbit Player account changed before the response was applied.'
+        });
+      } else {
+        await expect(pending, testCase.name).rejects.toThrow('account changed before the response was applied');
+      }
+    }
+  });
+
+  it('delegates deletion to the trusted API and never claims completion while server finalization is pending', async () => {
+    const user = signedInUser();
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: false, code: 'RECENT_LOGIN_REQUIRED', error: 'Recent login required.' }, false));
+
+    await expect(deleteCurrentPlayerAccount()).rejects.toMatchObject({ message: 'Recent login required.', code: 'RECENT_LOGIN_REQUIRED' });
     expect(firebase.deleteDoc).not.toHaveBeenCalled();
     expect(firebase.deleteUser).not.toHaveBeenCalled();
+    expect(firebase.signOut).not.toHaveBeenCalled();
 
-    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, retainedCategories: ['audit-records:anonymize'] }));
-    await expect(deleteCurrentPlayerAccount()).resolves.toEqual({ retainedCategories: ['audit-records:anonymize'] });
-    expect(firebase.fetch).toHaveBeenLastCalledWith('https://orbitapp-one.vercel.app/player/account', expect.objectContaining({
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({
+      ok: true,
+      status: 'pending',
+      jobFinalization: 'scheduled'
+    }));
+    firebase.signOut.mockImplementationOnce(async () => { firebase.auth.currentUser = null; });
+    await expect(deleteCurrentPlayerAccount()).resolves.toEqual({
+      initiatingUid: 'player-1',
+      status: 'pending',
+      retainedCategories: [],
+      currentAccountPreserved: false,
+      signedOut: true
+    });
+    expect(firebase.signOut).toHaveBeenCalledWith(firebase.auth);
+
+    signedInUser();
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, status: 'complete', jobFinalization: 'pending', retainedCategories: ['audit-records:anonymize'] }));
+    firebase.signOut.mockImplementationOnce(async () => { firebase.auth.currentUser = null; });
+    await expect(deleteCurrentPlayerAccount()).resolves.toEqual({
+      initiatingUid: 'player-1',
+      status: 'pending',
+      retainedCategories: ['audit-records:anonymize'],
+      currentAccountPreserved: false,
+      signedOut: true
+    });
+    expect(firebase.fetch).toHaveBeenLastCalledWith('http://127.0.0.1:4629/player/account', expect.objectContaining({
       method: 'DELETE',
       headers: { authorization: 'Bearer player-token' }
     }));
     expect(user.getIdToken).toHaveBeenLastCalledWith(true);
     expect(firebase.deleteDoc).not.toHaveBeenCalled();
     expect(firebase.deleteUser).not.toHaveBeenCalled();
+    expect(firebase.signOut).toHaveBeenCalledWith(firebase.auth);
+  });
+
+  it('does not claim sign-out when Firebase resolves but the initiating UID remains current', async () => {
+    signedInUser('player-1');
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, status: 'pending', retainedCategories: [] }));
+
+    await expect(deleteCurrentPlayerAccount('player-1')).resolves.toEqual({
+      initiatingUid: 'player-1',
+      status: 'pending',
+      retainedCategories: [],
+      currentAccountPreserved: false,
+      signedOut: false
+    });
+    expect(firebase.auth.currentUser?.uid).toBe('player-1');
+    expect(firebase.signOut).toHaveBeenCalledWith(firebase.auth);
+  });
+
+  it('accepts deletion for the initiating UID without signing out a newer account', async () => {
+    signedInUser('player-1');
+    const response = deferred<Response>();
+    firebase.fetch.mockReturnValueOnce(response.promise);
+    const deletion = deleteCurrentPlayerAccount('player-1');
+    await vi.waitFor(() => expect(firebase.fetch).toHaveBeenCalledOnce());
+
+    signedInUser('player-2');
+    response.resolve(jsonResponse({ ok: true, status: 'pending', retainedCategories: [] }));
+
+    await expect(deletion).resolves.toEqual({
+      initiatingUid: 'player-1',
+      status: 'pending',
+      retainedCategories: [],
+      currentAccountPreserved: true,
+      signedOut: false
+    });
+    expect(firebase.auth.currentUser?.uid).toBe('player-2');
+    expect(firebase.signOut).not.toHaveBeenCalled();
+  });
+
+  it('reports incomplete local sign-out after the server accepts deletion so durable cleanup can take over', async () => {
+    signedInUser('player-1');
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, status: 'pending', retainedCategories: [] }));
+    firebase.signOut.mockRejectedValueOnce(new Error('auth persistence unavailable'));
+
+    await expect(deleteCurrentPlayerAccount('player-1')).resolves.toEqual({
+      initiatingUid: 'player-1',
+      status: 'pending',
+      retainedCategories: [],
+      currentAccountPreserved: false,
+      signedOut: false
+    });
+    expect(firebase.auth.currentUser?.uid).toBe('player-1');
     expect(firebase.signOut).toHaveBeenCalledWith(firebase.auth);
   });
 });
@@ -527,7 +781,7 @@ describe('Firebase authentication boundary', () => {
     expect(getCurrentFirebasePlayer()).toEqual({
       uid: 'player-1',
       email: 'alex@example.com',
-      name: 'alex',
+      name: '',
       photoUrl: 'https://example.com/avatar.png',
       provider: 'email',
       verified: true
@@ -544,7 +798,7 @@ describe('Firebase authentication boundary', () => {
     expect(callback).toHaveBeenNthCalledWith(1, {
       uid: 'player-1',
       email: 'alex@example.com',
-      name: 'alex',
+      name: '',
       photoUrl: 'https://example.com/avatar.png',
       provider: 'email',
       verified: true
@@ -575,12 +829,16 @@ describe('Firebase authentication boundary', () => {
   it('requires verified email or an SMS OTP and offers generic email recovery', async () => {
     await expect(signInOrCreatePlayerWithEmail('', 'a-secure-passphrase')).rejects.toThrow('Enter your email and password.');
     await expect(signInOrCreatePlayerWithEmail('alex@example.com', 'short')).rejects.toThrow('at least 12 characters');
-    expect(() => startPlayerPhoneSignIn('555')).toThrow('including country code');
+    expect(() => startPlayerPhoneSignIn('555 555 0123')).toThrow('Start with + and the country code.');
 
     firebase.fetch
       .mockResolvedValueOnce(jsonResponse({ ok: true, challenge: 'signed-challenge', expiresAt: '2026-08-09T12:10:00.000Z' }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, challenge: 'international-challenge', expiresAt: '2026-08-09T12:10:00.000Z' }))
       .mockResolvedValueOnce(jsonResponse({ ok: true, firebaseToken: 'custom-token' }));
-    await expect(startPlayerPhoneSignIn('+1 (555) 111-2222')).resolves.toMatchObject({ challenge: 'signed-challenge' });
+    await expect(startPlayerPhoneSignIn('+1 555 555 0123')).resolves.toMatchObject({ challenge: 'signed-challenge' });
+    expect(JSON.parse(String(firebase.fetch.mock.calls[0]?.[1]?.body))).toMatchObject({ phone: '+15555550123' });
+    await expect(startPlayerPhoneSignIn('+44 20 7946 0958')).resolves.toMatchObject({ challenge: 'international-challenge' });
+    expect(JSON.parse(String(firebase.fetch.mock.calls[1]?.[1]?.body))).toMatchObject({ phone: '+442079460958' });
 
     const phoneUser = { ...signedInUser(), email: null, emailVerified: false, phoneNumber: '+15551112222' };
     firebase.signInWithCustomToken.mockResolvedValueOnce({ user: phoneUser });
@@ -590,6 +848,7 @@ describe('Firebase authentication boundary', () => {
       provider: 'phone',
       verified: true
     });
+    expect(JSON.parse(String(firebase.fetch.mock.calls[2]?.[1]?.body))).toMatchObject({ phone: '+15551112222' });
     expect(firebase.signInWithCustomToken).toHaveBeenCalledWith(firebase.auth, 'custom-token');
 
     await expect(requestPlayerPasswordReset('alex@example.com')).resolves.toContain('If that email belongs');
@@ -600,70 +859,247 @@ describe('Firebase authentication boundary', () => {
   });
 });
 
-describe('Firestore profile and listing boundaries', () => {
-  it('preserves an existing membership map and writes the signed-in identity with a server timestamp', async () => {
+describe('Firestore profile boundaries', () => {
+  it('writes only player-owned profile fields and never rewrites the server-authored membership map', async () => {
     signedInUser();
     setDocument('players/player-1', 'player-1', {
       clubMemberships: {
         existing: { clubId: 'existing', status: 'Active' }
       }
     });
-    const membershipPatch = { clubId: 'club-1', status: 'Requested' as const, requestedAt: '2026-08-09T12:00:00.000Z' };
-
-    const result = await savePlayerProfile(player({ id: 'untrusted-local-id' }), membershipPatch);
+    const result = await savePlayerProfile({
+      ...player({
+        id: 'player-1',
+        phone: undefined,
+        homeLocation: ' ',
+        searchRadiusMiles: undefined,
+        preferredStakes: '',
+        typicalAvailability: undefined
+      }),
+      injected: 'discard',
+      clubMemberships: { asserted: { clubId: 'asserted', status: 'Active' } }
+    } as PlayerAccount, 'player-1');
 
     expect(result.id).toBe('player-1');
     expect(result.uid).toBe('player-1');
-    expect(result.clubMemberships).toEqual({
-      existing: { clubId: 'existing', status: 'Active' },
-      'club-1': membershipPatch
-    });
+    expect(result).not.toHaveProperty('clubMemberships');
+    expect(result).not.toHaveProperty('phone');
+    expect(result).not.toHaveProperty('homeLocation');
+    expect(result).not.toHaveProperty('searchRadiusMiles');
+    expect(result).not.toHaveProperty('preferredStakes');
+    expect(result).not.toHaveProperty('typicalAvailability');
     expect(firebase.setDoc).toHaveBeenCalledWith(
       expect.objectContaining({ path: 'players/player-1' }),
-      expect.objectContaining({ id: 'player-1', uid: 'player-1', updatedAt: { __serverTimestamp: true } }),
+      expect.objectContaining({
+        id: 'player-1',
+        uid: 'player-1',
+        adultDeclaredAt: '2026-08-09T11:00:00.000Z',
+        adultDeclarationVersion: 'v1',
+        updatedAt: { __serverTimestamp: true }
+      }),
+      { merge: true }
+    );
+    const writtenProfile = firebase.setDoc.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(writtenProfile).not.toHaveProperty('clubMemberships');
+    expect(writtenProfile).not.toHaveProperty('injected');
+    expect(writtenProfile.phone).toEqual({ __deleteField: true });
+    expect(writtenProfile.homeLocation).toEqual({ __deleteField: true });
+    expect(writtenProfile.searchRadiusMiles).toEqual({ __deleteField: true });
+    expect(writtenProfile.preferredStakes).toEqual({ __deleteField: true });
+    expect(writtenProfile.typicalAvailability).toEqual({ __deleteField: true });
+    expect(Object.values(writtenProfile)).not.toContain(undefined);
+
+    firebase.setDoc.mockClear();
+    await expect(savePlayerProfile(player({ adultDeclaredAt: undefined, adultDeclarationVersion: undefined }), 'player-1'))
+      .rejects.toThrow('18 or older');
+    expect(firebase.setDoc).not.toHaveBeenCalled();
+  });
+
+  it('clears a durable unverified session when verification email delivery fails', async () => {
+    const signInFailure = Object.assign(new Error('not found'), { code: 'auth/user-not-found' });
+    const createdUser = { ...signedInUser(), uid: 'unverified-created', emailVerified: false };
+    firebase.signInWithEmailAndPassword.mockRejectedValueOnce(signInFailure);
+    firebase.createUserWithEmailAndPassword.mockResolvedValueOnce({ user: createdUser });
+    firebase.sendEmailVerification.mockRejectedValueOnce(new Error('verification service unavailable'));
+
+    await expect(signInOrCreatePlayerWithEmail('new@example.test', 'a-secure-passphrase'))
+      .rejects.toThrow('verification service unavailable');
+    expect(firebase.signOut).toHaveBeenCalledWith(firebase.auth);
+  });
+
+  it('fails closed when the local profile or current Firebase account changes before a write', async () => {
+    signedInUser('player-1');
+    await expect(savePlayerProfile(player({ id: 'player-2' }), 'player-1'))
+      .rejects.toThrow('local player profile does not match');
+    expect(firebase.setDoc).not.toHaveBeenCalled();
+
+    firebase.doc.mockImplementationOnce((_database: unknown, ...segments: string[]) => {
+      signedInUser('player-2', { email: 'other@example.test' });
+      return { kind: 'doc', path: segments.join('/') } satisfies FakeReference;
+    });
+    await expect(savePlayerProfile(player(), 'player-1'))
+      .rejects.toThrow('account changed before syncing');
+    expect(firebase.setDoc).not.toHaveBeenCalled();
+
+    signedInUser('player-1');
+    firebase.runTransaction.mockImplementationOnce(async (_database: unknown, operation: (transaction: {
+      get: (reference: unknown) => Promise<FakeDocument>;
+      set: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+    }) => Promise<unknown>) => {
+      signedInUser('player-2', { email: 'other@example.test' });
+      return operation({
+        get: async (reference) => documentDocs.get(referencePath(reference)) ?? fakeDocument('', undefined, false),
+        set: firebase.transactionSet,
+        update: firebase.transactionUpdate
+      });
+    });
+    await expect(createPlayerProfileIfMissing(player(), 'player-1'))
+      .rejects.toThrow('account changed before syncing');
+    expect(firebase.transactionSet).not.toHaveBeenCalled();
+  });
+
+  it('binds profile contact fields to the verified Firebase provider', async () => {
+    signedInUser('phone-player', {
+      email: null,
+      emailVerified: false,
+      phoneNumber: '+15551112222'
+    });
+    const result = await savePlayerProfile(player({
+      id: 'phone-player',
+      email: 'unverified-local@example.test',
+      phone: '5559990000'
+    }), 'phone-player');
+
+    expect(result).toMatchObject({
+      id: 'phone-player',
+      uid: 'phone-player',
+      email: '',
+      phone: '+15551112222'
+    });
+    expect(firebase.setDoc).toHaveBeenCalledWith(
+      expect.objectContaining({ path: 'players/phone-player' }),
+      expect.objectContaining({ email: '', phone: '+15551112222' }),
       { merge: true }
     );
   });
 
-  it('returns valid and malformed profile records unchanged, returns null when missing, and propagates read failure', async () => {
+  it('prefers a verified email claim when the Firebase account also has a linked phone', async () => {
+    signedInUser('linked-player', { phoneNumber: '+15551112222' });
+    expect(getCurrentFirebasePlayer()).toMatchObject({
+      uid: 'linked-player',
+      email: 'alex@example.com',
+      phone: '+15551112222',
+      provider: 'email'
+    });
+
+    await savePlayerProfile(player({ id: 'linked-player', email: 'unverified-local@example.test' }), 'linked-player');
+    expect(firebase.setDoc).toHaveBeenCalledWith(
+      expect.objectContaining({ path: 'players/linked-player' }),
+      expect.objectContaining({ email: 'alex@example.com', phone: '+15551112222' }),
+      { merge: true }
+    );
+  });
+
+  it('returns a valid profile, fails closed for an existing malformed profile, and returns null only when missing', async () => {
     signedInUser();
     const validProfile = { ...player(), uid: 'player-1', clubMemberships: {} };
     setDocument('players/player-1', 'player-1', validProfile);
-    await expect(fetchPlayerProfile()).resolves.toBe(validProfile);
+    await expect(fetchPlayerProfile('player-1')).resolves.toEqual(validProfile);
 
     const malformedProfile = { uid: 42, preferredGameIds: 'not-an-array' };
     setDocument('players/player-1', 'player-1', malformedProfile);
-    await expect(fetchPlayerProfile()).resolves.toBe(malformedProfile);
+    await expect(fetchPlayerProfile('player-1')).rejects.toThrow('invalid and was not changed');
 
     setDocument('players/player-1', 'player-1', undefined, false);
-    await expect(fetchPlayerProfile()).resolves.toBeNull();
+    await expect(fetchPlayerProfile('player-1')).resolves.toBeNull();
 
     firebase.getDoc.mockRejectedValueOnce(new Error('profile read failed'));
-    await expect(fetchPlayerProfile()).rejects.toThrow('profile read failed');
+    await expect(fetchPlayerProfile('player-1')).rejects.toThrow('profile read failed');
   });
 
-  it('filters and orders private games without mutating records and characterizes missing, malformed, and failed reads', async () => {
-    const newer = { id: 'new', status: 'Open', createdAt: '2026-08-09T12:00:00.000Z' };
-    const older = { id: 'old', status: 'Open', createdAt: '2026-08-08T12:00:00.000Z' };
-    const closed = { id: 'closed', status: 'Closed', createdAt: '2026-08-10T12:00:00.000Z' };
-    setCollection('privateGames', [['old', older], ['closed', closed], ['new', newer]]);
+  it('atomically creates only a missing profile and preserves one that appears concurrently', async () => {
+    signedInUser();
+    const concurrentProfile = { ...player({ name: 'Concurrent Profile' }), uid: 'player-1' };
+    setDocument('players/player-1', 'player-1', concurrentProfile);
 
-    await expect(fetchPrivateGameListings()).resolves.toEqual({ ok: true, games: [newer, older] });
-    expect(collectionDocs.get('privateGames')?.map((entry) => entry.data())).toEqual([older, closed, newer]);
+    await expect(createPlayerProfileIfMissing(player({ name: 'Local Profile' }), 'player-1')).resolves.toEqual({
+      created: false,
+      profile: concurrentProfile
+    });
+    expect(firebase.transactionSet).not.toHaveBeenCalled();
 
-    setCollection('privateGames', []);
-    await expect(fetchPrivateGameListings()).resolves.toEqual({ ok: true, games: [] });
-
-    setCollection('privateGames', [['malformed', null]]);
-    await expect(fetchPrivateGameListings()).resolves.toMatchObject({ ok: false });
-
-    firebase.getDocs.mockRejectedValueOnce(new Error('private games denied'));
-    await expect(fetchPrivateGameListings()).resolves.toEqual({ ok: false, error: 'private games denied' });
+    setDocument('players/player-1', 'player-1', undefined, false);
+    await expect(createPlayerProfileIfMissing(player({ name: 'New Profile' }), 'player-1')).resolves.toMatchObject({
+      created: true,
+      profile: { id: 'player-1', uid: 'player-1', name: 'New Profile' }
+    });
+    expect(firebase.transactionSet).toHaveBeenCalledWith(
+      expect.objectContaining({ path: 'players/player-1' }),
+      expect.objectContaining({ id: 'player-1', uid: 'player-1', name: 'New Profile', updatedAt: { __serverTimestamp: true } })
+    );
   });
+
+  it('does not overwrite an existing malformed profile during atomic creation', async () => {
+    signedInUser();
+    setDocument('players/player-1', 'player-1', { uid: 42, preferredGameIds: 'not-an-array' });
+    await expect(createPlayerProfileIfMissing(player({ name: 'Local Profile' }), 'player-1'))
+      .rejects.toThrow('invalid and was not changed');
+    expect(firebase.transactionSet).not.toHaveBeenCalled();
+  });
+
+  it('atomically adds only a missing adult declaration to a valid legacy profile', async () => {
+    signedInUser();
+    const legacyProfile = {
+      id: 'player-1',
+      uid: 'player-1',
+      name: 'Remote Legacy Name',
+      email: 'alex@example.com',
+      preferredGameIds: ['omaha']
+    };
+    setDocument('players/player-1', 'player-1', legacyProfile);
+
+    await expect(completePlayerAdultDeclarationIfMissing(player(), 'player-1')).resolves.toMatchObject({
+      ...legacyProfile,
+      adultDeclaredAt: '2026-08-09T11:00:00.000Z',
+      adultDeclarationVersion: 'v1'
+    });
+    expect(firebase.transactionUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ path: 'players/player-1' }),
+      {
+        adultDeclaredAt: '2026-08-09T11:00:00.000Z',
+        adultDeclarationVersion: 'v1',
+        updatedAt: { __serverTimestamp: true }
+      }
+    );
+    expect(firebase.transactionSet).not.toHaveBeenCalled();
+
+    firebase.transactionUpdate.mockClear();
+    await expect(completePlayerAdultDeclarationIfMissing(player({ id: 'different-local-player' }), 'player-1'))
+      .rejects.toThrow('same Orbit Player account');
+    expect(firebase.transactionUpdate).not.toHaveBeenCalled();
+  });
+
+  it('does not repair malformed or wrong-identity existing declarations', async () => {
+    signedInUser();
+    setDocument('players/player-1', 'player-1', {
+      id: 'player-1', uid: 'player-1', name: 'Malformed', email: 'alex@example.com', preferredGameIds: [],
+      adultDeclaredAt: 'not-a-date', adultDeclarationVersion: 'v1'
+    });
+    await expect(completePlayerAdultDeclarationIfMissing(player(), 'player-1')).rejects.toThrow('adult declaration is invalid');
+    expect(firebase.transactionUpdate).not.toHaveBeenCalled();
+
+    setDocument('players/player-1', 'player-1', {
+      id: 'other', uid: 'other', name: 'Wrong account', email: 'alex@example.com', preferredGameIds: []
+    });
+    await expect(completePlayerAdultDeclarationIfMissing(player(), 'player-1')).rejects.toThrow('profile is invalid');
+    expect(firebase.transactionUpdate).not.toHaveBeenCalled();
+  });
+
 });
 
 describe('published game normalization boundary', () => {
-  it('normalizes numeric fallbacks without mutating the external record', () => {
+  it('filters malformed numeric fields without mutating the external record', () => {
     const external = {
       id: '',
       name: '  1/2 NLH  ',
@@ -678,35 +1114,34 @@ describe('published game normalization boundary', () => {
     };
     const before = structuredClone(external);
 
-    expect(normalizePublishedGames([fakeDocument('game-doc', external) as never])).toEqual([
-      expect.objectContaining({
-        id: 'game-doc',
-        name: '1/2 NLH',
-        maxSeats: 10,
-        collectionMode: 'Time',
-        waitlistCount: 2,
-        formingCount: 0,
-        availableSeats: 3,
-        knownPlayersCount: 0,
-        syncRevision: 'revision-1'
-      })
-    ]);
+    expect(normalizePublishedGames([fakeDocument('game-doc', external) as never])).toEqual([]);
     expect(external).toEqual(before);
   });
 
-  it('keeps v2 aggregate order, excludes legacy sessions beside versioned aggregates, and handles missing records', () => {
+  it('keeps complete v2 aggregate order and filters partial legacy sessions', () => {
+    const complete = (id: string, name: string) => ({
+      id,
+      name,
+      maxSeats: 10,
+      openTables: [],
+      waitlistCount: 0,
+      formingCount: 0,
+      availableSeats: 0,
+      knownPlayersCount: 0,
+      syncRevision: 'revision-2'
+    });
     const result = normalizePublishedGames([
-      fakeDocument('game-b', { id: 'b', name: 'Game B', syncRevision: 'revision-2' }) as never,
+      fakeDocument('game-b', complete('b', 'Game B')) as never,
       fakeDocument('session', { id: 'session', gameId: 'a', gameName: 'Game A', status: 'Running', updatedAt: new Date().toISOString() }) as never,
-      fakeDocument('game-a', { id: 'a', name: 'Game A', syncRevision: 'revision-2' }) as never
+      fakeDocument('game-a', complete('a', 'Game A')) as never
     ]);
 
     expect(result.map((game) => game.id)).toEqual(['b', 'a']);
     expect(normalizePublishedGames([])).toEqual([]);
   });
 
-  it('throws on a null Firestore game record under the current malformed-record policy', () => {
-    expect(() => normalizePublishedGames([fakeDocument('bad-game', null) as never])).toThrow();
+  it('filters a null Firestore game record', () => {
+    expect(normalizePublishedGames([fakeDocument('bad-game', null) as never])).toEqual([]);
   });
 });
 
@@ -719,7 +1154,7 @@ describe('request HTTP boundaries', () => {
 
     await expect(submitMembershipRequest(request)).resolves.toEqual({ ok: true, accountKey: 'club-1', savedAt: snapshot.generatedAt, snapshot });
 
-    expect(firebase.fetch).toHaveBeenCalledWith('https://orbitapp-one.vercel.app/player/membership-requests', expect.objectContaining({
+    expect(firebase.fetch).toHaveBeenCalledWith('http://127.0.0.1:4629/player/membership-requests', expect.objectContaining({
       method: 'POST',
       headers: {
         authorization: 'Bearer player-token',
@@ -741,10 +1176,48 @@ describe('request HTTP boundaries', () => {
     });
     expect(firebase.setDoc).not.toHaveBeenCalled();
   });
+
+  it('never rewrites or sends a stale membership or waitlist request for a different signed-in account', async () => {
+    signedInUser('player-2');
+
+    await expect(submitMembershipRequest(membershipRequest())).resolves.toEqual({
+      ok: false,
+      error: 'The signed-in Orbit Player account does not match this request.'
+    });
+    await expect(submitWaitlistRequest(waitlistRequest())).resolves.toEqual({
+      ok: false,
+      error: 'The signed-in Orbit Player account does not match this request.'
+    });
+    expect(firebase.fetch).not.toHaveBeenCalled();
+  });
+
+  it('never sends a bound membership or waitlist request when auth changes while obtaining its token', async () => {
+    const membershipUser = signedInUser();
+    membershipUser.getIdToken.mockImplementationOnce(async () => {
+      signedInUser('player-2');
+      return 'player-token';
+    });
+    await expect(submitMembershipRequest(membershipRequest())).resolves.toEqual({
+      ok: false,
+      error: 'The signed-in Orbit Player account changed before the request was sent.'
+    });
+    expect(firebase.fetch).not.toHaveBeenCalled();
+
+    const waitlistUser = signedInUser();
+    waitlistUser.getIdToken.mockImplementationOnce(async () => {
+      signedInUser('player-2');
+      return 'player-token';
+    });
+    await expect(submitWaitlistRequest(waitlistRequest())).resolves.toEqual({
+      ok: false,
+      error: 'The signed-in Orbit Player account changed before the request was sent.'
+    });
+    expect(firebase.fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe('published and legacy club snapshot boundaries', () => {
-  it('uses a configured local bridge and falls back from malformed and failed local responses without contacting real services', async () => {
+  it('uses a configured local bridge only through the explicit development fallback path', async () => {
     signedInUser();
     vi.stubEnv('EXPO_PUBLIC_ORBIT_LOCAL_API_URL', 'http://127.0.0.1:4629');
     vi.resetModules();
@@ -754,34 +1227,19 @@ describe('published and legacy club snapshot boundaries', () => {
       generatedAt: '2026-08-09T14:00:00.000Z'
     });
     firebase.fetch
-      .mockResolvedValueOnce(jsonResponse({ ok: true, snapshot: localSnapshot, accountKey: 'local-club' }))
-      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, snapshot: localSnapshot, accountKey: 'local-club' }));
     setCollection('clubs', []);
     setCollection('clubStates', []);
 
-    await expect(localAdapter.fetchAllClubSnapshots(player())).resolves.toEqual({ ok: true, clubs: [localSnapshot] });
+    await expect(localAdapter.fetchAllClubSnapshots(player(), { allowLocalDevelopmentFallback: true })).resolves.toEqual({ ok: true, clubs: [localSnapshot] });
     expect(firebase.fetch).toHaveBeenCalledWith(
-      'http://127.0.0.1:4629/player/snapshot?playerId=player-1&playerName=Alex+Player',
+      'http://127.0.0.1:4629/player/snapshot',
       expect.objectContaining({ headers: { authorization: 'Bearer player-token' }, signal: expect.any(AbortSignal) })
     );
 
-    setPublishedClubGraph();
-    firebase.fetch
-      .mockResolvedValueOnce(jsonResponse({ ok: true }))
-      .mockResolvedValueOnce(jsonResponse({ ok: true }));
-    await expect(localAdapter.fetchAllClubSnapshots(player())).resolves.toMatchObject({
-      ok: true,
-      clubs: [{ club: { id: 'club-1', name: 'River Room' } }]
-    });
-
-    firebase.fetch
-      .mockRejectedValueOnce(new Error('local bridge offline'))
-      .mockRejectedValueOnce(new Error('discovery offline'))
-      .mockRejectedValueOnce(new Error('discovery offline'));
-    await expect(localAdapter.fetchAllClubSnapshots(player())).resolves.toMatchObject({
-      ok: true,
-      clubs: [{ club: { id: 'club-1', name: 'River Room' } }]
-    });
+    expect(firebase.getDocs).not.toHaveBeenCalled();
   });
 
   it('hydrates a committed v2 club, filters hidden and other-player records, and preserves external documents', async () => {
@@ -827,16 +1285,19 @@ describe('published and legacy club snapshot boundaries', () => {
     setPublishedClubGraph({
       parent: { entityCounts: { games: 2 } },
       games: [
-        ['game-1', { id: 'game-1', name: '1/2 NLH', maxSeats: 10, syncRevision: 'revision-2' }],
-        ['stress-game', { id: 'stress-game', name: 'Stress Game', maxSeats: 10, syncRevision: 'revision-2' }]
+        ['game-1', { id: 'game-1', name: '1/2 NLH', maxSeats: 10, openTables: [], waitlistCount: 0, formingCount: 0, availableSeats: 0, knownPlayersCount: 0, syncRevision: 'revision-2' }],
+        ['stress-game', { id: 'stress-game', name: 'Stress Game', maxSeats: 10, openTables: [], waitlistCount: 0, formingCount: 0, availableSeats: 0, knownPlayersCount: 0, syncRevision: 'revision-2' }]
       ],
       memberships: [['membership-player-1', membership], ['membership-other', otherMembership]],
       waitlists: [['wait-player-1', waitlist], ['wait-other', { ...waitlist, id: 'wait-other', playerId: 'other', playerName: 'Other Player' }]],
       notifications: [['notice-player-1', notification], ['notice-other', { ...notification, id: 'notice-other', targetPlayerIds: ['other'] }]]
     });
     const before = structuredClone(membership);
+    firebase.fetch
+      .mockRejectedValueOnce(new Error('authenticated discovery offline'))
+      .mockRejectedValueOnce(new Error('public discovery offline'));
 
-    const result = await fetchAllClubSnapshots(player());
+    const result = await fetchAllClubSnapshots(player(), { allowLocalDevelopmentFallback: true });
 
     expect(result).toMatchObject({ ok: true });
     if (!result.ok) throw new Error(result.error);
@@ -852,27 +1313,63 @@ describe('published and legacy club snapshot boundaries', () => {
     expect(firebase.getDocs.mock.calls.map(([reference]) => referencePath(reference))).not.toContain('clubs/hidden/games');
   });
 
+  it('strictly drops malformed direct-fallback clubs and child records while preserving a valid minimum age', async () => {
+    signedInUser();
+    const parent = setPublishedClubGraph({
+      parent: { minimumAge: 18, entityCounts: { games: 1 } },
+      games: [
+        ['valid-game', { id: 'valid-game', name: '1/2 NLH', maxSeats: 9, openTables: [], waitlistCount: 0, formingCount: 0, availableSeats: 0, knownPlayersCount: 0, syncRevision: 'revision-2' }],
+        ['bad-game', { id: 'bad-game', name: 'Broken', maxSeats: 9, openTables: {}, waitlistCount: 0, formingCount: 0, availableSeats: 0, knownPlayersCount: 0, syncRevision: 'revision-2' }]
+      ],
+      memberships: [
+        ['valid-membership', { id: 'valid-membership', clubId: 'club-1', playerId: 'player-1', playerName: 'Alex', status: 'Active', preferredGameIds: [], syncRevision: 'revision-2' }],
+        ['bad-membership', { id: 'bad-membership', clubId: 'club-1', playerId: {}, playerName: 'Alex', status: 'Active', preferredGameIds: [], syncRevision: 'revision-2' }]
+      ],
+      waitlists: [['bad-waitlist', { id: 'bad-waitlist', clubId: 'club-1', gameId: [], playerId: 'player-1', playerName: 'Alex', status: 'Interested', position: 0, requestedAt: '2026-08-09T12:00:00.000Z' }]],
+      notifications: [['bad-notice', { id: 'bad-notice', clubId: 'club-1', gameId: 'valid-game', title: 'Bad', body: 'Bad', reason: 'seat-opened', createdAt: '2026-08-09T12:00:00.000Z', targetPlayerIds: {} }]]
+    });
+    setCollection('clubs', [['club-1', parent], ['bad-club', { id: 'bad-club', name: {} }]]);
+    firebase.fetch
+      .mockRejectedValueOnce(new Error('authenticated discovery offline'))
+      .mockRejectedValueOnce(new Error('public discovery offline'));
+
+    const result = await fetchAllClubSnapshots(player(), { allowLocalDevelopmentFallback: true });
+
+    expect(result).toMatchObject({ ok: true });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.clubs).toHaveLength(1);
+    expect(result.clubs[0].club).toMatchObject({ id: 'club-1', name: 'River Room', minimumAge: 18 });
+    expect(result.clubs[0].games.map(({ id }) => id)).toEqual(['valid-game']);
+    expect(result.clubs[0].memberships.map(({ id }) => id)).toEqual(['valid-membership']);
+    expect(result.clubs[0].waitlists).toEqual([]);
+    expect(result.clubs[0].notifications).toEqual([]);
+    expect(firebase.getDocs.mock.calls.map(([reference]) => referencePath(reference))).not.toContain('clubs/bad-club/games');
+  });
+
   it('holds a published snapshot when a player record is newer than the parent commit', async () => {
     signedInUser();
     setPublishedClubGraph({
       parent: { syncRevision: 'revision-1', publishedAt: '2026-08-09T12:00:00.000Z' },
-      games: [['game-1', { id: 'game-1', name: '1/2 NLH', syncRevision: 'revision-1' }]],
+      games: [['game-1', { id: 'game-1', name: '1/2 NLH', maxSeats: 10, openTables: [], waitlistCount: 0, formingCount: 0, availableSeats: 0, knownPlayersCount: 0, syncRevision: 'revision-1' }]],
       memberships: [['future', {
         id: 'future',
+        clubId: 'club-1',
         playerId: 'player-1',
         playerName: 'Alex Player',
+        status: 'Active',
+        preferredGameIds: [],
         syncRevision: 'revision-2',
         publishedAt: '2026-08-09T12:00:01.000Z'
       }]]
     });
+    firebase.fetch
+      .mockRejectedValueOnce(new Error('authenticated discovery offline'))
+      .mockRejectedValueOnce(new Error('public discovery offline'));
 
-    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({
-      ok: false,
-      error: 'River Room is publishing newer player records.'
-    });
+    await expect(fetchAllClubSnapshots(player(), { allowLocalDevelopmentFallback: true })).resolves.toEqual({ ok: true, clubs: [] });
   });
 
-  it('uses one authenticated bounded discovery page and falls back to Firebase projections when unavailable', async () => {
+  it('uses authenticated/public API discovery without falling back to Firestore projections', async () => {
     const user = signedInUser();
     setPublishedClubGraph();
     const remote = publishedClubSnapshot({
@@ -883,7 +1380,7 @@ describe('published and legacy club snapshot boundaries', () => {
       ok: true,
       clubs: [remote],
       tournaments: [],
-      registrations: [],
+      interests: [],
       page: { count: 1, hasMore: false, nextCursor: null, databaseQueries: 2 }
     }));
 
@@ -896,21 +1393,20 @@ describe('published and legacy club snapshot boundaries', () => {
     });
     expect(user.getIdToken).toHaveBeenCalledWith(false);
     expect(firebase.fetch).toHaveBeenCalledWith(
-      'https://orbitapp-one.vercel.app/player/discovery?limit=50',
+      'http://127.0.0.1:4629/player/discovery?limit=50',
       expect.objectContaining({ headers: { authorization: 'Bearer player-token' }, signal: expect.any(AbortSignal) })
     );
 
-    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
-    await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({
-      ok: true,
-      clubs: [{ club: { id: 'club-1', name: 'River Room' } }]
-    });
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+    await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({ ok: false });
 
-    firebase.fetch.mockRejectedValueOnce(new Error('remote snapshot offline'));
-    await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({
-      ok: true,
-      clubs: [{ club: { id: 'club-1', name: 'River Room' } }]
-    });
+    firebase.fetch
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+    await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({ ok: false });
+    expect(firebase.getDocs).not.toHaveBeenCalled();
   });
 
   it('loads every bounded discovery page and removes non-player fixture games', async () => {
@@ -948,14 +1444,14 @@ describe('published and legacy club snapshot boundaries', () => {
         ok: true,
         clubs: [first],
         tournaments: [],
-        registrations: [],
+        interests: [],
         page: { count: 1, hasMore: true, nextCursor: 'club-1', databaseQueries: 2 }
       }))
       .mockResolvedValueOnce(jsonResponse({
         ok: true,
         clubs: [second],
         tournaments: [],
-        registrations: [],
+        interests: [],
         page: { count: 1, hasMore: false, nextCursor: null, databaseQueries: 2 }
       }));
 
@@ -966,12 +1462,12 @@ describe('published and legacy club snapshot boundaries', () => {
     });
     expect(firebase.fetch).toHaveBeenNthCalledWith(
       1,
-      'https://orbitapp-one.vercel.app/player/discovery?limit=50',
+      'http://127.0.0.1:4629/player/discovery?limit=50',
       expect.objectContaining({ headers: { authorization: 'Bearer player-token' }, signal: expect.any(AbortSignal) })
     );
     expect(firebase.fetch).toHaveBeenNthCalledWith(
       2,
-      'https://orbitapp-one.vercel.app/player/discovery?limit=50&cursor=club-1',
+      'http://127.0.0.1:4629/player/discovery?limit=50&cursor=club-1',
       expect.objectContaining({ headers: { authorization: 'Bearer player-token' }, signal: expect.any(AbortSignal) })
     );
   });
@@ -986,7 +1482,7 @@ describe('published and legacy club snapshot boundaries', () => {
         ok: true,
         clubs: [first],
         tournaments: [],
-        registrations: [],
+        interests: [],
         page: { count: 1, hasMore: true, nextCursor: 'club-1', databaseQueries: 2 }
       }))
       .mockRejectedValueOnce(new Error('second page unavailable'));
@@ -1005,7 +1501,7 @@ describe('published and legacy club snapshot boundaries', () => {
       ok: true,
       clubs: [first],
       tournaments: [],
-      registrations: [],
+      interests: [],
       page: { count: 1, hasMore: true, nextCursor: null }
     }));
 
@@ -1026,14 +1522,14 @@ describe('published and legacy club snapshot boundaries', () => {
         ok: true,
         clubs: [first],
         tournaments: [],
-        registrations: [],
+        interests: [],
         page: { count: 1, hasMore: true, nextCursor: 'cursor-1' }
       }))
       .mockResolvedValueOnce(jsonResponse({
         ok: true,
         clubs: [second],
         tournaments: [],
-        registrations: [],
+        interests: [],
         page: { count: 1, hasMore: true, nextCursor: 'cursor-1' }
       }));
 
@@ -1055,7 +1551,7 @@ describe('published and legacy club snapshot boundaries', () => {
         ok: true,
         clubs: [club],
         tournaments: [],
-        registrations: [],
+        interests: [],
         page: { count: 1, hasMore: true, nextCursor: `cursor-${index + 1}`, databaseQueries: 2 }
       }));
     });
@@ -1085,7 +1581,7 @@ describe('published and legacy club snapshot boundaries', () => {
       ok: true,
       clubs: [publicClub],
       tournaments: [],
-      registrations: [],
+      interests: [],
       page: { count: 1, hasMore: false, nextCursor: null }
     }));
 
@@ -1095,7 +1591,7 @@ describe('published and legacy club snapshot boundaries', () => {
       page: { count: 1, hasMore: false, nextCursor: null, databaseQueries: undefined }
     });
     expect(firebase.fetch).toHaveBeenCalledWith(
-      'https://orbitapp-one.vercel.app/player/public/discovery?limit=50',
+      'http://127.0.0.1:4629/player/public/discovery?limit=50',
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     expect((firebase.fetch.mock.calls[0]?.[1] as RequestInit | undefined)?.headers).toBeUndefined();
@@ -1110,21 +1606,21 @@ describe('published and legacy club snapshot boundaries', () => {
         ok: true,
         clubs: [first],
         tournaments: [],
-        registrations: [],
+        interests: [],
         page: { count: 1, hasMore: true, nextCursor: 'club-1' }
       }))
       .mockResolvedValueOnce(jsonResponse({
         ok: true,
         clubs: [second],
         tournaments: [],
-        registrations: [],
+        interests: [],
         page: { count: 1, hasMore: false, nextCursor: null }
       }));
 
     await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({ ok: true, clubs: [first, second] });
     expect(firebase.fetch).toHaveBeenNthCalledWith(
       2,
-      'https://orbitapp-one.vercel.app/player/public/discovery?limit=50&cursor=club-1',
+      'http://127.0.0.1:4629/player/public/discovery?limit=50&cursor=club-1',
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     expect(firebase.fetch.mock.calls.every(([, init]) => (init as RequestInit | undefined)?.headers === undefined)).toBe(true);
@@ -1138,7 +1634,7 @@ describe('published and legacy club snapshot boundaries', () => {
     });
     firebase.fetch.mockRejectedValueOnce(new Error('public API offline'));
 
-    await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({
+    await expect(fetchAllClubSnapshots(player(), { allowLocalDevelopmentFallback: true })).resolves.toMatchObject({
       ok: true,
       clubs: [{ memberships: [], waitlists: [], notifications: [] }]
     });
@@ -1157,7 +1653,7 @@ describe('published and legacy club snapshot boundaries', () => {
       .mockRejectedValueOnce(new Error('authenticated API offline'))
       .mockRejectedValueOnce(new Error('public API offline'));
 
-    await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({
+    await expect(fetchAllClubSnapshots(player(), { allowLocalDevelopmentFallback: true })).resolves.toMatchObject({
       ok: true,
       clubs: [{ games: [{ id: 'game-1' }], memberships: [], waitlists: [], notifications: [] }]
     });
@@ -1186,17 +1682,18 @@ describe('published and legacy club snapshot boundaries', () => {
       ['club-1', { accountKey: 'club-1', savedAt: legacy.generatedAt, snapshot: legacy }],
       ['hidden', { accountKey: 'hidden', savedAt: legacy.generatedAt, snapshot: publishedClubSnapshot({ club: { id: 'hidden', name: 'Test Club' } }) }]
     ]);
+    firebase.fetch.mockRejectedValue(new Error('public API offline'));
 
-    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({ ok: true, clubs: [legacy] });
+    await expect(fetchAllClubSnapshots(player(), { allowLocalDevelopmentFallback: true })).resolves.toEqual({ ok: true, clubs: [legacy] });
 
     setCollection('clubStates', []);
-    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({ ok: true, clubs: [] });
+    await expect(fetchAllClubSnapshots(player(), { allowLocalDevelopmentFallback: true })).resolves.toEqual({ ok: true, clubs: [] });
 
     setCollection('clubStates', [['malformed', null]]);
-    await expect(fetchAllClubSnapshots(player())).resolves.toMatchObject({ ok: false });
+    await expect(fetchAllClubSnapshots(player(), { allowLocalDevelopmentFallback: true })).resolves.toEqual({ ok: true, clubs: [] });
 
     firebase.getDocs.mockRejectedValueOnce(new Error('clubs permission denied'));
-    await expect(fetchAllClubSnapshots(player())).resolves.toEqual({ ok: false, error: 'clubs permission denied' });
+    await expect(fetchAllClubSnapshots(player(), { allowLocalDevelopmentFallback: true })).resolves.toEqual({ ok: false, error: 'clubs permission denied' });
   });
 
   it('characterizes the legacy aggregate facade for valid, missing, malformed, and failed inputs', async () => {
@@ -1211,10 +1708,10 @@ describe('published and legacy club snapshot boundaries', () => {
     expect(result).toMatchObject({ ok: true, snapshot: { games: [{ id: 'visible' }] } });
 
     setCollection('clubStates', []);
-    await expect(fetchClubSnapshots(player())).resolves.toEqual({ ok: false, error: 'No card houses have been published yet.' });
+    await expect(fetchClubSnapshots(player())).resolves.toEqual({ ok: false, error: 'No venues have been published yet.' });
 
     setCollection('clubStates', [['malformed', { snapshot: null }]]);
-    await expect(fetchClubSnapshots(player())).resolves.toEqual({ ok: false, error: 'No card houses have been published yet.' });
+    await expect(fetchClubSnapshots(player())).resolves.toEqual({ ok: false, error: 'No venues have been published yet.' });
 
     firebase.getDocs.mockRejectedValueOnce(new Error('legacy read failed'));
     await expect(fetchClubSnapshots(player())).resolves.toEqual({ ok: false, error: 'legacy read failed' });
@@ -1222,25 +1719,25 @@ describe('published and legacy club snapshot boundaries', () => {
 });
 
 describe('bounded tournament discovery boundary', () => {
-  it('loads tournaments and self registrations from one authenticated discovery page', async () => {
+  it('loads valid tournaments and only the signed-in player active interests', async () => {
     signedInUser();
-    const tournament = { id: 'event-doc', clubId: 'club-1', name: 'Sunday Major', startsAt: '2026-08-10T18:00:00.000Z' };
-    const registration = { id: 'registration-source', playerId: 'player-1', tournamentId: 'event-doc' };
+    const event = tournament();
+    const interest = tournamentInterest();
     firebase.fetch.mockResolvedValueOnce(jsonResponse({
       ok: true,
       clubs: [],
-      tournaments: [tournament],
-      registrations: [registration, { ...registration, id: 'other', playerId: 'other' }],
+      tournaments: [event],
+      interests: [interest, { ...interest, id: 'other-interest', playerId: 'other' }],
       page: { count: 0, hasMore: false, nextCursor: null, databaseQueries: 2 }
     }));
 
     await expect(fetchPlayerTournaments('player-1')).resolves.toEqual({
-      tournaments: [tournament],
-      registrations: [registration],
+      tournaments: [event],
+      interests: [interest],
       page: { count: 0, hasMore: false, nextCursor: null, databaseQueries: 2 }
     });
     expect(firebase.fetch).toHaveBeenCalledWith(
-      'https://orbitapp-one.vercel.app/player/discovery?limit=50',
+      'http://127.0.0.1:4629/player/discovery?limit=50',
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     expect(firebase.getDocs).not.toHaveBeenCalled();
@@ -1253,250 +1750,147 @@ describe('bounded tournament discovery boundary', () => {
   });
 });
 
-describe('Firestore mutation boundaries', () => {
-  function tournament(overrides: Partial<PlayerTournament> = {}): PlayerTournament {
-    return {
-      id: 'event-1',
-      clubId: 'club-1',
-      name: 'Sunday Major',
-      startsAt: '2026-08-10T18:00:00.000Z',
-      registrationOpensAt: '2026-08-01T00:00:00.000Z',
-      registrationClosesAt: '2026-08-10T17:00:00.000Z',
-      registrationStatus: 'open',
-      buyIn: 100,
-      prizePoolLabel: '$10,000',
-      startingStack: 20_000,
-      levelMinutes: 20,
-      lateRegistrationThroughLevel: 6,
-      rebuyPrice: 100,
-      rebuyStack: 20_000,
-      unlimitedRebuys: false,
-      addOnPrice: 50,
-      addOnStack: 10_000,
-      rules: [],
-      unregisterAllowed: true,
-      entrantCount: 0,
-      totalRebuys: 0,
-      totalAddOns: 0,
-      ...overrides
-    };
-  }
-
-  it('writes a registration with authoritative identity/timestamps and enforces identity and close-time gates', async () => {
+describe('tournament interest mutation boundaries', () => {
+  it('posts an opaque stable mutation ID and enforces identity and interest-window gates', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-09T12:00:00.000Z'));
     signedInUser();
+    const interest = tournamentInterest();
     firebase.fetch.mockResolvedValueOnce(jsonResponse({
       ok: true,
-      registration: {
-        id: 'event-1:player-1',
-        tournamentId: 'event-1',
-        clubId: 'club-1',
-        playerId: 'player-1',
-        playerName: 'Alex Player',
-        playerEmail: 'alex@example.com',
-        status: 'registered',
-        rebuys: 0,
-        addOns: 0,
-        registeredAt: '2026-08-09T12:00:00.000Z',
-        updatedAt: '2026-08-09T12:00:00.000Z'
-      }
+      interest
     }));
 
-    const result = await registerForTournament(tournament(), player());
-    expect(result).toEqual(expect.objectContaining({
-      id: 'event-1:player-1',
-      tournamentId: 'event-1',
-      clubId: 'club-1',
-      playerId: 'player-1',
-      status: 'registered',
-      registeredAt: '2026-08-09T12:00:00.000Z',
-      updatedAt: '2026-08-09T12:00:00.000Z'
-    }));
+    await expect(expressTournamentInterest(tournament(), player(), 'mutation-random-123')).resolves.toEqual(interest);
     expect(firebase.fetch).toHaveBeenCalledWith(
-      'https://orbitapp-one.vercel.app/player/tournament-registrations',
-      expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ authorization: 'Bearer player-token' }) })
+      'http://127.0.0.1:4629/player/tournament-interests',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ authorization: 'Bearer player-token' }),
+        body: JSON.stringify({ clubId: 'club-1', tournamentId: 'event-1', mutationId: 'mutation-random-123' })
+      })
     );
-    expect(firebase.setDoc).not.toHaveBeenCalled();
 
-    await expect(registerForTournament(tournament(), player({ id: 'other' }))).rejects.toThrow('does not match this profile');
-    await expect(registerForTournament(tournament({ registrationStatus: 'closed' }), player())).rejects.toThrow('Registration for this tournament is closed.');
-    await expect(registerForTournament(tournament({ registrationClosesAt: '2026-08-09T11:00:00.000Z' }), player())).rejects.toThrow('Registration for this tournament is closed.');
+    await expect(expressTournamentInterest(tournament(), player({ id: 'other' }), 'mutation-random-456')).rejects.toThrow('does not match this profile');
+    await expect(expressTournamentInterest(tournament({ interestStatus: 'closed' }), player(), 'mutation-random-789')).rejects.toThrow('interest window');
+    await expect(expressTournamentInterest(tournament({ interestOpensAt: '2026-08-09T13:00:00.000Z' }), player(), 'mutation-random-future')).rejects.toThrow('interest window');
+    await expect(expressTournamentInterest(tournament({ interestClosesAt: '2026-08-09T11:00:00.000Z' }), player(), 'mutation-random-999')).rejects.toThrow('interest window');
+    await expect(expressTournamentInterest(tournament({ startsAt: '2026-08-09T11:00:00.000Z', interestClosesAt: '2026-08-10T17:00:00.000Z' }), player(), 'mutation-random-started')).rejects.toThrow('interest window');
   });
 
-  it('deletes only the signed-in player registration while self-unregistration remains open', async () => {
+  it('withdraws only the immutable signed-in player interest while withdrawal is open', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-09T12:00:00.000Z'));
     signedInUser();
-    const registration: PlayerTournamentRegistration = {
-      id: 'event-1:player-1',
-      tournamentId: 'event-1',
-      clubId: 'club-1',
-      playerId: 'player-1',
-      playerName: 'Alex Player',
-      playerEmail: 'alex@example.com',
-      status: 'registered',
-      rebuys: 0,
-      addOns: 0,
-      registeredAt: '2026-08-09T10:00:00.000Z',
-      updatedAt: '2026-08-09T10:00:00.000Z'
-    };
-
-    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, registrationId: registration.id }));
-    await unregisterFromTournament(tournament(), registration);
+    const interest = tournamentInterest();
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, interest: { ...interest, status: 'withdrawn' } }));
+    await withdrawTournamentInterest(tournament(), interest, 'mutation-random-delete');
     expect(firebase.fetch).toHaveBeenCalledWith(
-      'https://orbitapp-one.vercel.app/player/tournament-registrations',
-      expect.objectContaining({ method: 'DELETE', headers: expect.objectContaining({ authorization: 'Bearer player-token' }) })
-    );
-    expect(firebase.deleteDoc).not.toHaveBeenCalled();
-
-    await expect(unregisterFromTournament(tournament(), { ...registration, playerId: 'other' })).rejects.toThrow('only remove your own registration');
-    await expect(unregisterFromTournament(tournament({ unregisterAllowed: false }), registration)).rejects.toThrow('Self-unregistration is no longer available');
-    await expect(unregisterFromTournament(tournament({ startsAt: '2026-08-09T11:00:00.000Z' }), registration)).rejects.toThrow('Self-unregistration is no longer available');
-  });
-
-  it('writes private games with a server timestamp and returns current failure results', async () => {
-    const listing: PlayerPrivateGameListing = {
-      id: 'private-1',
-      name: 'Friday Game',
-      location: 'Austin',
-      startsAt: '2026-08-14T19:00:00.000Z',
-      seats: '8',
-      note: '',
-      hostPlayerId: 'player-1',
-      hostPlayerPath: 'players/player-1',
-      hostPlayerName: 'Alex Player',
-      hostPlayerEmail: 'alex@example.com',
-      createdAt: '2026-08-09T12:00:00.000Z',
-      status: 'Open'
-    };
-
-    await expect(submitPrivateGameListing(listing)).resolves.toEqual({ ok: true, game: listing });
-    expect(firebase.setDoc).toHaveBeenCalledWith(
-      expect.objectContaining({ path: 'privateGames/private-1' }),
-      { ...listing, updatedAt: { __serverTimestamp: true } },
-      { merge: false }
+      'http://127.0.0.1:4629/player/tournament-interests',
+      expect.objectContaining({
+        method: 'DELETE',
+        body: JSON.stringify({ clubId: 'club-1', tournamentId: 'event-1', mutationId: 'mutation-random-delete' })
+      })
     );
 
-    firebase.setDoc.mockRejectedValueOnce(new Error('private game write denied'));
-    await expect(submitPrivateGameListing(listing)).resolves.toEqual({ ok: false, error: 'private game write denied' });
+    await expect(withdrawTournamentInterest(tournament(), { ...interest, playerId: 'other' }, 'mutation-random-other')).rejects.toThrow('only withdraw your own');
+    await expect(withdrawTournamentInterest(tournament({ withdrawalAllowed: false }), interest, 'mutation-random-closed')).rejects.toThrow('can no longer be withdrawn');
+    await expect(withdrawTournamentInterest(tournament({ startsAt: '2026-08-09T11:00:00.000Z' }), interest, 'mutation-random-started')).rejects.toThrow('can no longer be withdrawn');
   });
-});
 
-describe('private-game subscription lifecycle', () => {
-  it('orders open records, reports listener errors, preserves malformed throws, and returns the SDK unsubscriber', () => {
-    const callback = vi.fn();
-    const unsubscribe = subscribeToPrivateGameListings(callback);
-    const listener = listenersAt('privateGames')[0];
-    expect(listener.reference.constraints).toEqual([
-      { field: 'status', operator: '==', value: 'Open' },
-      { type: 'orderBy', field: 'createdAt', direction: 'desc' },
-      { type: 'limit', count: 100 }
-    ]);
-    const newer = { id: 'new', status: 'Open', createdAt: '2026-08-09T12:00:00.000Z' };
-    const older = { id: 'old', status: 'Open', createdAt: '2026-08-08T12:00:00.000Z' };
+  it('never sends tournament mutations after the signed-in account changes', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-09T12:00:00.000Z'));
+    const user = signedInUser();
+    user.getIdToken.mockImplementationOnce(async () => {
+      signedInUser('player-2');
+      return 'player-token';
+    });
 
-    emitSnapshot('privateGames', [['old', older], ['closed', { id: 'closed', status: 'Closed' }], ['new', newer]]);
-    expect(callback).toHaveBeenLastCalledWith({ ok: true, games: [newer, older] });
-
-    emitSnapshotError('privateGames', 'private listener denied');
-    expect(callback).toHaveBeenLastCalledWith({ ok: false, error: 'private listener denied' });
-
-    expect(() => emitSnapshot('privateGames', [['malformed', null]])).toThrow();
-    unsubscribe();
-    expect(listener.unsubscribe).toHaveBeenCalledOnce();
+    await expect(expressTournamentInterest(tournament(), player(), 'mutation-random-race'))
+      .rejects.toThrow('account changed before the request was sent');
+    expect(firebase.fetch).not.toHaveBeenCalled();
   });
 });
 
 describe('tournament subscription lifecycle', () => {
-  it('uses one commit-marker listener and deduplicates authoritative discovery refreshes', async () => {
+  it('polls authoritative discovery without installing a Firestore listener', async () => {
+    vi.useFakeTimers();
     signedInUser();
     const payload = {
       ok: true,
       clubs: [],
-      tournaments: [{ name: 'Sunday Major', id: 'event-1', clubId: 'club-1' }],
-      registrations: [{ id: 'registration-1', playerId: 'player-1' }],
+      tournaments: [tournament()],
+      interests: [tournamentInterest()],
       page: { count: 0, hasMore: false, nextCursor: null, databaseQueries: 2 }
     };
     firebase.fetch.mockResolvedValue(jsonResponse(payload));
     const callback = vi.fn();
-    const unsubscribe = subscribeToPlayerTournaments('player-1', callback);
-    const root = listenersAt('clubs')[0];
+    const subscription = subscribeToPlayerTournaments('player-1', callback);
 
-    root.next(fakeSnapshot([['club-1', { name: 'River Room' }], ['hidden', { name: 'Stress Club' }]]));
-    root.next(fakeSnapshot([['club-1', { name: 'River Room Updated' }]]));
-    await flushPromises();
+    expect(listenersAt('clubs')).toHaveLength(0);
+    subscription.startPolling();
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(callback).toHaveBeenCalledOnce();
-    expect(callback).toHaveBeenCalledWith(expect.objectContaining({ tournaments: payload.tournaments, registrations: payload.registrations }));
-    expect(listenersAt('clubs')).toHaveLength(1);
-    expect(snapshotListeners.filter((listener) => listener.reference.path.startsWith('clubs/club-1/'))).toHaveLength(0);
+    expect(callback).toHaveBeenCalledWith(expect.objectContaining({ tournaments: payload.tournaments, interests: payload.interests }));
 
-    unsubscribe();
-    expect(root.unsubscribe).toHaveBeenCalledOnce();
+    subscription.unsubscribe();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('does not subscribe to private registrations for a mismatched identity and suppresses late results after unsubscribe', async () => {
+  it('does not expose player interests for a mismatched identity and suppresses late results after unsubscribe', async () => {
+    vi.useFakeTimers();
     signedInUser('different-player');
     const callback = vi.fn();
-    const unsubscribe = subscribeToPlayerTournaments('player-1', callback);
-    const root = listenersAt('clubs')[0];
-
-    root.next(fakeSnapshot([['club-1', { name: 'River Room' }]]));
-    unsubscribe();
+    const subscription = subscribeToPlayerTournaments('player-1', callback);
+    subscription.startPolling();
+    await vi.advanceTimersByTimeAsync(60_000);
+    subscription.unsubscribe();
     await flushPromises();
 
-    expect(snapshotListeners.filter((listener) => listener.reference.path.startsWith('clubs/club-1/'))).toHaveLength(0);
+    expect(listenersAt('clubs')).toHaveLength(0);
     expect(callback).not.toHaveBeenCalled();
   });
 });
 
 describe('live club subscription lifecycle and revisions', () => {
-  it('shares one commit-marker listener across club and tournament discovery', async () => {
+  it('uses API refreshes without installing an anonymous Firestore listener', async () => {
     signedInUser();
     firebase.fetch.mockResolvedValue(jsonResponse({
       ok: true,
       clubs: [],
       tournaments: [],
-      registrations: [],
+      interests: [],
       page: { count: 0, hasMore: false, nextCursor: null, databaseQueries: 2 }
     }));
     const clubSubscription = subscribeToAllClubSnapshots(player(), vi.fn());
-    const tournamentUnsubscribe = subscribeToPlayerTournaments('player-1', vi.fn());
-    expect(listenersAt('clubs')).toHaveLength(1);
-
-    listenersAt('clubs')[0].next(fakeSnapshot([['club-1', { syncRevision: 'revision-2' }]]));
     await clubSubscription.refresh();
-    await flushPromises();
     expect(firebase.fetch).toHaveBeenCalledOnce();
+    expect(listenersAt('clubs')).toHaveLength(0);
 
     clubSubscription.unsubscribe();
-    expect(listenersAt('clubs')[0].unsubscribe).not.toHaveBeenCalled();
-    tournamentUnsubscribe();
-    expect(listenersAt('clubs')[0].unsubscribe).toHaveBeenCalledOnce();
   });
 
-  it('uses one commit-marker listener, deduplicates refreshes, and tears down cleanly', async () => {
+  it('deduplicates API refreshes and tears down cleanly', async () => {
     signedInUser();
     const snapshot = publishedClubSnapshot();
     firebase.fetch.mockResolvedValue(jsonResponse({
       ok: true,
       clubs: [snapshot],
       tournaments: [],
-      registrations: [],
+      interests: [],
       page: { count: 1, hasMore: false, nextCursor: null, databaseQueries: 2 }
     }));
     const callback = vi.fn();
     const subscription = subscribeToAllClubSnapshots(player(), callback);
-    const root = listenersAt('clubs')[0];
-    root.next(fakeSnapshot([['club-1', { syncRevision: 'revision-2' }]]));
-    root.next(fakeSnapshot([['club-1', { syncRevision: 'revision-3' }]]));
     await subscription.refresh();
     expect(callback).toHaveBeenCalledOnce();
     expect(callback).toHaveBeenLastCalledWith({ ok: true, clubs: [snapshot] });
     expect(snapshotListeners.filter((listener) => listener.reference.path.startsWith('clubs/club-1/'))).toHaveLength(0);
 
     subscription.unsubscribe();
-    expect(root.unsubscribe).toHaveBeenCalledOnce();
+    expect(listenersAt('clubs')).toHaveLength(0);
   });
 
   it('publishes completed pages as partial when a later discovery page is unavailable', async () => {
@@ -1507,7 +1901,7 @@ describe('live club subscription lifecycle and revisions', () => {
         ok: true,
         clubs: [snapshot],
         tournaments: [],
-        registrations: [],
+        interests: [],
         page: { count: 1, hasMore: true, nextCursor: 'club-1', databaseQueries: 2 }
       }))
       .mockRejectedValueOnce(new Error('second page unavailable'));
@@ -1520,29 +1914,28 @@ describe('live club subscription lifecycle and revisions', () => {
     subscription.unsubscribe();
   });
 
-  it('reports root failure before data and re-emits cached data after a listener failure', async () => {
+  it('reports an API refresh failure with prior data explicitly marked stale', async () => {
     signedInUser();
     const snapshot = publishedClubSnapshot();
     firebase.fetch.mockResolvedValue(jsonResponse({
       ok: true,
       clubs: [snapshot],
       tournaments: [],
-      registrations: [],
+      interests: [],
       page: { count: 1, hasMore: false, nextCursor: null, databaseQueries: 2 }
     }));
     const callback = vi.fn();
     const subscription = subscribeToAllClubSnapshots(player(), callback);
-    const root = listenersAt('clubs')[0];
-
-    root.error?.(new Error('club listener denied'));
-    expect(callback).toHaveBeenLastCalledWith({ ok: false, error: 'club listener denied' });
-
-    root.next(fakeSnapshot([['club-1', { id: 'club-1', name: 'River Room' }]]));
     await subscription.refresh();
-    const beforeError = callback.mock.calls.length;
-    root.error?.(new Error('transient listener error'));
-    expect(callback).toHaveBeenCalledTimes(beforeError + 1);
-    expect(callback.mock.calls.at(-1)?.[0]).toMatchObject({ ok: true });
+    firebase.fetch.mockRejectedValue(new Error('authoritative discovery offline'));
+    await subscription.refresh();
+    expect(callback).toHaveBeenLastCalledWith({
+      ok: false,
+      error: 'authoritative discovery offline',
+      clubs: [snapshot],
+      stale: true
+    });
+    expect(listenersAt('clubs')).toHaveLength(0);
 
     subscription.unsubscribe();
   });
@@ -1554,7 +1947,7 @@ describe('live club subscription lifecycle and revisions', () => {
       ok: true,
       clubs: [],
       tournaments: [],
-      registrations: [],
+      interests: [],
       page: { count: 0, hasMore: false, nextCursor: null, databaseQueries: 2 }
     }));
     const callback = vi.fn();

@@ -1,6 +1,7 @@
-import { decodeDiscoveryResponse, decodeIdentityResponse, decodeSnapshotEnvelope, readBoundaryError } from '@orbit/player-domain/decoders/playerBoundaryDecoders';
+import { decodeDiscoveryResponse, decodeIdentityResponse, decodeSnapshotEnvelope, decodeTournamentInterestMutationResponse, readBoundaryError } from '@orbit/player-domain/decoders/playerBoundaryDecoders';
 import { buildJoinRequest, buildWaitRequest } from '@orbit/player-requests';
 import type { User } from 'firebase/auth';
+import { assertExpectedFirebaseUser } from '@/src/auth/session-identity';
 import type {
   DiscoveryPayload,
   PlayerAccount,
@@ -8,16 +9,26 @@ import type {
   PlayerMembershipOption,
   PlayerSyncGame,
   PlayerTournament,
-  PlayerTournamentRegistration,
   SeatRequestInput
 } from '@/src/domain/types';
+import { getFirstRunningTable } from '@/src/domain/selectors';
+import { getFirebaseBrowserClient } from './firebase-client';
+
+export type WebPlayerAccountDeletionResult = {
+  initiatingUid: string;
+  status: 'complete' | 'pending';
+  retainedCategories: string[];
+};
 
 function apiBaseUrl() {
   return (process.env.NEXT_PUBLIC_ORBIT_API_URL || 'http://127.0.0.1:4629').replace(/\/$/, '');
 }
 
 async function authorizedJson(user: User, path: string, init: RequestInit = {}) {
+  const { auth } = await getFirebaseBrowserClient();
+  assertExpectedFirebaseUser(auth, user.uid);
   const token = await user.getIdToken();
+  assertExpectedFirebaseUser(auth, user.uid);
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     ...init,
     headers: {
@@ -27,17 +38,19 @@ async function authorizedJson(user: User, path: string, init: RequestInit = {}) 
       ...init.headers
     }
   });
+  assertExpectedFirebaseUser(auth, user.uid);
   let payload: unknown;
   try {
     payload = await response.json();
   } catch {
     payload = null;
   }
+  assertExpectedFirebaseUser(auth, user.uid);
   return { response, payload };
 }
 
-export async function fetchAuthenticatedDiscovery(user: User): Promise<DiscoveryPayload> {
-  const { response, payload } = await authorizedJson(user, '/player/discovery?limit=50');
+export async function fetchAuthenticatedDiscovery(user: User, signal?: AbortSignal): Promise<DiscoveryPayload> {
+  const { response, payload } = await authorizedJson(user, '/player/discovery?limit=50', { signal });
   const decoded = decodeDiscoveryResponse(payload);
   if (!response.ok || !decoded) throw new Error(readBoundaryError(payload, 'My Orbit could not load your live activity.'));
   return decoded;
@@ -47,12 +60,14 @@ export async function submitMembershipApplication(
   user: User,
   player: PlayerAccount,
   club: PlayerClubSnapshot,
-  option?: PlayerMembershipOption
+  option: PlayerMembershipOption,
+  signal?: AbortSignal
 ) {
-  const plan = option?.durationDays === 1 ? 'day' : 'monthly';
-  const request = buildJoinRequest(player, club.club.id, plan, 'in-person', option?.priceLabel, option);
+  if (!option) throw new Error('Select a venue-published membership option before sending a request.');
+  const request = buildJoinRequest(player, club.club.id, option);
   const { response, payload } = await authorizedJson(user, '/player/membership-requests', {
     method: 'POST',
+    signal,
     body: JSON.stringify(request)
   });
   const decoded = decodeSnapshotEnvelope(payload);
@@ -66,22 +81,30 @@ export async function submitSeatRequest(
   club: PlayerClubSnapshot,
   game: PlayerSyncGame,
   input: SeatRequestInput,
-  action: 'join' | 'cancel' = 'join'
+  action: 'join' | 'cancel' = 'join',
+  signal?: AbortSignal
 ) {
-  const tableId = game.openTables.find((table) => table.status === 'Running')?.id;
+  const runningTable = getFirstRunningTable(game);
+  const attendance = action === 'cancel'
+    ? undefined
+    : runningTable
+      ? input.attendance === 'confirmed' ? 'confirmed' : 'arrived'
+      : 'interested';
+  const tableId = attendance === 'arrived' || attendance === 'confirmed' ? runningTable?.id : undefined;
   const request = buildWaitRequest(
     player,
     club.club.id,
     game.id,
     tableId,
     action,
-    input.attendance,
-    input.expectedArrivalTime,
-    input.availabilityStartTime,
-    input.availabilityEndTime
+    attendance,
+    attendance === 'confirmed' ? input.expectedArrivalTime : undefined,
+    attendance === 'interested' ? input.availabilityStartTime : undefined,
+    attendance === 'interested' ? input.availabilityEndTime : undefined
   );
   const { response, payload } = await authorizedJson(user, '/player/waitlist-requests', {
     method: 'POST',
+    signal,
     body: JSON.stringify(request)
   });
   const decoded = decodeSnapshotEnvelope(payload);
@@ -89,26 +112,28 @@ export async function submitSeatRequest(
   return decoded.snapshot;
 }
 
-export async function registerTournament(user: User, tournament: PlayerTournament) {
-  const mutationId = `register:${tournament.id}:${user.uid}:${Date.now()}`;
-  const { response, payload } = await authorizedJson(user, '/player/tournament-registrations', {
+export async function expressTournamentInterest(user: User, tournament: PlayerTournament, signal?: AbortSignal) {
+  const mutationId = opaqueMutationId();
+  const { response, payload } = await authorizedJson(user, '/player/tournament-interests', {
     method: 'POST',
+    signal,
     body: JSON.stringify({ clubId: tournament.clubId, tournamentId: tournament.id, mutationId })
   });
-  if (!response.ok) throw new Error(readBoundaryError(payload, 'Tournament registration could not be saved.'));
-  const registration = readRegistration(payload);
-  if (!registration) throw new Error('Tournament registration returned an invalid response.');
-  return registration;
+  const decoded = decodeTournamentInterestMutationResponse(payload);
+  if (!response.ok || !decoded?.interest) throw new Error(readBoundaryError(payload, 'Tournament interest could not be saved.'));
+  return decoded.interest;
 }
 
-export async function unregisterTournament(user: User, tournament: PlayerTournament) {
-  const mutationId = `unregister:${tournament.id}:${user.uid}:${Date.now()}`;
-  const { response, payload } = await authorizedJson(user, '/player/tournament-registrations', {
+export async function withdrawTournamentInterest(user: User, tournament: PlayerTournament, signal?: AbortSignal) {
+  const mutationId = opaqueMutationId();
+  const { response, payload } = await authorizedJson(user, '/player/tournament-interests', {
     method: 'DELETE',
+    signal,
     body: JSON.stringify({ clubId: tournament.clubId, tournamentId: tournament.id, mutationId })
   });
-  if (!response.ok || !payload || typeof payload !== 'object' || Reflect.get(payload, 'ok') !== true) {
-    throw new Error(readBoundaryError(payload, 'Tournament registration could not be removed.'));
+  const decoded = decodeTournamentInterestMutationResponse(payload);
+  if (!response.ok || !decoded) {
+    throw new Error(readBoundaryError(payload, 'Tournament interest could not be withdrawn.'));
   }
 }
 
@@ -129,11 +154,43 @@ export async function createIdentitySession(user: User) {
   return decoded;
 }
 
-function readRegistration(value: unknown): PlayerTournamentRegistration | null {
-  if (!value || typeof value !== 'object') return null;
-  const registration = Reflect.get(value, 'registration');
-  if (!registration || typeof registration !== 'object') return null;
-  const requiredStrings = ['id', 'tournamentId', 'clubId', 'playerId', 'playerName', 'status', 'registeredAt', 'updatedAt'];
-  if (requiredStrings.some((key) => typeof Reflect.get(registration, key) !== 'string')) return null;
-  return registration as PlayerTournamentRegistration;
+export async function deleteWebPlayerAccount(user: User): Promise<WebPlayerAccountDeletionResult> {
+  const { auth } = await getFirebaseBrowserClient();
+  assertExpectedFirebaseUser(auth, user.uid);
+  const token = await user.getIdToken(true);
+  assertExpectedFirebaseUser(auth, user.uid);
+  const response = await fetch(`${apiBaseUrl()}/player/account`, {
+    method: 'DELETE',
+    headers: {
+      accept: 'application/json',
+      authorization: `Bearer ${token}`
+    }
+  });
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+  const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : null;
+  if (!response.ok || record?.ok !== true || (record.status !== 'complete' && record.status !== 'pending')) {
+    const error = new Error(readBoundaryError(payload, 'Unable to delete the player account.')) as Error & { code?: string };
+    error.code = typeof record?.code === 'string' ? record.code : undefined;
+    throw error;
+  }
+  const finalization = record.jobFinalization;
+  return {
+    initiatingUid: user.uid,
+    status: record.status === 'complete' && finalization !== 'pending' && finalization !== 'scheduled'
+      ? 'complete'
+      : 'pending',
+    retainedCategories: Array.isArray(record.retainedCategories)
+      ? record.retainedCategories.filter((value): value is string => typeof value === 'string')
+      : []
+  };
+}
+
+function opaqueMutationId() {
+  if (!globalThis.crypto?.randomUUID) throw new Error('Secure request identifiers are unavailable in this browser.');
+  return globalThis.crypto.randomUUID();
 }

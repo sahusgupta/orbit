@@ -1,13 +1,14 @@
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Chip } from '../../components/PlayerFields';
-import { DistanceFilterControl, SearchToolbar } from '../../components/PlayerPresentation';
-import type {
-  PlayerClubSnapshot,
-  PlayerTournament,
-  PlayerTournamentRegistration
+import { SearchToolbar } from '../../components/PlayerPresentation';
+import {
+  isTournamentInterestOpen,
+  type PlayerClubSnapshot,
+  type PlayerTournament,
+  type PlayerTournamentInterest
 } from '../../domain/playerSync';
-import type { DistanceFilter, TournamentFilter, TournamentOpportunity } from '../../domain/playerTypes';
+import type { TournamentFilter, TournamentOpportunity } from '../../domain/playerTypes';
 import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
 import { tournamentStyles } from './tournamentStyles';
@@ -20,22 +21,24 @@ export function TournamentScreen({
   onOpenFilters,
   opportunities,
   hasOrbitAccount,
+  readOnly,
   message,
   pendingTournamentIds,
   onSelectClub,
-  onRegister,
-  onUnregister
+  onExpressInterest,
+  onWithdrawInterest
 }: {
   query: string;
   onQueryChange: (value: string) => void;
   onOpenFilters: () => void;
   opportunities: TournamentOpportunity[];
   hasOrbitAccount: boolean;
+  readOnly: boolean;
   message: string;
   pendingTournamentIds: string[];
   onSelectClub: (club: PlayerClubSnapshot) => void;
-  onRegister: (tournament: PlayerTournament) => void;
-  onUnregister: (tournament: PlayerTournament, registration: PlayerTournamentRegistration) => void;
+  onExpressInterest: (tournament: PlayerTournament) => void;
+  onWithdrawInterest: (tournament: PlayerTournament, interest: PlayerTournamentInterest) => void;
 }) {
   return (
     <>
@@ -47,6 +50,21 @@ export function TournamentScreen({
         onOpenFilters={onOpenFilters}
       />
 
+      {!hasOrbitAccount ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.cardTitle}>Browse without signing in</Text>
+          <Text style={styles.muted}>Sign in under Profile when you want to express nonbinding interest to a venue.</Text>
+        </View>
+      ) : null}
+      {readOnly && opportunities.length ? (
+        <View accessibilityRole="alert" style={styles.emptyState}>
+          <Text style={styles.cardTitle}>Tournament listings are read-only</Text>
+          <Text style={styles.muted}>Orbit could not confirm the current venue catalog. Refresh published data before changing tournament interest.</Text>
+        </View>
+      ) : null}
+      <Text style={styles.muted}>Expressing interest is nonbinding. It does not register you, guarantee a seat, create a debt, collect payment, or establish prize eligibility. Venue staff separately confirms participation.</Text>
+      {message ? <Text style={styles.tournamentMessage}>{message}</Text> : null}
+
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Upcoming tournaments</Text>
         <Text style={styles.muted}>{opportunities.length} found</Text>
@@ -54,32 +72,36 @@ export function TournamentScreen({
       {opportunities.length ? Array.from(new Set(opportunities.map((item) => item.tournament.clubId))).map((clubId) => {
         const listings = opportunities.filter((item) => item.tournament.clubId === clubId);
         const club = listings[0]?.club;
+        const distance = listings[0]?.distanceMiles;
         return (
           <View style={styles.tournamentClubSection} key={clubId}>
             <Pressable
-              disabled={!club}
+              disabled={!club || readOnly}
               style={styles.tournamentClubHeader}
               onPress={() => {
-                if (!club) return;
-                onSelectClub(club);
+                if (club) onSelectClub(club);
               }}
             >
               <View>
                 <Text style={styles.cardTitle}>{club?.club.name ?? 'Tournament host'}</Text>
-                <Text style={styles.muted}>{club ? `${listings[0].distanceMiles.toFixed(1)} mi · ${club.club.address ?? 'Address unavailable'}` : 'Club details unavailable'}</Text>
+                <Text style={styles.muted}>
+                  {club
+                    ? [distance == null ? null : `${distance.toFixed(1)} mi`, club.club.address ?? 'Address unavailable'].filter(Boolean).join(' · ')
+                    : 'Club details unavailable'}
+                </Text>
               </View>
               {club ? <Ionicons name="chevron-forward" size={19} color={colors.muted} /> : null}
             </Pressable>
-            {listings.map(({ tournament, registration }) => (
+            {listings.map(({ tournament, interest }) => (
               <TournamentCard
                 key={tournament.id}
                 tournament={tournament}
-                registration={registration}
+                interest={interest}
                 hasOrbitAccount={hasOrbitAccount}
-                message={message}
+                readOnly={readOnly}
                 busy={pendingTournamentIds.includes(tournament.id)}
-                onRegister={() => onRegister(tournament)}
-                onUnregister={() => registration && onUnregister(tournament, registration)}
+                onExpressInterest={() => onExpressInterest(tournament)}
+                onWithdrawInterest={() => interest && onWithdrawInterest(tournament, interest)}
               />
             ))}
           </View>
@@ -87,7 +109,7 @@ export function TournamentScreen({
       }) : (
         <View style={styles.emptyState}>
           <Text style={styles.cardTitle}>No tournaments found</Text>
-          <Text style={styles.muted}>Try a different club, distance, or registration filter.</Text>
+          <Text style={styles.muted}>Try a different club or interest filter.</Text>
         </View>
       )}
     </>
@@ -96,24 +118,25 @@ export function TournamentScreen({
 
 export function TournamentCard({
   tournament,
-  registration,
+  interest,
   hasOrbitAccount,
-  message,
+  readOnly,
   busy,
-  onRegister,
-  onUnregister
+  onExpressInterest,
+  onWithdrawInterest
 }: {
   tournament: PlayerTournament;
-  registration?: PlayerTournamentRegistration;
+  interest?: PlayerTournamentInterest;
   hasOrbitAccount: boolean;
-  message: string;
+  readOnly: boolean;
   busy: boolean;
-  onRegister: () => void;
-  onUnregister: () => void;
+  onExpressInterest: () => void;
+  onWithdrawInterest: () => void;
 }) {
-  const registrationOpen = tournament.registrationStatus === 'open' && Date.now() < Date.parse(tournament.registrationClosesAt);
-  const canUnregister = Boolean(registration && tournament.unregisterAllowed && Date.now() < Date.parse(tournament.startsAt));
-  const liveEntrants = Math.max(tournament.entrantCount, registration ? 1 : 0);
+  const now = Date.now();
+  const interestOpen = isTournamentInterestOpen(tournament, now);
+  const activeInterest = interest?.status === 'interested';
+  const canWithdraw = Boolean(activeInterest && tournament.withdrawalAllowed && now < Date.parse(tournament.startsAt));
   return (
     <View style={[styles.tournamentCard, tournament.featured && styles.tournamentCardFeatured]}>
       <View style={styles.tournamentTitleRow}>
@@ -122,57 +145,96 @@ export function TournamentCard({
           <Text style={styles.cardTitle}>{tournament.name}</Text>
           <Text style={styles.muted}>{formatEventDate(tournament.startsAt)}</Text>
         </View>
-        <View style={[styles.statusPill, registrationOpen ? styles.tournamentOpenPill : styles.tournamentClosedPill]}>
-          <Text style={styles.statusText}>{registrationOpen ? 'Open' : 'Closed'}</Text>
+        <View style={[styles.statusPill, interestOpen ? styles.tournamentOpenPill : styles.tournamentClosedPill]}>
+          <Text style={styles.statusText}>{interestOpen ? 'Interest open' : 'Interest closed'}</Text>
         </View>
       </View>
-      <Text style={styles.tournamentPrize}>{tournament.buyIn === 0 ? 'FREE ENTRY · FREEROLL' : `$${tournament.buyIn} ENTRY`}</Text>
+      <Text style={styles.tournamentPrize}>{tournament.buyIn == null ? 'BUY-IN NOT PUBLISHED' : `$${tournament.buyIn.toLocaleString()} VENUE-PUBLISHED BUY-IN`}</Text>
       <View style={styles.tournamentMoneyGrid}>
         <View style={styles.tournamentMoneyItem}>
           <Text style={styles.tournamentStatLabel}>Buy-in</Text>
-          <Text style={styles.tournamentMoneyValue}>{tournament.buyIn === 0 ? 'Free' : `$${tournament.buyIn.toLocaleString()}`}</Text>
+          <Text style={styles.tournamentMoneyValue}>{tournament.buyIn == null ? 'Not published' : `$${tournament.buyIn.toLocaleString()}`}</Text>
         </View>
         <View style={styles.tournamentMoneyItem}>
           <Text style={styles.tournamentStatLabel}>Rebuys</Text>
-          <Text style={styles.tournamentMoneyValue}>{tournament.unlimitedRebuys ? `Unlimited · $${tournament.rebuyPrice}` : 'Not allowed'}</Text>
+          <Text style={styles.tournamentMoneyValue}>{formatRebuy(tournament)}</Text>
         </View>
         <View style={[styles.tournamentMoneyItem, styles.tournamentMoneyItemWide]}>
           <Text style={styles.tournamentStatLabel}>Prize pool</Text>
-          <Text style={styles.tournamentMoneyValue}>{tournament.prizePoolLabel}</Text>
+          <Text style={styles.tournamentMoneyValue}>{tournament.prizePoolLabel || 'Not published'}</Text>
         </View>
       </View>
       <View style={styles.tournamentStats}>
-        <View><Text style={styles.tournamentStatValue}>{tournament.startingStack.toLocaleString()}</Text><Text style={styles.tournamentStatLabel}>Starting chips</Text></View>
-        <View><Text style={styles.tournamentStatValue}>{tournament.levelMinutes} min</Text><Text style={styles.tournamentStatLabel}>Blind levels</Text></View>
-        <View><Text style={styles.tournamentStatValue}>{liveEntrants}</Text><Text style={styles.tournamentStatLabel}>Entrants</Text></View>
+        <View><Text style={styles.tournamentStatValue}>{formatPublishedNumber(tournament.startingStack)}</Text><Text style={styles.tournamentStatLabel}>Starting chips</Text></View>
+        <View><Text style={styles.tournamentStatValue}>{tournament.levelMinutes == null ? 'Not published' : `${tournament.levelMinutes} min`}</Text><Text style={styles.tournamentStatLabel}>Blind levels</Text></View>
+        <View><Text style={styles.tournamentStatValue}>{formatPublishedNumber(tournament.entrantCount)}</Text><Text style={styles.tournamentStatLabel}>Entrants</Text></View>
       </View>
       <View style={styles.tournamentStructure}>
         <Text style={styles.cardTitle}>Structure</Text>
-        <Text style={styles.muted}>Unlimited ${tournament.rebuyPrice} rebuys through Level {tournament.lateRegistrationThroughLevel} · {tournament.rebuyStack.toLocaleString()} chips each</Text>
-        <Text style={styles.muted}>${tournament.addOnPrice} add-on after late registration · {tournament.addOnStack.toLocaleString()} chips</Text>
-        <Text style={styles.muted}>Live: {tournament.totalRebuys} rebuys · {tournament.totalAddOns} add-ons</Text>
+        <Text style={styles.muted}>{formatRebuyStructure(tournament)}</Text>
+        <Text style={styles.muted}>{formatAddOnStructure(tournament)}</Text>
+        <Text style={styles.muted}>{formatVenueTotals(tournament)}</Text>
       </View>
-      <View style={styles.tournamentRules}>
-        <Text style={styles.cardTitle}>Rules</Text>
-        {tournament.rules.map((rule) => <Text key={rule} style={styles.tournamentRule}>• {rule}</Text>)}
-      </View>
-      {registration ? (
+      {tournament.rules.length ? (
+        <View style={styles.tournamentRules}>
+          <Text style={styles.cardTitle}>Published rules</Text>
+          {tournament.rules.map((rule) => <Text key={rule} style={styles.tournamentRule}>• {rule}</Text>)}
+        </View>
+      ) : <Text style={styles.muted}>Rules have not been published. Confirm the structure with the venue.</Text>}
+      {activeInterest ? (
         <View style={styles.tournamentConfirmation}>
           <Ionicons name="checkmark-circle" size={20} color={colors.teal} />
-          <View style={styles.clubMain}><Text style={styles.cardTitle}>Registration confirmed</Text><Text style={styles.muted}>Status: {registration.status.replace(/-/g, ' ')}</Text></View>
+          <View style={styles.clubMain}>
+            <Text style={styles.cardTitle}>Interest expressed</Text>
+            <Text style={styles.muted}>This is nonbinding and does not reserve a seat. The venue must confirm entry.</Text>
+          </View>
         </View>
       ) : null}
-      {!hasOrbitAccount ? <Text style={styles.tournamentMessage}>Sign in with your email address or phone number under Profile to register.</Text> : null}
-      {message ? <Text style={styles.tournamentMessage}>{message}</Text> : null}
-      {registration ? (
-        canUnregister ? <Pressable disabled={busy} style={[styles.secondaryActionButton, busy && styles.disabledAction]} onPress={onUnregister}><Text style={styles.secondaryActionText}>{busy ? 'Updating...' : 'Unregister'}</Text></Pressable> : null
+      {activeInterest ? (
+        canWithdraw || readOnly ? (
+          <Pressable disabled={busy || readOnly} style={[styles.secondaryActionButton, (busy || readOnly) && styles.disabledAction]} onPress={onWithdrawInterest}>
+            <Text style={styles.secondaryActionText}>{readOnly ? 'Refresh required' : busy ? 'Updating…' : 'Withdraw interest'}</Text>
+          </Pressable>
+        ) : null
       ) : (
-        <Pressable disabled={busy || !registrationOpen || !hasOrbitAccount} style={[styles.compactButton, (busy || !registrationOpen || !hasOrbitAccount) && styles.disabledAction]} onPress={onRegister}>
-          <Text style={styles.compactButtonText}>{busy ? 'Registering...' : registrationOpen ? 'Register free' : 'Registration closed'}</Text>
+        <Pressable disabled={busy || readOnly || !interestOpen || !hasOrbitAccount} style={[styles.compactButton, (busy || readOnly || !interestOpen || !hasOrbitAccount) && styles.disabledAction]} onPress={onExpressInterest}>
+          <Text style={styles.compactButtonText}>{readOnly ? 'Refresh required' : busy ? 'Updating…' : interestOpen ? 'Express interest' : 'Interest closed'}</Text>
         </Pressable>
       )}
     </View>
   );
+}
+
+function formatPublishedNumber(value?: number) {
+  return value == null ? 'Not published' : value.toLocaleString();
+}
+
+function formatRebuy(tournament: PlayerTournament) {
+  if (tournament.rebuysAllowed === false) return 'Not allowed';
+  const price = tournament.rebuyPrice == null ? 'Price not published' : `$${tournament.rebuyPrice.toLocaleString()}`;
+  return tournament.unlimitedRebuys === true ? `Unlimited · ${price}` : `${price} · limit not published`;
+}
+
+function formatRebuyStructure(tournament: PlayerTournament) {
+  if (tournament.rebuysAllowed === false) return 'Rebuys are not allowed.';
+  const terms = [
+    formatRebuy(tournament),
+    tournament.lateRegistrationThroughLevel == null ? 'Closing level not published' : `through Level ${tournament.lateRegistrationThroughLevel}`,
+    tournament.rebuyStack == null ? 'Stack not published' : `${tournament.rebuyStack.toLocaleString()} chips`
+  ];
+  return terms.join(' · ');
+}
+
+function formatAddOnStructure(tournament: PlayerTournament) {
+  if (tournament.addOnsAllowed === false) return 'Add-ons are not allowed.';
+  const price = tournament.addOnPrice == null ? 'Price not published' : `$${tournament.addOnPrice.toLocaleString()}`;
+  const stack = tournament.addOnStack == null ? 'Stack not published' : `${tournament.addOnStack.toLocaleString()} chips`;
+  return `${price} add-on · ${stack}`;
+}
+
+function formatVenueTotals(tournament: PlayerTournament) {
+  if (tournament.totalRebuys == null && tournament.totalAddOns == null) return 'Venue totals not published.';
+  return `Venue totals: ${formatPublishedNumber(tournament.totalRebuys)} rebuys · ${formatPublishedNumber(tournament.totalAddOns)} add-ons`;
 }
 
 export function formatEventDate(value: string) {
@@ -185,17 +247,13 @@ export function TournamentFilterControls({
   eventFilter,
   setEventFilter,
   clubFilter,
-  setClubFilter,
-  distance,
-  setDistance
+  setClubFilter
 }: {
   clubs: PlayerClubSnapshot[];
   eventFilter: TournamentFilter;
   setEventFilter: (value: TournamentFilter) => void;
   clubFilter: string;
   setClubFilter: (value: string) => void;
-  distance: DistanceFilter;
-  setDistance: (value: DistanceFilter) => void;
 }) {
   return (
     <View style={styles.filterPanel}>
@@ -204,9 +262,9 @@ export function TournamentFilterControls({
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipRow}>
           {([
             ['all', 'All events'],
-            ['open', 'Registration open'],
-            ['free', 'Freerolls'],
-            ['registered', 'My entries']
+            ['open', 'Interest open'],
+            ['free', '$0 published buy-in'],
+            ['interested', 'My interests']
           ] as Array<[TournamentFilter, string]>).map(([id, label]) => (
             <Chip key={id} label={label} active={eventFilter === id} onPress={() => setEventFilter(id)} />
           ))}
@@ -226,7 +284,6 @@ export function TournamentFilterControls({
           ))}
         </ScrollView>
       </View>
-      <DistanceFilterControl value={distance} onChange={setDistance} />
     </View>
   );
 }

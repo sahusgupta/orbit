@@ -1,32 +1,21 @@
-import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { PlayerPlatform } from '../app/playerPlatform';
-import { getClubMembershipPrices, getClubProductLabel, isTimeAccessProduct } from '../domain/clubAccess';
-import { isActivePlayerGame } from '../domain/discovery';
-import { getUnconfirmedCheckoutReturnMessage } from '../domain/playerPayments';
+import { hasRunningTable } from '../domain/discovery';
 import {
-  isMembershipCurrentlyActive,
-  isPlayerMembership,
-  type ClubMembershipPaymentMethod,
-  type ClubMembershipPlan,
+  getPlayerSeatRequestAccess,
   type PlayerAccount,
   type PlayerClubSnapshot,
   type PlayerMembershipOption,
   type PlayerSyncGame,
   type PlayerWaitlistEntry
 } from '../domain/playerSync';
-import type { ClubAccessProduct, Screen, SeatRequestDraft, TimeAccessProduct } from '../domain/playerTypes';
-import { applyMembershipRequest, applyWaitlistRequest, buildJoinRequest, buildWaitRequest } from '../data/playerRequests';
-import {
-  createClubMembershipCheckout,
-  isSyncConfigured,
-  submitMembershipRequest,
-  submitWaitlistRequest,
-  type FirebasePlayerIdentity
-} from '../data/orbitSyncApi';
+import type { Screen, SeatRequestDraft } from '../domain/playerTypes';
+import { applyWaitlistRequest, buildJoinRequest, buildWaitRequest } from '../data/playerRequests';
+import { getCurrentFirebasePlayer, submitMembershipRequest, submitWaitlistRequest } from '../data/orbitSyncApi';
 
 type UsePlayerClubsOptions = {
+  actionsReady: boolean;
   clockNow: number;
-  firebaseIdentity: FirebasePlayerIdentity | null;
   platform: PlayerPlatform;
   player: PlayerAccount;
   requireVerifiedAge(returnScreen: Screen, action: string, minimumAge?: 18 | 21): boolean;
@@ -37,37 +26,23 @@ type UsePlayerClubsOptions = {
   setSyncStatus: Dispatch<SetStateAction<string>>;
 };
 
-export async function submitPaidMembershipBeforeCheckout(
-  player: PlayerAccount,
-  club: PlayerClubSnapshot,
-  product: ClubAccessProduct,
-  membershipOption: PlayerMembershipOption | null,
-  submitRequest: typeof submitMembershipRequest = submitMembershipRequest
-): Promise<
-  | { ok: true; skipped: true }
-  | { ok: true; skipped: false; snapshot: PlayerClubSnapshot }
-  | { ok: false; error: string }
-> {
-  if (isTimeAccessProduct(product)) return { ok: true, skipped: true };
-  if (!membershipOption?.id) return { ok: false, error: 'Choose a membership option before opening checkout.' };
-  const plan: ClubMembershipPlan = product === 'day' ? 'day' : 'monthly';
-  const request = buildJoinRequest(
-    player,
-    club.club.id,
-    plan,
-    'app',
-    membershipOption.priceLabel,
-    membershipOption
-  );
-  const result = await submitRequest(request);
-  return result.ok
-    ? { ok: true, skipped: false, snapshot: result.snapshot }
-    : { ok: false, error: result.error };
+export function isPublishedFreeMembership(option: PlayerMembershipOption) {
+  const label = option.priceLabel.trim();
+  return /^free$/i.test(label) || /^\$?0(?:\.0{1,2})?$/.test(label);
+}
+
+export function getInitialSeatRequestAttendance(game: PlayerSyncGame): SeatRequestDraft['attendance'] {
+  return hasRunningTable(game) ? 'arrived' : 'interested';
+}
+
+export function getSeatRequestTableId(game: PlayerSyncGame, attendance: SeatRequestDraft['attendance']) {
+  if (attendance === 'interested') return undefined;
+  return game.openTables.find((table) => table.status === 'Running')?.id;
 }
 
 export function usePlayerClubs({
+  actionsReady,
   clockNow,
-  firebaseIdentity,
   platform,
   player,
   requireVerifiedAge,
@@ -77,13 +52,39 @@ export function usePlayerClubs({
   setSelectedClubId,
   setSyncStatus
 }: UsePlayerClubsOptions) {
-  const [pendingClubProduct, setPendingClubProduct] = useState<ClubAccessProduct | null>(null);
-  const [pendingMembershipOption, setPendingMembershipOption] = useState<PlayerMembershipOption | null>(null);
   const [pendingSeatAfterMembership, setPendingSeatAfterMembership] = useState<{ club: PlayerClubSnapshot; game: PlayerSyncGame } | null>(null);
   const [seatRequestDraft, setSeatRequestDraft] = useState<SeatRequestDraft | null>(null);
   const [seatRequestMessage, setSeatRequestMessage] = useState('');
+  const [gameRequestMessage, setGameRequestMessage] = useState('');
   const [clubActionPending, setClubActionPending] = useState(false);
   const actionInFlight = useRef(false);
+  const actionPlayerUid = useRef(player.id);
+  const actionsReadyRef = useRef(actionsReady);
+  actionsReadyRef.current = actionsReady;
+
+  useEffect(() => {
+    if (actionPlayerUid.current === player.id) return;
+    actionPlayerUid.current = player.id;
+    actionInFlight.current = false;
+    setClubActionPending(false);
+    setPendingSeatAfterMembership(null);
+    setSeatRequestDraft(null);
+    setSeatRequestMessage('');
+    setGameRequestMessage('');
+  }, [player.id]);
+
+  const isCurrentPlayerAction = (expectedUid: string) => (
+    actionPlayerUid.current === expectedUid && getCurrentFirebasePlayer()?.uid === expectedUid
+  );
+
+  const requireCurrentPublishedData = (messageTarget: 'club' | 'seat' | 'sync') => {
+    if (actionsReadyRef.current) return true;
+    const message = 'Refresh published venue data before changing a membership or seat request.';
+    if (messageTarget === 'club') setClubMembershipMessage(message);
+    if (messageTarget === 'seat') setSeatRequestMessage(message);
+    setSyncStatus(message);
+    return false;
+  };
 
   const beginAction = () => {
     if (actionInFlight.current) return false;
@@ -110,12 +111,13 @@ export function usePlayerClubs({
   };
 
   const openSeatRequestDraft = (club: PlayerClubSnapshot, game: PlayerSyncGame) => {
+    if (!requireCurrentPublishedData('seat')) return;
     setSelectedClubId(club.club.id);
     setSeatRequestMessage('');
     setSeatRequestDraft({
       club,
       game,
-      attendance: isActivePlayerGame(game) ? 'arrived' : 'interested',
+      attendance: getInitialSeatRequestAttendance(game),
       expectedArrivalTime: '',
       availabilityStartTime: '',
       availabilityEndTime: ''
@@ -124,175 +126,74 @@ export function usePlayerClubs({
 
   const resumePendingSeatRequest = (club: PlayerClubSnapshot) => {
     if (pendingSeatAfterMembership?.club.club.id !== club.club.id) return;
-    openSeatRequestDraft(club, pendingSeatAfterMembership.game);
+    if (getPlayerSeatRequestAccess(club, player, clockNow) === 'active') {
+      openSeatRequestDraft(club, pendingSeatAfterMembership.game);
+    } else {
+      setSelectedClubId(club.club.id);
+      setScreen('clubs');
+      setClubMembershipMessage(`${club.club.name} received your membership request. Wait for the venue to activate it before requesting a seat.`);
+    }
     setPendingSeatAfterMembership(null);
   };
 
-  const requestMembership = async (
-    club: PlayerClubSnapshot,
-    plan: ClubMembershipPlan = 'monthly',
-    paymentMethod: ClubMembershipPaymentMethod = 'app',
-    membershipOption?: PlayerMembershipOption
-  ) => {
-    if (!requireVerifiedAge('clubs', 'registering with this card house', club.club.minimumAge === 18 ? 18 : 21)) return;
+  const requestMembership = async (club: PlayerClubSnapshot, membershipOption: PlayerMembershipOption) => {
+    if (!requireCurrentPublishedData('club')) return;
+    if (!requireVerifiedAge('clubs', 'requesting membership', club.club.minimumAge === 18 ? 18 : 21)) return;
     if (!beginAction()) return;
     setSelectedClubId(club.club.id);
-    const prices = getClubMembershipPrices(club);
-    const priceLabel = membershipOption?.priceLabel ?? (plan === 'day' ? prices.day : prices.monthly);
-    const request = buildJoinRequest(player, club.club.id, plan, paymentMethod, priceLabel, membershipOption);
+    const request = buildJoinRequest(player, club.club.id, membershipOption);
+    const expectedUid = request.player.id;
     try {
-      if (isSyncConfigured()) {
-        setSyncStatus(paymentMethod === 'in-person' ? 'Sending pay-in-person membership request...' : 'Sending membership signup...');
-        const result = await submitMembershipRequest(request);
-        if (result.ok) {
-          replaceSyncedClub(result.snapshot);
-          setScreen('clubs');
-          setClubMembershipMessage(paymentMethod === 'in-person'
-            ? `Signup sent. Show your physical ID and pay at ${result.snapshot.club.name}.`
-            : priceLabel === '$0' || /^free$/i.test(priceLabel.trim())
-              ? `Signup sent. No payment is due; ${result.snapshot.club.name} will check your physical ID on your first visit.`
-              : `Signup sent. Payment confirmation and physical-ID review are pending.`);
-          setSyncStatus(`Membership updated with ${result.snapshot.club.name}`);
-          resumePendingSeatRequest(result.snapshot);
-          return;
-        }
-        setSyncStatus(`Membership request failed - ${result.error}`);
-        setClubMembershipMessage(`Could not send your application. ${result.error}`);
+      setSyncStatus('Sending membership request...');
+      const result = await submitMembershipRequest(request);
+      if (!isCurrentPlayerAction(expectedUid)) return;
+      if (result.ok) {
+        replaceSyncedClub(result.snapshot);
         setScreen('clubs');
+        setClubMembershipMessage(isPublishedFreeMembership(membershipOption)
+          ? `Membership request sent. ${result.snapshot.club.name} published no fee for this option and will check your physical ID in person.`
+          : `Membership request sent. ${result.snapshot.club.name} will review it. Confirm any fee and physical-ID requirements with the venue; any payment happens in person.`);
+        setSyncStatus(`Membership request synced with ${result.snapshot.club.name}`);
+        resumePendingSeatRequest(result.snapshot);
         return;
       }
-      updateClubSnapshot(club, (snapshot) => applyMembershipRequest(snapshot, request));
+      setSyncStatus(`Membership request failed - ${result.error}`);
+      setClubMembershipMessage(`Could not send your membership request. ${result.error}`);
       setScreen('clubs');
-      setClubMembershipMessage(paymentMethod === 'in-person'
-        ? `Application saved on this device. Connect to ${club.club.name} to send it.`
-        : `${plan === 'day' ? 'Day pass' : 'Monthly membership'} saved on this device.`);
-      resumePendingSeatRequest(club);
     } finally {
-      finishAction();
+      if (isCurrentPlayerAction(expectedUid)) finishAction();
     }
   };
 
   const openClubSignup = (club: PlayerClubSnapshot) => {
+    if (!requireCurrentPublishedData('club')) return;
     setSelectedClubId(club.club.id);
-    if (!requireVerifiedAge('clubSignup', 'registering with this card house', club.club.minimumAge === 18 ? 18 : 21)) return;
-    setPendingClubProduct(null);
-    setPendingMembershipOption(null);
+    if (!requireVerifiedAge('clubSignup', 'requesting membership', club.club.minimumAge === 18 ? 18 : 21)) return;
     setClubMembershipMessage('');
     setScreen('clubSignup');
   };
 
-  const openClubPayment = (club: PlayerClubSnapshot, product: ClubAccessProduct, membershipOption?: PlayerMembershipOption) => {
-    if (!player.id || !player.name.trim()) {
-      setClubMembershipMessage('Finish creating your Orbit profile before continuing.');
-      return;
-    }
-    setSelectedClubId(club.club.id);
-    if (!requireVerifiedAge('clubs', 'purchasing card-house access', club.club.minimumAge === 18 ? 18 : 21)) return;
-    setPendingClubProduct(product);
-    setPendingMembershipOption(membershipOption ?? null);
-    setClubMembershipMessage('');
-    setScreen('clubPayment');
-  };
-
-  const openPlayerTimePurchase = (club: PlayerClubSnapshot, product?: TimeAccessProduct) => {
-    if (!club.timeAccess?.enabled || !club.timeAccess.linked || !club.timeAccess.activeSession) {
-      setClubMembershipMessage('Core must link your verified Orbit email or phone and seat you at a time-fee table first.');
-      return;
-    }
-    if (product) {
-      openClubPayment(club, product);
-      return;
-    }
-    setSelectedClubId(club.club.id);
-    setClubMembershipMessage('Choose how much time to add.');
-    setScreen('clubs');
-  };
-
-  const completeClubPayment = async (club: PlayerClubSnapshot, product: ClubAccessProduct) => {
-    if (!requireVerifiedAge('clubPayment', 'purchasing card-house access', club.club.minimumAge === 18 ? 18 : 21)) return;
-    setSelectedClubId(club.club.id);
-    setClubMembershipMessage('');
-    const prices = getClubMembershipPrices(club);
-    const planLabel = getClubProductLabel(product, prices);
-    const timeProduct = isTimeAccessProduct(product);
-    const membershipPlanId = timeProduct ? null : pendingMembershipOption?.id;
-    if (!firebaseIdentity) {
-      setClubMembershipMessage('Sign in before purchasing from this card house.');
-      return;
-    }
-    if (!timeProduct && !membershipPlanId) {
-      setClubMembershipMessage('Choose a membership option before opening checkout.');
-      return;
-    }
-    if (!beginAction()) return;
-    try {
-      let membershipSnapshot: PlayerClubSnapshot | null = null;
-      if (!timeProduct) {
-        if (!isSyncConfigured()) {
-          setClubMembershipMessage(`Connect to Orbit before sending your ${planLabel} signup.`);
-          return;
-        }
-        setSyncStatus('Sending membership signup before checkout...');
-        const membershipResult = await submitPaidMembershipBeforeCheckout(
-          player,
-          club,
-          product,
-          pendingMembershipOption
-        );
-        if (!membershipResult.ok) {
-          setSyncStatus(`Membership request failed - ${membershipResult.error}`);
-          setClubMembershipMessage(`Could not send your membership signup. ${membershipResult.error}`);
-          return;
-        }
-        if (!membershipResult.skipped) {
-          membershipSnapshot = membershipResult.snapshot;
-          replaceSyncedClub(membershipResult.snapshot);
-          setSyncStatus(`Membership signup sent to ${membershipResult.snapshot.club.name}`);
-        }
-      }
-      setClubMembershipMessage(`Opening ${club.club.name}'s secure checkout for ${planLabel}...`);
-      let checkout;
-      if (timeProduct) {
-        checkout = await createClubMembershipCheckout({ clubId: club.club.id, product, playerName: player.name });
-      } else {
-        if (!membershipPlanId) throw new Error('Choose a membership option before opening checkout.');
-        checkout = await createClubMembershipCheckout({ clubId: club.club.id, product, playerName: player.name, planId: membershipPlanId });
-      }
-      await platform.openBrowser(checkout.checkoutUrl);
-      setClubMembershipMessage(getUnconfirmedCheckoutReturnMessage(club.club.name));
-      if (membershipSnapshot) resumePendingSeatRequest(membershipSnapshot);
-      setPendingClubProduct(null);
-      setPendingMembershipOption(null);
-    } catch (error) {
-      setClubMembershipMessage(error instanceof Error ? error.message : 'Unable to start the card house checkout.');
-    } finally {
-      finishAction();
-    }
-  };
-
-  const requestInPersonMembership = async (club: PlayerClubSnapshot, product: ClubAccessProduct) => {
-    const prices = getClubMembershipPrices(club);
-    const planLabel = getClubProductLabel(product, prices);
-    setClubMembershipMessage(`Sending a ${planLabel} pay-in-person request to ${club.club.name}...`);
-    await requestMembership(club, product === 'monthly' ? 'monthly' : 'day', 'in-person', pendingMembershipOption ?? undefined);
-    setPendingClubProduct(null);
-    setPendingMembershipOption(null);
-  };
-
   const joinWaitlist = (club: PlayerClubSnapshot, game: PlayerSyncGame) => {
-    if (!requireVerifiedAge('clubs', 'requesting a seat', club.club.minimumAge === 18 ? 18 : 21)) return;
-    const membership = club.memberships.find((record) => isPlayerMembership(record, player));
-    if (!membership) {
-      setPendingSeatAfterMembership({ club, game });
+    if (!requireCurrentPublishedData('seat')) return;
+    const access = getPlayerSeatRequestAccess(club, player, clockNow);
+    if (access === 'pending') {
       setSelectedClubId(club.club.id);
-      openClubSignup(club);
-      setClubMembershipMessage(`Choose a membership option for ${club.club.name}. Your ${game.name} seat request will continue afterward.`);
+      setScreen('clubs');
+      setClubMembershipMessage(`Wait for ${club.club.name} to activate your membership before requesting a seat.`);
       return;
     }
-    if (!['Requested', 'Approved'].includes(membership.status) && !isMembershipCurrentlyActive(membership, clockNow)) {
+    if (access === 'renewal') {
       setSelectedClubId(club.club.id);
       setScreen('clubs');
       setClubMembershipMessage(`Renew your ${club.club.name} membership before requesting a seat.`);
+      return;
+    }
+    if (!requireVerifiedAge('clubs', 'requesting a seat', club.club.minimumAge === 18 ? 18 : 21)) return;
+    if (access === 'missing') {
+      setPendingSeatAfterMembership({ club, game });
+      setSelectedClubId(club.club.id);
+      openClubSignup(club);
+      setClubMembershipMessage(`Choose a published membership option for ${club.club.name}. Your ${game.name} seat request can continue after the venue activates your membership.`);
       return;
     }
     openSeatRequestDraft(club, game);
@@ -300,6 +201,7 @@ export function usePlayerClubs({
 
   const submitSeatRequest = async () => {
     if (!seatRequestDraft) return;
+    if (!requireCurrentPublishedData('seat')) return;
     const { club, game, attendance, expectedArrivalTime, availabilityStartTime, availabilityEndTime } = seatRequestDraft;
     if (attendance === 'confirmed' && !expectedArrivalTime.trim()) {
       setSeatRequestMessage('Enter what time you expect to arrive.');
@@ -314,65 +216,71 @@ export function usePlayerClubs({
       player,
       club.club.id,
       game.id,
-      game.openTables[0]?.id,
+      getSeatRequestTableId(game, attendance),
       'join',
       attendance,
       expectedArrivalTime.trim() || undefined,
       availabilityStartTime.trim() || undefined,
       availabilityEndTime.trim() || undefined
     );
+    const expectedUid = request.player.id;
     try {
-      if (isSyncConfigured()) {
-        updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
-        setSyncStatus('Sending seat request...');
-        const result = await submitWaitlistRequest(request);
-        if (result.ok) {
-          replaceSyncedClub(result.snapshot);
-          setSeatRequestDraft(null);
-          setSyncStatus(`Seat request synced with ${result.snapshot.club.name}`);
-          return;
-        }
-        replaceSyncedClub(club);
-        setSyncStatus(`Seat request was not saved - ${result.error}`);
+      setSeatRequestMessage('');
+      setGameRequestMessage('');
+      updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
+      setSyncStatus('Sending seat request...');
+      const result = await submitWaitlistRequest(request);
+      if (!isCurrentPlayerAction(expectedUid)) return;
+      if (result.ok) {
+        replaceSyncedClub(result.snapshot);
+        setSeatRequestDraft(null);
+        setSyncStatus(`Seat request synced with ${result.snapshot.club.name}`);
         return;
       }
-      updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
-      setSeatRequestDraft(null);
-      setSyncStatus('Seat request saved on this device. Connect to the club to send it.');
+      replaceSyncedClub(club);
+      const failure = `Seat request was not sent. ${result.error}`;
+      setSeatRequestMessage(failure);
+      setSyncStatus(failure);
     } finally {
-      finishAction();
+      if (isCurrentPlayerAction(expectedUid)) finishAction();
     }
   };
 
   const cancelWaitlist = async (club: PlayerClubSnapshot, game: PlayerSyncGame, entry: PlayerWaitlistEntry) => {
+    if (!requireCurrentPublishedData('sync')) return;
     if (!beginAction()) return;
     setSelectedClubId(club.club.id);
     const request = buildWaitRequest(player, club.club.id, game.id, entry.tableId, 'cancel');
+    const expectedUid = request.player.id;
     try {
-      if (isSyncConfigured()) {
-        updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
-        setSyncStatus('Cancelling seat request...');
-        const result = await submitWaitlistRequest(request);
-        if (result.ok) {
-          replaceSyncedClub(result.snapshot);
-          setSeatRequestDraft(null);
-          setSyncStatus(`Seat request cancelled with ${result.snapshot.club.name}`);
-          return;
-        }
-        replaceSyncedClub(club);
-        setSyncStatus(`Cancellation was not saved - ${result.error}`);
+      setGameRequestMessage('');
+      updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
+      setSyncStatus('Cancelling seat request...');
+      const result = await submitWaitlistRequest(request);
+      if (!isCurrentPlayerAction(expectedUid)) return;
+      if (result.ok) {
+        replaceSyncedClub(result.snapshot);
+        setSeatRequestDraft(null);
+        setSyncStatus(`Seat request cancelled with ${result.snapshot.club.name}`);
         return;
       }
-      updateClubSnapshot(club, (snapshot) => applyWaitlistRequest(snapshot, request));
-      setSeatRequestDraft(null);
-      setSyncStatus('Cancellation saved on this device. Connect to the club to send it.');
+      replaceSyncedClub(club);
+      const failure = `Cancellation was not sent. ${result.error}`;
+      setSyncStatus(failure);
+      setGameRequestMessage(failure);
+      setClubMembershipMessage(`Could not cancel the seat request. ${result.error}`);
     } finally {
-      finishAction();
+      if (isCurrentPlayerAction(expectedUid)) finishAction();
     }
   };
 
   const openDirections = (club: PlayerClubSnapshot) => {
-    platform.openDirections(club.club.address || club.club.name);
+    const address = club.club.address?.trim();
+    if (!address) {
+      setSyncStatus(`${club.club.name} has not published an address, so directions are unavailable.`);
+      return;
+    }
+    platform.openDirections(address);
   };
 
   const submitMembershipApplication = async (club: PlayerClubSnapshot, membershipOption?: PlayerMembershipOption) => {
@@ -380,34 +288,22 @@ export function usePlayerClubs({
       setClubMembershipMessage('Finish creating your Orbit profile before applying.');
       return;
     }
-    if (!requireVerifiedAge('clubSignup', 'registering with this card house', club.club.minimumAge === 18 ? 18 : 21)) return;
-    const product: ClubAccessProduct = membershipOption?.durationDays === 1 ? 'day' : 'monthly';
-    const plan: ClubMembershipPlan = product === 'day' ? 'day' : 'monthly';
-    const priceLabel = membershipOption?.priceLabel || '';
-    const numericPrice = priceLabel.match(/\d+(?:\.\d+)?/);
-    const free = Boolean(membershipOption) && (/\bfree\b/i.test(priceLabel) || numericPrice != null && Number(numericPrice[0]) === 0);
-    if (free) {
-      await requestMembership(club, plan, 'app', membershipOption);
+    if (!membershipOption) {
+      setClubMembershipMessage(`${club.club.name} has not published a membership option to request in Orbit.`);
       return;
     }
-    openClubPayment(club, product, membershipOption);
+    await requestMembership(club, membershipOption);
   };
 
   return {
     cancelWaitlist,
     clubActionPending,
-    completeClubPayment,
+    gameRequestMessage,
     joinWaitlist,
-    openClubPayment,
-    openPlayerTimePurchase,
     openClubSignup,
     openDirections,
-    pendingMembershipOption,
-    pendingClubProduct,
-    requestInPersonMembership,
     seatRequestDraft,
     seatRequestMessage,
-    setPendingClubProduct,
     setSeatRequestDraft,
     setSeatRequestMessage,
     submitMembershipApplication,

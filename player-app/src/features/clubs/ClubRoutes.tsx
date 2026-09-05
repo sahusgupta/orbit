@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Modal, Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AnimatedButton } from '../../components/PlayerPresentation';
-import { getClubProductName, type ClubMembershipPrices } from '../../domain/clubAccess';
 import type {
   PlayerAccount,
   PlayerMembership,
@@ -12,8 +11,9 @@ import type {
   PlayerTournament,
   PlayerWaitlistEntry
 } from '../../domain/playerSync';
-import { getClubDistance, isActivePlayerGame } from '../../domain/discovery';
-import type { ClubAccessProduct, Coordinate, SeatRequestDraft, TimeAccessProduct } from '../../domain/playerTypes';
+import { getClubAvailabilityLabel, getClubDistance, hasRunningTable } from '../../domain/discovery';
+import type { PlayerClubsViewState } from '../../domain/playerClubViewState';
+import type { Coordinate, SeatRequestDraft } from '../../domain/playerTypes';
 import { isPlayerMembership } from '../../domain/playerSync';
 import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
@@ -23,10 +23,24 @@ import { clubStyles } from './clubStyles';
 
 const styles = { ...sharedStyles, ...clubStyles };
 
+function formatClubDistance(club: PlayerClubSnapshot, originCoordinate: Coordinate | null) {
+  const distance = getClubDistance(club, originCoordinate);
+  return distance == null ? 'Distance unavailable' : `${distance.toFixed(1)} mi`;
+}
+
+function compareClubDistance(left: PlayerClubSnapshot, right: PlayerClubSnapshot, originCoordinate: Coordinate | null) {
+  const leftDistance = getClubDistance(left, originCoordinate);
+  const rightDistance = getClubDistance(right, originCoordinate);
+  if (leftDistance == null && rightDistance == null) return left.club.name.localeCompare(right.club.name);
+  if (leftDistance == null) return 1;
+  if (rightDistance == null) return -1;
+  return leftDistance - rightDistance;
+}
+
 export function ClubsScreen({
   memberClubs,
-  selectedClub,
   selectedMembership,
+  viewState,
   player,
   originCoordinate,
   nowMs,
@@ -35,36 +49,65 @@ export function ClubsScreen({
   tournaments,
   onSelectClub,
   onGame,
-  onAddTime,
-  timePurchaseBusy,
   onManageAccess,
   onViewEvents
 }: {
   memberClubs: PlayerClubSnapshot[];
-  selectedClub: PlayerClubSnapshot;
   selectedMembership?: PlayerMembership;
+  viewState: PlayerClubsViewState;
   player: PlayerAccount;
-  originCoordinate: Coordinate;
+  originCoordinate: Coordinate | null;
   nowMs: number;
   message: string;
   waitlists: PlayerWaitlistEntry[];
   tournaments: PlayerTournament[];
   onSelectClub: (club: PlayerClubSnapshot) => void;
   onGame: (game: PlayerSyncGame) => void;
-  onAddTime: (club: PlayerClubSnapshot, product: TimeAccessProduct) => void;
-  timePurchaseBusy: boolean;
   onManageAccess: () => void;
   onViewEvents: () => void;
 }) {
+  // Club-dependent panels contain actions. Render them only for a current,
+  // successfully refreshed selection; stale/removed states stay read-only.
+  const renderableClub = viewState.kind === 'ready' ? viewState.selectedClub : undefined;
   return (
     <>
+      {viewState.kind === 'loading' ? (
+        <View accessibilityLabel="Loading clubs" accessibilityRole="progressbar" style={styles.emptyState}>
+          <Text style={styles.cardTitle}>Loading your clubs</Text>
+          <Text style={styles.muted}>Memberships and venue-published updates will appear when the refresh completes.</Text>
+        </View>
+      ) : null}
+      {viewState.kind === 'offline' ? (
+        <View accessibilityRole="alert" style={styles.emptyState}>
+          <Text style={styles.cardTitle}>Clubs unavailable offline</Text>
+          <Text style={styles.muted}>Orbit has no previously loaded club data to show. Reconnect and retry published data.</Text>
+        </View>
+      ) : null}
+      {viewState.kind === 'stale' ? (
+        <View accessibilityRole="alert" style={styles.emptyState}>
+          <Text style={styles.cardTitle}>Showing last loaded club data</Text>
+          <Text style={styles.muted}>Orbit could not refresh this information. Actions still require a successful connection.</Text>
+        </View>
+      ) : null}
+      {viewState.kind === 'removed' ? (
+        <View accessibilityRole="alert" style={styles.emptyState}>
+          <Text style={styles.cardTitle}>Club selection changed</Text>
+          <Text style={styles.muted}>{viewState.message}</Text>
+        </View>
+      ) : null}
+      {'partial' in viewState && viewState.partial ? (
+        <View accessibilityLiveRegion="polite" style={styles.emptyState}>
+          <Text style={styles.cardTitle}>More clubs are still loading</Text>
+          <Text style={styles.muted}>The memberships shown below come from the rooms loaded so far.</Text>
+        </View>
+      ) : null}
       {memberClubs.length ? memberClubs
         .slice()
-        .sort((left, right) => getClubDistance(left, originCoordinate) - getClubDistance(right, originCoordinate))
+        .sort((left, right) => compareClubDistance(left, right, originCoordinate))
         .map((club) => {
-          const isSelected = club.club.id === selectedClub.club.id;
+          const isSelected = club.club.id === renderableClub?.club.id;
           const membership = club.memberships.find((item) => isPlayerMembership(item, player));
-          const openSeats = club.games.reduce((sum, game) => sum + game.availableSeats, 0);
+          const availability = getClubAvailabilityLabel(club);
           const familiarText = club.social?.knownPlayersInHouse ? ` - ${club.social.knownPlayersInHouse} familiar players` : '';
           return (
             <Pressable
@@ -78,7 +121,7 @@ export function ClubsScreen({
               <View style={styles.clubMain}>
                 <Text style={styles.cardTitle}>{club.club.name}</Text>
                 <Text style={styles.muted}>
-                  {getClubDistance(club, originCoordinate).toFixed(1)} mi - {openSeats} seats{familiarText}
+                  {formatClubDistance(club, originCoordinate)} - {availability}{familiarText}
                 </Text>
               </View>
               <View style={styles.statusPill}>
@@ -86,30 +129,30 @@ export function ClubsScreen({
               </View>
             </Pressable>
           );
-        }) : (
+        }) : viewState.kind === 'empty' ? (
           <View style={styles.emptyState}>
             <Text style={styles.cardTitle}>No club memberships yet</Text>
-            <Text style={styles.muted}>Join a card house from Find Games and your memberships will show here.</Text>
+            <Text style={styles.muted}>Request venue access from Find Games and published memberships will show here.</Text>
           </View>
-        )}
+        ) : null}
 
-      {selectedMembership ? (
+      {selectedMembership && renderableClub ? (
         <>
           {selectedMembership.status === 'Requested' ? (
-            <MembershipApplicationStatusCard club={selectedClub} membership={selectedMembership} />
+            <MembershipApplicationStatusCard club={renderableClub} membership={selectedMembership} />
           ) : (
             <MembershipWalletCard
-              club={selectedClub}
+              club={renderableClub}
               membership={selectedMembership}
               nowMs={nowMs}
               player={player}
             />
           )}
-          {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
+          {message ? <Text style={styles.actionStatus}>{message}</Text> : null}
           <ClubHubSections
-            club={selectedClub}
+            club={renderableClub}
             membership={selectedMembership}
-            games={selectedClub.games}
+            games={renderableClub.games}
             waitlists={waitlists}
             tournaments={tournaments}
             nowMs={nowMs}
@@ -119,19 +162,13 @@ export function ClubsScreen({
           />
         </>
       ) : null}
-      <PlayerTimePanel
-        club={selectedClub}
-        busy={timePurchaseBusy}
-        message={message}
-        onAddTime={(product) => onAddTime(selectedClub, product)}
-      />
+      {renderableClub ? <PlayerTimePanel club={renderableClub} message={message} /> : null}
     </>
   );
 }
 
 export function ClubMembershipPlanScreen({
   club,
-  prices,
   message,
   player,
   busy,
@@ -139,19 +176,13 @@ export function ClubMembershipPlanScreen({
   onSubmit
 }: {
   club: PlayerClubSnapshot;
-  prices: ClubMembershipPrices;
   message: string;
   player: PlayerAccount;
   busy: boolean;
   onBack: () => void;
   onSubmit: (membershipOption?: PlayerMembershipOption) => void;
 }) {
-  const membershipOptions: PlayerMembershipOption[] = club.club.membershipOptions?.length
-    ? club.club.membershipOptions
-    : [
-        { id: 'day', name: 'Day Pass', priceLabel: prices.day, durationDays: 1 },
-        { id: 'monthly', name: 'Monthly Membership', priceLabel: prices.monthly, durationDays: 30 }
-      ];
+  const membershipOptions: PlayerMembershipOption[] = club.club.membershipOptions ?? [];
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const selectedOption = membershipOptions.find((option) => option.id === selectedOptionId);
   return (
@@ -173,7 +204,7 @@ export function ClubMembershipPlanScreen({
       <View style={styles.membershipApplicationCard}>
         <View>
           <Text style={styles.cardTitle}>Apply with your Orbit profile</Text>
-          <Text style={styles.muted}>Your identity and poker profile are shared securely with this card house. Nothing needs to be entered again.</Text>
+          <Text style={styles.muted}>Your identity and poker profile are shared securely with this venue. Nothing needs to be entered again.</Text>
         </View>
         <View style={styles.membershipProfileSummary}>
           <View style={styles.membershipProfileAvatar}>
@@ -205,11 +236,18 @@ export function ClubMembershipPlanScreen({
         ))}
       </View>
 
+      {!membershipOptions.length ? (
+        <View accessibilityRole="alert" style={styles.emptyState}>
+          <Text style={styles.cardTitle}>No membership options published</Text>
+          <Text style={styles.muted}>This venue has not published a membership option that Orbit can request. Contact the venue directly for current terms.</Text>
+        </View>
+      ) : null}
+
       <AnimatedButton disabled={busy || !selectedOption} variant="primary" onPress={() => onSubmit(selectedOption)} style={[styles.primaryButton, styles.fullWidthButton]}>
         <Ionicons name="person-add-outline" size={18} color="#ffffff" />
-        <Text style={styles.primaryButtonText}>{busy ? 'Sending request...' : selectedOption ? `Continue with ${selectedOption.name}` : 'Choose an option'}</Text>
+        <Text style={styles.primaryButtonText}>{busy ? 'Sending request...' : selectedOption ? `Request ${selectedOption.name}` : 'Choose an option'}</Text>
       </AnimatedButton>
-      {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
+      {message ? <Text style={styles.actionStatus}>{message}</Text> : null}
     </View>
   );
 }
@@ -218,6 +256,7 @@ export function SeatRequestModal({
   draft,
   message,
   busy,
+  readOnly = false,
   onChange,
   onClose,
   onSubmit
@@ -225,12 +264,13 @@ export function SeatRequestModal({
   draft: SeatRequestDraft | null;
   message: string;
   busy: boolean;
+  readOnly?: boolean;
   onChange: React.Dispatch<React.SetStateAction<SeatRequestDraft | null>>;
   onClose: () => void;
   onSubmit: () => void;
 }) {
   if (!draft) return null;
-  const hasOpenTable = isActivePlayerGame(draft.game);
+  const hasOpenTable = hasRunningTable(draft.game);
   const update = (patch: Partial<SeatRequestDraft>) => onChange((current) => current ? { ...current, ...patch } : current);
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onClose}>
@@ -239,7 +279,7 @@ export function SeatRequestModal({
           <View style={styles.seatRequestHeader}>
             <View style={styles.seatRequestHeaderCopy}>
               <Text style={styles.agentKicker}>{draft.club.club.name}</Text>
-              <Text style={styles.membershipTitle}>{hasOpenTable ? `Join ${draft.game.name}` : `When would you play ${draft.game.name}?`}</Text>
+              <Text style={styles.membershipTitle}>{hasOpenTable ? `Request a seat for ${draft.game.name}` : `When would you play ${draft.game.name}?`}</Text>
               <Text style={styles.muted}>{hasOpenTable
                 ? 'Tell the club whether you are already there or when you are coming.'
                 : 'This game is offered, but no table is open. Share when you would come so the club can form one.'}</Text>
@@ -252,6 +292,7 @@ export function SeatRequestModal({
           {hasOpenTable ? (
             <View style={styles.attendanceChoiceRow}>
               <Pressable
+                disabled={readOnly}
                 style={[styles.attendanceChoice, draft.attendance === 'arrived' && styles.attendanceChoiceActive]}
                 onPress={() => update({ attendance: 'arrived', expectedArrivalTime: '' })}
               >
@@ -260,6 +301,7 @@ export function SeatRequestModal({
                 <Text style={[styles.attendanceChoiceBody, draft.attendance === 'arrived' && styles.attendanceChoiceTextActive]}>Mark me arrived</Text>
               </Pressable>
               <Pressable
+                disabled={readOnly}
                 style={[styles.attendanceChoice, draft.attendance === 'confirmed' && styles.attendanceChoiceActive]}
                 onPress={() => update({ attendance: 'confirmed' })}
               >
@@ -274,6 +316,7 @@ export function SeatRequestModal({
             <View style={styles.seatTimeField}>
               <Text style={styles.inputLabel}>Expected arrival time</Text>
               <TextInput
+                editable={!readOnly}
                 value={draft.expectedArrivalTime}
                 onChangeText={(expectedArrivalTime) => update({ expectedArrivalTime })}
                 placeholder="Example: 7:30 PM"
@@ -288,6 +331,7 @@ export function SeatRequestModal({
               <Text style={styles.inputLabel}>Time or range you would come</Text>
               <View style={styles.timeRangeRow}>
                 <TextInput
+                  editable={!readOnly}
                   value={draft.availabilityStartTime}
                   onChangeText={(availabilityStartTime) => update({ attendance: 'interested', availabilityStartTime })}
                   placeholder="From, e.g. 6 PM"
@@ -295,6 +339,7 @@ export function SeatRequestModal({
                   style={[styles.seatTimeInput, styles.timeRangeInput]}
                 />
                 <TextInput
+                  editable={!readOnly}
                   value={draft.availabilityEndTime}
                   onChangeText={(availabilityEndTime) => update({ attendance: 'interested', availabilityEndTime })}
                   placeholder="To, e.g. 10 PM"
@@ -306,79 +351,14 @@ export function SeatRequestModal({
           ) : null}
 
           {message ? <Text style={styles.formError}>{message}</Text> : null}
-          <AnimatedButton disabled={busy} variant="primary" onPress={onSubmit} style={[styles.primaryButton, styles.fullWidthButton]}>
+          {readOnly ? <Text accessibilityRole="alert" style={styles.formError}>Refresh published venue data before sending this request.</Text> : null}
+          <AnimatedButton disabled={busy || readOnly} variant="primary" onPress={onSubmit} style={[styles.primaryButton, styles.fullWidthButton]}>
             <Ionicons name={draft.attendance === 'arrived' ? 'location-outline' : 'checkmark-circle-outline'} size={18} color="#fff" />
-            <Text style={styles.primaryButtonText}>{busy ? 'Sending...' : draft.attendance === 'arrived' ? 'Tell club I am here' : 'Send request'}</Text>
+            <Text style={styles.primaryButtonText}>{readOnly ? 'Refresh required' : busy ? 'Sending...' : draft.attendance === 'arrived' ? 'Tell club I am here' : 'Send request'}</Text>
           </AnimatedButton>
         </View>
       </View>
     </Modal>
-  );
-}
-
-export function ClubAccessCheckoutScreen({
-  club,
-  product,
-  price,
-  message,
-  connectedCheckoutEnabled,
-  busy,
-  onBack,
-  onPayInApp,
-  onPayInPerson
-}: {
-  club: PlayerClubSnapshot;
-  product: ClubAccessProduct;
-  price: string;
-  message: string;
-  connectedCheckoutEnabled: boolean;
-  busy: boolean;
-  onBack: () => void;
-  onPayInApp: () => void;
-  onPayInPerson: () => void;
-}) {
-  return (
-    <View style={styles.membershipScreen}>
-      <Pressable style={styles.inlineBackAction} onPress={onBack}>
-        <Ionicons name="chevron-back" size={17} color={colors.primary} />
-        <Text style={styles.inlineBackText}>Membership</Text>
-      </Pressable>
-      <View style={styles.paymentPlaceholder}>
-        <View style={styles.paymentPlaceholderIcon}>
-          <Ionicons name={connectedCheckoutEnabled ? 'card-outline' : 'person-add-outline'} size={28} color={colors.primary} />
-        </View>
-        <Text style={styles.membershipTitle}>{connectedCheckoutEnabled ? 'Payment' : 'Review application'}</Text>
-        <Text style={styles.muted}>
-          {club.club.name} / {getClubProductName(product)} / {price}
-        </Text>
-      </View>
-      {connectedCheckoutEnabled ? (
-        <>
-          <View style={styles.merchantBand}>
-            <Ionicons name="shield-checkmark-outline" size={18} color={colors.teal} />
-            <Text style={styles.merchantBandText}>Sold and fulfilled by {club.club.name}. Orbit securely passes you to the card house’s connected checkout.</Text>
-          </View>
-          <AnimatedButton disabled={busy} variant="primary" onPress={onPayInApp} style={[styles.primaryButton, styles.fullWidthButton]}>
-            <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-            <Text style={styles.primaryButtonText}>{busy ? 'Opening checkout...' : 'Continue to card house checkout'}</Text>
-          </AnimatedButton>
-        </>
-      ) : null}
-      {!product.startsWith('time-') ? (
-        <Pressable disabled={busy} style={[styles.payInPersonButton, busy && styles.disabledAction]} onPress={onPayInPerson}>
-          <Ionicons name="storefront-outline" size={18} color={colors.ink} />
-          <View style={styles.payInPersonCopy}>
-            <Text style={styles.cardTitle}>{connectedCheckoutEnabled ? 'Pay in person' : 'Send membership application'}</Text>
-            <Text style={styles.muted}>{connectedCheckoutEnabled
-              ? 'Staff must review your physical ID and confirm payment before activating your access.'
-              : 'The card room will review it. Bring your physical ID and pay at the door; activation requires both ID approval and payment confirmation.'}</Text>
-          </View>
-        </Pressable>
-      ) : !connectedCheckoutEnabled ? (
-        <Text style={styles.privateGameStatus}>This time package is unavailable until the card house enables connected checkout.</Text>
-      ) : null}
-      {message ? <Text style={styles.privateGameStatus}>{message}</Text> : null}
-    </View>
   );
 }
 
