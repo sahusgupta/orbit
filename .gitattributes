@@ -1,3 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 *.svg text eol=lf
+# Generated legal copies must match the deterministic generator on every OS.
+apps/api/public/privacy.html text eol=lf
+apps/api/public/terms.html text eol=lf
+apps/api/public/support.html text eol=lf
+download-site/privacy.html text eol=lf
+download-site/terms.html text eol=lf
+download-site/support.html text eol=lf

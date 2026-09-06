@@ -69,6 +69,8 @@ jobs:
         run: npm run player:export:ios
       - name: Generate and inspect the unsigned managed iOS project
         run: npm run player:prebuild:ios
+      - name: Generate native iOS schemas and module providers
+        run: npm run player:codegen:ios
       - name: Exercise Firestore rules against an isolated emulator
         run: npm run test:firestore-rules
       - run: npx playwright install --with-deps chromium

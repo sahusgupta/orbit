@@ -35,6 +35,8 @@ Managed iOS prebuild verification runs on Linux/macOS and in pull-request CI:
 npm run player:prebuild:ios
 ```
 
+Run `npm run player:codegen:ios` on any supported Node host to exercise native schema/module-provider generation before a cloud build. CI also runs it. It catches build dependency API incompatibilities; CocoaPods and Xcode still require a macOS build host.
+
 The command generates native files in a disposable operating-system temporary directory and inspects the bundle identifier, permissions, URL schemes, and app-owned privacy manifest. It does not create a signed archive. See [`PRIVACY_MANIFEST_AUDIT.md`](./PRIVACY_MANIFEST_AUDIT.md) for dependency evidence and [`APP_STORE_SUBMISSION.md`](./APP_STORE_SUBMISSION.md) for the current store package and external gates.
 
 ## Data and identity boundaries
