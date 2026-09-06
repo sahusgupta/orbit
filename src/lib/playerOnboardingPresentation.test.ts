@@ -184,7 +184,8 @@ describe('Player onboarding presentation contract', () => {
       '<OnboardingFlow'
     ];
 
-    expect(componentDigest).toBe('22c285f74317791bd448a0f015903fe25d1b350b953f90288156b2c65bd8d6ee');
+    // Reviewed release update: explicit VoiceOver labels/states and email-only copy.
+    expect(componentDigest).toBe('8fe4a90c3c38c8171cd7e452b194c5244a07e940688d1e13420b521ceca297da');
     orderedShellTokens.forEach((token) => expect(shell).toContain(token));
     for (let index = 1; index < orderedShellTokens.length; index += 1) {
       expect(shell.indexOf(orderedShellTokens[index])).toBeGreaterThan(shell.indexOf(orderedShellTokens[index - 1]));
@@ -192,6 +193,8 @@ describe('Player onboarding presentation contract', () => {
     const onboardingFlow = findFunction(sources, 'OnboardingFlow');
     const homeAreaStep = findFunction(sources, 'HomeAreaStep');
     expect(onboardingFlow).toContain('hasAdultDeclaration(draftPlayer)');
+    expect(onboardingFlow).toContain('accessibilityLabel="Previous step"');
+    expect(onboardingFlow).toContain('accessibilityState={{ disabled: !canSubmit }}');
     expect(homeAreaStep).toContain('I confirm that I am 18 or older');
     expect(homeAreaStep).toContain('accessibilityRole="checkbox"');
     expect(onboardingFlow).not.toMatch(/LocationStep|MapPicker|device location|text updates/i);
@@ -357,7 +360,8 @@ describe('Player identity and settings presentation contract', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const componentDigest = digest(settingsComponentNames.map((name) => findFunction(sources, name)));
 
-    expect(componentDigest).toBe('e6a7dbc3df90097f3b0d956ffbc7dfe9d14276f037e8cbdacc3fe6e572aacbaa');
+    // Phone delivery is hidden until its provider is provisioned and verified.
+    expect(componentDigest).toBe('ac40a780f2a10c91fdc5e4ca6d77d2ce3d1045499515afd97bb6ba0a35a07d3a');
   });
 
   it('preserves every identity/settings-owned and shared style value byte-for-byte', () => {

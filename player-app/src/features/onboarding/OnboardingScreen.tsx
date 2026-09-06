@@ -145,6 +145,9 @@ function OnboardingFlow({
 
       <View style={styles.onboardingActions}>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Previous step"
+          accessibilityState={{ disabled: onboardingStep === 0 }}
           onHoverIn={() => setHoveredAction('previous')}
           onHoverOut={() => setHoveredAction(null)}
           onPress={onboardingStep > 0 ? previousStep : undefined}
@@ -159,6 +162,9 @@ function OnboardingFlow({
           ) : null}
         </Pressable>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={onboardingStep < finalStep ? 'Continue' : 'Start exploring'}
+          accessibilityState={{ disabled: !canSubmit }}
           disabled={!canSubmit}
           onPress={submitStep}
           style={[styles.onboardingNextAction, !canSubmit && styles.arrowActionDisabled]}
@@ -295,7 +301,7 @@ function PhoneStep({
         onSubmit={onSubmit}
         error={(draftPlayer.phone ?? '').trim() && !normalizeE164Phone(draftPlayer.phone) ? `Enter a valid phone number. ${e164PhoneRequirement}` : ''}
       />
-      <Text style={styles.optionalStepText}>Optional. {e164PhoneRequirement} Used only for phone sign-in and account contact when you choose those options; game and waitlist updates stay inside Orbit.</Text>
+      <Text style={styles.optionalStepText}>Optional account contact. {e164PhoneRequirement} Sign in with email; game and waitlist updates stay inside Orbit.</Text>
     </View>
   );
 }
@@ -322,6 +328,7 @@ function HomeAreaStep({
       />
       <Pressable
         accessibilityRole="checkbox"
+        accessibilityLabel="I confirm that I am 18 or older"
         accessibilityState={{ checked: declared }}
         onPress={() => setDraftPlayer((current) => declared
           ? { ...current, adultDeclaredAt: undefined, adultDeclarationVersion: undefined }

@@ -32,6 +32,7 @@ import {
 import type { PlayerPlatform } from '../app/playerPlatform';
 import { playerStorage } from '../data/storage/playerStorage';
 import { resolveAuthenticatedPlayerProfile } from './playerProfileHydration';
+import { phoneSignInEnabled } from '../config/playerReleaseFeatures';
 
 export const emptyIdentityStatus: PlayerIdentityStatus = {
   status: 'unverified',
@@ -46,7 +47,7 @@ export const emptyIdentityStatus: PlayerIdentityStatus = {
   verifiedDetails: null
 };
 
-export const accountSignInReadyStatus = 'Use your email address or phone number to sync this player profile.';
+export const accountSignInReadyStatus = 'Use your email address to sync this player profile.';
 
 export function getAccountDeletionFailureMessage(error: unknown) {
   const errorCode = (error as { code?: string } | null)?.code;
@@ -496,6 +497,10 @@ export function usePlayerIdentity({
   };
 
   const connectPlayerAccount = async () => {
+    if (playerAuthMethod === 'phone' && !phoneSignInEnabled) {
+      setAuthStatus('Phone sign-in is unavailable in this release. Use your email address.');
+      return;
+    }
     authOperationInFlight.current = true;
     setProfileConnectionBusy(true);
     try {

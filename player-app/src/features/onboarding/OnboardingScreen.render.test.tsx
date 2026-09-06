@@ -11,6 +11,7 @@ vi.mock('react-native', async () => {
   const ReactModule = await import('react');
   const element = (tag: string) => ({
     accessibilityRole,
+    accessibilityLabel,
     accessibilityState,
     children,
     disabled,
@@ -20,6 +21,12 @@ vi.mock('react-native', async () => {
   }: Record<string, unknown>) => ReactModule.createElement(tag, {
     ...props,
     ...(typeof accessibilityRole === 'string' ? { role: accessibilityRole } : {}),
+    ...(typeof accessibilityLabel === 'string' ? { 'aria-label': accessibilityLabel } : {}),
+    ...(
+      typeof accessibilityState === 'object' && accessibilityState !== null && 'disabled' in accessibilityState
+        ? { 'aria-disabled': (accessibilityState as { disabled?: boolean }).disabled }
+        : {}
+    ),
     ...(
       typeof accessibilityState === 'object' && accessibilityState !== null && 'checked' in accessibilityState
         ? { 'aria-checked': (accessibilityState as { checked?: boolean }).checked }
@@ -112,6 +119,10 @@ describe('OnboardingScreen adult declaration gate', () => {
       .find((button) => button.textContent === 'Start exploring');
     const declaration = container.querySelector('button[role="checkbox"]') as HTMLButtonElement | null;
     expect(completion?.disabled).toBe(true);
+    expect(completion?.getAttribute('aria-label')).toBe('Start exploring');
+    expect(completion?.getAttribute('aria-disabled')).toBe('true');
+    expect(container.querySelector('button[aria-label="Previous step"]')?.getAttribute('role')).toBe('button');
+    expect(declaration?.getAttribute('aria-label')).toBe('I confirm that I am 18 or older');
     expect(declaration?.getAttribute('aria-checked')).toBe('false');
 
     act(() => completion?.click());
@@ -120,6 +131,7 @@ describe('OnboardingScreen adult declaration gate', () => {
     act(() => declaration?.click());
     expect(declaration?.getAttribute('aria-checked')).toBe('true');
     expect(completion?.disabled).toBe(false);
+    expect(completion?.getAttribute('aria-disabled')).toBe('false');
 
     act(() => completion?.click());
     expect(onComplete).toHaveBeenCalledOnce();

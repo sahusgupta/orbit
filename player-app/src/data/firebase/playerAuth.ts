@@ -104,7 +104,7 @@ export async function requestPlayerPasswordReset(email: string) {
 export function ensureSignedInIdentity() {
   const identity = getCurrentFirebasePlayer();
   if (!identity) {
-    throw new Error('Sign in with your email address or phone number before syncing.');
+    throw new Error('Sign in before syncing.');
   }
   return identity.uid;
 }

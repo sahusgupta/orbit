@@ -6,7 +6,7 @@ Bundle identifier: `com.orbit.player`
 
 Operator represented in repository-controlled material: Caminus Labs, LLC
 
-Candidate state: repository package only; no signed build, TestFlight upload, or App Review submission is claimed
+Candidate state: an unsigned production-derived simulator build has compiled and its archive was inspected; simulator interaction QA is in progress. No signed build, TestFlight upload, or App Review submission is claimed. Current evidence is recorded in [release execution](../docs/agent/tasks/player-release-execution.md).
 
 This file is the machine-checkable source of truth for the conservative first iOS submission. Items marked `EXTERNAL GATE` require human, provider, signed-build, or App Store Connect evidence and must not be converted to “complete” without that evidence.
 
@@ -46,7 +46,7 @@ Orbit is a venue discovery and operational companion. It does not accept wagers,
 
 Every tournament action in this build is a nonbinding **Express interest** action. It does not register the player or reserve a seat, create a debt or payment obligation, or establish prize eligibility. Venue staff independently confirms any participation.
 
-No private-game listings, Premium subscription, or venue checkout exist in this build. There is no player-hosted game feed, purchase screen, in-app purchase, or general push-notification feature. Phone delivery is used only for a one-time passcode when the reviewer deliberately chooses phone authentication.
+No private-game listings, Premium subscription, or venue checkout exist in this build. There is no player-hosted game feed, purchase screen, in-app purchase, or general push-notification feature. The iOS v1 sign-in screen uses email/password; phone-passcode delivery is unavailable in this release.
 
 The camera is requested only when the reviewer starts PDF417 scanning. The app previews selected fields before submission and does not retain or upload an image, the raw barcode, or a document number. The app does not request microphone, Photos, Contacts, device location, or tracking permission.
 
@@ -59,7 +59,7 @@ Apple’s review criteria remain authoritative: [App Review Guidelines](https://
 Review-data prerequisite (`EXTERNAL GATE — release operator`): create a nonproduction reviewer account whose immutable authentication UID is linked to sanitized review data. Record credentials only in App Store Connect. The review venue must publish at least one game, one membership option if membership is to be exercised, one open tournament-interest window, and an active reviewer membership for QR exercise. Do not use real player data or fabricate production state.
 
 1. Launch Orbit Player and choose the adult-eligibility response. An under-18 response must stop account creation.
-2. Sign in with the App Store Connect review account using email/password. Phone authentication is optional and should be tested only if a review-safe phone OTP path has been provisioned.
+2. Sign in with the App Store Connect review account using email/password. The candidate does not offer phone authentication; do not require a personal phone or SMS delivery for review.
 3. Open Games and Clubs. Verify venue name, address, game state, seat/waitlist values, membership options, and map pins appear only when the venue actually published those values. A venue pin requires a valid published coordinate. Distance remains unavailable because v1 has no player-origin coordinate.
 4. Select a published game and send a waitlist/seat request. Verify the app reports the authoritative response or a visible error; it must not claim an offline retry was saved.
 5. Select the seeded membership option and submit a request. The app does not collect payment.
@@ -78,7 +78,7 @@ This worksheet describes repository behavior; the App Store Connect Account Hold
 | --- | --- | --- | --- | --- | --- |
 | Contact Info — Name | Account name; confirmed PDF417 full name | Yes for signed-in profiles and submitted identity fields | Yes | No | Authentication support, profile, venue-request functionality, fraud/security |
 | Contact Info — Email Address | Email stored in a local profile or authenticated account | Only when the user signs in, saves it to a cloud account, or directs an applicable venue request; a local-only value that stays on device is not collected | Yes when transmitted | No | Authentication, account support, security, and venue-request functionality when Firebase verifies the claim |
-| Contact Info — Phone Number | Optional phone stored in a local profile or authenticated account; OTP destination when phone auth is selected | When saved to a cloud account or transmitted in an applicable authenticated flow; Twilio receives it when phone auth is selected | Yes when transmitted | No | Account functionality, authentication, and security |
+| Contact Info — Phone Number | Optional phone stored in a local profile or authenticated account | When saved to a cloud account or transmitted in an applicable authenticated flow; iOS v1 does not initiate SMS delivery | Yes when transmitted | No | Account functionality and security |
 | Contact Info — Physical Address | Confirmed PDF417 address | When the signed-in user previews and submits it | Yes | No | Venue-request identity context |
 | Location — Coarse Location | Optional home-area text | When saved by a signed-in user | Yes | No | App functionality and product personalization; this build has no user-origin coordinate and does not request device GPS |
 | Identifiers — User ID | Firebase UID, player ID, venue-scoped request and mutation IDs | Yes | Yes | No | Authentication, tenant isolation, idempotency, security |
@@ -105,7 +105,7 @@ The app-owned privacy manifest declares Name, Email Address, Phone Number, Physi
 
 Client-supplied contact claims do not override Firebase identity: a phone-authenticated request discards a client-supplied email, and a venue-authoritative email is present only when the Firebase token provides the verified claim.
 
-Conditional recipients are Google Firebase/Google Cloud; Vercel; Twilio for chosen phone OTP; Stripe Identity only when the separately configured hosted Player Web compatibility flow is deliberately started; Apple Maps or Google Maps when the user opens the Maps tab or Directions; Expo/Apple for build and distribution; the venue selected by the user; and support/email providers. A map provider may receive the displayed region, validated venue-published coordinates, and ordinary network/device request metadata while Maps is open; Directions additionally opens or sends the factual venue address. Orbit does not request device GPS or send a player-origin coordinate. RevenueCat and Stripe payment/checkout client SDKs are absent from the iOS binary. The hosted Stripe Identity flow is separate from the iOS v1 on-device PDF417 preview; Stripe may process an identity document and verification data under its own privacy terms, while Orbit receives bounded verification results and provider-session metadata.
+Conditional recipients are Google Firebase/Google Cloud; Vercel; Twilio only for separately configured legacy/hosted phone flows (iOS v1 does not initiate phone OTP); Stripe Identity only when the separately configured hosted Player Web compatibility flow is deliberately started; Apple Maps or Google Maps when the user opens the Maps tab or Directions; Expo/Apple for build and distribution; the venue selected by the user; and support/email providers. A map provider may receive the displayed region, validated venue-published coordinates, and ordinary network/device request metadata while Maps is open; Directions additionally opens or sends the factual venue address. Orbit does not request device GPS or send a player-origin coordinate. RevenueCat and Stripe payment/checkout client SDKs are absent from the iOS binary. The hosted Stripe Identity flow is separate from the iOS v1 on-device PDF417 preview; Stripe may process an identity document and verification data under its own privacy terms, while Orbit receives bounded verification results and provider-session metadata.
 
 Privacy-manifest audit: [`PRIVACY_MANIFEST_AUDIT.md`](./PRIVACY_MANIFEST_AUDIT.md) records every app-owned collected-data declaration, inspected dependency manifest, and required-reason code. The installed `react-native-maps` manifest declares unlinked precise location for app functionality even though Orbit does not request device location. The signed archive’s aggregated privacy report must be inspected before questionnaire submission; unresolved aggregation is a blocking gate, not permission to omit a disclosure. See Apple’s [data-collection technote](https://developer.apple.com/documentation/technotes/tn3184-adding-data-collection-details-to-your-privacy-manifest), [privacy manifest](https://developer.apple.com/documentation/bundleresources/adding-a-privacy-manifest-to-your-app-or-third-party-sdk), and [required-reason API](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api) guidance and Expo’s [privacy manifest guide](https://docs.expo.dev/guides/apple-privacy/).
 
@@ -220,6 +220,8 @@ TestFlight/App Store rollback is a forward build, never a history rewrite or reu
 If a production backend incompatibility is discovered, stop distribution. Backend or Firebase deployment is a separately authorized external operation; do not deploy from this package.
 
 ## External launch gates
+
+The following table is a requirements inventory, not a list of human-only actions. [The launch checklist](./LAUNCH_READINESS.md) distinguishes completed provisioning, remaining engineering work, and actual authority/access gates. In this run, Expo/Firebase app identities are verified, three independent signing/hash secrets are provisioned, Web configuration/key restrictions and App Check providers are prepared, and an unsigned simulator binary is inspected. Deployment, enforcement compatibility, rotation, signed candidate, and interaction evidence must still be closed as recorded there.
 
 | Gate | Owner | Exact action | Evidence required |
 | --- | --- | --- | --- |

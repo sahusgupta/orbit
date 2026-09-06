@@ -95,6 +95,9 @@ describe('SettingsScreen local deletion action', () => {
     act(() => action?.click());
     expect(deletePlayerAccount).toHaveBeenCalledOnce();
     expect(container.textContent).not.toContain('Delete account');
+    expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === 'Phone number')).toBe(false);
+    expect(container.textContent).toContain('Sign in or create account');
+    expect(container.textContent).not.toContain('Send verification code');
   });
 
   it('shows the verified provider contact as read-only instead of editable profile contact fields', () => {

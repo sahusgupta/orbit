@@ -2,6 +2,8 @@
 
 The current, machine-checkable submission package is [`APP_STORE_SUBMISSION.md`](./APP_STORE_SUBMISSION.md). Superseded Premium/IAP/private-game drafts were removed because those products are not in the conservative first release.
 
+September 6 execution status: PR #25 was externally merged at `5b5b18ec92ed94feb125eb8afd0a0140fdfb4ff8`; [PR #26](https://github.com/sahusgupta/orbit/pull/26) carries attestation, native compiler, hosted-runtime, and subsequent release fixes. [The execution record](../docs/agent/tasks/player-release-execution.md) is authoritative for dated evidence. A production-derived unsigned simulator app compiled successfully; interaction QA and final-source checks remain in progress. No signed build, TestFlight upload, API/rules promotion, or App Review submission is claimed.
+
 ## Repository gates
 
 - [x] Exact Node 22.16.0/npm 10.9.2 clean installs succeed for every package root.
@@ -16,18 +18,35 @@ The current, machine-checkable submission package is [`APP_STORE_SUBMISSION.md`]
 - [x] Privacy/support/terms pages and the App Store package agree with the final code.
 - [ ] Pull-request CI is green on the exact pushed SHA.
 
-## External gates
+## Service and candidate work in progress
+
+- [x] Verify the existing Expo project and dedicated iOS/Android/Web Firebase registrations.
+- [x] Provision independent production log-hash, membership-QR, and deletion-pseudonym secrets through managed storage.
+- [x] Register native App Attest and Web reCAPTCHA Enterprise providers, preserving existing clients and disabled enforcement.
+- [x] Provision a separate referrer/API-restricted Player Web Firebase key and the required production Web configuration; verify accepted/rejected referrer behavior.
+- [x] Compile and inspect EAS simulator build `cc64f693-fdf4-416c-8fdc-c2fcc3b9cd99`, source `dab4aa7183b6c4482310feb9b1c4f9df3bfcda41`.
+- [ ] Complete exact-source native simulator interactions and capture evidence on both iPhone sizes.
+- [ ] Merge final green follow-up source and deploy immutable API/Web candidates with recorded rollback targets.
+- [ ] Deploy reviewed Firestore rules/indexes/TTL and verify candidate compatibility before promotion.
+- [ ] Finish credential rotation after the pending metadata-access approval identifies dependent usage.
+- [ ] Complete production synthetic-flow verification after deployment and approved deletion-policy configuration.
+
+These are engineering tasks. They are not human-only gates merely because they involve a provider.
+
+## Human-controlled gates
 
 - Legal classification, licensing, and territory approval.
 - Caminus Labs, LLC seller/account verification and Apple agreements.
 - Explicit confirmation that Expo owner `saussy`, slug `tabletalk-player`, EAS project `bb2059b7-91b3-4a6b-a66e-d5618e794fd3`, the Apple signing team, and the `com.orbit.player` App Store record are the intended Caminus Labs, LLC release identities.
-- Production API/site deployment, Firebase rules/App Check activation, and required server-secret provisioning.
-- Sanitized reviewer account/data placed in App Store Connect without committing credentials.
+- Respond to the pending automatic-approval questions for three production CORS preflights, Firebase key-restriction metadata, and metadata-only identification of the Vercel Firebase credential. Each rejected operation remains unexecuted.
+- Supply counsel-approved deletion/retention dispositions and venue/territory authority. Production `ORBIT_ACCOUNT_DELETION_POLICY_JSON` is absent; the example is not approval.
+- Authenticate the intended Apple team and provide signing/App Store Connect access through EAS or Apple's interface; the existing EAS account reports no iOS credentials or App Store Connect API keys.
+- Grant the release operator access to place the sanitized reviewer account in App Store Connect without committing credentials.
 - Privacy-owner classification of the constant `in-person` membership request channel, support/provider/IP retention, and conditional SDK device/diagnostic data.
 - Signed EAS archive built with the production profile's pinned Xcode 26/iOS 26 SDK image, build-log toolchain evidence, Xcode privacy aggregation report reconciled to the app-owned ten-type baseline, App Store privacy/age/export answers, and physical-device TestFlight acceptance.
-- Real candidate screenshots captured at Apple-accepted dimensions.
+- Approve the actual final screenshots and store copy after technical capture/review.
 
-Do not treat Expo export or prebuild as a signed build. Do not create an EAS build, upload to TestFlight, deploy, or press Submit for Review until the applicable authority and evidence exist.
+Do not treat Expo export, prebuild, or the compiled simulator app as a signed build. The active release request authorizes technical build/deployment work; App Review remains prohibited while ownership, legal, privacy, integrity, or critical QA gates are open.
 
 ## Future private-game gate
 

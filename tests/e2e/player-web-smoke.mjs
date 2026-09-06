@@ -72,6 +72,13 @@ async function assertRoute(page, route, viewport) {
   page.on('requestfailed', onRequestFailed);
   const response = await page.goto(`${baseUrl}${route.path}`, { waitUntil: 'networkidle' });
   await page.locator('main').waitFor({ state: 'visible' });
+  // Network idle can precede the first rendered frame on a cold, parallel run.
+  // Wait for actual readable content; preserve the independent checks below.
+  await page.waitForFunction(() => {
+    const heading = document.querySelector('main h1');
+    return heading && document.body.innerText.trim().length >= 80;
+  }, undefined, { timeout: 10_000 });
+  await page.evaluate(() => document.fonts.ready);
   const layout = await page.evaluate(() => ({
     bodyWidth: document.body.scrollWidth,
     documentWidth: document.documentElement.scrollWidth,
@@ -133,6 +140,28 @@ await Promise.all(viewports.map(async (viewport) => {
   }
   await context.close();
 }));
+
+const noScriptContext = await browser.newContext({ viewport: { width: 430, height: 932 }, javaScriptEnabled: false });
+const noScriptPage = await noScriptContext.newPage();
+await noScriptPage.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+const noScriptReadability = await noScriptPage.evaluate(() => {
+  const readable = (element) => {
+    if (!element || !element.getBoundingClientRect().height) return false;
+    for (let node = element; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.99) return false;
+    }
+    return true;
+  };
+  return {
+    explanation: readable(document.querySelector('noscript [role="alert"]')) &&
+      document.body.innerText.includes('Turn on JavaScript to use Orbit Player.'),
+    privacy: readable(document.querySelector('noscript a[href="https://orbitapp-one.vercel.app/privacy"]'))
+  };
+});
+if (!noScriptReadability.explanation) failures.push('JavaScript-disabled visitors receive no readable explanation.');
+if (!noScriptReadability.privacy) failures.push('JavaScript-disabled visitors cannot reach the static Privacy Policy.');
+await noScriptContext.close();
 
 const interactionContext = await browser.newContext({ viewport: { width: 430, height: 932 }, reducedMotion: 'reduce' });
 const page = await interactionContext.newPage();
@@ -323,7 +352,7 @@ const report = {
   routeCount: routes.length,
   viewportCount: viewports.length,
   screenshotCount: routes.length * viewports.length,
-  interactionChecks: 42,
+  interactionChecks: 44,
   failures,
   observations
 };

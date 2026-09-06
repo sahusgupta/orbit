@@ -13,19 +13,32 @@ assert.ok(!fs.existsSync(iosRoot), 'Use a clean checkout; existing native work m
 fs.mkdirSync(evidenceRoot, { recursive: true });
 
 function run(command, arguments_, options = {}) {
-  const result = spawnSync(command, arguments_, {
-    cwd: options.cwd || playerRoot,
-    env: environment,
-    encoding: 'utf8',
-    maxBuffer: 100 * 1024 * 1024,
-    ...options
-  });
-  if (options.log) fs.writeFileSync(path.join(evidenceRoot, options.log), `${result.stdout || ''}\n${result.stderr || ''}`);
+  const startedAt = Date.now();
+  console.log(`Starting ${options.log || path.basename(command)}.`);
+  const logPath = options.log ? path.join(evidenceRoot, options.log) : null;
+  // Persist compiler output as it arrives, including when CI cancels the job.
+  const logFile = logPath ? fs.openSync(logPath, 'w') : null;
+  let result;
+  try {
+    result = spawnSync(command, arguments_, {
+      cwd: options.cwd || playerRoot,
+      env: environment,
+      encoding: 'utf8',
+      maxBuffer: 100 * 1024 * 1024,
+      ...options,
+      ...(logFile !== null ? { stdio: ['ignore', logFile, logFile] } : {})
+    });
+  } finally {
+    if (logFile !== null) fs.closeSync(logFile);
+  }
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    process.stderr.write(`${result.stdout || ''}\n${result.stderr || ''}`);
+    process.stderr.write(logPath
+      ? fs.readFileSync(logPath, 'utf8').split('\n').slice(-100).join('\n')
+      : `${result.stdout || ''}\n${result.stderr || ''}`);
     throw new Error(`${command} failed with exit ${result.status}.`);
   }
+  console.log(`Finished ${options.log || path.basename(command)} in ${Math.round((Date.now() - startedAt) / 1000)}s.`);
   return result.stdout || '';
 }
 
@@ -39,11 +52,12 @@ run(process.execPath, [localPlayerBinary('expo', 'bin/cli'), 'prebuild', '--plat
 verifyPlayerNative(iosRoot);
 run('pod', ['install'], { cwd: iosRoot, log: 'pods.log' });
 const derivedData = path.join(evidenceRoot, 'derived');
+const simulatorArchitecture = process.arch === 'arm64' ? 'arm64' : 'x86_64';
 run('xcodebuild', [
   '-workspace', 'OrbitPlayer.xcworkspace', '-scheme', 'OrbitPlayer',
   '-configuration', 'Release', '-sdk', 'iphonesimulator',
   '-destination', 'generic/platform=iOS Simulator', '-derivedDataPath', derivedData,
-  'CODE_SIGNING_ALLOWED=NO', 'build'
+  `ARCHS=${simulatorArchitecture}`, 'ONLY_ACTIVE_ARCH=YES', 'CODE_SIGNING_ALLOWED=NO', 'build'
 ], { cwd: iosRoot, log: 'xcodebuild.log' });
 const application = path.join(derivedData, 'Build', 'Products', 'Release-iphonesimulator', 'OrbitPlayer.app');
 assert.ok(fs.existsSync(application), 'Xcode must produce the simulator application.');

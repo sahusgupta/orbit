@@ -9,7 +9,7 @@ function requireExpectedSignedInIdentity(expectedUid: string) {
   const uid = expectedUid.trim();
   if (!uid) throw new Error('A verified Orbit Player account is required before syncing.');
   const identity = getCurrentFirebasePlayer();
-  if (!identity) throw new Error('Sign in with your email address or phone number before syncing.');
+  if (!identity) throw new Error('Sign in before syncing.');
   if (identity.uid !== uid) throw new Error('The signed-in Orbit Player account changed before syncing. No profile changes were saved.');
   return identity;
 }

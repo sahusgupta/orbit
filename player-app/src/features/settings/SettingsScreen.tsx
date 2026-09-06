@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Chip, Field } from '../../components/PlayerFields';
 import { SimpleMenuRow } from '../../components/PlayerPresentation';
 import { privacyPolicyUrl, supportUrl, termsOfServiceUrl } from '../../config/playerLinks';
+import { phoneSignInEnabled } from '../../config/playerReleaseFeatures';
 import type { FirebasePlayerIdentity, PlayerIdentityStatus } from '../../data/orbitSyncApi';
 import { gamePreferenceOptions } from '../../domain/playerPreferences';
 import { e164PhoneExample, e164PhoneRequirement, normalizeE164Phone } from '../../domain/playerPhone';
@@ -85,7 +86,7 @@ export function SettingsScreen({
           <Text style={styles.muted}>{authStatus}</Text>
           <View style={styles.chipRow}>
             <Chip label="Email address" active={playerAuthMethod === 'email'} onPress={() => setPlayerAuthMethod('email')} />
-            <Chip label="Phone number" active={playerAuthMethod === 'phone'} onPress={() => setPlayerAuthMethod('phone')} />
+            {phoneSignInEnabled ? <Chip label="Phone number" active={playerAuthMethod === 'phone'} onPress={() => setPlayerAuthMethod('phone')} /> : null}
           </View>
           {playerAuthMethod === 'email' ? (
             <View style={styles.searchInputRow}>

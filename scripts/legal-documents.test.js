@@ -25,6 +25,7 @@ describe('repository-controlled legal and support documents', () => {
     expect(source).toContain('no player-hosted/private game feature');
     expect(source).toContain('no venue checkout');
     expect(source).toContain('no push notifications');
+    expect(source).toContain('iOS v1 sign-in screen uses email/password and does not offer phone-passcode delivery');
     expect(source).toContain('Tournament interest is nonbinding');
     expect(source).toContain('does not save or upload a document image, raw barcode, or document number');
     expect(source).toContain('name, email address, optional phone number');
