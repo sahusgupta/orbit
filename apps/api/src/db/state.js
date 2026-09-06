@@ -13,6 +13,7 @@ const maximumCompressedStateBytes = 8_000_000;
 const maximumStateChunks = Math.ceil(maximumCompressedStateBytes / stateChunkSize);
 const accountStatesCollection = 'orbitAccountStates';
 const publicationCollection = 'orbitPublicationOutbox';
+const globalMutationCollection = 'orbitGlobalMutationReceipts';
 
 class StateConflictError extends Error {
   constructor(accountKey, expectedRevision, currentRevision) {
@@ -22,6 +23,14 @@ class StateConflictError extends Error {
     this.accountKey = accountKey;
     this.expectedRevision = expectedRevision;
     this.currentRevision = currentRevision;
+  }
+}
+
+class IdempotencyConflictError extends Error {
+  constructor() {
+    super('The idempotency key was already used for a different operation.');
+    this.name = 'IdempotencyConflictError';
+    this.code = 'IDEMPOTENCY_CONFLICT';
   }
 }
 
@@ -78,7 +87,46 @@ function accountPath(accountKey) {
   return `${accountStatesCollection}/${firestoreDocumentId(accountKey)}`;
 }
 
+function mutationReference(accountKey, mutationId) {
+  return crypto.createHash('sha256')
+    .update(`${sanitizeAccountKey(accountKey)}\u0000${String(mutationId || '')}`)
+    .digest('hex');
+}
+
+function opaqueReference(value) {
+  return crypto.createHash('sha256').update(String(value || '')).digest('hex');
+}
+
+function globalMutationPath(scope) {
+  return `${globalMutationCollection}/m_${opaqueReference(scope)}`;
+}
+
+async function loadGlobalMutationReceipt(scope) {
+  const normalized = String(scope || '').trim();
+  if (!normalized) return null;
+  const database = await getDatabase();
+  return database.getDocument(globalMutationPath(normalized));
+}
+
+async function loadStateMutationReceipt(accountKey, mutationId) {
+  const normalizedAccountKey = sanitizeAccountKey(accountKey);
+  const normalizedMutationId = String(mutationId || '').trim();
+  if (!normalizedAccountKey || !normalizedMutationId) return null;
+  const database = await getDatabase();
+  const currentPath = mutationPath(normalizedAccountKey, normalizedMutationId);
+  const current = await database.getDocument(currentPath);
+  if (current) return { ...current, legacy: false };
+  const oldPath = legacyMutationPath(normalizedAccountKey, normalizedMutationId);
+  if (oldPath === currentPath) return null;
+  const legacy = await database.getDocument(oldPath);
+  return legacy ? { ...legacy, legacy: true } : null;
+}
+
 function mutationPath(accountKey, mutationId) {
+  return `${accountPath(accountKey)}/mutations/m_${mutationReference(accountKey, mutationId)}`;
+}
+
+function legacyMutationPath(accountKey, mutationId) {
   return `${accountPath(accountKey)}/mutations/${firestoreDocumentId(mutationId)}`;
 }
 
@@ -166,16 +214,64 @@ async function saveState(state, options = {}) {
   const venueName = state.settings?.clubAccount?.clubName || '';
   const mutationId = String(options.mutationId || crypto.randomUUID()).trim().slice(0, 180);
   const mutationType = String(options.mutationType || 'state-replace').trim().slice(0, 80);
+  const globalMutationScope = String(options.globalMutationScope || '').trim();
+  const globalMutationFingerprint = String(options.globalMutationFingerprint || '').trim();
+  if (Boolean(globalMutationScope) !== Boolean(globalMutationFingerprint)) {
+    throw new Error('Global mutation scope and fingerprint must be provided together.');
+  }
   const expectedRevision = Number(options.expectedRevision);
   if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
     throw new Error('A non-negative expectedRevision is required for state mutations.');
   }
   if (!mutationId) throw new Error('A stable mutationId is required for state mutations.');
-  const encoded = encodeState(state);
-
   return database.runTransaction(async (transaction) => {
-    const existingMutation = await transaction.getDocument(mutationPath(accountKey, mutationId));
+    const globalReceiptPath = globalMutationScope ? globalMutationPath(globalMutationScope) : '';
+    const fingerprintRef = globalMutationFingerprint ? opaqueReference(globalMutationFingerprint) : '';
+    const existingGlobalReceipt = globalReceiptPath
+      ? await transaction.getDocument(globalReceiptPath)
+      : null;
+    if (existingGlobalReceipt) {
+      if (existingGlobalReceipt.fingerprintRef !== fingerprintRef) throw new IdempotencyConflictError();
+      const publication = await transaction.getDocument(
+        publicationPath(existingGlobalReceipt.accountKey, existingGlobalReceipt.revision)
+      );
+      return {
+        accountKey: existingGlobalReceipt.accountKey,
+        savedAt: existingGlobalReceipt.createdAt,
+        revision: Number(existingGlobalReceipt.revision),
+        mutationId,
+        duplicate: true,
+        idempotencyResult: existingGlobalReceipt.result || null,
+        publication: mapPublication(publication)
+      };
+    }
+    const opaqueMutationPath = mutationPath(accountKey, mutationId);
+    let existingMutation = await transaction.getDocument(opaqueMutationPath);
+    const oldMutationPath = legacyMutationPath(accountKey, mutationId);
+    if (!existingMutation && oldMutationPath !== opaqueMutationPath) {
+      existingMutation = await transaction.getDocument(oldMutationPath);
+      if (existingMutation) {
+        transaction.setDocument(opaqueMutationPath, {
+          accountKey,
+          mutationRef: mutationReference(accountKey, mutationId),
+          mutationType: existingMutation.mutationType || 'legacy',
+          revision: Number(existingMutation.revision),
+          createdAt: existingMutation.createdAt || savedAt
+        });
+        transaction.deleteDocument(oldMutationPath);
+      }
+    }
     if (existingMutation) {
+      if (globalReceiptPath) {
+        transaction.createDocument(globalReceiptPath, {
+          scopeRef: opaqueReference(globalMutationScope),
+          fingerprintRef,
+          accountKey,
+          revision: Number(existingMutation.revision),
+          result: options.globalMutationResult || null,
+          createdAt: existingMutation.createdAt || savedAt
+        });
+      }
       const publication = await transaction.getDocument(publicationPath(accountKey, existingMutation.revision));
       return {
         accountKey,
@@ -193,8 +289,27 @@ async function saveState(state, options = {}) {
     const previousState = current
       ? await readStateChunks(transaction, accountKey, currentRevision, current.stateChunkCount)
       : null;
+    let stateToCommit = state;
+    let transactionResult = null;
+    if (typeof options.transactionPrecondition === 'function') {
+      const evaluated = await options.transactionPrecondition({
+        transaction,
+        accountKey,
+        currentState: previousState,
+        nextState: state
+      });
+      if (evaluated?.nextState) {
+        validateStatePayload(evaluated.nextState);
+        if (getAccountKeyFromState(evaluated.nextState) !== accountKey) {
+          throw new Error('A state transaction transform cannot change the account key.');
+        }
+        stateToCommit = evaluated.nextState;
+      }
+      transactionResult = evaluated?.result || null;
+    }
+    const encoded = encodeState(stateToCommit);
     const revision = currentRevision + 1;
-    const changedEntityCount = countEntityChanges(previousState, state);
+    const changedEntityCount = countEntityChanges(previousState, stateToCommit);
 
     encoded.chunks.forEach((payload, index) => {
       transaction.setDocument(stateChunkPath(accountKey, revision, index), {
@@ -213,19 +328,32 @@ async function saveState(state, options = {}) {
       savedAt,
       updatedAt: savedAt,
       revision,
+      minimumPublishableRevision: options.invalidatePriorRevisions
+        ? revision
+        : Number(current?.minimumPublishableRevision || 1),
       stateEncoding,
       stateChunkCount: encoded.chunks.length,
       stateCompressedBytes: encoded.compressedBytes,
       stateSourceBytes: encoded.sourceBytes,
       stateContentHash: encoded.contentHash
     });
-    transaction.createDocument(mutationPath(accountKey, mutationId), {
+    transaction.createDocument(opaqueMutationPath, {
       accountKey,
-      mutationId,
+      mutationRef: mutationReference(accountKey, mutationId),
       mutationType,
       revision,
       createdAt: savedAt
     });
+    if (globalReceiptPath) {
+      transaction.createDocument(globalReceiptPath, {
+        scopeRef: opaqueReference(globalMutationScope),
+        fingerprintRef,
+        accountKey,
+        revision,
+        result: transactionResult?.globalMutationResult || options.globalMutationResult || null,
+        createdAt: savedAt
+      });
+    }
     transaction.createDocument(publicationPath(accountKey, revision), {
       accountKey,
       revision,
@@ -246,10 +374,128 @@ async function saveState(state, options = {}) {
       revision,
       mutationId,
       duplicate: false,
+      idempotencyResult: transactionResult?.globalMutationResult || options.globalMutationResult || null,
+      transactionResult,
       changedEntityCount,
       publication: { status: 'pending', attempts: 0, error: '', publishedAt: null, nextAttemptAt: savedAt }
     };
   });
+}
+
+async function listAllDocuments(database, collectionPath) {
+  const documents = [];
+  let cursor;
+  do {
+    const page = await database.queryCollection(collectionPath, {
+      orders: [{ field: '__name__', direction: 'asc' }],
+      startAfter: cursor ? [cursor] : undefined,
+      limit: 200
+    });
+    documents.push(...page);
+    cursor = page.length === 200 ? page.at(-1).id : undefined;
+  } while (cursor);
+  return documents;
+}
+
+async function invalidateAccountStateHistory(accountKey, keepRevision) {
+  const normalized = sanitizeAccountKey(accountKey);
+  const revision = Number(keepRevision);
+  if (!normalized || !Number.isInteger(revision) || revision < 1) {
+    throw new Error('A valid account and retained revision are required for history invalidation.');
+  }
+  const database = await getDatabase();
+  const mutationCollection = `${accountPath(normalized)}/mutations`;
+  const chunkCollection = `${accountPath(normalized)}/stateChunks`;
+  const [outbox, mutations, chunks] = await Promise.all([
+    listAllDocuments(database, publicationCollection),
+    listAllDocuments(database, mutationCollection),
+    listAllDocuments(database, chunkCollection)
+  ]);
+  let cancelledPublications = 0;
+  let migratedMutations = 0;
+  let deletedChunks = 0;
+
+  for (const document of outbox) {
+    if (document.data.accountKey !== normalized || Number(document.data.revision) >= revision) continue;
+    await database.runTransaction(async (transaction) => {
+      const path = `${publicationCollection}/${document.id}`;
+      const current = await transaction.getDocument(path);
+      if (!current || Number(current.revision) >= revision) return;
+      const invalidatedAt = new Date().toISOString();
+      if (['publishing', 'compensating', 'compensation-pending'].includes(current.status)) {
+        // A remote writer that already owns this exact claim must acknowledge its
+        // postflight before the sanitized successor can publish. Clearing the
+        // claim here would make a late remote write invisible to deletion.
+        transaction.setDocument(path, {
+          ...current,
+          invalidationRequested: true,
+          invalidatedAt,
+          updatedAt: invalidatedAt
+        });
+        return;
+      }
+      transaction.setDocument(path, {
+        ...current,
+        status: 'cancelled',
+        claimId: null,
+        claimableAt: null,
+        nextAttemptAt: null,
+        error: '',
+        invalidatedAt,
+        updatedAt: invalidatedAt
+      });
+    });
+    cancelledPublications += 1;
+  }
+
+  for (const document of mutations) {
+    const existing = document.data || {};
+    if (/^m_[a-f0-9]{64}$/.test(document.id) && !existing.mutationId) continue;
+    let rawMutationId = String(existing.mutationId || '');
+    if (!rawMutationId) {
+      try {
+        rawMutationId = decodeURIComponent(document.id);
+      } catch {
+        rawMutationId = document.id;
+      }
+    }
+    const targetPath = mutationPath(normalized, rawMutationId);
+    await database.setDocument(targetPath, {
+      accountKey: normalized,
+      mutationRef: mutationReference(normalized, rawMutationId),
+      mutationType: existing.mutationType || 'legacy',
+      revision: Number(existing.revision || 0),
+      createdAt: existing.createdAt || new Date().toISOString()
+    });
+    const sourcePath = `${mutationCollection}/${document.id}`;
+    if (sourcePath !== targetPath) await database.deleteDocument(sourcePath);
+    migratedMutations += 1;
+  }
+
+  for (const document of chunks) {
+    if (Number(document.data.revision) === revision) continue;
+    await database.deleteDocument(`${chunkCollection}/${document.id}`);
+    deletedChunks += 1;
+  }
+  return { cancelledPublications, migratedMutations, deletedChunks };
+}
+
+async function listHistoricalStates(accountKey, excludeRevision = 0) {
+  const normalized = sanitizeAccountKey(accountKey);
+  const database = await getDatabase();
+  const chunks = await listAllDocuments(database, `${accountPath(normalized)}/stateChunks`);
+  const chunkCounts = new Map();
+  for (const chunk of chunks) {
+    const revision = Number(chunk.data.revision);
+    if (!Number.isInteger(revision) || revision < 1 || revision === Number(excludeRevision)) continue;
+    chunkCounts.set(revision, Math.max(chunkCounts.get(revision) || 0, Number(chunk.data.index) + 1));
+  }
+  return Promise.all([...chunkCounts.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(async ([revision, chunkCount]) => ({
+      revision,
+      state: await readStateChunks(database, normalized, revision, chunkCount)
+    })));
 }
 
 async function mapStateHeader(database, header) {
@@ -333,15 +579,27 @@ async function listVenues(filters = {}) {
 }
 
 module.exports = {
+  IdempotencyConflictError,
   StateConflictError,
+  accountPath,
   accountStatesCollection,
   deserializeState,
   getPublicationStatus,
+  globalMutationCollection,
+  globalMutationPath,
+  invalidateAccountStateHistory,
+  listHistoricalStates,
   listStatePage,
   listVenues,
   loadLatestState,
+  loadGlobalMutationReceipt,
+  loadStateMutationReceipt,
   loadState,
   loadStateRevision,
+  legacyMutationPath,
+  mutationPath,
+  mutationReference,
+  opaqueReference,
   publicationCollection,
   publicationDocumentId,
   publicationPath,

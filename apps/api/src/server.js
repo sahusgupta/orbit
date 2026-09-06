@@ -15,9 +15,10 @@ const server = app.listen(port, host, () => {
 
 const publicationTimer = setInterval(() => {
   void drainPublicationOutbox({ limit: 25 }).catch((error) => {
-    console.warn('[publication-outbox] scheduled drain failed:', error instanceof Error ? error.message : 'Unknown error');
+    const errorRef = protectedIdentifier(error instanceof Error ? (error.stack || error.message) : 'Unknown error');
+    console.warn(`[publication-outbox] scheduled drain failed ref=${errorRef}`);
     void sendOperationalAlert('publication-drain-failed', 'critical', {
-      errorRef: protectedIdentifier(error instanceof Error ? error.message : 'Unknown error')
+      errorRef
     });
   });
 }, 30_000);

@@ -6,9 +6,11 @@ import {
   getGameStatusLabel,
   getOpportunityKey,
   getOpportunityLabel,
+  getRunningAvailableSeats,
+  hasRunningTable,
   getVenueKind
 } from '../../domain/discovery';
-import { formatDropFee, getClubFeeProfile } from '../../domain/clubAccess';
+import { getClubFeeProfile } from '../../domain/clubAccess';
 import type { DiscoveryDecision, GameOpportunity } from '../../domain/playerTypes';
 import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
@@ -44,6 +46,7 @@ export function DiscoveryDeck({
   const animating = useRef(false);
   const item = opportunities[0];
   const nextItem = opportunities[1];
+  const readOnly = inventoryStatus !== 'ready';
   const itemKey = item ? getOpportunityKey(item) : '';
   useEffect(() => {
     swipeX.setValue(0);
@@ -51,7 +54,7 @@ export function DiscoveryDeck({
     animating.current = false;
   }, [itemKey, swipeX, swipeY]);
   const swipe = (decision: DiscoveryDecision) => {
-    if (!item || animating.current) return;
+    if (!item || readOnly || animating.current) return;
     animating.current = true;
     Animated.parallel([
       Animated.timing(swipeX, {
@@ -75,7 +78,7 @@ export function DiscoveryDeck({
   };
   const panResponder = useMemo(
     () => PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gesture) => Boolean(item && Math.abs(gesture.dx) > 5 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.05),
+      onMoveShouldSetPanResponder: (_, gesture) => Boolean(item && !readOnly && Math.abs(gesture.dx) > 5 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.05),
       onPanResponderTerminationRequest: () => false,
       onPanResponderMove: (_, gesture) => {
         swipeX.setValue(gesture.dx);
@@ -95,7 +98,7 @@ export function DiscoveryDeck({
         Animated.spring(swipeY, { toValue: 0, useNativeDriver: false })
       ]).start()
     }),
-    [item, onPass, onPick]
+    [item, onPass, onPick, readOnly]
   );
   const rotation = swipeX.interpolate({ inputRange: [-320, 0, 320], outputRange: ['-7deg', '0deg', '7deg'] });
   const likeOpacity = swipeX.interpolate({ inputRange: [0, 48, 135], outputRange: [0, 0.4, 0.9], extrapolate: 'clamp' });
@@ -104,7 +107,7 @@ export function DiscoveryDeck({
 
   if (!item) {
     const hasPublishedMatches = totalCount > 0;
-    let emptyTitle = 'Loading live matches';
+    let emptyTitle = 'Loading published matches';
     let emptyCopy = 'Orbit is checking current room updates. Matches will appear here as soon as they load.';
     let resetLabel = 'Refresh now';
     if (hasPublishedMatches) {
@@ -117,11 +120,11 @@ export function DiscoveryDeck({
       emptyTitle = 'More matches are loading';
       emptyCopy = 'No matches are in the rooms loaded so far. More rooms are still refreshing.';
     } else if (inventoryStatus === 'ready') {
-      emptyTitle = 'Looking for live matches';
+      emptyTitle = 'No current matches';
       emptyCopy = 'No eligible game is published right now. Orbit checks again automatically, or you can refresh now.';
       resetLabel = 'Check again';
     } else if (inventoryStatus === 'error') {
-      emptyTitle = 'Live matches unavailable';
+      emptyTitle = 'Published matches unavailable';
       emptyCopy = 'Orbit could not refresh published games. Check your connection and try again.';
       resetLabel = 'Try again';
     }
@@ -150,6 +153,11 @@ export function DiscoveryDeck({
         <Text style={styles.discoverySavedCount}>{savedCount} saved</Text>
       </View>
       <View style={styles.discoveryDeck}>
+        {readOnly ? (
+          <View accessibilityRole="alert" style={styles.discoveryNotice}>
+            <Text style={styles.discoveryNoticeText}>Previously loaded matches are read-only until Orbit refreshes current venue data.</Text>
+          </View>
+        ) : null}
         {nextItem ? (
           <View pointerEvents="none" style={[styles.discoveryCard, styles.discoveryCardBehind]}>
             <DiscoveryCardContent item={nextItem} compact />
@@ -169,7 +177,11 @@ export function DiscoveryDeck({
               <Text style={[styles.swipeStampText, styles.swipeStampTextPick]}>SAVE</Text>
             </View>
           </Animated.View>
-          <DiscoveryCardContent item={item} onDetails={() => onDetails(item)} onPass={() => swipe('pass')} onPick={() => swipe('saved')} />
+          <DiscoveryCardContent
+            item={item}
+            onDetails={() => onDetails(item)}
+            {...(readOnly ? {} : { onPass: () => swipe('pass'), onPick: () => swipe('saved') })}
+          />
         </Animated.View>
       </View>
     </View>
@@ -210,21 +222,21 @@ export function DiscoveryCardContent({
         </View>
         <View style={styles.discoveryHeroBottom}>
           <View style={styles.liveStatusRow}>
-            <View style={[styles.liveDot, !item.game.availableSeats && styles.liveDotWarm]} />
+            <View style={[styles.liveDot, !hasRunningTable(item.game) && styles.liveDotWarm]} />
             <Text style={styles.liveStatusText}>{status}</Text>
           </View>
           <Text style={[styles.discoveryGameTitle, { color: accent.color, textShadowColor: `${accent.color}66` }]}>{item.game.name}</Text>
           <Text style={styles.discoveryClubName}>{item.club.club.name}</Text>
-          <Text style={styles.discoveryLocation}>{getClubCity(item.club)} · {item.distanceMiles.toFixed(1)} mi away</Text>
+          <Text style={styles.discoveryLocation}>{[getClubCity(item.club), item.distanceMiles == null ? null : `${item.distanceMiles.toFixed(1)} mi away`].filter(Boolean).join(' · ')}</Text>
         </View>
       </View>
       {!compact ? (
         <View style={styles.discoveryCardBody}>
           <View style={styles.discoveryMetrics}>
             {[
-              { label: 'Seats', value: item.game.availableSeats || 'Not listed' },
-              { label: 'Playing', value: item.game.knownPlayersCount || 'Not listed' },
-              { label: 'Waitlist', value: item.game.waitlistCount || 'Not listed' }
+              { label: 'Open seats', value: hasRunningTable(item.game) ? getRunningAvailableSeats(item.game) : '—' },
+              { label: 'Familiar', value: item.game.knownPlayersCount },
+              { label: 'Waitlist', value: item.game.waitlistCount }
             ].map((metric) => (
               <View key={metric.label} style={styles.discoveryMetric}>
                 <Text style={styles.discoveryMetricValue}>{metric.value}</Text>
@@ -233,17 +245,21 @@ export function DiscoveryCardContent({
             ))}
           </View>
           <View style={styles.discoveryBuyInRow}>
-            <Text style={styles.discoveryBuyInLabel}>{fee.type === 'time' ? 'TIME' : 'DROP'}</Text>
-            <Text style={styles.discoveryBuyInValue}>{fee.type === 'time' ? fee.hourly : formatDropFee(fee.percent)}</Text>
+            <Text style={styles.discoveryBuyInLabel}>{fee.type === 'time' ? 'TIME' : fee.type === 'drop' ? 'DROP' : 'FEES'}</Text>
+            <Text style={styles.discoveryBuyInValue}>{fee.label}</Text>
           </View>
           {onDetails ? (
             <View style={styles.cardSelectionRow}>
-              <Pressable accessibilityLabel={`Pass on ${item.game.name}`} accessibilityRole="button" onPress={onPass} style={[styles.cardCornerAction, styles.cardRejectAction]}>
-                <Ionicons name="close" size={29} color="#dc2626" />
-              </Pressable>
-              <Pressable accessibilityLabel={`Save ${item.game.name}`} accessibilityRole="button" onPress={onPick} style={[styles.cardCornerAction, styles.cardPickAction]}>
-                <Ionicons name="heart" size={29} color="#ffffff" />
-              </Pressable>
+              {onPass ? (
+                <Pressable accessibilityLabel={`Pass on ${item.game.name}`} accessibilityRole="button" onPress={onPass} style={[styles.cardCornerAction, styles.cardRejectAction]}>
+                  <Ionicons name="close" size={29} color="#dc2626" />
+                </Pressable>
+              ) : null}
+              {onPick ? (
+                <Pressable accessibilityLabel={`Save ${item.game.name}`} accessibilityRole="button" onPress={onPick} style={[styles.cardCornerAction, styles.cardPickAction]}>
+                  <Ionicons name="heart" size={29} color="#ffffff" />
+                </Pressable>
+              ) : null}
               <Pressable accessibilityLabel={`See full details for ${item.game.name}`} accessibilityRole="button" onPress={onDetails} style={[styles.cardCornerAction, styles.cardDetailsAction]}>
                 <Ionicons name="location" size={24} color="#6f91ff" />
               </Pressable>
@@ -266,7 +282,7 @@ export function getDiscoveryAccent(item: GameOpportunity): DiscoveryAccent {
   if (seed.includes('plo') || seed.includes('omaha')) {
     return { color: '#2DD4BF', background: '#0B2F32' };
   }
-  if (item.game.availableSeats > 3) {
+  if (getRunningAvailableSeats(item.game) > 3) {
     return { color: '#25D99A', background: '#0B3528' };
   }
   return { color: '#5B86FF', background: '#102C65' };
@@ -286,11 +302,11 @@ export function SavedGamesStrip({ opportunities, onOpen }: { opportunities: Game
       {expanded ? opportunities.map((item) => (
         <Pressable key={getOpportunityKey(item)} onPress={() => onOpen(item)} style={styles.savedGameRow}>
           <View style={styles.savedGameScore}>
-            <Text style={styles.savedGameScoreValue}>{item.game.availableSeats ? `${item.game.availableSeats} open` : 'Saved'}</Text>
+            <Text style={styles.savedGameScoreValue}>{hasRunningTable(item.game) ? `${getRunningAvailableSeats(item.game)} open` : getGameStatusLabel(item.game)}</Text>
           </View>
           <View style={styles.savedGameCopy}>
             <Text style={styles.cardTitle}>{item.game.name} · {item.club.club.name}</Text>
-            <Text style={styles.muted}>{getGameStatusLabel(item.game)} · {item.distanceMiles.toFixed(1)} mi · Alerts after joining</Text>
+            <Text style={styles.muted}>{[getGameStatusLabel(item.game), item.distanceMiles == null ? null : `${item.distanceMiles.toFixed(1)} mi`, 'In-app updates after joining'].filter(Boolean).join(' · ')}</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.muted} />
         </Pressable>

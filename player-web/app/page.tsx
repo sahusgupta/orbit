@@ -4,11 +4,11 @@ import { createPageMetadata } from '@/src/seo/site';
 
 export const metadata: Metadata = {
   ...createPageMetadata({
-    title: 'Poker games near you',
-    description: 'Use Orbit Player to find nearby poker games that match your stakes and preferred format after verifying your player account.',
+    title: 'Published poker games',
+    description: 'Use Orbit Player to browse venue-published poker games, waitlists, memberships, and tournament interest.',
     path: '/'
   }),
-  title: { absolute: 'Find poker games near you | Orbit Player' }
+  title: { absolute: 'Browse published poker games | Orbit Player' }
 };
 
 export default function HomePage() {

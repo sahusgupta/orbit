@@ -24,22 +24,22 @@ export const publicPages = Object.freeze({
   },
   'support.html': {
     path: '/support.html',
-    title: 'Orbit Support | Account and installation help',
-    description: 'Get Orbit help with account access, installation, membership requests, waitlists, purchases, and room operations.',
+    title: 'Orbit Support',
+    description: 'Orbit Player support for account access, venue requests, check-in, identity capture, and deletion.',
     schemaType: 'WebPage',
     indexable: true
   },
   'privacy.html': {
     path: '/privacy.html',
     title: 'Orbit Privacy Policy',
-    description: 'How Orbit handles personal data across player, venue, organizer, website, event, and hardware-enabled experiences.',
+    description: 'How Caminus Labs, LLC handles data for Orbit Player and related Orbit services.',
     schemaType: 'WebPage',
     indexable: true
   },
   'terms.html': {
     path: '/terms.html',
     title: 'Orbit Terms of Service',
-    description: 'Rules for using the Orbit platform and participating in the Orbit network.',
+    description: 'Terms for the conservative first release of Orbit Player and related Orbit services.',
     schemaType: 'WebPage',
     indexable: true
   },

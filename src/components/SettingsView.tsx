@@ -200,12 +200,12 @@ export default function SettingsView({
               </form>
               <article className="preference-row">
                 <div>
-                  <strong>Player self-check-in QR</strong>
-                  <span>Generate a club-specific printable PDF. Players scan it, enter their name, and choose from tables with live availability. Generating another kit deactivates older printed codes.</span>
+                  <strong>Printed player self-check-in</strong>
+                  <span>Name-based printed check-in is unavailable in this release. Staff can scan a signed-in player's short-lived membership QR from the Players view.</span>
                 </div>
-                <button className="secondary-button" type="button" onClick={generateSelfCheckInKit}>
+                <button className="secondary-button" type="button" onClick={generateSelfCheckInKit} disabled>
                   <FileText size={16} />
-                  Generate QR PDF
+                  Unavailable in this release
                 </button>
               </article>
               {selfCheckInKitMessage ? (
@@ -214,8 +214,8 @@ export default function SettingsView({
                 </p>
               ) : null}
               <article className="preference-row membership-plan-heading">
-                <div><strong>Player memberships</strong><span>Create the plans published to Orbit Player. Purchases become club memberships and unlock game requests.</span></div>
-                <button className="secondary-button" type="button" onClick={() => updateSettings({ membershipPlans: [...state.settings.membershipPlans, { id: `plan-${Date.now()}`, name: 'New Membership', priceLabel: '$0', durationDays: 30, description: '', active: true }] })}><Plus size={16} /> Add plan</button>
+                <div><strong>Player memberships</strong><span>Configure venue-authored access options for Orbit Player. Players request an option; staff verifies and completes any payment in person.</span></div>
+                <button className="secondary-button" type="button" onClick={() => updateSettings({ membershipPlans: [...state.settings.membershipPlans, { id: `plan-${Date.now()}`, name: '', priceLabel: '', durationDays: 0, description: '', active: false }] })}><Plus size={16} /> Add plan</button>
               </article>
               <div className="preference-list">
                 {state.settings.membershipPlans.map((plan) => (
@@ -223,10 +223,10 @@ export default function SettingsView({
                     <div className="account-management-form">
                       <input value={plan.name} aria-label="Membership name" placeholder="Membership name" onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, name: event.target.value } : item) })} />
                       <input value={plan.priceLabel} aria-label="Membership price" placeholder="$40/mo" onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, priceLabel: event.target.value } : item) })} />
-                      <input type="number" min="1" value={plan.durationDays} aria-label="Membership duration in days" onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, durationDays: Math.max(1, Number(event.target.value) || 1) } : item) })} />
+                      <input type="number" min="1" value={plan.durationDays || ''} aria-label="Membership duration in days" onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, durationDays: Math.max(0, Math.trunc(Number(event.target.value) || 0)) } : item) })} />
                       <input value={plan.description ?? ''} aria-label="Membership description" placeholder="What this plan includes" onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, description: event.target.value } : item) })} />
                     </div>
-                    <label><input type="checkbox" checked={plan.active} onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, active: event.target.checked } : item) })} /> Published</label>
+                    <label><input type="checkbox" checked={plan.active} disabled={!plan.active && (!plan.name.trim() || !plan.priceLabel.trim() || plan.durationDays < 1)} onChange={(event) => updateSettings({ membershipPlans: state.settings.membershipPlans.map((item) => item.id === plan.id ? { ...item, active: event.target.checked } : item) })} /> Publish to players</label>
                     <button className="icon-button" type="button" aria-label={`Delete ${plan.name}`} onClick={() => updateSettings({ membershipPlans: state.settings.membershipPlans.filter((item) => item.id !== plan.id) })}><Trash2 size={16} /></button>
                   </article>
                 ))}

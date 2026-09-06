@@ -200,34 +200,23 @@ describe('staff administrator bootstrap', () => {
     });
     await vi.waitFor(() => expect(operatorSelect!.value).toBe('staff-floor'));
 
-    desktop.authorizeStaffAction.mockResolvedValueOnce({
-      ok: false,
-      error: 'Select and verify an Owner or Manager for this action.',
-      reauthenticate: false
-    });
     const clubTab = Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-nav button')).find(
       (button) => button.textContent === 'Club & license'
     );
     expect(clubTab).toBeDefined();
     act(() => clubTab!.click());
     const qrButton = Array.from(document.querySelectorAll<HTMLButtonElement>('#settings-club button')).find(
-      (button) => button.textContent?.includes('Generate QR PDF')
+      (button) => button.textContent?.includes('Unavailable in this release')
     );
     expect(qrButton).toBeDefined();
+    expect(qrButton?.disabled).toBe(true);
     await act(async () => {
       qrButton!.click();
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    await vi.waitFor(() => {
-      expect(document.querySelector('#settings-club')?.textContent).toContain(
-        'Select and verify an Owner or Manager for this action.'
-      );
-    });
-    expect(document.querySelector('#settings-club .access-error')?.textContent).toBe(
-      'Select and verify an Owner or Manager for this action.'
-    );
+    expect(desktop.authorizeStaffAction).not.toHaveBeenCalled();
     expect(operatorSelect!.value).toBe('staff-floor');
     expect(document.querySelector('.orbit-account-summary strong')?.textContent).toBe('Sahus');
     expect(desktop.generateSelfCheckInKit).not.toHaveBeenCalled();

@@ -5,7 +5,7 @@ const {
   saveState,
   schedulePublicationDrain
 } = require('../database');
-const { asyncRoute, requireClientAuth } = require('../http/auth');
+const { requireClientAuth } = require('../http/auth');
 const { protectedIdentifier } = require('../http/dataProtection');
 const { logDomainChange } = require('../http/domainEvents');
 const { sendOperationalAlert } = require('../http/operationalAlerts');
@@ -720,8 +720,7 @@ function createSelfCheckInHandlers(dependencies = {}) {
   return { getClubContext, issueClubKit, lookupPlayer, seatPlayer };
 }
 
-function registerSelfCheckInRoutes(app, dependencies = {}) {
-  const handlers = createSelfCheckInHandlers(dependencies);
+function registerSelfCheckInRoutes(app, _dependencies = {}) {
   app.get('/check-in', (_request, response) => {
     setPrivateResponseHeaders(response);
     response.sendFile(path.join(publicDirectory, 'self-check-in.html'));
@@ -734,10 +733,28 @@ function registerSelfCheckInRoutes(app, dependencies = {}) {
     setPrivateResponseHeaders(response);
     response.sendFile(path.join(publicDirectory, 'self-check-in.js'));
   });
-  app.post('/management/self-check-in/qr', requireClientAuth, requireSelfCheckInIssuer, asyncRoute(handlers.issueClubKit));
-  app.post('/player/check-in/context', asyncRoute(handlers.getClubContext));
-  app.post('/player/check-in/lookup', asyncRoute(handlers.lookupPlayer));
-  app.post('/player/check-in/seat', asyncRoute(handlers.seatPlayer));
+  app.post('/management/self-check-in/qr', requireClientAuth, requireSelfCheckInIssuer, rejectSelfCheckInKitIssuance);
+  app.post('/player/check-in/context', rejectUnauthenticatedPlayerCheckIn);
+  app.post('/player/check-in/lookup', rejectUnauthenticatedPlayerCheckIn);
+  app.post('/player/check-in/seat', rejectUnauthenticatedPlayerCheckIn);
+}
+
+function rejectSelfCheckInKitIssuance(_request, response) {
+  setPrivateResponseHeaders(response);
+  response.status(410).json({
+    ok: false,
+    code: 'PUBLIC_SELF_CHECK_IN_KIT_DISABLED',
+    error: 'Printed name-based self-check-in kits are not available. Staff can scan a signed-in player\'s short-lived membership QR instead.'
+  });
+}
+
+function rejectUnauthenticatedPlayerCheckIn(_request, response) {
+  setPrivateResponseHeaders(response);
+  response.status(410).json({
+    ok: false,
+    code: 'PUBLIC_PLAYER_CHECK_IN_DISABLED',
+    error: 'Name-based player check-in is not available. Use an authenticated, single-use membership QR instead.'
+  });
 }
 
 module.exports = {
@@ -746,6 +763,8 @@ module.exports = {
   commitWithRetries,
   createSelfCheckInHandlers,
   readConfiguredOrigin,
+  rejectUnauthenticatedPlayerCheckIn,
+  rejectSelfCheckInKitIssuance,
   registerSelfCheckInRoutes,
   requireSelfCheckInIssuer,
   stableId

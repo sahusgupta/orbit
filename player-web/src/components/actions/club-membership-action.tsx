@@ -21,7 +21,7 @@ export function ClubMembershipAction({ club }: { club: PlayerClubSnapshot }) {
   const playerData = usePlayerData();
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(() => Boolean(user && searchParams.get('intent') === 'membership'));
-  const [selectedId, setSelectedId] = useState(club.club.membershipOptions?.[0]?.id ?? 'club-plan');
+  const [selectedId, setSelectedId] = useState(club.club.membershipOptions?.[0]?.id ?? '');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const liveClub = playerData.clubs.find((candidate) => candidate.club.id === club.club.id) ?? club;
@@ -52,6 +52,7 @@ export function ClubMembershipAction({ club }: { club: PlayerClubSnapshot }) {
   const submit = async () => {
     setBusy(true); setMessage('');
     try {
+      if (!selectedOption) throw new Error('This venue has not published a membership option yet.');
       await playerData.requestMembership(liveClub, selectedOption);
       setMessage('Application sent. The club will review it before payment and activation.');
       setOpen(false);
@@ -67,7 +68,7 @@ export function ClubMembershipAction({ club }: { club: PlayerClubSnapshot }) {
         <Form className="dialog-form" onFormSubmit={() => void submit()}>
           {options.length ? <Fieldset.Root className="membership-options"><Fieldset.Legend>Membership option</Fieldset.Legend><RadioGroup className="membership-options__choices" name="membership" value={selectedId} onValueChange={setSelectedId}>{options.map((option: PlayerMembershipOption) => <label key={option.id}><Radio.Root className="radio-control" value={option.id}><Radio.Indicator className="radio-control__indicator" /></Radio.Root><span><strong>{option.name}</strong><small>{option.priceLabel}{option.description ? ` · ${option.description}` : ''}</small></span></label>)}</RadioGroup></Fieldset.Root> : <div className="notice-box"><strong>Club-priced membership</strong><p>The club will confirm the current product and price before activation.</p></div>}
           {message ? <p className="form-message" role="alert">{message}</p> : null}
-          <Button type="submit" disabled={busy}><CheckCircle2 aria-hidden="true" size={18} />{busy ? 'Sending…' : 'Send request'}</Button>
+          <Button type="submit" disabled={busy || !selectedOption}><CheckCircle2 aria-hidden="true" size={18} />{busy ? 'Sending…' : 'Send request'}</Button>
         </Form>
       </Dialog>
     </>

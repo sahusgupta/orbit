@@ -337,6 +337,12 @@ export function createBalancedTable(
   physicalTableId?: string
 ) {
   const movingInterestIds = plan.moveCandidates.map(getRequiredMoveInterestId);
+  const movingProfileIds = Array.from(new Set(plan.moveCandidates
+    .map((candidate) => candidate.interest?.profileId)
+    .filter((profileId): profileId is string => Boolean(profileId))));
+  const everyMovingPlayerIdentified = plan.moveCandidates.every(
+    (candidate) => Boolean(candidate.interest?.profileId)
+  );
   const physicalTable = getAvailablePhysicalTable(
     state,
     physicalTableId,
@@ -384,7 +390,10 @@ export function createBalancedTable(
         tableId: plan.fromTable.id,
         timestamp: dependencies.nowIso(),
         playerCount: plan.tableBProjectedSeats,
-        note: `Table B created from Table A balance option: ${plan.moveCandidates.map((candidate) => candidate.playerName).join(', ')}`
+        ...(movingProfileIds.length ? { profileIds: movingProfileIds } : {}),
+        note: everyMovingPlayerIdentified
+          ? `Table B created from Table A balance option: ${plan.moveCandidates.map((candidate) => candidate.playerName).join(', ')}`
+          : `Table B created from Table A balance option with ${plan.moveCandidates.length} player${plan.moveCandidates.length === 1 ? '' : 's'}`
       }
     ]
   };
@@ -439,6 +448,11 @@ export function startTableWithPlayers(
   nextState = syncSessionSeatCount(nextState, session.id, { status: 'Running', startedAt: seatedAt });
   const table = nextState.sessions.find((item) => item.id === session.id);
   const playerCount = table?.seatsFilled ?? alreadySeated.length + seatedNames.length;
+  const startedPlayers = getActivePlayerSessionsForTable(nextState, session.id);
+  const startedProfileIds = Array.from(new Set(startedPlayers
+    .map((playerSession) => playerSession.profileId)
+    .filter((profileId): profileId is string => Boolean(profileId))));
+  const everyStartedPlayerIdentified = startedPlayers.every((playerSession) => Boolean(playerSession.profileId));
   return {
     state: {
       ...nextState,
@@ -451,9 +465,12 @@ export function startTableWithPlayers(
           tableId: session.id,
           timestamp: seatedAt,
           playerCount,
+          ...(startedProfileIds.length ? { profileIds: startedProfileIds } : {}),
           note: `${
-            seatedNames.length || alreadySeated.length
-              ? `Started with ${[...alreadySeated.map((player) => player.playerName), ...seatedNames].join(', ')}`
+            startedPlayers.length
+              ? everyStartedPlayerIdentified
+                ? `Started with ${startedPlayers.map((player) => player.playerName).join(', ')}`
+                : `Started with ${startedPlayers.length} player${startedPlayers.length === 1 ? '' : 's'}`
               : 'Started empty'
           } - messaging trigger: ${cardHouse}`
         }

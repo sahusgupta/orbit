@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerClubSnapshot } from './playerSync';
-import { filterSnapshotForPlayer } from './playerSnapshotTransforms';
+import { buildPublishedClubSnapshot, filterSnapshotForPlayer, mergeClubSnapshots } from './playerSnapshotTransforms';
 
 const loyalty = { clubId: 'club-1', points: 0, lifetimeHours: 0, tier: 'New' as const, nextTierAtHours: 12 };
 
@@ -29,11 +29,29 @@ function snapshot(): PlayerClubSnapshot {
 }
 
 describe('Player snapshot ownership filtering', () => {
-  it('uses stable IDs exclusively and keeps legacy name-only records', () => {
+  it('uses stable IDs exclusively and drops legacy name-only records', () => {
     const filtered = filterSnapshotForPlayer(snapshot(), { id: 'PLAYER-1', name: 'alex' });
 
-    expect(filtered.memberships.map(({ id }) => id)).toEqual(['membership-own', 'membership-legacy']);
-    expect(filtered.waitlists.map(({ id }) => id)).toEqual(['wait-own', 'wait-legacy']);
-    expect(filtered.notifications.map(({ id }) => id)).toEqual(['notice-own', 'notice-legacy']);
+    expect(filtered.memberships.map(({ id }) => id)).toEqual(['membership-own']);
+    expect(filtered.waitlists.map(({ id }) => id)).toEqual(['wait-own']);
+    expect(filtered.notifications.map(({ id }) => id)).toEqual(['notice-own']);
+  });
+
+  it('keeps undated and missing-social publication facts explicitly unknown', () => {
+    const built = buildPublishedClubSnapshot(
+      { id: 'club-doc', data: () => ({ id: 'club-1', name: 'River Room' }) },
+      [],
+      [],
+      [],
+      [],
+      { id: 'player-1', name: 'Alex' }
+    );
+    expect(built).toMatchObject({ club: { id: 'club-1', name: 'River Room' }, generatedAt: '' });
+    expect(built).not.toHaveProperty('social');
+
+    const missingSocial = { ...snapshot(), social: undefined, generatedAt: '' };
+    const merged = mergeClubSnapshots([missingSocial, snapshot()]);
+    expect(merged).not.toHaveProperty('social');
+    expect(merged.generatedAt).toBe('2026-08-28T12:00:00.000Z');
   });
 });

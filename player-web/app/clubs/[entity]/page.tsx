@@ -30,7 +30,7 @@ export default async function ClubDetailPage({ params }: ClubPageProps) {
   const club = findClubByRouteKey(result.data.clubs, entity);
   if (!club) notFound();
   const games = flattenGames([club]);
-  const tournaments = filterTournaments(result.data, { query: '', club: club.club.id, distance: '0', registration: 'all' });
+  const tournaments = filterTournaments(result.data, { query: '', club: club.club.id, distance: '0', interest: 'all' });
   const runningCount = games.filter((listing) => listing.state === 'running').length;
   const formingCount = games.filter((listing) => listing.state === 'forming').length;
   const path = `/clubs/${clubRouteKey(club)}`;
@@ -48,7 +48,7 @@ export default async function ClubDetailPage({ params }: ClubPageProps) {
       <LiveRouteRefresh />
       <nav className="breadcrumbs" aria-label="Breadcrumb"><ButtonLink href="/clubs" tone="quiet" size="compact">Clubs</ButtonLink><span aria-hidden="true">/</span><span>{club.club.name}</span></nav>
       <section className="club-hero">
-        <div className="club-hero__identity"><span className="club-monogram club-monogram--large" aria-hidden="true">{club.club.name.slice(0, 1).toUpperCase()}</span><div><p className="eyebrow">{getVenueLabel(club)}</p><h1>{club.club.name}</h1><p><MapPin aria-hidden="true" />{club.club.address || 'Location managed by the club'}</p>{club.club.phone ? <a href={`tel:${club.club.phone}`}><Phone aria-hidden="true" />{club.club.phone}</a> : null}</div></div>
+        <div className="club-hero__identity"><span className="club-monogram club-monogram--large" aria-hidden="true">{club.club.name.slice(0, 1).toUpperCase()}</span><div><p className="eyebrow">{getVenueLabel(club)}</p><h1>{club.club.name}</h1><p><MapPin aria-hidden="true" />{club.club.address || 'Location unavailable'}</p>{club.club.phone ? <a href={`tel:${club.club.phone}`}><Phone aria-hidden="true" />{club.club.phone}</a> : null}</div></div>
         <div className="club-live-strip"><div><span className="live-indicator" aria-hidden="true" /><strong>{runningCount}</strong><small>running</small></div><div><Radio aria-hidden="true" /><strong>{formingCount}</strong><small>forming</small></div><div><strong>{tournaments.length}</strong><small>upcoming</small></div></div>
       </section>
       <div className="detail-grid detail-grid--club">

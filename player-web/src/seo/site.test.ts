@@ -21,7 +21,7 @@ describe('Orbit web metadata contract', () => {
   });
 
   it('marks private routes as noindex without removing their canonical URL', () => {
-    const metadata = createPageMetadata({ title: 'My Games', description: 'Private games.', path: '/me/games', noIndex: true });
+    const metadata = createPageMetadata({ title: 'My Games', description: 'Authenticated game activity.', path: '/me/games', noIndex: true });
     expect(metadata.robots).toEqual({ index: false, follow: false });
     expect(metadata.alternates).toEqual({ canonical: '/me/games' });
   });

@@ -1,31 +1,40 @@
 import { describe, expect, it } from 'vitest';
-import { getClubMembershipPrices, getClubProductLabel, timeAccessOptions } from './clubAccess';
-import type { PlayerClubSnapshot } from './playerSync';
+import { getAccessProfileText, getClubFeeProfile } from './clubAccess';
+import type { PlayerClubSnapshot, PlayerSyncGame } from './playerSync';
 
-const club: PlayerClubSnapshot = {
-  club: { id: 'club-1', name: 'Time Club', minimumAge: 21 },
+const club = (hourlyFeeCents?: number): PlayerClubSnapshot => ({
+  club: { id: 'club-1', name: 'Club One', minimumAge: 21 },
   games: [],
   memberships: [],
   waitlists: [],
   notifications: [],
   social: { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: 0 },
-  timeAccess: { enabled: true, hourlyFeeCents: 1200, linked: true, savedMinutes: 0 },
+  ...(hourlyFeeCents == null ? {} : { timeAccess: { enabled: true, hourlyFeeCents, linked: true, savedMinutes: 0 } }),
   generatedAt: '2026-08-28T00:00:00.000Z'
-};
+});
 
-describe('player time purchase options', () => {
-  it('offers only 30-minute, one-hour, and two-hour choices', () => {
-    expect(timeAccessOptions).toEqual([
-      { product: 'time-30', minutes: 30, label: '30 min' },
-      { product: 'time-60', minutes: 60, label: '1 hour' },
-      { product: 'time-120', minutes: 120, label: '2 hours' }
-    ]);
+const game = (collectionMode?: PlayerSyncGame['collectionMode']): PlayerSyncGame => ({
+  id: 'game-1',
+  name: 'Holdem',
+  maxSeats: 9,
+  collectionMode,
+  openTables: [],
+  waitlistCount: 0,
+  formingCount: 0,
+  availableSeats: 0,
+  knownPlayersCount: 0
+});
+
+describe('venue-published collection terms', () => {
+  it('preserves a published hourly rate, including a legitimate zero', () => {
+    expect(getClubFeeProfile(club(1200), game('Time'))).toEqual({ type: 'time', label: '$12.00/hr' });
+    expect(getClubFeeProfile(club(0), game('Time'))).toEqual({ type: 'time', label: '$0.00/hr' });
   });
 
-  it('shows prices derived from the published hourly fee', () => {
-    const prices = getClubMembershipPrices(club);
-    expect(getClubProductLabel('time-30', prices)).toBe('$6.00');
-    expect(getClubProductLabel('time-60', prices)).toBe('$12.00');
-    expect(getClubProductLabel('time-120', prices)).toBe('$24.00');
+  it('does not invent time or drop fees when an amount is absent', () => {
+    expect(getClubFeeProfile(club(), game('Time'))).toEqual({ type: 'time', label: 'Time rate not published' });
+    expect(getClubFeeProfile(club(), game('Drop'))).toEqual({ type: 'drop', label: 'Drop amount not published' });
+    expect(getClubFeeProfile(club(), game())).toEqual({ type: 'unknown', label: 'Collection details not published' });
+    expect(getAccessProfileText(club(), game('Drop'))).toContain('Confirm current fees');
   });
 });

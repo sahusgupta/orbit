@@ -1,10 +1,11 @@
 import * as crypto from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import licenseService from './licenseService.js';
 
 const {
   canonicalPayload,
   hashAuthorizationCode,
+  inspectPilotLicenses,
   isLicenseActive,
   normalizeExpiration,
   verifySignedPilotLicense
@@ -28,6 +29,27 @@ describe('pilot license service', () => {
     expect(isLicenseActive({ status: 'active', expiresAt: '2027-01-02T00:00:00.000Z' }, now)).toBe(true);
     expect(isLicenseActive({ status: 'active', expiresAt: '2026-12-31T00:00:00.000Z' }, now)).toBe(false);
     expect(isLicenseActive({ status: 'revoked', expiresAt: '2028-01-01T00:00:00.000Z' }, now)).toBe(false);
+  });
+
+  it('inspects a bounded venue page in one Firestore getAll operation', async () => {
+    const codes = ['license-club-one', 'license-club-two'];
+    const records = new Map([[hashAuthorizationCode(codes[0]), {
+      accountKey: 'club-one', status: 'active', expiresAt: '2099-01-01T00:00:00.000Z'
+    }]]);
+    const getAll = vi.fn(async (...references) => references.map((reference) => ({
+      id: reference.id,
+      exists: records.has(reference.id),
+      data: () => records.get(reference.id)
+    })));
+    const collection = {
+      doc: (id) => ({ id }),
+      firestore: { getAll }
+    };
+    await expect(inspectPilotLicenses(codes, { collection })).resolves.toMatchObject([
+      { managed: true, active: true, license: { accountKey: 'club-one' } },
+      { managed: false, active: false, license: null }
+    ]);
+    expect(getAll).toHaveBeenCalledOnce();
   });
 
   it('accepts an authentic signed license and rejects a forged payload', () => {

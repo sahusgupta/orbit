@@ -1,5 +1,17 @@
-const membershipQrPrefix = 'orbit-membership:v1:';
+import { createSecureUuid } from '../security/secureIdentifier';
 
-export function createMembershipQrValue(clubId: string, playerId: string) {
-  return `${membershipQrPrefix}${encodeURIComponent(clubId.trim())}:${encodeURIComponent(playerId.trim())}`;
+export type MembershipQrCredential = {
+  token: string;
+  issuedAt: string;
+  expiresAt: string;
+};
+
+export function createMembershipQrMutationId() {
+  return createSecureUuid();
+}
+
+export function isMembershipQrUsable(credential: MembershipQrCredential | null, nowMs: number) {
+  if (!credential?.token) return false;
+  const expiry = Date.parse(credential.expiresAt);
+  return Number.isFinite(expiry) && expiry > nowMs;
 }

@@ -1,3 +1,5 @@
+import { createSecureUuid } from '../security/secureIdentifier';
+
 export type PlayerSyncGameStatus = 'Running' | 'Forming' | 'Paused' | 'Closed' | 'Failed to Start';
 export type PlayerSyncInterestStatus =
   | 'Interested'
@@ -14,12 +16,19 @@ export type PlayerRecordDocument = {
   data(): unknown;
 };
 
+export type PlayerCoordinate = {
+  latitude: number;
+  longitude: number;
+};
+
 export type PlayerSyncClub = {
   id: string;
   name: string;
   address?: string;
   phone?: string;
   minimumAge?: 18 | 21;
+  coordinate?: PlayerCoordinate;
+  venueKind?: 'Casino' | 'Card house' | 'Poker club';
   syncProtocolVersion?: number;
   syncRevision?: string;
   publishedAt?: string;
@@ -45,6 +54,8 @@ export type PlayerAccount = {
   favoriteClubIds?: string[];
   preferredStakes?: string;
   typicalAvailability?: string;
+  adultDeclaredAt?: string;
+  adultDeclarationVersion?: 'v1';
 };
 
 export type PlayerSyncTable = {
@@ -102,14 +113,16 @@ export type PlayerMembership = {
   playerId: string;
   playerName: string;
   status: 'Requested' | 'Approved' | 'Active' | 'Expired';
-  joinedAt: string;
+  joinedAt?: string;
   expiresAt?: string;
   plan?: 'day' | 'monthly';
+  planName?: string;
+  membershipDurationDays?: number;
   paymentMethod?: 'app' | 'in-person' | 'core';
   paymentStatus?: 'Not required' | 'Pending' | 'Paid' | 'Failed' | 'Refunded';
   identityReviewStatus?: 'Pending' | 'Approved' | 'Rejected' | 'Not required';
   requestedAt?: string;
-  loyalty: PlayerLoyalty;
+  loyalty?: PlayerLoyalty;
   preferredGameIds: string[];
   preferredStakes?: string;
   clubNote?: string;
@@ -117,49 +130,20 @@ export type PlayerMembership = {
 
 export function getApprovedMembershipActivationCopy(membership: PlayerMembership) {
   const identityPending = membership.identityReviewStatus === 'Pending';
-  const paymentReceived = membership.paymentStatus === 'Paid' || membership.paymentStatus === 'Not required';
-  const paymentDueInPerson = membership.paymentMethod === 'in-person' && !paymentReceived;
-
-  if (paymentReceived && identityPending) {
-    return {
-      title: membership.paymentStatus === 'Paid' ? 'Payment received · ID review needed' : 'ID review needed',
-      body: 'Bring your physical ID to the front desk. Staff will activate your access after approving it.'
-    };
-  }
-  if (paymentDueInPerson) {
-    return {
-      title: identityPending ? 'Bring your ID and pay in person' : 'Pay in person to activate',
-      body: identityPending
-        ? 'Staff must approve your physical ID and confirm payment before activating your access.'
-        : 'Staff must confirm your payment before activating your access.'
-    };
-  }
-  if (membership.paymentStatus === 'Pending') {
-    return {
-      title: 'Waiting for online payment confirmation',
-      body: identityPending
-        ? 'Stripe and the card house must confirm payment. Bring your physical ID for staff review.'
-        : 'Stripe and the card house must confirm payment before your access activates.'
-    };
-  }
   if (identityPending) {
     return {
       title: 'Physical ID review needed',
-      body: 'Bring your physical ID to the front desk so staff can approve it and activate your access.'
-    };
-  }
-  if (paymentReceived) {
-    return {
-      title: 'Ready for staff activation',
-      body: membership.paymentStatus === 'Paid'
-        ? 'Payment and ID requirements are complete. Staff can activate your access.'
-        : 'No payment is due. Staff can activate your access.'
+      body: 'Bring your physical ID. Venue staff will confirm any fee in person and publish your access status.'
     };
   }
   return {
-    title: 'Visit the front desk to activate',
-    body: 'Bring your physical ID and confirm any membership fee with staff.'
+    title: 'Confirm access with venue staff',
+    body: 'Venue staff will confirm any fee in person and publish the membership status shown here.'
   };
+}
+
+export function getPublishedMembershipPlanLabel(membership: Pick<PlayerMembership, 'planName'>) {
+  return membership.planName?.trim() || 'Membership access';
 }
 
 export type PlayerClubMembershipRecord = {
@@ -169,6 +153,8 @@ export type PlayerClubMembershipRecord = {
   joinedAt?: string;
   expiresAt?: string;
   plan?: 'day' | 'monthly';
+  planName?: string;
+  membershipDurationDays?: number;
   paymentMethod?: 'app' | 'in-person' | 'core';
   preferredGameIds?: string[];
   preferredStakes?: string;
@@ -177,11 +163,6 @@ export type PlayerClubMembershipRecord = {
 export type PlayerProfileDocument = PlayerAccount & {
   uid: string;
   clubMemberships?: Record<string, PlayerClubMembershipRecord>;
-  premium?: {
-    status?: 'inactive' | 'pending' | 'active' | 'past_due' | 'canceled';
-    currentPeriodEnd?: string;
-  };
-  subscriptionStatus?: 'inactive' | 'pending' | 'active' | 'past_due' | 'canceled';
   updatedAt?: string;
 };
 
@@ -218,7 +199,7 @@ export type PlayerClubSnapshot = {
   memberships: PlayerMembership[];
   waitlists: PlayerWaitlistEntry[];
   notifications: PlayerInAppNotification[];
-  social: PlayerSocialSummary;
+  social?: PlayerSocialSummary;
   timeAccess?: PlayerTimeAccess;
   generatedAt: string;
   syncProtocolVersion?: number;
@@ -242,82 +223,88 @@ export type PlayerTimeAccess = {
   };
 };
 
-export type TournamentRegistrationStatus =
-  | 'registered'
-  | 'checked-in'
-  | 'eliminated'
-  | 'rebought'
-  | 'add-on-purchased'
-  | 'finished';
-
 export type PlayerTournament = {
   id: string;
   clubId: string;
   name: string;
   startsAt: string;
-  registrationOpensAt: string;
-  registrationClosesAt: string;
-  registrationStatus: 'open' | 'closed';
-  buyIn: number;
-  prizePoolLabel: string;
-  startingStack: number;
-  levelMinutes: number;
-  lateRegistrationThroughLevel: number;
-  rebuyPrice: number;
-  rebuyStack: number;
-  unlimitedRebuys: boolean;
-  addOnPrice: number;
-  addOnStack: number;
+  interestOpensAt: string;
+  interestClosesAt: string;
+  interestStatus: 'open' | 'closed';
+  buyIn?: number;
+  prizePoolLabel?: string;
+  startingStack?: number;
+  levelMinutes?: number;
+  lateRegistrationThroughLevel?: number;
+  rebuyPrice?: number;
+  rebuyStack?: number;
+  unlimitedRebuys?: boolean;
+  rebuysAllowed: boolean;
+  addOnPrice?: number;
+  addOnStack?: number;
+  addOnsAllowed: boolean;
   rules: string[];
-  unregisterAllowed: boolean;
-  entrantCount: number;
-  totalRebuys: number;
-  totalAddOns: number;
+  withdrawalAllowed: boolean;
+  entrantCount?: number;
+  totalRebuys?: number;
+  totalAddOns?: number;
   featured?: boolean;
 };
 
-export type PlayerTournamentRegistration = {
+export function isTournamentInterestOpen(tournament: PlayerTournament, nowMs = Date.now()) {
+  const opensAt = Date.parse(tournament.interestOpensAt);
+  const closesAt = Date.parse(tournament.interestClosesAt);
+  const startsAt = Date.parse(tournament.startsAt);
+  return tournament.interestStatus === 'open'
+    && Number.isFinite(opensAt)
+    && Number.isFinite(closesAt)
+    && Number.isFinite(startsAt)
+    && nowMs >= opensAt
+    && nowMs < closesAt
+    && nowMs < startsAt;
+}
+
+export type PlayerTournamentInterest = {
   id: string;
   tournamentId: string;
   clubId: string;
   playerId: string;
-  playerName: string;
-  playerEmail: string;
-  status: TournamentRegistrationStatus;
-  rebuys: number;
-  addOns: number;
-  registeredAt: string;
-  checkedInAt?: string;
+  status: 'interested' | 'withdrawn';
+  createdAt: string;
   updatedAt: string;
 };
 
-export type PlayerPrivateGameListing = {
-  id: string;
-  name: string;
-  location: string;
-  startsAt: string;
-  seats: string;
-  note: string;
-  hostPlayerId: string;
-  hostPlayerPath: string;
-  hostPlayerName: string;
-  hostPlayerEmail?: string;
-  createdAt: string;
-  status: 'Open' | 'Cancelled' | 'Closed';
-};
+type TournamentScope = Pick<PlayerTournament, 'clubId' | 'id'>;
+type TournamentInterestScope = Pick<PlayerTournamentInterest, 'clubId' | 'playerId' | 'tournamentId'>;
+
+export function tournamentScopeKey(tournament: TournamentScope) {
+  return JSON.stringify([tournament.clubId, tournament.id]);
+}
+
+export function isTournamentInterestFor(
+  interest: Pick<PlayerTournamentInterest, 'clubId' | 'tournamentId'>,
+  tournament: TournamentScope
+) {
+  return interest.clubId === tournament.clubId && interest.tournamentId === tournament.id;
+}
+
+export function isSameTournamentInterest(left: TournamentInterestScope, right: TournamentInterestScope) {
+  return left.playerId === right.playerId
+    && left.clubId === right.clubId
+    && left.tournamentId === right.tournamentId;
+}
 
 export type PlayerMembershipRequest = {
   id: string;
   type: 'membership-request';
   clubId: string;
   player: PlayerAccount;
-  plan: 'day' | 'monthly';
-  paymentMethod: 'app' | 'in-person';
+  paymentMethod: 'in-person';
   priceLabel?: string;
-  planId?: string;
-  planName?: string;
+  planId: string;
+  planName: string;
   planPriceLabel?: string;
-  membershipDurationDays?: number;
+  membershipDurationDays: number;
   requestedAt: string;
 };
 
@@ -333,59 +320,37 @@ export type PlayerWaitlistRequest = {
   availabilityStartTime?: string;
   availabilityEndTime?: string;
   tableId?: string;
-  note?: string;
   requestedAt: string;
 };
 
-const slug = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'club';
-
-const requestId = (prefix: string, seed: string, at: string) => `${prefix}_${slug(seed)}_${Date.parse(at) || Date.now()}`;
-
-export function getPlayerLoyalty(clubId: string, lifetimeHours = 0): PlayerLoyalty {
-  const hours = Math.max(0, lifetimeHours);
-  if (hours >= 120) {
-    return { clubId, points: Math.floor(hours * 10), lifetimeHours: hours, tier: 'Anchor', nextTierAtHours: null };
-  }
-  if (hours >= 50) {
-    return { clubId, points: Math.floor(hours * 10), lifetimeHours: hours, tier: 'Preferred', nextTierAtHours: 120 };
-  }
-  if (hours >= 12) {
-    return { clubId, points: Math.floor(hours * 10), lifetimeHours: hours, tier: 'Regular', nextTierAtHours: 50 };
-  }
-  return { clubId, points: Math.floor(hours * 10), lifetimeHours: hours, tier: 'New', nextTierAtHours: 12 };
+export function createOpaquePlayerId(prefix: 'player' | 'join' | 'wait' | 'identity' = 'player') {
+  return `${prefix}_${createSecureUuid()}`;
 }
 
 export function createMembershipRequest(
   player: PlayerAccount,
   clubId: string,
-  requestedAt = new Date().toISOString(),
+  requestedAt: string | undefined,
   options: {
-    plan?: 'day' | 'monthly';
-    paymentMethod?: 'app' | 'in-person';
+    paymentMethod?: 'in-person';
     priceLabel?: string;
-    planId?: string;
-    planName?: string;
-    membershipDurationDays?: number;
-  } = {}
+    planId: string;
+    planName: string;
+    membershipDurationDays: number;
+  }
 ): PlayerMembershipRequest {
   return {
-    id: requestId('join', `${clubId}-${player.email || player.id}`, requestedAt),
+    id: createOpaquePlayerId('join'),
     type: 'membership-request',
     clubId,
     player,
-    plan: options.plan ?? 'monthly',
-    paymentMethod: options.paymentMethod ?? 'app',
+    paymentMethod: options.paymentMethod ?? 'in-person',
     priceLabel: options.priceLabel,
     planId: options.planId,
     planName: options.planName,
     planPriceLabel: options.priceLabel,
     membershipDurationDays: options.membershipDurationDays,
-    requestedAt
+    requestedAt: requestedAt ?? new Date().toISOString()
   };
 }
 
@@ -400,13 +365,12 @@ export function createWaitlistRequest(
     availabilityStartTime?: string;
     availabilityEndTime?: string;
     tableId?: string;
-    note?: string;
     requestedAt?: string;
   } = {}
 ): PlayerWaitlistRequest {
   const requestedAt = options.requestedAt ?? new Date().toISOString();
   return {
-    id: requestId('wait', `${clubId}-${gameId}-${player.email || player.id}`, requestedAt),
+    id: createOpaquePlayerId('wait'),
     type: 'waitlist-request',
     clubId,
     player,
@@ -417,13 +381,9 @@ export function createWaitlistRequest(
     availabilityStartTime: options.availabilityStartTime,
     availabilityEndTime: options.availabilityEndTime,
     tableId: options.tableId,
-    note: options.note,
     requestedAt
   };
 }
-
-export type ClubMembershipPlan = 'day' | 'monthly';
-export type ClubMembershipPaymentMethod = 'app' | 'in-person';
 
 export function normalizedIdentity(value?: string) {
   return (value ?? '').trim().toLowerCase();
@@ -431,10 +391,22 @@ export function normalizedIdentity(value?: string) {
 
 export function isPlayerMembership(membership: PlayerClubSnapshot['memberships'][number], player: PlayerAccount) {
   const playerId = normalizedIdentity(player.id);
-  const playerName = normalizedIdentity(player.name);
   const membershipPlayerId = normalizedIdentity(membership.playerId);
-  if (membershipPlayerId) return Boolean(playerId && membershipPlayerId === playerId);
-  return Boolean(playerName && normalizedIdentity(membership.playerName) === playerName);
+  return Boolean(playerId && membershipPlayerId && membershipPlayerId === playerId);
+}
+
+export type PlayerSeatRequestAccess = 'active' | 'pending' | 'renewal' | 'missing';
+
+export function getPlayerSeatRequestAccess(
+  club: Pick<PlayerClubSnapshot, 'memberships'>,
+  player: PlayerAccount,
+  nowMs: number
+): PlayerSeatRequestAccess {
+  const membership = club.memberships.find((candidate) => isPlayerMembership(candidate, player));
+  if (!membership) return 'missing';
+  if (isMembershipCurrentlyActive(membership, nowMs)) return 'active';
+  if (membership.status === 'Requested' || membership.status === 'Approved') return 'pending';
+  return 'renewal';
 }
 
 export function isMembershipCurrentlyActive(
@@ -461,10 +433,8 @@ export function formatPassCountdown(expiresAt: string | undefined, nowMs: number
 
 export function isPlayerWaitlistEntry(entry: PlayerWaitlistEntry, player: PlayerAccount) {
   const playerId = normalizedIdentity(player.id);
-  const playerName = normalizedIdentity(player.name);
   const entryPlayerId = normalizedIdentity(entry.playerId);
-  if (entryPlayerId) return Boolean(playerId && entryPlayerId === playerId);
-  return Boolean(playerName && normalizedIdentity(entry.playerName) === playerName);
+  return Boolean(playerId && entryPlayerId && entryPlayerId === playerId);
 }
 
 export function isActivePlayerGameRequest(entry: PlayerWaitlistEntry) {

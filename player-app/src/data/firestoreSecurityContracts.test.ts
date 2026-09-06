@@ -14,8 +14,8 @@ describe('Firestore player-facing security contracts', () => {
     expect(rules).not.toMatch(/match \/notifications\/\{notificationId\}\s*\{\s*allow read: if true;/);
   });
 
-  it('uses a separate deliberately public announcement collection', () => {
-    expect(rules).toMatch(/match \/announcements\/\{announcementId\}\s*\{\s*allow read: if true;/);
+  it('denies the unused legacy announcement collection', () => {
+    expect(rules).toMatch(/match \/announcements\/\{announcementId\}\s*\{\s*allow read: if false;/);
   });
 
   it('reserves authoritative club projections and mutation inboxes for the backend publisher', () => {

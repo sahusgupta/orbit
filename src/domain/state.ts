@@ -2,7 +2,6 @@ import { resolveGameId } from '../lib/appCore';
 import { normalizePlayerSessionSeats } from '../lib/seatNormalization';
 import type {
   AppState,
-  ClubMembershipPlan,
   CollectionProfile,
   InterestStatus,
   PersistedAppState,
@@ -12,11 +11,6 @@ import type {
   TournamentLevel,
   TournamentPayout
 } from './types';
-
-const defaultMembershipPlans: ClubMembershipPlan[] = [
-  { id: 'day', name: 'Day Pass', priceLabel: '$10', durationDays: 1, description: 'One day of club access.', active: true },
-  { id: 'monthly', name: 'Monthly Membership', priceLabel: '$40/mo', durationDays: 30, description: 'Thirty days of club access.', active: true }
-];
 
 export const defaultScriptTemplates = [
   'Current {game} has {inRoom} in the room, {coming} coming, and {waiting} waiting or interested.',
@@ -115,7 +109,7 @@ export const seedState: AppState = {
     defaultHourlyFee: 0,
     defaultEstimatedDropPerSeatHour: 0,
     collectionProfiles: [],
-    membershipPlans: defaultMembershipPlans,
+    membershipPlans: [],
     showPlayerGrid: true,
     showDashboardKpis: false,
     showRecentPlayers: true,
@@ -438,10 +432,12 @@ export function normalizeState(parsed: PersistedAppState): AppState {
           hourlyFee: defaultHourlyFee
         };
       }),
-      membershipPlans: (parsed.settings?.membershipPlans ?? defaultMembershipPlans).map((plan) => ({
+      membershipPlans: (parsed.settings?.membershipPlans ?? []).map((plan) => ({
         ...plan,
-        durationDays: Math.max(1, Number(plan.durationDays) || 1),
-        active: plan.active !== false
+        durationDays: Number.isInteger(Number(plan.durationDays)) && Number(plan.durationDays) >= 1
+          ? Number(plan.durationDays)
+          : 0,
+        active: plan.active === true
       })),
       showPlayerGrid: parsed.settings?.showPlayerGrid ?? true,
       showDashboardKpis: parsed.settings?.showDashboardKpis ?? false,

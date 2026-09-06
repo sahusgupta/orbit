@@ -1,47 +1,13 @@
 import type {
   PlayerAccount,
   PlayerClubSnapshot,
-  PlayerMembershipRequest,
   PlayerMembershipOption,
   PlayerWaitlistRequest
 } from '../domain/playerSync';
 import {
   createMembershipRequest,
-  createWaitlistRequest,
-  getPlayerLoyalty
+  createWaitlistRequest
 } from '../domain/playerSync';
-
-export function applyMembershipRequest(snapshot: PlayerClubSnapshot, request: PlayerMembershipRequest): PlayerClubSnapshot {
-  if (snapshot.club.id !== request.clubId) return snapshot;
-  const priceLabel = request.planPriceLabel ?? request.priceLabel ?? '';
-  const numericPrice = priceLabel.match(/\d+(?:\.\d+)?/);
-  const paymentNotRequired = /\bfree\b/i.test(priceLabel) || numericPrice != null && Number(numericPrice[0]) === 0;
-  return {
-    ...snapshot,
-    memberships: [
-      ...snapshot.memberships.filter((membership) => membership.playerId !== request.player.id),
-      {
-        id: `${request.clubId}:${request.player.id}`,
-        clubId: request.clubId,
-        playerId: request.player.id,
-        playerName: request.player.name,
-        status: 'Approved',
-        joinedAt: request.requestedAt.slice(0, 10),
-        plan: request.plan,
-        paymentMethod: request.paymentMethod,
-        paymentStatus: paymentNotRequired ? 'Not required' : 'Pending',
-        identityReviewStatus: 'Pending',
-        requestedAt: request.requestedAt,
-        loyalty: getPlayerLoyalty(request.clubId, 0),
-        preferredGameIds: request.player.preferredGameIds,
-        preferredStakes: request.player.preferredStakes,
-        clubNote: request.player.typicalAvailability
-      }
-    ],
-    notifications: snapshot.notifications ?? [],
-    generatedAt: request.requestedAt
-  };
-}
 
 export function applyWaitlistRequest(snapshot: PlayerClubSnapshot, request: PlayerWaitlistRequest): PlayerClubSnapshot {
   if (snapshot.club.id !== request.clubId) return snapshot;
@@ -50,7 +16,7 @@ export function applyWaitlistRequest(snapshot: PlayerClubSnapshot, request: Play
       (entry) =>
         entry.gameId === request.gameId &&
         ['Interested', 'Confirmed Coming', 'Arrived'].includes(entry.status) &&
-        (entry.playerId === request.player.id || entry.playerName.toLowerCase() === request.player.name.toLowerCase())
+        entry.playerId === request.player.id
     );
     if (!cancelled.length) return snapshot;
     const cancelledIds = new Set(cancelled.map((entry) => entry.id));
@@ -67,10 +33,7 @@ export function applyWaitlistRequest(snapshot: PlayerClubSnapshot, request: Play
       games: snapshot.games.map((game) =>
         game.id === request.gameId ? { ...game, waitlistCount: Math.max(0, game.waitlistCount - cancelled.length) } : game
       ),
-      social: {
-        ...(snapshot.social ?? { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: snapshot.waitlists.length }),
-        waitlistCount: Math.max(0, (snapshot.social?.waitlistCount ?? snapshot.waitlists.length) - cancelled.length)
-      },
+      ...(snapshot.social ? { social: { ...snapshot.social, waitlistCount: Math.max(0, snapshot.social.waitlistCount - cancelled.length) } } : {}),
       waitlists,
       generatedAt: request.requestedAt
     };
@@ -83,10 +46,7 @@ export function applyWaitlistRequest(snapshot: PlayerClubSnapshot, request: Play
     games: snapshot.games.map((game) =>
       game.id === request.gameId ? { ...game, waitlistCount: game.waitlistCount + 1 } : game
     ),
-    social: {
-      ...(snapshot.social ?? { activePlayerCount: 0, adminCount: 0, knownPlayersInHouse: 0, waitlistCount: snapshot.waitlists.length }),
-      waitlistCount: (snapshot.social?.waitlistCount ?? snapshot.waitlists.length) + 1
-    },
+    ...(snapshot.social ? { social: { ...snapshot.social, waitlistCount: snapshot.social.waitlistCount + 1 } } : {}),
     waitlists: [
       ...snapshot.waitlists,
       {
@@ -109,18 +69,14 @@ export function applyWaitlistRequest(snapshot: PlayerClubSnapshot, request: Play
 export function buildJoinRequest(
   player: PlayerAccount,
   clubId: string,
-  plan: 'day' | 'monthly' = 'monthly',
-  paymentMethod: 'app' | 'in-person' = 'app',
-  priceLabel?: string,
-  membershipOption?: PlayerMembershipOption
+  membershipOption: PlayerMembershipOption
 ) {
   return createMembershipRequest(player, clubId, undefined, {
-    plan,
-    paymentMethod,
-    priceLabel: membershipOption?.priceLabel ?? priceLabel,
-    planId: membershipOption?.id,
-    planName: membershipOption?.name,
-    membershipDurationDays: membershipOption?.durationDays
+    paymentMethod: 'in-person',
+    priceLabel: membershipOption.priceLabel,
+    planId: membershipOption.id,
+    planName: membershipOption.name,
+    membershipDurationDays: membershipOption.durationDays
   });
 }
 
@@ -141,7 +97,6 @@ export function buildWaitRequest(
     attendance,
     expectedArrivalTime,
     availabilityStartTime,
-    availabilityEndTime,
-    note: player.typicalAvailability
+    availabilityEndTime
   });
 }

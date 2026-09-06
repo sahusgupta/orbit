@@ -22,12 +22,12 @@ const questions = [
   {
     id: 'location',
     question: 'Can I use Orbit without sharing my location?',
-    answer: 'Yes. Location improves distance sorting, but discovery remains usable without permission. You can also enter a city or area manually.'
+    answer: 'Yes. This release does not request device location or calculate mileage. Discovery uses venue-published game and tournament information, and an optional home-area text preference can be saved to your profile.'
   },
   {
     id: 'payments',
     question: 'How do memberships and tournament payments work?',
-    answer: 'Orbit shows only options a room has published. A membership request or tournament registration records your intent; payment and activation follow the supported process stated by the room.'
+    answer: 'Orbit shows only options a room has published. A membership request or tournament interest records intent; the room separately handles any participation, payment, or activation.'
   }
 ] as const;
 

@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'Orbit Player',
     short_name: 'Orbit Player',
-    description: 'Find nearby poker games that fit, then manage memberships, waitlists, and registrations in one place.',
+    description: 'Find room-published poker games, then manage memberships, waitlists, and tournament interest.',
     start_url: '/',
     display: 'standalone',
     background_color: '#070d16',

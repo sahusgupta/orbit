@@ -61,7 +61,7 @@ describe('Astryx design-system contract', () => {
     expect(read('src/styles/80-motion-responsive.css')).toContain('@media (prefers-reduced-motion: reduce)');
     const presentation = read('player-app/src/components/PlayerPresentation.tsx');
     expect(presentation).toContain('AccessibilityInfo.isReduceMotionEnabled()');
-    expect(presentation).toContain('accessibilityState={{ selected: value === option.value }}');
+    expect(presentation).toContain('accessibilityState={{ disabled: Boolean(disabled), selected: Boolean(active) }}');
     const clubHub = read('player-app/src/features/clubs/ClubHub.tsx');
     expect(clubHub.match(/accessibilityState=\{\{ expanded:/g)).toHaveLength(3);
     const details = read('player-app/src/features/discovery/DiscoveryGameDetails.tsx');
@@ -92,8 +92,7 @@ describe('Astryx design-system contract', () => {
       ['public/orbit-icon.png', 'player-web/app/apple-icon.png'],
       ['build/icon.ico', 'player-web/app/favicon.ico'],
       ['build/icon.png', 'player-app/assets/icon.png'],
-      ['build/icon.png', 'player-app/assets/adaptive-icon.png'],
-      ['build/icon.png', 'player-app/assets/splash-icon.png']
+      ['build/icon.png', 'player-app/assets/adaptive-icon.png']
     ];
     for (const [source, output] of pairs) {
       expect(readFileSync(resolve(repositoryRoot, output))).toEqual(readFileSync(resolve(repositoryRoot, source)));

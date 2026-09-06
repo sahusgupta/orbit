@@ -35,13 +35,6 @@ type MapProjection = RequiredCoordinate & {
   zoom: number;
 };
 
-const defaultRegion: RequiredCoordinate = {
-  latitude: 30.613,
-  longitude: -96.342,
-  latitudeDelta: 0.55,
-  longitudeDelta: 0.55
-};
-
 const degreesToRadians = (degrees: number) => (degrees * Math.PI) / 180;
 const clampLatitude = (latitude: number) => Math.max(-85.0511, Math.min(85.0511, latitude));
 const getTileCount = (zoom: number) => 2 ** zoom;
@@ -78,8 +71,21 @@ const getProjection = (region: RequiredCoordinate): MapProjection => {
   };
 };
 
-const defaultProjection = getProjection(defaultRegion);
-const MapRegionContext = React.createContext<MapProjection>(defaultProjection);
+const MapRegionContext = React.createContext<MapProjection | null>(null);
+
+function decodePublishedRegion(region?: Coordinate): RequiredCoordinate | null {
+  const latitudeDelta = region?.latitudeDelta;
+  const longitudeDelta = region?.longitudeDelta;
+  if (
+    !region || !Number.isFinite(region.latitude) || !Number.isFinite(region.longitude) ||
+    typeof latitudeDelta !== 'number' || !Number.isFinite(latitudeDelta) ||
+    typeof longitudeDelta !== 'number' || !Number.isFinite(longitudeDelta) ||
+    region.latitude < -90 || region.latitude > 90 ||
+    region.longitude < -180 || region.longitude > 180 ||
+    latitudeDelta <= 0 || longitudeDelta <= 0
+  ) return null;
+  return { latitude: region.latitude, longitude: region.longitude, latitudeDelta, longitudeDelta };
+}
 
 export function Circle(_props: Record<string, unknown>) {
   return null;
@@ -87,6 +93,7 @@ export function Circle(_props: Record<string, unknown>) {
 
 export function Marker({ coordinate, title, description, pinColor = '#38506d', onPress }: MarkerProps) {
   const projection = React.useContext(MapRegionContext);
+  if (!projection) return null;
   const leftPercent = 50 + (longitudeToTileX(coordinate.longitude, projection.zoom) - projection.centerTileX) * projection.tileWidthPercent;
   const topPercent = 50 + (latitudeToTileY(coordinate.latitude, projection.zoom) - projection.centerTileY) * projection.tileHeightPercent;
   const left = `${Math.max(5, Math.min(92, leftPercent))}%` as DimensionValue;
@@ -142,12 +149,27 @@ export function Marker({ coordinate, title, description, pinColor = '#38506d', o
 }
 
 export default function MapView({ children, style, onPress, initialRegion }: MapViewProps) {
-  const initialMapRegion = {
-    latitude: initialRegion?.latitude ?? defaultRegion.latitude,
-    longitude: initialRegion?.longitude ?? defaultRegion.longitude,
-    latitudeDelta: initialRegion?.latitudeDelta ?? defaultRegion.latitudeDelta,
-    longitudeDelta: initialRegion?.longitudeDelta ?? defaultRegion.longitudeDelta
-  };
+  const publishedRegion = decodePublishedRegion(initialRegion);
+  if (!publishedRegion) {
+    return (
+      <View style={[style, { alignItems: 'center', backgroundColor: '#eef1ed', justifyContent: 'center' }]}>
+        <Text style={{ color: '#64748b', fontSize: 12, fontWeight: '600' }}>Map unavailable without published coordinates.</Text>
+      </View>
+    );
+  }
+  return (
+    <PublishedRegionMap style={style} onPress={onPress} initialMapRegion={publishedRegion}>
+      {children}
+    </PublishedRegionMap>
+  );
+}
+
+function PublishedRegionMap({
+  children,
+  style,
+  onPress,
+  initialMapRegion
+}: Pick<MapViewProps, 'children' | 'style' | 'onPress'> & { initialMapRegion: RequiredCoordinate }) {
   const [region, setRegion] = React.useState(initialMapRegion);
   const [mapSize, setMapSize] = React.useState({ width: 1, height: 1 });
   const regionRef = React.useRef(region);

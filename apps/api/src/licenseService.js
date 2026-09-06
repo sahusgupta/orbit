@@ -134,6 +134,29 @@ async function inspectPilotLicense(authorizationCode) {
   return { managed: true, active, license: publicLicense(record) };
 }
 
+async function inspectPilotLicenses(authorizationCodes, dependencies = {}) {
+  const codes = Array.isArray(authorizationCodes)
+    ? authorizationCodes.map((value) => String(value || '').trim())
+    : [];
+  if (codes.length === 0) return [];
+  if (codes.length > 50 || codes.some((code) => !code)) {
+    throw new Error('A bounded list of pilot authorization codes is required.');
+  }
+  const collection = dependencies.collection || getLicenseCollection();
+  const hashes = Array.from(new Set(codes.map(hashAuthorizationCode)));
+  const references = hashes.map((hash) => collection.doc(hash));
+  const snapshots = dependencies.getAll
+    ? await dependencies.getAll(references)
+    : await collection.firestore.getAll(...references);
+  const snapshotsById = new Map((snapshots || []).map((snapshot) => [snapshot.id, snapshot]));
+  return codes.map((code) => {
+    const snapshot = snapshotsById.get(hashAuthorizationCode(code));
+    if (!snapshot?.exists) return { managed: false, active: false, license: null };
+    const record = { id: snapshot.id, ...snapshot.data() };
+    return { managed: true, active: isLicenseActive(record), license: publicLicense(record) };
+  });
+}
+
 async function authenticatePilotLicense(authorizationCode) {
   const result = await inspectPilotLicense(authorizationCode);
   if (!result.managed) return result;
@@ -231,6 +254,7 @@ module.exports = {
   getPilotLicense,
   hashAuthorizationCode,
   inspectPilotLicense,
+  inspectPilotLicenses,
   isLicenseActive,
   listPilotLicensesForAccount,
   listPilotLicenses,

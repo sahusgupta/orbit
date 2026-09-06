@@ -193,7 +193,33 @@ describe('management player-session commands', () => {
       timeFeeEnabled: true
     });
     expect(timeAdded.state.timeFeeLogs[0]).toMatchObject({ id: 'created-1', minutes: 30, amount: 6, timestamp: now });
-    expect(timeAdded.state.tableEvents[0]).toMatchObject({ id: 'created-2', reason: 'time added', playerCount: 2 });
+    expect(timeAdded.state.tableEvents[0]).toMatchObject({
+      id: 'created-2',
+      reason: 'time added',
+      playerCount: 2,
+      profileId: playerSession.profileId
+    });
+
+    const unlinkedSession = {
+      ...playerSession,
+      id: 'session-unlinked',
+      profileId: undefined,
+      playerName: 'Unlinked Player'
+    };
+    const unlinked = addPlayerTime(
+      state({ playerSessions: [unlinkedSession, peerSession] }),
+      unlinkedSession,
+      30,
+      dependencies()
+    );
+    expect(unlinked.ok).toBe(true);
+    if (!unlinked.ok) return;
+    expect(unlinked.state.tableEvents[0]).toMatchObject({
+      reason: 'time added',
+      note: '30 minutes added for player'
+    });
+    expect(unlinked.state.tableEvents[0]).not.toHaveProperty('profileId');
+    expect(unlinked.state.tableEvents[0].note).not.toContain(unlinkedSession.playerName);
     expect(addPlayerTime(source, playerSession, 0, dependencies())).toEqual({ ok: false });
   });
 

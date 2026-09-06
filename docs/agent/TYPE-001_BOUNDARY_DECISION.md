@@ -64,7 +64,7 @@ Only two repository TypeScript configurations exist.
 
 ### Player settings and inheritance
 
-`player-app/tsconfig.json` extends Expo 54.0.36's installed `expo/tsconfig.base`. The base supplies `allowJs: true`, `lib: [DOM, ESNext]`, `module: preserve`, `moduleDetection: force`, `moduleResolution: bundler`, React-Native custom conditions, `target: ESNext`, `noEmit: true`, `resolveJsonModule: true`, and `skipLibCheck: true`. Player overrides `strict: true`, `moduleResolution: Bundler`, `noEmit: true`, and `jsx: react-jsx`, and includes `App.tsx` plus `src`.
+`player-app/tsconfig.json` extends Expo 54.0.37's installed `expo/tsconfig.base`. The base supplies `allowJs: true`, `lib: [DOM, ESNext]`, `module: preserve`, `moduleDetection: force`, `moduleResolution: bundler`, React-Native custom conditions, `target: ESNext`, `noEmit: true`, `resolveJsonModule: true`, and `skipLibCheck: true`. Player overrides `strict: true`, `moduleResolution: Bundler`, `noEmit: true`, and `jsx: react-jsx`, and includes `App.tsx` plus `src`.
 
 The effective Player project includes production files, three Player unit tests, `MapView.ts`, `MapView.web.tsx`, and the JavaScript performance-overlay shim. It does not include `MapView.tsx`, `app.config.js`, or `metro.config.js`. Because Player also omits `types`, its effective declaration graph includes Player-local Node/React types and root React/ReactDOM types found by upward resolution. Player currently passes, but that ambient overlap is not an endorsement of the boundary.
 

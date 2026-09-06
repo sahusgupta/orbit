@@ -377,6 +377,45 @@ function createOrbitApiClient(dependencies) {
     });
   }
 
+  async function redeemMembershipQrApi(access, token) {
+    const authKey = getClientAuthKeyFromAccess(access);
+    const accountKey = getAccountKeyFromAccess(access);
+    const normalizedToken = String(token || '').trim();
+    if (!authKey || !accountKey) {
+      return { ok: false, code: 'MEMBERSHIP_QR_REDEEM_FORBIDDEN', error: 'A current club license is required.' };
+    }
+    if (!/^omq1_[A-Za-z0-9_-]{43}$/.test(normalizedToken)) {
+      return { ok: false, code: 'INVALID_INPUT', error: 'That is not a valid Orbit membership QR.' };
+    }
+    return enqueueAccountMutation(accountKey, async () => {
+      const mutationId = `scan:${randomUUID()}`;
+      const redeem = () => requestOrbitApi('/management/membership-qr/redeem', {
+        method: 'POST',
+        authKey,
+        body: { token: normalizedToken, mutationId },
+        timeoutMs: 10_000,
+        returnFailurePayload: true
+      });
+      let payload = await redeem();
+      if (!payload) payload = await redeem();
+      if (!payload?.ok) {
+        return {
+          ok: false,
+          code: String(payload?.code || 'MEMBERSHIP_QR_REDEEM_UNCONFIRMED'),
+          error: String(payload?.error || 'Orbit could not confirm this check-in. Scan the same code again.')
+        };
+      }
+      const record = await loadStateFromApi(accountKey, access).catch(() => null);
+      return {
+        ok: true,
+        status: payload.status === 'already-checked-in' ? 'already-checked-in' : 'checked-in',
+        playerName: String(payload.playerName || '').slice(0, 160),
+        duplicate: Boolean(payload.duplicate),
+        state: record?.authoritative ? record.state : undefined
+      };
+    });
+  }
+
   async function getManagementRecoveryStatusApi(access) {
     const authKey = getClientAuthKeyFromAccess(access);
     if (!authKey) return { ok: false, active: false, error: 'A current pilot license key is required.' };
@@ -615,6 +654,7 @@ function createOrbitApiClient(dependencies) {
     loadStateFromApi,
     peekStateFromApi,
     postClientTelemetry,
+    redeemMembershipQrApi,
     requestOrbitApi,
     saveStateApiFirst,
     saveStateToApi,

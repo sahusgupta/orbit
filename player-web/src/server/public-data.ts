@@ -74,7 +74,7 @@ export async function getPublicDiscovery(): Promise<DataResult<DiscoveryPayload>
       data: {
         clubs: Array.from(clubs.values()),
         tournaments: Array.from(tournaments.values()),
-        registrations: [],
+        interests: [],
         page: { count: clubs.size, hasMore: false, nextCursor: null }
       }
     };

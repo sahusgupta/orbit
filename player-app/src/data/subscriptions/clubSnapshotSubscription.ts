@@ -1,11 +1,10 @@
 import type { PlayerAccount, PlayerClubSnapshot } from '../../domain/playerSync';
 import { fetchAllClubSnapshots } from '../firebase/clubSnapshotRepository';
-import { subscribeToClubCommitMarker } from './clubCommitMarker';
 
 export const cardHouseGameRefreshIntervalMs = 60_000;
 export type ClubSnapshotSubscriptionResult =
   | { ok: true; clubs: PlayerClubSnapshot[]; partial?: true }
-  | { ok: false; error: string };
+  | { ok: false; error: string; clubs?: PlayerClubSnapshot[]; stale?: true };
 
 export function subscribeToAllClubSnapshots(
   player: Pick<PlayerAccount, 'id' | 'name'>,
@@ -27,13 +26,18 @@ export function subscribeToAllClubSnapshots(
           latestClubs = result.clubs;
           latestPartial = 'page' in result && result.page?.hasMore === true;
           callback(latestPartial ? { ok: true, clubs: latestClubs, partial: true } : { ok: true, clubs: latestClubs });
-        } else if (!latestClubs.length) {
-          callback(result);
+        } else {
+          callback(latestClubs.length
+            ? { ...result, clubs: latestClubs, stale: true }
+            : result);
         }
       })
       .catch((error) => {
-        if (!disposed && !latestClubs.length) {
-          callback({ ok: false, error: error instanceof Error ? error.message : 'Unable to refresh card-house games.' });
+        if (!disposed) {
+          const failure = { ok: false as const, error: error instanceof Error ? error.message : 'Unable to refresh published venue games.' };
+          callback(latestClubs.length
+            ? { ...failure, clubs: latestClubs, stale: true }
+            : failure);
         }
       })
       .finally(() => {
@@ -53,16 +57,6 @@ export function subscribeToAllClubSnapshots(
     refreshTimer = setInterval(() => void refresh(), cardHouseGameRefreshIntervalMs);
   };
 
-  // The parent document is the sync-protocol-v2 commit marker. One bounded
-  // listener invalidates the authoritative discovery page without creating
-  // per-club child listener fan-out.
-  const commitMarkerUnsubscribe = subscribeToClubCommitMarker(
-    () => void refresh(),
-    (error) => latestClubs.length
-      ? callback(latestPartial ? { ok: true, clubs: latestClubs, partial: true } : { ok: true, clubs: latestClubs })
-      : callback({ ok: false, error: error.message || 'Unable to subscribe to club revisions.' })
-  );
-
   return {
     refresh,
     startPolling,
@@ -70,7 +64,6 @@ export function subscribeToAllClubSnapshots(
     unsubscribe: () => {
       disposed = true;
       stopPolling();
-      commitMarkerUnsubscribe();
     }
   };
 }

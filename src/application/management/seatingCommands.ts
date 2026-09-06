@@ -322,7 +322,8 @@ export function movePlayerToTable(
         timestamp: dependencies.nowIso(),
         playerCount: targetTable.seatsFilled + 1,
         reason: 'player moved',
-        note: `${playerSession.playerName} moved from ${sourceTable?.label ?? 'unknown table'} to ${targetTable.label}`
+        ...(playerSession.profileId ? { profileId: playerSession.profileId } : {}),
+        note: `${playerSession.profileId ? playerSession.playerName : 'Player'} moved from ${sourceTable?.label ?? 'unknown table'} to ${targetTable.label}`
       }
     ]
   };

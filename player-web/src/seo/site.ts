@@ -4,7 +4,7 @@ const fallbackOrigin = 'http://127.0.0.1:4175';
 
 export const siteConfig = {
   name: 'Orbit Player',
-  description: 'Find poker games near you that match how you like to play, then manage your club memberships, waitlists, and registrations in one place.',
+  description: 'Find room-published poker games, then manage club memberships, waitlists, and nonbinding tournament interest.',
   origin: (process.env.NEXT_PUBLIC_PLAYER_WEB_URL || fallbackOrigin).replace(/\/$/, ''),
   developer: {
     name: 'Caminus Labs, LLC',

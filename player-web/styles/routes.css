@@ -241,6 +241,8 @@
 .my-list > a > strong { font-size: .75rem; text-align: right; }
 .profile-layout { align-items: start; display: grid; gap: 32px; grid-template-columns: minmax(0, 1.25fr) 330px; }
 .profile-form { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-panel); display: grid; gap: 17px; padding: 20px; }
+.eligibility-check { align-items: flex-start; color: var(--muted); display: flex; font-size: .78rem; gap: 10px; line-height: 1.5; }
+.eligibility-check input { accent-color: var(--accent); flex: 0 0 auto; height: 17px; margin-top: 2px; width: 17px; }
 .form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .identity-card { background: var(--panel-dark); border: 1px solid var(--line-strong); border-radius: var(--radius-entry); color: var(--ink); display: grid; gap: 14px; padding: 24px; }
 .identity-card .eyebrow { color: var(--live); }

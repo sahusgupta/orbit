@@ -1,10 +1,9 @@
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Chip, Field } from '../../components/PlayerFields';
-import { DistanceFilterControl } from '../../components/PlayerPresentation';
 import { isCasinoClub } from '../../domain/discovery';
 import type { PlayerClubSnapshot } from '../../domain/playerSync';
-import type { CasinoFilter, DistanceFilter, GameTypeFilter, MapVenueFilter } from '../../domain/playerTypes';
+import type { CasinoFilter, GameTypeFilter, MapVenueFilter } from '../../domain/playerTypes';
 import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
 import { discoveryStyles } from './discoveryStyles';
@@ -71,8 +70,6 @@ export function GameFilterPanel({
   setSelectedCasinoId,
   stakes,
   setStakes,
-  distance,
-  setDistance,
   fitScoreEnabled,
   setFitScoreEnabled,
 }: {
@@ -85,17 +82,12 @@ export function GameFilterPanel({
   setSelectedCasinoId: (value: CasinoFilter) => void;
   stakes: string;
   setStakes: (value: string) => void;
-  distance: DistanceFilter;
-  setDistance: (value: DistanceFilter) => void;
   fitScoreEnabled: boolean;
   setFitScoreEnabled: (value: boolean) => void;
 }) {
   const typeOptions: Array<{ id: GameTypeFilter; label: string }> = [
     { id: 'all', label: 'All' },
-    { id: 'public', label: 'Public' },
-    { id: 'private', label: 'Private' },
     { id: 'card-house', label: 'Card house' },
-    { id: 'home-game', label: 'Home game' },
     { id: 'favorites', label: 'Favorites' }
   ];
   const cardHouseClubs = clubs.filter((club) => !isCasinoClub(club));
@@ -158,22 +150,6 @@ export function GameFilterPanel({
       </View>
       <View style={styles.filterGrid}>
         <Field label="Stakes" value={stakes} onChangeText={setStakes} />
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Distance</Text>
-          <View style={styles.distanceRow}>
-            {([
-              { value: 'none' as const, label: 'All' },
-              { value: 5 as const, label: '5' },
-              { value: 10 as const, label: '10' },
-              { value: 20 as const, label: '20' },
-              { value: 50 as const, label: '50' }
-            ]).map((option) => (
-              <Pressable key={option.value} onPress={() => setDistance(option.value)} style={[styles.distanceChip, distance === option.value && styles.distanceChipActive]}>
-                <Text style={[styles.distanceChipText, distance === option.value && styles.distanceChipTextActive]}>{option.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
       </View>
       <Pressable
         style={[styles.lockedFilterRow, fitScoreEnabled && styles.lockedFilterRowActive]}
@@ -188,14 +164,10 @@ export function GameFilterPanel({
 
 export function MapFilterControls({
   venue,
-  setVenue,
-  distance,
-  setDistance
+  setVenue
 }: {
   venue: MapVenueFilter;
   setVenue: (value: MapVenueFilter) => void;
-  distance: DistanceFilter;
-  setDistance: (value: DistanceFilter) => void;
 }) {
   const options: Array<{ id: MapVenueFilter; label: string }> = [
     { id: 'all', label: 'All places' },
@@ -213,7 +185,6 @@ export function MapFilterControls({
           ))}
         </ScrollView>
       </View>
-      <DistanceFilterControl value={distance} onChange={setDistance} />
     </View>
   );
 }

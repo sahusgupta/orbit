@@ -3,19 +3,18 @@ import { Linking, Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Chip, Field } from '../../components/PlayerFields';
 import { SimpleMenuRow } from '../../components/PlayerPresentation';
-import { privacyPolicyUrl, termsOfServiceUrl } from '../../config/playerLinks';
-import type { PlayerIdentityStatus } from '../../data/orbitSyncApi';
+import { privacyPolicyUrl, supportUrl, termsOfServiceUrl } from '../../config/playerLinks';
+import type { FirebasePlayerIdentity, PlayerIdentityStatus } from '../../data/orbitSyncApi';
 import { gamePreferenceOptions } from '../../domain/playerPreferences';
+import { e164PhoneExample, e164PhoneRequirement, normalizeE164Phone } from '../../domain/playerPhone';
 import type { PlayerAccount } from '../../domain/playerSync';
-import { isValidEmail, isValidPhoneNumber, togglePreferredGame } from '../../domain/discovery';
+import { isValidEmail, togglePreferredGame } from '../../domain/discovery';
 import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
 import { OrbitPlayerFaq, OrbitPlayerFooter } from '../home/PlayerLandingExperience';
 import { settingsStyles } from './settingsStyles';
 
 const styles = { ...sharedStyles, ...settingsStyles };
-const supportPhone = '346-434-1402';
-const supportPhoneUrl = 'tel:+13464341402';
 
 export function SettingsScreen({
   firebaseIdentity,
@@ -35,19 +34,14 @@ export function SettingsScreen({
   recoverPlayerAccount,
   restartPlayerPhoneSignIn,
   identityStatus,
+  profileEditingReady = true,
   showIdentityVerification,
-  playerPremiumEnabled,
-  hasPlayerPremium,
-  premiumMonthlyPriceLabel,
-  premiumMessage,
-  openPremiumCheckout,
-  restorePremiumPurchases,
   player,
   setPlayer,
   signOutPlayer,
   deletePlayerAccount
 }: {
-  firebaseIdentity: object | null;
+  firebaseIdentity: FirebasePlayerIdentity | null;
   authStatus: string;
   playerAuthMethod: 'email' | 'phone';
   setPlayerAuthMethod: Dispatch<SetStateAction<'email' | 'phone'>>;
@@ -64,13 +58,8 @@ export function SettingsScreen({
   recoverPlayerAccount: () => void;
   restartPlayerPhoneSignIn: () => void;
   identityStatus: PlayerIdentityStatus;
+  profileEditingReady?: boolean;
   showIdentityVerification: (returnScreen: 'settings') => void;
-  playerPremiumEnabled: boolean;
-  hasPlayerPremium: boolean;
-  premiumMonthlyPriceLabel: string;
-  premiumMessage: string;
-  openPremiumCheckout: () => void;
-  restorePremiumPurchases: () => void;
   player: PlayerAccount;
   setPlayer: Dispatch<SetStateAction<PlayerAccount>>;
   signOutPlayer: () => void;
@@ -78,9 +67,10 @@ export function SettingsScreen({
 }) {
   const [touchedAuthFields, setTouchedAuthFields] = useState<Record<string, boolean>>({});
   const emailError = touchedAuthFields.email && !isValidEmail(playerAuthEmail) ? 'Enter a valid email address.' : '';
-  const phoneError = touchedAuthFields.phone && !isValidPhoneNumber(playerAuthPhone) ? 'Enter a valid phone number including country code.' : '';
+  const phoneError = touchedAuthFields.phone && !normalizeE164Phone(playerAuthPhone) ? `Enter a valid phone number. ${e164PhoneRequirement}` : '';
   const passwordError = touchedAuthFields.password && playerAuthPassword.length < 12 ? 'Use at least 12 characters.' : '';
   const codeError = touchedAuthFields.code && !/^\d{6}$/.test(playerAuthCode) ? 'Enter the six-digit verification code.' : '';
+  const profileEditingDisabled = Boolean(firebaseIdentity) && !profileEditingReady;
   return (
     <View style={styles.accountCard}>
       <View style={styles.sectionHeader}>
@@ -118,10 +108,10 @@ export function SettingsScreen({
               <Ionicons name="call-outline" size={18} color={colors.muted} />
               <TextInput
                 value={playerAuthPhone}
-                onChangeText={setPlayerAuthPhone}
+                onChangeText={(phone) => setPlayerAuthPhone(normalizeE164Phone(phone) || phone)}
                 onBlur={() => setTouchedAuthFields((current) => ({ ...current, phone: true }))}
                 keyboardType="phone-pad"
-                placeholder="Phone number"
+                placeholder={e164PhoneExample}
                 placeholderTextColor={colors.muted}
                 accessibilityLabel="Phone number"
                 accessibilityHint={phoneError || undefined}
@@ -129,6 +119,7 @@ export function SettingsScreen({
               />
             </View>
           )}
+          {playerAuthMethod === 'phone' ? <Text style={styles.muted}>{e164PhoneRequirement}</Text> : null}
           {playerAuthMethod === 'email' && emailError ? <Text accessibilityLiveRegion="polite" style={styles.fieldError}>{emailError}</Text> : null}
           {playerAuthMethod === 'phone' && phoneError ? <Text accessibilityLiveRegion="polite" style={styles.fieldError}>{phoneError}</Text> : null}
           {playerAuthMethod === 'email' ? (
@@ -190,7 +181,8 @@ export function SettingsScreen({
           </View>
           <View style={styles.googleAuthBody}>
             <Text style={styles.cardTitle}>Account connected</Text>
-            <Text style={styles.muted}>{player.phone || player.email}</Text>
+            <Text style={styles.muted}>{firebaseIdentity.provider === 'phone' ? 'Sign-in phone' : 'Sign-in email'}</Text>
+            <Text style={styles.muted}>{firebaseIdentity.provider === 'phone' ? firebaseIdentity.phone : firebaseIdentity.email}</Text>
           </View>
         </View>
       )}
@@ -200,31 +192,28 @@ export function SettingsScreen({
         subtitle={getIdentityStatusLabel(identityStatus, Boolean(firebaseIdentity))}
         onPress={() => showIdentityVerification('settings')}
       />
-      {playerPremiumEnabled ? (
+      {profileEditingDisabled ? (
+        <View accessibilityRole="alert" style={styles.emptyState}>
+          <Text style={styles.cardTitle}>Restoring your signed-in profile</Text>
+          <Text style={styles.muted}>Profile editing will be available after Orbit confirms the current account's saved profile.</Text>
+        </View>
+      ) : null}
+      <Field editable={!profileEditingDisabled} label="Name" value={player.name} onChangeText={(name) => setPlayer((current) => ({ ...current, name }))} />
+      {!firebaseIdentity ? (
         <>
-          <View style={styles.googleAuthPanel}>
-            <View style={styles.googleAuthIcon}>
-              <Ionicons name={hasPlayerPremium ? 'diamond' : 'diamond-outline'} size={20} color={hasPlayerPremium ? colors.teal : colors.primaryDark} />
-            </View>
-            <View style={styles.googleAuthBody}>
-              <Text style={styles.cardTitle}>{hasPlayerPremium ? 'Player Premium Active' : `Player Premium ${premiumMonthlyPriceLabel}`}</Text>
-            </View>
-            {!hasPlayerPremium ? (
-              <Pressable style={styles.compactButton} onPress={openPremiumCheckout}>
-                <Text style={styles.compactButtonText}>Upgrade</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          {premiumMessage ? <Text style={styles.privateGameStatus}>{premiumMessage}</Text> : null}
-          <Pressable style={styles.secondaryActionButton} onPress={restorePremiumPurchases}>
-            <Text style={styles.secondaryActionText}>Restore Apple purchases</Text>
-          </Pressable>
+          <Field label="Email address" keyboardType="email-address" value={player.email} onChangeText={(email) => setPlayer((current) => ({ ...current, email }))} />
+          <Field
+            label="Phone number"
+            keyboardType="phone-pad"
+            placeholder={e164PhoneExample}
+            value={player.phone ?? ''}
+            onChangeText={(phone) => setPlayer((current) => ({ ...current, phone: normalizeE164Phone(phone) || phone }))}
+            error={(player.phone ?? '').trim() && !normalizeE164Phone(player.phone) ? `Enter a valid phone number. ${e164PhoneRequirement}` : ''}
+          />
         </>
       ) : null}
-      <Field label="Name" value={player.name} onChangeText={(name) => setPlayer((current) => ({ ...current, name }))} />
-      <Field label="Email address" keyboardType="email-address" value={player.email} onChangeText={(email) => setPlayer((current) => ({ ...current, email }))} />
-      <Field label="Phone number" keyboardType="phone-pad" value={player.phone ?? ''} onChangeText={(phone) => setPlayer((current) => ({ ...current, phone }))} />
       <Field
+        editable={!profileEditingDisabled}
         label="Home area"
         value={player.homeLocation ?? ''}
         onChangeText={(homeLocation) => setPlayer((current) => ({ ...current, homeLocation }))}
@@ -236,38 +225,39 @@ export function SettingsScreen({
             key={game.id}
             label={game.label}
             active={player.preferredGameIds.includes(game.id)}
+            disabled={profileEditingDisabled}
             onPress={() => setPlayer((current) => togglePreferredGame(current, game.id))}
           />
         ))}
       </View>
       <Field
+        editable={!profileEditingDisabled}
         label="Preferred stakes"
         value={player.preferredStakes ?? ''}
         onChangeText={(preferredStakes) => setPlayer((current) => ({ ...current, preferredStakes }))}
       />
       <Field
+        editable={!profileEditingDisabled}
         label="Typical availability"
         value={player.typicalAvailability ?? ''}
         placeholder="Evenings, weekends, after 6 PM..."
         onChangeText={(typicalAvailability) => setPlayer((current) => ({ ...current, typicalAvailability }))}
       />
       <View style={styles.simpleMenu}>
-        <SimpleMenuRow icon="call-outline" title="Support" subtitle={supportPhone} onPress={() => Linking.openURL(supportPhoneUrl)} />
+        <SimpleMenuRow icon="help-circle-outline" title="Support" subtitle="Help and contact options" onPress={() => Linking.openURL(supportUrl)} />
         <SimpleMenuRow icon="shield-checkmark-outline" title="Privacy Policy" subtitle="Legal" onPress={() => Linking.openURL(privacyPolicyUrl)} />
         <SimpleMenuRow icon="document-text-outline" title="Terms of Service" subtitle="Legal" onPress={() => Linking.openURL(termsOfServiceUrl)} />
       </View>
       <OrbitPlayerFaq />
       <OrbitPlayerFooter />
       {firebaseIdentity ? (
-        <>
           <Pressable style={styles.secondaryActionButton} onPress={signOutPlayer}>
             <Text style={styles.secondaryActionText}>Sign out</Text>
           </Pressable>
-          <Pressable style={styles.secondaryActionButton} onPress={deletePlayerAccount}>
-            <Text style={[styles.secondaryActionText, { color: '#b42318' }]}>Delete account</Text>
-          </Pressable>
-        </>
       ) : null}
+      <Pressable style={styles.secondaryActionButton} onPress={deletePlayerAccount}>
+        <Text style={[styles.secondaryActionText, { color: '#b42318' }]}>{firebaseIdentity ? 'Delete account' : 'Delete local profile and data'}</Text>
+      </Pressable>
     </View>
   );
 }

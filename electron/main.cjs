@@ -206,6 +206,7 @@ const {
   getRemoteBackendStatus,
   loadStateApiFirst,
   peekStateFromApi,
+  redeemMembershipQrApi,
   saveStateApiFirst,
   saveStateToApi,
   sendClientError,
@@ -355,6 +356,18 @@ ipcMain.handle('generate-self-check-in-kit', trustedIpc(async (payload) => {
     selfCheckIn: kit.selfCheckIn,
     rotatedPreviousCode: Boolean(kit.rotatedPreviousCode)
   };
+}));
+
+ipcMain.handle('redeem-membership-qr', trustedIpc(async (payload) => {
+  const bounded = boundedPayload(payload, 20_000);
+  const authorization = staffAuthorization.authorize({ token: bounded.staffToken, action: 'staff-sign' });
+  if (!authorization.ok) return { ok: false, error: authorization.error, reauthenticate: authorization.reauthenticate };
+  const access = boundedPayload(bounded.access, 16_000);
+  const accountKey = getAccountKeyFromAccess(access);
+  if (!accountKey || accountKey !== authorization.accountKey) {
+    return { ok: false, error: 'Staff authorization does not match the active club.' };
+  }
+  return redeemMembershipQrApi(access, String(bounded.token || ''));
 }));
 
 ipcMain.handle('persist-management-session', trustedIpc((binding) =>

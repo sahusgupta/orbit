@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import database from './database.js';
 import paymentService from './paymentService.js';
+import deletionGuard from './playerDeletionGuard.js';
 
 const {
   applyRevenueCatEvent,
@@ -58,11 +59,11 @@ describe('authoritative membership checkout pricing', () => {
     expect(resolveAuthoritativeCheckoutProduct(state, { product: 'monthly' })).toMatchObject({ ok: false, status: 400 });
     expect(resolveAuthoritativeCheckoutProduct(state, { product: 'monthly', planId: 'retired' })).toMatchObject({ ok: false, status: 400 });
     expect(resolveAuthoritativeCheckoutProduct({ settings: { membershipPlans: [
-      { id: 'free', name: 'Free', priceLabel: 'Free', durationDays: 30 },
-      { id: 'ask', name: 'Ask', priceLabel: 'Ask staff', durationDays: 30 }
+      { id: 'free', name: 'Free', priceLabel: 'Free', durationDays: 30, active: true },
+      { id: 'ask', name: 'Ask', priceLabel: 'Ask staff', durationDays: 30, active: true }
     ] } }, { product: 'monthly', planId: 'free' })).toMatchObject({ ok: false, status: 409 });
     expect(resolveAuthoritativeCheckoutProduct({ settings: { membershipPlans: [
-      { id: 'ask', name: 'Ask', priceLabel: 'Ask staff', durationDays: 30 }
+      { id: 'ask', name: 'Ask', priceLabel: 'Ask staff', durationDays: 30, active: true }
     ] } }, { product: 'monthly', planId: 'ask' })).toMatchObject({ ok: false, status: 409 });
     expect(parseMembershipPlanAmountCents({ amountCents: 4321, priceLabel: '$99' })).toBe(4321);
     expect(parseMembershipPlanAmountCents({ priceLabel: '$10 first, then $35' })).toBeNull();
@@ -110,7 +111,7 @@ function createFirestoreHarness(seed = {}) {
     ]));
   };
   const database = {
-    doc: (path) => ({ path }),
+    doc: (path) => ({ path, get: async () => snapshot(path) }),
     runTransaction: async (operation) => operation({
       get: async (reference) => snapshot(reference.path),
       set: (reference, value, options) => {
@@ -137,13 +138,14 @@ function stripeEvent(overrides = {}) {
         payment_status: 'paid',
         amount_total: 5000,
         currency: 'usd',
-        metadata: {
+        client_reference_id: /** @type {string | undefined} */ (undefined),
+        metadata: /** @type {Record<string, string>} */ ({
           kind: 'club_access',
           clubId: 'club-1',
           playerId: 'player-1',
           playerName: 'Alex',
           product: 'time-5'
-        }
+        })
       }
     },
     ...overrides
@@ -151,6 +153,86 @@ function stripeEvent(overrides = {}) {
 }
 
 describe('payment webhook idempotency and ordering', () => {
+  it('ignores current and legacy Stripe fulfillments after account deletion', async () => {
+    for (const legacy of [false, true]) {
+      const event = stripeEvent();
+      if (legacy) {
+        event.data.object.metadata = {
+          kind: 'club_membership',
+          clubId: 'club-1',
+          plan: 'monthly',
+          playerName: 'Private Name',
+          playerEmail: 'private@example.test'
+        };
+        event.data.object.client_reference_id = 'player-1';
+      }
+      const markerPath = deletionGuard.playerDeletionMarkerPath('player-1');
+      const harness = createFirestoreHarness({ [markerPath]: { status: 'blocked' } });
+      const loadState = vi.fn();
+      const saveState = vi.fn();
+      const readIdentityRecord = vi.fn();
+
+      await expect(recordMembershipPayment(event, {
+        ...harness,
+        loadState,
+        saveState,
+        readIdentityRecord
+      })).resolves.toBe('deleted-player');
+      expect(loadState).not.toHaveBeenCalled();
+      expect(saveState).not.toHaveBeenCalled();
+      expect(readIdentityRecord).not.toHaveBeenCalled();
+      expect(harness.writes).toEqual([]);
+      expect(harness.records.has('clubs/club-1/memberships/player-1')).toBe(false);
+      expect(harness.records.has('clubs/club-1/timeWallets/player-1')).toBe(false);
+    }
+  });
+
+  it('rechecks deletion atomically before writing Stripe club projections', async () => {
+    const markerPath = deletionGuard.playerDeletionMarkerPath('player-1');
+    const harness = createFirestoreHarness({ [markerPath]: { status: 'blocked' } });
+    await expect(recordMembershipPayment(stripeEvent(), {
+      ...harness,
+      isPlayerDeletionMarkedInAdminDatabase: async () => false,
+      reconcileState: false
+    })).resolves.toBe('deleted-player');
+
+    expect(harness.records.has('clubs/club-1/transactions/cs-1')).toBe(false);
+    expect(harness.records.has('clubs/club-1/timeWallets/player-1')).toBe(false);
+    const eventWrite = harness.writes.find((write) => write.path.startsWith('webhookEvents/stripe_'));
+    expect(eventWrite?.value).toMatchObject({ provider: 'stripe', outcome: 'deleted-player' });
+    expect(JSON.stringify(eventWrite?.value)).not.toContain('player-1');
+  });
+
+  it('stops authoritative payment reconciliation when deletion begins before a retry', async () => {
+    const baseState = {
+      games: [], sessions: [], playerSessions: [], profiles: [], interests: [], revenueTransactions: [],
+      settings: { pilotAccess: { licenseId: 'club-1' }, clubAccount: { clubName: 'Club One' } }
+    };
+    const deletionChecks = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const loadState = vi.fn(async () => ({ state: baseState, revision: 1 }));
+    const saveState = vi.fn(async () => {
+      throw new StateConflictError('club-1', 1, 2);
+    });
+
+    await expect(reconcileMembershipPayment(stripeEvent({
+      data: { object: {
+        ...stripeEvent().data.object,
+        metadata: { ...stripeEvent().data.object.metadata, product: 'monthly' }
+      } }
+    }), {
+      isPlayerDeletionMarked: deletionChecks,
+      loadState,
+      saveState,
+      schedulePublicationDrain: vi.fn(),
+      readIdentityRecord: async () => ({})
+    })).resolves.toEqual({ outcome: 'deleted-player', profile: null });
+    expect(loadState).toHaveBeenCalledOnce();
+    expect(saveState).toHaveBeenCalledOnce();
+  });
+
   it('publishes payment facts without activation dates while physical ID review is pending', () => {
     expect(buildPaidMembershipProjection({
       reconciliation: { profile: {
@@ -465,5 +547,29 @@ describe('payment webhook idempotency and ordering', () => {
       subscriptionStatus: 'active'
     });
     expect(harness.writes.filter((write) => write.path === 'players/player-1')).toHaveLength(0);
+  });
+
+  it('claims but does not apply a delayed RevenueCat event for a deleted player', async () => {
+    const markerPath = deletionGuard.playerDeletionMarkerPath('player-1');
+    const harness = createFirestoreHarness({ [markerPath]: { status: 'blocked' } });
+    const event = {
+      id: 'late-revenuecat-event',
+      type: 'RENEWAL',
+      app_user_id: 'player-1',
+      event_timestamp_ms: 1_786_406_400_000,
+      expiration_at_ms: 1_789_084_800_000,
+      product_id: 'legacy-premium'
+    };
+
+    await expect(applyRevenueCatEvent(harness.database, harness.admin, event, {
+      entitlementId: 'player_premium',
+      entitlementIds: ['player_premium']
+    })).resolves.toBe('deleted-player');
+
+    expect(harness.records.has('players/player-1')).toBe(false);
+    expect(harness.writes.filter((write) => write.path === 'players/player-1')).toEqual([]);
+    const eventWrite = harness.writes.find((write) => write.path.startsWith('webhookEvents/revenuecat_'));
+    expect(eventWrite?.value).toMatchObject({ provider: 'revenuecat', outcome: 'deleted-player' });
+    expect(JSON.stringify(eventWrite?.value)).not.toContain('player-1');
   });
 });

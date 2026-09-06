@@ -23,7 +23,7 @@ function listDirectSourceFiles(root: string): string[] {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
     const candidate = join(root, entry.name);
     if (entry.isDirectory()) return listDirectSourceFiles(candidate);
-    return ['.ts', '.tsx'].includes(extname(entry.name)) ? [candidate] : [];
+    return ['.ts', '.tsx'].includes(extname(entry.name)) && !entry.name.includes('.test.') ? [candidate] : [];
   });
 }
 
@@ -103,29 +103,31 @@ describe('Player storage and lifecycle orchestration contract', () => {
     expect(combined).toContain("const legacyPlayerStorageKeys = ['tabletalk-player-account-v1', 'tabletalk-player-account-v2']");
     expect(combined).toContain("const playerStorageKey = 'orbit-player-account-v1'");
     expect(combined).toContain("const dismissedAlertsStorageKey = 'orbit-player-dismissed-alerts-v1'");
-    expect(asyncStorageOwners).toHaveLength(1);
-    expect(asyncStorageOwners[0].path.endsWith(join('data', 'storage', 'playerStorage.ts'))).toBe(true);
+    expect(asyncStorageOwners.map(({ path }) => path.replace(/\\/g, '/')).sort()).toEqual([
+      join(playerSourceRoot, 'data', 'firebase', 'playerAuthPersistence.native.ts').replace(/\\/g, '/'),
+      join(playerSourceRoot, 'data', 'storage', 'playerStorage.ts').replace(/\\/g, '/')
+    ].sort());
     expect(nativeApplicationImports).toEqual([]);
-    expect(storageDigest).toBe('62f74797e9042bd9e213c209b4df13b2ee2b385b60104af45414b2185eb4eb48');
+    expect(storageDigest).toBe('9fee2577a8cad4201150b2e448c108c29b8920c405983f50f9e8f28974af12af');
   });
 
-  it('preserves auth/identity, premium, profile, live-club, private-game, and tournament lifecycles', () => {
+  it('preserves auth, identity, guarded profile, live-club, and tournament lifecycles without excluded v1 services', () => {
     const sources = parseSources();
-    const profileHydrationEffect = findUseEffectContaining(sources, 'fetchPlayerProfile()');
+    const profileHydrationEffect = findUseEffectContaining(sources, 'fetchPlayerProfile(expectedUid)');
     const liveClubEffect = findUseEffectContaining(sources, 'subscribeToAllClubSnapshots');
     const lifecycleDigest = digest([
       findUseEffectContaining(sources, 'onFirebasePlayerChanged'),
-      findUseEffectContaining(sources, 'fetchPlayerIdentityStatus(forceTokenRefresh)'),
-      findUseEffectContaining(sources, 'configureApplePurchases'),
-      findUseEffectContaining(sources, 'savePlayerProfile(player)'),
+      findUseEffectContaining(sources, 'fetchPlayerIdentityStatus(forceTokenRefresh, action.uid)'),
       profileHydrationEffect,
+      findUseEffectContaining(sources, 'saveRemote: savePlayerProfile'),
       liveClubEffect,
-      findUseEffectContaining(sources, 'subscribeToPrivateGameListings'),
       findUseEffectContaining(sources, 'subscribeToPlayerTournaments')
     ]);
 
     expect(profileHydrationEffect).not.toContain("setScreen('findGames')");
+    expect(profileHydrationEffect).toContain('isCurrentSession()');
     expect(liveClubEffect).toContain('setLiveDataPartial(result.partial === true)');
-    expect(lifecycleDigest).toBe('0edb2ea2f5082ffe6b75dd76183db3d9ba2677d1188578b3c766e5e8f539ab18');
+    expect(sources.map(({ source }) => source).join('\n')).not.toMatch(/configureApplePurchases|subscribeToPrivateGameListings|usePlayerPremium|usePlayerPrivateGames/);
+    expect(lifecycleDigest).toBe('e789ecd9c0ad2f8c4ebaef0804311bcb83b4d1f460ce229e62c0a2ea1b3382a3');
   });
 });

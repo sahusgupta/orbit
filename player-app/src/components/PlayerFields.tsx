@@ -11,7 +11,8 @@ export function Field({
   keyboardType,
   onSubmit,
   error,
-  placeholder
+  placeholder,
+  editable = true
 }: {
   label: string;
   value: string;
@@ -21,6 +22,7 @@ export function Field({
   onSubmit?: () => void;
   error?: string;
   placeholder?: string;
+  editable?: boolean;
 }) {
   const [touched, setTouched] = useState(false);
   const visibleError = touched ? error : '';
@@ -39,6 +41,7 @@ export function Field({
         placeholderTextColor={tone === 'light' ? 'rgba(255,255,255,0.56)' : colors.muted}
         returnKeyType={onSubmit ? 'next' : 'done'}
         keyboardType={keyboardType}
+        editable={editable}
         accessibilityLabel={label}
         accessibilityHint={visibleError || undefined}
         style={[styles.input, tone === 'light' && styles.inputLight, Boolean(visibleError) && styles.inputError]}
@@ -49,12 +52,13 @@ export function Field({
     </View>
   );
 }
-export function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+export function Chip({ label, active, disabled = false, onPress }: { label: string; active: boolean; disabled?: boolean; onPress: () => void }) {
   return (
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
-      accessibilityState={{ selected: active }}
+      accessibilityState={{ disabled, selected: active }}
+      disabled={disabled}
       onPress={onPress}
       style={[styles.chip, active && styles.chipActive]}
     >

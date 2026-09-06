@@ -120,8 +120,36 @@ describe('tournament route rendering', () => {
       'Starting stack',
       'Level length',
       'Rebuy to prize pool',
-      'Players per table'
+      'Players per table',
+      'Scheduled start',
+      'Interest opens',
+      'Interest closes',
+      'Player interest',
+      'Player withdrawal'
     ]);
+    const scheduleInputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[type="datetime-local"]')
+    );
+    expect(scheduleInputs).toHaveLength(3);
+    expect(Array.from(document.querySelectorAll<HTMLSelectElement>('.tournament-form select'), (select) => (
+      Array.from(select.options, (option) => option.text)
+    ))).toEqual([
+      ['Closed by venue', 'Open during window'],
+      ['Not allowed', 'Allowed']
+    ]);
+    expect(document.querySelector('#tournament-publication-error')?.textContent).toContain(
+      'leave all three blank to keep this tournament private'
+    );
+    await act(async () => {
+      changeInput(scheduleInputs[0], '2026-08-10T18:00');
+    });
+    expect(document.querySelector('#tournament-publication-error')?.textContent).toContain(
+      'Set the interest open, interest close, and scheduled start dates.'
+    );
+    expect(document.querySelector<HTMLButtonElement>('.tournament-form-actions .primary-button')?.disabled).toBe(true);
+    await act(async () => {
+      changeInput(scheduleInputs[0], '');
+    });
     expect(document.querySelector('.tournament-payout-editor legend')?.textContent).toBe('Prize pool allocation');
     expect(Array.from(document.querySelectorAll<HTMLInputElement>('.tournament-payout-draft-row input'), (input) => [
       input.getAttribute('aria-label'),

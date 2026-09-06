@@ -204,8 +204,30 @@ describe('management seating commands', () => {
       timestamp: now,
       playerCount: 2,
       reason: 'player moved',
+      profileId: moving.profileId,
       note: 'Occupant moved from Source to Target'
     }]);
+
+    const unlinkedMoving = {
+      ...moving,
+      id: 'session-unlinked',
+      profileId: undefined,
+      playerName: 'Unlinked Player'
+    };
+    const unlinkedResult = movePlayerToTable(
+      state({ playerSessions: [unlinkedMoving, targetOccupant] }),
+      unlinkedMoving,
+      targetTable.id,
+      dependencies()
+    );
+    expect(unlinkedResult.ok).toBe(true);
+    if (!unlinkedResult.ok) return;
+    expect(unlinkedResult.state.tableEvents[0]).toMatchObject({
+      reason: 'player moved',
+      note: 'Player moved from Source to Target'
+    });
+    expect(unlinkedResult.state.tableEvents[0]).not.toHaveProperty('profileId');
+    expect(unlinkedResult.state.tableEvents[0].note).not.toContain(unlinkedMoving.playerName);
     expect(source).toEqual(snapshot);
   });
 });

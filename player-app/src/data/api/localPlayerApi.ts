@@ -14,8 +14,7 @@ export async function fetchLocalClubSnapshot(player: Pick<PlayerAccount, 'id' | 
   if (!auth.currentUser) return { ok: false, error: 'Sign in to your Orbit Player account first.' };
   try {
     const token = await auth.currentUser.getIdToken();
-    const params = new URLSearchParams({ playerId: player.id || '', playerName: player.name || '' });
-    const { response, payload } = await requestJson(`${localOrbitApiBaseUrl}/player/snapshot?${params.toString()}`, {
+    const { response, payload } = await requestJson(`${localOrbitApiBaseUrl}/player/snapshot`, {
       headers: { authorization: `Bearer ${token}` }
     }, { dedupeKey: `local-snapshot:${player.id}`, readRetries: 0, timeoutMs: 2_500 });
     const result = decodeSnapshotEnvelope(payload);

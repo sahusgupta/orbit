@@ -484,6 +484,37 @@ describe('night-close mutation orchestration', () => {
     Reflect.deleteProperty(window, 'tableManagerDesktop');
   });
 
+  it('does not clear a newer staff session when prior-session authorization transport fails', async () => {
+    await resetState();
+    let rejectAuthorization: ((error: Error) => void) | undefined;
+    const authorizeStaffAction = vi.fn(() => new Promise((_resolve, reject) => {
+      rejectAuthorization = reject;
+    }));
+    Reflect.set(window, 'tableManagerDesktop', {
+      verifyStaffPin: vi.fn(async ({ staffId }: { staffId: string }) => ({
+        ok: true,
+        token: `${staffId}-session`,
+        staffId,
+        role: staffId === 'staff-manager' ? 'Manager' : 'Floor',
+        accountKey: 'ref-017-close-license',
+        expiresAt: '2099-01-01T00:00:00.000Z'
+      })),
+      authorizeStaffAction,
+      recordClientEvent: vi.fn(async () => ({ ok: true })),
+      saveState: vi.fn(async () => ({ ok: true, path: 'test', publication: { status: 'pending' } }))
+    });
+
+    await selectStaff('staff-manager');
+    const { pending } = await startInvoke('signNightClose');
+    await vi.waitFor(() => expect(authorizeStaffAction).toHaveBeenCalledOnce());
+    await selectStaff('staff-floor');
+    rejectAuthorization?.(new Error('authorization transport unavailable'));
+    await act(async () => { await pending; });
+
+    expect(getState().settings.activeStaffId).toBe('staff-floor');
+    Reflect.deleteProperty(window, 'tableManagerDesktop');
+  });
+
   it('does not bind a verified staff token to an account loaded during verification', async () => {
     await resetState();
     let finishVerification: ((result: {

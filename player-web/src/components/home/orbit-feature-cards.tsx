@@ -6,16 +6,16 @@ import { useState } from 'react';
 
 const features = [
   {
-    id: 'nearby',
+    id: 'published',
     rank: 'A',
     suit: '\u2660\uFE0E',
     tone: 'midnight',
-    cardLabel: 'Nearby',
+    cardLabel: 'Published',
     eyebrow: 'Find a table',
-    title: 'Live games near you',
-    detail: 'Browse room-published games by distance, stakes, variant, seat availability, and waitlist activity.',
+    title: 'Venue-published games',
+    detail: 'Browse room-published games by venue, listed stakes, variant, seat availability, and waitlist activity.',
     href: '/games',
-    action: 'Browse nearby games',
+    action: 'Browse published games',
     x: -82,
     rotate: -10
   },
@@ -50,7 +50,7 @@ const features = [
 ] as const;
 
 export function OrbitFeatureCards() {
-  const [activeId, setActiveId] = useState<(typeof features)[number]['id']>('nearby');
+  const [activeId, setActiveId] = useState<(typeof features)[number]['id']>('published');
   const reduceMotion = useReducedMotion();
   const activeFeature = features.find((feature) => feature.id === activeId) ?? features[0];
 
@@ -66,7 +66,7 @@ export function OrbitFeatureCards() {
       >
         <p>Orbit Player · one player hub</p>
         <h2 id="player-card-story-title">Find a game you&apos;ll like. Keep every membership together.</h2>
-        <span>Pick a card to see how Orbit Player takes you from looking for a nearby game to managing the rooms where you play.</span>
+        <span>Pick a card to see how Orbit Player takes you from browsing venue-published games to managing the rooms where you play.</span>
       </motion.header>
 
       <div className="player-card-story__showcase">

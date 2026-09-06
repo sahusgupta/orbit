@@ -97,6 +97,26 @@ export default function TournamentsView({
 }: TournamentsViewProps) {
   const payoutDrafts = tournamentDraft.payouts ?? createDefaultTournamentPayoutDrafts();
   const payoutValidation = validateTournamentPayoutDrafts(payoutDrafts);
+  const publicationDates = [
+    tournamentDraft.registrationOpensAt?.trim() ?? '',
+    tournamentDraft.registrationClosesAt?.trim() ?? '',
+    tournamentDraft.scheduledAt?.trim() ?? ''
+  ];
+  const publicationConfigured = publicationDates.some(Boolean) ||
+    tournamentDraft.registrationStatus === 'open' ||
+    tournamentDraft.unregisterAllowed === true;
+  const publicationTimes = publicationDates.map((value) => Date.parse(value));
+  const publicationError = !publicationConfigured
+    ? ''
+    : publicationDates.some((value) => !value)
+      ? 'Set the interest open, interest close, and scheduled start dates.'
+      : publicationTimes.some((value) => !Number.isFinite(value))
+        ? 'Enter valid tournament publication dates.'
+        : publicationTimes[0] >= publicationTimes[1]
+          ? 'Interest must open before it closes.'
+          : publicationTimes[1] > publicationTimes[2]
+            ? 'Interest must close no later than the scheduled start.'
+            : '';
 
   const setPayoutDrafts = (payouts: NonNullable<TournamentDraft['payouts']>) => {
     setTournamentDraft({ ...tournamentDraft, payouts });
@@ -128,6 +148,70 @@ export default function TournamentsView({
         <span>Players per table</span>
         <input value={tournamentDraft.tableSize} onChange={(event) => setTournamentDraft({ ...tournamentDraft, tableSize: event.target.value })} type="number" min="2" max="10" />
       </label>
+
+      <label className="tournament-field tournament-field-wide">
+        <span>Scheduled start <small>Required to publish this tournament to players</small></span>
+        <input
+          aria-describedby="tournament-publication-error"
+          onChange={(event) => setTournamentDraft({ ...tournamentDraft, scheduledAt: event.target.value })}
+          required={publicationConfigured}
+          type="datetime-local"
+          value={tournamentDraft.scheduledAt ?? ''}
+        />
+      </label>
+      <label className="tournament-field">
+        <span>Interest opens</span>
+        <input
+          aria-describedby="tournament-publication-error"
+          max={tournamentDraft.registrationClosesAt || undefined}
+          onChange={(event) => setTournamentDraft({ ...tournamentDraft, registrationOpensAt: event.target.value })}
+          required={publicationConfigured}
+          type="datetime-local"
+          value={tournamentDraft.registrationOpensAt ?? ''}
+        />
+      </label>
+      <label className="tournament-field">
+        <span>Interest closes</span>
+        <input
+          aria-describedby="tournament-publication-error"
+          max={tournamentDraft.scheduledAt || undefined}
+          min={tournamentDraft.registrationOpensAt || undefined}
+          onChange={(event) => setTournamentDraft({ ...tournamentDraft, registrationClosesAt: event.target.value })}
+          required={publicationConfigured}
+          type="datetime-local"
+          value={tournamentDraft.registrationClosesAt ?? ''}
+        />
+      </label>
+      <label className="tournament-field">
+        <span>Player interest</span>
+        <select
+          onChange={(event) => setTournamentDraft({
+            ...tournamentDraft,
+            registrationStatus: event.target.value === 'open' ? 'open' : 'closed'
+          })}
+          value={tournamentDraft.registrationStatus ?? 'closed'}
+        >
+          <option value="closed">Closed by venue</option>
+          <option value="open">Open during window</option>
+        </select>
+      </label>
+      <label className="tournament-field">
+        <span>Player withdrawal</span>
+        <select
+          onChange={(event) => setTournamentDraft({ ...tournamentDraft, unregisterAllowed: event.target.value === 'allowed' })}
+          value={tournamentDraft.unregisterAllowed ? 'allowed' : 'blocked'}
+        >
+          <option value="blocked">Not allowed</option>
+          <option value="allowed">Allowed</option>
+        </select>
+      </label>
+      <p
+        aria-live="polite"
+        className={`tournament-field tournament-field-wide${publicationError ? ' invalid' : ''}`}
+        id="tournament-publication-error"
+      >
+        {publicationError || 'Set all three dates in order, or leave all three blank to keep this tournament private.'}
+      </p>
 
       <fieldset className="tournament-payout-editor">
         <legend>Prize pool allocation</legend>
@@ -188,7 +272,7 @@ export default function TournamentsView({
 
       <div className="tournament-form-actions">
         <button className="ghost-button" type="button" onClick={() => setTournamentView(mode === 'edit' ? 'manage' : 'library')}>Cancel</button>
-        <button className="primary-button" disabled={!payoutValidation.valid || !tournamentDraft.name.trim()} type="submit">
+        <button className="primary-button" disabled={!payoutValidation.valid || Boolean(publicationError) || !tournamentDraft.name.trim()} type="submit">
           {mode === 'create' ? 'Create tournament' : 'Save changes'}
         </button>
       </div>

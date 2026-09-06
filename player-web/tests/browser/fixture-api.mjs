@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { discovery } from '../fixtures.ts';
 
 const port = Number(process.env.ORBIT_QA_API_PORT || 4629);
@@ -11,7 +12,7 @@ const publicDiscovery = {
     waitlists: [],
     notifications: []
   })),
-  registrations: []
+  interests: []
 };
 
 function send(response, status, payload) {
@@ -90,32 +91,36 @@ const server = createServer(async (request, response) => {
     send(response, 201, { ok: true, accountKey: club.club.id, snapshot: club });
     return;
   }
-  if (request.method === 'POST' && url.pathname === '/player/tournament-registrations') {
+  if (request.method === 'POST' && url.pathname === '/player/tournament-interests') {
     const body = await readBody(request);
-    const tournament = authenticatedDiscovery.tournaments.find((candidate) => candidate.id === body.tournamentId);
+    const tournament = authenticatedDiscovery.tournaments.find((candidate) =>
+      candidate.clubId === body.clubId && candidate.id === body.tournamentId);
     if (!tournament) {
       send(response, 404, { ok: false, error: 'Tournament not found.' });
       return;
     }
     send(response, 201, {
       ok: true,
-      registration: {
-        id: `${tournament.id}:player-1`,
+      interest: {
+        id: `fixture-interest-${createHash('sha256').update(JSON.stringify([tournament.clubId, tournament.id, 'player-1'])).digest('hex').slice(0, 32)}`,
         tournamentId: tournament.id,
         clubId: tournament.clubId,
         playerId: 'player-1',
-        playerName: 'Avery Stone',
-        playerEmail: 'avery@example.com',
-        status: 'registered',
-        rebuys: 0,
-        addOns: 0,
-        registeredAt: '2030-06-01T12:00:00.000Z',
+        status: 'interested',
+        createdAt: '2030-06-01T12:00:00.000Z',
         updatedAt: '2030-06-01T12:00:00.000Z'
       }
     });
     return;
   }
-  if (request.method === 'DELETE' && url.pathname === '/player/tournament-registrations') {
+  if (request.method === 'DELETE' && url.pathname === '/player/tournament-interests') {
+    const body = await readBody(request);
+    const tournament = authenticatedDiscovery.tournaments.find((candidate) =>
+      candidate.clubId === body.clubId && candidate.id === body.tournamentId);
+    if (!tournament) {
+      send(response, 404, { ok: false, error: 'Tournament not found.' });
+      return;
+    }
     send(response, 200, { ok: true });
     return;
   }

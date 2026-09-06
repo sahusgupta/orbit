@@ -4,6 +4,17 @@ const { getTrustedIdentitySummary, handleStripeIdentityEvent, readIdentityRecord
 const { applyMembershipPaymentToState, applyMembershipRequestToState, buildPlayerClubSnapshot } = require('./orbitCore');
 const { getAdminApp, getAdminSdk } = require('./services/firebaseAdmin');
 const { getStripe } = require('./services/stripeClient');
+const {
+  isPlayerDeletionMarked,
+  isPlayerDeletionMarkedInAdminDatabase,
+  playerDeletionMarkerPath
+} = require('./playerDeletionGuard');
+const { inspectPlayerVenueRecord, sendPlayerVenueEligibilityError } = require('./playerVenueEligibility');
+const {
+  createCurrentPlayerStatePrecondition,
+  isPlayerStatePreconditionError,
+  sendPlayerStatePreconditionError
+} = require('./playerStatePrecondition');
 
 function getPaymentServiceStatus() {
   return {
@@ -70,7 +81,7 @@ function resolveAuthoritativeCheckoutProduct(state, body = {}) {
   const planId = String(body.planId || '').trim();
   if (!planId) return { ok: false, status: 400, error: 'A membership plan ID is required for checkout.' };
   const plan = (state?.settings?.membershipPlans || []).find(
-    (candidate) => candidate.active !== false && String(candidate.id || '') === planId
+    (candidate) => candidate.active === true && String(candidate.id || '') === planId
   );
   if (!plan) return { ok: false, status: 400, error: 'The selected membership plan is not available at this club.' };
   const amountCents = parseMembershipPlanAmountCents(plan);
@@ -114,8 +125,12 @@ async function requireFirebasePlayer(request, response, next) {
   }
 }
 
-async function createMembershipCheckout(request, response) {
+async function createMembershipCheckout(request, response, dependencies = {}) {
   const admin = getAdminSdk();
+  const writeState = dependencies.saveState || saveState;
+  const drain = dependencies.schedulePublicationDrain || schedulePublicationDrain;
+  const buildPlayerStatePrecondition = dependencies.createCurrentPlayerStatePrecondition
+    || createCurrentPlayerStatePrecondition;
   const { clubId, playerName } = request.body || {};
   const requestedProduct = request.body?.product || request.body?.plan;
   if (!clubId || (!['day', 'monthly'].includes(requestedProduct) && !isTimeCheckoutProduct(requestedProduct))) {
@@ -129,9 +144,14 @@ async function createMembershipCheckout(request, response) {
     return;
   }
   const database = admin.firestore(getAdminApp());
-  const authoritativeClub = await loadState(clubId);
+  const authoritativeClub = await (dependencies.loadState || loadState)(clubId);
   if (!authoritativeClub?.state) {
     response.status(404).json({ ok: false, error: 'The selected Orbit club is unavailable.' });
+    return;
+  }
+  const eligibility = await inspectPlayerVenueRecord(authoritativeClub, dependencies);
+  if (!eligibility.ok) {
+    sendPlayerVenueEligibilityError(response, eligibility);
     return;
   }
   const resolvedProduct = resolveAuthoritativeCheckoutProduct(authoritativeClub.state, {
@@ -161,17 +181,29 @@ async function createMembershipCheckout(request, response) {
     const linkedProfileId = playerSnapshot.timeAccess.profileId;
     const profile = (authoritativeClub.state.profiles || []).find((candidate) => candidate.id === linkedProfileId);
     if (profile && profile.orbitPlayerId !== request.orbitPlayer.uid) {
-      await saveState({
-        ...authoritativeClub.state,
-        profiles: authoritativeClub.state.profiles.map((candidate) => candidate.id === linkedProfileId
-          ? { ...candidate, orbitPlayerId: request.orbitPlayer.uid }
-          : candidate)
-      }, {
-        expectedRevision: authoritativeClub.revision,
-        mutationId: `player-link:${request.orbitPlayer.uid}:${linkedProfileId}`,
-        mutationType: 'player-core-link'
-      });
-      void schedulePublicationDrain();
+      try {
+        await writeState({
+          ...authoritativeClub.state,
+          profiles: authoritativeClub.state.profiles.map((candidate) => candidate.id === linkedProfileId
+            ? { ...candidate, orbitPlayerId: request.orbitPlayer.uid }
+            : candidate)
+        }, {
+          expectedRevision: authoritativeClub.revision,
+          mutationId: `player-link:${request.orbitPlayer.uid}:${linkedProfileId}`,
+          mutationType: 'player-core-link',
+          transactionPrecondition: buildPlayerStatePrecondition({
+            playerId: request.orbitPlayer.uid,
+            nowMs: dependencies.preconditionNowMs || Date.now
+          })
+        });
+      } catch (error) {
+        if (isPlayerStatePreconditionError(error)) {
+          sendPlayerStatePreconditionError(response, error);
+          return;
+        }
+        throw error;
+      }
+      void drain();
     }
   }
   const clubSnapshot = await database.doc(`clubs/${clubId}`).get();
@@ -272,6 +304,9 @@ async function recordMembershipPayment(event, dependencies = {}) {
   const product = metadata.product || metadata.plan || 'monthly';
   const occurredAt = new Date((event.created || Math.floor(Date.now() / 1000)) * 1000).toISOString();
   const database = dependencies.database || admin.firestore(getAdminApp());
+  const checkAdminDeletionMarker = dependencies.isPlayerDeletionMarkedInAdminDatabase
+    || isPlayerDeletionMarkedInAdminDatabase;
+  if (await checkAdminDeletionMarker(database, playerId)) return 'deleted-player';
   let reconciliation = null;
   if (dependencies.reconcileState !== false && (!dependencies.database || dependencies.loadState)) {
     reconciliation = await reconcileMembershipPayment(event, dependencies);
@@ -279,10 +314,12 @@ async function recordMembershipPayment(event, dependencies = {}) {
   const eventRef = database.doc(`webhookEvents/${webhookEventDocumentId('stripe', event.id)}`);
   const transactionRef = database.doc(`clubs/${clubId}/transactions/${session.id}`);
   const membershipRef = database.doc(`clubs/${clubId}/memberships/${playerId}`);
+  const deletionMarkerRef = database.doc(playerDeletionMarkerPath(playerId));
   return database.runTransaction(async (transaction) => {
-    const [eventSnapshot, paymentSnapshot] = await Promise.all([
+    const [eventSnapshot, paymentSnapshot, deletionMarkerSnapshot] = await Promise.all([
       transaction.get(eventRef),
-      transaction.get(transactionRef)
+      transaction.get(transactionRef),
+      transaction.get(deletionMarkerRef)
     ]);
     if (eventSnapshot.exists) return 'duplicate-event';
 
@@ -293,9 +330,14 @@ async function recordMembershipPayment(event, dependencies = {}) {
       eventIdHash: hashProviderEventId(event.id),
       eventType: String(event.type || ''),
       providerCreatedAt: Number(event.created || 0),
-      outcome: alreadyFulfilled ? 'duplicate-payment' : 'applied',
+      outcome: deletionMarkerSnapshot.exists
+        ? 'deleted-player'
+        : alreadyFulfilled
+          ? 'duplicate-payment'
+          : 'applied',
       processedAt
     });
+    if (deletionMarkerSnapshot.exists) return 'deleted-player';
     if (alreadyFulfilled) return 'duplicate-payment';
 
     transaction.set(transactionRef, {
@@ -373,12 +415,19 @@ async function reconcileMembershipPayment(event, dependencies = {}) {
   const save = dependencies.saveState || saveState;
   const schedule = dependencies.schedulePublicationDrain || schedulePublicationDrain;
   const readIdentity = dependencies.readIdentityRecord || readIdentityRecord;
+  const buildPlayerStatePrecondition = dependencies.createCurrentPlayerStatePrecondition
+    || createCurrentPlayerStatePrecondition;
   const product = metadata.product || metadata.plan || 'monthly';
   const occurredAt = new Date((event.created || Math.floor(Date.now() / 1000)) * 1000).toISOString();
+  const checkDeletionMarker = dependencies.isPlayerDeletionMarked || ((id) => isPlayerDeletionMarked(id, {
+    getDatabase: dependencies.getDatabase
+  }));
+  if (await checkDeletionMarker(playerId)) return { outcome: 'deleted-player', profile: null };
   const identityRecord = isTimeCheckoutProduct(product) ? {} : await readIdentity(playerId);
   const identitySummary = getTrustedIdentitySummary(identityRecord);
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (await checkDeletionMarker(playerId)) return { outcome: 'deleted-player', profile: null };
     const record = await load(clubId);
     if (!record?.state) throw new Error(`Authoritative club state is unavailable for paid checkout ${session.id}.`);
     if ((record.state.revenueTransactions || []).some((transaction) => transaction.id === String(session.id))) {
@@ -437,7 +486,11 @@ async function reconcileMembershipPayment(event, dependencies = {}) {
       const saved = await save(nextState, {
         expectedRevision: record.revision,
         mutationId: `stripe-payment:${session.id}`,
-        mutationType: 'stripe-membership-payment'
+        mutationType: 'stripe-membership-payment',
+        transactionPrecondition: buildPlayerStatePrecondition({
+          playerId,
+          nowMs: dependencies.preconditionNowMs || Date.now
+        })
       });
       void schedule();
       return {
@@ -445,6 +498,9 @@ async function reconcileMembershipPayment(event, dependencies = {}) {
         profile: (nextState.profiles || []).find((profile) => profile.id === playerId) || null
       };
     } catch (error) {
+      if (isPlayerStatePreconditionError(error) && error.code === 'PLAYER_ACCOUNT_DELETION_IN_PROGRESS') {
+        return { outcome: 'deleted-player', profile: null };
+      }
       if (!(error instanceof StateConflictError) || attempt === 2) throw error;
     }
   }
@@ -480,15 +536,19 @@ async function applyRevenueCatEvent(database, admin, event, options) {
   const active = entitlementIds.includes(entitlementId) && !expired;
   const eventRef = database.doc(`webhookEvents/${webhookEventDocumentId('revenuecat', eventId)}`);
   const playerRef = database.doc(`players/${playerId}`);
+  const deletionMarkerRef = database.doc(playerDeletionMarkerPath(playerId));
 
   return database.runTransaction(async (transaction) => {
-    const [eventSnapshot, playerSnapshot] = await Promise.all([
+    const [eventSnapshot, deletionMarkerSnapshot] = await Promise.all([
       transaction.get(eventRef),
-      transaction.get(playerRef)
+      transaction.get(deletionMarkerRef)
     ]);
     if (eventSnapshot.exists) return 'duplicate-event';
 
-    const current = playerSnapshot.exists ? playerSnapshot.data() || {} : {};
+    const playerSnapshot = deletionMarkerSnapshot.exists
+      ? null
+      : await transaction.get(playerRef);
+    const current = playerSnapshot?.exists ? playerSnapshot.data() || {} : {};
     const currentEventAtMs = Number(current.premium?.lastRevenueCatEventAtMs || 0);
     const stale = currentEventAtMs > 0 && eventAtMs <= currentEventAtMs;
     const processedAt = admin.firestore.FieldValue.serverTimestamp();
@@ -497,9 +557,10 @@ async function applyRevenueCatEvent(database, admin, event, options) {
       eventIdHash: hashProviderEventId(eventId),
       eventType: String(event.type || ''),
       providerCreatedAtMs: eventAtMs,
-      outcome: stale ? 'stale' : 'applied',
+      outcome: deletionMarkerSnapshot.exists ? 'deleted-player' : stale ? 'stale' : 'applied',
       processedAt
     });
+    if (deletionMarkerSnapshot.exists) return 'deleted-player';
     if (stale) return 'stale';
 
     transaction.set(playerRef, {

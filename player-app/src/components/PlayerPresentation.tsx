@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { DistanceFilter } from '../domain/playerTypes';
 import { sharedStyles as styles } from '../styles/sharedStyles';
 import { colors } from '../styles/playerTheme';
 
@@ -87,34 +86,6 @@ export function FiltersBottomSheet({
         </View>
       </View>
     </Modal>
-  );
-}
-
-export function DistanceFilterControl({ value, onChange }: { value: DistanceFilter; onChange: (value: DistanceFilter) => void }) {
-  return (
-    <View style={styles.sheetField}>
-      <Text style={styles.fieldLabel}>Distance</Text>
-      <View style={styles.distanceRow}>
-        {([
-          { value: 'none' as const, label: 'All' },
-          { value: 5 as const, label: '5 mi' },
-          { value: 10 as const, label: '10 mi' },
-          { value: 20 as const, label: '20 mi' },
-          { value: 50 as const, label: '50 mi' }
-        ]).map((option) => (
-          <Pressable
-            accessibilityLabel={`${option.label} distance`}
-            accessibilityRole="button"
-            accessibilityState={{ selected: value === option.value }}
-            key={option.value}
-            onPress={() => onChange(option.value)}
-            style={[styles.distanceChip, value === option.value && styles.distanceChipActive]}
-          >
-            <Text style={[styles.distanceChipText, value === option.value && styles.distanceChipTextActive]}>{option.label}</Text>
-          </Pressable>
-        ))}
-      </View>
-    </View>
   );
 }
 

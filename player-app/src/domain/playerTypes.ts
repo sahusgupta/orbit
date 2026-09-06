@@ -1,9 +1,10 @@
 import type {
   PlayerClubSnapshot,
-  PlayerPrivateGameListing,
+  PlayerCoordinate,
+  PlayerSeatRequestAccess,
   PlayerSyncGame,
   PlayerTournament,
-  PlayerTournamentRegistration
+  PlayerTournamentInterest
 } from './playerSync';
 
 export type Screen =
@@ -14,20 +15,17 @@ export type Screen =
   | 'map'
   | 'clubs'
   | 'clubSignup'
-  | 'clubPayment'
   | 'identityVerification'
   | 'settings';
 export type OnboardingStep = 0 | 1 | 2 | 3;
-export type GameTypeFilter = 'none' | 'all' | 'public' | 'private' | 'card-house' | 'home-game' | 'favorites';
+export type GameTypeFilter = 'none' | 'all' | 'card-house' | 'favorites';
 export type DistanceFilter = 'none' | 5 | 10 | 20 | 50;
 export type CasinoFilter = 'none' | 'all' | string;
-export type TournamentFilter = 'all' | 'open' | 'free' | 'registered';
+export type TournamentFilter = 'all' | 'open' | 'free' | 'interested';
 export type MapVenueFilter = 'all' | 'card-house' | 'casino' | 'club';
-export type TimeAccessProduct = 'time-30' | 'time-60' | 'time-120';
-export type ClubAccessProduct = 'day' | 'monthly' | TimeAccessProduct;
 export type DiscoveryDecision = 'pass' | 'saved';
 
-export type Coordinate = { latitude: number; longitude: number };
+export type Coordinate = PlayerCoordinate;
 
 export type SeatRequestDraft = {
   club: PlayerClubSnapshot;
@@ -41,19 +39,15 @@ export type SeatRequestDraft = {
 export type GameOpportunity = {
   club: PlayerClubSnapshot;
   game: PlayerSyncGame;
-  distanceMiles: number;
+  distanceMiles: number | null;
   isJoined: boolean;
   isPreferred: boolean;
+  seatRequestAccess: PlayerSeatRequestAccess;
 };
 
 export type TournamentOpportunity = {
   tournament: PlayerTournament;
   club: PlayerClubSnapshot | undefined;
-  registration: PlayerTournamentRegistration | undefined;
-  distanceMiles: number;
+  interest: PlayerTournamentInterest | undefined;
+  distanceMiles: number | null;
 };
-
-export type PrivateGameDraft = Pick<
-  PlayerPrivateGameListing,
-  'name' | 'location' | 'startsAt' | 'seats' | 'note'
->;

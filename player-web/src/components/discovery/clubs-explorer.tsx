@@ -19,7 +19,7 @@ export function ClubsExplorer({ clubs }: { clubs: PlayerClubSnapshot[] }) {
   const { coordinate } = useLocation();
   const filters = useMemo<ClubFilters>(() => ({
     query: searchParams.get('q') ?? '',
-    distance: searchParams.get('distance') ?? '0',
+    distance: '0',
     activity: searchParams.get('activity') ?? 'all'
   }), [searchParams]);
   const matches = useMemo(() => filterClubs(clubs, filters, coordinate), [clubs, coordinate, filters]);
@@ -34,13 +34,12 @@ export function ClubsExplorer({ clubs }: { clubs: PlayerClubSnapshot[] }) {
         <div className="inline-filter-bar">
           <SearchField label="Search clubs" value={filters.query} onChange={(event) => update('q', event.target.value)} placeholder="Club, area, or game" />
           <SelectField label="Activity" value={filters.activity} onValueChange={(value) => update('activity', value)} options={[{ value: 'all', label: 'Any activity' }, { value: 'active', label: 'Running games' }, { value: 'forming', label: 'Forming games' }]} />
-          <SelectField label="Distance" value={filters.distance} onValueChange={(value) => update('distance', value)} options={[{ value: '0', label: 'Any distance' }, { value: '5', label: 'Within 5 mi' }, { value: '10', label: 'Within 10 mi' }, { value: '20', label: 'Within 20 mi' }, { value: '50', label: 'Within 50 mi' }]} />
         </div>
         <LocationControl />
       </Disclosure>
       <section aria-live="polite">
         <div className="results-summary"><strong>{matches.length}</strong><span>club{matches.length === 1 ? '' : 's'} matched</span></div>
-        {matches.length ? <div className="club-grid">{matches.map((club) => <ClubCard key={club.club.id} club={club} distanceMiles={getClubDistance(club, coordinate)} />)}</div> : <EmptyState title="No clubs match those filters" message="Discovery still works without location. Clear the distance filter or try another area." />}
+        {matches.length ? <div className="club-grid">{matches.map((club) => <ClubCard key={club.club.id} club={club} distanceMiles={getClubDistance(club, coordinate)} />)}</div> : <EmptyState title="No clubs match those filters" message="Try another venue or area, or clear the activity filter." />}
       </section>
     </div>
   );

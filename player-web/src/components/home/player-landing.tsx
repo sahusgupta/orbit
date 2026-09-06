@@ -15,31 +15,31 @@ import { OrbitFeatureCards } from "./orbit-feature-cards";
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
 const DECK = [
-  { id: 0, game: "No-Limit Hold'em", stakes: "$2 / $5",   room: "The Commerce Club",     dist: "0.8 mi", seats: 2, total: 9, wait: 5,  open: true  },
-  { id: 1, game: "Pot-Limit Omaha",  stakes: "$5 / $10",  room: "Hollywood Park Casino",  dist: "2.1 mi", seats: 0, total: 8, wait: 12, open: false },
-  { id: 2, game: "No-Limit Hold'em", stakes: "$1 / $3",   room: "Private Game · West LA", dist: "1.4 mi", seats: 3, total: 9, wait: 0,  open: true  },
-  { id: 3, game: "Mixed H.O.R.S.E.", stakes: "$10 / $20", room: "Crystal Casino",         dist: "3.2 mi", seats: 1, total: 8, wait: 7,  open: true  },
+  { id: 0, game: "Published game name", stakes: "Venue-listed stakes", room: "Published venue name", dist: "Distance unavailable", availability: "Availability when published" },
+  { id: 1, game: "Published game name", stakes: "Venue-listed stakes", room: "Published venue name", dist: "Distance unavailable", availability: "Status when published" },
+  { id: 2, game: "Published game name", stakes: "Venue-listed stakes", room: "Published venue name", dist: "Distance unavailable", availability: "Waitlist when published" },
+  { id: 3, game: "Published game name", stakes: "Venue-listed stakes", room: "Published venue name", dist: "Distance unavailable", availability: "Venue data only" },
 ];
 
 const SECTIONS = [
   {
     num: "01", label: "Discover",
-    headline: "Nearby games,\nmatched to you.",
-    body: "Browse real games at card houses and private rooms by distance, stakes, variant, seat counts, and waitlists — live from the room.",
+    headline: "Published games,\nall in one place.",
+    body: "Browse games that participating venues publish, including variant, venue-listed stakes, seat counts, and waitlists.",
   },
   {
     num: "02", label: "Join",
-    headline: "Swipe right.\nSeat requested.",
-    body: "One gesture to request a seat or join a waitlist. Your request reaches the room operator immediately — no calls, no messages.",
+    headline: "Swipe right.\nPreview a request.",
+    body: "Explore the gesture in this illustration. A real request is sent only from a signed-in game flow and remains pending until the service returns an authoritative result.",
   },
   {
     num: "03", label: "Queue",
-    headline: "You're #3.\nYou'll know\nwhen you move.",
-    body: "See your exact waitlist position at all times. When a seat opens, you're notified the moment the room moves you up.",
+    headline: "Venue-reported.\nCheck your\ncurrent place.",
+    body: "Refresh Orbit to see the latest venue-reported waitlist position and status. This release does not promise push updates.",
   },
   {
     num: "04", label: "Memberships",
-    headline: "Every club.\nOne place.",
+    headline: "Participating clubs.\nOne place.",
     body: "Request access and review active, pending, and expired poker-club memberships from one private My Orbit account.",
   },
 ];
@@ -196,7 +196,7 @@ function SwipeCard({
         className="absolute top-5 right-5 z-20 font-mono text-[10px] tracking-widest text-[#4AA8A0] border border-[#4AA8A0]/50 bg-[#4AA8A0]/10 px-2.5 py-1 rounded-sm uppercase pointer-events-none"
         style={{ rotate: -14, opacity: joinOpacity }}
       >
-        Join ✓
+        Preview ✓
       </motion.div>
       <motion.div
         className="absolute top-5 left-5 z-20 font-mono text-[10px] tracking-widest text-[#6B6559] border border-[#6B6559]/40 bg-[#6B6559]/10 px-2.5 py-1 rounded-sm uppercase pointer-events-none"
@@ -207,7 +207,7 @@ function SwipeCard({
 
       {/* Card body */}
       <div className="w-full h-full bg-[#0B1520] border border-[#F2EDE3]/10 rounded-sm overflow-hidden flex flex-col">
-        <div className={`h-[3px] flex-shrink-0 ${game.open ? "bg-[#191970]" : "bg-[#3D7575]"}`} />
+        <div className="h-[3px] flex-shrink-0 bg-[#191970]" />
 
         {/* Header */}
         <div className="px-5 pt-5 pb-4 border-b border-[#F2EDE3]/6 flex items-center justify-between flex-shrink-0">
@@ -224,44 +224,26 @@ function SwipeCard({
         <div className="px-5 py-5 flex-1 flex flex-col min-h-0">
           <p className="font-mono text-[8px] tracking-[0.18em] text-[#6868B3] uppercase mb-3">{game.game}</p>
           <div className="mb-4">
-            <p className="text-[44px] font-bold tracking-[-0.04em] text-[#F2EDE3] leading-none">
-              {game.stakes.split("/")[0].trim()}
-            </p>
-            <p className="font-mono text-[11px] text-[#F2EDE3]/28 mt-1">
-              / {game.stakes.split("/")[1].trim()} blinds
-            </p>
+            <p className="text-[24px] font-bold tracking-[-0.03em] text-[#F2EDE3] leading-tight">{game.stakes}</p>
+            <p className="font-mono text-[9px] text-[#F2EDE3]/28 mt-1">No live game facts in this preview</p>
           </div>
 
-          <div className="mt-auto">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="font-mono text-[8px] text-[#F2EDE3]/20 tracking-widest uppercase">Seats</span>
-              <span className="font-mono text-[8px] text-[#F2EDE3]/30">{game.seats} / {game.total} open</span>
-            </div>
-            <div className="flex gap-[3px] mb-4">
-              {Array.from({ length: game.total }).map((_, i) => (
-                <div key={i} className={`h-[3px] flex-1 rounded-full ${
-                  i < game.total - game.seats ? "bg-[#F2EDE3]/12" : "bg-[#191970]"
-                }`} />
-              ))}
-            </div>
-
-            {game.wait > 0 && (
-              <p className="font-mono text-[8px] text-[#F2EDE3]/20 mb-3">{game.wait} on waitlist</p>
-            )}
-
-            <span className={`font-mono text-[8px] tracking-widest px-2.5 py-1 border rounded-sm uppercase ${
-              game.open
-                ? "text-[#7E7EC3] border-[#191970]/35 bg-[#191970]/8"
-                : "text-[#3D7575] border-[#3D7575]/35 bg-[#3D7575]/8"
-            }`}>
-              {game.open ? `${game.seats} seat${game.seats !== 1 ? "s" : ""} open` : "Waitlist only"}
+          <div className="mt-auto space-y-3">
+            {["Table status when published", "Running-table seats when published", "Waitlist count when published"].map((label) => (
+              <div key={label} className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#191970]" />
+                <span className="font-mono text-[8px] text-[#F2EDE3]/28">{label}</span>
+              </div>
+            ))}
+            <span className="inline-block font-mono text-[8px] tracking-widest px-2.5 py-1 border rounded-sm uppercase text-[#7E7EC3] border-[#191970]/35 bg-[#191970]/8">
+              {game.availability}
             </span>
           </div>
         </div>
 
         <div className="px-5 py-3 border-t border-[#F2EDE3]/6 flex items-center justify-between flex-shrink-0">
           <span className="font-mono text-[7px] text-[#F2EDE3]/15 tracking-wider">← pass</span>
-          <span className="font-mono text-[7px] text-[#F2EDE3]/15 tracking-wider">join →</span>
+          <span className="font-mono text-[7px] text-[#F2EDE3]/15 tracking-wider">preview →</span>
         </div>
       </div>
     </motion.div>
@@ -281,7 +263,7 @@ function BrowseContent() {
           transition={{ delay: i * 0.08, duration: 0.45, ease: [0.22, 0, 0, 1] }}
           className="flex items-center gap-3 bg-[#0B1520] border border-[#F2EDE3]/7 rounded-sm px-4 py-3 hover:border-[#F2EDE3]/15 transition-colors duration-200 cursor-default"
         >
-          <div className={`w-[3px] h-8 rounded-full flex-shrink-0 ${g.open ? "bg-[#191970]" : "bg-[#3D7575]"}`} />
+          <div className="w-[3px] h-8 rounded-full flex-shrink-0 bg-[#3D7575]" />
           <div className="flex-1 min-w-0">
             <p className="text-[12px] font-semibold text-[#F2EDE3]/70 tracking-tight truncate">{g.game}</p>
             <p className="font-mono text-[8px] text-[#F2EDE3]/25 mt-0.5 truncate">{g.room}</p>
@@ -296,7 +278,7 @@ function BrowseContent() {
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
         className="font-mono text-[7px] text-[#F2EDE3]/14 tracking-wider pt-1"
       >
-        11 games near you · updated 8 seconds ago
+        Illustrative fields · no live data shown
       </motion.p>
     </div>
   );
@@ -328,7 +310,7 @@ function SwipeContent({
         </AnimatePresence>
       </div>
 
-      {/* Seat confirmed toast */}
+      {/* Interaction-only preview toast */}
       <AnimatePresence>
         {confirmed && (
           <motion.div
@@ -342,8 +324,8 @@ function SwipeContent({
               <div className="w-7 h-7 rounded-full border border-[#4AA8A0]/45 bg-[#4AA8A0]/10 flex items-center justify-center mx-auto mb-3">
                 <span className="text-[#4AA8A0] text-xs">✓</span>
               </div>
-              <p className="text-[#F2EDE3]/75 font-semibold text-[12px] tracking-tight mb-1">Seat Requested</p>
-              <p className="font-mono text-[7px] text-[#F2EDE3]/25 tracking-wider">Room notified · you&apos;re on the list</p>
+              <p className="text-[#F2EDE3]/75 font-semibold text-[12px] tracking-tight mb-1">Request preview</p>
+              <p className="font-mono text-[7px] text-[#F2EDE3]/25 tracking-wider">Illustration only · no request sent</p>
             </div>
           </motion.div>
         )}
@@ -359,39 +341,23 @@ function SwipeContent({
 }
 
 function WaitlistContent() {
-  const pos = 3, total = 8;
   return (
     <div className="w-full max-w-[300px] bg-[#0B1520] border border-[#F2EDE3]/7 rounded-sm overflow-hidden">
       <div className="h-[3px] bg-[#191970]" />
       <div className="px-5 pt-5 pb-4 border-b border-[#F2EDE3]/6">
         <p className="font-mono text-[7px] tracking-[0.18em] text-[#F2EDE3]/20 uppercase mb-1">
-          No-Limit Hold&apos;em · $2 / $5
+          Published game · venue-listed stakes
         </p>
-        <p className="text-[12px] font-semibold text-[#F2EDE3]/55 tracking-tight">The Commerce Club</p>
+        <p className="text-[12px] font-semibold text-[#F2EDE3]/55 tracking-tight">Published venue name</p>
       </div>
       <div className="px-5 py-5">
-        <p className="font-mono text-[7px] tracking-[0.2em] text-[#F2EDE3]/20 uppercase mb-2">Your Position</p>
-        <div className="flex items-baseline gap-2 mb-5">
-          <span className="text-[56px] font-bold text-[#6868B3] leading-none tracking-[-0.04em]">#3</span>
-          <span className="font-mono text-[9px] text-[#F2EDE3]/22">of {total}</span>
-        </div>
-        <div className="flex items-center gap-2 mb-5">
-          {Array.from({ length: total }).map((_, i) => {
-            const filled = i < pos;
-            const isMe = i === pos - 1;
-            return (
-              <div key={i} className={`rounded-full transition-all duration-500 ${
-                isMe
-                  ? "w-4 h-4 bg-[#191970]"
-                  : filled
-                  ? "w-2 h-2 bg-[#F2EDE3]/28"
-                  : "w-2 h-2 bg-[#F2EDE3]/8 border border-[#F2EDE3]/10"
-              }`} />
-            );
-          })}
+        <p className="font-mono text-[7px] tracking-[0.2em] text-[#F2EDE3]/20 uppercase mb-2">Your position</p>
+        <div className="mb-5 rounded-sm border border-[#F2EDE3]/8 bg-[#070E18] px-4 py-5">
+          <span className="text-[22px] font-bold text-[#6868B3] leading-tight tracking-[-0.03em]">Venue-reported position</span>
+          <p className="font-mono text-[8px] text-[#F2EDE3]/22 mt-2">No live queue value in this preview</p>
         </div>
         <div className="space-y-2">
-          {["Estimated wait ~20 min", "Notified the moment a seat opens", "Cancel anytime before seating"].map((t) => (
+          {["Venue-reported queue position", "Refresh for current status", "Cancel before seating when available"].map((t) => (
             <div key={t} className="flex items-center gap-2.5">
               <span className="w-1 h-1 rounded-full bg-[#F2EDE3]/16 flex-shrink-0" />
               <p className="font-mono text-[8px] text-[#F2EDE3]/32 tracking-wide">{t}</p>
@@ -405,24 +371,24 @@ function WaitlistContent() {
 
 function MembershipContent() {
   const memberships = [
-    { club: "The Commerce Club", detail: "Annual membership", status: "Active", active: true },
-    { club: "Hollywood Park Casino", detail: "Access request", status: "Under review", active: false },
-    { club: "West LA Poker Club", detail: "Day membership", status: "Active", active: true },
+    { id: "published", club: "Participating venue", detail: "Venue-published option", status: "Venue status", active: true },
+    { id: "request", club: "Selected venue", detail: "Membership request", status: "Request status", active: false },
+    { id: "history", club: "Past venue", detail: "Membership record", status: "Record status", active: false },
   ];
   return (
     <div className="w-full max-w-[360px] bg-[#0B1520] border border-[#F2EDE3]/7 rounded-sm overflow-hidden">
       <div className="h-[3px] bg-[#191970]" />
       <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-[#F2EDE3]/6">
         <div>
-          <p className="font-mono text-[7px] tracking-[0.2em] text-[#6868B3] uppercase mb-1">My Orbit</p>
+          <p className="font-mono text-[7px] tracking-[0.2em] text-[#6868B3] uppercase mb-1">Illustrative preview</p>
           <p className="text-[13px] font-semibold text-[#F2EDE3]/70">My memberships</p>
         </div>
-        <span className="font-mono text-[7px] text-[#F2EDE3]/22">3 clubs</span>
+        <span className="font-mono text-[7px] text-[#F2EDE3]/22">Example layout</span>
       </div>
       <div className="divide-y divide-[#F2EDE3]/6">
         {memberships.map((membership, index) => (
           <motion.div
-            key={membership.club}
+            key={membership.id}
             initial={{ opacity: 0, x: 12 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: index * 0.08, duration: 0.35 }}
@@ -534,7 +500,7 @@ export default function PlayerLanding() {
             transition={{ duration: 0.85, delay: 0.8, ease: [0.22, 0, 0, 1] }}
             className="text-[42px] md:text-[64px] font-bold tracking-[-0.03em] leading-[1.06] mb-5"
           >
-            Find poker games near you.
+            Browse venue-published poker games.
             <br />
             <span className="text-[#F2EDE3]/45">Keep every membership together.</span>
           </motion.h1>
@@ -543,7 +509,7 @@ export default function PlayerLanding() {
             transition={{ duration: 0.7, delay: 0.92, ease: [0.22, 0, 0, 1] }}
             className="text-[#F2EDE3]/48 text-[15px] leading-[1.8] max-w-[600px] mx-auto mb-9"
           >
-            Orbit Player helps you find live games that match your distance, stakes, and preferred format — then request a seat, track your place, and manage all your poker-club memberships in one place.
+            Orbit Player shows participating venues’ published games, stakes, formats, and current activity — then lets you request a seat, track the venue’s response, and manage your poker-club memberships in one place.
           </motion.p>
           <motion.div
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
@@ -551,7 +517,7 @@ export default function PlayerLanding() {
             className="flex items-center justify-center gap-3"
           >
             <Link href="/games" className="h-11 px-7 text-[13px] font-semibold rounded-sm bg-[#191970] text-[#F2EDE3] hover:bg-[#24248F] transition-colors duration-200 flex items-center gap-2">
-              Find games near me <ArrowRight size={13} />
+              Browse published games <ArrowRight size={13} />
             </Link>
             <Link href="/me/clubs" className="h-11 px-7 text-[13px] font-medium rounded-sm text-[#F2EDE3]/42 border border-[#F2EDE3]/10 hover:text-[#F2EDE3]/70 hover:border-[#F2EDE3]/22 transition-all duration-200 flex items-center">
               Manage memberships
@@ -678,14 +644,14 @@ export default function PlayerLanding() {
               viewport={{ once: true }} transition={{ duration: 0.75, delay: 0.06 }}
               className="text-[46px] md:text-[58px] font-bold tracking-[-0.03em] leading-[1.06] mb-6"
             >
-              Your next game.<br />Every club. One player hub.
+              Your next game.<br />Participating clubs. One player hub.
             </motion.h2>
             <motion.p
               initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }} transition={{ duration: 0.65, delay: 0.12 }}
               className="text-[#F2EDE3]/38 text-[15px] leading-[1.8] mb-10 max-w-[430px]"
             >
-              Orbit Player connects you to participating rooms, helps you choose a nearby game that fits, and keeps your seats, waitlists, tournaments, and memberships together.
+              Orbit Player connects you to participating rooms, helps you compare venue-published games, and keeps your seat requests, waitlists, tournament interests, and memberships together.
             </motion.p>
             <motion.div
               initial={{ opacity: 0, y: 8 }} whileInView={{ opacity: 1, y: 0 }}

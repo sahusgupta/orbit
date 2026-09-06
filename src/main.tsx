@@ -31,7 +31,6 @@ import {
 import { createRoomDataExport, downloadTextFile } from './lib/dataExport';
 import { buildFloorActivityItems } from './features/floor/floorActivity';
 import { AccountRecoveryValidationError, recoverAccountLogin } from './lib/accountRecovery';
-import { validateMembershipQrCheckIn } from './lib/membershipQr';
 import {
   findUniqueProfileReference,
   hasProfileReference
@@ -346,6 +345,15 @@ declare global {
         rotatedPreviousCode?: boolean;
         selfCheckIn?: AppState['selfCheckIn'];
         error?: string;
+      }>;
+      redeemMembershipQr: (payload: { access: PilotAccess; staffToken: string; token: string }) => Promise<{
+        ok: boolean;
+        status?: 'checked-in' | 'already-checked-in';
+        playerName?: string;
+        duplicate?: boolean;
+        state?: AppState;
+        error?: string;
+        reauthenticate?: boolean;
       }>;
       persistManagementSession: (binding: ManagementSessionBinding) => Promise<{ ok: boolean; active: boolean; expiresAt?: string }>;
       restoreManagementSession: (binding: ManagementSessionBinding) => Promise<{ ok: boolean; active: boolean; expiresAt?: string }>;
@@ -1649,8 +1657,8 @@ function App() {
     const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
     const body =
       reason === 'game-forming'
-        ? `${game.name} is forming right now at ${cardHouse}! Text back to get on the waitlist`
-        : `A seat has opened for ${game.name} at ${cardHouse}! Text back to get on the waitlist`;
+        ? `${game.name} is forming now at ${cardHouse}. Open or refresh Orbit Player to view current availability and request a seat.`
+        : `A seat has opened for ${game.name} at ${cardHouse}. Open or refresh Orbit Player to view current availability and request a seat.`;
     return {
       ...sourceState,
       inAppNotifications: [
@@ -2514,34 +2522,16 @@ function App() {
   };
 
   const handleMembershipQrCheckIn = async (rawValue: string) => {
-    const sourceState = stateRef.current;
-    const validation = validateMembershipQrCheckIn(rawValue, getAccountKeyFromState(sourceState), sourceState.profiles);
-    if (!validation.ok) {
-      const messages = {
-        invalid: 'That is not a valid Orbit membership QR code.',
-        'wrong-club': 'This membership belongs to a different card room.',
-        'not-found': 'No matching member was found in this card room.',
-        'approved-not-active': `${validation.profile?.name ?? 'This player'} is approved but not active. Verify ID and payment, then activate the membership first.`,
-        inactive: `${validation.profile?.name ?? 'This player'} does not have an active membership.`
-      };
-      setQrScanMessage(messages[validation.code]);
-      return;
-    }
-    const profile = validation.profile as PlayerProfile;
-
-    const alreadyCheckedIn = Boolean(getActivePlayerSessionForProfile(sourceState, profile)) ||
-      hasProfileReference(getInClubInterests(sourceState), sourceState.profiles, profile);
-    if (alreadyCheckedIn) {
-      setQrScanMessage(`${profile.name} is already checked in.`);
-      return;
-    }
-
-    if (await addProfileToClub(profile)) {
-      setQrManualValue('');
-      setQrScanMessage(`${profile.name} checked in successfully.`);
-    } else {
-      setQrScanMessage(`${profile.name} could not be checked in. Try again.`);
-    }
+    const { runMembershipQrCheckIn } = await import('./lib/membershipQr');
+    await runMembershipQrCheckIn(rawValue, {
+      authorize: () => authorizeStaffAction('staff-sign', setQrScanMessage),
+      readCurrentContext: () => ({ access: stateRef.current.settings.pilotAccess ?? null, session: staffSessionRef.current }),
+      redeem: window.tableManagerDesktop?.redeemMembershipQr,
+      clearCurrentSession: clearTrustedStaffSelection,
+      applyState: (nextState) => setState(normalizeState(nextState)),
+      clearInput: () => setQrManualValue(''),
+      setMessage: setQrScanMessage
+    });
   };
 
   useMembershipQrScanner({
@@ -2695,30 +2685,32 @@ function App() {
     if (!trustedSession || !current || !authorize) {
       clearTrustedStaffSelection();
       presentFailure(`Select and verify ${staffRequirement} before this action.`);
-      return false;
+      return null;
     }
     let result: { ok: boolean; error?: string; reauthenticate?: boolean };
     try {
       result = await authorize({ token: trustedSession.token, action });
     } catch {
-      clearTrustedStaffSelection();
+      if (staffSessionRef.current?.token === trustedSession.token) {
+        clearTrustedStaffSelection();
+      }
       presentFailure('Staff authorization is temporarily unavailable. Select the staff account again.');
-      return false;
+      return null;
     }
     const latestSession = staffSessionRef.current;
     if (
       latestSession?.token !== trustedSession.token ||
-      !applyTrustedStaffProjection(trustedSession)
+      !applyTrustedStaffProjection(latestSession)
     ) {
       presentFailure('The active staff selection changed before authorization completed. Try again.');
-      return false;
+      return null;
     }
     if (!result.ok) {
       if (result.reauthenticate !== false) clearTrustedStaffSelection();
       presentFailure(result.error || 'Staff reauthentication is required.');
-      return false;
+      return null;
     }
-    return true;
+    return latestSession;
   };
 
   const signNightClose = async () => {
@@ -3874,7 +3866,7 @@ function App() {
     await runSelfCheckInKitWorkflow({
       access: state.settings.pilotAccess,
       bridge: window.tableManagerDesktop,
-      authorize: () => authorizeStaffAction('staff-admin', (message) => setSelfCheckInKitMessage(message)),
+      authorize: async () => Boolean(await authorizeStaffAction('staff-admin', (message) => setSelfCheckInKitMessage(message))),
       getStaffToken: () => staffSessionRef.current?.token,
       hasExistingCode: Boolean(state.selfCheckIn?.capabilityGeneration),
       confirmReplacement: () => window.confirm(
@@ -4385,7 +4377,12 @@ function App() {
             startingStack: '20000',
             levelMinutes: '20',
             rebuyPrizePercent: '100',
-            tableSize: '9'
+            tableSize: '9',
+            scheduledAt: '',
+            registrationOpensAt: '',
+            registrationClosesAt: '',
+            registrationStatus: 'closed',
+            unregisterAllowed: false
           });
           setTournamentView('create');
         }}

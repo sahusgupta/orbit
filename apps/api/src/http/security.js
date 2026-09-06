@@ -1,5 +1,6 @@
-const crypto = require('crypto');
 const { sendOperationalAlert } = require('./operationalAlerts');
+const { protectedIdentifier } = require('./dataProtection');
+const { consumeRateLimit } = require('../db/rateLimits');
 
 function configuredOrigins() {
   return new Set(String(process.env.ORBIT_ALLOWED_ORIGINS || '')
@@ -29,7 +30,7 @@ function enforceCors(request, response, next) {
   response.set('vary', 'Origin');
   response.set('access-control-allow-credentials', 'true');
   response.set('access-control-allow-methods', 'GET,HEAD,POST,DELETE,OPTIONS');
-  response.set('access-control-allow-headers', 'authorization,content-type,x-orbit-api-key,x-orbit-auth-key,x-orbit-client-key,x-orbit-check-in-session,x-orbit-check-in-token,x-orbit-csrf,x-orbit-mutation-id,x-orbit-request-id');
+  response.set('access-control-allow-headers', 'authorization,content-type,x-firebase-appcheck,x-orbit-api-key,x-orbit-auth-key,x-orbit-client-key,x-orbit-check-in-session,x-orbit-check-in-token,x-orbit-csrf,x-orbit-mutation-id,x-orbit-request-id');
   if (request.method === 'OPTIONS') {
     response.status(204).end();
     return;
@@ -66,41 +67,43 @@ function rejectUnexpectedFileUploads(request, response, next) {
   next();
 }
 
-function rateLimitIdentity(request, identity = 'credential-or-address') {
+function rateLimitIdentity(request, identity = 'address') {
   const credential = identity === 'address'
     ? ''
     : request.get('authorization') || request.get('x-orbit-api-key') || request.get('x-orbit-auth-key') || '';
   const material = credential ? `credential:${credential}` : `address:${request.ip || request.socket?.remoteAddress || 'unknown'}`;
-  return crypto.createHash('sha256').update(material).digest('hex').slice(0, 24);
+  return protectedIdentifier(`rate-limit:${material}`);
 }
 
 function createRateLimit(options = {}) {
   const windowMs = Math.min(Math.max(Number(options.windowMs || 60_000), 1_000), 60 * 60 * 1000);
   const maximum = Math.min(Math.max(Number(options.maximum || 120), 1), 10_000);
-  const buckets = new Map();
-  return function rateLimit(request, response, next) {
-    const now = Date.now();
-    const key = `${options.name || 'general'}:${rateLimitIdentity(request, options.identity)}`;
-    let bucket = buckets.get(key);
-    if (!bucket || bucket.resetAt <= now) bucket = { count: 0, resetAt: now + windowMs };
-    bucket.count += 1;
-    buckets.set(key, bucket);
-    if (buckets.size > 10_000) {
-      for (const [candidate, value] of buckets) {
-        if (value.resetAt <= now) buckets.delete(candidate);
-      }
+  const consume = options.consume || consumeRateLimit;
+  return async function rateLimit(request, response, next) {
+    let bucket;
+    let identityRef;
+    try {
+      identityRef = rateLimitIdentity(request, options.identity);
+      const key = `${options.name || 'general'}:${identityRef}`;
+      bucket = await consume({ key, maximum, windowMs });
+    } catch {
+      // No local fallback: accepting requests while the shared quota store is
+      // unavailable would bypass the perimeter on every cold start.
+      response.set('retry-after', '1');
+      response.status(503).json({ ok: false, error: 'Request protection is temporarily unavailable. Try again later.', code: 'RATE_LIMIT_UNAVAILABLE' });
+      return;
     }
     response.set('x-ratelimit-limit', String(maximum));
     response.set('x-ratelimit-remaining', String(Math.max(maximum - bucket.count, 0)));
     if (bucket.count > maximum) {
-      if (bucket.count === maximum + 1) {
+      if (bucket.firstRejection) {
         void sendOperationalAlert('authentication-abuse', 'warning', {
           limiter: options.name || 'general',
-          identityRef: key.split(':').at(-1),
+          identityRef,
           requestId: request.orbitRequestId || ''
         });
       }
-      response.set('retry-after', String(Math.max(Math.ceil((bucket.resetAt - now) / 1000), 1)));
+      response.set('retry-after', String(Math.max(Math.ceil((bucket.resetAt - Date.now()) / 1000), 1)));
       response.status(429).json({ ok: false, error: 'Too many requests. Try again later.', code: 'RATE_LIMITED' });
       return;
     }

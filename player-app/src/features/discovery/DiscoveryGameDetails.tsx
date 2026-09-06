@@ -7,18 +7,47 @@ import {
   getCompatibilitySummary,
   getClubCity,
   getGameStatusLabel,
+  getPublishedAvailabilityLabel,
   getOpportunityLabel,
   getOpportunityKey,
+  hasRunningTable,
+  getPublishedTableSummary,
   getVenueKind
 } from '../../domain/discovery';
-import { formatDropFee, getClubFeeProfile } from '../../domain/clubAccess';
-import type { PlayerAccount } from '../../domain/playerSync';
+import { getClubFeeProfile } from '../../domain/clubAccess';
+import type { PlayerAccount, PlayerSeatRequestAccess } from '../../domain/playerSync';
 import type { GameOpportunity } from '../../domain/playerTypes';
 import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
 import { discoveryStyles } from './discoveryStyles';
 
 const styles = { ...sharedStyles, ...discoveryStyles };
+
+export function getSeatRequestActionLabel(access: PlayerSeatRequestAccess, runningTablePublished: boolean) {
+  if (access === 'active') return runningTablePublished ? 'Request a seat' : 'Send interest';
+  if (access === 'pending') return 'Await venue activation';
+  if (access === 'renewal') return 'Renew access';
+  return 'See access options';
+}
+
+function getSeatAccessOptionCopy(access: PlayerSeatRequestAccess, clubName: string) {
+  if (access === 'pending') {
+    return {
+      title: 'Membership activation pending',
+      body: `Wait for ${clubName} to activate your membership before requesting a seat.`
+    };
+  }
+  if (access === 'renewal') {
+    return {
+      title: 'Renew access',
+      body: `Review the options published by ${clubName} before requesting a seat.`
+    };
+  }
+  return {
+    title: 'Access options',
+    body: `Review options published by ${clubName}; any fee is collected in person.`
+  };
+}
 
 export function GameDetailsScreen({
   backLabel,
@@ -27,18 +56,42 @@ export function GameDetailsScreen({
   onBack,
   onDirections,
   onJoin,
+  onRefresh,
+  readOnly = false,
   onViewStore
 }: {
   backLabel: 'Home' | 'Matches';
-  item: GameOpportunity;
+  item: GameOpportunity | null;
   player: PlayerAccount;
   onBack: () => void;
   onDirections: () => void;
   onJoin: () => void;
+  onRefresh: () => void;
+  readOnly?: boolean;
   onViewStore: () => void;
 }) {
+  if (!item || readOnly) {
+    return (
+      <View accessibilityRole="alert" style={styles.gameDetailsPage}>
+        <Pressable accessibilityLabel={`Back to ${backLabel}`} accessibilityRole="button" onPress={onBack} style={styles.inlineBackAction}>
+          <Ionicons name="arrow-back" size={19} color={colors.ink} />
+          <Text style={styles.inlineBackText}>{backLabel}</Text>
+        </Pressable>
+        <View style={styles.emptyState}>
+          <Text style={styles.cardTitle}>{item ? 'This listing could not be refreshed' : 'This listing is no longer available'}</Text>
+          <Text style={styles.muted}>{item
+            ? 'Previously loaded details may be out of date. Actions stay unavailable until Orbit refreshes current venue data.'
+            : 'The venue no longer publishes this game in the current catalog. Return to current matches or refresh.'}</Text>
+          <Pressable accessibilityRole="button" onPress={onRefresh} style={styles.compactButton}>
+            <Text style={styles.compactButtonText}>Refresh current listings</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
   const fee = getClubFeeProfile(item.club, item.game);
-  const hasOpenTable = item.game.openTables.length > 0;
+  const runningTablePublished = hasRunningTable(item.game);
+  const accessOptionCopy = getSeatAccessOptionCopy(item.seatRequestAccess, item.club.club.name);
   const venueKind = getVenueKind(item.club);
   return (
     <View style={styles.gameDetailsPage}>
@@ -48,8 +101,8 @@ export function GameDetailsScreen({
           <Text style={styles.gameDetailsBackText}>{backLabel}</Text>
         </Pressable>
         <View style={styles.gameDetailsLivePill}>
-          <View style={[styles.liveDot, !item.game.availableSeats && styles.liveDotWarm]} />
-          <Text style={styles.gameDetailsLiveText}>Live</Text>
+          <View style={[styles.liveDot, !hasRunningTable(item.game) && styles.liveDotWarm]} />
+          <Text style={styles.gameDetailsLiveText}>{getGameStatusLabel(item.game)}</Text>
         </View>
       </View>
 
@@ -73,16 +126,16 @@ export function GameDetailsScreen({
           <Text style={styles.gameDetailsStatus}>{getGameStatusLabel(item.game)}</Text>
           <Text style={styles.gameDetailsTitle}>{item.game.name}</Text>
           <Text style={styles.gameDetailsClub}>{item.club.club.name}</Text>
-          <Text style={styles.gameDetailsLocation}>{getClubCity(item.club)} · {item.distanceMiles.toFixed(1)} mi away</Text>
+          <Text style={styles.gameDetailsLocation}>{[getClubCity(item.club), item.distanceMiles == null ? null : `${item.distanceMiles.toFixed(1)} mi away`].filter(Boolean).join(' · ')}</Text>
         </View>
       </LinearGradient>
 
       <View style={styles.detailsQuickSummary}>
-        <Text style={styles.detailsQuickValue}>{item.game.availableSeats ? `${item.game.availableSeats} seats open` : `${item.game.waitlistCount} waiting`}</Text>
+        <Text style={styles.detailsQuickValue}>{getPublishedAvailabilityLabel(item.game)}</Text>
         <Text style={styles.detailsQuickDivider}>|</Text>
-        <Text style={styles.detailsQuickValue}>{fee.type === 'time' ? fee.hourly : formatDropFee(fee.percent)}</Text>
+        <Text style={styles.detailsQuickValue}>{fee.label}</Text>
         <Text style={styles.detailsQuickDivider}>|</Text>
-        <Text style={styles.detailsQuickValue}>{item.game.openTables.length || 0} {hasOpenTable ? 'active tables' : 'planned tables'}</Text>
+        <Text style={styles.detailsQuickValue}>{getPublishedTableSummary(item.game)}</Text>
       </View>
 
       <View style={styles.gameDetailsSection}>
@@ -103,10 +156,10 @@ export function GameDetailsScreen({
           <Text style={styles.gameDetailsSectionTitle}>At a glance</Text>
         </View>
         <View style={styles.gameDetailsFacts}>
-          <DetailRow icon="people-outline" label="Seats" value={item.game.availableSeats ? `${item.game.availableSeats} open now` : `${item.game.waitlistCount} waiting`} />
-          <DetailRow icon="layers-outline" label="Tables" value={`${item.game.openTables.length || 0} ${hasOpenTable ? 'open or forming' : 'planned'}`} />
-          <DetailRow icon="receipt-outline" label="Collection" value={fee.type === 'time' ? `${fee.hourly} to card house` : formatDropFee(fee.percent)} />
-          <DetailRow icon="location-outline" label="Location" value={item.club.club.address ?? 'Shared after approval'} />
+          <DetailRow icon="people-outline" label="Seats" value={getPublishedAvailabilityLabel(item.game)} />
+          <DetailRow icon="layers-outline" label="Tables" value={getPublishedTableSummary(item.game)} />
+          <DetailRow icon="receipt-outline" label="Collection" value={fee.label} />
+          <DetailRow icon="location-outline" label="Location" value={item.club.club.address ?? 'Address not published'} />
         </View>
       </View>
 
@@ -115,30 +168,32 @@ export function GameDetailsScreen({
           <Ionicons name="notifications-outline" size={19} color={colors.primary} />
         </View>
         <View style={styles.notificationPromiseCopy}>
-          <Text style={styles.cardTitle}>Alerts after you join</Text>
-          <Text style={styles.muted}>We’ll notify you when this host posts {player.preferredStakes || 'your usual stakes'}.</Text>
+          <Text style={styles.cardTitle}>In-app venue updates</Text>
+          <Text style={styles.muted}>Eligible updates sent by this venue can appear inside Orbit after you join.</Text>
         </View>
       </View>
 
-      {!item.isJoined ? (
-        <Pressable onPress={onViewStore} style={styles.storeButton}>
+      {item.seatRequestAccess !== 'active' ? (
+        <Pressable onPress={item.seatRequestAccess === 'pending' ? onJoin : onViewStore} style={styles.storeButton}>
           <Ionicons name="storefront-outline" size={18} color={colors.primary} />
           <View style={styles.storeButtonCopy}>
-            <Text style={styles.storeButtonText}>Access options</Text>
-            <Text style={styles.muted}>Passes and time sold by {item.club.club.name}</Text>
+            <Text style={styles.storeButtonText}>{accessOptionCopy.title}</Text>
+            <Text style={styles.muted}>{accessOptionCopy.body}</Text>
           </View>
           <Ionicons name="chevron-forward" size={17} color={colors.primary} />
         </Pressable>
       ) : null}
 
       <View style={styles.detailsActionRow}>
-        <Pressable accessibilityLabel={`Directions to ${item.club.club.name}`} accessibilityRole="button" onPress={onDirections} style={styles.detailsSecondaryButton}>
-          <Ionicons name="navigate-outline" size={18} color={colors.ink} />
-          <Text style={styles.detailsSecondaryText}>Directions</Text>
-        </Pressable>
+        {item.club.club.address?.trim() ? (
+          <Pressable accessibilityLabel={`Directions to ${item.club.club.name}`} accessibilityRole="button" onPress={onDirections} style={styles.detailsSecondaryButton}>
+            <Ionicons name="navigate-outline" size={18} color={colors.ink} />
+            <Text style={styles.detailsSecondaryText}>Directions</Text>
+          </Pressable>
+        ) : null}
         <AnimatedButton variant="primary" onPress={onJoin} style={[styles.primaryButton, styles.detailsPrimaryButton]}>
-          <Ionicons name={item.isJoined ? 'person-add-outline' : 'card-outline'} size={18} color="#ffffff" />
-          <Text style={styles.primaryButtonText}>{item.isJoined ? (hasOpenTable ? 'Request a seat' : 'Follow this game') : 'See how to join'}</Text>
+          <Ionicons name={item.seatRequestAccess === 'active' ? 'person-add-outline' : item.seatRequestAccess === 'pending' ? 'time-outline' : 'card-outline'} size={18} color="#ffffff" />
+          <Text style={styles.primaryButtonText}>{getSeatRequestActionLabel(item.seatRequestAccess, runningTablePublished)}</Text>
         </AnimatedButton>
       </View>
     </View>
@@ -164,7 +219,8 @@ export function DiscoveryDetailsModal({
   useEffect(() => setExpandedSection(null), [item ? getOpportunityKey(item) : '']);
   if (!item) return null;
   const fee = getClubFeeProfile(item.club, item.game);
-  const hasOpenTable = item.game.openTables.length > 0;
+  const runningTablePublished = hasRunningTable(item.game);
+  const accessOptionCopy = getSeatAccessOptionCopy(item.seatRequestAccess, item.club.club.name);
   return (
     <Modal transparent visible animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
@@ -179,7 +235,7 @@ export function DiscoveryDetailsModal({
               <View style={styles.discoveryDetailsTitleBlock}>
                 <Text style={styles.agentKicker}>{getVenueKind(item.club)} · {getGameStatusLabel(item.game)}</Text>
                 <Text style={styles.membershipTitle}>{item.game.name}</Text>
-                <Text style={styles.muted}>{item.club.club.name} · {getClubCity(item.club)} · {item.distanceMiles.toFixed(1)} mi</Text>
+                <Text style={styles.muted}>{[item.club.club.name, getClubCity(item.club), item.distanceMiles == null ? null : `${item.distanceMiles.toFixed(1)} mi`].filter(Boolean).join(' · ')}</Text>
               </View>
               <Pressable accessibilityLabel="Close game details" accessibilityRole="button" onPress={onClose} style={styles.modalCloseButton}>
                 <Ionicons name="close" size={20} color={colors.ink} />
@@ -187,11 +243,11 @@ export function DiscoveryDetailsModal({
             </View>
 
             <View style={styles.detailsQuickSummary}>
-              <Text style={styles.detailsQuickValue}>{item.game.availableSeats ? `${item.game.availableSeats} seats open` : `${item.game.waitlistCount} waiting`}</Text>
+              <Text style={styles.detailsQuickValue}>{getPublishedAvailabilityLabel(item.game)}</Text>
               <Text style={styles.detailsQuickDivider}>|</Text>
-              <Text style={styles.detailsQuickValue}>{fee.type === 'time' ? fee.hourly : formatDropFee(fee.percent)}</Text>
+              <Text style={styles.detailsQuickValue}>{fee.label}</Text>
               <Text style={styles.detailsQuickDivider}>|</Text>
-              <Text style={styles.detailsQuickValue}>{item.distanceMiles.toFixed(1)} mi</Text>
+              <Text style={styles.detailsQuickValue}>{item.distanceMiles == null ? 'Distance unavailable' : `${item.distanceMiles.toFixed(1)} mi`}</Text>
             </View>
 
             <View style={styles.detailsDisclosureGroup}>
@@ -204,10 +260,10 @@ export function DiscoveryDetailsModal({
               </Pressable>
               {expandedSection === 'fit' ? (
                 <View style={styles.fitBreakdown}>
-                  <DetailRow icon="heart-outline" label="Preferences" value={item.isPreferred ? 'Saved game preference' : 'Available room listing'} />
-                  <DetailRow icon="people-outline" label="Availability" value={item.game.availableSeats ? `${item.game.availableSeats} seats open` : `${item.game.waitlistCount} waiting`} />
+                  <DetailRow icon="heart-outline" label="Preferences" value={item.isPreferred ? 'Saved game preference' : 'Published room listing'} />
+                  <DetailRow icon="people-outline" label="Availability" value={getPublishedAvailabilityLabel(item.game)} />
                   <DetailRow icon="person-outline" label="Familiar players" value={`${item.game.knownPlayersCount || 0} listed`} />
-                  <DetailRow icon="navigate-outline" label="Distance" value={`${item.distanceMiles.toFixed(1)} mi away`} />
+                  <DetailRow icon="navigate-outline" label="Distance" value={item.distanceMiles == null ? 'Unavailable' : `${item.distanceMiles.toFixed(1)} mi away`} />
                 </View>
               ) : null}
               <Pressable accessibilityLabel="Game details" accessibilityRole="button" accessibilityState={{ expanded: expandedSection === 'details' }} onPress={() => setExpandedSection((current) => current === 'details' ? null : 'details')} style={styles.detailsDisclosureRow}>
@@ -219,10 +275,10 @@ export function DiscoveryDetailsModal({
               </Pressable>
               {expandedSection === 'details' ? (
                 <View style={styles.detailsInfoCard}>
-                  <DetailRow icon="people-outline" label="Seats" value={item.game.availableSeats ? `${item.game.availableSeats} open now` : `${item.game.waitlistCount} waiting`} />
-                  <DetailRow icon="layers-outline" label="Tables" value={`${item.game.openTables.length || 0} ${hasOpenTable ? 'open or forming' : 'planned'}`} />
-                  <DetailRow icon="receipt-outline" label="Collection" value={fee.type === 'time' ? `${fee.hourly} to card house` : formatDropFee(fee.percent)} />
-                  <DetailRow icon="location-outline" label="Location" value={item.club.club.address ?? 'Shared after approval'} />
+                  <DetailRow icon="people-outline" label="Seats" value={getPublishedAvailabilityLabel(item.game)} />
+                  <DetailRow icon="layers-outline" label="Tables" value={getPublishedTableSummary(item.game)} />
+                  <DetailRow icon="receipt-outline" label="Collection" value={fee.label} />
+                  <DetailRow icon="location-outline" label="Location" value={item.club.club.address ?? 'Address not published'} />
                 </View>
               ) : null}
             </View>
@@ -232,30 +288,32 @@ export function DiscoveryDetailsModal({
                 <Ionicons name="notifications-outline" size={19} color={colors.primary} />
               </View>
               <View style={styles.notificationPromiseCopy}>
-                <Text style={styles.cardTitle}>Alerts after you join</Text>
-                <Text style={styles.muted}>We’ll notify you when this host posts {player.preferredStakes || 'your usual stakes'}.</Text>
+                <Text style={styles.cardTitle}>In-app venue updates</Text>
+                <Text style={styles.muted}>Eligible updates sent by this venue can appear inside Orbit after you join.</Text>
               </View>
             </View>
 
-            {!item.isJoined ? (
-              <Pressable onPress={onViewStore} style={styles.storeButton}>
+            {item.seatRequestAccess !== 'active' ? (
+              <Pressable onPress={item.seatRequestAccess === 'pending' ? onJoin : onViewStore} style={styles.storeButton}>
                 <Ionicons name="storefront-outline" size={18} color={colors.primary} />
                 <View style={styles.storeButtonCopy}>
-                  <Text style={styles.storeButtonText}>Access options</Text>
-                  <Text style={styles.muted}>Passes and time sold by {item.club.club.name}</Text>
+                  <Text style={styles.storeButtonText}>{accessOptionCopy.title}</Text>
+                  <Text style={styles.muted}>{accessOptionCopy.body}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={17} color={colors.primary} />
               </Pressable>
             ) : null}
 
             <View style={styles.detailsActionRow}>
-              <Pressable accessibilityLabel={`Directions to ${item.club.club.name}`} accessibilityRole="button" onPress={onDirections} style={styles.detailsSecondaryButton}>
-                <Ionicons name="navigate-outline" size={18} color={colors.ink} />
-                <Text style={styles.detailsSecondaryText}>Directions</Text>
-              </Pressable>
+              {item.club.club.address?.trim() ? (
+                <Pressable accessibilityLabel={`Directions to ${item.club.club.name}`} accessibilityRole="button" onPress={onDirections} style={styles.detailsSecondaryButton}>
+                  <Ionicons name="navigate-outline" size={18} color={colors.ink} />
+                  <Text style={styles.detailsSecondaryText}>Directions</Text>
+                </Pressable>
+              ) : null}
               <AnimatedButton variant="primary" onPress={onJoin} style={[styles.primaryButton, styles.detailsPrimaryButton]}>
-                <Ionicons name={item.isJoined ? 'person-add-outline' : 'card-outline'} size={18} color="#ffffff" />
-                <Text style={styles.primaryButtonText}>{item.isJoined ? (hasOpenTable ? 'Request a seat' : 'Follow this game') : 'See how to join'}</Text>
+                <Ionicons name={item.seatRequestAccess === 'active' ? 'person-add-outline' : item.seatRequestAccess === 'pending' ? 'time-outline' : 'card-outline'} size={18} color="#ffffff" />
+                <Text style={styles.primaryButtonText}>{getSeatRequestActionLabel(item.seatRequestAccess, runningTablePublished)}</Text>
               </AnimatedButton>
             </View>
           </ScrollView>

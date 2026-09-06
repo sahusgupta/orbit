@@ -3,10 +3,10 @@ import { Animated, Easing, Platform, Pressable, ScrollView, Text, View, type Dim
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { MapPicker } from '../../components/MapPicker';
-import { Chip, Field } from '../../components/PlayerFields';
-import { isValidEmail, isValidPhoneNumber, togglePreferredGame } from '../../domain/discovery';
-import { gamePreferenceOptions } from '../../domain/playerPreferences';
+import { Field } from '../../components/PlayerFields';
+import { isValidEmail } from '../../domain/discovery';
+import { adultDeclarationVersion, hasAdultDeclaration } from '../../domain/playerOnboarding';
+import { e164PhoneExample, e164PhoneRequirement, normalizeE164Phone } from '../../domain/playerPhone';
 import type { PlayerAccount } from '../../domain/playerSync';
 import type { OnboardingStep } from '../../domain/playerTypes';
 import { sharedStyles } from '../../styles/sharedStyles';
@@ -65,9 +65,11 @@ function OnboardingFlow({
   const finalStep = 3;
   const totalSteps = finalStep + 1;
   const phoneTrimmed = (draftPlayer.phone ?? '').trim();
+  const normalizedPhone = normalizeE164Phone(phoneTrimmed);
   const emailIsValid = isValidEmail(draftPlayer.email);
-  const phoneIsValid = !phoneTrimmed || isValidPhoneNumber(phoneTrimmed);
-  const canComplete = Boolean(draftPlayer.name.trim() && emailIsValid && phoneIsValid);
+  const phoneIsValid = !phoneTrimmed || Boolean(normalizedPhone);
+  const hasAuthenticatedContact = emailIsValid || Boolean(normalizedPhone);
+  const canComplete = Boolean(draftPlayer.name.trim() && hasAuthenticatedContact && phoneIsValid && hasAdultDeclaration(draftPlayer));
   const canContinue =
     onboardingStep === 0 ? Boolean(draftPlayer.name.trim()) :
     onboardingStep === 1 ? emailIsValid :
@@ -132,7 +134,7 @@ function OnboardingFlow({
         <OnboardingProgress activeStep={onboardingStep} totalSteps={totalSteps} />
       </View>
 
-      <Text style={styles.onboardingTitle}>Find live games and join the right room</Text>
+      <Text style={styles.onboardingTitle}>Find room-published games and send requests</Text>
 
       <AnimatedStepCard stepKey={onboardingStep} opacity={stepOpacity}>
         {onboardingStep === 0 ? <NameStep draftPlayer={draftPlayer} setDraftPlayer={setDraftPlayer} onSubmit={canSubmit ? submitStep : undefined} /> : null}
@@ -285,15 +287,15 @@ function PhoneStep({
     <View style={styles.optionalStep}>
       <Field
         label="Phone Number"
-        placeholder="(555) 555-0123"
+        placeholder={e164PhoneExample}
         tone="light"
         value={draftPlayer.phone ?? ''}
         keyboardType="phone-pad"
-        onChangeText={(phone) => setDraftPlayer((current) => ({ ...current, phone }))}
+        onChangeText={(phone) => setDraftPlayer((current) => ({ ...current, phone: normalizeE164Phone(phone) || phone }))}
         onSubmit={onSubmit}
-        error={(draftPlayer.phone ?? '').trim() && !isValidPhoneNumber(draftPlayer.phone ?? '') ? 'Enter a valid 10-digit phone number, or leave it blank.' : ''}
+        error={(draftPlayer.phone ?? '').trim() && !normalizeE164Phone(draftPlayer.phone) ? `Enter a valid phone number. ${e164PhoneRequirement}` : ''}
       />
-      <Text style={styles.optionalStepText}>Optional. Used for text updates about games and waitlists you sign up for.</Text>
+      <Text style={styles.optionalStepText}>Optional. {e164PhoneRequirement} Used only for phone sign-in and account contact when you choose those options; game and waitlist updates stay inside Orbit.</Text>
     </View>
   );
 }
@@ -307,113 +309,29 @@ function HomeAreaStep({
   setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
   onSubmit?: () => void;
 }) {
+  const declared = hasAdultDeclaration(draftPlayer);
   return (
-    <Field
-      label="Home Area"
-      placeholder="City or neighborhood"
-      tone="light"
-      value={draftPlayer.homeLocation ?? ''}
-      onChangeText={(homeLocation) => setDraftPlayer((current) => ({ ...current, homeLocation }))}
-      onSubmit={onSubmit}
-    />
-  );
-}
-
-function LocationStep({
-  draftPlayer,
-  setDraftPlayer
-}: {
-  draftPlayer: PlayerAccount;
-  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
-}) {
-  return (
-    <>
-      <StepHeader icon="map-outline" title="Home Area" />
-      <MapPicker
-        locationLabel={draftPlayer.homeLocation || 'Choose a home area'}
-        radiusMiles={draftPlayer.searchRadiusMiles ?? 25}
-        onSelectLocation={(homeLocation) => setDraftPlayer((current) => ({ ...current, homeLocation }))}
-      />
-    </>
-  );
-}
-
-function RadiusStep({
-  draftPlayer,
-  setDraftPlayer
-}: {
-  draftPlayer: PlayerAccount;
-  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
-}) {
-  return (
-    <>
-      <StepHeader icon="navigate-outline" title="Search Radius" />
-      <View style={styles.chipRow}>
-        {[10, 25, 50].map((radius) => (
-          <Chip
-            key={radius}
-            label={`${radius} mi`}
-            active={(draftPlayer.searchRadiusMiles ?? 25) === radius}
-            onPress={() => setDraftPlayer((current) => ({ ...current, searchRadiusMiles: radius }))}
-          />
-        ))}
-      </View>
-    </>
-  );
-}
-
-function GameStep({
-  draftPlayer,
-  setDraftPlayer
-}: {
-  draftPlayer: PlayerAccount;
-  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
-}) {
-  return (
-    <>
-      <StepHeader icon="heart-outline" title="Preferred Game" />
-      <View style={styles.chipRow}>
-        {gamePreferenceOptions.map((game) => (
-          <Chip
-            key={game.id}
-            label={game.label}
-            active={draftPlayer.preferredGameIds.includes(game.id)}
-            onPress={() => setDraftPlayer((current) => togglePreferredGame(current, game.id))}
-          />
-        ))}
-      </View>
-    </>
-  );
-}
-
-function StakesStep({
-  draftPlayer,
-  setDraftPlayer
-}: {
-  draftPlayer: PlayerAccount;
-  setDraftPlayer: React.Dispatch<React.SetStateAction<PlayerAccount>>;
-}) {
-  return (
-    <>
-      <StepHeader icon="cash-outline" title="Preferred Stakes" />
+    <View style={styles.optionalStep}>
       <Field
-        label="Preferred Stakes"
-        value={draftPlayer.preferredStakes ?? ''}
-        onChangeText={(preferredStakes) => setDraftPlayer((current) => ({ ...current, preferredStakes }))}
+        label="Home Area"
+        placeholder="City or neighborhood"
+        tone="light"
+        value={draftPlayer.homeLocation ?? ''}
+        onChangeText={(homeLocation) => setDraftPlayer((current) => ({ ...current, homeLocation }))}
+        onSubmit={declared ? onSubmit : undefined}
       />
-    </>
-  );
-}
-
-function StepHeader({ icon, title }: { icon: keyof typeof Ionicons.glyphMap; title: string }) {
-  return (
-    <View style={styles.stepHeader}>
-      <View style={styles.stepHeaderIcon}>
-        <Ionicons name={icon} size={20} color={colors.primaryDark} />
-      </View>
-      <View style={styles.stepHeaderText}>
-        <Text style={styles.sectionTitle}>{title}</Text>
-      </View>
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: declared }}
+        onPress={() => setDraftPlayer((current) => declared
+          ? { ...current, adultDeclaredAt: undefined, adultDeclarationVersion: undefined }
+          : { ...current, adultDeclaredAt: new Date().toISOString(), adultDeclarationVersion })}
+        style={styles.secondaryActionButton}
+      >
+        <Ionicons name={declared ? 'checkbox' : 'square-outline'} size={20} color={declared ? colors.teal : colors.primaryDark} />
+        <Text style={styles.secondaryActionText}>I confirm that I am 18 or older</Text>
+      </Pressable>
+      <Text style={styles.optionalStepText}>Orbit is for adults. Individual venues may require players to be 21 or older and may check physical ID for age-restricted access.</Text>
     </View>
   );
 }

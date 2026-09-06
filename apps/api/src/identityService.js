@@ -1,6 +1,12 @@
+const crypto = require('crypto');
 const { getAdminApp, getAdminSdk } = require('./services/firebaseAdmin');
 const { getStripe } = require('./services/stripeClient');
+const { getAccountDeletionFinalizationScheduler } = require('./operations/accountDeletionFinalization');
 const { loadState } = require('./database');
+const {
+  isPlayerDeletionMarkedInAdminDatabase,
+  playerDeletionMarkerPath
+} = require('./playerDeletionGuard');
 
 function getRequiredMinimumAge() {
   return 18;
@@ -10,10 +16,10 @@ function normalizeRequiredMinimumAge(value) {
   return Number(value) === 18 ? 18 : 21;
 }
 
-async function resolveRequestMinimumAge(request) {
+async function resolveRequestMinimumAge(request, dependencies = {}) {
   const clubId = String(request.body?.clubId || request.query?.clubId || '').trim();
   if (!clubId) return 21;
-  const record = await loadState(clubId);
+  const record = await (dependencies.loadState || loadState)(clubId);
   return normalizeRequiredMinimumAge(record?.state?.settings?.clubAccount?.minimumPlayerAge);
 }
 
@@ -34,8 +40,17 @@ function identityDocumentPath(playerId) {
   return `players/${playerId}/private/identity`;
 }
 
+const identityProviderCleanupCollection = 'orbitIdentityProviderCleanup';
+
+function identityProviderCleanupPath(providerSessionId) {
+  const sessionId = String(providerSessionId || '').trim();
+  if (!sessionId) throw new Error('A provider session ID is required for identity cleanup.');
+  return `${identityProviderCleanupCollection}/${crypto.createHash('sha256').update(sessionId).digest('hex')}`;
+}
+
 const cameraCaptureKeys = new Set(['fullName', 'dateOfBirth', 'address', 'mutationId']);
 const forbiddenCaptureKeyPattern = /(image|photo|selfie|barcode|pdf417|id.?number|document.?number|license.?number|raw)/i;
+const opaqueIdentityMutationPattern = /^identity_[A-Za-z0-9_-]{16,171}$/;
 
 function normalizeCameraCapture(body, now = new Date()) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -57,7 +72,7 @@ function normalizeCameraCapture(body, now = new Date()) {
   if (!fullName || fullName.length > 120 || !address || address.length > 300 || !mutationId || mutationId.length > 180) {
     return { ok: false, error: 'Name, address, and a valid mutation ID are required.' };
   }
-  if (!/^[A-Za-z0-9._:-]+$/.test(mutationId) || !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+  if (!opaqueIdentityMutationPattern.test(mutationId) || !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
     return { ok: false, error: 'Date of birth or mutation ID is invalid.' };
   }
   const [year, month, day] = dateOfBirth.split('-').map(Number);
@@ -130,13 +145,13 @@ function getCurrentVerifiedAge(record, now = new Date()) {
   return calculateAgeFromDate({ year, month, day }, now);
 }
 
-function getPublicIdentityStatus(record = {}) {
+function getPublicIdentityStatus(record = {}, now = new Date()) {
   const verifiedAt = typeof record.verifiedAt === 'string'
     ? record.verifiedAt
     : typeof record.verifiedAt?.toDate === 'function'
       ? record.verifiedAt.toDate().toISOString()
       : null;
-  const currentVerifiedAge = getCurrentVerifiedAge(record);
+  const currentVerifiedAge = getCurrentVerifiedAge(record, now);
   const ageLevel = currentVerifiedAge == null ? Number(record.ageLevel || 0) : getAgeLevel(currentVerifiedAge);
   const ageEligible = (record.status === 'verified' && record.ageVerified === true) ||
     (record.status === 'provisional' && record.ageEligible === true);
@@ -208,13 +223,21 @@ function buildEligibilityUpdate(session, event, minimumAge = getRequiredMinimumA
   };
 }
 
-async function persistEligibilityUpdate(playerId, update) {
-  const admin = getAdminSdk();
-  const database = admin.firestore(getAdminApp());
+async function persistEligibilityUpdate(playerId, update, dependencies = {}) {
+  const admin = (dependencies.getAdminSdk || getAdminSdk)();
+  const app = (dependencies.getAdminApp || getAdminApp)();
+  const database = dependencies.database || admin.firestore(app);
   const reference = database.doc(identityDocumentPath(playerId));
+  const markerReference = database.doc(playerDeletionMarkerPath(playerId));
   let applied = false;
+  let deletionBlocked = false;
   let effectiveRecord = {};
   await database.runTransaction(async (transaction) => {
+    const markerSnapshot = await transaction.get(markerReference);
+    if (markerSnapshot.exists) {
+      deletionBlocked = true;
+      return;
+    }
     const currentSnapshot = await transaction.get(reference);
     const current = currentSnapshot.data() || {};
     const currentEventCreated = Number(current.lastStripeEventCreated || 0);
@@ -240,7 +263,8 @@ async function persistEligibilityUpdate(playerId, update) {
     }, { merge: true });
     applied = true;
   });
-  const auth = admin.auth(getAdminApp());
+  if (deletionBlocked) return false;
+  const auth = admin.auth(app);
   try {
     const user = await auth.getUser(playerId);
     await auth.setCustomUserClaims(playerId, {
@@ -254,7 +278,7 @@ async function persistEligibilityUpdate(playerId, update) {
   return applied;
 }
 
-async function handleStripeIdentityEvent(event) {
+async function handleStripeIdentityEvent(event, dependencies = {}) {
   const supportedEvents = new Set([
     'identity.verification_session.processing',
     'identity.verification_session.verified',
@@ -268,12 +292,25 @@ async function handleStripeIdentityEvent(event) {
   const purpose = String(session.metadata?.purpose || '').trim();
   if (purpose && purpose !== 'orbit_player_age_verification') return false;
   if (event.type !== 'identity.verification_session.redacted' && purpose !== 'orbit_player_age_verification') return false;
+  const admin = (dependencies.getAdminSdk || getAdminSdk)();
+  const app = (dependencies.getAdminApp || getAdminApp)();
+  const database = dependencies.database || admin.firestore(app);
+  let completedProviderCleanup = 0;
+  if (event.type === 'identity.verification_session.redacted' && session.id) {
+    const completeCleanup = dependencies.completeIdentityProviderCleanupForSession
+      || completeIdentityProviderCleanupForSession;
+    completedProviderCleanup = await completeCleanup(String(session.id), {
+      ...dependencies,
+      database,
+      getAdminSdk: () => admin,
+      getAdminApp: () => app
+    });
+  }
   let playerId = purpose === 'orbit_player_age_verification'
     ? String(session.metadata?.playerId || session.metadata?.user_id || session.client_reference_id || '').trim()
     : '';
   if (!playerId && event.type === 'identity.verification_session.redacted' && session.id) {
-    const admin = getAdminSdk();
-    const matches = await admin.firestore(getAdminApp())
+    const matches = await database
       .collectionGroup('private')
       .where('providerSessionId', '==', String(session.id))
       .limit(5)
@@ -284,10 +321,15 @@ async function handleStripeIdentityEvent(event) {
     });
     playerId = identityDocument?.ref.path.split('/')[1] || '';
   }
-  if (!playerId) return false;
+  if (!playerId) return completedProviderCleanup > 0;
+  const checkDeletionMarker = dependencies.isPlayerDeletionMarkedInAdminDatabase
+    || isPlayerDeletionMarkedInAdminDatabase;
+  if (await checkDeletionMarker(database, playerId)) return completedProviderCleanup > 0;
+  const persistUpdate = dependencies.persistEligibilityUpdate
+    || ((id, update) => persistEligibilityUpdate(id, update, { ...dependencies, database }));
 
   if (event.type === 'identity.verification_session.redacted') {
-    await persistEligibilityUpdate(playerId, {
+    await persistUpdate(playerId, {
       status: 'redacted',
       ageVerified: false,
       ageLevel: 0,
@@ -304,13 +346,13 @@ async function handleStripeIdentityEvent(event) {
   }
 
   if (event.type === 'identity.verification_session.verified') {
-    session = await getStripe().identity.verificationSessions.retrieve(session.id, {
+    session = await (dependencies.getStripe || getStripe)().identity.verificationSessions.retrieve(session.id, {
       expand: ['verified_outputs']
     });
   }
 
   const update = buildEligibilityUpdate(session, event);
-  await persistEligibilityUpdate(playerId, update);
+  await persistUpdate(playerId, update);
   return true;
 }
 
@@ -365,20 +407,45 @@ function buildCameraIdentityRecord(current, capture, capturedAt) {
   };
 }
 
-async function capturePlayerIdentity(request, response) {
+function sendIdentityDeletionBlocked(response) {
+  response.status(410).json({
+    ok: false,
+    code: 'PLAYER_ACCOUNT_DELETION_IN_PROGRESS',
+    error: 'This player account is being deleted and can no longer create or restore data.'
+  });
+}
+
+async function writeIdentityUnlessDeletionBlocked(database, markerReference, operation, deletionOperation) {
+  let deletionBlocked = false;
+  let value;
+  await database.runTransaction(async (transaction) => {
+    const markerSnapshot = await transaction.get(markerReference);
+    if (markerSnapshot.exists) {
+      deletionBlocked = true;
+      if (typeof deletionOperation === 'function') await deletionOperation(transaction);
+      return;
+    }
+    value = await operation(transaction);
+  });
+  return { deletionBlocked, value };
+}
+
+async function capturePlayerIdentity(request, response, dependencies = {}) {
   response.set('cache-control', 'no-store');
-  const capturedAt = new Date();
+  const capturedAt = new Date(Number((dependencies.nowMs || Date.now)()));
   const normalized = normalizeCameraCapture(request.body, capturedAt);
   if (!normalized.ok) {
     response.status(400).json({ ok: false, error: normalized.error });
     return;
   }
-  const admin = getAdminSdk();
-  const database = admin.firestore(getAdminApp());
+  const admin = (dependencies.getAdminSdk || getAdminSdk)();
+  const app = (dependencies.getAdminApp || getAdminApp)();
+  const database = dependencies.database || admin.firestore(app);
   const reference = database.doc(identityDocumentPath(request.orbitPlayer.uid));
+  const markerReference = database.doc(playerDeletionMarkerPath(request.orbitPlayer.uid));
   const { mutationId } = normalized.value;
   let record;
-  await database.runTransaction(async (transaction) => {
+  const committed = await writeIdentityUnlessDeletionBlocked(database, markerReference, async (transaction) => {
     const snapshot = await transaction.get(reference);
     const current = snapshot.exists ? snapshot.data() || {} : {};
     if (current.captureMutationId === mutationId) {
@@ -391,20 +458,17 @@ async function capturePlayerIdentity(request, response) {
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: false });
   });
+  if (committed.deletionBlocked) {
+    sendIdentityDeletionBlocked(response);
+    return;
+  }
   response.status(201).json({ ok: true, identity: getPublicIdentityStatus(record) });
 }
 
-class IdentityDeletionError extends Error {
-  constructor(message, status) {
-    super(message);
-    this.name = 'IdentityDeletionError';
-    this.status = status;
-  }
-}
-
-async function deletePlayerIdentityData(playerId) {
-  const admin = getAdminSdk();
-  const database = admin.firestore(getAdminApp());
+async function deletePlayerIdentityData(playerId, dependencies = {}) {
+  const admin = (dependencies.getAdminSdk || getAdminSdk)();
+  const app = (dependencies.getAdminApp || getAdminApp)();
+  const database = dependencies.database || admin.firestore(app);
   const reference = database.doc(identityDocumentPath(playerId));
   const snapshot = await reference.get();
   const record = snapshot.exists ? snapshot.data() || {} : {};
@@ -412,41 +476,20 @@ async function deletePlayerIdentityData(playerId) {
     ...(Array.isArray(record.providerSessionIds) ? record.providerSessionIds : []),
     record.providerSessionId
   ].map((value) => String(value || '').trim()).filter(Boolean)));
-  let redactionRequested = false;
-
-  if (providerSessionIds.length) {
-    if (!process.env.STRIPE_SECRET_KEY) {
-      throw new IdentityDeletionError('Stripe Identity is unavailable, so verification data could not be redacted.', 503);
-    }
-    const sessions = [];
-    for (const providerSessionId of providerSessionIds) {
-      try {
-        sessions.push(await getStripe().identity.verificationSessions.retrieve(providerSessionId));
-      } catch (error) {
-        if (error?.code !== 'resource_missing') throw error;
-      }
-    }
-    const unfinishedSession = sessions.find((session) => {
-      const redactionStatus = String(session.redaction?.status || '');
-      return session.status === 'processing' && !['processing', 'redacted'].includes(redactionStatus);
-    });
-    if (unfinishedSession) {
-      throw new IdentityDeletionError('Identity verification is still processing. Try deleting the account again after it finishes.', 409);
-    }
-    for (const session of sessions) {
-      const redactionStatus = String(session.redaction?.status || '');
-      if (!['processing', 'redacted'].includes(redactionStatus) && ['requires_input', 'requires_action', 'verified'].includes(session.status)) {
-        await getStripe().identity.verificationSessions.redact(session.id);
-        redactionRequested = true;
-      } else {
-        redactionRequested = redactionRequested || redactionStatus === 'processing';
-      }
-    }
+  for (const providerSessionId of providerSessionIds) {
+    const cleanupReference = database.doc(identityProviderCleanupPath(providerSessionId));
+    await cleanupReference.set(buildIdentityProviderCleanupRecord(admin, {
+      providerSessionId,
+      reason: 'identity-redaction',
+      cleanupMode: 'redact',
+      deletionMarkerRef: playerDeletionMarkerPath(playerId),
+      notBeforeMs: 0
+    }), { merge: true });
   }
 
   try {
-    const user = await admin.auth(getAdminApp()).getUser(playerId);
-    await admin.auth(getAdminApp()).setCustomUserClaims(playerId, {
+    const user = await admin.auth(app).getUser(playerId);
+    await admin.auth(app).setCustomUserClaims(playerId, {
       ...(user.customClaims || {}),
       ageVerified: false,
       ageLevel: 0
@@ -455,25 +498,376 @@ async function deletePlayerIdentityData(playerId) {
     if (error?.code !== 'auth/user-not-found') throw error;
   }
   await reference.delete();
-  return { redactionRequested };
+  const cleanupProviderIntents = dependencies.cleanupIdentityProviderIntentsForPlayer
+    || cleanupIdentityProviderIntentsForPlayer;
+  const providerCleanup = await cleanupProviderIntents(playerId, {
+    ...dependencies,
+    database,
+    getAdminSdk: () => admin,
+    getAdminApp: () => app
+  });
+  return { redactionRequested: providerSessionIds.length > 0, ...providerCleanup };
 }
 
-async function deletePlayerIdentity(request, response) {
-  response.set('cache-control', 'no-store');
-  try {
-    response.json({ ok: true, ...await deletePlayerIdentityData(request.orbitPlayer.uid) });
-  } catch (error) {
-    if (error instanceof IdentityDeletionError) {
-      response.status(error.status).json({ ok: false, error: error.message });
-      return;
+async function compensateIdentitySession(session, stripe, options = {}) {
+  const sessions = stripe?.identity?.verificationSessions;
+  if (!session?.id || !sessions) return false;
+  const requireRedaction = options.requireRedaction === true;
+  let current = session;
+  if (!current.status && typeof sessions.retrieve === 'function') {
+    try {
+      current = await sessions.retrieve(session.id);
+      const redactionStatus = String(current?.redaction?.status || '');
+      if (redactionStatus === 'redacted') return true;
+      if (redactionStatus === 'processing') return false;
+      if (!requireRedaction && current?.status === 'canceled') return true;
+    } catch (error) {
+      if (error?.code === 'resource_missing') return true;
     }
-    throw error;
+  }
+  if (!requireRedaction) {
+    try {
+      if (typeof sessions.cancel === 'function') {
+        const canceled = await sessions.cancel(session.id);
+        if (canceled?.status === 'canceled') return true;
+      }
+    } catch (error) {
+      if (error?.code === 'resource_missing') return true;
+      // Redaction is the secondary cleanup path for an abandoned creation session.
+    }
+  }
+  try {
+    if (typeof sessions.redact === 'function') {
+      const redacted = await sessions.redact(session.id);
+      return String(redacted?.redaction?.status || '') === 'redacted';
+    }
+  } catch (error) {
+    if (error?.code === 'resource_missing') return true;
+    // The local deletion marker still prevents any provider callback from restoring Player data.
+  }
+  return false;
+}
+
+function buildIdentityProviderCleanupRecord(admin, input) {
+  return {
+    provider: 'stripe_identity',
+    providerSessionId: String(input.providerSessionId || ''),
+    status: 'pending',
+    reason: String(input.reason || 'identity-session-create'),
+    cleanupMode: input.cleanupMode === 'redact' ? 'redact' : 'compensate',
+    deletionMarkerRef: String(input.deletionMarkerRef || ''),
+    idempotencyKey: String(input.idempotencyKey || ''),
+    createParams: input.createParams || {},
+    notBeforeMs: Number(input.notBeforeMs || 0),
+    attempts: 0,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  };
+}
+
+async function listIdentityProviderCleanupDocuments(database, playerId) {
+  const markerPath = playerDeletionMarkerPath(playerId);
+  const collection = database.collection(identityProviderCleanupCollection);
+  const selectors = [
+    ['deletionMarkerRef', markerPath],
+    ['createParams.client_reference_id', playerId],
+    ['createParams.metadata.playerId', playerId]
+  ];
+  const documents = new Map();
+  for (const [field, value] of selectors) {
+    const snapshot = await collection.where(field, '==', value).limit(100).get();
+    for (const document of snapshot.docs || []) {
+      const key = String(document.ref?.path || document.id || '');
+      if (key && !documents.has(key)) documents.set(key, document);
+    }
+  }
+  return [...documents.values()];
+}
+
+function cleanupAttemptIncrement(admin, currentAttempts) {
+  return typeof admin.firestore.FieldValue.increment === 'function'
+    ? admin.firestore.FieldValue.increment(1)
+    : Number(currentAttempts || 0) + 1;
+}
+
+function wakeDeletionFinalizationAfterIdentityCleanup(dependencies = {}) {
+  const scheduleFinalization = dependencies.scheduleDeletionFinalizationDrain
+    || getAccountDeletionFinalizationScheduler();
+  if (typeof scheduleFinalization !== 'function') return false;
+  try {
+    void Promise.resolve(scheduleFinalization({ force: true })).catch(() => undefined);
+    return true;
+  } catch {
+    return false;
   }
 }
 
-async function createPlayerIdentitySession(request, response) {
+async function completeIdentityProviderCleanupForSession(providerSessionId, dependencies = {}) {
+  const sessionId = String(providerSessionId || '').trim();
+  if (!sessionId) return 0;
+  const admin = (dependencies.getAdminSdk || getAdminSdk)();
+  const app = (dependencies.getAdminApp || getAdminApp)();
+  const database = dependencies.database || admin.firestore(app);
+  const snapshot = await database.collection(identityProviderCleanupCollection)
+    .where('providerSessionId', '==', sessionId)
+    .limit(100)
+    .get();
+  let completed = 0;
+  for (const document of snapshot.docs || []) {
+    await document.ref.delete();
+    completed += 1;
+  }
+  if (completed > 0) wakeDeletionFinalizationAfterIdentityCleanup(dependencies);
+  return completed;
+}
+
+async function cleanupIdentityProviderIntentsForPlayer(playerId, dependencies = {}) {
+  const admin = (dependencies.getAdminSdk || getAdminSdk)();
+  const app = (dependencies.getAdminApp || getAdminApp)();
+  const database = dependencies.database || admin.firestore(app);
+  const listCleanupDocuments = dependencies.listIdentityProviderCleanupDocuments
+    || listIdentityProviderCleanupDocuments;
+  const documents = await listCleanupDocuments(database, playerId);
+  if (!documents.length) {
+    return { identityProviderCleanupPending: 0, identityProviderCleanupCompleted: 0 };
+  }
+
+  let stripe;
+  try {
+    stripe = (dependencies.getStripe || getStripe)();
+  } catch {
+    stripe = null;
+  }
+  const nowMs = Number((dependencies.nowMs || Date.now)());
+  let pending = 0;
+  let completed = 0;
+  for (const document of documents) {
+    const record = document.data() || {};
+    // A future timestamp is the creator's lease. Deletion remains pending
+    // instead of racing a provider call that began before the deletion marker.
+    if (Number(record.notBeforeMs || 0) > nowMs) {
+      pending += 1;
+      continue;
+    }
+    let providerSessionId = String(record.providerSessionId || '').trim();
+    try {
+      if (
+        !providerSessionId
+        && stripe
+        && record.createParams
+        && typeof record.createParams === 'object'
+        && String(record.idempotencyKey || '').trim()
+      ) {
+        const replayed = await stripe.identity.verificationSessions.create(record.createParams, {
+          idempotencyKey: String(record.idempotencyKey)
+        });
+        providerSessionId = String(replayed?.id || '').trim();
+      }
+      if (providerSessionId && typeof document.ref.set === 'function') {
+        await document.ref.set({
+          providerSessionId,
+          reason: 'player-account-deletion',
+          status: 'pending',
+          notBeforeMs: 0,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+      }
+      const cleaned = providerSessionId && stripe
+        ? await compensateIdentitySession({ id: providerSessionId }, stripe, {
+            requireRedaction: record.cleanupMode === 'redact'
+          })
+        : false;
+      if (cleaned && typeof document.ref.delete === 'function') {
+        await document.ref.delete();
+        completed += 1;
+        continue;
+      }
+    } catch {
+      // The durable intent remains the recovery source for the next retry.
+    }
+    pending += 1;
+    if (typeof document.ref.set === 'function') {
+      try {
+        await document.ref.set({
+          reason: 'player-account-deletion',
+          status: 'pending',
+          notBeforeMs: 0,
+          attempts: cleanupAttemptIncrement(admin, record.attempts),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+      } catch {
+        // The existing creation intent remains durable even if this update fails.
+      }
+    }
+  }
+  if (pending) {
+    const scheduleCleanup = dependencies.scheduleIdentityProviderCleanupDrain
+      || scheduleIdentityProviderCleanupDrain;
+    try {
+      void Promise.resolve(scheduleCleanup({ force: true })).catch(() => undefined);
+    } catch {
+      // The next request will retry the still-durable intent.
+    }
+  }
+  if (completed > 0) wakeDeletionFinalizationAfterIdentityCleanup(dependencies);
+  return { identityProviderCleanupPending: pending, identityProviderCleanupCompleted: completed };
+}
+
+async function drainIdentityProviderCleanupQueue(dependencies = {}) {
+  const admin = (dependencies.getAdminSdk || getAdminSdk)();
+  const app = (dependencies.getAdminApp || getAdminApp)();
+  const database = dependencies.database || admin.firestore(app);
+  const limit = Math.min(Math.max(Number(dependencies.limit || 25), 1), 100);
+  const snapshot = await database.collection(identityProviderCleanupCollection)
+    .where('status', '==', 'pending')
+    .limit(limit)
+    .get();
+  if (!snapshot.docs.length) return { processed: 0, completed: 0, failed: 0, deferred: 0 };
+  let stripe;
+  try {
+    stripe = (dependencies.getStripe || getStripe)();
+  } catch {
+    stripe = null;
+  }
+  let completed = 0;
+  let failed = 0;
+  let deferred = 0;
+  const nowMs = Number((dependencies.nowMs || Date.now)());
+  for (const document of snapshot.docs) {
+    const record = document.data() || {};
+    let providerSessionId = String(record.providerSessionId || '').trim();
+    // `notBeforeMs` is the active creator's lease. A provider reference may be
+    // written before the identity transaction commits, so its presence must not
+    // let another request cancel a session that is still being returned safely.
+    if (Number(record.notBeforeMs || 0) > nowMs) {
+      deferred += 1;
+      continue;
+    }
+    let cleaned = false;
+    try {
+      if (
+        !providerSessionId
+        && stripe
+        && record.createParams
+        && typeof record.createParams === 'object'
+        && String(record.idempotencyKey || '').trim()
+      ) {
+        const replayed = await stripe.identity.verificationSessions.create(record.createParams, {
+          idempotencyKey: String(record.idempotencyKey)
+        });
+        providerSessionId = String(replayed?.id || '').trim();
+        if (providerSessionId) {
+          await document.ref.set({
+            providerSessionId,
+            notBeforeMs: 0,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
+        }
+      }
+      cleaned = providerSessionId && stripe
+        ? await compensateIdentitySession({ id: providerSessionId }, stripe, {
+            requireRedaction: record.cleanupMode === 'redact'
+          })
+        : false;
+    } catch {
+      cleaned = false;
+    }
+    if (cleaned) {
+      await document.ref.delete();
+      completed += 1;
+      continue;
+    }
+    await document.ref.set({
+      status: 'pending',
+      attempts: admin.firestore.FieldValue.increment(1),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    failed += 1;
+  }
+  if (completed > 0) wakeDeletionFinalizationAfterIdentityCleanup(dependencies);
+  return { processed: snapshot.docs.length, completed, failed, deferred };
+}
+
+let scheduledIdentityProviderCleanupDrain;
+let identityProviderCleanupDrainRequestedAgain = false;
+let identityProviderCleanupDrainRequestedOptions;
+let lastIdentityProviderCleanupDrainAt = 0;
+
+function registerIdentityProviderCleanupContinuation(promise, options = {}) {
+  if (typeof options.waitUntil !== 'function' && !process.env.VERCEL) return;
+  try {
+    const waitUntil = options.waitUntil || require('@vercel/functions').waitUntil;
+    waitUntil(promise);
+  } catch {
+    // The durable cleanup intent remains available to the next request.
+  }
+}
+
+function scheduleIdentityProviderCleanupDrain(options = {}) {
+  const force = options.force === true;
+  const nowMs = Number((options.nowMs || Date.now)());
+  if (scheduledIdentityProviderCleanupDrain) {
+    if (force) {
+      identityProviderCleanupDrainRequestedAgain = true;
+      identityProviderCleanupDrainRequestedOptions = options;
+    }
+    return scheduledIdentityProviderCleanupDrain;
+  }
+  if (!options.dependencies?.database && !process.env.STRIPE_SECRET_KEY) {
+    return Promise.resolve({ processed: 0, completed: 0, failed: 0, deferred: 0, unavailable: true });
+  }
+  if (!force && nowMs - lastIdentityProviderCleanupDrainAt < 30_000) {
+    return Promise.resolve({ processed: 0, completed: 0, failed: 0, deferred: 0, throttled: true });
+  }
+  lastIdentityProviderCleanupDrainAt = nowMs;
+  scheduledIdentityProviderCleanupDrain = drainIdentityProviderCleanupQueue(options.dependencies || {})
+    .catch(() => ({ processed: 0, completed: 0, failed: 1, deferred: 0 }))
+    .finally(() => {
+      scheduledIdentityProviderCleanupDrain = undefined;
+      if (identityProviderCleanupDrainRequestedAgain) {
+        const nextOptions = identityProviderCleanupDrainRequestedOptions || options;
+        identityProviderCleanupDrainRequestedAgain = false;
+        identityProviderCleanupDrainRequestedOptions = undefined;
+        void scheduleIdentityProviderCleanupDrain({
+          ...nextOptions,
+          force: true
+        }).catch(() => undefined);
+      }
+    });
+  registerIdentityProviderCleanupContinuation(scheduledIdentityProviderCleanupDrain, options);
+  return scheduledIdentityProviderCleanupDrain;
+}
+
+async function finishQueuedIdentityProviderCleanup(session, stripe, cleanupReference, scheduleCleanup, updates = {}) {
+  if (typeof cleanupReference.set === 'function') {
+    try {
+      await cleanupReference.set({
+        providerSessionId: String(session?.id || ''),
+        status: 'pending',
+        notBeforeMs: 0,
+        ...updates
+      }, { merge: true });
+    } catch {
+      // The pre-create intent still has the deterministic idempotency parameters needed for replay.
+    }
+  }
+  const cleaned = await compensateIdentitySession(session, stripe);
+  if (cleaned && typeof cleanupReference.delete === 'function') {
+    try {
+      await cleanupReference.delete();
+      return true;
+    } catch {
+      // A retained queue record is safe; the background drain can confirm cleanup and remove it.
+    }
+  }
+  void Promise.resolve().then(() => scheduleCleanup({ force: true })).catch(() => undefined);
+  return cleaned;
+}
+
+async function createPlayerIdentitySession(request, response, dependencies = {}) {
   response.set('cache-control', 'no-store');
-  const admin = getAdminSdk();
+  const admin = (dependencies.getAdminSdk || getAdminSdk)();
+  const app = (dependencies.getAdminApp || getAdminApp)();
   const playerId = request.orbitPlayer.uid;
   const returnUrl = String(process.env.ORBIT_IDENTITY_RETURN_URL || '').trim();
   if (!returnUrl || !process.env.STRIPE_SECRET_KEY) {
@@ -481,8 +875,15 @@ async function createPlayerIdentitySession(request, response) {
     return;
   }
 
-  const database = admin.firestore(getAdminApp());
+  const database = dependencies.database || admin.firestore(app);
   const reference = database.doc(identityDocumentPath(playerId));
+  const markerReference = database.doc(playerDeletionMarkerPath(playerId));
+  const checkDeletionMarker = dependencies.isPlayerDeletionMarkedInAdminDatabase
+    || isPlayerDeletionMarkedInAdminDatabase;
+  if (await checkDeletionMarker(database, playerId)) {
+    sendIdentityDeletionBlocked(response);
+    return;
+  }
   const currentSnapshot = await reference.get();
   let current = currentSnapshot.data() || {};
 
@@ -501,16 +902,21 @@ async function createPlayerIdentitySession(request, response) {
   }
 
   if (current.providerSessionId && ['requires_input', 'processing'].includes(current.status)) {
-    const existingSession = await getStripe().identity.verificationSessions.retrieve(current.providerSessionId, {
+    const stripe = (dependencies.getStripe || getStripe)();
+    const existingSession = await stripe.identity.verificationSessions.retrieve(current.providerSessionId, {
       expand: ['verified_outputs']
     });
     if (existingSession.status === 'verified') {
       const reconciledAt = new Date();
-      await persistEligibilityUpdate(playerId, buildEligibilityUpdate(existingSession, {
+      await (dependencies.persistEligibilityUpdate || persistEligibilityUpdate)(playerId, buildEligibilityUpdate(existingSession, {
         id: `orbit_identity_reconcile_${existingSession.id}_${reconciledAt.getTime()}`,
         created: Math.floor(reconciledAt.getTime() / 1000)
-      }, getRequiredMinimumAge(), reconciledAt));
-      current = await readIdentityRecord(playerId);
+      }, getRequiredMinimumAge(), reconciledAt), { ...dependencies, database });
+      if (await checkDeletionMarker(database, playerId)) {
+        sendIdentityDeletionBlocked(response);
+        return;
+      }
+      current = await (dependencies.readIdentityRecord || readIdentityRecord)(playerId);
       response.json({
         ok: true,
         identity: getPublicIdentityStatus(current),
@@ -519,11 +925,17 @@ async function createPlayerIdentitySession(request, response) {
       return;
     }
 
-    await reference.set({
-      status: existingSession.status,
-      providerStatus: existingSession.status,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
+    const reconciled = await writeIdentityUnlessDeletionBlocked(database, markerReference, async (transaction) => {
+      transaction.set(reference, {
+        status: existingSession.status,
+        providerStatus: existingSession.status,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    });
+    if (reconciled.deletionBlocked) {
+      sendIdentityDeletionBlocked(response);
+      return;
+    }
     current = { ...current, status: existingSession.status };
 
     if (['requires_input', 'processing'].includes(existingSession.status)) {
@@ -546,7 +958,6 @@ async function createPlayerIdentitySession(request, response) {
   const verificationFlow = String(process.env.STRIPE_IDENTITY_VERIFICATION_FLOW_ID || '').trim();
   const createParams = {
     client_reference_id: playerId,
-    provided_details: request.orbitPlayer.email ? { email: request.orbitPlayer.email } : undefined,
     return_url: returnUrl,
     metadata: {
       playerId,
@@ -564,11 +975,105 @@ async function createPlayerIdentitySession(request, response) {
           }
         })
   };
-  const session = await getStripe().identity.verificationSessions.create(
+  const attemptRef = crypto.createHash('sha256')
+    .update(`orbit-player-identity\u0000${playerId}\u0000${attemptCount}`)
+    .digest('hex');
+  const idempotencyKey = `orbit-player-identity-${attemptRef}`;
+  const intentStartedAtMs = Number((dependencies.nowMs || Date.now)());
+  const intentNotBeforeMs = (Number.isFinite(intentStartedAtMs) ? intentStartedAtMs : Date.now()) + 2 * 60_000;
+  const cleanupReference = database.doc(identityProviderCleanupPath(attemptRef));
+  const cleanupRecord = (input = {}) => buildIdentityProviderCleanupRecord(admin, {
+    idempotencyKey,
     createParams,
-    { idempotencyKey: `orbit-player-identity-${playerId}-${attemptCount}` }
-  );
-  if (!session.url) throw new Error('Stripe did not return an identity verification URL.');
+    notBeforeMs: intentNotBeforeMs,
+    deletionMarkerRef: String(markerReference.path || ''),
+    ...input
+  });
+  const scheduleCleanup = dependencies.scheduleIdentityProviderCleanupDrain
+    || scheduleIdentityProviderCleanupDrain;
+  const intent = await writeIdentityUnlessDeletionBlocked(database, markerReference, async (transaction) => {
+    transaction.set(cleanupReference, cleanupRecord(), { merge: false });
+  });
+  if (intent.deletionBlocked) {
+    sendIdentityDeletionBlocked(response);
+    return;
+  }
+
+  let stripe;
+  let session;
+  try {
+    stripe = (dependencies.getStripe || getStripe)();
+    session = await stripe.identity.verificationSessions.create(createParams, { idempotencyKey });
+  } catch {
+    try {
+      await cleanupReference.set({
+        reason: 'provider-create-result-unknown',
+        status: 'pending',
+        notBeforeMs: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    } catch {
+      // The original intent and finite creator lease remain durable.
+    }
+    void Promise.resolve().then(() => scheduleCleanup({ force: true })).catch(() => undefined);
+    response.status(503).json({
+      ok: false,
+      code: 'IDENTITY_SESSION_UNAVAILABLE',
+      error: 'Identity verification could not be started safely. Try again later.'
+    });
+    return;
+  }
+  let providerReferencePersisted;
+  try {
+    providerReferencePersisted = await writeIdentityUnlessDeletionBlocked(
+      database,
+      markerReference,
+      async (transaction) => {
+        transaction.set(cleanupReference, {
+          providerSessionId: String(session.id || ''),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+      },
+      async (transaction) => {
+        transaction.set(cleanupReference, {
+          providerSessionId: String(session.id || ''),
+          reason: 'player-deletion-race',
+          deletionMarkerRef: String(markerReference.path || ''),
+          notBeforeMs: 0,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+      }
+    );
+  } catch {
+    await finishQueuedIdentityProviderCleanup(session, stripe, cleanupReference, scheduleCleanup, {
+      reason: 'provider-session-reference-write-failed'
+    });
+    response.status(503).json({
+      ok: false,
+      code: 'IDENTITY_SESSION_PERSISTENCE_FAILED',
+      error: 'Identity verification could not be saved safely. Try again later.'
+    });
+    return;
+  }
+  if (providerReferencePersisted.deletionBlocked) {
+    await finishQueuedIdentityProviderCleanup(session, stripe, cleanupReference, scheduleCleanup, {
+      reason: 'player-deletion-race',
+      deletionMarkerRef: String(markerReference.path || '')
+    });
+    sendIdentityDeletionBlocked(response);
+    return;
+  }
+  if (!session.url) {
+    await finishQueuedIdentityProviderCleanup(session, stripe, cleanupReference, scheduleCleanup, {
+      reason: 'provider-session-url-missing'
+    });
+    response.status(503).json({
+      ok: false,
+      code: 'IDENTITY_SESSION_UNAVAILABLE',
+      error: 'Identity verification could not be started safely. Try again later.'
+    });
+    return;
+  }
 
   const nextRecord = {
     status: session.status || 'requires_input',
@@ -586,7 +1091,68 @@ async function createPlayerIdentitySession(request, response) {
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp()
   };
-  await reference.set(nextRecord, { merge: true });
+  let persisted;
+  try {
+    persisted = await writeIdentityUnlessDeletionBlocked(database, markerReference, async (transaction) => {
+      const latestSnapshot = await transaction.get(reference);
+      const latest = latestSnapshot.exists ? latestSnapshot.data() || {} : {};
+      if (latest.status === 'verified' && latest.ageVerified === true) {
+        transaction.set(cleanupReference, {
+          reason: 'identity-already-verified',
+          notBeforeMs: 0,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        return { alreadyVerified: true, record: latest };
+      }
+      transaction.set(reference, nextRecord, { merge: true });
+      transaction.delete(cleanupReference);
+      return { alreadyVerified: false, record: nextRecord };
+    }, async (transaction) => {
+      transaction.set(cleanupReference, {
+        reason: 'player-deletion-race',
+        deletionMarkerRef: String(markerReference.path || ''),
+        notBeforeMs: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    });
+  } catch {
+    await finishQueuedIdentityProviderCleanup(session, stripe, cleanupReference, scheduleCleanup, {
+      reason: 'identity-persistence-transaction-failed'
+    });
+    response.status(503).json({
+      ok: false,
+      code: 'IDENTITY_SESSION_PERSISTENCE_FAILED',
+      error: 'Identity verification could not be saved safely. Try again later.'
+    });
+    return;
+  }
+  if (persisted.deletionBlocked) {
+    await finishQueuedIdentityProviderCleanup(session, stripe, cleanupReference, scheduleCleanup, {
+      reason: 'player-deletion-race',
+      deletionMarkerRef: String(markerReference.path || '')
+    });
+    sendIdentityDeletionBlocked(response);
+    return;
+  }
+  const persistedValue = /** @type {{ alreadyVerified: boolean, record: Record<string, unknown> } | undefined} */ (
+    persisted.value
+  );
+  if (persistedValue?.alreadyVerified) {
+    const providerCleanupComplete = await finishQueuedIdentityProviderCleanup(
+      session,
+      stripe,
+      cleanupReference,
+      scheduleCleanup,
+      { reason: 'identity-already-verified' }
+    );
+    response.json({
+      ok: true,
+      identity: getPublicIdentityStatus(persistedValue.record),
+      alreadyVerified: true,
+      providerCleanup: providerCleanupComplete ? 'complete' : 'scheduled'
+    });
+    return;
+  }
   response.status(201).json({
     ok: true,
     verificationUrl: session.url,
@@ -595,38 +1161,51 @@ async function createPlayerIdentitySession(request, response) {
   });
 }
 
-async function requireVerifiedPlayerAge(request, response, next) {
-  try {
-    const record = await readIdentityRecord(request.orbitPlayer.uid);
-    const minimumAge = await resolveRequestMinimumAge(request);
-    const identity = getPublicIdentityStatus(record);
-    if (identity.ageEligible !== true || identity.ageLevel < minimumAge) {
-      response.status(403).json({
-        ok: false,
-        code: 'AGE_VERIFICATION_REQUIRED',
-        error: `Verify that you are ${minimumAge}+ before joining or purchasing card-house access.`,
-        identity: { ...identity, minimumAge }
-      });
-      return;
+function createRequireVerifiedPlayerAge(dependencies = {}) {
+  const readIdentity = dependencies.readIdentityRecord || readIdentityRecord;
+  return async function requireVerifiedPlayerAge(request, response, next) {
+    try {
+      const record = await readIdentity(request.orbitPlayer.uid);
+      const minimumAge = await resolveRequestMinimumAge(request, dependencies);
+      const identity = getPublicIdentityStatus(record);
+      if (identity.ageEligible !== true || identity.ageLevel < minimumAge) {
+        response.status(403).json({
+          ok: false,
+          code: 'AGE_VERIFICATION_REQUIRED',
+          error: `Verify that you are ${minimumAge}+ before using this venue feature.`,
+          identity: { ...identity, minimumAge }
+        });
+        return;
+      }
+      request.orbitIdentity = { ...identity, minimumAge };
+      request.orbitIdentitySummary = getTrustedIdentitySummary(record);
+      next();
+    } catch (error) {
+      next(error);
     }
-    request.orbitIdentity = { ...identity, minimumAge };
-    request.orbitIdentitySummary = getTrustedIdentitySummary(record);
-    next();
-  } catch (error) {
-    next(error);
-  }
+  };
 }
+
+const requireVerifiedPlayerAge = createRequireVerifiedPlayerAge();
 
 module.exports = {
   buildEligibilityUpdate,
   buildCameraIdentityRecord,
   calculateAgeFromDate,
   capturePlayerIdentity,
+  cleanupIdentityProviderIntentsForPlayer,
+  completeIdentityProviderCleanupForSession,
+  compensateIdentitySession,
+  createRequireVerifiedPlayerAge,
   createPlayerIdentitySession,
-  deletePlayerIdentity,
+  drainIdentityProviderCleanupQueue,
   deletePlayerIdentityData,
   getAgeLevel,
   getVerifiedDetails,
+  identityDocumentPath,
+  identityProviderCleanupCollection,
+  identityProviderCleanupPath,
+  listIdentityProviderCleanupDocuments,
   getIdentityServiceStatus,
   getPlayerIdentityStatus,
   getPublicIdentityStatus,
@@ -634,6 +1213,8 @@ module.exports = {
   handleStripeIdentityEvent,
   normalizeCameraCapture,
   normalizeRequiredMinimumAge,
+  persistEligibilityUpdate,
   readIdentityRecord,
-  requireVerifiedPlayerAge
+  requireVerifiedPlayerAge,
+  scheduleIdentityProviderCleanupDrain
 };

@@ -177,7 +177,6 @@ function waitlistRequest(overrides: Partial<PlayerWaitlistRequest> = {}): Player
     availabilityStartTime: '19:00',
     availabilityEndTime: '22:00',
     tableId: 'table-one',
-    note: 'Window seat if possible',
     requestedAt: '2027-02-01T12:05:00.000Z',
     ...overrides
   };
@@ -221,10 +220,113 @@ describe('API and Electron player-sync boundary', () => {
     expect(apiSnapshot).toMatchObject({
       club: { id: 'license-one', name: 'Orbit Club' },
       memberships: [{ playerId: 'player-alex', status: 'Active' }],
-      social: { activePlayerCount: 1, adminCount: 1, knownPlayersInHouse: 0, waitlistCount: 1 },
+      social: { activePlayerCount: 1, adminCount: 1, knownPlayersInHouse: 0, waitlistCount: 0 },
       generatedAt: '2027-02-01T12:00:00.000Z'
     });
     expect(state).toEqual(before);
+  });
+
+  it('does not publish synthetic time access merely because a player profile is linked', () => {
+    const original = buildState();
+    const state = buildState({
+      sessions: original.sessions.map((session) => ({ ...session, collectionMode: 'Drop' })),
+      settings: {
+        ...original.settings,
+        defaultCollectionMode: 'Drop',
+        defaultHourlyFee: undefined,
+        collectionProfiles: []
+      }
+    });
+    const player = { id: 'player-alex', name: 'Alex', email: 'alex@example.test' };
+    const apiSnapshot = apiCore.buildPlayerClubSnapshot(state, player) as PlayerClubSnapshot;
+    const electronSnapshot = loadElectronSyncCore().buildPlayerClubSnapshot(state, player) as PlayerClubSnapshot;
+
+    expect(apiSnapshot).not.toHaveProperty('timeAccess');
+    expect(electronSnapshot).toEqual(apiSnapshot);
+  });
+
+  it('keeps table capacity factual but aggregates live seats and players from Running tables only', () => {
+    const original = buildState();
+    const state = buildState({
+      sessions: [
+        { ...original.sessions[0], seatsFilled: 2, maxSeats: 9 },
+        {
+          ...original.sessions[0], id: 'table-forming', label: 'Forming', status: 'Forming',
+          seatsFilled: 5, maxSeats: 9
+        },
+        {
+          ...original.sessions[0], id: 'table-paused', label: 'Paused', status: 'Paused',
+          seatsFilled: 4, maxSeats: 9
+        }
+      ],
+      playerSessions: [
+        {
+          id: 'forming-known', playerName: 'Known', profileId: 'player-other',
+          gameId: 'game-holdem', tableId: 'table-forming'
+        },
+        {
+          id: 'paused-known', playerName: 'Known Two', profileId: 'player-other-two',
+          gameId: 'game-holdem', tableId: 'table-paused'
+        }
+      ],
+      profiles: [{
+        ...original.profiles[0],
+        commonlyPlaysWithProfileIds: ['player-other', 'player-other-two']
+      }]
+    });
+    const player = { id: 'player-alex', name: 'Alex', email: 'alex@example.test' };
+    const apiSnapshot = apiCore.buildPlayerClubSnapshot(state, player) as PlayerClubSnapshot;
+    const electronSnapshot = loadElectronSyncCore().buildPlayerClubSnapshot(state, player) as PlayerClubSnapshot;
+    const rendererSnapshot = buildRendererSnapshot(state, player);
+
+    expect(apiSnapshot.games[0]).toMatchObject({
+      availableSeats: 7,
+      knownPlayersCount: 0,
+      formingCount: 1
+    });
+    expect(apiSnapshot.games[0].openTables).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: 'Forming', availableSeats: 4 }),
+      expect.objectContaining({ status: 'Paused', availableSeats: 5 })
+    ]));
+    expect(apiSnapshot.social.activePlayerCount).toBe(2);
+    expect(electronSnapshot).toEqual(apiSnapshot);
+    expect(rendererSnapshot.games[0]).toMatchObject({
+      availableSeats: 7,
+      knownPlayersCount: 0,
+      formingCount: 1
+    });
+    expect(rendererSnapshot.social.activePlayerCount).toBe(2);
+  });
+
+  it('publishes configured game/default collection modes on legacy tables with no session-level mode', () => {
+    const original = buildState();
+    const state = buildState({
+      sessions: [
+        { ...original.sessions[0], collectionMode: undefined, timeFeeBased: undefined },
+        {
+          ...original.sessions[0], id: 'table-default', gameId: 'game-other',
+          collectionMode: undefined, timeFeeBased: undefined
+        }
+      ],
+      games: [
+        ...original.games,
+        { id: 'game-other', name: 'Omaha', maxSeats: 9 }
+      ],
+      settings: {
+        ...original.settings,
+        defaultCollectionMode: 'Drop',
+        collectionProfiles: [{ gameId: 'game-holdem', collectionMode: 'Time' }]
+      }
+    });
+    const apiSnapshot = apiCore.buildPlayerClubSnapshot(state) as PlayerClubSnapshot;
+    const electronSnapshot = loadElectronSyncCore().buildPlayerClubSnapshot(state) as PlayerClubSnapshot;
+    const rendererSnapshot = buildRendererSnapshot(state);
+
+    expect(apiSnapshot.games[0].openTables[0].collectionMode).toBe('Time');
+    expect(apiSnapshot.games[1].openTables[0].collectionMode).toBe('Drop');
+    expect(electronSnapshot).toEqual(apiSnapshot);
+    expect(rendererSnapshot.games[0].openTables[0].collectionMode).toBe('Time');
+    expect(rendererSnapshot.games[1].openTables[0].collectionMode).toBe('Drop');
   });
 
   it('applies ordinary membership and waitlist requests identically with stable ordering and inputs', () => {
@@ -311,15 +413,11 @@ describe('API and Electron player-sync boundary', () => {
     const apiSnapshot = apiCore.buildPlayerClubSnapshot(state) as PlayerClubSnapshot;
     const electronSnapshot = electron.buildPlayerClubSnapshot(state) as PlayerClubSnapshot;
 
-    expect(apiSnapshot.memberships[0]).toMatchObject({
-      status: 'Approved',
-      joinedAt: '2027-01-15'
-    });
+    expect(apiSnapshot.memberships[0]).toMatchObject({ status: 'Approved' });
+    expect(apiSnapshot.memberships[0]).not.toHaveProperty('joinedAt');
     expect(apiSnapshot.memberships[0]).toHaveProperty('expiresAt', undefined);
-    expect(electronSnapshot.memberships[0]).toMatchObject({
-      status: 'Expired',
-      joinedAt: '2027-02-01'
-    });
+    expect(electronSnapshot.memberships[0]).toMatchObject({ status: 'Expired' });
+    expect(electronSnapshot.memberships[0]).not.toHaveProperty('joinedAt');
     expect(electronSnapshot.memberships[0]).toHaveProperty('expiresAt', '');
   });
 });
@@ -339,7 +437,7 @@ describe('intentional renderer/server sync ownership differences', () => {
     expect(electronRuntimeUtils.getAccountKeyFromState(state)).toBe('tt-pilot-authority');
   });
 
-  it('preserves renderer full-table attendance and note behavior instead of adopting server semantics', () => {
+  it('fails closed on an unspecified full-table attendance intent without ingesting client freeform notes', () => {
     const fullTableState = buildState({
       sessions: [{ ...buildState().sessions[0], seatsFilled: 9, maxSeats: 9 }],
       profiles: [],
@@ -353,12 +451,12 @@ describe('intentional renderer/server sync ownership differences', () => {
     expect(rendererResult.interests[0]).toMatchObject({
       status: 'Confirmed Coming',
       tableId: 'table-one',
-      notes: 'Confirmed coming at 19:30 for Table 1 | Window seat if possible'
+      notes: 'Confirmed coming at 19:30 for Table 1'
     });
     expect(serverResult.interests[0]).toMatchObject({
       status: 'Confirmed Coming',
       tableId: 'table-one',
-      notes: 'Confirmed coming at 19:30 | Window seat if possible'
+      notes: 'Confirmed coming at 19:30'
     });
 
     const rendererUnspecified = applyWaitlistRequestToClubState(
@@ -369,20 +467,19 @@ describe('intentional renderer/server sync ownership differences', () => {
       fullTableState,
       waitlistRequest({ attendance: undefined })
     ) as ManagementClubState;
-    expect(rendererUnspecified.interests[0].status).toBe('Interested');
-    expect(serverUnspecified.interests[0].status).toBe('Arrived');
+    expect(rendererUnspecified).toBe(fullTableState);
+    expect(serverUnspecified).toBe(fullTableState);
   });
 
-  it('preserves renderer membership notes rather than replacing them with server notes', () => {
+  it('keeps membership request notes operational and free of player contact data', () => {
     const state = buildState();
     const request = membershipRequest();
     const renderer = applyMembershipRequestToClubState(state, request);
     const server = apiCore.applyMembershipRequestToState(state, request) as ManagementClubState;
 
-    expect(renderer.profiles[0].notes).toContain('Player app: alex@example.test');
-    expect(renderer.profiles[0].notes).toContain('Monthly - online payment selected ($35)');
-    expect(server.profiles[0].notes).toContain('Player app: monthly pass requested; payment pending (alex@example.test)');
-    expect(server.profiles[0].notes).not.toContain('Monthly - online payment selected ($35)');
+    expect(renderer.profiles[0].notes).toBe('Existing note | Player app membership request received');
+    expect(server.profiles[0].notes).toBe('Existing note | Player app membership request received');
+    expect(`${renderer.profiles[0].notes}:${server.profiles[0].notes}`).not.toMatch(/alex@example|monthly pass|payment pending/i);
   });
 
   it('keeps renderer snapshot behavior independently characterized', () => {
