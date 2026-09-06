@@ -25,6 +25,8 @@ jobs:
       ORBIT_API_URL: http://127.0.0.1:9
       VITE_ENABLE_FIREBASE_SYNC: 'false'
       MAESTRO_CLI_NO_ANALYTICS: '1'
+      # A fresh Xcode 26 runner took 131s to start XCTest before any app flow.
+      MAESTRO_DRIVER_STARTUP_TIMEOUT: '180000'
       DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4

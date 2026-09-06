@@ -204,7 +204,8 @@ describe('Player onboarding presentation contract', () => {
     const sources = parseSources([onboardingFeatureRoot]);
     const styleDigest = digest(styleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('0341f87c2759420bc3faccb124ea0c953f98128a00d393ccaf601b7991f28c69');
+    // Reviewed native fix: removing the child minimum height prevents header clipping.
+    expect(styleDigest).toBe('19b630b622f070ea02d7dcd93136870c748dc58af662ba73f8311b5bb5ade253');
   });
 });
 

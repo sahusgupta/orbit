@@ -57,8 +57,7 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
   onboardingFlow: {
     flex: 1,
     gap: 26,
-    justifyContent: 'center',
-    minHeight: '100%'
+    justifyContent: 'center'
   },
   onboardingNextAction: {
     alignItems: 'center',
