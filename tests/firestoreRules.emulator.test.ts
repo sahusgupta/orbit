@@ -18,7 +18,7 @@ rulesSuite('Firestore production authorization rules', () => {
   beforeAll(async () => {
     const [host, portValue] = String(emulatorHost).split(':');
     environment = await initializeTestEnvironment({
-      projectId: 'tabletalk-s',
+      projectId: 'demo-orbit-release-ci',
       firestore: {
         host,
         port: Number(portValue),
@@ -34,6 +34,22 @@ rulesSuite('Firestore production authorization rules', () => {
       await setDoc(doc(context.firestore(), path), value);
     });
   }
+
+  it('denies quota counter access even to clients claiming global administration', async () => {
+    const path = 'orbitRateLimits/api:opaque-subject';
+    await seed(path, { count: 1, resetAt: 1, expiresAt: Timestamp.fromMillis(1) });
+    const clients = [
+      environment.unauthenticatedContext(),
+      environment.authenticatedContext('player-one'),
+      environment.authenticatedContext('admin-one', { admin: true, clubAdmin: true })
+    ];
+    for (const client of clients) {
+      const reference = doc(client.firestore(), path);
+      await assertFails(getDoc(reference));
+      await assertFails(setDoc(reference, { count: 0 }));
+      await assertFails(deleteDoc(reference));
+    }
+  });
 
   it('allows public venue projections while denying legacy and private-game reads', async () => {
     await seed('clubs/club-one', { id: 'club-one', name: 'Orbit Room' });

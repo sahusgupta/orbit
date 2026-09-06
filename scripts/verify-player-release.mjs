@@ -280,11 +280,15 @@ for (const operationalGate of [
   'ORBIT_REQUIRE_PLAYER_APP_CHECK=true',
   'x-firebase-appcheck',
   '503 APP_CHECK_NOT_CONFIGURED',
-  'process-local `Map`',
-  'shared durable limiter'
+  'transactional counters',
+  'orbitRateLimits',
+  '503 RATE_LIMIT_UNAVAILABLE'
 ]) {
   requireMatch(apiReadme.includes(operationalGate), `API operations documentation is missing: ${operationalGate}.`);
 }
+const rateLimitTtl = json('player-app/firestore.indexes.json').fieldOverrides?.find((field) =>
+  field.collectionGroup === 'orbitRateLimits' && field.fieldPath === 'expiresAt');
+requireMatch(rateLimitTtl?.ttl === true && rateLimitTtl.indexes?.length === 0, 'Durable rate-limit counters require an unindexed expiry timestamp with TTL enabled.');
 requireMatch(apiReadme.includes('operational Player Web'), 'App Check activation gate must cover the operational Player Web client.');
 requireMatch(apiReadme.includes('every active client'), 'App Check activation gate must cover every active protected client.');
 const apiEnvironmentExample = read('apps/api/.env.example');

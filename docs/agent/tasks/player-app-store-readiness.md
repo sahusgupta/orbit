@@ -1,5 +1,7 @@
 # Player App Store Readiness
 
+Active deployment/build continuation: [release execution record](player-release-execution.md). Its dated evidence supersedes the earlier external-engineering handoff where noted; work remains in progress.
+
 - Goal: conservative first iOS release with every repository-addressable P0/P1 blocker resolved and verified.
 - Starting SHA: `1f8e06fee77c9d04868d33325abd80d15ac65559` (`origin/main`, fetched 2026-09-04).
 - Branch: `codex/player-app-store-readiness`.

@@ -1,5 +1,8 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createRequire } from 'node:module';
 import security from './security.js';
+const require = createRequire(__filename);
+const connection = require('../db/connection.js');
 
 const { applySecurityHeaders, createRateLimit, enforceCors, rejectUnexpectedFileUploads } = security;
 
@@ -25,9 +28,16 @@ function harness({ headers = {}, method = 'GET', secure = false } = {}) {
   return { request, response, result };
 }
 
+beforeEach(async () => {
+  vi.stubEnv('NODE_ENV', 'test');
+  await connection.resetDatabaseForTests();
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   delete process.env.NODE_ENV;
   delete process.env.ORBIT_ALLOWED_ORIGINS;
+  vi.unstubAllEnvs();
 });
 
 describe('API perimeter security', () => {
@@ -91,15 +101,15 @@ describe('API perimeter security', () => {
     });
   });
 
-  it('returns a stable 429 after an identity exhausts its quota', () => {
+  it('returns a stable 429 after an identity exhausts its quota', async () => {
     const limit = createRateLimit({ name: 'test', maximum: 2, windowMs: 60_000 });
     const next = vi.fn();
     const first = harness();
     const second = harness();
     const third = harness();
-    limit(first.request, first.response, next);
-    limit(second.request, second.response, next);
-    limit(third.request, third.response, next);
+    await limit(first.request, first.response, next);
+    await limit(second.request, second.response, next);
+    await limit(third.request, third.response, next);
     expect(next).toHaveBeenCalledTimes(2);
     expect(third.result).toMatchObject({
       statusCode: 429,
@@ -108,19 +118,84 @@ describe('API perimeter security', () => {
     expect(third.result.headers).toHaveProperty('retry-after');
   });
 
-  it('does not let rotating unverified credential headers bypass an address-only quota', () => {
+  it('does not let rotating unverified credential headers bypass an address-only quota', async () => {
     const limit = createRateLimit({ name: 'public-address', identity: 'address', maximum: 1, windowMs: 60_000 });
     const next = vi.fn();
     const first = harness({ headers: { authorization: 'bogus-authorization-one' } });
     const second = harness({ headers: { 'x-orbit-api-key': 'bogus-api-key-two' } });
     const third = harness({ headers: { 'x-orbit-auth-key': 'bogus-auth-key-three' } });
 
-    limit(first.request, first.response, next);
-    limit(second.request, second.response, next);
-    limit(third.request, third.response, next);
+    await limit(first.request, first.response, next);
+    await limit(second.request, second.response, next);
+    await limit(third.request, third.response, next);
 
     expect(next).toHaveBeenCalledOnce();
     expect(second.result).toMatchObject({ statusCode: 429, payload: { code: 'RATE_LIMITED' } });
     expect(third.result).toMatchObject({ statusCode: 429, payload: { code: 'RATE_LIMITED' } });
+  });
+
+  it('resets a quota at the expiration boundary and keeps named quotas independent', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-06T12:00:00Z'));
+    const limit = createRateLimit({ name: 'expiry', maximum: 1, windowMs: 2_000 });
+    const other = createRateLimit({ name: 'independent', maximum: 1, windowMs: 2_000 });
+    const next = vi.fn();
+    const first = harness();
+    await limit(first.request, first.response, next);
+    expect(first.result.headers['x-ratelimit-remaining']).toBe('0');
+    vi.advanceTimersByTime(1_999);
+    const denied = harness();
+    await limit(denied.request, denied.response, next);
+    expect(denied.result.statusCode).toBe(429);
+    expect(denied.result.headers['retry-after']).toBe('1');
+    const separate = harness();
+    await other(separate.request, separate.response, next);
+    expect(separate.result.statusCode).toBe(200);
+    vi.advanceTimersByTime(1);
+    const reset = harness();
+    await limit(reset.request, reset.response, next);
+    expect(reset.result.statusCode).toBe(200);
+    expect(next).toHaveBeenCalledTimes(3);
+  });
+
+  it('shares one atomic quota between concurrent middleware instances and restarts', async () => {
+    const options = { name: 'shared', maximum: 8, windowMs: 60_000 };
+    const replicas = [createRateLimit(options), createRateLimit(options)];
+    const next = vi.fn();
+    const requests = Array.from({ length: 30 }, () => harness());
+    await Promise.all(requests.map(({ request, response }, index) => replicas[index % 2](request, response, next)));
+    expect(next).toHaveBeenCalledTimes(8);
+    expect(requests.filter(({ result }) => result.statusCode === 429)).toHaveLength(22);
+    const restarted = harness();
+    await createRateLimit(options)(restarted.request, restarted.response, next);
+    expect(restarted.result.statusCode).toBe(429);
+    const store = await connection.getDatabase();
+    const records = await store.queryCollection('orbitRateLimits');
+    expect(records).toHaveLength(1);
+    expect(records[0].data).toEqual({ count: 9, resetAt: expect.any(Number), expiresAt: expect.any(Date) });
+    expect(records[0].data.expiresAt.getTime()).toBe(records[0].data.resetAt);
+    expect(JSON.stringify(records)).not.toContain('203.0.113.1');
+  });
+
+  it('uses an address quota by default before credentials have been authenticated', async () => {
+    const limit = createRateLimit({ name: 'unauthenticated', maximum: 1 });
+    const next = vi.fn();
+    const first = harness({ headers: { authorization: 'unverified-one' } });
+    const second = harness({ headers: { authorization: 'unverified-two' } });
+    await limit(first.request, first.response, next);
+    await limit(second.request, second.response, next);
+    expect(next).toHaveBeenCalledOnce();
+    expect(second.result.statusCode).toBe(429);
+  });
+
+  it('fails closed on shared-store failure without disclosing the cause', async () => {
+    const limit = createRateLimit({ consume: async () => { throw new Error('restricted provider detail'); } });
+    const next = vi.fn();
+    const { request, response, result } = harness();
+    await limit(request, response, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(result.statusCode).toBe(503);
+    expect(result.payload.code).toBe('RATE_LIMIT_UNAVAILABLE');
+    expect(JSON.stringify(result)).not.toContain('restricted provider detail');
   });
 });

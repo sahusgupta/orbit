@@ -19,9 +19,13 @@ Player App Check is an explicit fail-closed production gate, not a switch to ena
 
 Enabling the requirement before both active clients ship App Check support fails closed and makes their protected Player flows unusable. Enabling it without an allowlist returns `503 APP_CHECK_NOT_CONFIGURED`; missing, invalid, or non-allowlisted attestations are rejected with `401`. The boundary is covered by `apps/api/src/appCheckService.test.js` and the server route tests. Do not record App Check as launch-ready until nonproduction token evidence exists for every active client.
 
-### Scale-out rate-limit gate
+### Shared rate limits
 
-The current `createRateLimit` implementation stores counters in a process-local `Map`. Its state resets with the process and is neither shared nor atomic across replicas, so it is not sufficient protection for a scaled production deployment. Before running more than one API replica, choose and provision a shared durable limiter—such as a Firestore transactional counter design, a managed rate-limit service, or an appropriately scoped edge/WAF rule—then add multi-instance/retry tests and operational evidence for the selected boundary. Process-local test coverage is not evidence that this external gate is complete.
+Every API instance uses transactional counters in the server-only `orbitRateLimits` Firestore collection. Quotas survive cold starts and are atomic across replicas. Pre-authentication middleware keys its quotas by address, so rotating unverified bearer or API-key headers cannot create new quotas. Stored identifiers use the independent log-hash HMAC key; raw addresses and credentials are never persisted. All replicas must use the same `ORBIT_LOG_HASH_SECRET`. Rotating that key starts fresh quotas and must be treated as a coordinated security operation.
+
+Quota exhaustion returns `429 RATE_LIMITED` with `retry-after`. A failed or corrupt shared store returns `503 RATE_LIMIT_UNAVAILABLE`; there is no process-local fallback. Tests can explicitly select the existing isolated memory datastore outside hosted deployment. Hosted mode rejects it. Quota records contain only a count, numeric reset time, and timestamp `expiresAt`; `player-app/firestore.indexes.json` enables TTL on that timestamp without an index. The runtime enforces expiry synchronously; asynchronous Firestore TTL deletion is storage cleanup only. Deploy and confirm the TTL policy before promotion. Existing deny-all fallback rules forbid client access to these counters.
+
+The first denied request increments the exhausted counter once, allowing one abuse alert per quota window. Further denials do not write or extend retention. Firestore transaction contention or outage can deny requests with 503; observe latency, errors, and Firestore usage during the withheld-alias candidate smoke before promotion. No additional datastore or external limiter credential is required.
 
 ## Run Locally
 
