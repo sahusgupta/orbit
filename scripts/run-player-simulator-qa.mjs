@@ -49,7 +49,7 @@ const sourceSha = run('git', ['rev-parse', 'HEAD']).trim();
 const xcodeVersion = run('xcodebuild', ['-version']).trim();
 fs.writeFileSync(path.join(evidenceRoot, 'source.json'), JSON.stringify({
   sourceSha, xcodeVersion, bundleIdentifier: 'com.orbit.player',
-  configuration: 'Release', signing: 'unsigned simulator', startedAt: new Date().toISOString()
+  configuration: 'Release', signing: 'ad-hoc simulator; no Apple certificate', startedAt: new Date().toISOString()
 }, null, 2));
 // Detect an unavailable CoreSimulator service before spending time compiling.
 const runtimeInventory = run('xcrun', ['simctl', 'list', 'runtimes', '--json']);
@@ -67,10 +67,26 @@ run('xcodebuild', [
   '-workspace', 'OrbitPlayer.xcworkspace', '-scheme', 'OrbitPlayer',
   '-configuration', 'Release', '-sdk', 'iphonesimulator',
   '-destination', 'generic/platform=iOS Simulator', '-derivedDataPath', derivedData,
-  `ARCHS=${simulatorArchitecture}`, 'ONLY_ACTIVE_ARCH=YES', 'CODE_SIGNING_ALLOWED=NO', 'build'
+  `ARCHS=${simulatorArchitecture}`, 'ONLY_ACTIVE_ARCH=YES',
+  // Xcode must embed simulator application/keychain entitlements. Disabling
+  // signing makes SecureStore fail with errSecMissingEntitlement (-34018).
+  // The ad-hoc identity needs no Apple certificate, team, or provisioning access.
+  'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGN_IDENTITY=-', 'build'
 ], { cwd: iosRoot, log: 'xcodebuild.log', timeout: 40 * 60 * 1000 });
 const application = path.join(derivedData, 'Build', 'Products', 'Release-iphonesimulator', 'OrbitPlayer.app');
 assert.ok(fs.existsSync(application), 'Xcode must produce the simulator application.');
+run('codesign', ['--verify', '--deep', '--strict', application]);
+run('codesign', ['--display', '--verbose=2', application], { log: 'simulator-signature.log' });
+const signingEntitlements = fs.readdirSync(derivedData, { recursive: true })
+  .filter((name) => name.endsWith('.xcent') && name.includes('OrbitPlayer.build'))
+  .map((name) => ({
+    path: name,
+    entitlements: JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', path.join(derivedData, name)]))
+  }));
+fs.writeFileSync(path.join(evidenceRoot, 'simulator-entitlements.json'), JSON.stringify(signingEntitlements, null, 2));
+assert.ok(signingEntitlements.some(({ entitlements }) =>
+  String(entitlements['application-identifier'] || '').endsWith('com.orbit.player')
+), 'The simulator build must include its Keychain application identity.');
 run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', application, path.join(evidenceRoot, 'OrbitPlayer-simulator.zip')]);
 const manifestPaths = fs.readdirSync(application, { recursive: true }).filter((name) => name.endsWith('.xcprivacy'));
 fs.writeFileSync(path.join(evidenceRoot, 'privacy-manifests.json'), JSON.stringify(manifestPaths.map((name) => ({
@@ -85,7 +101,17 @@ for (const device of ['iPhone-16', 'iPhone-16-Pro-Max']) {
   const udid = run('xcrun', ['simctl', 'create', `Orbit QA ${device}`, `com.apple.CoreSimulator.SimDeviceType.${device}`, runtime.identifier]).trim();
   try {
     run('xcrun', ['simctl', 'boot', udid]);
-    run('xcrun', ['simctl', 'bootstatus', udid, '-b'], { log: `${device}-boot.log`, timeout: 5 * 60 * 1000 });
+    try {
+      run('xcrun', ['simctl', 'bootstatus', udid, '-b'], { log: `${device}-boot.log`, timeout: 5 * 60 * 1000 });
+    } catch (error) {
+      if (error.cause?.code !== 'ETIMEDOUT') throw error;
+      // A fresh hosted runtime can stall during its first boot. Restart only
+      // this disposable device, before installing the app, and retain both logs.
+      console.warn(`${device}: initial boot timed out; retrying this device once.`);
+      run('xcrun', ['simctl', 'shutdown', udid]);
+      run('xcrun', ['simctl', 'boot', udid]);
+      run('xcrun', ['simctl', 'bootstatus', udid, '-b'], { log: `${device}-boot-retry.log`, timeout: 5 * 60 * 1000 });
+    }
     run('xcrun', ['simctl', 'install', udid, application]);
     run('maestro', ['--device', udid, 'test', '--format', 'junit', '--output', path.join(output, 'results.xml'),
       '--test-output-dir', output, path.join(playerRoot, '.maestro', 'local-profile.yaml')], { cwd: output, log: `${device}.log`, timeout: 10 * 60 * 1000 });
