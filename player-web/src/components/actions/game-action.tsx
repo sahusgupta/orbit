@@ -56,6 +56,7 @@ export function GameAction({ club, game }: { club: PlayerClubSnapshot; game: Pla
   }
 
   if (activeRequest) {
+    const canCancel = ['Interested', 'Confirmed Coming', 'Arrived'].includes(activeRequest.entry.status);
     return (
       <div className="action-panel action-panel--confirmed">
         <StatusBadge tone="success">Request active</StatusBadge>
@@ -63,12 +64,12 @@ export function GameAction({ club, game }: { club: PlayerClubSnapshot; game: Pla
         <p>Orbit Core has your current commitment. Changes stay authoritative and visible to the club.</p>
         <dl className="action-summary"><div><dt>Game</dt><dd>{liveGame.name}</dd></div><div><dt>Position</dt><dd>{activeRequest.entry.position ?? 'Position unavailable'}</dd></div></dl>
         {message ? <p className="form-message" role="status">{message}</p> : null}
-        <Button tone="secondary" disabled={busy} onClick={async () => {
+        {canCancel ? <Button tone="secondary" disabled={busy} onClick={async () => {
           setBusy(true); setMessage('');
           try { await playerData.cancelSeat(liveClub, liveGame); setMessage('Your game request was removed.'); }
           catch (error) { setMessage(error instanceof Error ? error.message : 'Your game request could not be removed.'); }
           finally { setBusy(false); }
-        }}>{busy ? 'Updating…' : 'Cancel request'}</Button>
+        }}>{busy ? 'Updating…' : 'Cancel request'}</Button> : <p className="action-note">Contact venue staff to leave your seat.</p>}
       </div>
     );
   }

@@ -539,6 +539,38 @@ describe('Player Web route and component behavior', () => {
     expect(screen.queryByText('Club confirmed')).not.toBeInTheDocument();
   });
 
+  it('shows seated players their venue status without offering waitlist cancellation', () => {
+    const club = {
+      ...clubAlpha,
+      waitlists: clubAlpha.waitlists.map((entry) => ({ ...entry, status: 'Seated' as const }))
+    };
+    testState.auth.status = 'signed-in';
+    testState.auth.user = { uid: player.id };
+    testState.auth.player = player;
+    Object.assign(testState.data, discovery, { clubs: [club] });
+    render(<GameAction club={club} game={runningGame} />);
+    expect(screen.getByRole('heading', { name: 'Seated' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Cancel request' })).not.toBeInTheDocument();
+    expect(testState.data.cancelSeat).not.toHaveBeenCalled();
+  });
+
+  it.each(['Interested', 'Confirmed Coming', 'Arrived'] as const)(
+    'allows cancellation of an active %s waitlist request',
+    async (status) => {
+      const club = {
+        ...clubAlpha,
+        waitlists: clubAlpha.waitlists.map((entry) => ({ ...entry, status }))
+      };
+      testState.auth.status = 'signed-in';
+      testState.auth.user = { uid: player.id };
+      testState.auth.player = player;
+      Object.assign(testState.data, discovery, { clubs: [club] });
+      render(<GameAction club={club} game={runningGame} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel request' }));
+      expect(testState.data.cancelSeat).toHaveBeenCalledWith(club, runningGame);
+    }
+  );
+
   it('submits the selected membership option through the Base UI form', async () => {
     const club = { ...clubAlpha, memberships: [], waitlists: [] };
     testState.auth.status = 'signed-in';

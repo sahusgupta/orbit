@@ -301,7 +301,7 @@ describe('Player clubs and membership presentation contract', () => {
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
     const clubsScreen = findFunction(sources, 'ClubsScreen');
 
-    expect(componentDigest).toBe('2eb077de932ece58483a916f49193ddbef8ebc332659c5b98c4c92f727df8b50');
+    expect(componentDigest).toBe('652683ad4f50ebae7b513f54912b663159fe4ff07e59bb07c9310d283f434cae');
     ['<ClubsScreen', '<ClubMembershipPlanScreen', '<SeatRequestModal'].forEach((token) => expect(playerApp).toContain(token));
     expect(playerApp).not.toMatch(/ClubAccessCheckoutScreen|NearbyCheckInPanel/);
     expect(clubsScreen).toContain('<ClubHubSections');
