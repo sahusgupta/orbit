@@ -884,6 +884,34 @@ describe('Firebase authentication boundary', () => {
     await signOutCurrentPlayer();
     expect(firebase.signOut).toHaveBeenCalledWith(firebase.auth);
   });
+
+  it.each([
+    'auth/network-request-failed',
+    'auth/too-many-requests',
+    'auth/user-disabled',
+    'auth/operation-not-allowed',
+    undefined
+  ])('preserves %s sign-in failures without attempting account creation', async (code) => {
+    const failure = Object.assign(new Error('Sign-in unavailable'), { code });
+    firebase.signInWithEmailAndPassword.mockRejectedValueOnce(failure);
+
+    await expect(signInOrCreatePlayerWithEmail('reviewer@example.test', 'a-secure-passphrase'))
+      .rejects.toBe(failure);
+    expect(firebase.createUserWithEmailAndPassword).not.toHaveBeenCalled();
+    expect(firebase.sendEmailVerification).not.toHaveBeenCalled();
+  });
+
+  it('does not attempt a new account when an existing unverified account cannot receive its verification email', async () => {
+    const user = { ...signedInUser(), emailVerified: false };
+    const failure = new Error('Verification delivery unavailable');
+    firebase.signInWithEmailAndPassword.mockResolvedValueOnce({ user });
+    firebase.sendEmailVerification.mockRejectedValueOnce(failure);
+
+    await expect(signInOrCreatePlayerWithEmail('reviewer@example.test', 'a-secure-passphrase'))
+      .rejects.toBe(failure);
+    expect(firebase.signOut).toHaveBeenCalledWith(firebase.auth);
+    expect(firebase.createUserWithEmailAndPassword).not.toHaveBeenCalled();
+  });
 });
 
 describe('Firestore profile boundaries', () => {

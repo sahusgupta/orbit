@@ -83,7 +83,7 @@ export function MembershipWalletCard({
         </View>
       </View>
 
-      {active ? <MembershipQrIssuer clubId={club.club.id} nowMs={nowMs} playerId={player.id} /> : null}
+      {active ? <MembershipQrIssuer key={JSON.stringify([club.club.id, player.id])} clubId={club.club.id} nowMs={nowMs} playerId={player.id} /> : null}
 
       <View style={styles.checkedInBand}>
         <Ionicons name={approved ? 'id-card-outline' : 'scan-outline'} size={17} color="#bfdbfe" />

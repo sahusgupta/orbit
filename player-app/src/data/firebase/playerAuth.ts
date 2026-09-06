@@ -52,6 +52,10 @@ export async function signInOrCreatePlayerWithEmail(email: string, password: str
     return toFirebasePlayerIdentity(result.user);
   } catch (signInError) {
     if (signInError instanceof Error && signInError.message.startsWith('Verify your email')) throw signInError;
+    const code = readFirebaseErrorCode(signInError);
+    if (!['auth/user-not-found', 'auth/invalid-credential', 'auth/wrong-password'].includes(code ?? '')) {
+      throw signInError;
+    }
     try {
       const result = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
       try {

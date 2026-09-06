@@ -2,7 +2,7 @@
 
 The [GitHub macOS workflow](../../.github/workflows/player-simulator-qa.yml) builds the committed PR head in Release configuration and runs this flow on iPhone 16 and iPhone 16 Pro Max. It needs no Apple signing or production credentials. It preserves the unsigned app, source/Xcode metadata, binary privacy manifests, compiler logs, screenshots, and JUnit results for 14 days. Download release evidence before that expiration. The Expo simulator artifact is a separate build and its results must not be conflated with this workflow's exact source SHA.
 
-The compiler targets the runner's simulator architecture only. Each command reports start/completion timing, and lengthy compiler output is written to its evidence file as it arrives so cancellation does not erase the diagnostic log.
+The compiler targets the runner's simulator architecture only. Each command reports its operation and start/completion timing, and lengthy compiler output is written to its evidence file as it arrives so cancellation does not erase the diagnostic log. CoreSimulator runtime discovery runs before compilation and has a two-minute limit. Other commands default to two minutes; dependency installation allows 15, compilation 40, device boot five, and each Maestro flow ten. A timeout fails the check and preserves evidence; it is never reported as a passing flow.
 
 EAS rejected Maestro validation on the current account on September 6, 2026: `Running maestro_test jobs requires a paid plan` (request `966e5cf8-f2d0-4527-8e7f-49cc7b8f60ad`). The following optional workflow can be used if an account owner later supplies an eligible plan; it is not required by the GitHub path.
 

@@ -80,7 +80,7 @@ export const playerPlatform = {
     Alert.alert(
       result.status === 'pending' ? 'Account deletion accepted' : 'Orbit account deleted',
       result.status === 'pending'
-        ? `Your Orbit profile data and local profile were deleted. Firebase sign-in deletion is still being finalized by the server; no server retry is required.${retainedCopy}${signOutCopy}`
+        ? `Your account deletion request was accepted and your local profile was deleted. Server account-data cleanup and sign-in deletion are still in progress; no server retry is required.${retainedCopy}${signOutCopy}`
         : `Your profile, sign-in, and local Orbit data were deleted.${retainedCopy}${signOutCopy}`
     );
   }

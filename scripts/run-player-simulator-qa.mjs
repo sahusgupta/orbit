@@ -14,7 +14,8 @@ fs.mkdirSync(evidenceRoot, { recursive: true });
 
 function run(command, arguments_, options = {}) {
   const startedAt = Date.now();
-  console.log(`Starting ${options.log || path.basename(command)}.`);
+  const label = options.log || [path.basename(command), ...arguments_.slice(0, 3)].join(' ');
+  console.log(`Starting ${label}.`);
   const logPath = options.log ? path.join(evidenceRoot, options.log) : null;
   // Persist compiler output as it arrives, including when CI cancels the job.
   const logFile = logPath ? fs.openSync(logPath, 'w') : null;
@@ -25,20 +26,22 @@ function run(command, arguments_, options = {}) {
       env: environment,
       encoding: 'utf8',
       maxBuffer: 100 * 1024 * 1024,
+      timeout: 2 * 60 * 1000,
+      killSignal: 'SIGKILL',
       ...options,
       ...(logFile !== null ? { stdio: ['ignore', logFile, logFile] } : {})
     });
   } finally {
     if (logFile !== null) fs.closeSync(logFile);
   }
-  if (result.error) throw result.error;
+  if (result.error) throw new Error(`${label}: ${result.error.message}`, { cause: result.error });
   if (result.status !== 0) {
     process.stderr.write(logPath
       ? fs.readFileSync(logPath, 'utf8').split('\n').slice(-100).join('\n')
       : `${result.stdout || ''}\n${result.stderr || ''}`);
     throw new Error(`${command} failed with exit ${result.status}.`);
   }
-  console.log(`Finished ${options.log || path.basename(command)} in ${Math.round((Date.now() - startedAt) / 1000)}s.`);
+  console.log(`Finished ${label} in ${Math.round((Date.now() - startedAt) / 1000)}s.`);
   return result.stdout || '';
 }
 
@@ -48,9 +51,16 @@ fs.writeFileSync(path.join(evidenceRoot, 'source.json'), JSON.stringify({
   sourceSha, xcodeVersion, bundleIdentifier: 'com.orbit.player',
   configuration: 'Release', signing: 'unsigned simulator', startedAt: new Date().toISOString()
 }, null, 2));
+// Detect an unavailable CoreSimulator service before spending time compiling.
+const runtimeInventory = run('xcrun', ['simctl', 'list', 'runtimes', '--json']);
+fs.writeFileSync(path.join(evidenceRoot, 'simulator-runtimes.json'), runtimeInventory);
+const runtimes = JSON.parse(runtimeInventory).runtimes;
+const runtime = runtimes.find((entry) => entry.isAvailable && entry.identifier.includes('iOS-26'))
+  || runtimes.find((entry) => entry.isAvailable && entry.identifier.includes('iOS-18'));
+assert.ok(runtime, 'An available supported iOS simulator runtime is required.');
 run(process.execPath, [localPlayerBinary('expo', 'bin/cli'), 'prebuild', '--platform', 'ios', '--no-install'], { log: 'prebuild.log' });
 verifyPlayerNative(iosRoot);
-run('pod', ['install'], { cwd: iosRoot, log: 'pods.log' });
+run('pod', ['install'], { cwd: iosRoot, log: 'pods.log', timeout: 15 * 60 * 1000 });
 const derivedData = path.join(evidenceRoot, 'derived');
 const simulatorArchitecture = process.arch === 'arm64' ? 'arm64' : 'x86_64';
 run('xcodebuild', [
@@ -58,7 +68,7 @@ run('xcodebuild', [
   '-configuration', 'Release', '-sdk', 'iphonesimulator',
   '-destination', 'generic/platform=iOS Simulator', '-derivedDataPath', derivedData,
   `ARCHS=${simulatorArchitecture}`, 'ONLY_ACTIVE_ARCH=YES', 'CODE_SIGNING_ALLOWED=NO', 'build'
-], { cwd: iosRoot, log: 'xcodebuild.log' });
+], { cwd: iosRoot, log: 'xcodebuild.log', timeout: 40 * 60 * 1000 });
 const application = path.join(derivedData, 'Build', 'Products', 'Release-iphonesimulator', 'OrbitPlayer.app');
 assert.ok(fs.existsSync(application), 'Xcode must produce the simulator application.');
 run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', application, path.join(evidenceRoot, 'OrbitPlayer-simulator.zip')]);
@@ -68,10 +78,6 @@ fs.writeFileSync(path.join(evidenceRoot, 'privacy-manifests.json'), JSON.stringi
   manifest: JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', path.join(application, name)]))
 })), null, 2));
 fs.writeFileSync(path.join(evidenceRoot, 'app-info.json'), run('plutil', ['-convert', 'json', '-o', '-', path.join(application, 'Info.plist')]));
-const runtimes = JSON.parse(run('xcrun', ['simctl', 'list', 'runtimes', '--json'])).runtimes;
-const runtime = runtimes.find((entry) => entry.isAvailable && entry.identifier.includes('iOS-26'))
-  || runtimes.find((entry) => entry.isAvailable && entry.identifier.includes('iOS-18'));
-assert.ok(runtime, 'An available supported iOS simulator runtime is required.');
 let failed = false;
 for (const device of ['iPhone-16', 'iPhone-16-Pro-Max']) {
   const output = path.join(evidenceRoot, device);
@@ -79,10 +85,10 @@ for (const device of ['iPhone-16', 'iPhone-16-Pro-Max']) {
   const udid = run('xcrun', ['simctl', 'create', `Orbit QA ${device}`, `com.apple.CoreSimulator.SimDeviceType.${device}`, runtime.identifier]).trim();
   try {
     run('xcrun', ['simctl', 'boot', udid]);
-    run('xcrun', ['simctl', 'bootstatus', udid, '-b']);
+    run('xcrun', ['simctl', 'bootstatus', udid, '-b'], { log: `${device}-boot.log`, timeout: 5 * 60 * 1000 });
     run('xcrun', ['simctl', 'install', udid, application]);
     run('maestro', ['--device', udid, 'test', '--format', 'junit', '--output', path.join(output, 'results.xml'),
-      '--test-output-dir', output, path.join(playerRoot, '.maestro', 'local-profile.yaml')], { cwd: output, log: `${device}.log` });
+      '--test-output-dir', output, path.join(playerRoot, '.maestro', 'local-profile.yaml')], { cwd: output, log: `${device}.log`, timeout: 10 * 60 * 1000 });
   } catch (error) {
     failed = true;
     console.error(`${device}: ${error.message}`);
