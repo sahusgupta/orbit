@@ -119,6 +119,20 @@ for (const device of ['iPhone-16', 'iPhone-16-Pro-Max']) {
     run('xcrun', ['simctl', 'install', udid, application]);
     run('maestro', ['--device', udid, 'test', '--format', 'junit', '--output', path.join(output, 'results.xml'),
       '--test-output-dir', output, path.join(playerRoot, '.maestro', 'local-profile.yaml')], { cwd: output, log: `${device}.log`, timeout: 10 * 60 * 1000 });
+    if (device === 'iPhone-16') {
+      // Exercise the same controls and assertions with system text enlargement.
+      // Keep separate reports so the default-size result cannot mask a failure.
+      const scaledOutput = path.join(output, 'large-text');
+      fs.mkdirSync(scaledOutput, { recursive: true });
+      const contentSize = 'accessibility-large';
+      run('xcrun', ['simctl', 'ui', udid, 'content_size', contentSize]);
+      const observedContentSize = run('xcrun', ['simctl', 'ui', udid, 'content_size']).trim();
+      assert.equal(observedContentSize, contentSize, 'Simulator must confirm the requested text size.');
+      fs.writeFileSync(path.join(scaledOutput, 'text-size.json'), JSON.stringify({ sourceSha, contentSize }, null, 2));
+      run('maestro', ['--device', udid, 'test', '--format', 'junit', '--output', path.join(scaledOutput, 'results.xml'),
+        '--test-output-dir', scaledOutput, path.join(playerRoot, '.maestro', 'local-profile.yaml')],
+      { cwd: scaledOutput, log: `${device}-large-text.log`, timeout: 10 * 60 * 1000 });
+    }
   } catch (error) {
     failed = true;
     console.error(`${device}: ${error.message}`);
@@ -147,4 +161,4 @@ await withBlockedPlayerHosts({
 assert.equal(path.dirname(derivedData), evidenceRoot);
 fs.rmSync(derivedData, { recursive: true, force: true });
 assert.equal(failed, false, 'One or more native simulator flows failed; inspect the preserved evidence.');
-console.log('Both iPhone simulator flows passed. App/signing and App Attest hardware gates remain separate.');
+console.log('Both iPhone sizes and enlarged-text flows passed. App/signing and App Attest hardware gates remain separate.');

@@ -9,22 +9,52 @@ name: Fresh install, age gate, local restoration, and local deletion
     visible: Find room-published games and send requests
     timeout: 30000
 - takeScreenshot: 01-first-launch
+- scrollUntilVisible:
+    element: Your name
+    direction: DOWN
 - tapOn: Your name
 - inputText: Release Reviewer
 - hideKeyboard
+- scrollUntilVisible:
+    element: Continue
+    direction: DOWN
 - tapOn: Continue
+- scrollUntilVisible:
+    element: you@example.com
+    direction: UP
 - tapOn: you@example.com
 - inputText: release.qa@example.invalid
 - hideKeyboard
+- scrollUntilVisible:
+    element: Continue
+    direction: DOWN
 - tapOn: Continue
+- scrollUntilVisible:
+    element: Phone Number
+    direction: UP
 - assertVisible: Phone Number
+- scrollUntilVisible:
+    element: Continue
+    direction: DOWN
 - tapOn: Continue
+- scrollUntilVisible:
+    element: Home Area
+    direction: UP
 - assertVisible: Home Area
+- scrollUntilVisible:
+    element: Start exploring
+    direction: DOWN
 - assertVisible:
     text: Start exploring
     enabled: false
 - takeScreenshot: 02-age-gate
+- scrollUntilVisible:
+    element: I confirm that I am 18 or older
+    direction: UP
 - tapOn: I confirm that I am 18 or older
+- scrollUntilVisible:
+    element: Start exploring
+    direction: DOWN
 - assertVisible:
     text: Start exploring
     enabled: true
