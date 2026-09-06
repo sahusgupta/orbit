@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-06T12:13:00Z",
+  "status": "preparation-in-progress",
+  "appReviewSubmitted": false,
+  "source": {
+    "repository": "sahusgupta/orbit",
+    "originalPullRequest": "https://github.com/sahusgupta/orbit/pull/25",
+    "originalMergeSha": "5b5b18ec92ed94feb125eb8afd0a0140fdfb4ff8",
+    "followupPullRequest": "https://github.com/sahusgupta/orbit/pull/26",
+    "candidateCodeSha": "d9fda7e5a001b96a0a7ac68f4b18fb578536d191",
+    "candidatePushed": false,
+    "followupMergeSha": null
+  },
+  "backend": {
+    "projectId": "prj_2EEyDB2YImgK9dil3GK79Qy0UfVw",
+    "publicOrigin": "https://orbitapp-one.vercel.app",
+    "candidateDeploymentId": null,
+    "candidateSourceSha": null,
+    "rollbackDeploymentId": "dpl_CJjBqJEKrsH6sxu2mwd22m3UwWWk",
+    "rollbackUrl": "https://orbit-e18gsa0uo-sahoosegs-projects.vercel.app",
+    "deletionPolicyConfigured": false
+  },
+  "playerWeb": {
+    "projectId": "prj_22SN9L7TvAKHTye7x6PZmBhvNkoq",
+    "publicOrigin": "https://orbit-player-web-liart.vercel.app",
+    "candidateDeploymentId": null,
+    "rollbackDeploymentId": "dpl_7A8Ptm4BcUEnkgY8gBvqKbGvj3pa",
+    "rollbackUrl": "https://orbit-player-kzmuv190g-sahoosegs-projects.vercel.app",
+    "productionConfigurationPrepared": true
+  },
+  "firebase": {
+    "projectId": "tabletalk-s",
+    "projectNumber": "133175572500",
+    "iosAppId": "1:133175572500:ios:46a75e002225158dfd8f01",
+    "androidAppId": "1:133175572500:android:522b4cfc8de1a770fd8f01",
+    "webAppId": "1:133175572500:web:5e1055ff74e92d29fd8f01",
+    "rulesDeployedFromCandidate": false,
+    "rollbackRuleset": "projects/tabletalk-s/rulesets/a74cb1f9-275a-491c-a8f7-0c513241cade",
+    "rollbackRulesSha256": "0c1805ef988d2ea68913b65524009698bfa1f5c236785cce1779ef52cc474f21",
+    "indexAndTtlDeploymentComplete": false,
+    "appCheckProvidersPrepared": ["ios-app-attest", "web-recaptcha-enterprise"],
+    "firebaseAppCheckEnforcement": "off-pending-active-client-proof",
+    "dedicatedWebKeyRestrictionsVerified": true,
+    "nativeKeyRestrictionInventory": "pending-explicit-access-approval"
+  },
+  "legalUrls": {
+    "privacy": "https://orbitapp-one.vercel.app/privacy",
+    "terms": "https://orbitapp-one.vercel.app/terms",
+    "support": "https://orbitapp-one.vercel.app/support",
+    "candidateCopyDeployed": false,
+    "localMobileAndDesktopSmoke": "passed"
+  },
+  "ios": {
+    "bundleIdentifier": "com.orbit.player",
+    "version": "1.0.0",
+    "simulatorBuildNumber": "1",
+    "expoProjectId": "bb2059b7-91b3-4a6b-a66e-d5618e794fd3",
+    "expoBuildId": "cc64f693-fdf4-416c-8fdc-c2fcc3b9cd99",
+    "expoBuildUrl": "https://expo.dev/accounts/saussy/projects/tabletalk-player/builds/cc64f693-fdf4-416c-8fdc-c2fcc3b9cd99",
+    "builtSourceSha": "dab4aa7183b6c4482310feb9b1c4f9df3bfcda41",
+    "buildStatus": "finished",
+    "artifactKind": "unsigned-simulator",
+    "archiveSha256": "0e16b22ae0e4bc09bb443b904b7320c90e0a1ab78595304b1d45ecb74b88767c",
+    "archiveBytes": 19422049,
+    "sdk": "iphonesimulator26.0",
+    "xcodeBuild": "17A324",
+    "minimumIos": "15.1",
+    "bundledPrivacyManifestCount": 15,
+    "trackingDeclared": false,
+    "usageDescriptionPermissions": ["camera"],
+    "appleTeamId": null,
+    "signedBuildId": null,
+    "testFlightBuildId": null,
+    "appStoreConnectAppId": null,
+    "simulatorQaRun": "https://github.com/sahusgupta/orbit/actions/runs/34029362548",
+    "simulatorQaStatus": "in-progress-on-earlier-source"
+  },
+  "verification": [
+    { "command": "npm run web:e2e", "date": "2026-09-06", "result": "pass", "routes": 15, "viewports": 6, "captures": 90, "interactionChecks": 44 },
+    { "command": "npm run e2e:public", "date": "2026-09-06", "result": "pass", "routes": 8 },
+    { "command": "npm test -- apps/api/src/firebasePublisher.test.js", "date": "2026-09-06", "result": "pass", "tests": 36 },
+    { "command": "npm run typecheck:api", "date": "2026-09-06", "result": "pass" },
+    { "command": "npm run security:paths", "date": "2026-09-06", "result": "pass" },
+    { "command": "npm run check:release-controls", "date": "2026-09-06", "result": "pass" },
+    { "command": "npm run audit:module-graph", "date": "2026-09-06", "result": "pass", "modules": 238, "relativeEdges": 709 },
+    { "command": "npm run player:export:ios", "date": "2026-09-06", "result": "pass-after-native-ui-changes-before-commit", "modules": 1145, "assets": 19 },
+    { "command": "npm run verify", "date": "2026-09-06", "result": "pass", "checks": 13, "rootApiPlayerTests": 1328, "webTests": 205, "salesMapTests": 85, "separateEmulatorTestsSkipped": 8 },
+    { "command": "gitleaks git . --log-opts=--all --redact=100", "date": "2026-09-06", "result": "exit-1-reviewed-findings", "commits": 386, "findings": 22 },
+    { "command": "gitleaks git . --pre-commit --staged --redact=100", "date": "2026-09-06", "result": "pass-for-both-followup-code-commits", "findings": 0 }
+  ],
+  "remainingAuthorityGates": [
+    "Apple Account Holder authentication, team/seller confirmation, agreements, signing and App Store Connect access",
+    "Counsel-approved territory/venue authority and deletion/retention dispositions",
+    "Privacy-owner final signed-archive and payment-channel classification",
+    "Pending automatic-approval questions for CORS preflights, key-restriction metadata and Vercel credential metadata",
+    "Physical-device App Attest/camera/TestFlight testing when a compatible device is available",
+    "Subjective final screenshot/store-copy approval and explicit App Review authorization"
+  ]
+}
