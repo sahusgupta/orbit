@@ -123,6 +123,12 @@ function validProductionEnvironment() {
 }
 
 describe('Orbit Player production configuration', () => {
+  it('accepts Metro project-root metadata only for the actual Player directory', () => {
+    expect(() => validateProductionEnvironment({ ...validProductionEnvironment(), EXPO_PUBLIC_PROJECT_ROOT: playerRoot })).not.toThrow();
+    for (const root of ['', '.', repositoryRoot, path.join(playerRoot, 'private-value'), 'https://untrusted.example', null]) {
+      expect(() => validateProductionEnvironment({ ...validProductionEnvironment(), EXPO_PUBLIC_PROJECT_ROOT: root })).toThrow('EXPO_PUBLIC_PROJECT_ROOT must identify');
+    }
+  });
   it('rejects unreviewed native Firebase SDK overrides without exposing their values', () => {
     expect(() => validateProductionEnvironment({ ...validProductionEnvironment(), FIREBASE_SDK_VERSION: 'unreviewed' })).toThrow('FIREBASE_SDK_VERSION overrides are not approved');
   });

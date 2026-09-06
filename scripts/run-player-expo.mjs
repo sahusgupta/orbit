@@ -89,6 +89,7 @@ function exportIosBundle() {
   const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-player-export-'));
   const bytecodeOutput = path.join(outputRoot, 'bytecode');
   const inspectableOutput = path.join(outputRoot, 'inspectable');
+  const embeddedOutput = path.join(outputRoot, 'embedded');
   try {
     const bytecodeStdout = runExpo(['export', '--platform', 'ios', '--output-dir', bytecodeOutput, '--clear']);
     if (bytecodeStdout) process.stdout.write(bytecodeStdout);
@@ -106,6 +107,18 @@ function exportIosBundle() {
     ]);
     if (inspectableStdout) process.stdout.write(inspectableStdout);
     verifyPlayerBundle(inspectableOutput);
+    fs.mkdirSync(embeddedOutput);
+    // EAS/Xcode use export:embed, which reloads config after Metro adds its
+    // project-root metadata. Exercise that distinct production build boundary.
+    const embeddedBundle = path.join(embeddedOutput, 'main.js');
+    const embeddedStdout = runExpo([
+      'export:embed', '--platform', 'ios', '--dev', 'false',
+      '--entry-file', 'node_modules/expo/AppEntry.js',
+      '--bundle-output', embeddedBundle, '--assets-dest', path.join(embeddedOutput, 'assets')
+    ]);
+    if (embeddedStdout) process.stdout.write(embeddedStdout);
+    assert.ok(fs.statSync(embeddedBundle).size > 0, 'EAS embedded iOS bundle must exist.');
+    verifyPlayerBundle(embeddedOutput);
   } finally {
     fs.rmSync(outputRoot, { recursive: true, force: true });
   }

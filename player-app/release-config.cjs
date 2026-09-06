@@ -1,3 +1,4 @@
+const path = require('node:path');
 const PRODUCTION_ENVIRONMENT = 'production';
 const PRODUCTION_ORIGIN = 'https://orbitapp-one.vercel.app';
 
@@ -81,10 +82,20 @@ function validateProductionEnvironment(environment) {
   if (environment.FIREBASE_SDK_VERSION) {
     failures.push('FIREBASE_SDK_VERSION overrides are not approved for production.');
   }
+  // Metro injects this build-only public value before EAS export:embed reloads
+  // the config. Accept only this application's actual root, never arbitrary data.
+  if (environment.EXPO_PUBLIC_PROJECT_ROOT !== undefined && (
+    typeof environment.EXPO_PUBLIC_PROJECT_ROOT !== 'string'
+    || !path.isAbsolute(environment.EXPO_PUBLIC_PROJECT_ROOT)
+    || path.resolve(environment.EXPO_PUBLIC_PROJECT_ROOT) !== __dirname
+  )) {
+    failures.push('EXPO_PUBLIC_PROJECT_ROOT must identify the current Player project directory.');
+  }
   const permittedPublicVariables = new Set([
     ...Object.keys(productionUrlVariables),
     'EXPO_PUBLIC_APP_CHECK_ENABLED',
     'EXPO_PUBLIC_APP_CHECK_WEB_SITE_KEY',
+    'EXPO_PUBLIC_PROJECT_ROOT',
     'EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY'
   ]);
   for (const variableName of Object.keys(environment)) {
