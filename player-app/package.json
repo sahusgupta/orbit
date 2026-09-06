@@ -21,6 +21,7 @@
     "android": "expo start --android",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
+    "eas-build-pre-install": "node scripts/pin-eas-npm.cjs",
     "rules:deploy": "firebase deploy --only firestore:rules,firestore:indexes",
     "build:preview": "eas build --profile preview",
     "build:production": "eas build --profile production",

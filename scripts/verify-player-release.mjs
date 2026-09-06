@@ -15,6 +15,7 @@ const {
   validateProductionEnvironment,
   v1DisabledFeatureVariables
 } = require('../player-app/release-config.cjs');
+const { EXPECTED_NPM_VERSION } = require('../player-app/scripts/pin-eas-npm.cjs');
 
 const rootPackage = json('package.json');
 const playerPackage = json('player-app/package.json');
@@ -26,6 +27,18 @@ const failures = [];
 const requireMatch = (condition, message) => {
   if (!condition) failures.push(message);
 };
+
+const easCliRequire = createRequire(path.join(root, 'node_modules', 'eas-cli', 'package.json'));
+const { EasJsonAccessor, EasJsonUtils, Platform } = easCliRequire('@expo/eas-json');
+const easJsonAccessor = EasJsonAccessor.fromProjectPath(path.join(root, 'player-app'));
+try {
+  await easJsonAccessor.readAsync();
+  for (const profileName of ['development', 'preview', 'production']) {
+    await EasJsonUtils.getBuildProfileAsync(easJsonAccessor, Platform.IOS, profileName);
+  }
+} catch {
+  failures.push('The repository-locked EAS schema must accept player-app/eas.json and resolve every iOS build profile.');
+}
 
 for (const [name, manifest] of Object.entries({ root: rootPackage, player: playerPackage, api: apiPackage, web: webPackage })) {
   requireMatch(manifest.packageManager === 'npm@10.9.2', `${name} packageManager must pin npm 10.9.2.`);
@@ -45,7 +58,7 @@ requireMatch(eas.cli?.appVersionSource === 'remote', 'EAS build numbers must use
 for (const profileName of ['development', 'preview', 'production']) {
   const profile = eas.build?.[profileName];
   requireMatch(profile?.node === '22.16.0', `${profileName} EAS profile must pin Node 22.16.0.`);
-  requireMatch(profile?.npm === '10.9.2', `${profileName} EAS profile must pin npm 10.9.2.`);
+  requireMatch(!Object.hasOwn(profile || {}, 'npm'), `${profileName} EAS profile must not use the unsupported npm field.`);
   for (const flag of v1DisabledFeatureVariables) {
     requireMatch(profile?.env?.[flag] === 'false', `${profileName} EAS profile must explicitly disable ${flag}.`);
   }
@@ -58,6 +71,8 @@ try {
 requireMatch(eas.build?.production?.distribution === 'store', 'Production EAS profile must create a store build.');
 requireMatch(eas.build?.production?.ios?.simulator === false, 'Production EAS profile must target physical iOS devices.');
 requireMatch(eas.build?.production?.autoIncrement === true, 'Production EAS profile must auto-increment the remote build number.');
+requireMatch(playerPackage.scripts?.['eas-build-pre-install'] === 'node scripts/pin-eas-npm.cjs', 'EAS builds must pin npm through the supported pre-install lifecycle hook.');
+requireMatch(EXPECTED_NPM_VERSION === '10.9.2', 'The EAS pre-install hook must pin npm 10.9.2 exactly.');
 
 requireMatch(app.name === 'Orbit Player', 'Expo app name must be Orbit Player.');
 requireMatch(app.version === '1.0.0', 'First-release marketing version must be 1.0.0.');

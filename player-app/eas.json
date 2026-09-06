@@ -8,7 +8,6 @@
     "development": {
       "distribution": "internal",
       "node": "22.16.0",
-      "npm": "10.9.2",
       "env": {
         "ORBIT_APP_ENV": "development",
         "EXPO_PUBLIC_ORBIT_API_URL": "http://127.0.0.1:4629",
@@ -27,7 +26,6 @@
     "preview": {
       "distribution": "internal",
       "node": "22.16.0",
-      "npm": "10.9.2",
       "env": {
         "ORBIT_APP_ENV": "preview",
         "EXPO_PUBLIC_ORBIT_API_URL": "https://orbitapp-one.vercel.app",
@@ -47,7 +45,6 @@
       "autoIncrement": true,
       "distribution": "store",
       "node": "22.16.0",
-      "npm": "10.9.2",
       "ios": {
         "simulator": false
       },
