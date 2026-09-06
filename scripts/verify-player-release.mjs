@@ -34,7 +34,8 @@ const easJsonAccessor = EasJsonAccessor.fromProjectPath(path.join(root, 'player-
 try {
   await easJsonAccessor.readAsync();
   for (const profileName of ['development', 'preview', 'production']) {
-    await EasJsonUtils.getBuildProfileAsync(easJsonAccessor, Platform.IOS, profileName);
+    const resolvedProfile = await EasJsonUtils.getBuildProfileAsync(easJsonAccessor, Platform.IOS, profileName);
+    requireMatch(resolvedProfile.config === undefined, `${profileName} must use the standard EAS build lifecycle so the npm pin hook runs automatically.`);
   }
 } catch {
   failures.push('The repository-locked EAS schema must accept player-app/eas.json and resolve every iOS build profile.');

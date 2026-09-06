@@ -26,9 +26,9 @@ describe('Orbit Player EAS build configuration', () => {
 
     await expect(accessor.readAsync()).resolves.toBeTruthy();
     for (const profileName of ['development', 'preview', 'production']) {
-      await expect(EasJsonUtils.getBuildProfileAsync(accessor, Platform.IOS, profileName)).resolves.toMatchObject({
-        node: '22.16.0'
-      });
+      const profile = await EasJsonUtils.getBuildProfileAsync(accessor, Platform.IOS, profileName);
+      expect(profile).toMatchObject({ node: '22.16.0' });
+      expect(profile).not.toHaveProperty('config');
       expect(eas.build[profileName]).not.toHaveProperty('npm');
     }
   });
@@ -64,6 +64,27 @@ describe('Orbit Player EAS build configuration', () => {
       : { status: 0 };
 
     expect(pinEasNpm({ run, logger: { error() {}, log() {} } })).toBe(1);
+  });
+
+  it('invokes npm through the Windows command interpreter when required', () => {
+    const calls = [];
+    const run = (command, arguments_) => {
+      calls.push([command, arguments_]);
+      return arguments_.at(-1) === 'npm --version'
+        ? { status: 0, stdout: `${EXPECTED_NPM_VERSION}\n` }
+        : { status: 0 };
+    };
+
+    expect(pinEasNpm({
+      platform: 'win32',
+      commandInterpreter: 'cmd.exe',
+      run,
+      logger: { error() {}, log() {} }
+    })).toBe(0);
+    expect(calls).toEqual([
+      ['cmd.exe', ['/d', '/s', '/c', 'npm install --global npm@10.9.2 --no-audit --no-fund']],
+      ['cmd.exe', ['/d', '/s', '/c', 'npm --version']]
+    ]);
   });
 });
 

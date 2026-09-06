@@ -61,7 +61,7 @@ Do not deploy rules, indexes, API code, or public pages without separate authori
 
 ## Cloud build and TestFlight
 
-EAS accepts the exact Node version in each build profile but does not support an `npm` profile field. The `eas-build-pre-install` lifecycle hook therefore installs npm 10.9.2 and fails closed unless that exact version is active before EAS runs the lockfile-immutable dependency install. The repository-locked EAS schema validates every iOS profile during release verification.
+EAS accepts the exact Node version in each build profile but does not support an `npm` profile field. The `eas-build-pre-install` lifecycle hook therefore installs npm 10.9.2 and fails closed unless that exact version is active before EAS runs the lockfile-immutable dependency install. The repository-locked EAS schema validates every iOS profile during release verification. Custom EAS workflows are rejected because EAS does not run lifecycle hooks automatically for custom builds.
 
 `npm run build:testflight --prefix player-app` starts a remote signed build and is an external action. It is permitted only after the exact pushed SHA is green and credentials/project identity are verified. Upload uses an explicit EAS build ID and source SHA:
 

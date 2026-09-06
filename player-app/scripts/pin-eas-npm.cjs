@@ -4,10 +4,23 @@ const { spawnSync } = require('node:child_process');
 
 const EXPECTED_NPM_VERSION = '10.9.2';
 
-function pinEasNpm({ platform = process.platform, run = spawnSync, logger = console } = {}) {
-  const command = platform === 'win32' ? 'npm.cmd' : 'npm';
-  const installation = run(
-    command,
+function npmInvocation(arguments_, platform, commandInterpreter) {
+  return platform === 'win32'
+    ? { command: commandInterpreter, arguments_: ['/d', '/s', '/c', `npm ${arguments_.join(' ')}`] }
+    : { command: 'npm', arguments_ };
+}
+
+function pinEasNpm({
+  platform = process.platform,
+  commandInterpreter = process.env.ComSpec || 'cmd.exe',
+  run = spawnSync,
+  logger = console
+} = {}) {
+  const runNpm = (arguments_, options) => {
+    const invocation = npmInvocation(arguments_, platform, commandInterpreter);
+    return run(invocation.command, invocation.arguments_, options);
+  };
+  const installation = runNpm(
     ['install', '--global', `npm@${EXPECTED_NPM_VERSION}`, '--no-audit', '--no-fund'],
     { stdio: 'inherit', windowsHide: true }
   );
@@ -17,7 +30,7 @@ function pinEasNpm({ platform = process.platform, run = spawnSync, logger = cons
     return Number.isInteger(installation.status) && installation.status > 0 ? installation.status : 1;
   }
 
-  const versionCheck = run(command, ['--version'], {
+  const versionCheck = runNpm(['--version'], {
     encoding: 'utf8',
     windowsHide: true
   });
