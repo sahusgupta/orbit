@@ -33,6 +33,10 @@ cpSync(sourceRoot, outputRoot, {
 const sharedRoot = path.join(outputRoot, '.shared', 'player-app', 'src');
 mkdirSync(sharedRoot, { recursive: true });
 cpSync(path.join(repositoryRoot, 'player-app', 'src', 'domain'), path.join(sharedRoot, 'domain'), { recursive: true });
+mkdirSync(path.join(sharedRoot, 'security'), { recursive: true });
+for (const file of ['secureIdentifier.ts', 'secureIdentifierValidation.ts']) {
+  cpSync(path.join(repositoryRoot, 'player-app', 'src', 'security', file), path.join(sharedRoot, 'security', file));
+}
 mkdirSync(path.join(sharedRoot, 'data'), { recursive: true });
 cpSync(
   path.join(repositoryRoot, 'player-app', 'src', 'data', 'playerRequests.ts'),
