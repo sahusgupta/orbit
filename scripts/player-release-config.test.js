@@ -26,12 +26,22 @@ describe('Orbit Player EAS build configuration', () => {
     const accessor = EasJsonAccessor.fromProjectPath(playerRoot);
 
     await expect(accessor.readAsync()).resolves.toBeTruthy();
-    for (const profileName of ['development', 'preview', 'production']) {
+    for (const profileName of ['development', 'preview', 'production', 'simulator']) {
       const profile = await EasJsonUtils.getBuildProfileAsync(accessor, Platform.IOS, profileName);
       expect(profile).toMatchObject({ node: '22.16.0' });
       expect(profile).not.toHaveProperty('config');
       expect(eas.build[profileName]).not.toHaveProperty('npm');
     }
+  });
+
+  it('keeps simulator compiler validation on production settings without incrementing store builds', async () => {
+    const accessor = EasJsonAccessor.fromProjectPath(playerRoot);
+    const profile = await EasJsonUtils.getBuildProfileAsync(accessor, Platform.IOS, 'simulator');
+    expect(profile).toMatchObject({
+      distribution: 'internal', environment: 'production', simulator: true, autoIncrement: false,
+      image: expectedProductionIosImage, node: '22.16.0', env: eas.build.production.env
+    });
+    expect(() => validateProductionEnvironment(profile.env)).not.toThrow();
   });
 
   it('proves the locked schema rejects the unsupported npm profile field', async () => {
@@ -103,6 +113,7 @@ describe('Orbit Player EAS build configuration', () => {
 function validProductionEnvironment() {
   return {
     ORBIT_APP_ENV: 'production',
+    EXPO_PUBLIC_APP_CHECK_ENABLED: 'true',
     EXPO_PUBLIC_ORBIT_API_URL: 'https://orbitapp-one.vercel.app',
     EXPO_PUBLIC_PRIVACY_POLICY_URL: 'https://orbitapp-one.vercel.app/privacy',
     EXPO_PUBLIC_SUPPORT_URL: 'https://orbitapp-one.vercel.app/support',
@@ -112,6 +123,18 @@ function validProductionEnvironment() {
 }
 
 describe('Orbit Player production configuration', () => {
+  it('accepts Metro project-root metadata only for the actual Player directory', () => {
+    expect(() => validateProductionEnvironment({ ...validProductionEnvironment(), EXPO_PUBLIC_PROJECT_ROOT: playerRoot })).not.toThrow();
+    for (const root of ['', '.', repositoryRoot, path.join(playerRoot, 'private-value'), 'https://untrusted.example', null]) {
+      expect(() => validateProductionEnvironment({ ...validProductionEnvironment(), EXPO_PUBLIC_PROJECT_ROOT: root })).toThrow('EXPO_PUBLIC_PROJECT_ROOT must identify');
+    }
+  });
+  it('rejects unreviewed native Firebase SDK overrides without exposing their values', () => {
+    expect(() => validateProductionEnvironment({ ...validProductionEnvironment(), FIREBASE_SDK_VERSION: 'unreviewed' })).toThrow('FIREBASE_SDK_VERSION overrides are not approved');
+  });
+  it.each([undefined, '', 'false'])('rejects production without App Check (%s)', (value) => {
+    expect(() => validateProductionEnvironment({ ...validProductionEnvironment(), EXPO_PUBLIC_APP_CHECK_ENABLED: value })).toThrow(/EXPO_PUBLIC_APP_CHECK_ENABLED must be true/);
+  });
   it('accepts only the reviewed production URLs with every risky v1 capability explicitly off', () => {
     expect(() => validateProductionEnvironment(validProductionEnvironment())).not.toThrow();
     expect(validateProductionUrl(

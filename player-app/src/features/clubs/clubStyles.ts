@@ -34,7 +34,7 @@ export const clubStyles = StyleSheet.create(applyDarkComponentTheme({
   compactManageText: { color: colors.primary, fontSize: 12, fontWeight: '700' },
   compactStatLabel: { color: colors.muted, fontSize: 9, fontWeight: '700', marginTop: 2, textAlign: 'center' },
   compactStatValue: { color: colors.ink, fontSize: 14, fontWeight: '700', textAlign: 'center' },
-  formError: { color: '#b42318', fontSize: 12, fontWeight: '700' },
+  formError: { color: colors.coral, fontSize: 12, fontWeight: '700' },
   inputLabel: { color: colors.ink, fontSize: 12, fontWeight: '700' },
   membershipApplicationCard: {
     backgroundColor: colors.panel,

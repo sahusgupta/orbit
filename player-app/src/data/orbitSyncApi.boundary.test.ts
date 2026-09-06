@@ -56,6 +56,7 @@ const firebase = vi.hoisted(() => {
   getDoc: vi.fn(),
   getDocs: vi.fn(),
   initializeApp: vi.fn(),
+  appCheckHeaders: vi.fn(),
   limit: vi.fn(),
   onAuthStateChanged: vi.fn(),
   onSnapshot: vi.fn(),
@@ -79,6 +80,8 @@ vi.mock('firebase/app', () => ({
   getApps: () => [firebase.app],
   initializeApp: firebase.initializeApp
 }));
+
+vi.mock('./firebase/appCheckToken', () => ({ appCheckHeaders: firebase.appCheckHeaders }));
 
 vi.mock('firebase/auth', () => ({
   browserLocalPersistence: { type: 'LOCAL' },
@@ -374,6 +377,7 @@ beforeEach(() => {
   documentDocs.clear();
   snapshotListeners = [];
   firebase.auth.currentUser = null;
+  firebase.appCheckHeaders.mockReset().mockResolvedValue({});
   firebase.collection.mockImplementation((_database: unknown, ...segments: string[]) => ({
     kind: 'collection',
     path: segments.join('/')
@@ -429,6 +433,29 @@ afterEach(() => {
 });
 
 describe('authenticated Orbit API boundaries', () => {
+  it('attaches attestation to protected API requests and phone challenges', async () => {
+    signedInUser();
+    firebase.appCheckHeaders.mockResolvedValue({ 'X-Firebase-AppCheck': 'synthetic-attestation' });
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, challenge: 'challenge', expiresAt: '2030-01-01T00:00:00Z' }));
+    await startPlayerPhoneSignIn('+15555550123');
+    expect(firebase.fetch.mock.calls[0]?.[1]?.headers).toMatchObject({ 'X-Firebase-AppCheck': 'synthetic-attestation' });
+    firebase.fetch.mockResolvedValueOnce(jsonResponse({ ok: true, status: 'pending' }));
+    await deleteCurrentPlayerAccount();
+    expect(firebase.fetch.mock.calls[1]?.[1]?.headers).toMatchObject({ authorization: 'Bearer player-token', 'X-Firebase-AppCheck': 'synthetic-attestation' });
+  });
+
+  it('does not send requests when attestation fails or the account switches during attestation', async () => {
+    signedInUser();
+    firebase.appCheckHeaders.mockRejectedValueOnce(new Error('Device verification is unavailable.'));
+    await expect(fetchPlayerIdentityStatus()).rejects.toThrow('Device verification is unavailable.');
+    firebase.appCheckHeaders.mockImplementationOnce(async () => {
+      signedInUser('another-player');
+      return { 'X-Firebase-AppCheck': 'synthetic-attestation' };
+    });
+    await expect(deleteCurrentPlayerAccount()).rejects.toThrow('account changed before deletion');
+    expect(firebase.fetch).not.toHaveBeenCalled();
+  });
+
   it('requires a signed-in account without contacting fetch', async () => {
     await expect(fetchPlayerIdentityStatus()).rejects.toThrow('Sign in to your Orbit Player account first.');
     await expect(savePlayerIdentityCapture({
@@ -856,6 +883,34 @@ describe('Firebase authentication boundary', () => {
 
     await signOutCurrentPlayer();
     expect(firebase.signOut).toHaveBeenCalledWith(firebase.auth);
+  });
+
+  it.each([
+    'auth/network-request-failed',
+    'auth/too-many-requests',
+    'auth/user-disabled',
+    'auth/operation-not-allowed',
+    undefined
+  ])('preserves %s sign-in failures without attempting account creation', async (code) => {
+    const failure = Object.assign(new Error('Sign-in unavailable'), { code });
+    firebase.signInWithEmailAndPassword.mockRejectedValueOnce(failure);
+
+    await expect(signInOrCreatePlayerWithEmail('reviewer@example.test', 'a-secure-passphrase'))
+      .rejects.toBe(failure);
+    expect(firebase.createUserWithEmailAndPassword).not.toHaveBeenCalled();
+    expect(firebase.sendEmailVerification).not.toHaveBeenCalled();
+  });
+
+  it('does not attempt a new account when an existing unverified account cannot receive its verification email', async () => {
+    const user = { ...signedInUser(), emailVerified: false };
+    const failure = new Error('Verification delivery unavailable');
+    firebase.signInWithEmailAndPassword.mockResolvedValueOnce({ user });
+    firebase.sendEmailVerification.mockRejectedValueOnce(failure);
+
+    await expect(signInOrCreatePlayerWithEmail('reviewer@example.test', 'a-secure-passphrase'))
+      .rejects.toBe(failure);
+    expect(firebase.signOut).toHaveBeenCalledWith(firebase.auth);
+    expect(firebase.createUserWithEmailAndPassword).not.toHaveBeenCalled();
   });
 });
 

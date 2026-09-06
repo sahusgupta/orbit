@@ -60,7 +60,19 @@ describe('Player platform deletion confirmations', () => {
       'Account deletion accepted',
       expect.stringContaining('no server retry is required')
     );
-    expect(native.alert.mock.calls[0]?.[1]).toContain('local profile were deleted');
+    expect(native.alert.mock.calls[0]?.[1]).toMatch(/local profile (?:was|were) deleted/);
+  });
+
+  it('does not claim server profile data was deleted while the durable job is pending', () => {
+    playerPlatform.showAccountDeletionResult({
+      currentAccountPreserved: false,
+      localDataCleared: true,
+      retainedCategories: [],
+      signedOut: true,
+      status: 'pending'
+    });
+    expect(native.alert.mock.calls[0]?.[1]).toContain('Server account-data cleanup and sign-in deletion are still in progress');
+    expect(native.alert.mock.calls[0]?.[1]).not.toContain('Your Orbit profile data and local profile were deleted');
   });
 
   it('requires explicit device cleanup when accepted deletion could not confirm sign-out', () => {

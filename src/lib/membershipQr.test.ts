@@ -81,6 +81,27 @@ describe('membership QR staff-session binding', () => {
     expect(redeem).not.toHaveBeenCalled();
   });
 
+  it('does not apply or disclose a successful response after the staff or venue session changes', async () => {
+    const response = deferred<{ ok: true; playerName: string; state: { venue: string } }>();
+    let session = { token: 'club-one-session' };
+    const applyState = vi.fn();
+    const clearInput = vi.fn();
+    const setMessage = vi.fn();
+    const redeem = vi.fn(() => response.promise);
+    const pending = runMembershipQrCheckIn('omq1_opaque', {
+      authorize: async () => session,
+      readCurrentContext: () => ({ access: { licenseId: session.token }, session }),
+      redeem, clearCurrentSession: vi.fn(), applyState, clearInput, setMessage
+    });
+    await vi.waitFor(() => expect(redeem).toHaveBeenCalledOnce());
+    session = { token: 'club-two-session' };
+    response.resolve({ ok: true, playerName: 'Prior Venue Player', state: { venue: 'club-one' } });
+    await pending;
+    expect(applyState).not.toHaveBeenCalled();
+    expect(clearInput).not.toHaveBeenCalled();
+    expect(JSON.stringify(setMessage.mock.calls)).not.toContain('Prior Venue Player');
+  });
+
   it('never clears a newer session when an in-flight redemption rejects the prior token', async () => {
     type Session = { token: string };
     const response = deferred<{ ok: false; error: string; reauthenticate: true }>();

@@ -31,8 +31,11 @@
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-firebase/app": "26.4.0",
+    "@react-native-firebase/app-check": "26.4.0",
     "expo": "54.0.37",
     "expo-asset": "~12.0.13",
+    "expo-build-properties": "1.0.10",
     "expo-camera": "~17.0.10",
     "expo-constants": "18.0.14",
     "expo-crypto": "~15.0.9",
@@ -63,9 +66,11 @@
     "plist": {
       "@xmldom/xmldom": "0.9.12"
     },
-    "brace-expansion": "5.0.9",
+    "brace-expansion@^1.1.7": "1.1.18",
+    "brace-expansion@^2.0.1": "2.1.4",
+    "brace-expansion@^5.0.2": "5.0.9",
     "browserslist": "4.28.9",
-    "fast-uri": "3.1.5",
+    "fast-uri": "3.1.6",
     "js-yaml@^3.0.0": "3.15.1",
     "js-yaml@^4.0.0": "4.3.1",
     "nanoid": "3.3.18",

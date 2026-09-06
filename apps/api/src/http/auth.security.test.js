@@ -123,6 +123,21 @@ describe('pilot authorization containment', () => {
     expect(getDashboardSessionCookie(token)).toMatch(/HttpOnly; SameSite=Lax; Secure;/);
   });
 
+  it('keeps hosted dashboard cookies secure even with development NODE_ENV or a false override', () => {
+    const previousVercel = process.env.VERCEL;
+    process.env.VERCEL = '1';
+    process.env.NODE_ENV = 'development';
+    try {
+      for (const options of [{}, { secure: false }]) {
+        expect(getDashboardSessionCookie('synthetic-session', options)).toMatch(/^__Host-orbit_dashboard=.*; Secure;/);
+        expect(auth.getExpiredDashboardSessionCookie(options)).toMatch(/^__Host-orbit_dashboard=;.*; Secure;/);
+      }
+    } finally {
+      if (previousVercel === undefined) delete process.env.VERCEL;
+      else process.env.VERCEL = previousVercel;
+    }
+  });
+
   it('distinguishes missing dashboard password and session-signing configuration', () => {
     expect(getDashboardSessionConfigurationError()).toEqual({
       code: 'DASHBOARD_PASSWORD_NOT_CONFIGURED',

@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { authenticatePilotLicense } = require('../licenseService');
+const { isHostedOrProduction } = require('./dataProtection');
 
 const productionDashboardCookieName = '__Host-orbit_dashboard';
 const developmentDashboardCookieName = 'orbit_dashboard_dev';
@@ -83,7 +84,7 @@ function createDashboardSession(password, nowMs = Date.now()) {
 }
 
 function getDashboardSessionCookie(token, options = {}) {
-  const secure = options.secure ?? process.env.NODE_ENV === 'production';
+  const secure = isHostedOrProduction(process.env) || Boolean(options.secure);
   return [
     `${secure ? productionDashboardCookieName : developmentDashboardCookieName}=${encodeURIComponent(token)}`,
     'Path=/',
@@ -95,7 +96,7 @@ function getDashboardSessionCookie(token, options = {}) {
 }
 
 function getExpiredDashboardSessionCookie(options = {}) {
-  const secure = options.secure ?? process.env.NODE_ENV === 'production';
+  const secure = isHostedOrProduction(process.env) || Boolean(options.secure);
   return [
     `${secure ? productionDashboardCookieName : developmentDashboardCookieName}=`,
     'Path=/',

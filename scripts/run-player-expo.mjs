@@ -36,6 +36,7 @@ function inspectResolvedConfig() {
   const publicConfig = JSON.parse(runExpo(['config', '--type', 'public', '--json']));
   assert.equal(publicConfig.name, 'Orbit Player');
   assert.equal(publicConfig.version, '1.0.0');
+  assert.equal(publicConfig.newArchEnabled, true, 'Native App Check requires the React Native New Architecture');
   assert.equal(publicConfig.ios?.bundleIdentifier, 'com.orbit.player');
   assert.equal(publicConfig.ios?.infoPlist?.ITSAppUsesNonExemptEncryption, false);
   assert.equal(publicConfig.ios?.privacyManifests?.NSPrivacyTracking, false);
@@ -50,7 +51,10 @@ function inspectResolvedConfig() {
   const introspected = JSON.parse(runExpo(['config', '--type', 'introspect', '--json']));
   const infoPlist = introspected._internal?.modResults?.ios?.infoPlist || {};
   const entitlements = introspected._internal?.modResults?.ios?.entitlements || {};
-  assert.deepEqual(entitlements, {}, 'Production config must not declare app capabilities or entitlements');
+  assert.deepEqual(entitlements, {
+    'com.apple.developer.devicecheck.appattest-environment': 'production'
+  }, 'Production config must declare only the required production App Attest entitlement');
+  assert.equal(publicConfig.ios?.googleServicesFile, './GoogleService-Info.plist');
   assert.equal(
     infoPlist.NSCameraUsageDescription,
     'Allow Orbit Player to scan the PDF417 barcode on your government ID. Orbit does not save a photo.'
@@ -85,6 +89,7 @@ function exportIosBundle() {
   const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-player-export-'));
   const bytecodeOutput = path.join(outputRoot, 'bytecode');
   const inspectableOutput = path.join(outputRoot, 'inspectable');
+  const embeddedOutput = path.join(outputRoot, 'embedded');
   try {
     const bytecodeStdout = runExpo(['export', '--platform', 'ios', '--output-dir', bytecodeOutput, '--clear']);
     if (bytecodeStdout) process.stdout.write(bytecodeStdout);
@@ -102,6 +107,18 @@ function exportIosBundle() {
     ]);
     if (inspectableStdout) process.stdout.write(inspectableStdout);
     verifyPlayerBundle(inspectableOutput);
+    fs.mkdirSync(embeddedOutput);
+    // EAS/Xcode use export:embed, which reloads config after Metro adds its
+    // project-root metadata. Exercise that distinct production build boundary.
+    const embeddedBundle = path.join(embeddedOutput, 'main.js');
+    const embeddedStdout = runExpo([
+      'export:embed', '--platform', 'ios', '--dev', 'false',
+      '--entry-file', 'node_modules/expo/AppEntry.js',
+      '--bundle-output', embeddedBundle, '--assets-dest', path.join(embeddedOutput, 'assets')
+    ]);
+    if (embeddedStdout) process.stdout.write(embeddedStdout);
+    assert.ok(fs.statSync(embeddedBundle).size > 0, 'EAS embedded iOS bundle must exist.');
+    verifyPlayerBundle(embeddedOutput);
   } finally {
     fs.rmSync(outputRoot, { recursive: true, force: true });
   }

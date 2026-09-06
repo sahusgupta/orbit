@@ -593,6 +593,7 @@ function buildBatchUpdate(projectId, documentPath, record) {
 
 async function batchWriteDocuments(projectId, token, writes, chunkSize = 250) {
   for (let offset = 0; offset < writes.length; offset += chunkSize) {
+    const batch = writes.slice(offset, offset + chunkSize);
     const endpoint = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:batchWrite`;
     const response = await fetchFirebase(
       'batch-write',
@@ -603,10 +604,39 @@ async function batchWriteDocuments(projectId, token, writes, chunkSize = 250) {
           authorization: `Bearer ${token}`,
           'content-type': 'application/json'
         },
-        body: JSON.stringify({ writes: writes.slice(offset, offset + chunkSize) })
+        body: JSON.stringify({ writes: batch })
       }
     );
     if (!response.ok) throw await firebaseResponseError('batch-write', response, endpoint);
+    // batchWrite is non-atomic: HTTP 200 does not confirm individual writes.
+    // Never publish the parent commit marker after an unconfirmed child write.
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw firebaseRequestError('batch-write-response-invalid', error, endpoint);
+    }
+    const statuses = getRecordProperty(payload, 'status');
+    if (!Array.isArray(statuses) || statuses.length !== batch.length || statuses.some((status) => {
+      const code = getRecordProperty(status, 'code');
+      return !status || typeof status !== 'object' || Array.isArray(status) ||
+        (code !== undefined && (typeof code !== 'number' || !Number.isInteger(code) || code < 0));
+    })) {
+      throw new FirebasePublicationError('batch-write-response-invalid', {
+        pathRef: protectedIdentifier(endpoint)
+      });
+    }
+    // Protobuf JSON may omit the default OK code, represented by an empty object.
+    const failedStatus = statuses.find((status) => {
+      const code = getRecordProperty(status, 'code');
+      return code !== undefined && code !== 0;
+    });
+    if (failedStatus) {
+      throw new FirebasePublicationError('batch-write-partial-failure', {
+        pathRef: protectedIdentifier(endpoint),
+        responseRef: protectedIdentifier(JSON.stringify(failedStatus).slice(0, 4_096))
+      });
+    }
   }
   return writes.length;
 }

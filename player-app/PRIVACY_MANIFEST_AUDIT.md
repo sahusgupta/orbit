@@ -23,6 +23,10 @@ The locked `expo-crypto` `15.0.9` package was also inspected after it became the
 
 ## App-owned declaration mapping
 
+The 2026-09-06 attestation integration adds React Native Firebase App/App Check 26.4.0, selecting Firebase iOS 12.18.0 and AppCheckCore `~> 11.3` through CocoaPods. The upstream 12.18.0 `FirebaseCore/Sources/Resources/PrivacyInfo.xcprivacy` was inspected: no collected data or tracking, and UserDefaults reason `CA92.1`, already declared below. AppCheckCore 11.3.0's source inventory contains no privacy-manifest file. These upstream-source observations are not an installed CocoaPods or signed-archive inventory. Capture resolved Pod versions and every aggregated manifest when the native candidate builds. No Analytics or Crashlytics module was added.
+
+App/device attestation material and short-lived App Check tokens are sent to Apple/Google for abuse prevention and to protected services with requests. The API does not store them in application records or logs. SDKs cache tokens on device; Player Web uses a temporary route-guard cookie removed at sign-out. Provider retention is documented in [Firebase privacy information](https://firebase.google.com/support/privacy); see [App Check architecture](../docs/architecture/PLAYER_APP_CHECK.md). The final archive and App Privacy review must include this security processing.
+
 `app.json` declares the required-reason APIs found above that can be aggregated into the reviewed non-Google iOS target:
 
 | App-owned category | App-owned reasons | Evidence source |
@@ -63,6 +67,12 @@ Before TestFlight, generate the Xcode privacy report from the exact signed archi
 - Final App Privacy answers reconciling SDK declarations with Orbit’s actual no-device-location behavior.
 
 This is a blocking external candidate gate until signed-archive evidence exists. Do not assume that removing a key omitted a subspec, and do not suppress an SDK declaration because Orbit itself does not request GPS.
+
+## Compiled simulator evidence, September 6, 2026
+
+[EAS build cc64f693-fdf4-416c-8fdc-c2fcc3b9cd99](https://expo.dev/accounts/saussy/projects/tabletalk-player/builds/cc64f693-fdf4-416c-8fdc-c2fcc3b9cd99) finished from `dab4aa7183b6c4482310feb9b1c4f9df3bfcda41`. The downloaded archive SHA-256 is `0e16b22ae0e4bc09bb443b904b7320c90e0a1ab78595304b1d45ecb74b88767c`. Its compiled Info.plist identifies `com.orbit.player`, version `1.0.0` build `1`, iPhone-only, minimum iOS `15.1`, simulator SDK `26.0` (`23A339`), Xcode `17A324`. Camera is the sole usage-description permission, and there is no URL scheme or Google Maps bundle.
+
+The binary contains 15 privacy manifests. None declares tracking or tracking domains. The app retains its ten collected-data declarations; CocoaPods adds SDK UserDefaults reasons `1C8F.1` and `C56D.1` alongside app reason `CA92.1`. The base React Native Maps manifest is bundled and declares unlinked precise location; its Google Maps manifest is absent. This confirms the source-level map finding rather than eliminating the privacy-answer reconciliation. This unsigned simulator evidence does not replace signed archive, App Store processing, or physical App Attest evidence.
 
 ## Primary sources
 

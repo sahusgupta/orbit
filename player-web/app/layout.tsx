@@ -51,6 +51,12 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   return (
     <html lang="en" className={`${landingSans.variable} ${landingMono.variable}`}>
       <body>
+        <noscript>
+          <div className="page-shell" role="alert">
+            <p>Turn on JavaScript to use Orbit Player.</p>
+            <a href="https://orbitapp-one.vercel.app/privacy">Read the Privacy Policy</a>
+          </div>
+        </noscript>
         <GlobalStructuredData />
         <RouteShell>{children}</RouteShell>
       </body>

@@ -10,7 +10,7 @@ import {
 } from '../../domain/decoders/playerBoundaryDecoders';
 import type { PlayerAccount, PlayerMembershipRequest, PlayerWaitlistRequest } from '../../domain/playerSync';
 import type { ConfirmedPlayerIdentityDetails } from '../../domain/playerIdentityCapture';
-import { auth } from '../firebase/firebaseClient';
+import { auth, getPlayerAppCheckHeaders } from '../firebase/firebaseClient';
 import type { SyncResult } from '../playerDataContracts';
 import { requestJson } from './boundedFetch';
 
@@ -28,10 +28,11 @@ async function getOrbitPlayerToken(forceRefresh = false, expectedUid?: string) {
     throw new Error('The signed-in Orbit Player account does not match this request.');
   }
   const token = await user.getIdToken(forceRefresh);
+  const headers = { authorization: `Bearer ${token}`, ...await getPlayerAppCheckHeaders() };
   if (auth.currentUser?.uid !== user.uid) {
     throw new Error('The signed-in Orbit Player account changed before the request was sent.');
   }
-  return { token, user };
+  return { headers, user };
 }
 
 function assertCurrentPlayerSession(expectedUid: string) {
@@ -41,9 +42,9 @@ function assertCurrentPlayerSession(expectedUid: string) {
 }
 
 export async function fetchPlayerIdentityStatus(forceTokenRefresh = false, expectedUid?: string) {
-  const { token, user } = await getOrbitPlayerToken(forceTokenRefresh, expectedUid);
+  const { headers, user } = await getOrbitPlayerToken(forceTokenRefresh, expectedUid);
   const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/identity/status`, {
-    headers: { authorization: `Bearer ${token}` }
+    headers
   }, { dedupeKey: `identity:${user.uid}` });
   assertCurrentPlayerSession(user.uid);
   const result = decodeIdentityResponse(payload);
@@ -59,7 +60,7 @@ export async function savePlayerIdentityCapture(
   input: ConfirmedPlayerIdentityDetails & { mutationId: string },
   expectedUid: string
 ) {
-  const { token } = await getOrbitPlayerToken(false, expectedUid);
+  const { headers } = await getOrbitPlayerToken(false, expectedUid);
   const safeBody = {
     fullName: input.fullName,
     dateOfBirth: input.dateOfBirth,
@@ -69,7 +70,7 @@ export async function savePlayerIdentityCapture(
   const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/identity/capture`, {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${token}`,
+      ...headers,
       'content-type': 'application/json'
     },
     body: JSON.stringify(safeBody)
@@ -83,10 +84,10 @@ export async function savePlayerIdentityCapture(
 export async function fetchRemoteClubSnapshot(player: Pick<PlayerAccount, 'id' | 'name'>, accountKey: string): Promise<SyncResult> {
   if (!orbitApiBaseUrl || !auth.currentUser) return { ok: false, error: 'Orbit API player sync is unavailable.' };
   try {
-    const { token } = await getOrbitPlayerToken(false, player.id);
+    const { headers } = await getOrbitPlayerToken(false, player.id);
     const params = new URLSearchParams({ accountKey });
     const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/snapshot?${params.toString()}`, {
-      headers: { authorization: `Bearer ${token}` }
+      headers
     }, { dedupeKey: `snapshot:${accountKey}:${player.id}` });
     assertCurrentPlayerSession(player.id);
     const result = decodeSnapshotEnvelope(payload);
@@ -98,11 +99,11 @@ export async function fetchRemoteClubSnapshot(player: Pick<PlayerAccount, 'id' |
 }
 
 export async function fetchRemotePlayerDiscovery(cursor = '', limit = 50, expectedUid?: string) {
-  const { token, user } = await getOrbitPlayerToken(false, expectedUid);
+  const { headers, user } = await getOrbitPlayerToken(false, expectedUid);
   const params = new URLSearchParams({ limit: String(Math.min(Math.max(limit, 1), 50)) });
   if (cursor) params.set('cursor', cursor);
   const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/discovery?${params.toString()}`, {
-    headers: { authorization: `Bearer ${token}` }
+    headers
   }, { dedupeKey: `discovery:${user.uid}:${cursor}:${limit}` });
   assertCurrentPlayerSession(user.uid);
   const result = decodeDiscoveryResponse(payload);
@@ -129,11 +130,11 @@ export async function submitRemotePlayerRequest(
 ): Promise<SyncResult> {
   if (!orbitApiBaseUrl) return { ok: false, error: 'Orbit API is not configured.' };
   try {
-    const { token } = await getOrbitPlayerToken(false, expectedUid);
+    const { headers } = await getOrbitPlayerToken(false, expectedUid);
     const { response, payload } = await requestJson(`${orbitApiBaseUrl}${path}`, {
       method: 'POST',
       headers: {
-        authorization: `Bearer ${token}`,
+        ...headers,
         'content-type': 'application/json'
       },
       body: JSON.stringify(request)
@@ -153,11 +154,11 @@ export async function submitRemoteTournamentMutation(
   expectedUid: string
 ) {
   if (!orbitApiBaseUrl) throw new Error('Orbit API is not configured.');
-  const { token } = await getOrbitPlayerToken(false, expectedUid);
+  const { headers } = await getOrbitPlayerToken(false, expectedUid);
   const { response, payload: body } = await requestJson(`${orbitApiBaseUrl}/player/tournament-interests`, {
     method,
     headers: {
-      authorization: `Bearer ${token}`,
+      ...headers,
       'content-type': 'application/json'
     },
     body: JSON.stringify(payload)
@@ -169,11 +170,11 @@ export async function submitRemoteTournamentMutation(
 }
 
 export async function issueRemoteMembershipQr(clubId: string, mutationId: string, expectedUid: string) {
-  const { token } = await getOrbitPlayerToken(false, expectedUid);
+  const { headers } = await getOrbitPlayerToken(false, expectedUid);
   const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/membership-qr`, {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${token}`,
+      ...headers,
       'content-type': 'application/json'
     },
     body: JSON.stringify({ clubId, mutationId })
@@ -188,10 +189,11 @@ export async function deleteRemotePlayerAccount(user: User) {
   if (!orbitApiBaseUrl) throw new Error('EXPO_PUBLIC_ORBIT_API_URL is not configured.');
   if (auth.currentUser?.uid !== user.uid) throw new Error('The signed-in Orbit Player account changed before deletion.');
   const token = await user.getIdToken(true);
+  const headers = { authorization: `Bearer ${token}`, ...await getPlayerAppCheckHeaders() };
   if (auth.currentUser?.uid !== user.uid) throw new Error('The signed-in Orbit Player account changed before deletion.');
   const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/account`, {
     method: 'DELETE',
-    headers: { authorization: `Bearer ${token}` }
+    headers
   });
   const responseRecord = payload && typeof payload === 'object' ? payload as Record<string, unknown> : null;
   const deletionStatus = responseRecord?.status;

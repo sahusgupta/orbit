@@ -1,5 +1,6 @@
 import { requestJson } from './boundedFetch';
 import { orbitApiBaseUrl } from './playerHttpApi';
+import { getPlayerAppCheckHeaders } from '../firebase/firebaseClient';
 
 function readResponse(response: Response, body: unknown, fallback: string) {
   if (!response.ok || !body || typeof body !== 'object') {
@@ -14,7 +15,7 @@ function readResponse(response: Response, body: unknown, fallback: string) {
 export async function requestPlayerPhoneCode(phone: string) {
   const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/auth/phone/start`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...await getPlayerAppCheckHeaders() },
     body: JSON.stringify({ phone })
   });
   const body = readResponse(response, payload, 'Unable to send a verification code.');
@@ -27,7 +28,7 @@ export async function requestPlayerPhoneCode(phone: string) {
 export async function exchangePlayerPhoneCode(phone: string, code: string, challenge: string) {
   const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/auth/phone/complete`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...await getPlayerAppCheckHeaders() },
     body: JSON.stringify({ phone, code, challenge })
   });
   const body = readResponse(response, payload, 'Unable to verify the phone number.');

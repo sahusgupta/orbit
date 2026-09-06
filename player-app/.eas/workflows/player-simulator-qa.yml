@@ -1,0 +1,33 @@
+name: Orbit Player simulator release QA
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        type: string
+        required: true
+        description: Committed Orbit Player iOS simulator build ID
+
+jobs:
+  iphone_standard:
+    name: First launch and local profile on iPhone 16
+    type: maestro
+    environment: production
+    image: macos-sequoia-15.6-xcode-26.0
+    params:
+      build_id: ${{ inputs.build_id }}
+      flow_path: .maestro/local-profile.yaml
+      device_identifier: iPhone 16
+      record_screen: true
+      retries: 0
+  iphone_large:
+    name: First launch and local profile on iPhone 16 Pro Max
+    type: maestro
+    environment: production
+    image: macos-sequoia-15.6-xcode-26.0
+    params:
+      build_id: ${{ inputs.build_id }}
+      flow_path: .maestro/local-profile.yaml
+      device_identifier: iPhone 16 Pro Max
+      record_screen: true
+      retries: 0

@@ -489,14 +489,14 @@ export default function PlayerLanding() {
         {/* Text rides below the orbital center */}
         <div className="relative z-10 text-center px-8 -mt-8 max-w-[940px]">
           <motion.p
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            initial={false} animate={{ opacity: 1 }}
             transition={{ duration: 0.8, delay: 0.7 }}
             className="font-mono text-[9px] tracking-[0.3em] text-[#6868B3] uppercase mb-5"
           >
             Orbit Player
           </motion.p>
           <motion.h1
-            initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }}
+            initial={false} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.85, delay: 0.8, ease: [0.22, 0, 0, 1] }}
             className="text-[42px] md:text-[64px] font-bold tracking-[-0.03em] leading-[1.06] mb-5"
           >
@@ -505,14 +505,14 @@ export default function PlayerLanding() {
             <span className="text-[#F2EDE3]/45">Keep every membership together.</span>
           </motion.h1>
           <motion.p
-            initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}
+            initial={false} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.92, ease: [0.22, 0, 0, 1] }}
             className="text-[#F2EDE3]/48 text-[15px] leading-[1.8] max-w-[600px] mx-auto mb-9"
           >
             Orbit Player shows participating venues’ published games, stakes, formats, and current activity — then lets you request a seat, track the venue’s response, and manage your poker-club memberships in one place.
           </motion.p>
           <motion.div
-            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            initial={false} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 1.05 }}
             className="flex items-center justify-center gap-3"
           >

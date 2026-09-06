@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
+import { initialWindowMetrics, SafeAreaProvider } from 'react-native-safe-area-context';
 import PlayerApp from './src/PlayerApp';
 
 type State = { failed: boolean; incidentId: string };
@@ -41,5 +42,9 @@ class PlayerRecoveryBoundary extends React.Component<React.PropsWithChildren, St
 }
 
 export default function App() {
-  return <PlayerRecoveryBoundary><PlayerApp /></PlayerRecoveryBoundary>;
+  return (
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <PlayerRecoveryBoundary><PlayerApp /></PlayerRecoveryBoundary>
+    </SafeAreaProvider>
+  );
 }

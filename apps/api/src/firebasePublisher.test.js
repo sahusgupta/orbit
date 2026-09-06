@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import crypto from 'node:crypto';
 import publisher from './firebasePublisher.js';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 describe('canonical Firestore club layout', () => {
   const state = {
@@ -443,13 +448,107 @@ describe('canonical Firestore club layout', () => {
   });
 
   it('publishes projection documents in provider-bounded batches instead of one request per document', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    const fetchMock = vi.fn(async (_input, init) => ({
+      ok: true,
+      json: async () => ({ status: JSON.parse(init.body).writes.map((_write, index) => index % 2 ? { code: 0 } : {}) })
+    }));
     vi.stubGlobal('fetch', fetchMock);
     const writes = Array.from({ length: 501 }, (_value, index) => ({ delete: `documents/${index}` }));
 
     await expect(publisher.batchWriteDocuments('project-1', 'token', writes)).resolves.toBe(501);
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls.map((call) => JSON.parse(call[1].body).writes.length)).toEqual([250, 250, 1]);
+  });
+
+  it('rejects individual write failures inside HTTP 200 and stops before subsequent batches', async () => {
+    const failure = { code: 7, message: 'Denied private.player@example.test at clubs/private/player' };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: [{}, failure] })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const writes = [{ delete: 'private/path-1' }, { delete: 'private/path-2' }, { delete: 'private/path-3' }];
+
+    const error = await publisher.batchWriteDocuments('project-1', 'token', writes, 2).catch((value) => value);
+    expect(error).toMatchObject({
+      name: 'FirebasePublicationError',
+      category: 'batch-write-partial-failure',
+      pathRef: expect.stringMatching(/^[a-f0-9]{16}$/),
+      responseRef: expect.stringMatching(/^[a-f0-9]{16}$/)
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const serialized = JSON.stringify({ error, message: error.message });
+    expect(serialized).not.toContain('private.player@example.test');
+    expect(serialized).not.toContain('clubs/private/player');
+    expect(serialized).not.toContain('private/path');
+  });
+
+  it.each([
+    null, {}, { status: [] }, { status: [{}] }, { status: [{}, {}, {}] },
+    { status: [null, {}] }, { status: [[], {}] }, { status: [{ code: '0' }, {}] },
+    { status: [{ code: null }, {}] }, { status: [{ code: false }, {}] }
+  ])('rejects missing or malformed per-write acknowledgement: %j', async (payload) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => payload }));
+    await expect(publisher.batchWriteDocuments('project-1', 'token', [
+      { delete: 'documents/1' }, { delete: 'documents/2' }
+    ])).rejects.toMatchObject({ category: 'batch-write-response-invalid' });
+  });
+
+  it('sanitizes malformed batch JSON without reporting publication success', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => { throw new Error('Malformed response for private.player@example.test'); }
+    }));
+    const error = await publisher.batchWriteDocuments('project-1', 'token', [{ delete: 'private/path' }])
+      .catch((value) => value);
+    expect(error).toMatchObject({ category: 'batch-write-response-invalid' });
+    expect(JSON.stringify({ error, message: error.message })).not.toContain('private.player@example.test');
+  });
+
+  it.each(['none', 'projection', 'cleanup'])('publishes the parent marker only after all acknowledged writes (failure: %s)', async (failureStage) => {
+    // Signing and transport are local doubles; no provider credentials or network are used.
+    vi.stubEnv('FIREBASE_SERVICE_ACCOUNT_JSON', JSON.stringify({
+      project_id: 'local-publisher-test', client_email: 'publisher@example.invalid', private_key: 'unused-fixture'
+    }));
+    const signer = crypto.createSign('RSA-SHA256');
+    vi.spyOn(signer, 'sign').mockReturnValue('synthetic-signature');
+    vi.spyOn(crypto, 'createSign').mockReturnValue(signer);
+    const fetchMock = vi.fn(async (input, init = {}) => {
+      const url = String(input);
+      if (url === 'https://oauth2.googleapis.com/token') {
+        return { ok: true, json: async () => ({ access_token: 'local-publication-fixture' }) };
+      }
+      if (url.includes(':batchWrite')) {
+        const writes = JSON.parse(init.body).writes;
+        const stage = writes.some((write) => write.delete) ? 'cleanup' : 'projection';
+        return {
+          ok: true,
+          json: async () => ({ status: writes.map((_write, index) =>
+            stage === failureStage && index === 0 ? { code: 7 } : {}) })
+        };
+      }
+      if (init.method === 'PATCH') return { ok: true };
+      const collection = new URL(url).pathname.split('/').at(-1);
+      return {
+        ok: true,
+        json: async () => ({ documents: collection === 'games' ? [{
+          name: 'projects/local-publisher-test/databases/(default)/documents/clubs/lic_test/games/stale',
+          fields: { syncSource: { stringValue: 'orbit-api' } }
+        }] : [] })
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const publication = publisher.publishStateToFirebase(state, { syncRevision: 'verified-revision' });
+    if (failureStage === 'none') {
+      await expect(publication).resolves.toMatchObject({ ok: true, staleProjectionDocumentsRemoved: 1 });
+      const finalCall = fetchMock.mock.calls.at(-1);
+      expect(finalCall[1].method).toBe('PATCH');
+      expect(JSON.parse(finalCall[1].body).fields.syncRevision).toEqual({ stringValue: 'verified-revision' });
+    } else {
+      await expect(publication).rejects.toMatchObject({ category: 'batch-write-partial-failure' });
+      expect(fetchMock.mock.calls.some((call) => call[1]?.method === 'PATCH')).toBe(false);
+    }
   });
 
   it('never exposes Firebase response bodies or document paths in publication errors', async () => {
@@ -537,7 +636,7 @@ describe('canonical Firestore club layout', () => {
       const url = String(input);
       if (url.includes(':batchWrite')) {
         deletionBatches.push(JSON.parse(init.body).writes);
-        return { ok: true };
+        return { ok: true, json: async () => ({ status: JSON.parse(init.body).writes.map(() => ({})) }) };
       }
       const endpoint = new URL(url);
       const collectionName = endpoint.pathname.split('/').at(-1);

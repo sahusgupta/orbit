@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "133175572500",
+    "project_id": "tabletalk-s",
+    "storage_bucket": "tabletalk-s.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:133175572500:android:522b4cfc8de1a770fd8f01",
+        "android_client_info": {
+          "package_name": "com.orbit.player"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "133175572500-jf9vmhp6rsvl3a71vm875gbl5rt4o5lq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8R2xerq6-MBXKMI0v3gtsWUiPt9NucIw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "133175572500-jf9vmhp6rsvl3a71vm875gbl5rt4o5lq.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

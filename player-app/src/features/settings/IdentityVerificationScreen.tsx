@@ -21,13 +21,13 @@ const cameraStyles = StyleSheet.create({
   },
   previewCard: {
     gap: 10, padding: 16, borderWidth: 1, borderColor: '#dbe5ec',
-    borderRadius: 16, backgroundColor: '#f8fafc'
+    borderRadius: 16, backgroundColor: colors.panel
   },
   previewTitle: { color: colors.ink, fontSize: 16, fontWeight: '800' },
   detailRow: { gap: 2 },
   detailLabel: { color: colors.muted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
   detailValue: { color: colors.ink, fontSize: 15, fontWeight: '600' },
-  ageNotice: { color: '#b42318', fontWeight: '700' },
+  ageNotice: { color: colors.coral, fontWeight: '700' },
   captureActions: { gap: 8 }
 });
 
@@ -91,7 +91,7 @@ export function IdentityVerificationScreen({
         <Ionicons
           name={approved ? 'checkmark-circle' : underage ? 'alert-circle-outline' : provisional ? 'time-outline' : 'scan-outline'}
           size={34}
-          color={approved ? colors.teal : underage ? '#b42318' : colors.primary}
+          color={approved ? colors.teal : underage ? colors.coral : colors.primary}
         />
       </View>
       <View style={styles.identityCopy}>

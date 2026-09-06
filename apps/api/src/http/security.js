@@ -1,5 +1,5 @@
 const { sendOperationalAlert } = require('./operationalAlerts');
-const { protectedIdentifier } = require('./dataProtection');
+const { isHostedOrProduction, protectedIdentifier } = require('./dataProtection');
 const { consumeRateLimit } = require('../db/rateLimits');
 
 function configuredOrigins() {
@@ -21,7 +21,7 @@ function enforceCors(request, response, next) {
     return;
   }
   const allowed = configuredOrigins();
-  const localDevelopmentOrigin = process.env.NODE_ENV !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  const localDevelopmentOrigin = !isHostedOrProduction(process.env) && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
   if (!allowed.has(origin) && !isSameOrigin(request, origin) && !localDevelopmentOrigin) {
     response.status(403).json({ ok: false, error: 'Origin is not allowed.' });
     return;
@@ -48,7 +48,7 @@ function applySecurityHeaders(_request, response, next) {
     'x-content-type-options': 'nosniff',
     'x-frame-options': 'DENY'
   });
-  if (process.env.NODE_ENV === 'production') {
+  if (isHostedOrProduction(process.env)) {
     response.set('strict-transport-security', 'max-age=31536000; includeSubDomains');
   }
   next();

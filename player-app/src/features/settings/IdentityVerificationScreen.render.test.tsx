@@ -4,6 +4,8 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { nativeTextContrast } from '../../test-utils/nativeContrast';
+import { colors } from '../../styles/playerTheme';
 import type { PlayerIdentityStatus } from '../../data/orbitSyncApi';
 import { IdentityVerificationScreen } from './IdentityVerificationScreen';
 
@@ -15,9 +17,11 @@ const camera = vi.hoisted(() => ({
 
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
-  const element = (tag: string) => ({ children, onPress, accessibilityLabel, style: _style, ...props }: Record<string, unknown>) =>
+  const { nativePaintStyle } = await import('../../test-utils/nativeContrast');
+  const element = (tag: string) => ({ children, onPress, accessibilityLabel, style, ...props }: Record<string, unknown>) =>
     ReactModule.createElement(tag, {
       ...props,
+      style: { backgroundColor: 'transparent', ...nativePaintStyle(style) },
       ...(typeof onPress === 'function' ? { onClick: onPress } : {}),
       ...(typeof accessibilityLabel === 'string' ? { 'aria-label': accessibilityLabel } : {})
     }, children as React.ReactNode);
@@ -87,6 +91,7 @@ describe('IdentityVerificationScreen camera and data-minimization composition', 
     onStart = vi.fn<(details: { fullName: string; dateOfBirth: string; address: string }) => void>();
     onOpenSettings = vi.fn<() => void>();
     container = document.createElement('div');
+    container.style.backgroundColor = colors.canvas;
     document.body.appendChild(container);
     root = createRoot(container);
   });
@@ -146,6 +151,10 @@ describe('IdentityVerificationScreen camera and data-minimization composition', 
     act(() => camera.scan?.({ data: barcode() }));
     act(() => camera.scan?.({ data: barcode() }));
     expect(container.textContent).toContain('JANE QUINN DOE');
+    for (const text of ['ID details', 'Name', 'JANE QUINN DOE', 'Date of birth', '1990-01-02', 'Address', '100 MAIN STREET, AUSTIN, TX 787010000, USA', 'Age', '36']) {
+      const detail = Array.from(container.querySelectorAll('span')).find(element => element.textContent === text);
+      expect(nativeTextContrast(detail), text).toBeGreaterThanOrEqual(4.5);
+    }
     expect(container.textContent).toContain('Review the details read from the ID');
     expect(container.textContent).toContain('does not take or retain an ID photo');
     expect(container.textContent).toContain('sends your name, date of birth, address, and an opaque request identifier');
@@ -168,6 +177,8 @@ describe('IdentityVerificationScreen camera and data-minimization composition', 
     render();
     act(() => camera.scan?.({ data: barcode(dob) }));
     expect(container.textContent).toContain(copy);
+    const notice = Array.from(container.querySelectorAll('span')).find(element => element.textContent?.includes(copy));
+    expect(nativeTextContrast(notice)).toBeGreaterThanOrEqual(4.5);
     expect(button('Use these ID details')?.hasAttribute('disabled')).toBe(true);
     act(() => button('Use these ID details')?.click());
     expect(onStart).not.toHaveBeenCalled();

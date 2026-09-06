@@ -134,6 +134,18 @@ describe('API perimeter security', () => {
     expect(third.result).toMatchObject({ statusCode: 429, payload: { code: 'RATE_LIMITED' } });
   });
 
+  it('uses hosted CORS and HTTPS protection even if NODE_ENV is development', () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('VERCEL', '1');
+    const local = harness({ headers: { origin: 'http://localhost:5173', host: 'api.example' } });
+    const next = vi.fn();
+    enforceCors(local.request, local.response, next);
+    expect(local.result.statusCode).toBe(403);
+    expect(next).not.toHaveBeenCalled();
+    applySecurityHeaders(local.request, local.response, next);
+    expect(local.result.headers['strict-transport-security']).toBe('max-age=31536000; includeSubDomains');
+  });
+
   it('resets a quota at the expiration boundary and keeps named quotas independent', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-06T12:00:00Z'));

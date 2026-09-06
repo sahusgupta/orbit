@@ -4,6 +4,7 @@ const { getFirebasePublisherStatus } = require('../firebasePublisher');
 const { getIdentityServiceStatus } = require('../identityService');
 const { getPaymentServiceStatus } = require('../paymentService');
 const { requireOwnerApiKey } = require('../http/auth');
+const { getReleaseVersion } = require('../http/releaseVersion');
 
 const publicDirectory = path.join(__dirname, '..', '..', 'public');
 
@@ -29,6 +30,12 @@ function sendPublicAlias(response, fileName, canonicalPath) {
 }
 
 function registerHealthRoute(app, startedAt) {
+  app.get('/version', (_request, response) => {
+    const release = getReleaseVersion();
+    response.set('cache-control', 'no-store');
+    response.status(release.ok ? 200 : 503).json(release);
+  });
+
   app.get('/health', (_request, response) => {
     response.json({
       ok: true,

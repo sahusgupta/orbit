@@ -4,7 +4,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlayerClubSnapshot, PlayerMembership, PlayerSyncGame, PlayerTournament } from '../../domain/playerSync';
+import type { PlayerClubSnapshot, PlayerMembership, PlayerSyncGame, PlayerTournament, PlayerWaitlistEntry } from '../../domain/playerSync';
 import { ClubHubSections } from './ClubHub';
 
 vi.mock('react-native', async () => {
@@ -170,4 +170,46 @@ describe('Club hub factual composition', () => {
     expect(container.textContent).not.toContain('Already started');
     expect(container.textContent).not.toContain('Starts now');
   });
+
+  const request: PlayerWaitlistEntry = {
+    id: 'prior-request', clubId: club.club.id, gameId: formingGame.id,
+    playerId: membership.playerId, playerName: membership.playerName,
+    status: 'Left Before Seated', position: 0, requestedAt: '2026-08-09T10:00:00.000Z'
+  };
+
+  function renderRequest(status: PlayerWaitlistEntry['status'], game = formingGame) {
+    const onGame = vi.fn();
+    act(() => root.render(<ClubHubSections
+      club={club} membership={membership} games={[game]} waitlists={[{ ...request, status }]}
+      tournaments={[]} nowMs={Date.parse('2026-08-09T12:00:00.000Z')}
+      onGame={onGame} onManageAccess={vi.fn()} onViewEvents={vi.fn()}
+    />));
+    act(() => (container.querySelector('[aria-label="Games"]') as HTMLButtonElement).click());
+    const gameButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.includes(game.name));
+    if (!gameButton) throw new Error('Expected the published game action.');
+    return { gameButton, onGame };
+  }
+
+  it.each([
+    { name: 'forming', game: formingGame },
+    { name: 'running', game: { ...formingGame, openTables: formingGame.openTables.map((table) => ({ ...table, status: 'Running' as const })) } },
+    { name: 'unopened', game: { ...formingGame, openTables: [] } }
+  ].flatMap(({ name, game }) => (['Declined', 'No-Show', 'Left Before Seated'] as const)
+    .map((status) => ({ name, game, status }))))('allows a new $name request after $status', ({ game, status }) => {
+    const { gameButton, onGame } = renderRequest(status, game);
+    expect(gameButton.disabled).toBe(false);
+    act(() => gameButton.click());
+    expect(onGame).toHaveBeenCalledWith(game);
+  });
+
+  it.each(['Interested', 'Confirmed Coming', 'Arrived', 'Seated'] as const)(
+    'keeps the existing %s request from creating a duplicate',
+    (status) => {
+      const { gameButton, onGame } = renderRequest(status);
+      expect(gameButton.disabled).toBe(true);
+      act(() => gameButton.click());
+      expect(onGame).not.toHaveBeenCalled();
+    }
+  );
 });

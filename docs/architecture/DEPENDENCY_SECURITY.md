@@ -18,6 +18,10 @@ No blanket or forced audit fix was used. The following transitive corrections st
 
 After the lockfile-only changes, the root, API, and Player Web production audits report zero vulnerabilities. The Player audit reports eight reviewed High entries and no Moderate or Critical entry.
 
+## 2026-09-06 native compiler compatibility correction
+
+The first actual iOS CocoaPods build exposed a limitation in the earlier blanket `brace-expansion` override: React Native 0.81's minimatch 3 expects the CommonJS callable export, while version 5 exposes a different API. The Player graph now selects patched `1.1.18`, `2.1.4`, or `5.0.9` by the parent's original version range. All are patched for [GHSA-rgw5-rvv9-x895](https://github.com/juliangruber/brace-expansion/security/advisories/GHSA-rgw5-rvv9-x895). No advisory exemption was added. `npm run player:codegen:ios` exercises actual native schema and provider generation in CI. Player `fast-uri` is also patched to `3.1.6` for the App Check build-properties dependency.
+
 ## Player residual advisory reachability
 
 The remaining eight npm entries form one Expo SDK 54 Metro build-tool chain. The originating vulnerable parser is `image-size@1.2.1`, reached by `metro@0.83.3`; npm marks the installed toolchain as affected and currently offers only an incompatible Expo major upgrade as the automated repair. That is not a safe first-release lockfile change without the required native migration and regression work.

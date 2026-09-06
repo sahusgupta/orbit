@@ -9,8 +9,12 @@ afterEach(() => {
 });
 
 describe('API error log protection', () => {
-  it('logs only generic production text and HMAC references for sensitive failures', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
+  it.each([
+    { NODE_ENV: 'production', VERCEL: '' },
+    { NODE_ENV: 'development', VERCEL: '1' }
+  ])('logs only generic hosted text and HMAC references for sensitive failures: %j', async (environment) => {
+    vi.stubEnv('NODE_ENV', environment.NODE_ENV);
+    vi.stubEnv('VERCEL', environment.VERCEL);
     vi.stubEnv('ORBIT_LOG_HASH_SECRET', 'middleware-log-hash-secret-with-at-least-32-characters');
     const errorOutput = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const warningOutput = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -45,6 +49,7 @@ describe('API error log protection', () => {
     expect(consoleText).not.toContain('private-player@example.test');
     expect(consoleText).not.toContain('middleware-private-token-value');
     expect(consoleText).not.toContain('RAW-MIDDLEWARE-PDF417');
+    expect(JSON.parse(errorOutput.mock.calls[0][0])).not.toHaveProperty('stack');
     expect(response).toMatchObject({
       statusCode: 500,
       body: { ok: false, error: 'Request could not be completed.', code: 'INTERNAL_ERROR' }

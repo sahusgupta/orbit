@@ -184,7 +184,8 @@ describe('Player onboarding presentation contract', () => {
       '<OnboardingFlow'
     ];
 
-    expect(componentDigest).toBe('22c285f74317791bd448a0f015903fe25d1b350b953f90288156b2c65bd8d6ee');
+    // Reviewed release update: explicit VoiceOver labels/states and email-only copy.
+    expect(componentDigest).toBe('8fe4a90c3c38c8171cd7e452b194c5244a07e940688d1e13420b521ceca297da');
     orderedShellTokens.forEach((token) => expect(shell).toContain(token));
     for (let index = 1; index < orderedShellTokens.length; index += 1) {
       expect(shell.indexOf(orderedShellTokens[index])).toBeGreaterThan(shell.indexOf(orderedShellTokens[index - 1]));
@@ -192,6 +193,8 @@ describe('Player onboarding presentation contract', () => {
     const onboardingFlow = findFunction(sources, 'OnboardingFlow');
     const homeAreaStep = findFunction(sources, 'HomeAreaStep');
     expect(onboardingFlow).toContain('hasAdultDeclaration(draftPlayer)');
+    expect(onboardingFlow).toContain('accessibilityLabel="Previous step"');
+    expect(onboardingFlow).toContain('accessibilityState={{ disabled: !canSubmit }}');
     expect(homeAreaStep).toContain('I confirm that I am 18 or older');
     expect(homeAreaStep).toContain('accessibilityRole="checkbox"');
     expect(onboardingFlow).not.toMatch(/LocationStep|MapPicker|device location|text updates/i);
@@ -201,7 +204,8 @@ describe('Player onboarding presentation contract', () => {
     const sources = parseSources([onboardingFeatureRoot]);
     const styleDigest = digest(styleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('0341f87c2759420bc3faccb124ea0c953f98128a00d393ccaf601b7991f28c69');
+    // Reviewed native fix: removing the child minimum height prevents header clipping.
+    expect(styleDigest).toBe('19b630b622f070ea02d7dcd93136870c748dc58af662ba73f8311b5bb5ade253');
   });
 });
 
@@ -298,7 +302,7 @@ describe('Player clubs and membership presentation contract', () => {
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
     const clubsScreen = findFunction(sources, 'ClubsScreen');
 
-    expect(componentDigest).toBe('e406dcc19628a80a2ebdba5763c42a3046e44a49b9fbfd2b6c153804a459c21d');
+    expect(componentDigest).toBe('652683ad4f50ebae7b513f54912b663159fe4ff07e59bb07c9310d283f434cae');
     ['<ClubsScreen', '<ClubMembershipPlanScreen', '<SeatRequestModal'].forEach((token) => expect(playerApp).toContain(token));
     expect(playerApp).not.toMatch(/ClubAccessCheckoutScreen|NearbyCheckInPanel/);
     expect(clubsScreen).toContain('<ClubHubSections');
@@ -308,7 +312,8 @@ describe('Player clubs and membership presentation contract', () => {
     const sources = parseSources([clubsFeatureRoot, tournamentFeatureRoot]);
     const styleDigest = digest(clubStyleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('4146c16d924c2ea41ec664ed30eebdad2482ea3753aeb0b3c6d36a73a7f898c2');
+    // Reviewed contrast fix for readable stale-data and request-error messages.
+    expect(styleDigest).toBe('525915d5eca08292225cb941f25db48f001a75357eef8c36d547fd18caf081d1');
   });
 });
 
@@ -357,14 +362,16 @@ describe('Player identity and settings presentation contract', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const componentDigest = digest(settingsComponentNames.map((name) => findFunction(sources, name)));
 
-    expect(componentDigest).toBe('e6a7dbc3df90097f3b0d956ffbc7dfe9d14276f037e8cbdacc3fe6e572aacbaa');
+    // Reviewed dark-theme contrast fix; phone delivery remains hidden.
+    expect(componentDigest).toBe('431f8b48207cc8f4512c003b947df1433ca45a5639d5a45a2bb2eee01215e9e6');
   });
 
   it('preserves every identity/settings-owned and shared style value byte-for-byte', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const styleDigest = digest(settingsStyleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('eabc34d5040cd19c989aaea1136d4f08621780dbe311857ecb606ed66dc20081');
+    // ID preview and age warnings now use the existing accessible dark palette.
+    expect(styleDigest).toBe('b96cbf3524510b95b5b74774c56a1fb50543e217761358f1879af806c8de3371');
   });
 });
 

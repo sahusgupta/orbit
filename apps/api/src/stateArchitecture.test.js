@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import database from './database.js';
 import publicationOutbox from './db/publicationOutbox.js';
+import stateStore from './db/state.js';
 
 const { closeDatabase, listPublicationOutbox, loadState, saveState } = database;
 const { claimNextPublication, markFailed, publishClaimed } = publicationOutbox;
@@ -211,5 +212,24 @@ describe('authoritative state architecture', () => {
       }
     });
     expect((await loadState('commit-clock-example.test')).state).toEqual(committed);
+  });
+
+  it('keeps a newer committed revision when deletion invalidates an earlier history boundary', async () => {
+    const original = {
+      ...state(),
+      settings: { clubAccount: { clubName: 'Concurrent History', email: 'concurrent-history@example.test' } }
+    };
+    await saveState(original, { expectedRevision: 0, mutationId: 'history-before' });
+    const boundary = await saveState({ ...original, profiles: [] }, {
+      expectedRevision: 1, mutationId: 'history-deletion', invalidatePriorRevisions: true
+    });
+    const newer = { ...original, profiles: [{ id: 'unrelated-player', name: 'Unrelated Player' }] };
+    await saveState(newer, { expectedRevision: 2, mutationId: 'concurrent-new-state' });
+
+    await stateStore.invalidateAccountStateHistory(boundary.accountKey, boundary.revision);
+
+    expect(await loadState(boundary.accountKey)).toMatchObject({ revision: 3, state: newer });
+    expect(await stateStore.loadStateRevision(boundary.accountKey, 2, 1)).toMatchObject({ profiles: [] });
+    await expect(stateStore.loadStateRevision(boundary.accountKey, 1, 1)).rejects.toThrow();
   });
 });

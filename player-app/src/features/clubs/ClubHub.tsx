@@ -7,6 +7,7 @@ import {
   formatPassCountdown,
   getPlayerGameStatusLabel,
   getPublishedMembershipPlanLabel,
+  isActivePlayerGameRequest,
   isMembershipCurrentlyActive,
   type PlayerClubSnapshot,
   type PlayerSyncGame,
@@ -60,7 +61,7 @@ export function ClubHubSections({
         <View style={styles.clubHubPanel}>
           {openOrFormingGames.length ? <Text style={styles.clubGameGroupLabel}>OPEN OR FORMING</Text> : null}
           {openOrFormingGames.map((game) => {
-            const waitlist = waitlists.find((entry) => entry.gameId === game.id);
+            const waitlist = waitlists.find((entry) => entry.gameId === game.id && isActivePlayerGameRequest(entry));
             return (
               <Pressable key={game.id} disabled={Boolean(waitlist)} onPress={() => onGame(game)} style={styles.compactGameRow}>
                 <View style={styles.compactGameCopy}>
@@ -80,7 +81,7 @@ export function ClubHubSections({
                 <Text style={styles.muted}>Your interest helps the venue decide what to open.</Text>
               </View>
               {otherPublishedGames.map((game) => {
-                const request = waitlists.find((entry) => entry.gameId === game.id);
+                const request = waitlists.find((entry) => entry.gameId === game.id && isActivePlayerGameRequest(entry));
                 return (
                   <Pressable key={game.id} disabled={Boolean(request)} onPress={() => onGame(game)} style={[styles.compactGameRow, styles.requestGameRow]}>
                     <View style={styles.compactGameCopy}>

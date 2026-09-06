@@ -17,6 +17,7 @@ const {
 const updateEventsCollection = 'orbitClientUpdateEvents';
 const telemetryCollection = 'orbitTelemetryEvents';
 const errorsCollection = 'orbitClientErrors';
+const operationalEventRetentionMs = 30 * 24 * 60 * 60 * 1000;
 const containsOpaqueMaterial = (value) => /[A-Za-z0-9._~+/=-]{33,}/.test(value);
 const knownCategories = new Set(['usage', 'lifecycle', 'tables', 'outreach', 'settings', 'security', 'update', 'operations']);
 const knownPlatforms = new Set(['win32', 'darwin', 'linux']);
@@ -144,6 +145,12 @@ function eventPath(collection, id) {
   return `${collection}/${firestoreDocumentId(id)}`;
 }
 
+function expiringEvent(record) {
+  // Retention is measured from trusted server receipt, never client occurredAt.
+  // Keep the timestamp private to storage so existing API shapes stay stable.
+  return { ...record, expiresAt: new Date(new Date(record.createdAt).getTime() + operationalEventRetentionMs) };
+}
+
 function cursorOptions(filters, defaultLimit, maximumLimit) {
   const orders = [
     { field: 'occurredAt', direction: 'desc' },
@@ -180,7 +187,7 @@ async function recordUpdateEvent(payload) {
     createdAt: now
   };
   const database = await getDatabase();
-  await database.createDocument(eventPath(updateEventsCollection, id), record);
+  await database.createDocument(eventPath(updateEventsCollection, id), expiringEvent(record));
   await recordTelemetryEvent({
     ...payload,
     event,
@@ -210,7 +217,7 @@ async function recordTelemetryEvent(payload) {
     createdAt: now
   };
   const database = await getDatabase();
-  await database.createDocument(eventPath(telemetryCollection, id), record);
+  await database.createDocument(eventPath(telemetryCollection, id), expiringEvent(record));
   return record;
 }
 
@@ -229,7 +236,7 @@ async function recordClientError(payload) {
     errorRef: protectedIdentifier(payload.stack || rawMessage),
     source: allowlistedCode(payload.source, 100, knownSources),
     route: allowlistedCode(payload.route, 100, knownRoutes),
-    stack: process.env.ORBIT_STORE_ERROR_STACKS === 'true' && process.env.NODE_ENV !== 'production'
+    stack: process.env.ORBIT_STORE_ERROR_STACKS === 'true' && !isHostedOrProduction(process.env)
       ? redactText(payload.stack, 4000)
       : `fingerprint:${protectedIdentifier(payload.stack || message)}`,
     appVersion: normalizeAppVersion(payload.appVersion || client.appVersion),
@@ -239,7 +246,7 @@ async function recordClientError(payload) {
     createdAt: now
   };
   const database = await getDatabase();
-  await database.createDocument(eventPath(errorsCollection, id), record);
+  await database.createDocument(eventPath(errorsCollection, id), expiringEvent(record));
   return record;
 }
 

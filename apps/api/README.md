@@ -10,6 +10,8 @@ The conservative Player iOS v1 uses authenticated membership/waitlist requests, 
 
 ### Player App Check activation gate
 
+Native and Web token acquisition, transport, refresh, and route-guard propagation are implemented; provider acceptance and safe activation remain separate gates. See [Player App Check](../../docs/architecture/PLAYER_APP_CHECK.md) for exact registrations, client settings, and the management-client prerequisite for project-wide Firebase enforcement.
+
 Player App Check is an explicit fail-closed production gate, not a switch to enable before every active protected client is ready. Complete this order:
 
 1. Register and configure the native iOS Firebase App for the reviewed bundle identifier, then configure App Attest as its Firebase App Check provider. Register and configure the operational Player Web Firebase App with an appropriate Web App Check provider as well.
@@ -162,6 +164,8 @@ Desktop state/report operations are API-first:
 - if the API is unavailable, the desktop uses an encrypted non-authoritative file cache so current installs can reopen offline; it never reports that cache as a server commit.
 
 Firestore publication uses sync protocol v2. The API tags every child document with a unique `syncRevision` and writes `clubs/{licenseKey}` last as the commit marker. This allows mobile clients to retain the previous complete snapshot while a multi-document API publish is in flight and to ignore stale documents from older revisions.
+
+Each REST batch requires a successful per-write acknowledgement, including cleanup deletes; HTTP 200 alone is insufficient. A failed, missing, or malformed acknowledgement keeps the parent marker unpublished and leaves the outbox attempt retryable. Provider details are represented only by protected diagnostic references. History invalidation removes revisions older than the sanitized deletion boundary and preserves concurrent newer commits.
 
 Player deletion places a durable per-account publication fence before projection cleanup. A deletion cannot remove Firebase Auth or report completion until every affected account's exact tombstoned authoritative revision is durably `published`, all older claimed attempts have acknowledged their postflight state, and the final exact-ID projection scrub has run again. A crashed publisher is never reclaimed from elapsed time alone. After the operator has independently verified that the owning runtime is terminated, the owner-authenticated `POST /publications/recover` accepts the exact account, revision, claim ID, `runtimeTerminated: true`, and an opaque evidence reference; the API uses its own clock, converts the abandoned attempt to safe-state compensation, and keeps deletion pending until that compensation completes. The same recovery applies to a crashed compensation attempt. Caller-supplied timestamps are ignored, and an unverified live attempt must not be recovered.
 
