@@ -1,0 +1,73 @@
+appId: com.orbit.player
+name: Fresh install, age gate, local restoration, and local deletion
+---
+- launchApp:
+    clearState: true
+    permissions:
+      all: deny
+- extendedWaitUntil:
+    visible: Find room-published games and send requests
+    timeout: 30000
+- takeScreenshot: 01-first-launch
+- tapOn: Your name
+- inputText: Release Reviewer
+- hideKeyboard
+- tapOn: Continue
+- tapOn: you@example.com
+- inputText: release.qa@example.invalid
+- hideKeyboard
+- tapOn: Continue
+- assertVisible: Phone Number
+- tapOn: Continue
+- assertVisible: Home Area
+- assertVisible:
+    text: Start exploring
+    enabled: false
+- takeScreenshot: 02-age-gate
+- tapOn: I confirm that I am 18 or older
+- assertVisible:
+    text: Start exploring
+    enabled: true
+- tapOn: Start exploring
+- extendedWaitUntil:
+    visible: Open settings
+    timeout: 30000
+- tapOn: Open settings
+- assertVisible: Profile & settings
+- takeScreenshot: 03-local-profile
+- pressKey: Home
+- launchApp:
+    stopApp: false
+- assertVisible: Profile & settings
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: Open settings
+    timeout: 30000
+- tapOn: Open settings
+- assertVisible: Profile & settings
+- scrollUntilVisible:
+    element: Release Reviewer
+    direction: DOWN
+    timeout: 20000
+- assertVisible: Release Reviewer
+- scrollUntilVisible:
+    element: Delete local profile and data
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: 04-local-deletion
+- tapOn: Delete local profile and data
+- assertVisible: Delete local data
+- tapOn: Cancel
+- assertVisible: Delete local profile and data
+- tapOn: Delete local profile and data
+- tapOn: Delete local data
+- extendedWaitUntil:
+    visible: Local profile deleted
+    timeout: 15000
+- tapOn: OK
+- assertVisible: Find room-published games and send requests
+- stopApp
+- launchApp
+- assertVisible: Your name
+- takeScreenshot: 05-deletion-restored-empty

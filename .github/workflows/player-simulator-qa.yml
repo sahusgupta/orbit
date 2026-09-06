@@ -1,0 +1,63 @@
+name: Player iOS simulator QA
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - player-app/**
+      - scripts/*player*
+      - .github/workflows/player-simulator-qa.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: orbit-ios-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    runs-on: macos-15
+    timeout-minutes: 70
+    env:
+      CI: '1'
+      EXPO_NO_DOTENV: '1'
+      ORBIT_API_URL: http://127.0.0.1:9
+      VITE_ENABLE_FIREBASE_SYNC: 'false'
+      MAESTRO_CLI_NO_ANALYTICS: '1'
+      DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: npm
+          cache-dependency-path: player-app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install the locked Player dependencies
+        run: |
+          npm install --global npm@10.9.2
+          npm ci --prefix player-app
+      - name: Install pinned Maestro CLI
+        run: |
+          curl --fail --location --retry 3 https://github.com/mobile-dev-inc/maestro/releases/download/cli-2.7.0/maestro.zip --output "$RUNNER_TEMP/maestro.zip"
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
+          echo "$RUNNER_TEMP/maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+      - name: Build and test the production-derived simulator app
+        run: node scripts/run-player-simulator-qa.mjs
+      - name: Preserve simulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-ios-simulator-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            out/player-simulator-qa/
+            !out/player-simulator-qa/derived/**
+          if-no-files-found: error
+          retention-days: 14
