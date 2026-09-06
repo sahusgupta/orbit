@@ -30,9 +30,9 @@ name: Fresh install, age gate, local restoration, and local deletion
     enabled: true
 - tapOn: Start exploring
 - extendedWaitUntil:
-    visible: Open settings
+    visible: ".*Profile$"
     timeout: 30000
-- tapOn: Open settings
+- tapOn: ".*Profile$"
 - assertVisible: Profile & settings
 - takeScreenshot: 03-local-profile
 - pressKey: Home
@@ -42,9 +42,9 @@ name: Fresh install, age gate, local restoration, and local deletion
 - stopApp
 - launchApp
 - extendedWaitUntil:
-    visible: Open settings
+    visible: ".*Profile$"
     timeout: 30000
-- tapOn: Open settings
+- tapOn: ".*Profile$"
 - assertVisible: Profile & settings
 - scrollUntilVisible:
     element: Release Reviewer
