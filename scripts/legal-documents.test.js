@@ -35,6 +35,9 @@ describe('repository-controlled legal and support documents', () => {
     expect(source).toContain('does not request device GPS location or send a player-origin coordinate');
     expect(source).toContain('capture method/time');
     expect(source).toContain('optional venue-published plan classification');
+    expect(source).toContain('Firebase App Check');
+    expect(source).toContain('temporary verification cookie');
+    expect(source).toContain('does not store these tokens in application records or logs');
     expect(source).not.toMatch(/Codex|AI-development disclosure/);
   });
 

@@ -7,6 +7,7 @@ const updated = 'September 4, 2026';
 
 const documents = {
   privacy: {
+    updated: 'September 6, 2026',
     title: 'Orbit Privacy Policy',
     description: 'How Caminus Labs, LLC handles data for Orbit Player and related Orbit services.',
     summary: 'This policy describes the conservative first release of Orbit Player, including local and signed-in profiles, venue requests, tournament interest, check-in, and optional PDF417 identity capture.',
@@ -19,7 +20,8 @@ const documents = {
         <h3>Signed-in account</h3><p>An authenticated account can contain your Firebase identifier, full name, email address, optional phone number, adult-eligibility response, optional home-area text, preferences, and authentication/security records. Passwords are handled by Firebase Authentication rather than stored by Orbit in readable form.</p>
         <h3>Venue activity</h3><p>We handle the venue, game, table, membership, waitlist, seat-request, check-in, and tournament-interest identifiers and statuses you choose to create, together with timestamps, idempotency identifiers, arrival or availability information you provide, and venue responses. Tournament interest is nonbinding; it is not an event registration, seat reservation, debt, payment, or prize claim.</p>
         <h3>PDF417 identity fields</h3><p>If you choose the in-app government-ID barcode flow, the app reads the PDF417 barcode on your device and previews the extracted full name, date of birth, and address before submission. Orbit does not save or upload a document image, raw barcode, or document number. Only the fields you confirm, the capture method/time, resulting age/provisional status, review status, and audit timestamps may be sent to your signed-in account and venue-authoritative state.</p>
-        <h3>Technical and support data</h3><p>We may handle IP address, device and browser type, request time, response status, security events, crash or diagnostic details, and the information you provide when requesting support. Orbit Player does not use this information for cross-app tracking.</p>`],
+        <h3>Technical and support data</h3><p>We may handle IP address, device and browser type, request time, response status, security events, crash or diagnostic details, and the information you provide when requesting support. Orbit Player does not use this information for cross-app tracking.</p>
+        <p>Device verification may send app and device attestation material to Apple or Google through Firebase App Check. Protected services receive short-lived verification tokens with requests. The API does not store these tokens in application records or logs. The security SDK caches tokens on your device; Player Web uses a temporary verification cookie that expires and is removed on sign-out. Provider processing and retention follow the applicable Apple and Google terms.</p>`],
       ['how-we-use-information', '3. How we use information', `
         <ul><li>Authenticate accounts and protect access.</li><li>Show factual venue, game, and tournament information.</li><li>Send membership, waitlist, seat, check-in, and nonbinding tournament-interest requests to the venue the player selected.</li><li>Issue and validate short-lived venue check-in credentials.</li><li>Maintain service integrity, prevent replay or abuse, investigate errors, and respond to support or privacy requests.</li><li>Comply with applicable law and enforce the Terms of Service.</li></ul>
         <p>The first iOS release has no paid premium subscription, no player-hosted/private game feature, and no venue checkout. There are no push notifications or general game-update messaging service. Phone one-time passcodes may be sent only when a user chooses phone authentication.</p>`],
@@ -102,7 +104,7 @@ function renderDocument(kind, document, apiTarget) {
   <body class="legal-page">
     <header class="site-header"><a class="site-brand" href="${links.home}" aria-label="Orbit home"><img src="${links.icon}" alt="" /><span>Orbit</span></a><nav aria-label="Legal navigation"><a href="${links.privacy}"${kind === 'privacy' ? ' aria-current="page"' : ''}>Privacy</a><a href="${links.terms}"${kind === 'terms' ? ' aria-current="page"' : ''}>Terms</a><a href="${links.support}"${kind === 'support' ? ' aria-current="page"' : ''}>Support</a></nav></header>
     <main class="legal-shell">
-      <header class="legal-header"><p class="eyebrow">Orbit ${kind === 'support' ? 'support' : 'legal'}</p><h1>${document.title}</h1><p class="legal-summary">${document.summary}</p><dl class="legal-meta"><div><dt>Updated</dt><dd>${updated}</dd></div><div><dt>Operator</dt><dd>${operator}</dd></div></dl></header>
+      <header class="legal-header"><p class="eyebrow">Orbit ${kind === 'support' ? 'support' : 'legal'}</p><h1>${document.title}</h1><p class="legal-summary">${document.summary}</p><dl class="legal-meta"><div><dt>Updated</dt><dd>${document.updated || updated}</dd></div><div><dt>Operator</dt><dd>${operator}</dd></div></dl></header>
       <details class="legal-toc"><summary>Contents</summary><nav aria-label="Document contents">${contents}</nav></details>
       <article class="legal-document">${sections}</article>
     </main>

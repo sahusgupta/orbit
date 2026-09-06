@@ -39,6 +39,8 @@ The command generates native files in a disposable operating-system temporary di
 
 ## Data and identity boundaries
 
+Production clients initialize native App Check before Firebase Auth/Firestore and send attestation on protected API calls. The release uses App Attest on iOS with the production entitlement; its real provider requires signing and supported hardware. See [App Check architecture and staged activation](../docs/architecture/PLAYER_APP_CHECK.md) for native/Web settings, registrations, provider prerequisites, and rollback. Development can keep attestation disabled against isolated services; release builds cannot.
+
 - Firebase authentication uses email/password or optional phone OTP. Social authentication is absent.
 - A signed-in profile can store an optional phone number even when email/password is used.
 - Optional home-area text is not a coordinate. V1 has no player-origin coordinate and never calculates or displays player-to-venue mileage.
@@ -60,6 +62,8 @@ npm run test:firestore-rules
 Do not deploy rules, indexes, API code, or public pages without separate authorization.
 
 ## Cloud build and TestFlight
+
+The `simulator` EAS profile inherits production code, environment, and the Xcode image, targets the iOS Simulator, and disables build-number auto-increment. It provides native compiler/QA evidence before Apple signing is available. Run the pinned CLI from `player-app`: `node ../node_modules/eas-cli/bin/run build --platform ios --profile simulator --non-interactive`. Record its committed source SHA and build ID. This artifact cannot be uploaded by the TestFlight submission guard, and it cannot prove real App Attest on supported hardware.
 
 EAS accepts the exact Node version in each build profile but does not support an `npm` profile field. The `eas-build-pre-install` lifecycle hook therefore installs npm 10.9.2 and fails closed unless that exact version is active before EAS runs the lockfile-immutable dependency install. The production iOS profile pins Expo's SDK 54 image `macos-sequoia-15.6-xcode-26.0` so App Store uploads are configured for Xcode 26 and the iOS 26 SDK. The repository-locked EAS schema parses every iOS profile, while release checks require the exact reviewed production-image string. Expo's current image catalog and the eventual candidate build—not schema parsing alone—provide availability and toolchain evidence. Custom EAS workflows are rejected because EAS does not run lifecycle hooks automatically for custom builds.
 

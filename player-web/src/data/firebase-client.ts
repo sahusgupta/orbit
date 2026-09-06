@@ -1,12 +1,14 @@
 import type { FirebaseApp } from 'firebase/app';
 import type { Auth } from 'firebase/auth';
 import type { Firestore } from 'firebase/firestore';
+import type { AppCheck } from 'firebase/app-check';
 import { withDeadline } from '@/src/auth/deadline';
 
 type FirebaseBrowserClient = {
   app: FirebaseApp;
   auth: Auth;
   db: Firestore;
+  appCheck?: AppCheck;
 };
 
 let browserClient: FirebaseBrowserClient | undefined;
@@ -23,8 +25,9 @@ export async function getFirebaseBrowserClient() {
     browserClientPromise = withDeadline(Promise.all([
       import('firebase/app'),
       import('firebase/auth'),
-      import('firebase/firestore')
-    ]).then(([appModule, authModule, firestoreModule]) => {
+      import('firebase/firestore'),
+      import('./app-check')
+    ]).then(([appModule, authModule, firestoreModule, appCheckModule]) => {
       const appName = 'orbit-player-web';
       const app = appModule.getApps().some((candidate) => candidate.name === appName)
         ? appModule.getApp(appName)
@@ -34,9 +37,9 @@ export async function getFirebaseBrowserClient() {
             projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'tabletalk-s',
             storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'tabletalk-s.firebasestorage.app',
             messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '133175572500',
-            appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '1:133175572500:web:77d0d79a654f4becfd8f01',
-            measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || 'G-BKK44RBCYK'
+            appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '1:133175572500:web:5e1055ff74e92d29fd8f01'
           }, appName);
+      const appCheck = appCheckModule.initializeWebAppCheck(app);
       const auth = authModule.getAuth(app);
       const db = firestoreModule.getFirestore(app);
       const authEmulatorHost = process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST;
@@ -48,7 +51,7 @@ export async function getFirebaseBrowserClient() {
         const emulatorUrl = new URL(`http://${firestoreEmulatorHost}`);
         firestoreModule.connectFirestoreEmulator(db, emulatorUrl.hostname, Number(emulatorUrl.port));
       }
-      browserClient = { app, auth, db };
+      browserClient = { app, auth, db, appCheck };
       return browserClient;
     }), 'Orbit sign-in services took too long to load. Check your connection and try again.').catch((error) => {
       browserClientPromise = undefined;

@@ -36,6 +36,7 @@ function inspectResolvedConfig() {
   const publicConfig = JSON.parse(runExpo(['config', '--type', 'public', '--json']));
   assert.equal(publicConfig.name, 'Orbit Player');
   assert.equal(publicConfig.version, '1.0.0');
+  assert.equal(publicConfig.newArchEnabled, true, 'Native App Check requires the React Native New Architecture');
   assert.equal(publicConfig.ios?.bundleIdentifier, 'com.orbit.player');
   assert.equal(publicConfig.ios?.infoPlist?.ITSAppUsesNonExemptEncryption, false);
   assert.equal(publicConfig.ios?.privacyManifests?.NSPrivacyTracking, false);
@@ -50,7 +51,10 @@ function inspectResolvedConfig() {
   const introspected = JSON.parse(runExpo(['config', '--type', 'introspect', '--json']));
   const infoPlist = introspected._internal?.modResults?.ios?.infoPlist || {};
   const entitlements = introspected._internal?.modResults?.ios?.entitlements || {};
-  assert.deepEqual(entitlements, {}, 'Production config must not declare app capabilities or entitlements');
+  assert.deepEqual(entitlements, {
+    'com.apple.developer.devicecheck.appattest-environment': 'production'
+  }, 'Production config must declare only the required production App Attest entitlement');
+  assert.equal(publicConfig.ios?.googleServicesFile, './GoogleService-Info.plist');
   assert.equal(
     infoPlist.NSCameraUsageDescription,
     'Allow Orbit Player to scan the PDF417 barcode on your government ID. Orbit does not save a photo.'

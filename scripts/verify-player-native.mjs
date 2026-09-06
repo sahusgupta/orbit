@@ -116,11 +116,25 @@ export function verifyPlayerNative(iosRoot) {
     assert.ok(match, `Configured app entitlements file is missing: ${configuredPath}`);
     return match;
   });
+  assert.equal(configuredEntitlementFiles.length, 1, 'App Attest requires one configured app entitlements file.');
   for (const entitlementFile of configuredEntitlementFiles) {
     const entitlementText = fs.readFileSync(entitlementFile, 'utf8');
     const entitlementKeys = [...entitlementText.matchAll(/<key>([^<]+)<\/key>/g)].map((match) => match[1]);
-    assert.deepEqual(entitlementKeys, [], `Generated app target has unapproved entitlements in ${path.basename(entitlementFile)}.`);
+    assert.deepEqual(entitlementKeys, ['com.apple.developer.devicecheck.appattest-environment'], `Generated app target has unapproved entitlements in ${path.basename(entitlementFile)}.`);
+    assert.equal(plistStringValue(entitlementText, entitlementKeys[0]), 'production', 'App Attest must use the production environment.');
   }
+  const serviceFiles = files.filter((filePath) => path.basename(filePath) === 'GoogleService-Info.plist');
+  assert.equal(serviceFiles.length, 1, 'Generated iOS app must include its Firebase client configuration.');
+  const serviceConfig = fs.readFileSync(serviceFiles[0], 'utf8');
+  assert.equal(plistStringValue(serviceConfig, 'BUNDLE_ID'), 'com.orbit.player', 'Native Firebase bundle identity mismatch.');
+  assert.equal(plistStringValue(serviceConfig, 'PROJECT_ID'), 'tabletalk-s', 'Native Firebase project mismatch.');
+  assert.equal(plistStringValue(serviceConfig, 'GOOGLE_APP_ID'), '1:133175572500:ios:46a75e002225158dfd8f01', 'Native Firebase app identity mismatch.');
+  const delegateFile = files.find((filePath) => path.basename(filePath) === 'AppDelegate.swift');
+  assert.ok(delegateFile, 'Generated iOS app must contain AppDelegate.swift.');
+  const delegate = fs.readFileSync(delegateFile, 'utf8');
+  const factoryPosition = delegate.indexOf('RNFBAppCheckModule.sharedInstance()');
+  const firebasePosition = delegate.indexOf('FirebaseApp.configure()');
+  assert.ok(factoryPosition >= 0 && firebasePosition > factoryPosition, 'Native App Check provider factory must precede Firebase initialization.');
   assert.match(appInfoPlist, /<key>ITSAppUsesNonExemptEncryption<\/key>\s*<false\s*\/>/);
   assert.ok(!appInfoPlist.includes('<key>CFBundleURLTypes</key>'), 'Generated app Info.plist must not expose an unused URL scheme.');
   const usageDescriptionKeys = [...appInfoPlist.matchAll(/<key>(NS[A-Za-z0-9]+UsageDescription)<\/key>/g)]
@@ -161,7 +175,7 @@ export function verifyPlayerNative(iosRoot) {
     'Generated app privacy manifest must declare exactly the reviewed linked, non-tracking Player data types and purposes.'
   );
   console.log('Generated Orbit Player iOS identity, permissions, URL schemes, and app privacy manifest passed.');
-  console.log(configuredEntitlementFiles.length ? 'Generated app target entitlements are present and empty.' : 'Generated app target declares no entitlements file.');
+  console.log('Generated App Attest entitlement, Firebase identity, and provider initialization order passed.');
   console.log('CocoaPods/archive privacy aggregation remains a signed-candidate evidence gate.');
 }
 

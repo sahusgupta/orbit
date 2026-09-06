@@ -10,7 +10,8 @@ import { fetchWebPlayerProfile, saveWebPlayerProfile } from '@/src/data/player-p
 import { AUTH_ACTION_TIMEOUT_MS, withDeadline } from './deadline';
 import { toPlayerAuthError } from './firebase-auth-errors';
 import { assertExpectedFirebaseUser, isPlayerSessionChangedError, PlayerSessionChangedError } from './session-identity';
-import { clearPlayerSessionToken, persistPlayerSessionToken } from './session-cookie';
+import { clearPlayerSessionToken, persistPlayerAppCheckToken, persistPlayerSessionToken } from './session-cookie';
+import { subscribeToWebAppCheck, webAppCheckHeaders } from '@/src/data/app-check';
 
 type AuthStatus = 'loading' | 'signed-out' | 'signed-in' | 'error';
 
@@ -91,16 +92,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     activation.promise = (async () => {
       try {
-        const { auth } = await getFirebaseBrowserClient();
+        const { auth, appCheck } = await getFirebaseBrowserClient();
         if (!sessionIsCurrent(currentUser.uid, generation)) throw new PlayerSessionChangedError();
         assertExpectedFirebaseUser(auth, currentUser.uid);
         const token = await withDeadline(
           currentUser.getIdToken(),
           'Orbit sign-in verification took too long. Check your connection and try again.'
         );
+        const attestationHeaders = await webAppCheckHeaders(appCheck);
         assertExpectedFirebaseUser(auth, currentUser.uid);
         if (!sessionIsCurrent(currentUser.uid, generation)) throw new PlayerSessionChangedError();
-        persistPlayerSessionToken(token);
+        persistPlayerSessionToken(token, attestationHeaders['X-Firebase-AppCheck']);
         await loadPlayer(currentUser, generation);
       } catch (activationError) {
         if (isPlayerSessionChangedError(activationError) || !sessionIsCurrent(currentUser.uid, generation)) {
@@ -130,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
+    let unsubscribeAppCheck: (() => void) | undefined;
     const authStateTimer = setTimeout(() => {
       if (disposed) return;
       beginSession(null);
@@ -144,6 +147,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       'Orbit sign-in status took too long to load. You can still retry from the sign-in page.'
     ).then(([authModule, client]) => {
       if (disposed) return;
+      unsubscribeAppCheck = subscribeToWebAppCheck(client.appCheck, (token) => {
+        if (!disposed && client.auth.currentUser?.uid === sessionUid.current) persistPlayerAppCheckToken(token);
+      });
       unsubscribe = authModule.onIdTokenChanged(client.auth, (nextUser) => {
         clearTimeout(authStateTimer);
         const verified = nextUser && Boolean(nextUser.phoneNumber || nextUser.emailVerified);
@@ -183,6 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       beginSession(null);
       clearTimeout(authStateTimer);
       unsubscribe?.();
+      unsubscribeAppCheck?.();
     };
   }, [activateVerifiedUser, beginSession, firebaseEnabled]);
 
