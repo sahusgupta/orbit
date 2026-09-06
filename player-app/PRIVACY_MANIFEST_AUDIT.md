@@ -23,6 +23,10 @@ The locked `expo-crypto` `15.0.9` package was also inspected after it became the
 
 ## App-owned declaration mapping
 
+The 2026-09-06 attestation integration adds React Native Firebase App/App Check 26.4.0, selecting Firebase iOS 12.18.0 and AppCheckCore `~> 11.3` through CocoaPods. The upstream 12.18.0 `FirebaseCore/Sources/Resources/PrivacyInfo.xcprivacy` was inspected: no collected data or tracking, and UserDefaults reason `CA92.1`, already declared below. AppCheckCore 11.3.0's source inventory contains no privacy-manifest file. These upstream-source observations are not an installed CocoaPods or signed-archive inventory. Capture resolved Pod versions and every aggregated manifest when the native candidate builds. No Analytics or Crashlytics module was added.
+
+App/device attestation material and short-lived App Check tokens are sent to Apple/Google for abuse prevention and to protected services with requests. The API does not store them in application records or logs. SDKs cache tokens on device; Player Web uses a temporary route-guard cookie removed at sign-out. Provider retention is documented in [Firebase privacy information](https://firebase.google.com/support/privacy); see [App Check architecture](../docs/architecture/PLAYER_APP_CHECK.md). The final archive and App Privacy review must include this security processing.
+
 `app.json` declares the required-reason APIs found above that can be aggregated into the reviewed non-Google iOS target:
 
 | App-owned category | App-owned reasons | Evidence source |

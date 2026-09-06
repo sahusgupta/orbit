@@ -75,8 +75,16 @@ function validateProductionEnvironment(environment) {
       failures.push(`${variableName} must be explicitly set to false for the conservative v1 build.`);
     }
   }
+  if (environment.EXPO_PUBLIC_APP_CHECK_ENABLED !== 'true') {
+    failures.push('EXPO_PUBLIC_APP_CHECK_ENABLED must be true for a production Player build.');
+  }
+  if (environment.FIREBASE_SDK_VERSION) {
+    failures.push('FIREBASE_SDK_VERSION overrides are not approved for production.');
+  }
   const permittedPublicVariables = new Set([
     ...Object.keys(productionUrlVariables),
+    'EXPO_PUBLIC_APP_CHECK_ENABLED',
+    'EXPO_PUBLIC_APP_CHECK_WEB_SITE_KEY',
     'EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY'
   ]);
   for (const variableName of Object.keys(environment)) {
@@ -107,8 +115,12 @@ function createExpoConfig(config, environment) {
 
   return {
     ...config,
+    newArchEnabled: true,
     plugins: [
       ...retainedPlugins,
+      ['@react-native-firebase/app', { ios: { disableSPM: true } }],
+      '@react-native-firebase/app-check',
+      ['expo-build-properties', { ios: { useFrameworks: 'static', forceStaticLinking: ['RNFBApp', 'RNFBAppCheck'] } }],
       'expo-asset',
       'expo-font',
       ['expo-camera', {
@@ -125,10 +137,16 @@ function createExpoConfig(config, environment) {
     ],
     ios: {
       ...config.ios,
+      googleServicesFile: './GoogleService-Info.plist',
+      entitlements: {
+        ...config.ios?.entitlements,
+        'com.apple.developer.devicecheck.appattest-environment': 'production'
+      },
       config: withoutGoogleMapsConfig(config.ios?.config)
     },
     android: {
       ...config.android,
+      googleServicesFile: './google-services.json',
       blockedPermissions: [
         ...new Set([...(config.android?.blockedPermissions || []), 'android.permission.RECORD_AUDIO'])
       ],

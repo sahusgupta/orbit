@@ -13,6 +13,7 @@ import type {
 } from '@/src/domain/types';
 import { getFirstRunningTable } from '@/src/domain/selectors';
 import { getFirebaseBrowserClient } from './firebase-client';
+import { webAppCheckHeaders } from './app-check';
 
 export type WebPlayerAccountDeletionResult = {
   initiatingUid: string;
@@ -25,9 +26,10 @@ function apiBaseUrl() {
 }
 
 async function authorizedJson(user: User, path: string, init: RequestInit = {}) {
-  const { auth } = await getFirebaseBrowserClient();
+  const { auth, appCheck } = await getFirebaseBrowserClient();
   assertExpectedFirebaseUser(auth, user.uid);
   const token = await user.getIdToken();
+  const attestationHeaders = await webAppCheckHeaders(appCheck);
   assertExpectedFirebaseUser(auth, user.uid);
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     ...init,
@@ -35,7 +37,8 @@ async function authorizedJson(user: User, path: string, init: RequestInit = {}) 
       accept: 'application/json',
       authorization: `Bearer ${token}`,
       ...(init.body ? { 'content-type': 'application/json' } : {}),
-      ...init.headers
+      ...init.headers,
+      ...attestationHeaders
     }
   });
   assertExpectedFirebaseUser(auth, user.uid);
@@ -155,15 +158,17 @@ export async function createIdentitySession(user: User) {
 }
 
 export async function deleteWebPlayerAccount(user: User): Promise<WebPlayerAccountDeletionResult> {
-  const { auth } = await getFirebaseBrowserClient();
+  const { auth, appCheck } = await getFirebaseBrowserClient();
   assertExpectedFirebaseUser(auth, user.uid);
   const token = await user.getIdToken(true);
+  const attestationHeaders = await webAppCheckHeaders(appCheck);
   assertExpectedFirebaseUser(auth, user.uid);
   const response = await fetch(`${apiBaseUrl()}/player/account`, {
     method: 'DELETE',
     headers: {
       accept: 'application/json',
-      authorization: `Bearer ${token}`
+      authorization: `Bearer ${token}`,
+      ...attestationHeaders
     }
   });
   let payload: unknown;

@@ -53,7 +53,10 @@ function nativeFixture({
 <key>NSCameraUsageDescription</key><string>Allow Orbit Player to scan the PDF417 barcode on your government ID. Orbit does not save a photo.</string>
 ${infoAddition}
 </dict></plist>`);
-  fs.writeFileSync(path.join(appRoot, 'project.pbxproj'), `PRODUCT_BUNDLE_IDENTIFIER = ${bundleIdentifier};\nPrivacyInfo.xcprivacy\n${projectAddition}`);
+  fs.writeFileSync(path.join(appRoot, 'project.pbxproj'), `PRODUCT_BUNDLE_IDENTIFIER = ${bundleIdentifier};\nPrivacyInfo.xcprivacy\nCODE_SIGN_ENTITLEMENTS = OrbitPlayer/OrbitPlayer.entitlements;\n${projectAddition}`);
+  fs.writeFileSync(path.join(appRoot, 'OrbitPlayer.entitlements'), '<plist version="1.0"><dict><key>com.apple.developer.devicecheck.appattest-environment</key><string>production</string></dict></plist>');
+  fs.writeFileSync(path.join(appRoot, 'GoogleService-Info.plist'), '<plist version="1.0"><dict><key>BUNDLE_ID</key><string>com.orbit.player</string><key>PROJECT_ID</key><string>tabletalk-s</string><key>GOOGLE_APP_ID</key><string>1:133175572500:ios:46a75e002225158dfd8f01</string></dict></plist>');
+  fs.writeFileSync(path.join(appRoot, 'AppDelegate.swift'), 'RNFBAppCheckModule.sharedInstance()\nFirebaseApp.configure()');
   fs.writeFileSync(path.join(appRoot, 'PrivacyInfo.xcprivacy'), `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
 <key>NSPrivacyTracking</key><false/>
@@ -162,11 +165,31 @@ describe('generated Orbit Player native verifier', () => {
     }))).toThrow(/com\.apple\.developer\.healthkit/);
   });
 
-  it('rejects any key in an app-target entitlements plist', () => {
+  it('rejects entitlements beyond the reviewed App Attest capability', () => {
     const root = nativeFixture({ projectAddition: 'CODE_SIGN_ENTITLEMENTS = OrbitPlayer/OrbitPlayer.entitlements;' });
     fs.writeFileSync(path.join(root, 'OrbitPlayer', 'OrbitPlayer.entitlements'), `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict><key>com.apple.developer.icloud-services</key><array><string>CloudDocuments</string></array></dict></plist>`);
     expect(() => verifyPlayerNative(root)).toThrow(/unapproved entitlements/);
+  });
+
+  it('rejects the sandbox App Attest environment', () => {
+    const root = nativeFixture();
+    const file = path.join(root, 'OrbitPlayer', 'OrbitPlayer.entitlements');
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('production', 'development'));
+    expect(() => verifyPlayerNative(root)).toThrow(/production environment/);
+  });
+
+  it('rejects Firebase initialization before the attestation provider factory', () => {
+    const root = nativeFixture();
+    fs.writeFileSync(path.join(root, 'OrbitPlayer', 'AppDelegate.swift'), 'FirebaseApp.configure()\nRNFBAppCheckModule.sharedInstance()');
+    expect(() => verifyPlayerNative(root)).toThrow(/must precede/);
+  });
+
+  it('rejects a different native Firebase app registration', () => {
+    const root = nativeFixture();
+    const file = path.join(root, 'OrbitPlayer', 'GoogleService-Info.plist');
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('46a75e002225158dfd8f01', 'different-app'));
+    expect(() => verifyPlayerNative(root)).toThrow(/app identity mismatch/);
   });
 
   it('rejects a missing false encryption declaration', () => {

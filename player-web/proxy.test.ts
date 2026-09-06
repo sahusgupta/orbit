@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PLAYER_SESSION_COOKIE } from '@/src/auth/session-cookie';
+import { PLAYER_APP_CHECK_COOKIE, PLAYER_SESSION_COOKIE } from '@/src/auth/session-cookie';
 import { config, proxy } from './proxy';
 
 const originalApiOrigin = process.env.ORBIT_API_URL;
@@ -65,6 +65,19 @@ describe('Player Web protected-route proxy', () => {
     expect(response.headers.get('location')).toBe('https://player.example/sign-in?returnTo=%2Ftournaments%2Fevent-key');
     expect(response.headers.get('set-cookie')).toContain(`${PLAYER_SESSION_COOKIE}=`);
     expect(response.headers.get('set-cookie')).toContain('Expires=Thu, 01 Jan 1970 00:00:00 GMT');
+  });
+
+  it('forwards browser attestation to the API and never treats the cookie as authorization', async () => {
+    const request = new NextRequest('https://player.example/me/profile', {
+      headers: { cookie: `${PLAYER_SESSION_COOKIE}=user-token; ${PLAYER_APP_CHECK_COOKIE}=attestation-token` }
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 401 }));
+    const response = await proxy(request);
+    expect(fetchSpy).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      headers: { authorization: 'Bearer user-token', 'X-Firebase-AppCheck': 'attestation-token' }
+    }));
+    expect(response.status).toBe(307);
+    expect(response.headers.get('set-cookie')).toContain(`${PLAYER_APP_CHECK_COOKIE}=`);
   });
 
   it('fails closed when token verification is unavailable', async () => {

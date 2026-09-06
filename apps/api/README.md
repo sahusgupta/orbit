@@ -10,6 +10,8 @@ The conservative Player iOS v1 uses authenticated membership/waitlist requests, 
 
 ### Player App Check activation gate
 
+Native and Web token acquisition, transport, refresh, and route-guard propagation are implemented; provider acceptance and safe activation remain separate gates. See [Player App Check](../../docs/architecture/PLAYER_APP_CHECK.md) for exact registrations, client settings, and the management-client prerequisite for project-wide Firebase enforcement.
+
 Player App Check is an explicit fail-closed production gate, not a switch to enable before every active protected client is ready. Complete this order:
 
 1. Register and configure the native iOS Firebase App for the reviewed bundle identifier, then configure App Attest as its Firebase App Check provider. Register and configure the operational Player Web Firebase App with an appropriate Web App Check provider as well.

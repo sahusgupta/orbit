@@ -3,12 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clubAlpha, discovery, formingGame, interest, openTournament, player, runningGame, scheduledGame } from '@/tests/fixtures';
 
 const firebaseHarness = vi.hoisted(() => ({
-  auth: { currentUser: null as User | null }
+  auth: { currentUser: null as User | null },
+  appCheckHeaders: vi.fn()
 }));
 
 vi.mock('./firebase-client', () => ({
   getFirebaseBrowserClient: vi.fn(async () => ({ auth: firebaseHarness.auth }))
 }));
+vi.mock('./app-check', () => ({ webAppCheckHeaders: firebaseHarness.appCheckHeaders }));
 
 import {
   deleteWebPlayerAccount,
@@ -34,9 +36,32 @@ describe('authenticated Player Web transport', () => {
     vi.stubGlobal('crypto', { randomUUID: vi.fn(() => '8dbd1b28-18b4-47f2-bb1e-a0947d5b88fd') });
     user.getIdToken = vi.fn(async () => 'firebase-token');
     firebaseHarness.auth.currentUser = user;
+    firebaseHarness.appCheckHeaders.mockReset().mockResolvedValue({});
   });
 
   afterEach(() => vi.unstubAllGlobals());
+
+  it('attaches App Check to ordinary and deletion requests', async () => {
+    firebaseHarness.appCheckHeaders.mockResolvedValue({ 'X-Firebase-AppCheck': 'synthetic-attestation' });
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ ok: true, ...discovery }));
+    await fetchAuthenticatedDiscovery(user);
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ ok: true, status: 'pending' }, 202));
+    await deleteWebPlayerAccount(user);
+    for (const [, init] of vi.mocked(fetch).mock.calls) {
+      expect(init?.headers).toMatchObject({ authorization: 'Bearer firebase-token', 'X-Firebase-AppCheck': 'synthetic-attestation' });
+    }
+  });
+
+  it('does not fetch on attestation failure or a concurrent account switch', async () => {
+    firebaseHarness.appCheckHeaders.mockRejectedValueOnce(new Error('Browser verification is unavailable.'));
+    await expect(fetchAuthenticatedDiscovery(user)).rejects.toThrow('Browser verification is unavailable.');
+    firebaseHarness.appCheckHeaders.mockImplementationOnce(async () => {
+      firebaseHarness.auth.currentUser = { uid: 'another-player' } as User;
+      return { 'X-Firebase-AppCheck': 'synthetic-attestation' };
+    });
+    await expect(deleteWebPlayerAccount(user)).rejects.toThrow();
+    expect(fetch).not.toHaveBeenCalled();
+  });
 
   it('loads logged-in discovery with a Firebase bearer token', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ ok: true, ...discovery }));
