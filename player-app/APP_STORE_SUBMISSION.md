@@ -6,7 +6,7 @@ Bundle identifier: `com.orbit.player`
 
 Operator represented in repository-controlled material: Caminus Labs, LLC
 
-Candidate state: an unsigned production-derived simulator build has compiled and its archive was inspected; simulator interaction QA is in progress. No signed build, TestFlight upload, or App Review submission is claimed. Current evidence is recorded in [release execution](../docs/agent/tasks/player-release-execution.md).
+Candidate state: two unsigned production-derived simulator builds have compiled and their archives were inspected. The GitHub interaction job was cancelled after hanging in CoreSimulator runtime discovery; it produced no device-flow results or screenshots. A diagnosed rerun requires the pending branch-push approval. No signed build, TestFlight upload, or App Review submission is claimed. Current evidence is recorded in [release execution](../docs/agent/tasks/player-release-execution.md).
 
 This file is the machine-checkable source of truth for the conservative first iOS submission. Items marked `EXTERNAL GATE` require human, provider, signed-build, or App Store Connect evidence and must not be converted to “complete” without that evidence.
 
@@ -29,6 +29,12 @@ Privacy Policy URL: https://orbitapp-one.vercel.app/privacy
 Terms of Use URL: https://orbitapp-one.vercel.app/terms
 
 Marketing URL: leave blank unless a separately reviewed public product page is approved
+
+Promotional text: Browse venue-published games, manage membership and waitlist requests, and express nonbinding tournament interest with Orbit Player.
+
+Copyright draft: `2026 Caminus Labs, LLC`. The Account Holder must confirm the rights-holder identity and first acquisition year before entering this field; the draft uses the intended owner and release year, not independently verified ownership evidence.
+
+Promotional text is within Apple's 170-character limit. The copyright field follows Apple's year-and-owner format: [Platform version information](https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information).
 
 Final description:
 

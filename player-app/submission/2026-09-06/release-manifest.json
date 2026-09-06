@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "observedAt": "2026-09-06T12:13:00Z",
+  "observedAt": "2026-09-06T13:00:00Z",
   "status": "preparation-in-progress",
   "appReviewSubmitted": false,
   "source": {
@@ -8,7 +8,7 @@
     "originalPullRequest": "https://github.com/sahusgupta/orbit/pull/25",
     "originalMergeSha": "5b5b18ec92ed94feb125eb8afd0a0140fdfb4ff8",
     "followupPullRequest": "https://github.com/sahusgupta/orbit/pull/26",
-    "candidateCodeSha": "d9fda7e5a001b96a0a7ac68f4b18fb578536d191",
+    "candidateCodeSha": "e4fcd7a36bba5fbdc76431d011421aa859e97aa5",
     "candidatePushed": false,
     "followupMergeSha": null
   },
@@ -74,26 +74,42 @@
     "testFlightBuildId": null,
     "appStoreConnectAppId": null,
     "simulatorQaRun": "https://github.com/sahusgupta/orbit/actions/runs/34029362548",
-    "simulatorQaStatus": "in-progress-on-earlier-source"
+    "simulatorQaStatus": "cancelled-during-runtime-discovery-on-earlier-source",
+    "githubSimulatorArtifact": {
+      "sourceSha": "2da2c6fc57acc69df9ae0cefbd2dd30e97a5f1a9",
+      "artifactId": "9989138790",
+      "url": "https://github.com/sahusgupta/orbit/actions/runs/34029362548/artifacts/9989138790",
+      "compilerResult": "succeeded",
+      "appZipSha256": "a26a2c0ed536074f41aa2ccb714ca1b0dfdbfd7326d5289347e65a17eef07438",
+      "xcodeVersion": "26.0.1",
+      "xcodeBuild": "17A400",
+      "bundledPrivacyManifestCount": 15,
+      "trackingDeclared": false,
+      "deviceFlowResultsProduced": false,
+      "screenshotsProduced": false,
+      "jobConcludedAt": "2026-09-06T12:19:48Z",
+      "rerunStatus": "local-diagnostics-prepared-pending-push-approval"
+    }
   },
   "verification": [
     { "command": "npm run web:e2e", "date": "2026-09-06", "result": "pass", "routes": 15, "viewports": 6, "captures": 90, "interactionChecks": 44 },
     { "command": "npm run e2e:public", "date": "2026-09-06", "result": "pass", "routes": 8 },
     { "command": "npm test -- apps/api/src/firebasePublisher.test.js", "date": "2026-09-06", "result": "pass", "tests": 36 },
     { "command": "npm run typecheck:api", "date": "2026-09-06", "result": "pass" },
+    { "command": "npm run test:firestore-rules", "date": "2026-09-06", "result": "pass-local", "tests": 8, "project": "demo-orbit-release-ci", "javaVersion": "21.0.12.1", "productionAccess": false },
     { "command": "npm run security:paths", "date": "2026-09-06", "result": "pass" },
     { "command": "npm run check:release-controls", "date": "2026-09-06", "result": "pass" },
     { "command": "npm run audit:module-graph", "date": "2026-09-06", "result": "pass", "modules": 238, "relativeEdges": 709 },
-    { "command": "npm run player:export:ios", "date": "2026-09-06", "result": "pass-after-native-ui-changes-before-commit", "modules": 1145, "assets": 19 },
-    { "command": "npm run verify", "date": "2026-09-06", "result": "pass", "checks": 13, "rootApiPlayerTests": 1328, "webTests": 205, "salesMapTests": 85, "separateEmulatorTestsSkipped": 8 },
+    { "command": "npm run player:export:ios", "date": "2026-09-06", "result": "pass", "sourceSha": "e4fcd7a36bba5fbdc76431d011421aa859e97aa5", "sourceNote": "Export ran immediately before the matching waitlist source was committed; neither older native archive contains these fixes.", "modules": 1145, "assets": 19 },
+    { "command": "npm run verify", "date": "2026-09-06", "result": "pass", "sourceSha": "e4fcd7a36bba5fbdc76431d011421aa859e97aa5", "checks": 13, "rootApiPlayerTests": 1353, "webTests": 209, "salesMapTests": 85, "separateEmulatorTestsSkipped": 8, "priorAttempt": "Five esbuild checks could not start under the Windows filesystem sandbox; all passed in the permitted isolated rerun." },
     { "command": "gitleaks git . --log-opts=--all --redact=100", "date": "2026-09-06", "result": "exit-1-reviewed-findings", "commits": 386, "findings": 22 },
-    { "command": "gitleaks git . --pre-commit --staged --redact=100", "date": "2026-09-06", "result": "pass-for-both-followup-code-commits", "findings": 0 }
+    { "command": "gitleaks git . --pre-commit --staged --redact=100", "date": "2026-09-06", "result": "pass-latest-waitlist-code-commit", "sourceSha": "e4fcd7a36bba5fbdc76431d011421aa859e97aa5", "bytesScanned": 4331, "findings": 0 }
   ],
   "remainingAuthorityGates": [
     "Apple Account Holder authentication, team/seller confirmation, agreements, signing and App Store Connect access",
     "Counsel-approved territory/venue authority and deletion/retention dispositions",
     "Privacy-owner final signed-archive and payment-channel classification",
-    "Pending automatic-approval questions for CORS preflights, key-restriction metadata and Vercel credential metadata",
+    "Pending automatic-approval questions for release-branch push, CORS preflights, key-restriction metadata and Vercel credential metadata",
     "Physical-device App Attest/camera/TestFlight testing when a compatible device is available",
     "Subjective final screenshot/store-copy approval and explicit App Review authorization"
   ]
