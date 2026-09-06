@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { lookup } from 'node:dns/promises';
+import { playerServiceHosts, withBlockedPlayerHosts } from './player-simulator-network.mjs';
 import { localPlayerBinary, playerRoot, productionPlayerEnvironment, repositoryRoot } from './player-release-environment.mjs';
 import { verifyPlayerNative } from './verify-player-native.mjs';
 
 assert.equal(process.platform, 'darwin', 'Native simulator QA requires macOS.');
+assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Use the disposable GitHub runner for simulator network isolation.');
 const environment = productionPlayerEnvironment();
 const evidenceRoot = path.join(repositoryRoot, 'out', 'player-simulator-qa');
 const iosRoot = path.join(playerRoot, 'ios');
@@ -95,6 +98,7 @@ fs.writeFileSync(path.join(evidenceRoot, 'privacy-manifests.json'), JSON.stringi
 })), null, 2));
 fs.writeFileSync(path.join(evidenceRoot, 'app-info.json'), run('plutil', ['-convert', 'json', '-o', '-', path.join(application, 'Info.plist')]));
 let failed = false;
+async function runDeviceFlows() {
 for (const device of ['iPhone-16', 'iPhone-16-Pro-Max']) {
   const output = path.join(evidenceRoot, device);
   fs.mkdirSync(output, { recursive: true });
@@ -123,6 +127,22 @@ for (const device of ['iPhone-16', 'iPhone-16-Pro-Max']) {
     run('xcrun', ['simctl', 'delete', udid]);
   }
 }
+}
+await withBlockedPlayerHosts({
+  readHosts: () => fs.readFileSync('/etc/hosts', 'utf8'),
+  writeHosts: (contents) => run('sudo', ['-n', 'tee', '/etc/hosts'], { input: contents }),
+  flushDns() {
+    run('sudo', ['-n', 'dscacheutil', '-flushcache']);
+    run('sudo', ['-n', 'killall', '-HUP', 'mDNSResponder']);
+  },
+  resolveHost: (host) => lookup(host, { all: true })
+}, async () => {
+  fs.writeFileSync(path.join(evidenceRoot, 'network-isolation.json'), JSON.stringify({
+    sourceSha, serviceHosts: playerServiceHosts, allResolveToLoopback: true,
+    scope: 'device-local flows; no hosted API, Firebase, or authentication proof'
+  }, null, 2));
+  await runDeviceFlows();
+});
 // Upload the app and review evidence, not the large intermediate compiler cache.
 assert.equal(path.dirname(derivedData), evidenceRoot);
 fs.rmSync(derivedData, { recursive: true, force: true });
