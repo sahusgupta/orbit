@@ -61,7 +61,7 @@ Do not deploy rules, indexes, API code, or public pages without separate authori
 
 ## Cloud build and TestFlight
 
-EAS accepts the exact Node version in each build profile but does not support an `npm` profile field. The `eas-build-pre-install` lifecycle hook therefore installs npm 10.9.2 and fails closed unless that exact version is active before EAS runs the lockfile-immutable dependency install. The repository-locked EAS schema validates every iOS profile during release verification. Custom EAS workflows are rejected because EAS does not run lifecycle hooks automatically for custom builds.
+EAS accepts the exact Node version in each build profile but does not support an `npm` profile field. The `eas-build-pre-install` lifecycle hook therefore installs npm 10.9.2 and fails closed unless that exact version is active before EAS runs the lockfile-immutable dependency install. The production iOS profile pins Expo's SDK 54 image `macos-sequoia-15.6-xcode-26.0` so App Store uploads are configured for Xcode 26 and the iOS 26 SDK. The repository-locked EAS schema parses every iOS profile, while release checks require the exact reviewed production-image string. Expo's current image catalog and the eventual candidate build—not schema parsing alone—provide availability and toolchain evidence. Custom EAS workflows are rejected because EAS does not run lifecycle hooks automatically for custom builds.
 
 `npm run build:testflight --prefix player-app` starts a remote signed build and is an external action. It is permitted only after the exact pushed SHA is green and credentials/project identity are verified. Upload uses an explicit EAS build ID and source SHA:
 

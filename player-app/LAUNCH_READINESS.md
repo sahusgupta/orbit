@@ -24,7 +24,7 @@ The current, machine-checkable submission package is [`APP_STORE_SUBMISSION.md`]
 - Production API/site deployment, Firebase rules/App Check activation, and required server-secret provisioning.
 - Sanitized reviewer account/data placed in App Store Connect without committing credentials.
 - Privacy-owner classification of the constant `in-person` membership request channel, support/provider/IP retention, and conditional SDK device/diagnostic data.
-- Signed EAS archive, Xcode privacy aggregation report reconciled to the app-owned ten-type baseline, App Store privacy/age/export answers, and physical-device TestFlight acceptance.
+- Signed EAS archive built with the production profile's pinned Xcode 26/iOS 26 SDK image, build-log toolchain evidence, Xcode privacy aggregation report reconciled to the app-owned ten-type baseline, App Store privacy/age/export answers, and physical-device TestFlight acceptance.
 - Real candidate screenshots captured at Apple-accepted dimensions.
 
 Do not treat Expo export or prebuild as a signed build. Do not create an EAS build, upload to TestFlight, deploy, or press Submit for Review until the applicable authority and evidence exist.
@@ -35,7 +35,7 @@ Player-hosted/private games remain excluded from every production-v1 surface and
 
 ## Exact candidate handling
 
-The production EAS profile creates a store-distribution iOS build and uses remote build-number auto-increment. After all repository and pull-request gates pass, the release operator records the exact pushed source SHA and EAS build ID. Submission must use:
+The production EAS profile creates a store-distribution iOS build, pins `macos-sequoia-15.6-xcode-26.0`, and uses remote build-number auto-increment. After all repository and pull-request gates pass, the release operator records the exact pushed source SHA, EAS build ID, resolved build image, Xcode version/build, and iOS SDK version from the candidate build log. Stop if that evidence does not meet Apple's then-current upload minimum. Submission must use:
 
 ```text
 npm run submit:testflight --prefix player-app -- --build-id <EAS_BUILD_ID> --source-sha <40_CHAR_PUSHED_SHA> --confirm UPLOAD_EXACT_TESTFLIGHT_BUILD

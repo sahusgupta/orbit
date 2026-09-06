@@ -192,7 +192,7 @@ Repository and CI gates before any cloud build:
 - [ ] Pull-request CI is green on the exact pushed 40-character source SHA.
 - [ ] Legal, privacy, age-rating, territory, Maps/provider, App Check/rules deployment, signing, and review-data gates have evidence.
 
-Signed candidate (`EXTERNAL GATE — release operator/Expo`): use EAS production profile only after the checklist above passes. Record source SHA, EAS build ID and URL, marketing version, build number, bundle identifier, signing team, build status, and archive privacy report. Apple’s current upload requirements are in [Upload builds](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds).
+Signed candidate (`EXTERNAL GATE — release operator/Expo`): use the EAS production profile only after the checklist above passes. Apple has required App Store Connect uploads to be built with Xcode 26 or later and an iOS 26 SDK since April 28, 2026. The production profile therefore pins Expo's SDK 54 image `macos-sequoia-15.6-xcode-26.0`, which Expo documents as Xcode 26.0 (`17A324`). Record the source SHA, EAS build ID and URL, marketing version, build number, bundle identifier, signing team, build status, resolved EAS image, Xcode version/build, iOS SDK version, and archive privacy report. Stop if the candidate log/archive does not meet Apple's then-current upload minimum. See Apple's [Upcoming Requirements](https://developer.apple.com/news/upcoming-requirements/) and Expo's [build server infrastructure](https://docs.expo.dev/build-reference/infrastructure/).
 
 TestFlight device acceptance (`EXTERNAL GATE — release operator/tester`): install that exact build on a physical supported iPhone; exercise onboarding, sign-in, empty/error/offline recovery, discovery, waitlist/membership, tournament interest, QR issue/redeem/expiry/replay rejection, PDF417 denial/recovery/preview, and both deletion modes. Record device/OS, result, defect links, and tester sign-off. TestFlight overview: [Apple TestFlight](https://developer.apple.com/testflight/).
 
@@ -237,7 +237,7 @@ If a production backend incompatibility is discovered, stop distribution. Backen
 | Review account/data | Backend/release owners | Seed sanitized nonproduction review data and place credentials in App Store Connect only | Flow checklist, expiry/cleanup owner, successful isolated test |
 | Physical-device acceptance | QA owner | Run the TestFlight checklist on the exact build | Device/OS, build ID, source SHA, dated results |
 | Screenshots | Product/QA owner | Capture real rendered candidate at accepted dimensions | Original PNG/JPEG files, capture build ID/SHA, sanitization review |
-| TestFlight build/upload | Release operator | Build and upload exact green SHA after all prerequisites | EAS build URL/ID, App Store build number, CI URL, upload status |
+| TestFlight build/upload | Release operator | Build and upload the exact green SHA with the production profile after all prerequisites; verify the resolved image and Apple upload-minimum toolchain before upload | EAS build URL/ID, App Store build number, source SHA, CI URL, resolved image, Xcode version/build, iOS SDK version, and upload status |
 | App Review submission | Account Holder | Review final metadata and explicitly press Submit for Review | Human approval; this repository task does not authorize submission |
 
 Apple explains the final submission workflow in [Submit an app](https://developer.apple.com/help/app-store-connect/manage-submissions-to-app-review/submit-an-app). A passing Expo export or prebuild is not a signed candidate and must never be reported as TestFlight evidence.
@@ -250,4 +250,6 @@ Apple explains the final submission workflow in [Submit an app](https://develope
 - Disposable native generation: [Continuous Native Generation](https://docs.expo.dev/workflow/continuous-native-generation/).
 - Remote app/build version behavior: [App versions](https://docs.expo.dev/build-reference/app-versions/).
 - EAS profile schema: [Configure EAS Build with eas.json](https://docs.expo.dev/build/eas-json/).
+- Current App Store upload toolchain minimum: [Apple Upcoming Requirements](https://developer.apple.com/news/upcoming-requirements/).
+- EAS image aliases, exact image names, and installed Xcode versions: [Expo build server infrastructure](https://docs.expo.dev/build-reference/infrastructure/).
 - Apple account-deletion requirement: [Offering account deletion in your app](https://developer.apple.com/support/offering-account-deletion-in-your-app/).

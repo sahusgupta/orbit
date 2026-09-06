@@ -46,6 +46,7 @@
       "distribution": "store",
       "node": "22.16.0",
       "ios": {
+        "image": "macos-sequoia-15.6-xcode-26.0",
         "simulator": false
       },
       "env": {

@@ -23,6 +23,7 @@ const apiPackage = json('apps/api/package.json');
 const webPackage = json('player-web/package.json');
 const app = json('player-app/app.json').expo;
 const eas = json('player-app/eas.json');
+const expectedProductionIosImage = 'macos-sequoia-15.6-xcode-26.0';
 const failures = [];
 const requireMatch = (condition, message) => {
   if (!condition) failures.push(message);
@@ -36,6 +37,12 @@ try {
   for (const profileName of ['development', 'preview', 'production']) {
     const resolvedProfile = await EasJsonUtils.getBuildProfileAsync(easJsonAccessor, Platform.IOS, profileName);
     requireMatch(resolvedProfile.config === undefined, `${profileName} must use the standard EAS build lifecycle so the npm pin hook runs automatically.`);
+    if (profileName === 'production') {
+      requireMatch(
+        resolvedProfile.image === expectedProductionIosImage,
+        'The resolved production iOS profile must use the reviewed Xcode 26 build image.'
+      );
+    }
   }
 } catch {
   failures.push('The repository-locked EAS schema must accept player-app/eas.json and resolve every iOS build profile.');
@@ -70,6 +77,10 @@ try {
   failures.push(error instanceof Error ? error.message : String(error));
 }
 requireMatch(eas.build?.production?.distribution === 'store', 'Production EAS profile must create a store build.');
+requireMatch(
+  eas.build?.production?.ios?.image === expectedProductionIosImage,
+  'Production EAS profile must pin the reviewed Xcode 26/iOS 26 SDK build image.'
+);
 requireMatch(eas.build?.production?.ios?.simulator === false, 'Production EAS profile must target physical iOS devices.');
 requireMatch(eas.build?.production?.autoIncrement === true, 'Production EAS profile must auto-increment the remote build number.');
 requireMatch(playerPackage.scripts?.['eas-build-pre-install'] === 'node scripts/pin-eas-npm.cjs', 'EAS builds must pin npm through the supported pre-install lifecycle hook.');

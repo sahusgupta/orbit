@@ -10,6 +10,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const playerRoot = path.join(repositoryRoot, 'player-app');
 const eas = JSON.parse(fs.readFileSync(path.join(playerRoot, 'eas.json'), 'utf8'));
 const playerPackage = JSON.parse(fs.readFileSync(path.join(playerRoot, 'package.json'), 'utf8'));
+const expectedProductionIosImage = 'macos-sequoia-15.6-xcode-26.0';
 const easCliRequire = createRequire(path.join(repositoryRoot, 'node_modules', 'eas-cli', 'package.json'));
 const { EasJsonAccessor, EasJsonUtils, Platform } = easCliRequire('@expo/eas-json');
 const { EXPECTED_NPM_VERSION, pinEasNpm } = require('../player-app/scripts/pin-eas-npm.cjs');
@@ -38,6 +39,17 @@ describe('Orbit Player EAS build configuration', () => {
     invalidEas.build.production.npm = EXPECTED_NPM_VERSION;
 
     await expect(EasJsonAccessor.fromRawString(JSON.stringify(invalidEas)).readAsync()).rejects.toThrow(/npm.*not allowed/);
+  });
+
+  it('pins production uploads to the reviewed Xcode 26 iOS image', async () => {
+    const accessor = EasJsonAccessor.fromProjectPath(playerRoot);
+    const profile = await EasJsonUtils.getBuildProfileAsync(accessor, Platform.IOS, 'production');
+
+    expect(eas.build.production.ios).toMatchObject({
+      image: expectedProductionIosImage,
+      simulator: false
+    });
+    expect(profile).toMatchObject({ image: expectedProductionIosImage });
   });
 
   it('installs and verifies the exact npm version before EAS dependency installation', () => {
