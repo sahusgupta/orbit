@@ -248,9 +248,16 @@ async function saveState(state, options = {}) {
     const opaqueMutationPath = mutationPath(accountKey, mutationId);
     let existingMutation = await transaction.getDocument(opaqueMutationPath);
     const oldMutationPath = legacyMutationPath(accountKey, mutationId);
+    let migrateLegacyMutation = false;
     if (!existingMutation && oldMutationPath !== opaqueMutationPath) {
       existingMutation = await transaction.getDocument(oldMutationPath);
-      if (existingMutation) {
+      migrateLegacyMutation = Boolean(existingMutation);
+    }
+    if (existingMutation) {
+      // Firestore requires every read before the first queued write, including
+      // duplicate retries that migrate a legacy or global idempotency receipt.
+      const publication = await transaction.getDocument(publicationPath(accountKey, existingMutation.revision));
+      if (migrateLegacyMutation) {
         transaction.setDocument(opaqueMutationPath, {
           accountKey,
           mutationRef: mutationReference(accountKey, mutationId),
@@ -260,8 +267,6 @@ async function saveState(state, options = {}) {
         });
         transaction.deleteDocument(oldMutationPath);
       }
-    }
-    if (existingMutation) {
       if (globalReceiptPath) {
         transaction.createDocument(globalReceiptPath, {
           scopeRef: opaqueReference(globalMutationScope),
@@ -272,7 +277,6 @@ async function saveState(state, options = {}) {
           createdAt: existingMutation.createdAt || savedAt
         });
       }
-      const publication = await transaction.getDocument(publicationPath(accountKey, existingMutation.revision));
       return {
         accountKey,
         savedAt: existingMutation.createdAt,
@@ -473,7 +477,9 @@ async function invalidateAccountStateHistory(accountKey, keepRevision) {
   }
 
   for (const document of chunks) {
-    if (Number(document.data.revision) === revision) continue;
+    // A newer state may commit after deletion saved its sanitized boundary.
+    // History cleanup must never remove that concurrent commit's data.
+    if (Number(document.data.revision) >= revision) continue;
     await database.deleteDocument(`${chunkCollection}/${document.id}`);
     deletedChunks += 1;
   }

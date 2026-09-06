@@ -64,6 +64,10 @@ export async function redeemMembershipQrWithAuthorizedSession<Access, State>(
     }
     return { kind: 'rejected', result };
   }
+  const latestContext = ports.readCurrentContext();
+  if (!latestContext.access || latestContext.session?.token !== authorizedSession.token) {
+    return { kind: 'session-changed' };
+  }
   return { kind: 'accepted', result };
 }
 
@@ -92,11 +96,11 @@ export async function runMembershipQrCheckIn<Access, State>(
   });
   if (outcome.kind === 'authorization-failed') return;
   if (outcome.kind === 'session-changed') {
-    ports.setMessage('The active staff selection changed before validation began. Scan again.');
+    ports.setMessage('The active staff selection changed during verification. Check the current venue before scanning again.');
     return;
   }
   if (outcome.kind === 'transport-failed') {
-    ports.setMessage('Orbit could not verify this membership. No check-in was recorded.');
+    ports.setMessage('Orbit could not confirm the check-in result. Check the current venue state before scanning again.');
     return;
   }
   const result = outcome.result;
