@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { protectedIdentifier, redactText } = require('./dataProtection');
+const { isHostedOrProduction, protectedIdentifier, redactText } = require('./dataProtection');
 const { sendOperationalAlert } = require('./operationalAlerts');
 
 function assignRequestId(request, response, next) {
@@ -36,10 +36,10 @@ function handleApiError(error, request, response, _next) {
     method: request.method,
     pathname,
     errorRef,
-    message: process.env.NODE_ENV === 'production'
+    message: isHostedOrProduction(process.env)
       ? 'Unhandled API error.'
       : redactText(error instanceof Error ? error.message : 'Request failed.', 300),
-    stack: process.env.NODE_ENV === 'production' ? undefined : redactText(error?.stack, 2000)
+    stack: isHostedOrProduction(process.env) ? undefined : redactText(error?.stack, 2000)
   }));
   void sendOperationalAlert('api-error', 'critical', {
     requestRef: protectedIdentifier(request.orbitRequestId),

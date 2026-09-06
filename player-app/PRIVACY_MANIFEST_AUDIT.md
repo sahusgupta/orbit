@@ -68,6 +68,12 @@ Before TestFlight, generate the Xcode privacy report from the exact signed archi
 
 This is a blocking external candidate gate until signed-archive evidence exists. Do not assume that removing a key omitted a subspec, and do not suppress an SDK declaration because Orbit itself does not request GPS.
 
+## Compiled simulator evidence, September 6, 2026
+
+[EAS build cc64f693-fdf4-416c-8fdc-c2fcc3b9cd99](https://expo.dev/accounts/saussy/projects/tabletalk-player/builds/cc64f693-fdf4-416c-8fdc-c2fcc3b9cd99) finished from `dab4aa7183b6c4482310feb9b1c4f9df3bfcda41`. The downloaded archive SHA-256 is `0e16b22ae0e4bc09bb443b904b7320c90e0a1ab78595304b1d45ecb74b88767c`. Its compiled Info.plist identifies `com.orbit.player`, version `1.0.0` build `1`, iPhone-only, minimum iOS `15.1`, simulator SDK `26.0` (`23A339`), Xcode `17A324`. Camera is the sole usage-description permission, and there is no URL scheme or Google Maps bundle.
+
+The binary contains 15 privacy manifests. None declares tracking or tracking domains. The app retains its ten collected-data declarations; CocoaPods adds SDK UserDefaults reasons `1C8F.1` and `C56D.1` alongside app reason `CA92.1`. The base React Native Maps manifest is bundled and declares unlinked precise location; its Google Maps manifest is absent. This confirms the source-level map finding rather than eliminating the privacy-answer reconciliation. This unsigned simulator evidence does not replace signed archive, App Store processing, or physical App Attest evidence.
+
 ## Primary sources
 
 - [Apple: Adding a privacy manifest to your app or third-party SDK](https://developer.apple.com/documentation/bundleresources/adding-a-privacy-manifest-to-your-app-or-third-party-sdk)

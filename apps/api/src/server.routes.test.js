@@ -77,6 +77,7 @@ beforeAll(async () => {
       ORBIT_DASHBOARD_SESSION_SECRET: 'local-dashboard-session-secret-at-least-32',
       ORBIT_LOG_HASH_SECRET: 'local-route-log-hash-secret-at-least-32-characters',
       ORBIT_PUBLIC_ORIGIN: 'https://orbit-public-preview.invalid',
+      ORBIT_RELEASE_SHA: '1234567890abcdef1234567890abcdef12345678',
       ORBIT_SELF_CHECK_IN_ORIGIN: 'https://self-check-in-route-test.invalid',
       ORBIT_SELF_CHECK_IN_SECRET: 'local-self-check-in-signing-secret-at-least-32-characters',
       FIREBASE_SERVICE_ACCOUNT_JSON: '',
@@ -113,6 +114,7 @@ describe('API route composition', () => {
   it('applies a rate-limit policy before every public, protected, and missing route', async () => {
     const probes = [
       ['/health'],
+      ['/version'],
       ['/privacy'],
       ['/player/public/discovery'],
       ['/dashboard'],
@@ -131,6 +133,13 @@ describe('API route composition', () => {
   });
 
   it('serves health and legal assets before client authentication', async () => {
+    const version = await request('/version');
+    expect(version.status).toBe(200);
+    expect(version.headers.get('cache-control')).toBe('no-store');
+    expect(await version.json()).toEqual({
+      ok: true, service: 'orbit-api', version: expect.any(String),
+      sourceSha: '1234567890abcdef1234567890abcdef12345678'
+    });
     const health = await request('/health', { headers: { 'x-orbit-request-id': 'character-request' } });
     expect(health.status).toBe(200);
     expect(health.headers.get('x-orbit-request-id')).toBe('character-request');

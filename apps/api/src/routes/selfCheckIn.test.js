@@ -9,6 +9,20 @@ const {
 const signingSecret = 'test-route-self-check-in-secret-at-least-32';
 const now = '2026-08-24T12:00:00.000Z';
 
+it('requires a configured HTTPS check-in origin on hosted development instances', () => {
+  vi.stubEnv('NODE_ENV', 'development');
+  vi.stubEnv('VERCEL', '1');
+  vi.stubEnv('ORBIT_SELF_CHECK_IN_ORIGIN', '');
+  const request = { protocol: 'https', get: () => 'untrusted-host.invalid' };
+  try {
+    expect(selfCheckInRoutes.readConfiguredOrigin(request)).toBe('');
+    expect(selfCheckInRoutes.readConfiguredOrigin(request, 'http://localhost:4629')).toBe('');
+    expect(selfCheckInRoutes.readConfiguredOrigin(request, 'https://check-in.example')).toBe('https://check-in.example');
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 function baseState(overrides = {}) {
   return {
     settings: {

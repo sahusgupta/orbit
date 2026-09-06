@@ -21,12 +21,12 @@ if (existsSync(outputRoot) && readdirSync(outputRoot).length > 0) {
 }
 mkdirSync(outputRoot, { recursive: true });
 
-const excludedDirectories = new Set(['.next', '.vercel', 'node_modules']);
+const excludedDirectories = new Set(['.git', '.next', '.vercel', 'node_modules', 'coverage', 'test-results']);
 cpSync(sourceRoot, outputRoot, {
   recursive: true,
   filter(source) {
     const relative = path.relative(sourceRoot, source);
-    return !relative.split(path.sep).some((segment) => excludedDirectories.has(segment));
+    return !relative.split(path.sep).some((segment) => excludedDirectories.has(segment) || /^\.env(?:\.|$)/.test(segment));
   }
 });
 
@@ -47,7 +47,7 @@ writeFileSync(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`);
 
 const nextConfigPath = path.join(outputRoot, 'next.config.ts');
 const nextConfig = readFileSync(nextConfigPath, 'utf8')
-  .replace("import path from 'node:path';\n\n", '')
+  .replace(/^import path from 'node:path';\r?\n/m, '')
   .replace("const repositoryRoot = path.resolve(process.cwd(), '..');", 'const repositoryRoot = process.cwd();');
 if (!nextConfig.includes('const repositoryRoot = process.cwd();')) {
   throw new Error('Could not adapt the staged Next.js repository root.');

@@ -46,6 +46,10 @@ The server-only `orbitIdentityProviderCleanup` collection is a temporary provide
 
 ## Operational responsibilities
 
+The release engineering control for pseudonymous operational events is 30 days from server receipt. New `orbitClientErrors`, `orbitTelemetryEvents`, and `orbitClientUpdateEvents` documents receive a server-generated Firestore timestamp `expiresAt`; client-supplied `occurredAt` cannot extend it. The field remains private to storage and is exempt from indexing. Firestore TTL must be enabled using the committed field overrides; provider deletion is asynchronous, generally within 24 hours after expiration. Existing records without a timestamp require a separate, reviewed metadata-only backfill before retention can be described as fully deployed. This limit does not expire pending deletion jobs, anti-resurrection records, financial/audit records, or provider-cleanup obligations.
+
+`GET /version` returns only the API package version and validated full source SHA from `ORBIT_RELEASE_SHA` (or Vercel's Git metadata). A missing/invalid SHA returns 503 and `sourceSha: null`; the endpoint is uncached. Exact-source deployments must set the SHA and verify it before promotion. `/health` and owner-protected health details retain their previous contracts.
+
 - Credential validity and rotation require authorized access to the relevant provider/secret store. Repository automation must never read or print secret contents.
 - Retention durations, legal holds, controller roles beyond the repository-authoritative operator identity, and provider deletion obligations require approved policy outside this document.
 - DNS, registrar records, certificates, canonical production hostname, and production cutover are not changed by this architecture.

@@ -118,12 +118,16 @@ Copy variable names from `player-web/.env.example`; do not commit populated envi
 | `NEXT_PUBLIC_PLAYER_WEB_URL` | Public origin for metadata and sitemap URLs |
 | `NEXT_PUBLIC_FIREBASE_*` | Public Firebase Web configuration used by Auth/Firestore |
 | `NEXT_PUBLIC_ENABLE_FIREBASE_SYNC` | Set `false` only for isolated/offline local rendering; defaults to enabled |
+| `NEXT_PUBLIC_APP_CHECK_ENABLED` | Required `true` on hosted builds; initializes reCAPTCHA Enterprise before Auth/Firestore |
+| `NEXT_PUBLIC_APP_CHECK_SITE_KEY` | Public Enterprise key restricted to the deployed Player Web domains |
 | `NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST` | Optional local Auth emulator host |
 | `NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST` | Optional local Firestore emulator host |
 
 The API must allow the deployed Player Web origin in its CORS configuration and must use the same Firebase project accepted by API token verification and publication.
 
-Every Express API request passes through the application-wide API quota before route registration; authentication, identity, player mutation, dashboard administration, recovery, and webhook families also receive stricter quotas. That quota is process-local, so production-wide enforcement requires project-level Vercel WAF rate-limit rules on both the API and Player Web projects. Do not substitute another module-global counter: serverless instances do not share that state. Vercel firewall changes are production configuration and must be reviewed and explicitly authorized before publication.
+Every Express API request passes through the application-wide API quota before route registration; authentication, identity, player mutation, dashboard administration, recovery, and webhook families also receive stricter quotas. The API quota uses atomic Firestore transactions shared by serverless instances and fails closed if the authoritative store is unavailable. The deployment inputs declare a TTL policy for `orbitRateLimits.expiresAt`; verify provider activation before claiming deployed retention. Additional provider perimeter limits can supplement this application policy.
+
+Hosted builds (`VERCEL` set, or explicit `ORBIT_WEB_ENV=production`) reject absent or mismatched API/Web origins, disabled sync/App Check, missing public client keys, any emulator override, and unreviewed `NEXT_PUBLIC_*` variables. Set all six public Firebase fields explicitly: `API_KEY`, `AUTH_DOMAIN`, `PROJECT_ID`, `STORAGE_BUCKET`, `MESSAGING_SENDER_ID`, and `APP_ID`. The fixed release target is `tabletalk-s`, dedicated Web app `1:133175572500:web:5e1055ff74e92d29fd8f01`. Isolated local builds remain available; `NODE_ENV=production` alone does not turn a loopback browser test into a hosted deployment.
 
 ## Verification
 

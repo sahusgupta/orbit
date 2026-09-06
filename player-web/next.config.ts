@@ -1,5 +1,8 @@
 import type { NextConfig } from 'next';
 import path from 'node:path';
+import { validateHostedPlayerWebEnvironment } from './release-config';
+
+validateHostedPlayerWebEnvironment(process.env);
 
 const repositoryRoot = path.resolve(process.cwd(), '..');
 

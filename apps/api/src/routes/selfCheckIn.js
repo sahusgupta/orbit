@@ -6,7 +6,7 @@ const {
   schedulePublicationDrain
 } = require('../database');
 const { requireClientAuth } = require('../http/auth');
-const { protectedIdentifier } = require('../http/dataProtection');
+const { isHostedOrProduction, protectedIdentifier } = require('../http/dataProtection');
 const { logDomainChange } = require('../http/domainEvents');
 const { sendOperationalAlert } = require('../http/operationalAlerts');
 const { inspectPilotLicense } = require('../licenseService');
@@ -75,12 +75,13 @@ function setPrivateResponseHeaders(response) {
 
 function readConfiguredOrigin(request, configuredOrigin) {
   const configured = String(configuredOrigin || process.env.ORBIT_SELF_CHECK_IN_ORIGIN || '').trim();
-  const fallback = process.env.NODE_ENV !== 'production'
+  const hosted = isHostedOrProduction(process.env);
+  const fallback = !hosted
     ? `${request.protocol}://${request.get('host')}`
     : '';
   try {
     const parsed = new URL(configured || fallback);
-    const loopbackHttp = parsed.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname);
+    const loopbackHttp = !hosted && parsed.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname);
     if (
       (parsed.protocol !== 'https:' && !loopbackHttp) ||
       parsed.username ||

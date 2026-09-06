@@ -128,6 +128,24 @@
   ],
   "fieldOverrides": [
     {
+      "collectionGroup": "orbitClientErrors",
+      "fieldPath": "expiresAt",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "orbitTelemetryEvents",
+      "fieldPath": "expiresAt",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "orbitClientUpdateEvents",
+      "fieldPath": "expiresAt",
+      "ttl": true,
+      "indexes": []
+    },
+    {
       "collectionGroup": "orbitRateLimits",
       "fieldPath": "expiresAt",
       "ttl": true,
