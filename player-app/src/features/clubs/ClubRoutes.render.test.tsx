@@ -4,6 +4,8 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { nativeTextContrast } from '../../test-utils/nativeContrast';
+import { colors } from '../../styles/playerTheme';
 import type { PlayerAccount, PlayerClubSnapshot, PlayerMembership, PlayerSyncGame } from '../../domain/playerSync';
 import { decodePlayerClubSnapshot } from '../../domain/decoders/playerBoundaryDecoders';
 import { deriveClubsViewState, type PlayerClubsViewState } from '../../domain/playerClubViewState';
@@ -11,9 +13,11 @@ import { ClubMembershipPlanScreen, ClubsScreen, SeatRequestModal } from './ClubR
 
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
-  const element = (tag: string) => ({ children, onPress, accessibilityLabel, editable, style: _style, ...props }: Record<string, unknown>) =>
+  const { nativePaintStyle } = await import('../../test-utils/nativeContrast');
+  const element = (tag: string) => ({ children, onPress, accessibilityLabel, editable, style, ...props }: Record<string, unknown>) =>
     ReactModule.createElement(tag, {
       ...props,
+      style: { backgroundColor: 'transparent', ...nativePaintStyle(style) },
       ...(editable === false ? { disabled: true } : {}),
       ...(typeof onPress === 'function' ? { onClick: onPress } : {}),
       ...(typeof accessibilityLabel === 'string' ? { 'aria-label': accessibilityLabel } : {})
@@ -83,6 +87,7 @@ describe('PlayerApp to ClubsScreen safe composition', () => {
   beforeEach(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     container = document.createElement('div');
+    container.style.backgroundColor = colors.canvas;
     document.body.appendChild(container);
     root = createRoot(container);
   });
@@ -323,6 +328,8 @@ describe('PlayerApp to ClubsScreen safe composition', () => {
     ));
 
     expect(container.textContent).toContain('Refresh published venue data before sending this request.');
+    const warning = Array.from(container.querySelectorAll('span')).find(element => element.textContent === 'Refresh published venue data before sending this request.');
+    expect(nativeTextContrast(warning)).toBeGreaterThanOrEqual(4.5);
     const submit = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('Refresh required'));
     expect(submit?.disabled).toBe(true);
     expect(Array.from(container.querySelectorAll('input')).every((input) => input.disabled)).toBe(true);

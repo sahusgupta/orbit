@@ -4,14 +4,18 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { nativeTextContrast } from '../../test-utils/nativeContrast';
+import { colors } from '../../styles/playerTheme';
 import type { PlayerIdentityStatus } from '../../data/orbitSyncApi';
 import { SettingsScreen } from './SettingsScreen';
 
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
-  const element = (tag: string) => ({ children, onPress, onChangeText, accessibilityRole, style: _style, ...props }: Record<string, unknown>) =>
+  const { nativePaintStyle } = await import('../../test-utils/nativeContrast');
+  const element = (tag: string) => ({ children, onPress, onChangeText, accessibilityRole, style, ...props }: Record<string, unknown>) =>
     ReactModule.createElement(tag, {
       ...props,
+      style: { backgroundColor: 'transparent', ...nativePaintStyle(style) },
       ...(typeof accessibilityRole === 'string' ? { role: accessibilityRole } : {}),
       ...(typeof onPress === 'function' ? { onClick: onPress } : {}),
       ...(typeof onChangeText === 'function'
@@ -51,6 +55,7 @@ describe('SettingsScreen local deletion action', () => {
   beforeEach(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     container = document.createElement('div');
+    container.style.backgroundColor = colors.canvas;
     document.body.appendChild(container);
     root = createRoot(container);
   });
@@ -92,6 +97,7 @@ describe('SettingsScreen local deletion action', () => {
     });
     const action = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Delete local profile and data');
     expect(action).toBeDefined();
+    expect(nativeTextContrast(action?.querySelector('span'))).toBeGreaterThanOrEqual(4.5);
     act(() => action?.click());
     expect(deletePlayerAccount).toHaveBeenCalledOnce();
     expect(container.textContent).not.toContain('Delete account');

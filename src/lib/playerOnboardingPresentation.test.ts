@@ -312,7 +312,8 @@ describe('Player clubs and membership presentation contract', () => {
     const sources = parseSources([clubsFeatureRoot, tournamentFeatureRoot]);
     const styleDigest = digest(clubStyleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('4146c16d924c2ea41ec664ed30eebdad2482ea3753aeb0b3c6d36a73a7f898c2');
+    // Reviewed contrast fix for readable stale-data and request-error messages.
+    expect(styleDigest).toBe('525915d5eca08292225cb941f25db48f001a75357eef8c36d547fd18caf081d1');
   });
 });
 
@@ -361,15 +362,16 @@ describe('Player identity and settings presentation contract', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const componentDigest = digest(settingsComponentNames.map((name) => findFunction(sources, name)));
 
-    // Phone delivery is hidden until its provider is provisioned and verified.
-    expect(componentDigest).toBe('ac40a780f2a10c91fdc5e4ca6d77d2ce3d1045499515afd97bb6ba0a35a07d3a');
+    // Reviewed dark-theme contrast fix; phone delivery remains hidden.
+    expect(componentDigest).toBe('431f8b48207cc8f4512c003b947df1433ca45a5639d5a45a2bb2eee01215e9e6');
   });
 
   it('preserves every identity/settings-owned and shared style value byte-for-byte', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const styleDigest = digest(settingsStyleNames.map((name) => findStyleProperty(sources, name)));
 
-    expect(styleDigest).toBe('eabc34d5040cd19c989aaea1136d4f08621780dbe311857ecb606ed66dc20081');
+    // ID preview and age warnings now use the existing accessible dark palette.
+    expect(styleDigest).toBe('b96cbf3524510b95b5b74774c56a1fb50543e217761358f1879af806c8de3371');
   });
 });
 

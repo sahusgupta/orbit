@@ -257,7 +257,7 @@ export function SettingsScreen({
           </Pressable>
       ) : null}
       <Pressable style={styles.secondaryActionButton} onPress={deletePlayerAccount}>
-        <Text style={[styles.secondaryActionText, { color: '#b42318' }]}>{firebaseIdentity ? 'Delete account' : 'Delete local profile and data'}</Text>
+        <Text style={[styles.secondaryActionText, { color: colors.coral }]}>{firebaseIdentity ? 'Delete account' : 'Delete local profile and data'}</Text>
       </Pressable>
     </View>
   );
