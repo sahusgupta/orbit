@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { buildSync } from 'esbuild';
 import { describe, expect, it } from 'vitest';
 
 describe('Player Web deployment staging', () => {
@@ -34,6 +35,22 @@ describe('Player Web deployment staging', () => {
       expect(existsSync(path.join(outputRoot, '.shared', 'player-app', 'src', 'data', 'playerRequests.ts'))).toBe(true);
       expect(existsSync(path.join(outputRoot, 'node_modules'))).toBe(false);
       expect(existsSync(path.join(outputRoot, '.next'))).toBe(false);
+      // Resolve the actual staged graph outside the repository: parent-tree
+      // imports must not conceal missing runtime dependencies in the upload.
+      expect(() => buildSync({
+        absWorkingDir: outputRoot,
+        entryPoints: [
+          '.shared/player-app/src/domain/playerSync.ts',
+          '.shared/player-app/src/domain/membershipQr.ts',
+          '.shared/player-app/src/data/playerRequests.ts'
+        ],
+        bundle: true,
+        platform: 'browser',
+        format: 'esm',
+        outdir: 'bundle-proof',
+        write: false,
+        logLevel: 'silent'
+      })).not.toThrow();
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
@@ -53,6 +70,8 @@ describe('Player Web deployment staging', () => {
       write('player-web/next.config.ts', "import path from 'node:path';\nconst repositoryRoot = path.resolve(process.cwd(), '..');\n");
       write('player-app/src/domain/contract.ts');
       write('player-app/src/data/playerRequests.ts');
+      write('player-app/src/security/secureIdentifier.ts');
+      write('player-app/src/security/secureIdentifierValidation.ts');
       for (const file of ['.env', '.env.production', '.git/config', 'test-results/recording.txt', 'coverage/index.html']) {
         write(`player-web/${file}`);
       }
