@@ -541,3 +541,41 @@ describe('management player-session commands', () => {
     });
   });
 });
+
+describe('time action ordering and precision', () => {
+  it('adds twice against the current session even when the selected object is stale', () => {
+    const deps = dependencies();
+    const first = addPlayerTime(state(), playerSession, 30, deps);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('First addition failed');
+    const second = addPlayerTime(first.state, playerSession, 30, deps);
+    if (!second.ok) throw new Error('Second addition failed');
+    expect(second.state.playerSessions[0]).toMatchObject({ timePurchasedMinutes: 120, timeRemainingMinutes: 75 });
+    expect(second.state.timeFeeLogs.map((log) => log.minutes)).toEqual([30, 30]);
+  });
+
+  it('preserves consumed seconds through additions and deductions', () => {
+    const timestamp = new Date(new Date(now).getTime() + 45_000).toISOString();
+    const deps = { ...dependencies(), nowMs: () => Date.parse(timestamp), nowIso: () => timestamp };
+    const added = addPlayerTime(state(), playerSession, 30, deps);
+    if (!added.ok) throw new Error('Addition failed');
+    expect(added.state.playerSessions[0].timeRemainingMinutes).toBe(44.25);
+    const deducted = deductUnconsumedPlayerTime(added.state, playerSession.id, 30, 'Correction', deps);
+    if (!deducted.ok) throw new Error('Deduction failed');
+    expect(deducted.state.playerSessions[0].timeRemainingMinutes).toBe(14.25);
+    expect(deductUnconsumedPlayerTime(state(), playerSession.id, 15, 'Correction', deps).ok).toBe(false);
+  });
+
+  it('retains paused time when adding minutes', () => {
+    const paused = { ...playerSession, timeFeeEnabled: false, timeRemainingMinutes: 15 };
+    const added = addPlayerTime(state({ playerSessions: [paused] }), paused, 30, dependencies());
+    if (!added.ok) throw new Error('Addition failed');
+    expect(added.state.playerSessions[0]).toMatchObject({ timeRemainingMinutes: 45, timeFeeEnabled: true });
+  });
+
+  it('rejects missing, closed, and non-finite additions', () => {
+    expect(addPlayerTime(state({ playerSessions: [] }), playerSession, 30, dependencies()).ok).toBe(false);
+    expect(addPlayerTime(state({ playerSessions: [{ ...playerSession, leftAt: now }] }), playerSession, 30, dependencies()).ok).toBe(false);
+    expect(addPlayerTime(state(), playerSession, Infinity, dependencies()).ok).toBe(false);
+  });
+});

@@ -78,7 +78,7 @@ type TableViewProps = {
   getTimerStatusFromSeconds: (seconds: number) => string;
   getMoveTargets: (sourceTableId: string) => { id: string; label: string; openSeats: number }[];
   openSeatPicker: (session: GameSession, requestedSeatNumber?: number) => void;
-  addPlayerTime: (playerSession: PlayerSession, minutes: number) => void;
+  addPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean | void;
   deductPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
   pauseAndSavePlayerTime: (playerSession: PlayerSession) => boolean;
   useSavedPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
@@ -505,7 +505,7 @@ export default function TableView({
                   }
                   onAddTime={(playerId, minutes) => {
                     const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                    if (playerSession) addPlayerTime(playerSession, minutes);
+                    return playerSession ? addPlayerTime(playerSession, minutes) : false;
                   }}
                   onDeductTime={(playerId, minutes) => {
                     const playerSession = seatedPlayers.find((player) => player.id === playerId);

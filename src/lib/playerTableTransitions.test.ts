@@ -1085,6 +1085,20 @@ describe('player table transitions', () => {
     expect(source).toEqual(snapshot);
   });
 
+  it('keeps both rapid time additions made through the same captured handler', async () => {
+    const { targetSession } = await resetState(
+      inspectorSession,
+      [buildProfile('profile-target', playerName), buildProfile('profile-unrelated', unrelatedSession.playerName)],
+      'profile-target'
+    );
+    await invokeCapturedFunction(inspectorSession, '__orbitType007dAddPlayerTime', [targetSession, 30]);
+    await invokeCapturedFunction(inspectorSession, '__orbitType007dAddPlayerTime', [targetSession, 30]);
+    const latest = getLatestState();
+    expect(getRecord(latest.playerSessions, targetSession.id)).toMatchObject({ timePurchasedMinutes: 180, timeRemainingMinutes: 90 });
+    expect(latest.timeFeeLogs.map((log) => log.minutes)).toEqual([30, 30]);
+    expect(getPersistedState().playerSessions).toEqual(latest.playerSessions);
+  });
+
   it('records player time and buy-ins and propagates collection mode to open sessions', async () => {
     const { targetSession } = await resetState(
       inspectorSession,

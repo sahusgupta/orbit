@@ -1,0 +1,1 @@
+Bundled Latin font files from @fontsource/manrope 5.3.0 and @fontsource/dm-mono 5.3.0. Original SIL Open Font Licenses are included alongside the fonts. These preserve the existing families and weights while removing Google Fonts network access from the production build.

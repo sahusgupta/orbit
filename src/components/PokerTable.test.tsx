@@ -371,3 +371,24 @@ describe('PokerTable seat rendering', () => {
     container.remove();
   });
 });
+
+it('keeps the time form open and does not claim success when an addition is rejected', () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const onAddTime = vi.fn(() => false);
+  const click = (label: string) => {
+    const button = Array.from(container.querySelectorAll('button')).find((candidate) => candidate.textContent?.trim() === label);
+    expect(button).toBeDefined();
+    act(() => button?.click());
+  };
+  act(() => root.render(<PokerTable players={[{ id: 'player', name: 'Test', seatNumber: 1, membershipId: 'member', joinedAt: Date.now(), timeRemainingSeconds: 60 }]} showTimeRemaining onAddTime={onAddTime} />));
+  act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Open details for Test at seat 1"]')?.click());
+  click('Add time');
+  click('+30 min');
+  expect(onAddTime).toHaveBeenCalledWith('player', 30);
+  expect(container.textContent).not.toContain('30 minutes added.');
+  expect(container.querySelector('.time-action-panel')).not.toBeNull();
+  act(() => root.unmount());
+  container.remove();
+});

@@ -306,6 +306,10 @@ function createOrbitApiClient(dependencies) {
     const record = await peekStateFromApi(accountKey, access);
     if (!record) return null;
     const priorRevision = revisionByAccount.get(record.accountKey);
+    // A read can finish after a newer save; never roll its revision or cache back.
+    if (priorRevision !== undefined && record.revision < priorRevision) {
+      throw new Error('Discarded an outdated Orbit state response.');
+    }
     revisionByAccount.set(record.accountKey, record.revision);
     if (priorRevision !== record.revision) {
       try {
