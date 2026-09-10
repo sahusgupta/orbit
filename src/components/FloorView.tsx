@@ -3,7 +3,6 @@ import { lazy, Suspense, useRef, type Dispatch, type FormEvent, type ReactNode, 
 import { ChevronDown, ChevronUp, Eye, LayoutDashboard, LayoutGrid, List, MoreHorizontal, Plus, Users, WalletCards, X } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Button } from './ui/button';
-import FloorUtilities from './FloorUtilities';
 import type { Player as PokerTablePlayer } from './PokerTable';
 import PanelTitle from './PanelTitle';
 import { getAccountKeyFromState } from '../domain/licensing';
@@ -39,6 +38,7 @@ import type {
   SeatPickerState
 } from '../features/floor/floorWorkspace';
 
+const FloorUtilities = lazy(() => import('./FloorUtilities'));
 const FloorRoomMap = lazy(() => import('./FloorRoomMap'));
 const FloorClassicOverview = lazy(() => import('./FloorClassicOverview'));
 const PokerTable = lazy(() => import('./PokerTable'));
@@ -201,16 +201,18 @@ export default function FloorView(props: FloorViewProps) {
               type="button"
             ><List size={15} /><span>Classic</span></button>
           </div>
-          <FloorUtilities
-            sessions={state.sessions}
-            games={state.games}
-            playerSessions={state.playerSessions}
-            activityItems={activityItems}
-            clockNow={clockNow}
-            getTimeRemainingSeconds={getTimeRemainingSeconds}
-            formatClock={formatClock}
-            formatTimeLeft={formatTimeLeft}
-          />
+          <Suspense fallback={<span role="status">Loading floor tools...</span>}>
+            <FloorUtilities
+              sessions={state.sessions}
+              games={state.games}
+              playerSessions={state.playerSessions}
+              activityItems={activityItems}
+              clockNow={clockNow}
+              getTimeRemainingSeconds={getTimeRemainingSeconds}
+              formatClock={formatClock}
+              formatTimeLeft={formatTimeLeft}
+            />
+          </Suspense>
           <Dialog.Trigger asChild>
             <button className="waitlist-icon-trigger floor-utility-button" title="Open waitlist" aria-label={`Open waitlist, ${waitingCount} waiting`}>
               <Users size={17} />

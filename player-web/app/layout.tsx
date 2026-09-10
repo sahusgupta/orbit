@@ -1,23 +1,29 @@
 import type { Metadata } from 'next';
-import { DM_Mono, Manrope } from 'next/font/google';
+import localFont from 'next/font/local';
 import type { ReactNode } from 'react';
 import { GlobalStructuredData } from '@/src/components/seo/structured-data';
 import { RouteShell } from '@/src/components/shell/route-shell';
 import { siteConfig } from '@/src/seo/site';
 import './globals.css';
 
-const landingSans = Manrope({
+const landingSans = localFont({
   display: 'swap',
-  subsets: ['latin'],
   variable: '--font-landing-sans',
-  weight: ['400', '500', '600', '700']
+  src: [
+    { path: './fonts/manrope-latin-400-normal.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/manrope-latin-500-normal.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/manrope-latin-600-normal.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/manrope-latin-700-normal.woff2', weight: '700', style: 'normal' }
+  ]
 });
 
-const landingMono = DM_Mono({
+const landingMono = localFont({
   display: 'swap',
-  subsets: ['latin'],
   variable: '--font-landing-mono',
-  weight: ['400', '500']
+  src: [
+    { path: './fonts/dm-mono-latin-400-normal.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/dm-mono-latin-500-normal.woff2', weight: '500', style: 'normal' }
+  ]
 });
 
 export const metadata: Metadata = {
