@@ -1,3 +1,4 @@
+import { getTimeRemainingSeconds } from './domain/operations';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
@@ -470,12 +471,6 @@ const randomToken = () => Array.from(crypto.getRandomValues(new Uint8Array(16)),
 const formatClock = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '-');
 const minutesSince = (iso?: string) => (iso ? Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000)) : 0);
 const formatHours = (hours: number) => `${hours.toFixed(1)}h`;
-const getTimeRemainingSeconds = (session: PlayerSession, nowMs = Date.now()) => {
-  if (!session.timeFeeEnabled) return 0;
-  const baseRemaining = (session.timeRemainingMinutes ?? 0) * 60;
-  const lastTick = new Date(session.lastTimeTickAt ?? session.seatedAt).getTime();
-  return Math.max(0, baseRemaining - Math.floor((nowMs - lastTick) / 1000));
-};
 const formatTimeLeft = (seconds: number) => {
   if (seconds <= 0) return '0:00';
   const hours = Math.floor(seconds / 3600);
@@ -718,6 +713,7 @@ function App() {
     staffName: string;
   } | null>(null);
   const saveSequenceRef = useRef(0);
+  const pendingManagementSaveCountsRef = useRef(new Map<string, number>());
   const pendingManagementSaveRef = useRef<Promise<{ ok: boolean; error?: string }>>(
     Promise.resolve({ ok: true })
   );
@@ -985,6 +981,7 @@ function App() {
   }, []);
 
   useManagementPlayerUpdateSync({
+    isManagementSavePending: (accountKey) => (pendingManagementSaveCountsRef.current.get(accountKey) ?? 0) > 0,
     activeAccountKey,
     announceIncomingPlayerRequest,
     hasAuthenticated,
@@ -1104,6 +1101,8 @@ function App() {
     setSaveStatus({ state: 'saving', message: 'Saving...' });
     const saveSequence = saveSequenceRef.current + 1;
     saveSequenceRef.current = saveSequence;
+    pendingManagementSaveCountsRef.current.set(nextAccountKey,
+      (pendingManagementSaveCountsRef.current.get(nextAccountKey) ?? 0) + 1);
     const pendingSave = pendingManagementSaveRef.current
       .catch(() => ({ ok: false }))
       .then(() => saveManagementState(next))
@@ -1130,6 +1129,11 @@ function App() {
           setSaveStatus({ state: 'error', message });
         }
         return { ok: false, error: message };
+      })
+      .finally(() => {
+        const remainingSaves = (pendingManagementSaveCountsRef.current.get(nextAccountKey) ?? 1) - 1;
+        if (remainingSaves > 0) pendingManagementSaveCountsRef.current.set(nextAccountKey, remainingSaves);
+        else pendingManagementSaveCountsRef.current.delete(nextAccountKey);
       });
     pendingManagementSaveRef.current = pendingSave;
     return pendingSave;
@@ -1452,17 +1456,21 @@ function App() {
   };
 
   const addPlayerTime = (playerSession: PlayerSession, minutes: number) => {
-    const result = addPlayerTimeInState(state, playerSession, minutes, { createId: uid, nowIso, nowMs: Date.now });
-    if (!result.ok) return;
+    const result = addPlayerTimeInState(stateRef.current, playerSession, minutes, { createId: uid, nowIso, nowMs: Date.now });
+    if (!result.ok) {
+      if (result.error) window.alert(result.error);
+      return false;
+    }
     persist(result.state, true, { feature: 'Table time', action: 'Added player time', metadata: { minutes, gameId: playerSession.gameId } });
     setCustomTimeDrafts((drafts) => ({ ...drafts, [playerSession.id]: '' }));
+    return true;
   };
 
   const deductPlayerTime = (playerSession: PlayerSession, minutes: number) => {
     const reason = window.prompt('Why are you deducting this time?', 'Time added by mistake')?.trim();
     if (!reason) return false;
     const result = deductUnconsumedPlayerTime(
-      state,
+      stateRef.current,
       playerSession.id,
       minutes,
       reason,
@@ -1482,7 +1490,7 @@ function App() {
 
   const pauseAndSavePlayerTime = (playerSession: PlayerSession) => {
     const result = pauseAndStorePlayerTimeCredit(
-      state,
+      stateRef.current,
       playerSession.id,
       { nowIso, nowMs: Date.now }
     );
@@ -1500,7 +1508,7 @@ function App() {
 
   const useSavedPlayerTime = (playerSession: PlayerSession, minutes: number) => {
     const result = applySavedPlayerTimeCredit(
-      state,
+      stateRef.current,
       playerSession.id,
       minutes,
       { nowIso, nowMs: Date.now }

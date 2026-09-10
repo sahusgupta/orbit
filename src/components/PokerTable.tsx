@@ -43,7 +43,7 @@ export interface PokerTableProps {
   maxPlayers?: number;
   selectedSeatNumber?: number;
   onSeatClick?: (seatNumber: number) => void;
-  onAddTime?: (playerId: string, minutes: number) => void;
+  onAddTime?: (playerId: string, minutes: number) => boolean | void;
   onDeductTime?: (playerId: string, minutes: number) => boolean | void;
   onPauseAndSaveTime?: (playerId: string) => boolean | void;
   onUseSavedTime?: (playerId: string, minutes: number) => boolean | void;
@@ -67,7 +67,7 @@ interface PlayerCardProps {
   isDragging: boolean;
   onDragStart: (playerId: string) => void;
   onDragEnd: () => void;
-  onAddTime?: (playerId: string, minutes: number) => void;
+  onAddTime?: (playerId: string, minutes: number) => boolean | void;
   onDeductTime?: (playerId: string, minutes: number) => boolean | void;
   onPauseAndSaveTime?: (playerId: string) => boolean | void;
   onUseSavedTime?: (playerId: string, minutes: number) => boolean | void;
@@ -192,7 +192,8 @@ function PlayerCard({
   ].join(' ');
   const seatEdgeClass = seat.y < 34 ? 'edge-top' : seat.y > 66 ? 'edge-bottom' : seat.x < 50 ? 'edge-left' : 'edge-right';
   const addTime = (minutes: number) => {
-    onAddTime?.(player.id, minutes);
+    const result = onAddTime?.(player.id, minutes);
+    if (result === false) return;
     setCustomMinutes('');
     setActiveAction(null);
     setActionMessage(`${minutes} minutes added.`);

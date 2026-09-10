@@ -964,3 +964,25 @@ describe('Electron client telemetry', () => {
     expect(clearIntervalImpl).toHaveBeenCalledWith(71);
   });
 });
+
+it('rejects a delayed read that would roll back a newer saved revision and cache', async () => {
+  const state = { games: [], sessions: [], settings: { pilotAccess: { licenseId: 'club-one', authorizationCode: 'pilot-code' } } };
+  let finishRead: ((value: ReturnType<typeof response>) => void) | undefined;
+  const delayedRead = new Promise<ReturnType<typeof response>>((resolve) => { finishRead = resolve; });
+  const fetch = vi.fn()
+    .mockResolvedValueOnce(response(JSON.stringify({ accountKey: 'club-one', revision: 7, state })))
+    .mockImplementationOnce(() => delayedRead)
+    .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","revision":8}'))
+    .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","revision":9}'));
+  const writeLocalDatabase = vi.fn();
+  const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, writeLocalDatabase }));
+  await client.loadStateFromApi('club-one');
+  const staleRead = client.loadStateFromApi('club-one');
+  await client.saveStateToApi(state);
+  finishRead?.(response(JSON.stringify({ accountKey: 'club-one', revision: 7, state })));
+  await expect(staleRead).rejects.toThrow('outdated Orbit state response');
+  await client.saveStateToApi(state);
+  expect(JSON.parse(fetch.mock.calls[2][1].body).expectedRevision).toBe(7);
+  expect(JSON.parse(fetch.mock.calls[3][1].body).expectedRevision).toBe(8);
+  expect(writeLocalDatabase).toHaveBeenCalledTimes(1);
+});

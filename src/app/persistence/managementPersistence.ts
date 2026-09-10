@@ -86,7 +86,6 @@ export const createManagementPersistence = (dependencies: ManagementPersistenceD
       error?: string;
     };
     if (response.status === 409) {
-      bridgeRevisionByAccount.set(accountKey, Number(payload.currentRevision || expectedRevision));
       return { ok: false, path: 'orbit-api', accountKey, conflict: true, error: payload.error };
     }
     if (!response.ok || !payload.ok) return { ok: false, path: 'orbit-api', accountKey, error: payload.error };
@@ -107,7 +106,12 @@ export const createManagementPersistence = (dependencies: ManagementPersistenceD
     if (response.status === 404) return { status: 'missing' };
     if (!response.ok) return { status: 'unavailable' };
     const record = await response.json() as { accountKey?: string; revision?: number; state?: AppState };
-    if (record.accountKey) bridgeRevisionByAccount.set(record.accountKey, Number(record.revision || 0));
+    if (record.accountKey) {
+      const revision = Number(record.revision || 0);
+      const priorRevision = bridgeRevisionByAccount.get(record.accountKey);
+      if (priorRevision !== undefined && revision < priorRevision) return { status: 'unavailable' };
+      bridgeRevisionByAccount.set(record.accountKey, revision);
+    }
     return { status: 'available', state: record.state };
   };
 
@@ -182,7 +186,8 @@ export const createManagementPersistence = (dependencies: ManagementPersistenceD
   };
 };
 
-const getDefaultManagementPersistence = () => createManagementPersistence({
+let defaultManagementPersistence: ReturnType<typeof createManagementPersistence> | undefined;
+const getDefaultManagementPersistence = () => defaultManagementPersistence ??= createManagementPersistence({
   bridgeBaseUrl: defaultBridgeBaseUrl,
   fetchState: (...args) => fetch(...args),
   firebaseEnabled: rendererFirebaseSyncEnabled,

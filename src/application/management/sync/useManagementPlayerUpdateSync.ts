@@ -19,6 +19,7 @@ type ManagementPlayerUpdateSyncOptions = {
   activeAccountKey: string;
   announceIncomingPlayerRequest: (previousState: AppState, nextState: AppState) => void;
   hasAuthenticated: boolean;
+  isManagementSavePending: (accountKey: string) => boolean;
   setSaveStatus: (status: ManagementSaveStatus) => void;
   setState: Dispatch<SetStateAction<AppState>>;
   clearUndo: () => void;
@@ -27,6 +28,14 @@ type ManagementPlayerUpdateSyncOptions = {
 };
 
 const incomingPlayerOperationKeys = [
+  'physicalTables',
+  'buyIns',
+  'timeFeeLogs',
+  'dropLogs',
+  'dealerAssignments',
+  'handCountLogs',
+  'tableEvents',
+  'correctionLog',
   'profiles',
   'interests',
   'sessions',
@@ -43,6 +52,15 @@ const hasSameIncomingPlayerOperations = (latestState: AppState, remoteState: App
 
 export const mergeIncomingPlayerOperations = (latestState: AppState, remoteState: AppState): AppState => ({
   ...latestState,
+  // Keep balances, receipts, and activity from the same authoritative snapshot.
+  physicalTables: remoteState.physicalTables,
+  buyIns: remoteState.buyIns,
+  timeFeeLogs: remoteState.timeFeeLogs,
+  dropLogs: remoteState.dropLogs,
+  dealerAssignments: remoteState.dealerAssignments,
+  handCountLogs: remoteState.handCountLogs,
+  tableEvents: remoteState.tableEvents,
+  correctionLog: remoteState.correctionLog,
   profiles: remoteState.profiles,
   interests: remoteState.interests,
   sessions: remoteState.sessions,
@@ -56,6 +74,7 @@ export const useManagementPlayerUpdateSync = ({
   activeAccountKey,
   announceIncomingPlayerRequest,
   hasAuthenticated,
+  isManagementSavePending,
   setSaveStatus,
   setState,
   clearUndo,
@@ -66,10 +85,15 @@ export const useManagementPlayerUpdateSync = ({
     if (!hasAuthenticated || !activeAccountKey || hasManagementDesktopPersistence()) return;
     let cancelled = false;
     let bridgeInitialized = false;
+    let syncInFlight = false;
 
     const syncLocalPlayerUpdates = async () => {
+      if (cancelled || syncInFlight || isManagementSavePending(activeAccountKey)) return;
+      syncInFlight = true;
+      const stateWhenLoadStarted = stateRef.current;
       try {
         const record = await loadManagementStateFromLocalBridge(activeAccountKey);
+        if (cancelled || isManagementSavePending(activeAccountKey) || stateRef.current !== stateWhenLoadStarted) return;
         if (record.status === 'missing') {
           if (!bridgeInitialized) {
             const published = await publishStateToLocalOrbitBridge(stateRef.current);
@@ -92,6 +116,8 @@ export const useManagementPlayerUpdateSync = ({
         setSaveStatus({ state: 'saved', message: 'Player operations synced' });
       } catch {
         // The local bridge is optional when Core is running without the linked dev command.
+      } finally {
+        syncInFlight = false;
       }
     };
 
@@ -109,11 +135,13 @@ export const useManagementPlayerUpdateSync = ({
     let syncInFlight = false;
 
     const syncDesktopApiUpdates = async () => {
-      if (syncInFlight) return;
+      if (cancelled || syncInFlight || isManagementSavePending(activeAccountKey)) return;
       syncInFlight = true;
+      const stateWhenLoadStarted = stateRef.current;
       try {
         const record = await loadDesktopManagementStateForAccount(state.settings.pilotAccess!);
-        if (cancelled || !record?.state) return;
+        if (cancelled || !record?.state || record.authoritative === false ||
+          isManagementSavePending(activeAccountKey) || stateRef.current !== stateWhenLoadStarted) return;
         const remoteState = normalizeState(record.state);
         const latestState = stateRef.current;
         if (hasSameIncomingPlayerOperations(latestState, remoteState)) return;
@@ -123,6 +151,7 @@ export const useManagementPlayerUpdateSync = ({
         clearUndo();
         stateRef.current = mergedState;
         setState(mergedState);
+        saveBrowserManagementState(mergedState);
         setSaveStatus({ state: 'saved', message: 'Player operations synced' });
       } catch {
         // The next authoritative API poll retries without accepting cache data as a commit.

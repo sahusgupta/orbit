@@ -11,6 +11,21 @@ export const getTimeRemainingMinutes = (session: PlayerSession, nowMs = Date.now
   return Math.max(0, baseRemaining - Math.floor((nowMs - lastTick) / 60000));
 };
 
+const getTimeRemainingMilliseconds = (session: PlayerSession, nowMs: number) => {
+  if (!session.timeFeeEnabled) return 0;
+  const lastTick = new Date(session.lastTimeTickAt ?? session.seatedAt).getTime();
+  // The rendered clock can precede an action's timestamp by one tick.
+  const elapsed = Math.max(0, nowMs - lastTick);
+  return Math.max(0, Math.round((session.timeRemainingMinutes ?? 0) * 60_000) - elapsed);
+};
+
+// Mutations retain partial minutes; rounding belongs only in the display.
+export const getExactTimeRemainingMinutes = (session: PlayerSession, nowMs = Date.now()) =>
+  getTimeRemainingMilliseconds(session, nowMs) / 60_000;
+
+export const getTimeRemainingSeconds = (session: PlayerSession, nowMs = Date.now()) =>
+  Math.ceil(getTimeRemainingMilliseconds(session, nowMs) / 1000);
+
 export function getDemand(game: GameConfig, interests: Interest[]) {
   const gameInterests = interests.filter((interest) => interest.gameId === game.id);
   const inRoom = gameInterests.filter((interest) => interest.status === 'Arrived' || interest.status === 'Seated').length;

@@ -1,4 +1,4 @@
-import { getTimeRemainingMinutes, hoursBetween } from '../../domain/operations';
+import { getExactTimeRemainingMinutes, hoursBetween } from '../../domain/operations';
 import { getCollectionProfile } from '../../domain/reporting';
 import type { AppState, GameSession, Interest, PlayerProfile, PlayerSession } from '../../domain/types';
 import { syncSessionSeatCount } from './seatingCommands';
@@ -77,7 +77,7 @@ const resolveTimeProfile = (state: AppState, playerSession: PlayerSession): Reso
 
 const getCurrentRemainingMinutes = (playerSession: PlayerSession, nowMs: number) =>
   playerSession.timeFeeEnabled
-    ? getTimeRemainingMinutes(playerSession, nowMs)
+    ? getExactTimeRemainingMinutes(playerSession, nowMs)
     : Math.max(0, Number(playerSession.timeRemainingMinutes) || 0);
 
 export function correctPlayerSession(
@@ -156,12 +156,15 @@ export function setTableCollectionMode(
 
 export function addPlayerTime(
   state: AppState,
-  playerSession: PlayerSession,
+  selectedPlayerSession: PlayerSession,
   minutes: number,
   dependencies: PlayerSessionCommandDependencies
 ): PlayerSessionCommandResult {
-  if (!minutes || minutes <= 0) return { ok: false };
-  const remaining = getTimeRemainingMinutes(playerSession, dependencies.nowMs());
+  if (!Number.isFinite(minutes) || minutes <= 0) return { ok: false };
+  const currentResult = findCurrentPlayerSession(state, selectedPlayerSession.id);
+  if (!currentResult.ok) return currentResult;
+  const playerSession = currentResult.playerSession;
+  const remaining = getCurrentRemainingMinutes(playerSession, dependencies.nowMs());
   const timestamp = dependencies.nowIso();
   const amount = (minutes / 60) * getCollectionProfile(state, playerSession.gameId).hourlyFee;
   return {
@@ -238,7 +241,7 @@ export function deductUnconsumedPlayerTime(
   if (minutes > deductibleMinutes) {
     return {
       ok: false,
-      error: `Only ${deductibleMinutes} unconsumed purchased minute${deductibleMinutes === 1 ? '' : 's'} can be deducted.`
+      error: `Only ${Math.floor(deductibleMinutes)} unconsumed purchased minute${Math.floor(deductibleMinutes) === 1 ? '' : 's'} can be deducted.`
     };
   }
 

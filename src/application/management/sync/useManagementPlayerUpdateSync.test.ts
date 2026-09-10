@@ -25,11 +25,15 @@ describe('management incoming player operation reconciliation', () => {
       interests: [{ id: 'interest', profileId: 'profile', playerName: 'Player', gameId: 'game', status: 'Seated', timestamp: '2026-08-24T12:00:00.000Z', interestedAt: '2026-08-24T12:00:00.000Z', seatedAt: '2026-08-24T12:00:00.000Z', notes: '' }],
       playerLedger: [{ id: 'ledger', type: 'Check-In', profileId: 'profile', playerName: 'Player', tableId: 'table', gameId: 'game', timestamp: '2026-08-24T12:00:00.000Z' }],
       staffRequests: [{ id: 'help', type: 'self-check-in-assistance', playerName: 'New Player', reason: 'not-found', status: 'pending', createdAt: '2026-08-24T12:01:00.000Z' }],
+      timeFeeLogs: [{ id: 'time', playerSessionId: 'player-session', playerName: 'Player', tableId: 'table', gameId: 'game', minutes: 30, amount: 6, timestamp: '2026-08-24T12:00:00.000Z' }],
+      tableEvents: [{ id: 'event', type: 'Merged', gameId: 'game', tableId: 'table', timestamp: '2026-08-24T12:00:00.000Z', playerCount: 1, reason: 'time added', note: '30 minutes added for Player' }],
       selfCheckIn: { capabilityGeneration: 'generation-one', generatedAt: '2026-08-24T11:59:00.000Z' }
     };
 
     const merged = mergeIncomingPlayerOperations(latest, remote);
 
+    expect(merged.timeFeeLogs).toEqual(remote.timeFeeLogs);
+    expect(merged.tableEvents).toEqual(remote.tableEvents);
     expect(merged.profiles).toEqual(remote.profiles);
     expect(merged.sessions).toEqual(remote.sessions);
     expect(merged.playerSessions).toEqual(remote.playerSessions);
