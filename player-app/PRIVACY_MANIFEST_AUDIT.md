@@ -74,6 +74,14 @@ This is a blocking external candidate gate until signed-archive evidence exists.
 
 The binary contains 15 privacy manifests. None declares tracking or tracking domains. The app retains its ten collected-data declarations; CocoaPods adds SDK UserDefaults reasons `1C8F.1` and `C56D.1` alongside app reason `CA92.1`. The base React Native Maps manifest is bundled and declares unlinked precise location; its Google Maps manifest is absent. This confirms the source-level map finding rather than eliminating the privacy-answer reconciliation. This unsigned simulator evidence does not replace signed archive, App Store processing, or physical App Attest evidence.
 
+## Current GitHub simulator evidence
+
+The successful [GitHub simulator run 34063114409](https://github.com/sahusgupta/orbit/actions/runs/34063114409) compiled reviewed source `811040cdb3d2e85d4fb197367b485eb96230548e`, whose tree matches PR #26 merge `9458a6a50567c879b537631b9b25fb76e89b4133`. Its app archive SHA-256 is `392cf7839d435531302174c2bbf820dec7fce0b9e15cf76abd92a14511dec65c`; Xcode build is `17A400`, with simulator SDK `26.0`. It is an ad-hoc simulator build, not a signed device archive.
+
+The actual 15 bundled manifests retain the same ten app-owned collected-data declarations and the SDK UserDefaults reasons `1C8F.1` and `C56D.1`. None declares tracking or tracking domains. `ReactNativeMapsPrivacy.bundle/PrivacyInfo.xcprivacy` is present and declares unlinked precise location for app functionality; `GoogleMapsPrivacy.bundle` and AirGoogleMaps manifests are absent. Camera remains the only usage-description permission. The Maps privacy reconciliation and final signed-archive report remain required; absence of the Google Maps bundle does not remove the base Maps declaration. The [release manifest](./submission/2026-09-06/release-manifest.json) records subsequent packaging-only source and native CI results separately.
+
+The successful [PR #27 native retry](https://github.com/sahusgupta/orbit/actions/runs/34065375278), head `113823ca1f7bad430bbb5943559533139126b654`, produced app ZIP SHA-256 `002dfa56ef4bee6203f159db99e1169e2a83bf0d61daf652594b8d3d07401251`. All 15 manifest objects were compared against the prior GitHub inventory and matched exactly. PR #27 merged at `8d086bfd689b7f0af1037468c0764d16b32d77bc`; reviewed head and merged source have identical Git trees. This remains simulator evidence, with the same signed-archive and accountable-declaration gates.
+
 ## Primary sources
 
 - [Apple: Adding a privacy manifest to your app or third-party SDK](https://developer.apple.com/documentation/bundleresources/adding-a-privacy-manifest-to-your-app-or-third-party-sdk)
