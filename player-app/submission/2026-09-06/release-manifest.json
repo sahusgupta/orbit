@@ -1,25 +1,490 @@
 {
   "schemaVersion": 1,
-  "observedAt": "2026-09-06T13:00:00Z",
-  "status": "preparation-in-progress",
+  "observedAt": "2026-09-07T08:57:37.578Z",
+  "status": "api-candidate-retained-build-verified-runtime-and-release-gates-open",
   "appReviewSubmitted": false,
   "source": {
     "repository": "sahusgupta/orbit",
     "originalPullRequest": "https://github.com/sahusgupta/orbit/pull/25",
     "originalMergeSha": "5b5b18ec92ed94feb125eb8afd0a0140fdfb4ff8",
     "followupPullRequest": "https://github.com/sahusgupta/orbit/pull/26",
-    "candidateCodeSha": "e4fcd7a36bba5fbdc76431d011421aa859e97aa5",
-    "candidatePushed": false,
-    "followupMergeSha": null
+    "candidateCodeSha": "113823ca1f7bad430bbb5943559533139126b654",
+    "candidatePushed": true,
+    "followupMergeSha": "9458a6a50567c879b537631b9b25fb76e89b4133",
+    "initialAuthorizedDocumentationSha": "9df9a5c418cc34b250a3f2b5884cbb4eaf97a1a0",
+    "initialRemoteHeadMatchVerified": true,
+    "repositoryVisibility": "public; explicitly confirmed by user",
+    "currentGeneralCi": "https://github.com/sahusgupta/orbit/actions/runs/34070422400",
+    "currentGeneralCiStatus": "success",
+    "reviewedTreeSha": "ab532ae7b35edb12aebf27c9b4662951818e2ced",
+    "generalCiSyntheticMergeSha": "d1831d8abfe41f74f7d36c89f59a3034475ae8ba",
+    "generalCiTreeMatchesReviewedHead": true,
+    "releaseSourceSha": "8d086bfd689b7f0af1037468c0764d16b32d77bc",
+    "reviewedPrHeadSha": "113823ca1f7bad430bbb5943559533139126b654",
+    "followupMergedAt": "2026-09-06T22:45:47Z",
+    "remoteMainMatchVerified": true,
+    "mergedTreeSha": "ab532ae7b35edb12aebf27c9b4662951818e2ced",
+    "mergedTreeMatchesReviewedHead": true,
+    "pullRequestGeneralCi": "https://github.com/sahusgupta/orbit/actions/runs/34065375262",
+    "pullRequestGeneralCiStatus": "success",
+    "packagingFollowup": {
+      "pullRequest": "https://github.com/sahusgupta/orbit/pull/27",
+      "headSha": "113823ca1f7bad430bbb5943559533139126b654",
+      "baseSha": "9458a6a50567c879b537631b9b25fb76e89b4133",
+      "status": "merged-after-explicit-user-authorization",
+      "reason": "Standalone Web deployment omitted the existing secure identifier generator and validator",
+      "generalCi": "https://github.com/sahusgupta/orbit/actions/runs/34065375262",
+      "nativeCi": "https://github.com/sahusgupta/orbit/actions/runs/34065375278",
+      "apiTreeMatchesPr26Merge": true,
+      "apiTreeSha": "87570aa5b2e8bce56c11161fabebdf319e23a74f",
+      "generalCiStatus": "success",
+      "nativeCiStatus": "success-attempt-2",
+      "nativeFirstAttempt": {
+        "runId": "34065375278",
+        "attempt": 1,
+        "sourceSha": "113823ca1f7bad430bbb5943559533139126b654",
+        "result": "failure-before-iphone-16-app-install",
+        "compilerResult": "pass",
+        "iphone16": "Two 300-second CoreSimulator boot waits timed out before app installation",
+        "iphone16ProMax": "One complete JUnit case passed, zero failures",
+        "largeText": "not-run; iPhone 16 never became ready",
+        "networkRestored": true,
+        "artifactId": "9999112340",
+        "artifactBytes": 20104830,
+        "artifactDigestSha256": "94f8c0666156a52e52832ae83b9d72b2ab0eadf7cb79edfaf3f667ba7f0c209c",
+        "log": "out/release-20260906/native-failed-34065375278.log",
+        "proMaxScreenshotCount": 5,
+        "visualReview": "First launch and deletion-action captures inspected; no critical clipping/contrast issue"
+      },
+      "mergeSha": "8d086bfd689b7f0af1037468c0764d16b32d77bc",
+      "mergeable": "MERGEABLE/CLEAN, no reviews or requests",
+      "mergeAttempt": "Expected-head squash merge succeeded after user explicitly said merge it",
+      "initialMergeAttempt": "Squash merge with expected head was rejected before execution: automatic approval considered explicit merge authorization limited to PR #26",
+      "mergedAt": "2026-09-07T00:37:51Z",
+      "mainCi": "https://github.com/sahusgupta/orbit/actions/runs/34070422400",
+      "mainCiStatus": "success"
+    },
+    "pr26ReviewedHeadSha": "811040cdb3d2e85d4fb197367b485eb96230548e",
+    "candidateTreeSha": "ab532ae7b35edb12aebf27c9b4662951818e2ced",
+    "candidateMerged": true,
+    "pr26GeneralCi": "https://github.com/sahusgupta/orbit/actions/runs/34064957418",
+    "pr26ReviewedTreeSha": "f612275e3bf74c9f49d5ed35a4356411f98cfb9a",
+    "finalMergeSha": "8d086bfd689b7f0af1037468c0764d16b32d77bc",
+    "finalPullRequest": "https://github.com/sahusgupta/orbit/pull/27",
+    "finalMergedAt": "2026-09-07T00:37:51Z"
   },
   "backend": {
     "projectId": "prj_2EEyDB2YImgK9dil3GK79Qy0UfVw",
     "publicOrigin": "https://orbitapp-one.vercel.app",
-    "candidateDeploymentId": null,
-    "candidateSourceSha": null,
+    "candidateDeploymentId": "dpl_3ChFg6JQ9e3DjfGpwT2vMe9iskcZ",
+    "candidateSourceSha": "8d086bfd689b7f0af1037468c0764d16b32d77bc",
     "rollbackDeploymentId": "dpl_CJjBqJEKrsH6sxu2mwd22m3UwWWk",
     "rollbackUrl": "https://orbit-e18gsa0uo-sahoosegs-projects.vercel.app",
-    "deletionPolicyConfigured": false
+    "deletionPolicyConfigured": false,
+    "currentSourceSha": "fb01a452a72d33510ee06c49c560441c9b51307c",
+    "secondaryAlias": {
+      "origin": "https://orbitapp-sahoosegs-projects.vercel.app",
+      "deploymentId": "dpl_FpyDXa1UW2q7MLc9HChYAjE93J3c",
+      "immutableOrigin": "https://orbit-f6o4olsbb-sahoosegs-projects.vercel.app",
+      "sourceSha": "88544b13d5cfa049b0841a9bcf48dfc7cd17de3d",
+      "preserveDuringCanonicalCutover": true
+    },
+    "currentCors": {
+      "activeWebOriginsAccepted": false,
+      "preflightStatus": 403,
+      "invalidOpaqueEntryPresent": true,
+      "existingValidOrigins": [
+        "https://orbit-player-web.vercel.app"
+      ]
+    },
+    "adminCredentialIdentity": {
+      "projectId": "tabletalk-s",
+      "serviceAccountEmail": "firebase-adminsdk-fbsvc@tabletalk-s.iam.gserviceaccount.com",
+      "privateKeyId": "fb29d68eaf68bef1fe0dcbf58a8862721d3a503e",
+      "basis": "Exact diagnostic key ID matched IAM key resource; client_email was redacted in build-log output.",
+      "credentialScope": "Current managed Vercel production variable inherited by approved diagnostic; not a claim about all older immutable deployments",
+      "secretValueReadLocally": false
+    },
+    "compatibility": {
+      "basis": "offline source comparison to provider deployment metadata; no runtime request",
+      "currentCanonicalSourceHasRequiredNewRoutes": false,
+      "missingRoutes": [
+        "POST /player/identity/capture",
+        "POST /player/membership-qr",
+        "POST /management/membership-qr/redeem",
+        "POST /player/tournament-interests",
+        "DELETE /player/tournament-interests",
+        "GET /version"
+      ],
+      "evidence": "out/release-20260906/deployed-api-contract-comparison.json"
+    },
+    "lastCandidateAttempt": {
+      "observedAt": "2026-09-07T01:25:44.232Z",
+      "id": "dpl_4KoTNHWQboGvHv14aguYMCNDVQzx",
+      "url": "orbit-2z4qop31u-sahoosegs-projects.vercel.app",
+      "projectId": "prj_2EEyDB2YImgK9dil3GK79Qy0UfVw",
+      "target": "production",
+      "readyState": "READY",
+      "createdAt": 1788744236450,
+      "ready": 1788744260737,
+      "alias": [
+        "orbitapp-sahoosegs-projects.vercel.app"
+      ],
+      "aliasAssigned": true,
+      "automaticAliases": [
+        "orbitapp-sahoosegs-projects.vercel.app"
+      ],
+      "meta": {
+        "orbitReleaseSha": "9458a6a50567c879b537631b9b25fb76e89b4133"
+      },
+      "nodeVersion": "22.x",
+      "projectSettings": {
+        "framework": "node",
+        "buildCommand": "node ../../release-credential-metadata.cjs",
+        "installCommand": "npm ci",
+        "nodeVersion": "22.x"
+      },
+      "credentialMetadata": null,
+      "buildEvidence": [
+        "2026-09-07T01:24:00.235Z  Warning: Detected \"engines\": { \"node\": \"22.16.0\" } in your `package.json` with major.minor.patch, but only major Node.js Version can be selected. Learn More: https://vercel.link/node-version",
+        "2026-09-07T01:24:00.240Z  Running \"install\" command: `npm ci`...",
+        "2026-09-07T01:24:06.318Z  added 261 packages, and audited 262 packages in 6s",
+        "2026-09-07T01:24:06.321Z  found 0 vulnerabilities",
+        "2026-09-07T01:24:13.069Z  Build Completed in /vercel/output [13s]"
+      ],
+      "rollbackRequired": "Secondary API alias unexpectedly reassigned despite --skip-domain; restored to original target before removing this candidate.",
+      "status": "rolled-back-and-deleted",
+      "approvedByUser": true,
+      "canonicalAliasChanged": false,
+      "secondaryAliasUnexpectedlyChanged": true,
+      "secondaryAliasRestoredTo": "dpl_FpyDXa1UW2q7MLc9HChYAjE93J3c",
+      "rollbackVerifiedAt": "2026-09-07T01:26:25.641Z",
+      "allFourAliasesAndSavedBuildSettingsRestored": true,
+      "deletionConfirmedByCli": true,
+      "runtimeRequestsIssued": false,
+      "incidentalTrafficOrDataEffects": "not established by available control-plane evidence",
+      "evidence": "out/release-20260906/api-candidate-4KoTNHWQ-metadata.json",
+      "impactMetrics": {
+        "result": "unavailable",
+        "providerError": "payment_required",
+        "reason": "Observability Plus required; no plan change authorized or made",
+        "evidence": "out/release-20260906/first-api-attempt-invocation-metrics.json"
+      }
+    },
+    "revisedDiagnosticProposal": {
+      "preparedAt": "2026-09-07T01:28:50.589Z",
+      "sourceSha": "9458a6a50567c879b537631b9b25fb76e89b4133",
+      "apiTreeSha": "87570aa5b2e8bce56c11161fabebdf319e23a74f",
+      "projectId": "prj_2EEyDB2YImgK9dil3GK79Qy0UfVw",
+      "teamId": "team_CdmC6YZS1GNIoI0waQ2G01ED",
+      "stage": "C:/Users/herob/OneDrive/Documents/GitHub/TableManager/out/release-20260906/api-diagnostic-retry-8mYr6Q",
+      "archiveSha256": "641a57a65c7666974946f2b0eef756bd5b1348517f39e7e4861aad36bfafec0c",
+      "diagnosticSha256": "1659eb901aed854f3ec0833c42284492fd52ee29802ef6808fcc6cc57668e10e",
+      "configSha256": "54b29e10fcedf19305d66a848ce29dc909d1ae1ef0e94f906b96ef7831ed542b",
+      "apiLockSha256": "5367352d5e0bbb226d74d7b38e01b7a5dcdb32b933e32b39603edee140b1b389",
+      "config": {
+        "$schema": "https://openapi.vercel.sh/vercel.json",
+        "git": {
+          "deploymentEnabled": false
+        },
+        "installCommand": "node ../../release-credential-metadata.cjs",
+        "buildCommand": "node ../../release-credential-metadata.cjs"
+      },
+      "tests": [
+        {
+          "name": "valid metadata emits exactly three fields then exits 42",
+          "result": "pass",
+          "expectedExit": 42
+        },
+        {
+          "name": "invalid JSON exits 1 without echo",
+          "result": "pass",
+          "expectedExit": 1
+        },
+        {
+          "name": "wrong project exits 1 without echo",
+          "result": "pass",
+          "expectedExit": 1
+        },
+        {
+          "name": "missing managed credential exits 1",
+          "result": "pass",
+          "expectedExit": 1
+        }
+      ],
+      "approved": true,
+      "uploaded": true,
+      "intendedProviderResult": "ERROR during install: exit 42 after metadata, or exit 1 if unavailable; no application installation/bundle/runtime",
+      "note": "Approved by user yes, executed once, expected install exit 42, deleted; historical preparation fields do not authorize another build.",
+      "dryRun": {
+        "result": "pass",
+        "uploaded": false,
+        "files": 113,
+        "bytes": 1290951,
+        "evidence": "out/release-20260906/api-diagnostic-retry-dry.json"
+      }
+    },
+    "diagnosticExecution": {
+      "observedAt": "2026-09-07T04:00:24.333Z",
+      "id": "dpl_A6qRPz4VEbHuxfi23ViEGVSEuvhz",
+      "url": "orbit-q79iz6vvn-sahoosegs-projects.vercel.app",
+      "projectId": "prj_2EEyDB2YImgK9dil3GK79Qy0UfVw",
+      "target": "production",
+      "readyState": "ERROR",
+      "createdAt": 1788753492481,
+      "alias": [
+        "orbitapp-sahoosegs-projects.vercel.app"
+      ],
+      "aliasAssigned": false,
+      "automaticAliases": [
+        "orbitapp-sahoosegs-projects.vercel.app"
+      ],
+      "meta": {
+        "orbitReleaseSha": "9458a6a50567c879b537631b9b25fb76e89b4133",
+        "orbitDiagnosticOnly": "true"
+      },
+      "nodeVersion": "22.x",
+      "projectSettings": {
+        "framework": "node",
+        "buildCommand": "node ../../release-credential-metadata.cjs",
+        "installCommand": "node ../../release-credential-metadata.cjs",
+        "nodeVersion": "22.x"
+      },
+      "credentialMetadata": {
+        "project_id": "tabletalk-s",
+        "client_email": null,
+        "private_key_id": "fb29d68eaf68bef1fe0dcbf58a8862721d3a503e",
+        "clientEmailRedactedInObservedLogs": true
+      },
+      "buildEvidence": [
+        "2026-09-07T03:58:16.688Z  Running \"install\" command: `node ../../release-credential-metadata.cjs`...",
+        "2026-09-07T03:58:16.739Z  Error: Command \"node ../../release-credential-metadata.cjs\" exited with 42"
+      ],
+      "logCommandExitCode": 1,
+      "expectedDiagnosticStopObserved": true,
+      "runtimeRequestsIssued": false,
+      "status": "completed-as-intended-and-deleted",
+      "serviceAccountEmailFromIamCorrelation": "firebase-adminsdk-fbsvc@tabletalk-s.iam.gserviceaccount.com",
+      "removed": true,
+      "deletionEvidence": "out/release-20260906/api-diagnostic-approved-deletion.json",
+      "aliasesAndSavedSettingsUnchanged": true,
+      "aliasesVerifiedAt": "2026-09-07T04:01:11.281Z"
+    },
+    "deploymentProtectionMetadata": {
+      "observedAt": "2026-09-07T04:31:13.783Z",
+      "projectId": "prj_2EEyDB2YImgK9dil3GK79Qy0UfVw",
+      "accountId": "team_CdmC6YZS1GNIoI0waQ2G01ED",
+      "rootDirectory": "apps/api",
+      "framework": "node",
+      "ssoProtection": {
+        "deploymentType": "all_except_custom_domains"
+      },
+      "passwordProtectionConfigured": false,
+      "trustedIpsConfigured": false,
+      "autoAssignCustomDomains": true,
+      "previewDeploymentSuffix": null,
+      "domains": [
+        {
+          "name": "orbitapp-one.vercel.app",
+          "verified": true,
+          "gitBranch": null,
+          "redirect": null
+        }
+      ],
+      "domainsObservedAt": "2026-09-07T04:31:37.165Z",
+      "runtimeTested": false,
+      "interpretation": "Generated URLs should require Vercel Authentication; settings do not prove absence of invocations or bypass paths."
+    },
+    "retainedCandidateProposal": {
+      "preparedAt": "2026-09-07T04:36:05.182Z",
+      "approved": true,
+      "uploaded": true,
+      "sourceSha": "8d086bfd689b7f0af1037468c0764d16b32d77bc",
+      "apiTreeSha": "87570aa5b2e8bce56c11161fabebdf319e23a74f",
+      "archiveSha256": "066361a75ddb30344f924bca35fc9e3ea36cd4c8266aff67b8ce89d765afc795",
+      "configSha256": "3a631bf706ba0f638ff0917dcd331f32f9e05d249c0c63dc6a4c2b5fc871ba35",
+      "apiLockSha256": "5367352d5e0bbb226d74d7b38e01b7a5dcdb32b933e32b39603edee140b1b389",
+      "stage": "C:/Users/herob/AppData/Local/Temp/orbit-api-candidate-8d086bfd-hJ5lW1",
+      "dryRun": {
+        "checkedAt": "2026-09-07T04:36:34.298Z",
+        "result": "pass",
+        "framework": "node",
+        "files": 112,
+        "bytes": 1289762,
+        "everyUploadedFileHashMatched": true,
+        "uploaded": false,
+        "evidence": "out/release-20260906/retained-api-candidate-dry.json"
+      },
+      "scope": "Create one production-environment API candidate; tolerate provider automatic secondary-alias assignment and immediately restore its exact prior target. Retain candidate only after READY, build verification and all four alias/settings checks. Control-plane/build inspection only; no intentional runtime requests.",
+      "risk": "Protection inferred from provider settings, not runtime tested. Authorized users or existing bypass paths could invoke candidate or secondary alias while assigned; requests can trigger durable quotas and pending deletion/identity cleanup. These effects cannot be reversed by alias restoration. No bypass is retrieved or created.",
+      "rollback": "Restore only any changed alias to the recorded prior immutable target; delete only the new candidate if build, protection, alias or saved-setting verification fails. Never delete prior deployments or broadly promote. Deployment deletion cannot reverse runtime data effects.",
+      "evidence": "out/release-20260906/retained-api-candidate-proposal.json",
+      "executionEvidence": "out/release-20260906/retained-api-approved-execution.json"
+    },
+    "candidateUrl": "https://orbit-l5lr0hmcw-sahoosegs-projects.vercel.app",
+    "candidateRuntimeVerified": false,
+    "candidateCanonicalCutover": false,
+    "retainedCandidateExecution": {
+      "authorizedBy": "User: i approve the prepared API deployment and rollback",
+      "approved": true,
+      "startedAt": "2026-09-07T04:48:15.174Z",
+      "sourceSha": "8d086bfd689b7f0af1037468c0764d16b32d77bc",
+      "projectId": "prj_2EEyDB2YImgK9dil3GK79Qy0UfVw",
+      "teamId": "team_CdmC6YZS1GNIoI0waQ2G01ED",
+      "deploymentId": "dpl_3ChFg6JQ9e3DjfGpwT2vMe9iskcZ",
+      "state": "retained-ready-build-verified",
+      "runtimeRequestsIssued": false,
+      "aliasEvents": [],
+      "observations": [
+        {
+          "observedAt": "2026-09-07T04:48:25.161Z",
+          "readyState": "BUILDING"
+        },
+        {
+          "observedAt": "2026-09-07T04:48:35.887Z",
+          "readyState": "BUILDING"
+        },
+        {
+          "observedAt": "2026-09-07T04:48:47.298Z",
+          "readyState": "READY"
+        }
+      ],
+      "url": "https://orbit-l5lr0hmcw-sahoosegs-projects.vercel.app",
+      "finishedAt": "2026-09-07T04:49:25.053Z",
+      "aliasesAndSavedSettingsVerified": true,
+      "candidateRetained": true,
+      "metadata": {
+        "observedAt": "2026-09-07T04:49:25.052Z",
+        "id": "dpl_3ChFg6JQ9e3DjfGpwT2vMe9iskcZ",
+        "url": "orbit-l5lr0hmcw-sahoosegs-projects.vercel.app",
+        "projectId": "prj_2EEyDB2YImgK9dil3GK79Qy0UfVw",
+        "target": "production",
+        "readyState": "READY",
+        "createdAt": 1788756497520,
+        "ready": 1788756521700,
+        "alias": [],
+        "aliasAssigned": true,
+        "automaticAliases": [
+          "orbitapp-sahoosegs-projects.vercel.app"
+        ],
+        "meta": {
+          "orbitReleaseSha": "8d086bfd689b7f0af1037468c0764d16b32d77bc"
+        },
+        "nodeVersion": "22.x",
+        "projectSettings": {
+          "framework": "node",
+          "installCommand": "npm ci",
+          "buildCommand": null,
+          "nodeVersion": "22.x"
+        }
+      },
+      "buildEvidence": [
+        "2026-09-07T04:48:20.957Z  Warning: Detected \"engines\": { \"node\": \"22.16.0\" } in your `package.json` with major.minor.patch, but only major Node.js Version can be selected. Learn More: https://vercel.link/node-version",
+        "2026-09-07T04:48:20.961Z  Running \"install\" command: `npm ci`...",
+        "2026-09-07T04:48:27.206Z  added 261 packages, and audited 262 packages in 6s",
+        "2026-09-07T04:48:27.207Z  found 0 vulnerabilities",
+        "2026-09-07T04:48:33.709Z  Build Completed in /vercel/output [13s]",
+        "2026-09-07T04:48:41.885Z  Deployment completed"
+      ],
+      "function": {
+        "name": "index",
+        "size": "3.43MB",
+        "region": "iad1",
+        "source": "vercel inspect control-plane output"
+      },
+      "aliases": [
+        {
+          "alias": "orbitapp-one.vercel.app",
+          "projectId": "prj_2EEyDB2YImgK9dil3GK79Qy0UfVw",
+          "deploymentId": "dpl_CJjBqJEKrsH6sxu2mwd22m3UwWWk",
+          "url": "orbit-e18gsa0uo-sahoosegs-projects.vercel.app"
+        },
+        {
+          "alias": "orbitapp-sahoosegs-projects.vercel.app",
+          "projectId": "prj_2EEyDB2YImgK9dil3GK79Qy0UfVw",
+          "deploymentId": "dpl_FpyDXa1UW2q7MLc9HChYAjE93J3c",
+          "url": "orbit-f6o4olsbb-sahoosegs-projects.vercel.app"
+        },
+        {
+          "alias": "orbit-player-web-liart.vercel.app",
+          "projectId": "prj_22SN9L7TvAKHTye7x6PZmBhvNkoq",
+          "deploymentId": "dpl_7A8Ptm4BcUEnkgY8gBvqKbGvj3pa",
+          "url": "orbit-player-kzmuv190g-sahoosegs-projects.vercel.app"
+        },
+        {
+          "alias": "orbit-player-web-sahoosegs-projects.vercel.app",
+          "projectId": "prj_22SN9L7TvAKHTye7x6PZmBhvNkoq",
+          "deploymentId": "dpl_7A8Ptm4BcUEnkgY8gBvqKbGvj3pa",
+          "url": "orbit-player-kzmuv190g-sahoosegs-projects.vercel.app"
+        }
+      ],
+      "aliasesVerifiedAt": "2026-09-07T04:50:16.401Z",
+      "runtimeVerified": false,
+      "canonicalCutover": false,
+      "deploymentOnlyEnvironment": {
+        "ORBIT_RELEASE_SHA": "8d086bfd689b7f0af1037468c0764d16b32d77bc",
+        "ORBIT_ALLOWED_ORIGINS": "https://orbit-player-web.vercel.app,https://orbit-player-web-liart.vercel.app,https://orbit-player-web-sahoosegs-projects.vercel.app"
+      }
+    },
+    "runtimeAccessMetadata": {
+      "observedAt": "2026-09-07T08:54:13.068Z",
+      "projectId": "prj_2EEyDB2YImgK9dil3GK79Qy0UfVw",
+      "automationBypassConfigured": true,
+      "totalBypassEntryCount": 1,
+      "secretValuesRecorded": false,
+      "providerMutation": false
+    },
+    "initialRuntimeProposal": {
+      "preparedAt": "2026-09-07T08:56:52.512Z",
+      "approved": false,
+      "executed": false,
+      "deploymentId": "dpl_3ChFg6JQ9e3DjfGpwT2vMe9iskcZ",
+      "sourceSha": "8d086bfd689b7f0af1037468c0764d16b32d77bc",
+      "maximumRequests": 8,
+      "evidence": "out/release-20260906/retained-api-runtime-proposal.json",
+      "authorizationRequired": "Requests initialize the real production-backed API, can write durable rate-limit counters, and schedule pending account-deletion/identity-provider cleanup. These existing pending operations may have irreversible effects even on health or CORS requests. This is a production runtime approval, not read-only inspection.",
+      "rollback": "Stop requests on failure. If a confirmed critical startup/source/CORS defect is found, delete only dpl_3ChFg6JQ9e3DjfGpwT2vMe9iskcZ after verifying its identity and the four original live alias targets; preserve existing live deployments/config. No alias cutover. Deployment deletion cannot undo rate-limit writes, account deletion or identity cleanup already performed.",
+      "runner": {
+        "path": "out/release-20260906/retained-api-runtime-runner.cjs",
+        "sha256": "356f08e4d725fec324fdfe2f7dd525397c9389bba1a91b3806ced648bf042fa0",
+        "localTests": 20,
+        "localTestResult": "pass",
+        "testEvidence": "out/release-20260906/retained-api-runtime-runner-tests.json",
+        "executionCommand": "node out/release-20260906/retained-api-runtime-runner.cjs --execute",
+        "approvalRequired": true
+      }
+    },
+    "latestCandidateAudit": {
+      "observedAt": "2026-09-07T08:57:37.578Z",
+      "deploymentId": "dpl_3ChFg6JQ9e3DjfGpwT2vMe9iskcZ",
+      "readyState": "READY",
+      "sourceSha": "8d086bfd689b7f0af1037468c0764d16b32d77bc",
+      "aliases": [
+        {
+          "alias": "orbitapp-one.vercel.app",
+          "projectId": "prj_2EEyDB2YImgK9dil3GK79Qy0UfVw",
+          "deploymentId": "dpl_CJjBqJEKrsH6sxu2mwd22m3UwWWk"
+        },
+        {
+          "alias": "orbitapp-sahoosegs-projects.vercel.app",
+          "projectId": "prj_2EEyDB2YImgK9dil3GK79Qy0UfVw",
+          "deploymentId": "dpl_FpyDXa1UW2q7MLc9HChYAjE93J3c"
+        },
+        {
+          "alias": "orbit-player-web-liart.vercel.app",
+          "projectId": "prj_22SN9L7TvAKHTye7x6PZmBhvNkoq",
+          "deploymentId": "dpl_7A8Ptm4BcUEnkgY8gBvqKbGvj3pa"
+        },
+        {
+          "alias": "orbit-player-web-sahoosegs-projects.vercel.app",
+          "projectId": "prj_22SN9L7TvAKHTye7x6PZmBhvNkoq",
+          "deploymentId": "dpl_7A8Ptm4BcUEnkgY8gBvqKbGvj3pa"
+        }
+      ],
+      "protectionAndSavedSettingsUnchanged": true,
+      "runtimeRequestsIssued": false,
+      "evidence": "out/release-20260906/retained-api-current-audit.json"
+    }
   },
   "playerWeb": {
     "projectId": "prj_22SN9L7TvAKHTye7x6PZmBhvNkoq",
@@ -27,7 +492,8 @@
     "candidateDeploymentId": null,
     "rollbackDeploymentId": "dpl_7A8Ptm4BcUEnkgY8gBvqKbGvj3pa",
     "rollbackUrl": "https://orbit-player-kzmuv190g-sahoosegs-projects.vercel.app",
-    "productionConfigurationPrepared": true
+    "productionConfigurationPrepared": true,
+    "secondaryPublicOrigin": "https://orbit-player-web-sahoosegs-projects.vercel.app"
   },
   "firebase": {
     "projectId": "tabletalk-s",
@@ -39,10 +505,93 @@
     "rollbackRuleset": "projects/tabletalk-s/rulesets/a74cb1f9-275a-491c-a8f7-0c513241cade",
     "rollbackRulesSha256": "0c1805ef988d2ea68913b65524009698bfa1f5c236785cce1779ef52cc474f21",
     "indexAndTtlDeploymentComplete": false,
-    "appCheckProvidersPrepared": ["ios-app-attest", "web-recaptcha-enterprise"],
+    "appCheckProvidersPrepared": [
+      "ios-app-attest",
+      "web-recaptcha-enterprise"
+    ],
     "firebaseAppCheckEnforcement": "off-pending-active-client-proof",
     "dedicatedWebKeyRestrictionsVerified": true,
-    "nativeKeyRestrictionInventory": "pending-explicit-access-approval"
+    "nativeKeyRestrictionInventory": "complete; native platform allowlists empty; JS Auth transport compatibility must precede restriction changes",
+    "readyCompositeIndexes": 15,
+    "requiredCompositeIndexes": 14,
+    "allRequiredCompositeIndexesPresent": true,
+    "preserveAdditionalLegacyIndex": "privateGames: status ASC, createdAt DESC, __name__ DESC",
+    "activeTtlFields": 0,
+    "adminKeyMetadata": {
+      "currentManagedKeyId": "fb29d68eaf68bef1fe0dcbf58a8862721d3a503e",
+      "olderQuarantinedKeyId": "bffbadd088e4b1f7b93dd7fa9cfb58c49cc2a259",
+      "bothEnabled": true,
+      "metadata": {
+        "observedAt": "2026-09-07T04:02:54.440Z",
+        "projectId": "tabletalk-s",
+        "diagnosticKeyId": "fb29d68eaf68bef1fe0dcbf58a8862721d3a503e",
+        "serviceAccountEmail": "firebase-adminsdk-fbsvc@tabletalk-s.iam.gserviceaccount.com",
+        "identityBasis": "Exact diagnostic key ID matched IAM key resource; client_email was redacted in build-log output.",
+        "keys": [
+          {
+            "name": "projects/tabletalk-s/serviceAccounts/firebase-adminsdk-fbsvc@tabletalk-s.iam.gserviceaccount.com/keys/bffbadd088e4b1f7b93dd7fa9cfb58c49cc2a259",
+            "validAfterTime": "2026-06-29T08:37:21Z",
+            "validBeforeTime": "9999-12-31T23:59:59Z",
+            "keyType": "USER_MANAGED",
+            "disabled": false
+          },
+          {
+            "name": "projects/tabletalk-s/serviceAccounts/firebase-adminsdk-fbsvc@tabletalk-s.iam.gserviceaccount.com/keys/fb29d68eaf68bef1fe0dcbf58a8862721d3a503e",
+            "validAfterTime": "2026-07-17T01:05:38Z",
+            "validBeforeTime": "9999-12-31T23:59:59Z",
+            "keyType": "USER_MANAGED",
+            "disabled": false
+          }
+        ],
+        "usage": [
+          {
+            "keyId": "bffbadd088e4b1f7b93dd7fa9cfb58c49cc2a259",
+            "result": "queried",
+            "startTime": "2026-06-01T00:00:00Z",
+            "endTime": "2026-09-07T04:02:54.440Z",
+            "series": 1,
+            "points": 3,
+            "authenticationEventCount": 9,
+            "latestNonzeroDailyBucket": "2026-09-01T04:02:54.440Z",
+            "truncated": false
+          },
+          {
+            "keyId": "fb29d68eaf68bef1fe0dcbf58a8862721d3a503e",
+            "result": "queried",
+            "startTime": "2026-06-01T00:00:00Z",
+            "endTime": "2026-09-07T04:02:54.440Z",
+            "series": 1,
+            "points": 28,
+            "authenticationEventCount": 57709,
+            "latestNonzeroDailyBucket": "2026-09-06T04:02:54.440Z",
+            "truncated": false
+          }
+        ]
+      },
+      "olderKeyAuditMetadata": {
+        "observedAt": "2026-09-07T04:06:43.861Z",
+        "projectId": "tabletalk-s",
+        "keyId": "bffbadd088e4b1f7b93dd7fa9cfb58c49cc2a259",
+        "operation": "Cloud Logging entries:list, read-only, metadata projection only",
+        "result": "queried",
+        "entries": [],
+        "window": {
+          "start": "2026-08-31T04:02:54.440Z",
+          "end": "2026-09-01T04:02:54.440Z",
+          "basis": "Latest positive authentication metric daily bucket for old key"
+        },
+        "pages": 1,
+        "priorAttempt": {
+          "status": 400,
+          "projection": "Nested service/method selection within protoPayload; narrowed to timestamp/logName instead of retrieving full payloads."
+        },
+        "truncated": false,
+        "limitation": "Audit metadata availability does not prove that all consumers are inventoried; no user/request payloads, document paths, IPs, or tokens were requested."
+      },
+      "consumersResolved": false,
+      "credentialsChanged": false,
+      "evidence": "out/release-20260906/firebase-key-usage-after-diagnostic.json"
+    }
   },
   "legalUrls": {
     "privacy": "https://orbitapp-one.vercel.app/privacy",
@@ -68,49 +617,706 @@
     "minimumIos": "15.1",
     "bundledPrivacyManifestCount": 15,
     "trackingDeclared": false,
-    "usageDescriptionPermissions": ["camera"],
+    "usageDescriptionPermissions": [
+      "camera"
+    ],
     "appleTeamId": null,
     "signedBuildId": null,
     "testFlightBuildId": null,
     "appStoreConnectAppId": null,
-    "simulatorQaRun": "https://github.com/sahusgupta/orbit/actions/runs/34029362548",
-    "simulatorQaStatus": "cancelled-during-runtime-discovery-on-earlier-source",
+    "simulatorQaRun": "https://github.com/sahusgupta/orbit/actions/runs/34065375278",
+    "simulatorQaStatus": "pass on PR #27 head after unchanged-job retry: both iPhone sizes and accessibility-large",
     "githubSimulatorArtifact": {
-      "sourceSha": "2da2c6fc57acc69df9ae0cefbd2dd30e97a5f1a9",
-      "artifactId": "9989138790",
-      "url": "https://github.com/sahusgupta/orbit/actions/runs/34029362548/artifacts/9989138790",
+      "sourceSha": "113823ca1f7bad430bbb5943559533139126b654",
+      "mergedSourceSha": "8d086bfd689b7f0af1037468c0764d16b32d77bc",
+      "sameSourceTree": true,
+      "artifactId": "9999461703",
+      "url": "https://github.com/sahusgupta/orbit/actions/runs/34065375278/artifacts/9999461703",
       "compilerResult": "succeeded",
-      "appZipSha256": "a26a2c0ed536074f41aa2ccb714ca1b0dfdbfd7326d5289347e65a17eef07438",
+      "signing": "Xcode ad-hoc simulator; no Apple account certificate",
+      "applicationIdentifier": "FAKETEAMID.com.orbit.player",
+      "artifactDigestSha256": "85beb43afc76f73c567c4d3e3c87ffd82fa3597fad766ff618898c23f9c6cb19",
+      "artifactBytes": 30433184,
+      "appZipSha256": "002dfa56ef4bee6203f159db99e1169e2a83bf0d61daf652594b8d3d07401251",
+      "appZipBytes": 11878718,
       "xcodeVersion": "26.0.1",
       "xcodeBuild": "17A400",
       "bundledPrivacyManifestCount": 15,
       "trackingDeclared": false,
-      "deviceFlowResultsProduced": false,
-      "screenshotsProduced": false,
-      "jobConcludedAt": "2026-09-06T12:19:48Z",
-      "rerunStatus": "local-diagnostics-prepared-pending-push-approval"
+      "deviceFlowResultsProduced": true,
+      "deviceFlowStatus": "all three JUnit cases passed",
+      "networkIsolationVerified": true,
+      "networkRestored": true,
+      "screenshotsProduced": true,
+      "screenshotCount": 15,
+      "primaryScreenshotDimensions": "1320x2868",
+      "primaryScreenshotCount": 5,
+      "screenshotsHaveAlpha": false,
+      "screenshotStatus": "Original synthetic local-flow captures verified; enlarged age gate and Pro Max deletion screen visually reviewed; not approved marketing or authenticated venue captures",
+      "captureManifest": "out/release-20260906/store-capture-candidates-113823c/capture-manifest.json",
+      "largeTextSize": "accessibility-large",
+      "bootRetries": "None on successful retry: iPhone 16 ready in 57 seconds and Pro Max in 58 seconds; previous failed job retained separately",
+      "attempt": 2,
+      "sourceNote": "Compiled from reviewed PR head; its entire Git tree equals the actual merge tree"
+    },
+    "pr26GithubSimulatorArtifact": {
+      "sourceSha": "811040cdb3d2e85d4fb197367b485eb96230548e",
+      "mergedSourceSha": "9458a6a50567c879b537631b9b25fb76e89b4133",
+      "sameSourceTree": true,
+      "artifactId": "9998605299",
+      "url": "https://github.com/sahusgupta/orbit/actions/runs/34063114409/artifacts/9998605299",
+      "compilerResult": "succeeded",
+      "signing": "Xcode ad-hoc simulator; no Apple account certificate",
+      "applicationIdentifier": "FAKETEAMID.com.orbit.player",
+      "artifactDigestSha256": "e7b366accafaf52dc5352d7e55582f4e0996b1d61dc2fd104a4cb95c321c9c54",
+      "artifactBytes": 29476582,
+      "appZipSha256": "392cf7839d435531302174c2bbf820dec7fce0b9e15cf76abd92a14511dec65c",
+      "appZipBytes": 11878718,
+      "xcodeVersion": "26.0.1",
+      "xcodeBuild": "17A400",
+      "bundledPrivacyManifestCount": 15,
+      "trackingDeclared": false,
+      "deviceFlowResultsProduced": true,
+      "deviceFlowStatus": "all three JUnit cases passed",
+      "networkIsolationVerified": true,
+      "networkRestored": true,
+      "screenshotsProduced": true,
+      "screenshotCount": 15,
+      "primaryScreenshotDimensions": "1320x2868",
+      "primaryScreenshotCount": 5,
+      "screenshotsHaveAlpha": false,
+      "screenshotStatus": "Original synthetic local-flow captures visually reviewed; final store selection and authenticated venue captures remain pending",
+      "captureManifest": "out/release-20260906/store-capture-candidates/capture-manifest.json",
+      "largeTextSize": "accessibility-large",
+      "bootRetries": "Each disposable simulator used its existing single boot retry before app installation; no app assertion retried"
     }
   },
   "verification": [
-    { "command": "npm run web:e2e", "date": "2026-09-06", "result": "pass", "routes": 15, "viewports": 6, "captures": 90, "interactionChecks": 44 },
-    { "command": "npm run e2e:public", "date": "2026-09-06", "result": "pass", "routes": 8 },
-    { "command": "npm test -- apps/api/src/firebasePublisher.test.js", "date": "2026-09-06", "result": "pass", "tests": 36 },
-    { "command": "npm run typecheck:api", "date": "2026-09-06", "result": "pass" },
-    { "command": "npm run test:firestore-rules", "date": "2026-09-06", "result": "pass-local", "tests": 8, "project": "demo-orbit-release-ci", "javaVersion": "21.0.12.1", "productionAccess": false },
-    { "command": "npm run security:paths", "date": "2026-09-06", "result": "pass" },
-    { "command": "npm run check:release-controls", "date": "2026-09-06", "result": "pass" },
-    { "command": "npm run audit:module-graph", "date": "2026-09-06", "result": "pass", "modules": 238, "relativeEdges": 709 },
-    { "command": "npm run player:export:ios", "date": "2026-09-06", "result": "pass", "sourceSha": "e4fcd7a36bba5fbdc76431d011421aa859e97aa5", "sourceNote": "Export ran immediately before the matching waitlist source was committed; neither older native archive contains these fixes.", "modules": 1145, "assets": 19 },
-    { "command": "npm run verify", "date": "2026-09-06", "result": "pass", "sourceSha": "e4fcd7a36bba5fbdc76431d011421aa859e97aa5", "checks": 13, "rootApiPlayerTests": 1353, "webTests": 209, "salesMapTests": 85, "separateEmulatorTestsSkipped": 8, "priorAttempt": "Five esbuild checks could not start under the Windows filesystem sandbox; all passed in the permitted isolated rerun." },
-    { "command": "gitleaks git . --log-opts=--all --redact=100", "date": "2026-09-06", "result": "exit-1-reviewed-findings", "commits": 386, "findings": 22 },
-    { "command": "gitleaks git . --pre-commit --staged --redact=100", "date": "2026-09-06", "result": "pass-latest-waitlist-code-commit", "sourceSha": "e4fcd7a36bba5fbdc76431d011421aa859e97aa5", "bytesScanned": 4331, "findings": 0 }
+    {
+      "command": "npm run web:e2e",
+      "date": "2026-09-06",
+      "result": "pass",
+      "routes": 15,
+      "viewports": 6,
+      "captures": 90,
+      "interactionChecks": 44
+    },
+    {
+      "command": "npm run e2e:public",
+      "date": "2026-09-06",
+      "result": "pass",
+      "routes": 8
+    },
+    {
+      "command": "npm test -- apps/api/src/firebasePublisher.test.js",
+      "date": "2026-09-06",
+      "result": "pass",
+      "tests": 36
+    },
+    {
+      "command": "npm run typecheck:api",
+      "date": "2026-09-06",
+      "result": "pass"
+    },
+    {
+      "command": "npm run test:firestore-rules",
+      "date": "2026-09-06",
+      "result": "pass-local",
+      "tests": 8,
+      "project": "demo-orbit-release-ci",
+      "javaVersion": "21.0.12.1",
+      "productionAccess": false
+    },
+    {
+      "command": "npm run security:paths",
+      "date": "2026-09-06",
+      "result": "pass"
+    },
+    {
+      "command": "npm run check:release-controls",
+      "date": "2026-09-06",
+      "result": "pass"
+    },
+    {
+      "command": "npm run audit:module-graph",
+      "date": "2026-09-06",
+      "result": "pass",
+      "modules": 238,
+      "relativeEdges": 709
+    },
+    {
+      "command": "npm run player:export:ios",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "e4fcd7a36bba5fbdc76431d011421aa859e97aa5",
+      "sourceNote": "Export ran immediately before the matching waitlist source was committed; neither older native archive contains these fixes.",
+      "modules": 1145,
+      "assets": 19
+    },
+    {
+      "command": "npm run verify",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "e4fcd7a36bba5fbdc76431d011421aa859e97aa5",
+      "checks": 13,
+      "rootApiPlayerTests": 1353,
+      "webTests": 209,
+      "salesMapTests": 85,
+      "separateEmulatorTestsSkipped": 8,
+      "priorAttempt": "Five esbuild checks could not start under the Windows filesystem sandbox; all passed in the permitted isolated rerun."
+    },
+    {
+      "command": "gitleaks git . --log-opts=--all --redact=100",
+      "date": "2026-09-06",
+      "result": "exit-1-reviewed-findings",
+      "commits": 386,
+      "findings": 22
+    },
+    {
+      "command": "gitleaks git . --pre-commit --staged --redact=100",
+      "date": "2026-09-06",
+      "result": "pass-latest-waitlist-code-commit",
+      "sourceSha": "e4fcd7a36bba5fbdc76431d011421aa859e97aa5",
+      "bytesScanned": 4331,
+      "findings": 0
+    },
+    {
+      "command": "npm run verify",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "3a044fe467fc1510dbfaf256365ffb3a0397b899",
+      "checks": 13,
+      "rootApiPlayerTests": 1360,
+      "webTests": 209,
+      "salesMapTests": 85,
+      "separateEmulatorTestsSkipped": 8,
+      "log": "out/release-20260906/verify-simulator-network.log"
+    },
+    {
+      "command": "GitHub CI",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "3a044fe467fc1510dbfaf256365ffb3a0397b899",
+      "runId": "34059009311",
+      "separateEmulatorTests": 8,
+      "expoDoctorChecks": 18,
+      "webCaptures": 90,
+      "webInteractions": 44
+    },
+    {
+      "command": "npm test -- player-app/App.render.test.tsx",
+      "date": "2026-09-06",
+      "result": "2-characterization-pass; new-delayed-inset-regression-failed-before-fix; all-3-pass-after-fix",
+      "sourceSha": "0aef72cf6bacba2f0f1df0bfa0c31b58a2bf82c3",
+      "provider": "real installed safe-area JS implementation with native inset event controlled"
+    },
+    {
+      "command": "npm run player:typecheck",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "0aef72cf6bacba2f0f1df0bfa0c31b58a2bf82c3"
+    },
+    {
+      "command": "npm run player:release:verify",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "0aef72cf6bacba2f0f1df0bfa0c31b58a2bf82c3"
+    },
+    {
+      "command": "gitleaks git . --pre-commit --staged --redact=100",
+      "date": "2026-09-06",
+      "result": "pass-startup-fix",
+      "sourceSha": "0aef72cf6bacba2f0f1df0bfa0c31b58a2bf82c3",
+      "bytesScanned": 8354,
+      "findings": 0
+    },
+    {
+      "command": "npm run verify",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "0aef72cf6bacba2f0f1df0bfa0c31b58a2bf82c3",
+      "checks": 13,
+      "rootApiPlayerTests": 1363,
+      "webTests": 209,
+      "salesMapTests": 85,
+      "separateEmulatorTestsSkipped": 8,
+      "log": "out/release-20260906/verify-app-root.log"
+    },
+    {
+      "command": "GitHub CI",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "0aef72cf6bacba2f0f1df0bfa0c31b58a2bf82c3",
+      "runId": "34060414007",
+      "separateEmulatorTests": 8,
+      "expoDoctorChecks": 18,
+      "webCaptures": 90,
+      "webInteractions": 44,
+      "log": "out/release-20260906/ci-34060414007.log"
+    },
+    {
+      "command": "npm run verify",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "06342eba9bdb2eadfdf99541013cab6a17522ded",
+      "checks": 13,
+      "rootApiPlayerTests": 1363,
+      "webTests": 209,
+      "salesMapTests": 85,
+      "separateEmulatorTestsSkipped": 8,
+      "log": "out/release-20260906/verify-onboarding-layout.log"
+    },
+    {
+      "command": "GitHub CI",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "06342eba9bdb2eadfdf99541013cab6a17522ded",
+      "runId": "34062115348"
+    },
+    {
+      "command": "npm test -- player-app/src/features/settings/IdentityVerificationScreen.render.test.tsx player-app/src/features/settings/SettingsScreen.render.test.tsx player-app/src/features/clubs/ClubRoutes.render.test.tsx src/lib/playerOnboardingPresentation.test.ts",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "4ed7b7aa6c76e753bd85908d2f8f54298dbb8ab6",
+      "tests": 35,
+      "priorResult": "five contrast regressions failed before product edits; three reviewed color digests updated afterward",
+      "log": "out/release-20260906/native-contrast-green.log"
+    },
+    {
+      "command": "npm run player:typecheck",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "4ed7b7aa6c76e753bd85908d2f8f54298dbb8ab6"
+    },
+    {
+      "command": "gitleaks git . --pre-commit --staged --redact=100",
+      "date": "2026-09-06",
+      "result": "pass-contrast-fix",
+      "sourceSha": "4ed7b7aa6c76e753bd85908d2f8f54298dbb8ab6",
+      "bytesScanned": 7615,
+      "findings": 0
+    },
+    {
+      "command": "npm run verify",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "4ed7b7aa6c76e753bd85908d2f8f54298dbb8ab6",
+      "checks": 13,
+      "rootApiPlayerTests": 1363,
+      "webTests": 209,
+      "salesMapTests": 85,
+      "separateEmulatorTestsSkipped": 8,
+      "log": "out/release-20260906/verify-native-contrast.log"
+    },
+    {
+      "command": "npm run verify",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "811040cdb3d2e85d4fb197367b485eb96230548e",
+      "checks": 13,
+      "rootApiPlayerTests": 1363,
+      "webTests": 209,
+      "salesMapTests": 85,
+      "separateEmulatorTestsSkipped": 8,
+      "log": "out/release-20260906/verify-text-scaling.log"
+    },
+    {
+      "command": "GitHub CI",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "4ed7b7aa6c76e753bd85908d2f8f54298dbb8ab6",
+      "runId": "34062466220",
+      "separateEmulatorTests": 8,
+      "expoDoctorChecks": 18,
+      "webCaptures": 90,
+      "webInteractions": 44
+    },
+    {
+      "command": "npx vitest run scripts/player-simulator-network.test.js",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "811040cdb3d2e85d4fb197367b485eb96230548e",
+      "tests": 7
+    },
+    {
+      "command": "GitHub CI",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "811040cdb3d2e85d4fb197367b485eb96230548e",
+      "runId": "34063114279",
+      "log": "out/release-20260906/ci-34063114279.log"
+    },
+    {
+      "command": "GitHub native simulator QA",
+      "date": "2026-09-06",
+      "sourceSha": "4ed7b7aa6c76e753bd85908d2f8f54298dbb8ab6",
+      "runId": "34062466349",
+      "result": "cancelled-by-superseding-text-scaling-run-before-app-install",
+      "compilerResult": "pass",
+      "deviceFlowResultsProduced": false,
+      "artifactId": "9998089937",
+      "artifactDigestSha256": "9091534ed0dc2fb6eda9e8e55a5789a76cf6909e538c19403824cdcb43b09658",
+      "artifactBytes": 12149595
+    },
+    {
+      "command": "npm run security:dependencies",
+      "date": "2026-09-06",
+      "sourceSha": "811040cdb3d2e85d4fb197367b485eb96230548e",
+      "result": "pass-existing-reviewed-reachability-policy",
+      "rootAdvisories": 0,
+      "apiAdvisories": 0,
+      "webAdvisories": 0,
+      "playerHighAdvisories": 8,
+      "playerCriticalAdvisories": 0,
+      "mandatoryReviewBy": "2026-09-30",
+      "evidence": "docs/architecture/DEPENDENCY_SECURITY.md"
+    },
+    {
+      "command": "node scripts/run-player-simulator-qa.mjs",
+      "date": "2026-09-06",
+      "sourceSha": "811040cdb3d2e85d4fb197367b485eb96230548e",
+      "result": "pass",
+      "runId": "34063114409",
+      "junitCases": 3,
+      "screenshots": 15,
+      "log": "out/release-20260906/native-34063114409.log"
+    },
+    {
+      "command": "GitHub CI",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "9458a6a50567c879b537631b9b25fb76e89b4133",
+      "runId": "34064957418",
+      "log": "out/release-20260906/ci-34064957418.log"
+    },
+    {
+      "command": "npm run build --prefix <isolated exact-merge Web staging>",
+      "date": "2026-09-06",
+      "result": "pass-after-packaging-fix",
+      "sourceSha": "9458a6a50567c879b537631b9b25fb76e89b4133",
+      "packagingFixSha": "113823ca1f7bad430bbb5943559533139126b654",
+      "productionServiceAccess": false,
+      "log": "out/release-20260906/merged-web-build-corrected.log"
+    },
+    {
+      "command": "npm run verify",
+      "date": "2026-09-06",
+      "sourceSha": "113823ca1f7bad430bbb5943559533139126b654",
+      "result": "pass",
+      "checks": 13,
+      "rootApiPlayerTests": 1363,
+      "webTests": 209,
+      "salesMapTests": 85,
+      "separateEmulatorTestsSkipped": 8,
+      "log": "out/release-20260906/verify-web-staging-fix.log"
+    },
+    {
+      "command": "GitHub CI",
+      "date": "2026-09-06",
+      "result": "pass",
+      "sourceSha": "113823ca1f7bad430bbb5943559533139126b654",
+      "runId": "34065375262",
+      "log": "out/release-20260906/ci-34065375262.log"
+    },
+    {
+      "command": "node scripts/run-player-simulator-qa.mjs",
+      "date": "2026-09-06",
+      "runId": "34065375278",
+      "attempt": 1,
+      "sourceSha": "113823ca1f7bad430bbb5943559533139126b654",
+      "result": "failure-before-iphone-16-app-install",
+      "compilerResult": "pass",
+      "iphone16": "Two 300-second CoreSimulator boot waits timed out before app installation",
+      "iphone16ProMax": "One complete JUnit case passed, zero failures",
+      "largeText": "not-run; iPhone 16 never became ready",
+      "networkRestored": true,
+      "artifactId": "9999112340",
+      "artifactBytes": 20104830,
+      "artifactDigestSha256": "94f8c0666156a52e52832ae83b9d72b2ab0eadf7cb79edfaf3f667ba7f0c209c",
+      "log": "out/release-20260906/native-failed-34065375278.log"
+    },
+    {
+      "command": "node scripts/run-player-simulator-qa.mjs",
+      "date": "2026-09-06",
+      "sourceSha": "113823ca1f7bad430bbb5943559533139126b654",
+      "result": "pass-after-one-unchanged-job-infrastructure-retry",
+      "runId": "34065375278",
+      "attempt": 2,
+      "junitCases": 3,
+      "screenshots": 15,
+      "firstBootsPassed": true,
+      "log": "out/release-20260906/native-34065375278-attempt2.log"
+    },
+    {
+      "command": "npm ci --prefix <isolated PR #27 API stage>/apps/api; node --check <stage>/apps/api/src/server.js",
+      "date": "2026-09-06",
+      "sourceSha": "113823ca1f7bad430bbb5943559533139126b654",
+      "result": "pass",
+      "installedPackages": 261,
+      "advisories": 0,
+      "apiStarted": false,
+      "log": "out/release-20260906/candidate-api-install-113823c.log"
+    },
+    {
+      "command": "npm ci --prefix <isolated PR #27 Web stage>; npm run build --prefix <same stage>",
+      "date": "2026-09-06",
+      "sourceSha": "113823ca1f7bad430bbb5943559533139126b654",
+      "result": "pass",
+      "mergeSha": null,
+      "productionServiceAccess": false,
+      "log": "out/release-20260906/candidate-web-build-113823c.log"
+    },
+    {
+      "command": "npm ci --prefix C:/Users/herob/AppData/Local/Temp/orbit-release-8d086bfd689b-ddzeYB/web; npm run build --prefix C:/Users/herob/AppData/Local/Temp/orbit-release-8d086bfd689b-ddzeYB/web",
+      "date": "2026-09-07",
+      "sourceSha": "8d086bfd689b7f0af1037468c0764d16b32d77bc",
+      "result": "pass",
+      "installedPackages": 569,
+      "advisories": 0,
+      "productionServiceAccess": false,
+      "log": "out/release-20260906/merged-web-build-8d086bf.log"
+    },
+    {
+      "command": "GitHub CI including npm run verify, npm run test:firestore-rules, native export/prebuild, and browser smokes",
+      "date": "2026-09-07",
+      "sourceSha": "8d086bfd689b7f0af1037468c0764d16b32d77bc",
+      "result": "pass",
+      "runId": "34070422400",
+      "checks": 13,
+      "rootApiPlayerTests": 1363,
+      "webTests": 209,
+      "salesMapTests": 85,
+      "separateEmulatorTests": 8,
+      "expoDoctorChecks": 18,
+      "log": "out/release-20260906/ci-34070422400.log"
+    },
+    {
+      "command": "Vercel deploy with exact approved source/config, --prod --skip-domain, two deployment-only overrides",
+      "date": "2026-09-07",
+      "sourceSha": "9458a6a50567c879b537631b9b25fb76e89b4133",
+      "result": "build-pass-release-boundary-fail-rolled-back",
+      "deploymentId": "dpl_4KoTNHWQboGvHv14aguYMCNDVQzx",
+      "nodeVersion": "22.x",
+      "installedPackages": 261,
+      "auditedPackages": 262,
+      "vulnerabilities": 0,
+      "diagnosticIdentifiersObserved": false,
+      "runtimeRequestsIssued": false
+    },
+    {
+      "command": "Restore secondary alias, remove only candidate, refresh all four aliases and saved API build settings",
+      "date": "2026-09-07",
+      "result": "pass",
+      "evidence": "out/release-20260906/api-candidate-after.json",
+      "observedAt": "2026-09-07T01:26:25.641Z"
+    },
+    {
+      "command": "Synthetic revised diagnostic tests and vercel deploy --dry --json",
+      "date": "2026-09-07",
+      "result": "pass",
+      "tests": 4,
+      "uploaded": false,
+      "createdDeployment": false,
+      "files": 113,
+      "bytes": 1290951,
+      "evidence": "out/release-20260906/api-diagnostic-retry-proposal.json"
+    },
+    {
+      "command": "Approved install-phase credential diagnostic using exact reviewed source/config and deployment-only overrides",
+      "date": "2026-09-07",
+      "sourceSha": "9458a6a50567c879b537631b9b25fb76e89b4133",
+      "deploymentId": "dpl_A6qRPz4VEbHuxfi23ViEGVSEuvhz",
+      "result": "pass-expected-install-exit-42-provider-ERROR",
+      "aliasAssigned": false,
+      "runtimeRequestsIssued": false,
+      "evidence": "out/release-20260906/api-diagnostic-approved-metadata.json"
+    },
+    {
+      "command": "Delete diagnostic and verify all four aliases, saved API build settings, and subsequent not-found result",
+      "date": "2026-09-07",
+      "result": "pass",
+      "evidence": "out/release-20260906/api-diagnostic-approved-after.json"
+    },
+    {
+      "command": "Read-only IAM key inventory and Cloud Monitoring authentication-count queries",
+      "date": "2026-09-07",
+      "result": "pass-metadata-inspection",
+      "currentManagedCredentialIdentified": true,
+      "oldKeyStillEnabledAndHasRecentUse": true,
+      "consumersResolved": false,
+      "evidence": "out/release-20260906/firebase-key-usage-after-diagnostic.json"
+    },
+    {
+      "command": "Metadata-only Cloud Logging lookup for older key in latest positive authentication day",
+      "date": "2026-09-07",
+      "result": "query-complete-zero-entries-not-proof-of-inactivity",
+      "earlierAttemptStatus": 400,
+      "pages": 1,
+      "truncated": false,
+      "evidence": "out/release-20260906/firebase-old-key-audit-metadata.json"
+    },
+    {
+      "command": "Aggregate Vercel function-invocation count for prior candidate alias window",
+      "date": "2026-09-07",
+      "result": "unavailable-payment-required",
+      "planChanged": false,
+      "evidence": "out/release-20260906/first-api-attempt-invocation-metrics.json"
+    }
   ],
   "remainingAuthorityGates": [
+    "All three candidate/diagnostic approvals are executed; the final merged API candidate is retained and build-verified. Intentional runtime requests/cutover, credential remediation, other configuration, and App Check require their own concrete approved production scopes.",
     "Apple Account Holder authentication, team/seller confirmation, agreements, signing and App Store Connect access",
     "Counsel-approved territory/venue authority and deletion/retention dispositions",
     "Privacy-owner final signed-archive and payment-channel classification",
-    "Pending automatic-approval questions for release-branch push, CORS preflights, key-restriction metadata and Vercel credential metadata",
-    "Physical-device App Attest/camera/TestFlight testing when a compatible device is available",
+    "Physical-device App Attest/camera/TestFlight testing; no compatible device is connected",
     "Subjective final screenshot/store-copy approval and explicit App Review authorization"
-  ]
+  ],
+  "productionMutationProposal": "../../../docs/agent/tasks/player-production-mutation-proposal.md",
+  "packaging": {
+    "preparedAt": "2026-09-07T00:38:51.132Z",
+    "mergeSha": "8d086bfd689b7f0af1037468c0764d16b32d77bc",
+    "candidateSha": null,
+    "reviewedHead": "113823ca1f7bad430bbb5943559533139126b654",
+    "tree": "ab532ae7b35edb12aebf27c9b4662951818e2ced",
+    "source": "git archive of exact verified merge; no working-tree files",
+    "uploaded": false,
+    "stageRoot": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-release-8d086bfd689b-ddzeYB",
+    "apiRoot": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-release-8d086bfd689b-ddzeYB\\api",
+    "webRoot": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-release-8d086bfd689b-ddzeYB\\web",
+    "apiArchive": {
+      "archivePath": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-release-8d086bfd689b-ddzeYB\\api-source.tar",
+      "archiveSha256": "066361a75ddb30344f924bca35fc9e3ea36cd4c8266aff67b8ce89d765afc795",
+      "bytes": 1392640
+    },
+    "webArchive": {
+      "archivePath": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-release-8d086bfd689b-ddzeYB\\web-source.tar",
+      "archiveSha256": "72cfa2a7dfc89d381842e4eae1214fa124773bb71f753bcb91018c4c847225a2",
+      "bytes": 1597440
+    },
+    "apiLockSha256": "5367352d5e0bbb226d74d7b38e01b7a5dcdb32b933e32b39603edee140b1b389",
+    "webLockSha256": "06ee8b44b1b4685458c116b46b881fef43c28d75cd7321834c00caa13cbd3ec2",
+    "brandingSha256": "6b3a75801e3072c43e2197bc14b4e3092ec650f72a9130c7f4d19d99d033c5f9",
+    "webSharedModulesPresent": true,
+    "stagedWebFiles": 164,
+    "forbiddenStagedWebFiles": [],
+    "webLocalBuild": {
+      "result": "pass",
+      "productionServiceAccess": false,
+      "deployableAsProductionPrebuilt": false,
+      "installLog": "out/release-20260906/merged-web-install-8d086bf.log",
+      "buildLog": "out/release-20260906/merged-web-build-8d086bf.log",
+      "installedPackages": 569,
+      "advisories": 0,
+      "note": "Built from clean exact-merge archive with loopback API and disabled client sync/App Check; not approved for production prebuilt upload."
+    }
+  },
+  "packagingFollowup": {
+    "preparedAt": "2026-09-06T23:46:12.722Z",
+    "mergeSha": null,
+    "candidateSha": "113823ca1f7bad430bbb5943559533139126b654",
+    "reviewedHead": "113823ca1f7bad430bbb5943559533139126b654",
+    "tree": "ab532ae7b35edb12aebf27c9b4662951818e2ced",
+    "source": "git archive of exact reviewed PR head; not merged; no working-tree files",
+    "uploaded": false,
+    "stageRoot": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-candidate-113823ca1f7b-wF0SbA",
+    "apiRoot": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-candidate-113823ca1f7b-wF0SbA\\api",
+    "webRoot": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-candidate-113823ca1f7b-wF0SbA\\web",
+    "apiArchive": {
+      "archivePath": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-candidate-113823ca1f7b-wF0SbA\\api-source.tar",
+      "archiveSha256": "38574174718066120132c5461a80f918816dc7e21b8a7b29a5c0d5cc63277102",
+      "bytes": 1392640
+    },
+    "webArchive": {
+      "archivePath": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-candidate-113823ca1f7b-wF0SbA\\web-source.tar",
+      "archiveSha256": "1f6939ba41819d4e9ba3b416e62fbc77b8a23f0ea4ec837dbec434afc1583e0b",
+      "bytes": 1597440
+    },
+    "apiLockSha256": "5367352d5e0bbb226d74d7b38e01b7a5dcdb32b933e32b39603edee140b1b389",
+    "webLockSha256": "06ee8b44b1b4685458c116b46b881fef43c28d75cd7321834c00caa13cbd3ec2",
+    "brandingSha256": "6b3a75801e3072c43e2197bc14b4e3092ec650f72a9130c7f4d19d99d033c5f9",
+    "webSharedModulesPresent": true,
+    "stagedWebFiles": 164,
+    "forbiddenStagedWebFiles": [],
+    "apiInstall": {
+      "result": "pass",
+      "advisories": 0,
+      "entrypointSyntax": "pass",
+      "apiStarted": false
+    },
+    "webLocalBuild": {
+      "result": "pass",
+      "installedPackages": 569,
+      "advisories": 0,
+      "sourceSha": "113823ca1f7bad430bbb5943559533139126b654",
+      "productionServiceAccess": false,
+      "deployableAsProductionPrebuilt": false,
+      "installLog": "out/release-20260906/candidate-web-install-113823c.log",
+      "buildLog": "out/release-20260906/candidate-web-build-113823c.log",
+      "note": "Clean git-archive inputs from the exact unmerged PR head; loopback API and disabled client sync/App Check. A later production deployment must rebuild with approved managed public settings."
+    }
+  },
+  "firstApiCandidatePackaging": {
+    "preparedAt": "2026-09-06T22:47:10.322Z",
+    "mergeSha": "9458a6a50567c879b537631b9b25fb76e89b4133",
+    "reviewedHead": "811040cdb3d2e85d4fb197367b485eb96230548e",
+    "tree": "f612275e3bf74c9f49d5ed35a4356411f98cfb9a",
+    "source": "git archive of exact verified merge; no working-tree files",
+    "uploaded": false,
+    "stageRoot": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-release-9458a6a50567-JGcVhU",
+    "apiRoot": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-release-9458a6a50567-JGcVhU\\api",
+    "webRoot": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-release-9458a6a50567-JGcVhU\\web",
+    "apiArchive": {
+      "archivePath": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-release-9458a6a50567-JGcVhU\\api-source.tar",
+      "archiveSha256": "641a57a65c7666974946f2b0eef756bd5b1348517f39e7e4861aad36bfafec0c",
+      "bytes": 1392640
+    },
+    "webArchive": {
+      "archivePath": "C:\\Users\\herob\\AppData\\Local\\Temp\\orbit-release-9458a6a50567-JGcVhU\\web-source.tar",
+      "archiveSha256": "20e15f5822ffefa5e9ef69f024af40f5c78446976ae60f9ecebb66bc1c816265",
+      "bytes": 1587200
+    },
+    "apiLockSha256": "5367352d5e0bbb226d74d7b38e01b7a5dcdb32b933e32b39603edee140b1b389",
+    "webLockSha256": "06ee8b44b1b4685458c116b46b881fef43c28d75cd7321834c00caa13cbd3ec2",
+    "brandingSha256": "6b3a75801e3072c43e2197bc14b4e3092ec650f72a9130c7f4d19d99d033c5f9",
+    "webSharedModulesPresent": true,
+    "stagedWebFiles": 162,
+    "forbiddenStagedWebFiles": [],
+    "proposedApiPackaging": {
+      "executedRemotely": false,
+      "diagnosticSha256": "36d276a91dd43de545d70387a004c048c35beec3d7060aa65ff58c64abee513d",
+      "originalConfigSha256": "b2ca3677c797f6006864cf604eee0ad15713d2d2b5f8b8b8b6f74a683095f428",
+      "configSha256": "cdaeb998684fecf014a95494710fcbade61cb59fee13f342f9974c3044d5a119",
+      "config": {
+        "$schema": "https://openapi.vercel.sh/vercel.json",
+        "git": {
+          "deploymentEnabled": false
+        },
+        "installCommand": "npm ci",
+        "buildCommand": "node ../../release-credential-metadata.cjs"
+      },
+      "deploymentOnlyEnvironment": {
+        "ORBIT_RELEASE_SHA": "9458a6a50567c879b537631b9b25fb76e89b4133",
+        "ORBIT_ALLOWED_ORIGINS": "https://orbit-player-web.vercel.app,https://orbit-player-web-liart.vercel.app,https://orbit-player-web-sahoosegs-projects.vercel.app"
+      }
+    },
+    "apiDryRun": {
+      "result": "pass-no-upload",
+      "files": 113,
+      "bytes": 1290802,
+      "log": "out/release-20260906/api-deploy-dry-9458a6a.json"
+    },
+    "webLocalBuild": {
+      "result": "pass-after-including-existing-secure-identifier-helpers",
+      "productionServiceAccess": false,
+      "firstLog": "out/release-20260906/merged-web-build.log",
+      "correctedLog": "out/release-20260906/merged-web-build-corrected.log",
+      "note": "Application files are exact PR #26 merge blobs; packaging script correction is under review in PR #27. Local build uses loopback API and disabled sync/App Check and must not be uploaded as a prebuilt production deployment."
+    },
+    "historicalPreparationRecord": true,
+    "subsequentAttempt": {
+      "deploymentId": "dpl_4KoTNHWQboGvHv14aguYMCNDVQzx",
+      "outcome": "READY then rolled back/deleted after unexpected secondary-alias assignment",
+      "evidence": "out/release-20260906/api-candidate-4KoTNHWQ-metadata.json"
+    }
+  }
 }

@@ -2,9 +2,9 @@
 
 The current, machine-checkable submission package is [`APP_STORE_SUBMISSION.md`](./APP_STORE_SUBMISSION.md). Superseded Premium/IAP/private-game drafts were removed because those products are not in the conservative first release.
 
-September 6 execution status: PR #25 was externally merged at `5b5b18ec92ed94feb125eb8afd0a0140fdfb4ff8`; [PR #26](https://github.com/sahusgupta/orbit/pull/26) carries attestation, native compiler, hosted-runtime, and subsequent release fixes. [The execution record](../docs/agent/tasks/player-release-execution.md) is authoritative for dated evidence. EAS and GitHub unsigned simulator apps compiled successfully. The GitHub interaction job was cancelled after hanging during CoreSimulator runtime discovery; no device-flow result or screenshot was produced. Corrected diagnostics and later source fixes remain local pending push approval. No signed build, TestFlight upload, API/rules promotion, or App Review submission is claimed.
+September 6 execution status: PR #25 was externally merged at `5b5b18ec92ed94feb125eb8afd0a0140fdfb4ff8`; [PR #26](https://github.com/sahusgupta/orbit/pull/26) carries attestation, hosted-runtime, integrity, and native QA fixes. The seven authorized commits were pushed and documentation HEAD `9df9a5c418cc34b250a3f2b5884cbb4eaf97a1a0` matched the remote. Subsequent CI repairs are pushed to the same branch. GitHub reports this repository as public; the user explicitly authorized continuing with that visibility. [The execution record](../docs/agent/tasks/player-release-execution.md) retains exact source, failure, and verification evidence. A retained API candidate is now build-verified as recorded below. Rules deployment, signed device build, TestFlight upload, and App Review submission remain incomplete. The first approved API attempt was rolled back after an unexpected secondary-alias assignment.
 
-Latest code candidate: `e4fcd7a36bba5fbdc76431d011421aa859e97aa5`. Its isolated full verification passes all 13 checks (1,353 root/API/Player tests, 209 Web, 85 sales-map), with browser QA and iOS JavaScript export passing. [The release evidence index](./submission/2026-09-06/README.md) names each access/approval owner, required action, location, and blocked milestone. Neither older native archive represents this candidate.
+Merged release source: `8d086bfd689b7f0af1037468c0764d16b32d77bc`. [PR #27](https://github.com/sahusgupta/orbit/pull/27) was squash-merged after the user explicitly authorized it and every PR check passed. It repairs only standalone Web staging and its regression/documentation. Reviewed head `113823ca1f7bad430bbb5943559533139126b654` and the merge have identical tree `ab532ae7b35edb12aebf27c9b4662951818e2ced`. Local verification passed all 13 checks (1,363 root/API/Player tests, 209 Web, 85 sales-map); general CI, GitGuardian, and all three native flows passed. The native retry produced 15 captures after a first-attempt simulator boot failure before app installation. [Actual-merge CI 34070422400](https://github.com/sahusgupta/orbit/actions/runs/34070422400) and the fresh isolated Web build both passed. The [evidence index](./submission/2026-09-06/README.md) and manifest preserve earlier PR #26 source and the separate production-approval boundary.
 
 ## Repository gates
 
@@ -14,11 +14,11 @@ Latest code candidate: `e4fcd7a36bba5fbdc76431d011421aa859e97aa5`. Its isolated 
 - [x] Firestore Emulator rule tests pass against the isolated `demo-orbit-release-ci` project.
 - [x] Production Expo config validation, compatibility check, Expo Doctor, iOS export, permission/privacy checks, artwork checks, and JavaScript bundle scan pass.
 - [x] Disposable iOS prebuild and generated-native scan pass in an isolated Linux environment.
-- [ ] The same disposable iOS prebuild and generated-native scan pass on the exact pushed SHA in Ubuntu pull-request CI.
+- [x] The same disposable iOS prebuild and generated-native scan pass on exact pushed SHA `113823ca1f7bad430bbb5943559533139126b654` in Ubuntu pull-request CI.
 - [x] Icon and splash checks pass; the 1024×1024 app icon is opaque and the transparent splash mark renders on `#060C1A`.
 - [x] Repository and exported source contain no private-game UI/data access, Premium/IAP client, venue checkout, social authentication, operational tournament registration, fabricated location, or notification promise.
 - [x] Privacy/support/terms pages and the App Store package agree with the final code.
-- [ ] Pull-request CI is green on the exact pushed SHA.
+- [x] Pull-request CI is green on the exact pushed SHA.
 
 ## Service and candidate work in progress
 
@@ -27,10 +27,17 @@ Latest code candidate: `e4fcd7a36bba5fbdc76431d011421aa859e97aa5`. Its isolated 
 - [x] Register native App Attest and Web reCAPTCHA Enterprise providers, preserving existing clients and disabled enforcement.
 - [x] Provision a separate referrer/API-restricted Player Web Firebase key and the required production Web configuration; verify accepted/rejected referrer behavior.
 - [x] Compile and inspect EAS simulator build `cc64f693-fdf4-416c-8fdc-c2fcc3b9cd99`, source `dab4aa7183b6c4482310feb9b1c4f9df3bfcda41`.
-- [ ] Complete exact-source native simulator interactions and capture evidence on both iPhone sizes.
-- [ ] Merge final green follow-up source and deploy immutable API/Web candidates with recorded rollback targets.
-- [ ] Deploy reviewed Firestore rules/indexes/TTL and verify candidate compatibility before promotion.
-- [ ] Finish credential rotation after the pending metadata-access approval identifies dependent usage.
+- [x] Complete exact-source native simulator interactions on both iPhone sizes and at enlarged text; preserve 15 captures.
+- [x] Merge PR #27 after explicit user approval and all checks passed; merge SHA `8d086bfd689b7f0af1037468c0764d16b32d77bc`.
+- [x] Merge PR #26 after every required check passes; merge SHA `9458a6a50567c879b537631b9b25fb76e89b4133`.
+- [x] Execute the explicitly approved first API attempt and verify rollback: build READY, secondary alias unexpectedly moved, original alias restored, candidate deleted, all four aliases and saved API build settings verified.
+- [x] Execute the approved diagnostic-only build; confirm intended install exit 42, resolve managed credential identity, delete it, and verify all aliases/saved settings unchanged.
+- [x] Execute the separately approved retained API candidate from final merge `8d086bfd689b7f0af1037468c0764d16b32d77bc`: `dpl_3ChFg6JQ9e3DjfGpwT2vMe9iskcZ` is READY, build-verified, with no live alias changes observed. Runtime requests, Web deployment, and promotion retain separate approval scopes.
+- [x] Verify all 14 required composite indexes exist among 15 ready indexes; preserve the additional legacy index.
+- [x] Complete Firebase API-key restriction metadata inventory and record the native JavaScript Auth compatibility constraint.
+- [ ] After separate approval, publish reviewed Firestore rules and enable the four specified TTL fields. No TTL is currently active; do not overwrite the index inventory.
+- [x] Identify the current managed Admin key by diagnostic/IAM metadata correlation; confirm it differs from the older quarantined key.
+- [ ] Identify consumers of the older enabled key, whose authentication metrics show recent use, then obtain explicit remediation/rollback approval. No key or quarantine deletion is authorized.
 - [ ] Complete production synthetic-flow verification after deployment and approved deletion-policy configuration.
 - [ ] After Apple access is provided, build the exact green source with the production EAS profile, inspect signing/entitlements and the aggregated archive privacy report, upload that build to TestFlight, and resolve technical processing errors.
 
@@ -38,10 +45,11 @@ These are engineering tasks. They are not human-only gates merely because they i
 
 ## Human-controlled gates
 
+
 - Legal classification, licensing, and territory approval.
 - Caminus Labs, LLC seller/account verification and Apple agreements.
 - Explicit confirmation that Expo owner `saussy`, slug `tabletalk-player`, EAS project `bb2059b7-91b3-4a6b-a66e-d5618e794fd3`, the Apple signing team, and the `com.orbit.player` App Store record are the intended Caminus Labs, LLC release identities.
-- Respond to the pending automatic-approval questions for pushing the release fixes to existing PR #26, three production CORS preflights, Firebase key-restriction metadata, and metadata-only identification of the Vercel Firebase credential. Each rejected operation remains unexecuted.
+- Approve only the next concrete [production mutation and rollback scope](../docs/agent/tasks/player-production-mutation-proposal.md); all three candidate/diagnostic approvals were executed; the first two deployments were removed and the final merged candidate is retained. The latest user instruction expressly reserves deployments, production configuration, credential rotation, and App Check activation for approval after that proposal. The earlier GitHub/CORS/key-metadata authorizations are resolved. A subsequent `vercel env run` inspection was rejected for possible production-secret loading; it was not retried.
 - Supply counsel-approved deletion/retention dispositions and venue/territory authority. Production `ORBIT_ACCOUNT_DELETION_POLICY_JSON` is absent; the example is not approval.
 - Authenticate the intended Apple team and provide signing/App Store Connect access through EAS or Apple's interface; the existing EAS account reports no iOS credentials or App Store Connect API keys.
 - Grant the release operator access to place the sanitized reviewer account in App Store Connect without committing credentials.
@@ -49,7 +57,7 @@ These are engineering tasks. They are not human-only gates merely because they i
 - Account Holder approval of the final App Store privacy/age/export answers and physical-device TestFlight acceptance when a compatible iPhone is available. Signed building, archive inspection, privacy-report reconciliation, and upload remain engineering work after access is supplied.
 - Approve the actual final screenshots and store copy after technical capture/review.
 
-Do not treat Expo export, prebuild, or the compiled simulator app as a signed build. The active release request authorizes technical build/deployment work; App Review remains prohibited while ownership, legal, privacy, integrity, or critical QA gates are open.
+Do not treat Expo export, prebuild, or an ad-hoc simulator app as an Apple-signed device build. The authorized PR #26 and PR #27 merges are complete. The latest instruction requires a concrete approved mutation/rollback before production deployment, configuration, rotation, or enforcement. App Review remains prohibited while ownership, legal, privacy, integrity, or critical QA gates are open.
 
 ## Future private-game gate
 
