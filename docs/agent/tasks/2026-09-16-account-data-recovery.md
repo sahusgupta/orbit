@@ -1,0 +1,15 @@
+# Account data recovery
+
+Management data is selected by the active pilot license account key, not by the Firebase email alone. A recovered login on a replacement license does not automatically load a legacy `clubStates` snapshot from a prior license.
+
+The desktop owner-assisted recovery response previously advanced the full-state writer revision after receiving credentials only. A stale renderer could then save its incomplete state at the new revision. Recovery now reads and validates the complete same-account server state, preserves the active local license authorization, and adopts that state without another full-state save. An unavailable or mismatched snapshot fails closed. The existing API recovery contract remains compatible; no API deployment is required for this change.
+
+The internal [restoration planner](../../../apps/api/src/operations/legacyAccountRestore.js) has no network or datastore access. It requires reviewed source and target account keys, matching venue and login identities, and an explicit choice for conflicting records. It preserves current credentials, combines unique records, retains current server-owned fields, and enforces privacy tombstones. It does not expose a new endpoint or automatically link accounts by name.
+
+For an authorized restoration, inspect the original legacy snapshot and current authoritative state in memory. Review conflicts and run the planner before writing. Guard the source with its Firestore update timestamp and the target with its observed revision/content hash. Commit through the normal account-specific API state-save boundary using compare-and-swap and a stable mutation ID. Read the committed state back through the same API; verify credential preservation, original-record equality, retained target additions, and the untouched legacy source. Do not write customer records, credentials, or account identifiers into task documentation or local recovery artifacts.
+
+Regression coverage exercises credential-only recovery, unavailable/stale/mismatched snapshots, complete renderer adoption without a state save, account-switch races, restoration identity checks, conflicts, legacy fee-setting keys, immutability, and privacy deletion enforcement.
+
+Focused validation passed: the five desktop recovery suites contain 61 tests; the restoration planner suite contains 16 tests. A same-account concurrency regression reproduced loss of newer state before the final reference guards were added. Renderer, root test, Electron, and API TypeScript checks passed individually before that final concurrency guard; the full release gates validate the final source. An intermediate aggregate typecheck ran while the planner was being written and failed on its unfinished annotations; those diagnostics were corrected and the API check rerun successfully.
+
+Release follows [the existing candidate and promotion procedure](../../operations/RELEASE_AND_ROLLBACK.md). Verification uses a clean temporary checkout because ignored local archives and diagnostic logs are outside the release source.

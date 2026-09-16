@@ -667,14 +667,24 @@ describe('Electron API-first orchestration', () => {
     expect(JSON.parse(String((fetch.mock.calls.at(-1)?.[1] as RequestInit).body))).toMatchObject({ state: fallbackRecord.state, expectedRevision: 0 });
   });
 
-  it('checks and completes a tenant-bound recovery override without putting the password in logs', async () => {
+  it('loads complete club data after recovery without advancing a stale writer or logging the password', async () => {
+    const access = { licenseId: 'club-one', authorizationCode: 'pilot-code' };
+    const accountLogin = { username: 'owner@example.com', passwordSalt: 'new-salt', passwordHash: 'new-hash', lastLoginAt: '2026-08-07T12:05:00.000Z' };
+    const authoritativeState = {
+      games: [{ id: 'game-one' }],
+      sessions: [{ id: 'table-one' }],
+      playerSessions: [{ id: 'session-one' }],
+      profiles: [{ id: 'player-one' }],
+      settings: { pilotAccess: access, accountLogin }
+    };
     const fetch = vi.fn()
       .mockResolvedValueOnce(response('{"ok":true,"active":true,"expiresAt":"2026-08-07T12:30:00.000Z","username":"owner@example.com"}'))
       .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","revision":12,"accountLogin":{"username":"owner@example.com","passwordSalt":"new-salt","passwordHash":"new-hash","lastLoginAt":"2026-08-07T12:05:00.000Z"},"publication":{"status":"pending"}}'))
-      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","revision":13,"publication":{"status":"pending"}}'));
+      .mockResolvedValueOnce(response(JSON.stringify({ ok: true, accountKey: 'club-one', revision: 12, state: authoritativeState })))
+      .mockResolvedValueOnce(response('{"ok":false,"code":"STATE_REVISION_CONFLICT","currentRevision":12}', { ok: false, status: 409 }));
     const writeOrbitApiLog = vi.fn();
-    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, writeOrbitApiLog }));
-    const access = { licenseId: 'club-one', authorizationCode: 'pilot-code' };
+    const writeLocalDatabase = vi.fn();
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, writeOrbitApiLog, writeLocalDatabase }));
 
     await expect(client.getManagementRecoveryStatusApi(access)).resolves.toEqual({
       ok: true,
@@ -686,16 +696,18 @@ describe('Electron API-first orchestration', () => {
       ok: true,
       accountKey: 'club-one',
       revision: 12,
-      accountLogin: { passwordHash: 'new-hash', passwordSalt: 'new-salt' }
+      accountLogin: { passwordHash: 'new-hash', passwordSalt: 'new-salt' },
+      state: authoritativeState
     });
-    await client.saveStateToApi({
+    await expect(client.saveStateToApi({
       games: [],
       settings: { pilotAccess: access }
-    });
+    })).resolves.toMatchObject({ ok: false, conflict: true, expectedRevision: 0, currentRevision: 12 });
 
     expect(fetch.mock.calls.map((call) => call[0])).toEqual([
       'http://127.0.0.1:4310/management/recovery/status',
       'http://127.0.0.1:4310/management/recovery/complete',
+      'http://127.0.0.1:4310/state/club-one',
       'http://127.0.0.1:4310/state'
     ]);
     expect(fetch.mock.calls[1][1]).toMatchObject({
@@ -703,8 +715,57 @@ describe('Electron API-first orchestration', () => {
       headers: expect.objectContaining({ 'x-orbit-api-key': 'pilot-code', 'x-orbit-auth-key': 'pilot-code' }),
       body: JSON.stringify({ password: 'Temporary password 2026' })
     });
-    expect(JSON.parse(String((fetch.mock.calls[2][1] as RequestInit).body))).toMatchObject({ expectedRevision: 12 });
+    expect(JSON.parse(String((fetch.mock.calls[3][1] as RequestInit).body))).toMatchObject({ expectedRevision: 0 });
+    expect(writeLocalDatabase).not.toHaveBeenCalled();
     expect(JSON.stringify(writeOrbitApiLog.mock.calls)).not.toContain('Temporary password 2026');
+  });
+
+  it.each(['offline', 'wrong-header-account', 'wrong-state-account', 'stale-revision', 'changed-login', 'incomplete-state'])
+    ('fails recovery hydration safely for %s and retains the previous write revision', async (failure) => {
+      const access = { licenseId: 'club-one', authorizationCode: 'pilot-code' };
+      const accountLogin = { username: 'owner@example.com', passwordSalt: 'new-salt', passwordHash: 'new-hash' };
+      const state = {
+        games: [], sessions: [], playerSessions: [], profiles: [{ id: 'retained-player' }],
+        settings: { pilotAccess: access, accountLogin }
+      };
+      const record = {
+        accountKey: failure === 'wrong-header-account' ? 'other-club' : 'club-one',
+        revision: failure === 'stale-revision' ? 10 : 12,
+        state: {
+          ...state,
+          games: failure === 'incomplete-state' ? undefined : state.games,
+          settings: {
+            pilotAccess: failure === 'wrong-state-account' ? { ...access, licenseId: 'other-club' } : access,
+            accountLogin: failure === 'changed-login' ? { ...accountLogin, passwordHash: 'later-password-hash' } : accountLogin
+          }
+        }
+      };
+      const fetch = vi.fn()
+        .mockResolvedValueOnce(response(JSON.stringify({ accountKey: 'club-one', revision: 7, state })))
+        .mockResolvedValueOnce(response(JSON.stringify({ ok: true, accountKey: 'club-one', revision: 12, accountLogin })))
+        .mockResolvedValueOnce(failure === 'offline'
+          ? response('{"ok":false}', { ok: false, status: 503 })
+          : response(JSON.stringify(record)))
+        .mockResolvedValueOnce(response('{"ok":false,"code":"STATE_REVISION_CONFLICT","currentRevision":12}', { ok: false, status: 409 }));
+      const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch }));
+      await client.loadStateFromApi('club-one', access);
+
+      await expect(client.completeManagementRecoveryApi(access, 'Temporary password 2026'))
+        .resolves.toMatchObject({ ok: false, error: expect.stringContaining('latest club data could not be loaded safely') });
+      await expect(client.saveStateToApi(state))
+        .resolves.toMatchObject({ conflict: true, expectedRevision: 7 });
+      expect(JSON.parse(String((fetch.mock.calls[3][1] as RequestInit).body))).toMatchObject({ expectedRevision: 7 });
+    });
+
+  it('rejects a recovery response for another account before requesting any club state', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(response(JSON.stringify({
+      ok: true, accountKey: 'other-club', revision: 12,
+      accountLogin: { username: 'owner@example.com', passwordSalt: 'new-salt', passwordHash: 'new-hash' }
+    })));
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch }));
+    await expect(client.completeManagementRecoveryApi({ licenseId: 'club-one', authorizationCode: 'pilot-code' }, 'Temporary password 2026'))
+      .resolves.toMatchObject({ ok: false, error: expect.stringContaining('did not match the active club') });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('migrates a replacement-key local account only after API and ordinary fallback misses', async () => {

@@ -436,6 +436,7 @@ function createOrbitApiClient(dependencies) {
   async function completeManagementRecoveryApi(access, password) {
     const authKey = getClientAuthKeyFromAccess(access);
     if (!authKey) return { ok: false, error: 'A current pilot license key is required.' };
+    const requestedAccountKey = getAccountKeyFromAccess(access);
     const payload = await requestOrbitApi('/management/recovery/complete', {
       method: 'POST',
       authKey,
@@ -446,16 +447,43 @@ function createOrbitApiClient(dependencies) {
     if (!payload?.ok || !payload.accountLogin) {
       return { ok: false, error: payload?.error || 'Owner-assisted recovery could not be completed.' };
     }
-    const accountKey = sanitizeAccountKey(payload.accountKey || getAccountKeyFromAccess(access));
-    if (accountKey && Number.isInteger(Number(payload.revision))) {
-      revisionByAccount.set(accountKey, Number(payload.revision));
+    const accountKey = sanitizeAccountKey(payload.accountKey);
+    const recoveryRevision = Number(payload.revision);
+    if (!requestedAccountKey || accountKey !== requestedAccountKey || !Number.isSafeInteger(recoveryRevision) || recoveryRevision < 1) {
+      return { ok: false, error: 'The recovered account did not match the active club. Reload the club before signing in.' };
+    }
+    // A credential-only response must never advance the full-state writer: the
+    // renderer may still hold an empty or outdated room. Fetch the complete
+    // record without changing the write revision, then let the renderer adopt
+    // it without issuing another full-state save.
+    const record = await peekStateFromApi(accountKey, access).catch(() => null);
+    const login = record?.state?.settings?.accountLogin;
+    if (
+      !record?.state ||
+      sanitizeAccountKey(record.accountKey) !== accountKey ||
+      getAccountKeyFromState(record.state) !== accountKey ||
+      !Number.isSafeInteger(record.revision) ||
+      record.revision < recoveryRevision ||
+      record.revision < (revisionByAccount.get(accountKey) || 0) ||
+      !Array.isArray(record.state.games) ||
+      !Array.isArray(record.state.sessions) ||
+      !Array.isArray(record.state.playerSessions) ||
+      typeof login?.username !== 'string' || !login.username.trim() ||
+      typeof login.passwordSalt !== 'string' || !login.passwordSalt ||
+      typeof login.passwordHash !== 'string' || !login.passwordHash ||
+      login.username.trim().toLowerCase() !== String(payload.accountLogin.username || '').trim().toLowerCase() ||
+      login.passwordSalt !== payload.accountLogin.passwordSalt ||
+      login.passwordHash !== payload.accountLogin.passwordHash
+    ) {
+      return { ok: false, error: 'Password recovery completed, but the latest club data could not be loaded safely. Reopen Orbit and sign in with the new password.' };
     }
     return {
       ok: true,
       accountKey,
-      accountLogin: payload.accountLogin,
-      revision: Number(payload.revision || 0),
-      publication: payload.publication || { status: 'pending' }
+      accountLogin: login,
+      state: record.state,
+      revision: record.revision,
+      publication: record.publication
     };
   }
 

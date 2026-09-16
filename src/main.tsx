@@ -32,6 +32,7 @@ import {
 import { createRoomDataExport, downloadTextFile } from './lib/dataExport';
 import { buildFloorActivityItems } from './features/floor/floorActivity';
 import { AccountRecoveryValidationError, recoverAccountLogin } from './lib/accountRecovery';
+import { resolveOwnerRecoveryState, type OwnerRecoveryResult } from './application/management/ownerRecoveryState';
 import {
   findUniqueProfileReference,
   hasProfileReference
@@ -327,18 +328,7 @@ declare global {
         username?: string;
         error?: string;
       }>;
-      completeManagementRecovery: (payload: { access: PilotAccess; password: string }) => Promise<{
-        ok: boolean;
-        accountKey?: string;
-        accountLogin?: {
-          username: string;
-          passwordSalt: string;
-          passwordHash: string;
-          lastLoginAt: string;
-        };
-        revision?: number;
-        error?: string;
-      }>;
+      completeManagementRecovery: (payload: { access: PilotAccess; password: string }) => Promise<OwnerRecoveryResult>;
       generateSelfCheckInKit: (payload: { access: PilotAccess; staffToken: string }) => Promise<{
         ok: boolean;
         canceled?: boolean;
@@ -3304,34 +3294,38 @@ function App() {
     setPasswordRecoveryStage('owner-completing');
     setPilotKeyError('');
     try {
+      const recoveryBaseState = stateRef.current;
       const result = await desktop.completeManagementRecovery({ access, password: loginDraft.password });
-      if (!result.ok || !result.accountLogin?.passwordHash || !result.accountLogin.passwordSalt) {
-        throw new AccountRecoveryValidationError(result.error || 'Owner-assisted recovery could not be completed.');
+      if (stateRef.current !== recoveryBaseState) {
+        throw new AccountRecoveryValidationError('The active account data changed during recovery. Reload the account and sign in with the new password.');
       }
-      const recoveredLogin = {
-        ...accountLogin,
-        ...result.accountLogin,
-        username: result.accountLogin.username.trim().toLowerCase()
-      };
-      const next = {
-        ...state,
-        settings: {
-          ...state.settings,
-          accountLogin: recoveredLogin
-        }
-      };
+      let next = resolveOwnerRecoveryState(stateRef.current, access, result);
       if (canUseRendererFirebaseAuth()) {
-        void signInToFirebaseWithEmail(recoveredLogin.username, loginDraft.password).catch(() => undefined);
+        void signInToFirebaseWithEmail(next.settings.accountLogin.username, loginDraft.password).catch(() => undefined);
       }
       if (!await persistRequestedSignIn(next, loginDraft.staySignedIn)) {
         setPasswordRecoveryStage('owner-ready');
         return;
       }
+      if (stateRef.current !== recoveryBaseState) {
+        throw new AccountRecoveryValidationError('The active account data changed during recovery. Reload the account and sign in with the new password.');
+      }
+      next = resolveOwnerRecoveryState(stateRef.current, access, result);
+      // Recovery already committed on the server. Adopt its complete state without
+      // issuing a second write from the pre-recovery renderer snapshot.
+      saveBrowserManagementState(next);
+      stateRef.current = next;
+      setState(next);
+      setSaveStatus({ state: 'saved', message: 'Account recovered; club data restored' });
       setHasAuthenticated(true);
       setPasswordRecoveryStage('idle');
       setPasswordRecoveryNotice('');
       setPilotKeyError('');
-      persist(next, false, { feature: 'Account', action: 'Completed owner-assisted recovery', route: 'access' });
+      void desktop.recordClientEvent('completed-owner-assisted-recovery', 'usage', {
+        feature: 'Account',
+        action: 'Completed owner-assisted recovery',
+        accountKey: getAccountKeyFromState(next)
+      }, 'access').catch(() => undefined);
     } catch (error) {
       setPasswordRecoveryStage('owner-ready');
       setPilotKeyError(error instanceof Error ? error.message : 'Owner-assisted recovery could not be completed.');
