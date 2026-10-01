@@ -130,7 +130,7 @@ function createExpoConfig(config, environment) {
       ...retainedPlugins,
       ['@react-native-firebase/app', { ios: { disableSPM: true } }],
             '@react-native-firebase/app-check',
-      'expo-secure-store',
+      ['expo-secure-store', { faceIDPermission: false }],
       'expo-status-bar',
       ['expo-build-properties', { ios: { useFrameworks: 'static', forceStaticLinking: ['RNFBApp', 'RNFBAppCheck'] } }],
       'expo-asset',
