@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const branding = require('../branding.config.json');
+const buildMetadata = require('../package.json');
 const { redactDetails } = require('../apps/api/src/http/dataProtection');
 const { createOrbitCore } = require('../apps/api/src/shared/orbitCore.cjs');
 const { createEmbeddedBackend } = require('./embeddedBackend.cjs');
@@ -294,14 +295,18 @@ ipcMain.handle('load-state', trustedIpc(async () => loadStateApiFirst()));
 
 ipcMain.handle('load-state-for-account', trustedIpc(async (access) => loadStateApiFirst(getAccountKeyFromAccess(access), boundedPayload(access, 16_000))));
 
-ipcMain.handle('save-state', trustedIpc(async (state) => saveStateApiFirst(boundedPayload(state))));
+ipcMain.handle('save-state', trustedIpc(async (state) => {
+  const payload = boundedPayload(state);
+  writeOrbitApiLog('info', 'state-ipc-save', { payloadBytes: Buffer.byteLength(JSON.stringify(payload), 'utf8') });
+  return saveStateApiFirst(payload);
+}));
 
 ipcMain.handle('preserve-state-for-update', trustedIpc(async (requestId, state) => {
   if (!/^[a-zA-Z0-9._:-]{1,160}$/.test(String(requestId || ''))) throw new Error('Invalid update request ID.');
   return updateController.handleRendererStateFlush(requestId, boundedPayload(state));
 }));
 
-ipcMain.handle('get-update-status', trustedIpc(() => updateController.getStatus()));
+ipcMain.handle('get-update-status', trustedIpc(() => ({ ...updateController.getStatus(), appVersion: app.getVersion(), sourceSha: String(getRecordProperty(buildMetadata, 'orbitSourceSha') || '') || 'development' })));
 
 ipcMain.handle('install-downloaded-update', trustedIpc(() => updateController.installDownloadedUpdate()));
 
@@ -412,7 +417,9 @@ ipcMain.handle('send-text-messages', trustedIpc((payload, staffToken) => {
 }));
 
 ipcMain.handle('record-client-event', trustedIpc((event, category, details, route) => {
-  sendClientEvent(String(event || '').slice(0, 100), String(category || '').slice(0, 60), boundedPayload(details || {}, 20_000), { route: String(route || '').slice(0, 80) });
+  const payload = boundedPayload(details || {}, 20_000);
+  if (category === 'mutation') writeOrbitApiLog('info', 'renderer-mutation', payload);
+  sendClientEvent(String(event || '').slice(0, 100), String(category || '').slice(0, 60), payload, { route: String(route || '').slice(0, 80) });
   return { ok: true };
 }));
 
@@ -541,6 +548,7 @@ function createWindow(route = 'floor', context = {}) {
 }
 
 app.whenReady().then(() => {
+  writeOrbitApiLog('info', 'desktop-build', { appVersion: app.getVersion(), sourceSha: String(getRecordProperty(buildMetadata, 'orbitSourceSha') || '') || 'development' });
   appStartedAt = new Date().toISOString();
   if (process.env.ORBIT_ENABLE_EMBEDDED_BACKEND === 'true') {
     embeddedBackend.start();

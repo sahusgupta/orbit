@@ -160,7 +160,8 @@ describe('Electron Orbit API transport', () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(setTimeoutImpl).toHaveBeenCalledWith(expect.any(Function), 987);
     expect(clearTimeoutImpl).toHaveBeenCalledWith(41);
-    expect(writeOrbitApiLog).not.toHaveBeenCalled();
+    expect(writeOrbitApiLog).toHaveBeenCalledWith('info', 'state-api-request', { expectedRevision: undefined, payloadBytes: 12, requestId: 'request-001' });
+    expect(JSON.stringify(writeOrbitApiLog.mock.calls)).not.toMatch(/access-key|caller-key|pilot-code/);
   });
 
   it('returns null and projects timeout failures for mutations while GET failures remain log-silent', async () => {

@@ -1,3 +1,4 @@
+import { mutationActionError, type MutationActionCallbackResult } from '../application/management/mutationResult';
 import { useEffect, useId, useRef, useState } from 'react';
 import { DollarSign, Minus, Pause, Play, Plus, X } from 'lucide-react';
 import { getTimerStatusFromSeconds } from '../lib/appCore';
@@ -43,11 +44,11 @@ export interface PokerTableProps {
   maxPlayers?: number;
   selectedSeatNumber?: number;
   onSeatClick?: (seatNumber: number) => void;
-  onAddTime?: (playerId: string, minutes: number) => boolean | void;
-  onDeductTime?: (playerId: string, minutes: number) => boolean | void;
-  onPauseAndSaveTime?: (playerId: string) => boolean | void;
-  onUseSavedTime?: (playerId: string, minutes: number) => boolean | void;
-  onAddBuyIn?: (playerId: string, amount: number, note: string) => void;
+  onAddTime?: (playerId: string, minutes: number) => MutationActionCallbackResult;
+  onDeductTime?: (playerId: string, minutes: number, reason?: string) => MutationActionCallbackResult;
+  onPauseAndSaveTime?: (playerId: string) => MutationActionCallbackResult;
+  onUseSavedTime?: (playerId: string, minutes: number) => MutationActionCallbackResult;
+  onAddBuyIn?: (playerId: string, amount: number, note: string) => MutationActionCallbackResult;
   onRemovePlayer?: (playerId: string) => void;
   onChangeSeat?: (playerId: string, seatNumber: number) => void;
   moveTargets?: { id: string; label: string; openSeats: number }[];
@@ -67,11 +68,11 @@ interface PlayerCardProps {
   isDragging: boolean;
   onDragStart: (playerId: string) => void;
   onDragEnd: () => void;
-  onAddTime?: (playerId: string, minutes: number) => boolean | void;
-  onDeductTime?: (playerId: string, minutes: number) => boolean | void;
-  onPauseAndSaveTime?: (playerId: string) => boolean | void;
-  onUseSavedTime?: (playerId: string, minutes: number) => boolean | void;
-  onAddBuyIn?: (playerId: string, amount: number, note: string) => void;
+  onAddTime?: (playerId: string, minutes: number) => MutationActionCallbackResult;
+  onDeductTime?: (playerId: string, minutes: number, reason?: string) => MutationActionCallbackResult;
+  onPauseAndSaveTime?: (playerId: string) => MutationActionCallbackResult;
+  onUseSavedTime?: (playerId: string, minutes: number) => MutationActionCallbackResult;
+  onAddBuyIn?: (playerId: string, amount: number, note: string) => MutationActionCallbackResult;
   onRemovePlayer?: (playerId: string) => void;
   onChangeSeat?: (playerId: string, seatNumber: number) => void;
   seatOptions: number[];
@@ -116,6 +117,7 @@ function PlayerCard({
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [customMinutes, setCustomMinutes] = useState('');
   const [customDeductMinutes, setCustomDeductMinutes] = useState('');
+  const [deductReason, setDeductReason] = useState('Time added by mistake');
   const [buyInAmount, setBuyInAmount] = useState('');
   const [buyInNote, setBuyInNote] = useState('');
   const [activeAction, setActiveAction] = useState<PlayerAction>(null);
@@ -191,12 +193,33 @@ function PlayerCard({
     seat.x < 24 ? 'align-left' : seat.x > 76 ? 'align-right' : 'align-center'
   ].join(' ');
   const seatEdgeClass = seat.y < 34 ? 'edge-top' : seat.y > 66 ? 'edge-bottom' : seat.x < 50 ? 'edge-left' : 'edge-right';
+  const actionPendingRef = useRef(false);
+  const [actionPending, setActionPending] = useState(false);
+  const runSavedAction = (invoke: () => MutationActionCallbackResult, success: string, accepted: () => void) => {
+    if (actionPendingRef.current) return;
+    actionPendingRef.current = true;
+    setActionPending(true);
+    setActionMessage('Saving to server…');
+    const finish = (result: Awaited<MutationActionCallbackResult>) => {
+      actionPendingRef.current = false;
+      setActionPending(false);
+      const error = mutationActionError(result);
+      if (error) { setActionMessage(error); return; }
+      accepted();
+      setActiveAction(null);
+      setActionMessage(result && typeof result === 'object' && result.ok && result.cloud !== 'published'
+        ? success + (result.cloud === 'failed' ? ' Server saved; player projection failed and will retry.' : ' Server saved; player projection pending.')
+        : success);
+    };
+    const failed = () => finish({ ok: false, status: 'save-failed', error: 'This action could not be saved. Check the server connection before retrying.' });
+    try {
+      const result = invoke();
+      if (result && typeof result === 'object' && 'then' in result) void result.then(finish).catch(failed);
+      else finish(result);
+    } catch { failed(); }
+  };
   const addTime = (minutes: number) => {
-    const result = onAddTime?.(player.id, minutes);
-    if (result === false) return;
-    setCustomMinutes('');
-    setActiveAction(null);
-    setActionMessage(`${minutes} minutes added.`);
+    runSavedAction(() => onAddTime ? onAddTime(player.id, minutes) : false, `${minutes} minutes added.`, () => setCustomMinutes(''));
   };
   const addCustomTime = () => {
     const minutes = Number(customMinutes);
@@ -207,11 +230,8 @@ function PlayerCard({
     addTime(minutes);
   };
   const deductTime = (minutes: number) => {
-    const result = onDeductTime?.(player.id, minutes);
-    if (result === false) return;
-    setCustomDeductMinutes('');
-    setActiveAction(null);
-    setActionMessage(`${minutes} minutes deducted.`);
+    if (!deductReason.trim()) { setActionMessage('Enter a correction reason.'); return; }
+    runSavedAction(() => onDeductTime ? onDeductTime(player.id, minutes, deductReason.trim()) : false, `${minutes} minutes deducted.`, () => setCustomDeductMinutes(''));
   };
   const deductCustomTime = () => {
     const minutes = Number(customDeductMinutes);
@@ -222,18 +242,12 @@ function PlayerCard({
     deductTime(minutes);
   };
   const pauseAndSaveTime = () => {
-    const result = onPauseAndSaveTime?.(player.id);
-    if (result === false) return;
-    setActiveAction(null);
-    setActionMessage('Remaining time paused and saved to the player profile.');
+    runSavedAction(() => onPauseAndSaveTime ? onPauseAndSaveTime(player.id) : false, 'Remaining time paused and saved to the player profile.', () => undefined);
   };
   const useSavedTime = () => {
     const minutes = Math.max(0, Math.floor(player.savedTimeCreditMinutes ?? 0));
     if (!minutes) return;
-    const result = onUseSavedTime?.(player.id, minutes);
-    if (result === false) return;
-    setActiveAction(null);
-    setActionMessage(`${minutes} saved minutes applied.`);
+    runSavedAction(() => onUseSavedTime ? onUseSavedTime(player.id, minutes) : false, `${minutes} saved minutes applied.`, () => undefined);
   };
   const addBuyIn = () => {
     const amount = Number(buyInAmount);
@@ -241,11 +255,7 @@ function PlayerCard({
       setActionMessage('Enter a buy-in amount greater than zero.');
       return;
     }
-    onAddBuyIn?.(player.id, amount, buyInNote.trim());
-    setBuyInAmount('');
-    setBuyInNote('');
-    setActiveAction(null);
-    setActionMessage(`$${amount.toLocaleString()} buy-in recorded.`);
+    runSavedAction(() => onAddBuyIn ? onAddBuyIn(player.id, amount, buyInNote.trim()) : false, `$${amount.toLocaleString()} buy-in recorded.`, () => { setBuyInAmount(''); setBuyInNote(''); });
   };
   const selectAction = (action: Exclude<PlayerAction, null>) => {
     setActiveAction((current) => current === action ? null : action);
@@ -445,8 +455,8 @@ function PlayerCard({
                   <div className="poker-seat-action-panel time-action-panel" id={timePanelId}>
                     <strong>Add time</strong>
                     <div className="poker-seat-time-actions">
-                      <button className="mini-button" type="button" onClick={() => addTime(30)}>+30 min</button>
-                      <button className="mini-button" type="button" onClick={() => addTime(60)}>+60 min</button>
+                      <button className="mini-button" type="button" disabled={actionPending} onClick={() => addTime(30)}>+30 min</button>
+                      <button className="mini-button" type="button" disabled={actionPending} onClick={() => addTime(60)}>+60 min</button>
                     </div>
                     <label className="poker-seat-field" htmlFor={customMinutesId}>
                       <span>Custom minutes</span>
@@ -467,10 +477,14 @@ function PlayerCard({
                 {activeAction === 'deduct-time' && showTimeRemaining && onDeductTime ? (
                   <div className="poker-seat-action-panel deduct-time-action-panel" id={deductTimePanelId}>
                     <strong>Deduct mistaken time</strong>
+                    <label className="poker-seat-field">
+                      <span>Correction reason</span>
+                      <input value={deductReason} onChange={(event) => setDeductReason(event.target.value)} required disabled={actionPending} />
+                    </label>
                     <div className="poker-seat-time-actions">
-                      <button className="mini-button" type="button" onClick={() => deductTime(15)}>-15 min</button>
-                      <button className="mini-button" type="button" onClick={() => deductTime(30)}>-30 min</button>
-                      <button className="mini-button" type="button" onClick={() => deductTime(60)}>-60 min</button>
+                      <button className="mini-button" type="button" disabled={actionPending} onClick={() => deductTime(15)}>-15 min</button>
+                      <button className="mini-button" type="button" disabled={actionPending} onClick={() => deductTime(30)}>-30 min</button>
+                      <button className="mini-button" type="button" disabled={actionPending} onClick={() => deductTime(60)}>-60 min</button>
                     </div>
                     <label className="poker-seat-field" htmlFor={customDeductMinutesId}>
                       <span>Custom minutes</span>

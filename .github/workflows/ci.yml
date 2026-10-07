@@ -77,3 +77,27 @@ jobs:
       - run: npm run e2e:management
       - run: npm run e2e:public
       - run: npm run web:e2e
+
+  desktop-mutations:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      CI: "1"
+      ORBIT_API_URL: http://127.0.0.1:9
+      VITE_ENABLE_FIREBASE_SYNC: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/api/package-lock.json
+      - run: npm install --global npm@10.9.2
+      - run: npm ci
+      - run: npm ci --prefix apps/api
+      - name: Verify authoritative desktop mutations with isolated services
+        run: npm run e2e:management:mutations

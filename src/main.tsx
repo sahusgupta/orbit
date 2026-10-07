@@ -205,7 +205,8 @@ import {
   saveManagementState
 } from './app/persistence/managementPersistence';
 import { saveBrowserManagementState } from './app/persistence/browserStateRepository';
-import { getManagementStatePayloadError } from './app/persistence/managementStatePayload';
+import { compactManagementUsageTelemetry, getManagementStatePayloadBytes, getManagementStatePayloadContributions, getManagementStatePayloadError } from './app/persistence/managementStatePayload';
+import { managementSaveOutcome, type ManagementMutationResult } from './application/management/mutationResult';
 import {
   getCollectionProfile,
   getTableFinancialOverview
@@ -702,6 +703,8 @@ function App() {
     staffId: string;
     staffName: string;
   } | null>(null);
+  const tableMutationPendingRef = useRef(false);
+  const [tableMutationPending, setTableMutationPending] = useState(false);
   const saveSequenceRef = useRef(0);
   const pendingManagementSaveCountsRef = useRef(new Map<string, number>());
   const pendingManagementSaveRef = useRef<Promise<{ ok: boolean; error?: string }>>(
@@ -1067,13 +1070,27 @@ function App() {
     };
   };
 
-  const persist = (nextState: AppState, trackUndo = true, usage?: UsageDescriptor) => {
-    const next = withUsageEvent(nextState, usage);
+  const mutationDiagnostic = (action: string, stage: string, details: Record<string, number | string> = {}) => {
+    const fields = { action, stage, ...details };
+    console.info('[orbit-mutation]', fields);
+    try {
+      void window.tableManagerDesktop?.recordClientEvent?.('management-mutation', 'mutation', fields, route).catch(() => undefined);
+    } catch { /* Diagnostics must never change a mutation result. */ }
+  };
+
+  const persist = (nextState: AppState, trackUndo = true, usage?: UsageDescriptor): Promise<ManagementMutationResult> => {
+    const withUsage = withUsageEvent(nextState, usage);
+    const next = compactManagementUsageTelemetry(withUsage);
+    const payloadBytes = getManagementStatePayloadBytes(next);
+    const action = usage?.action ?? 'Management save';
+    mutationDiagnostic(action, 'preflight', { payloadBytes, telemetryPruned: withUsage.usageEvents.length - next.usageEvents.length });
     const payloadError = getManagementStatePayloadError(next);
     if (payloadError) {
       setSaveStatus({ state: 'error', message: payloadError });
-      return Promise.resolve({ ok: false, error: payloadError });
+      mutationDiagnostic(action, 'preflight-rejected', { payloadBytes, contributions: JSON.stringify(getManagementStatePayloadContributions(next)) });
+      return Promise.resolve({ ok: false, status: 'preflight-rejected', error: payloadError });
     }
+    mutationDiagnostic(action, 'preflight-accepted', { payloadBytes });
     const previousState = stateRef.current;
     const previousAccountKey = getAccountKeyFromState(previousState);
     const nextAccountKey = getAccountKeyFromState(next);
@@ -1089,13 +1106,17 @@ function App() {
     stateRef.current = next;
     setState(next);
     setSaveStatus({ state: 'saving', message: 'Saving...' });
+    mutationDiagnostic(action, 'local-pending', { payloadBytes });
     const saveSequence = saveSequenceRef.current + 1;
     saveSequenceRef.current = saveSequence;
     pendingManagementSaveCountsRef.current.set(nextAccountKey,
       (pendingManagementSaveCountsRef.current.get(nextAccountKey) ?? 0) + 1);
     const pendingSave = pendingManagementSaveRef.current
       .catch(() => ({ ok: false }))
-      .then(() => saveManagementState(next))
+      .then(() => {
+        mutationDiagnostic(action, 'persistence-invoked', { payloadBytes });
+        return saveManagementState(next);
+      })
       .then((result) => {
         if (saveSequence === saveSequenceRef.current) {
           if (!result.ok) {
@@ -1111,14 +1132,16 @@ function App() {
             });
           }
         }
-        return result;
+        const outcome = managementSaveOutcome(result);
+        mutationDiagnostic(action, outcome.status, { payloadBytes, revision: result.revision ?? -1, cloud: result.cloud });
+        return outcome;
       })
       .catch((error) => {
         const message = error instanceof Error ? `Save failed: ${error.message}` : 'Save failed';
         if (saveSequence === saveSequenceRef.current) {
           setSaveStatus({ state: 'error', message });
         }
-        return { ok: false, error: message };
+        return { ok: false, status: 'save-failed', error: message } as const;
       })
       .finally(() => {
         const remainingSaves = (pendingManagementSaveCountsRef.current.get(nextAccountKey) ?? 1) - 1;
@@ -1268,7 +1291,7 @@ function App() {
         const trackUndo = firstSave;
         firstSave = false;
         const pendingSave = persist(nextState, trackUndo);
-        ownedState = nextState;
+        ownedState = stateRef.current;
         ownedSaveSequence = saveSequenceRef.current;
         return pendingSave;
       },
@@ -1310,15 +1333,62 @@ function App() {
     return result;
   };
 
-  const addInterest = (event: React.FormEvent) => {
+  const commitTableMutation = async (
+    transition: { ok: true; state: AppState } | { ok: false; error?: string },
+    usage: UsageDescriptor
+  ): Promise<ManagementMutationResult> => {
+    const started = Date.now();
+    if (!transition.ok) return { ok: false, status: 'invalid-transition', error: transition.error || 'This action is no longer valid.' };
+    if (tableMutationPendingRef.current) return { ok: false, status: 'busy', error: 'A table action is still saving. Wait for it to finish, then retry.' };
+    mutationDiagnostic(usage.action, 'domain-accepted');
+    const initialState = stateRef.current;
+    tableMutationPendingRef.current = true;
+    setTableMutationPending(true);
+    try {
+      const pending = persist(transition.state, true, usage);
+      const attemptedState = stateRef.current;
+      const result = await pending;
+      if (!result.ok && result.status !== 'preflight-rejected') {
+        // Financial/table actions are never replayed automatically after conflicts.
+        // Wait out queued saves and reject a reload overtaken by a newer local edit.
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          await waitForPendingManagementSaves();
+          const expectedState = stateRef.current;
+          const sequence = saveSequenceRef.current;
+          if (getAccountKeyFromState(expectedState) !== getAccountKeyFromState(initialState)) break;
+          let restored = initialState;
+          try {
+            restored = await loadAuthoritativeStateForTransition(initialState);
+          } catch {
+            if (!Object.is(expectedState, attemptedState)) break;
+          }
+          if (sequence !== saveSequenceRef.current || !Object.is(expectedState, stateRef.current)) continue;
+          saveBrowserManagementState(restored);
+          stateRef.current = restored;
+          setState(restored);
+          setUndoAction(null);
+          mutationDiagnostic(usage.action, 'state-reconciled', { elapsedMs: Date.now() - started });
+          break;
+        }
+      }
+      if (!result.ok) setSaveStatus({ state: 'error', message: result.error });
+      return result;
+    } finally {
+      tableMutationPendingRef.current = false;
+      setTableMutationPending(false);
+    }
+  };
+
+  const addInterest = async (event: React.FormEvent) => {
     event.preventDefault();
+    const currentState = stateRef.current;
     const playerName = form.playerName.trim();
     if (!playerName) return;
-    const existingProfile = state.profiles.find(
+    const existingProfile = currentState.profiles.find(
       (profile: { name: string; }) => profile.name.trim().toLowerCase() === playerName.toLowerCase()
     );
     if (form.status === 'Seated') {
-      const openSessions = getOpenSeatSessions(form.gameId);
+      const openSessions = getOpenSeatSessions(form.gameId, currentState);
       const selectedOpenSession = form.tableId ? openSessions.find((session) => session.id === form.tableId) : undefined;
       if (form.tableId && !selectedOpenSession) {
         window.alert('Choose an open table for this game.');
@@ -1344,10 +1414,10 @@ function App() {
           window.alert('Enter a valid initial buy-in amount.');
           return;
         }
-        const targetProfile = existingProfile ?? buildPlayerProfile(playerName, openSession.gameId, {
+        const targetProfile = existingProfile ?? buildPlayerProfileInState(currentState, playerName, openSession.gameId, {
           notes: 'Created from Quick Add seating'
-        });
-        const seatingState = existingProfile ? state : { ...state, profiles: [...state.profiles, targetProfile] };
+        }, { createProfileId: memberId, todayDate, nextYearDate });
+        const seatingState = existingProfile ? currentState : { ...currentState, profiles: [...currentState.profiles, targetProfile] };
         const result = seatPlayerInState(seatingState, openSession.id, {
           playerName,
           profileId: targetProfile.id,
@@ -1359,21 +1429,22 @@ function App() {
           window.alert(result.error);
           return;
         }
-        persist(result.state, true, {
+        const saved = await commitTableMutation(result, {
           feature: 'Seating',
           action: existingProfile ? 'Quick seated player' : 'Quick seated new profile',
           metadata: { gameId: openSession.gameId, tableId: openSession.id, seatNumber: result.seatNumber }
         });
+        if (!saved.ok) { window.alert(saved.error); return; }
         setForm({ ...form, playerName: '', notes: '', tableId: '', seatNumber: '', initialBuyIn: '' });
         return;
       }
       window.alert('No open seats are available for that game.');
       return;
     }
-    const targetProfile = existingProfile ?? buildPlayerProfile(playerName, form.gameId, {
+    const targetProfile = existingProfile ?? buildPlayerProfileInState(currentState, playerName, form.gameId, {
       notes: 'Created from Quick Add'
-    });
-    const profileState = existingProfile ? state : { ...state, profiles: [...state.profiles, targetProfile] };
+    }, { createProfileId: memberId, todayDate, nextYearDate });
+    const profileState = existingProfile ? currentState : { ...currentState, profiles: [...currentState.profiles, targetProfile] };
     const result = upsertWaitlistInterest(profileState, {
       playerName,
       gameId: form.gameId,
@@ -1445,20 +1516,23 @@ function App() {
     persist(setTableCollectionModeInState(state, sessionId, collectionMode, { nowIso }));
   };
 
-  const addPlayerTime = (playerSession: PlayerSession, minutes: number) => {
+  const addPlayerTime = async (playerSession: PlayerSession, minutes: number) => {
+    mutationDiagnostic('addPlayerTime', 'handler-entered');
     const result = addPlayerTimeInState(stateRef.current, playerSession, minutes, { createId: uid, nowIso, nowMs: Date.now });
     if (!result.ok) {
       if (result.error) window.alert(result.error);
-      return false;
+      return { ok: false, status: 'invalid-transition', error: result.error || 'This action is no longer valid.' } as const;
     }
-    persist(result.state, true, { feature: 'Table time', action: 'Added player time', metadata: { minutes, gameId: playerSession.gameId } });
+    const saved = await commitTableMutation(result, { feature: 'Table time', action: 'Added player time', metadata: { minutes, gameId: playerSession.gameId } });
+    if (!saved.ok) return saved;
     setCustomTimeDrafts((drafts) => ({ ...drafts, [playerSession.id]: '' }));
-    return true;
+    return saved;
   };
 
-  const deductPlayerTime = (playerSession: PlayerSession, minutes: number) => {
-    const reason = window.prompt('Why are you deducting this time?', 'Time added by mistake')?.trim();
-    if (!reason) return false;
+  const deductPlayerTime = async (playerSession: PlayerSession, minutes: number, reasonOverride?: string) => {
+    mutationDiagnostic('deductPlayerTime', 'handler-entered');
+    const reason = reasonOverride?.trim() ?? window.prompt('Why are you deducting this time?', 'Time added by mistake')?.trim();
+    if (!reason) return { ok: false, status: 'invalid-transition', error: 'A correction reason is required.' } as const;
     const result = deductUnconsumedPlayerTime(
       stateRef.current,
       playerSession.id,
@@ -1468,17 +1542,18 @@ function App() {
     );
     if (!result.ok) {
       if (result.error) window.alert(result.error);
-      return false;
+      return { ok: false, status: 'invalid-transition', error: result.error || 'This action is no longer valid.' } as const;
     }
-    persist(result.state, true, {
+    const saved = await commitTableMutation(result, {
       feature: 'Table time',
       action: 'Deducted player time',
       metadata: { minutes, reason, gameId: playerSession.gameId }
     });
-    return true;
+    return saved;
   };
 
-  const pauseAndSavePlayerTime = (playerSession: PlayerSession) => {
+  const pauseAndSavePlayerTime = async (playerSession: PlayerSession) => {
+    mutationDiagnostic('pauseAndSavePlayerTime', 'handler-entered');
     const result = pauseAndStorePlayerTimeCredit(
       stateRef.current,
       playerSession.id,
@@ -1486,17 +1561,18 @@ function App() {
     );
     if (!result.ok) {
       if (result.error) window.alert(result.error);
-      return false;
+      return { ok: false, status: 'invalid-transition', error: result.error || 'This action is no longer valid.' } as const;
     }
-    persist(result.state, true, {
+    const saved = await commitTableMutation(result, {
       feature: 'Table time',
       action: 'Paused and saved player time',
       metadata: { profileId: playerSession.profileId ?? '', gameId: playerSession.gameId }
     });
-    return true;
+    return saved;
   };
 
-  const useSavedPlayerTime = (playerSession: PlayerSession, minutes: number) => {
+  const useSavedPlayerTime = async (playerSession: PlayerSession, minutes: number) => {
+    mutationDiagnostic('useSavedPlayerTime', 'handler-entered');
     const result = applySavedPlayerTimeCredit(
       stateRef.current,
       playerSession.id,
@@ -1505,27 +1581,30 @@ function App() {
     );
     if (!result.ok) {
       if (result.error) window.alert(result.error);
-      return false;
+      return { ok: false, status: 'invalid-transition', error: result.error || 'This action is no longer valid.' } as const;
     }
-    persist(result.state, true, {
+    const saved = await commitTableMutation(result, {
       feature: 'Table time',
       action: 'Applied saved player time',
       metadata: { minutes, profileId: playerSession.profileId ?? '', gameId: playerSession.gameId }
     });
-    return true;
+    return saved;
   };
 
-  const addBuyIn = (playerSession: PlayerSession, amountOverride?: number, noteOverride?: string) => {
+  const addBuyIn = async (playerSession: PlayerSession, amountOverride?: number, noteOverride?: string) => {
+    mutationDiagnostic('addBuyIn', 'handler-entered');
     const draft = buyInDrafts[playerSession.id] ?? { amount: '', note: '' };
     const amount = amountOverride ?? Number(draft.amount);
     const note = noteOverride ?? draft.note.trim();
-    const result = addPlayerBuyIn(state, playerSession, amount, note, { createId: uid, nowIso });
+    const result = addPlayerBuyIn(stateRef.current, playerSession, amount, note, { createId: uid, nowIso });
     if (!result.ok) {
       if (result.error) window.alert(result.error);
-      return;
+      return { ok: false, status: 'invalid-transition', error: result.error || 'Enter a valid buy-in amount.' } as const;
     }
-    persist(result.state, true, { feature: 'Buy-ins', action: 'Added buy-in', metadata: { amount, gameId: playerSession.gameId } });
+    const saved = await commitTableMutation(result, { feature: 'Buy-ins', action: 'Added buy-in', metadata: { amount, gameId: playerSession.gameId } });
+    if (!saved.ok) { window.alert(saved.error); return saved; }
     setBuyInDrafts((drafts) => ({ ...drafts, [playerSession.id]: { amount: '', note: '' } }));
+    return saved;
   };
 
   const addTableDrop = (session: GameSession) => {
@@ -1579,11 +1658,11 @@ function App() {
   const getAvailableSeatNumber = (session: GameSession, requestedSeat?: number) =>
     getAvailableSeatNumberFromState(state, session, requestedSeat);
 
-  const getOpenSeatSessions = (gameId?: string) =>
-    state.sessions
+  const getOpenSeatSessions = (gameId?: string, sourceState = state) =>
+    sourceState.sessions
       .filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start')
       .filter((session) => !gameId || session.gameId === gameId)
-      .filter((session) => Boolean(getAvailableSeatNumber(session)))
+      .filter((session) => Boolean(getAvailableSeatNumberFromState(sourceState, session)))
       .sort((a, b) => {
         const aRunning = a.status === 'Running' ? 0 : 1;
         const bRunning = b.status === 'Running' ? 0 : 1;
@@ -1767,13 +1846,24 @@ function App() {
     });
   };
 
-  const seatProfileAtTable = (
+  const seatProfileAtTable = async (
     session: GameSession,
     seatNumber: number,
     profile: PlayerProfile,
     initialTimeMinutes?: number,
     initialBuyIn?: number
   ) => {
+    mutationDiagnostic('seatProfileAtTable', 'handler-entered');
+    const currentState = stateRef.current;
+    const currentSession = currentState.sessions.find((candidate) => candidate.id === session.id);
+    const currentProfile = currentState.profiles.find((candidate) => candidate.id === profile.id);
+    if (!currentSession || !currentProfile) {
+      const error = 'This table or player profile is no longer available. Reload the picker and choose again.';
+      setSeatPickerError(error);
+      return { ok: false, status: 'invalid-transition', error } as const;
+    }
+    session = currentSession;
+    profile = currentProfile;
     if (!seatNumber) {
       setSeatPickerError('Table full. No open seats remain.');
       return;
@@ -1790,17 +1880,17 @@ function App() {
     }
     const timestamp = nowIso();
     const alreadyInClub = hasProfileReference(
-      state.interests,
-      state.profiles,
+      currentState.interests,
+      currentState.profiles,
       profile,
       (interest) => activeInterestStatuses.includes(interest.status)
     );
     const checkedInState: AppState = alreadyInClub
-      ? state
+      ? currentState
       : {
-          ...state,
+          ...currentState,
           interests: ensureWaitlistInterest(
-            state,
+            currentState,
             profile,
             session.gameId,
             'Arrived',
@@ -1833,21 +1923,26 @@ function App() {
       setSeatPickerError(result.error);
       return;
     }
-    persist(result.state, true, {
+    const saved = await commitTableMutation(result, {
       feature: 'Seating',
       action: alreadyInClub ? 'Seated player' : 'Checked in and seated player',
       metadata: { gameId: session.gameId, tableId: session.id, seatNumber: result.seatNumber, timeMinutes: timeMinutes ?? 0 }
     });
+    if (!saved.ok) { setSeatPickerError(saved.error); return saved; }
     setSeatPicker(null);
+    return saved;
   };
 
-  const seatTypedNameAtTable = (
+  const seatTypedNameAtTable = async (
     session: GameSession,
     seatNumber: number,
     playerName: string,
     initialTimeMinutes?: number,
     initialBuyIn?: number
   ) => {
+    mutationDiagnostic('seatTypedNameAtTable', 'handler-entered');
+    const currentState = stateRef.current;
+    session = currentState.sessions.find((candidate) => candidate.id === session.id) ?? session;
     const trimmedName = playerName.trim();
     if (!trimmedName) {
       setSeatPickerError('Search or enter a player name before seating.');
@@ -1867,11 +1962,11 @@ function App() {
       setSeatPickerError('Enter a valid initial buy-in amount.');
       return;
     }
-    const existingProfile = state.profiles.find((profile) => profile.name.trim().toLowerCase() === trimmedName.toLowerCase());
-    const targetProfile = existingProfile ?? buildPlayerProfile(trimmedName, session.gameId, {
+    const existingProfile = currentState.profiles.find((profile) => profile.name.trim().toLowerCase() === trimmedName.toLowerCase());
+    const targetProfile = existingProfile ?? buildPlayerProfileInState(currentState, trimmedName, session.gameId, {
       notes: 'Created from table seating'
-    });
-    const seatingState = existingProfile ? state : { ...state, profiles: [...state.profiles, targetProfile] };
+    }, { createProfileId: memberId, todayDate, nextYearDate });
+    const seatingState = existingProfile ? currentState : { ...currentState, profiles: [...currentState.profiles, targetProfile] };
     const result = seatPlayerInState(seatingState, session.id, {
       playerName: trimmedName,
       profileId: targetProfile.id,
@@ -1884,27 +1979,38 @@ function App() {
       setSeatPickerError(result.error);
       return;
     }
-    persist(result.state, true, {
+    const saved = await commitTableMutation(result, {
       feature: 'Seating',
       action: existingProfile ? 'Seated player' : 'Created profile and seated player',
       metadata: { gameId: session.gameId, tableId: session.id, seatNumber: result.seatNumber, timeMinutes: timeMinutes ?? 0 }
     });
+    if (!saved.ok) { setSeatPickerError(saved.error); return saved; }
     setSeatPicker(null);
+    return saved;
   };
 
-  const seatInterestAtTable = (interest: Interest, tableId?: string, seatNumber?: number) => {
+  const seatInterestAtTable = async (interest: Interest, tableId?: string, seatNumber?: number) => {
+    mutationDiagnostic('seatInterestAtTable', 'handler-entered');
+    const currentState = stateRef.current;
+    const latestInterest = currentState.interests.find((candidate) => candidate.id === interest.id);
+    if (!latestInterest) {
+      const error = 'This waitlist entry no longer exists.';
+      window.alert(error);
+      return { ok: false, status: 'invalid-transition', error } as const;
+    }
+    interest = latestInterest;
     const existingProfile = interest.profileId
-      ? state.profiles.find((profile) => profile.id === interest.profileId)
-      : state.profiles.find(
+      ? currentState.profiles.find((profile) => profile.id === interest.profileId)
+      : currentState.profiles.find(
           (profile) => profile.name.trim().toLowerCase() === interest.playerName.trim().toLowerCase()
         );
-    const targetProfile = existingProfile ?? buildPlayerProfile(interest.playerName, interest.gameId, {
+    const targetProfile = existingProfile ?? buildPlayerProfileInState(currentState, interest.playerName, interest.gameId, {
       notes: 'Created from waitlist seating'
-    });
+    }, { createProfileId: memberId, todayDate, nextYearDate });
     const seatingState: AppState = {
-      ...state,
-      profiles: existingProfile ? state.profiles : [...state.profiles, targetProfile],
-      interests: state.interests.map((candidate) =>
+      ...currentState,
+      profiles: existingProfile ? currentState.profiles : [...currentState.profiles, targetProfile],
+      interests: currentState.interests.map((candidate) =>
         candidate.id === interest.id ? { ...candidate, profileId: targetProfile.id } : candidate
       )
     };
@@ -1914,12 +2020,13 @@ function App() {
       : seatingState.sessions.find((session: { gameId: string; status: string; }) => session.gameId === interest.gameId && session.status !== 'Closed' && session.status !== 'Failed to Start');
     if (!table) {
       const result = patchWaitlistInterest(seatingState, linkedInterest.id, { status: 'Seated' }, { nowIso });
-      persist(result.state, true, {
+      const saved = await commitTableMutation({ ok: true, state: result.state }, {
         feature: 'Profiles',
         action: existingProfile ? 'Updated player status' : 'Created profile and updated player status',
         metadata: { profileId: targetProfile.id, status: 'Seated' }
       });
-      return;
+      if (!saved.ok) window.alert(saved.error);
+      return saved;
     }
     const result = seatPlayerInState(seatingState, table.id, {
       playerName: linkedInterest.playerName,
@@ -1930,9 +2037,11 @@ function App() {
     });
     if (!result.ok) {
       window.alert(result.error);
-      return;
+      return { ok: false, status: 'invalid-transition', error: result.error } as const;
     }
-    persist(result.state, true, { feature: 'Seating', action: 'Seated player', metadata: { gameId: interest.gameId, tableId: table.id, seatNumber: result.seatNumber } });
+    const saved = await commitTableMutation(result, { feature: 'Seating', action: 'Seated player', metadata: { gameId: interest.gameId, tableId: table.id, seatNumber: result.seatNumber } });
+    if (!saved.ok) window.alert(saved.error);
+    return saved;
   };
 
   const toggleStartPlayer = (sessionId: string, interestId: string) => {
@@ -4019,6 +4128,7 @@ function App() {
           onSubmit={(pin) => resolveStaffPinRequest(pin)}
         />
       ) : null}
+      {saveStatus.state === 'error' && (route === 'floor' || route === 'table') ? <div className="seat-picker-error" role="alert">{saveStatus.message}</div> : null}
       {withRouteLoadingBoundary(content)}
     </AppShell>
   );
@@ -4694,19 +4804,20 @@ function App() {
               />
             </label>
           ) : null}
-          <button className="primary-button" type="submit" disabled={!seatPickerTypedName || !seatPicker.seatNumber}>
+          <button className="primary-button" type="submit" disabled={tableMutationPending || !seatPickerTypedName || !seatPicker.seatNumber}>
             <Plus size={16} />
             Seat Player
           </button>
         </form>
-        {seatPicker.error ? <div className="seat-picker-error">{seatPicker.error}</div> : null}
+        {tableMutationPending ? <div role="status">Saving to server…</div> : null}
+        {seatPicker.error ? <div role="alert" className="seat-picker-error">{seatPicker.error}</div> : null}
         <div className="seat-picker-list">
           {showSeatPickerTypedName ? (
             <button
               className="seat-picker-card"
               type="button"
               onClick={() => seatTypedNameAtTable(seatPickerSession, seatPicker.seatNumber, seatPickerTypedName, Number(seatPicker.timeMinutes), seatPickerInitialBuyIn)}
-              disabled={!seatPicker.seatNumber}
+              disabled={tableMutationPending || !seatPicker.seatNumber}
             >
               <div className="seat-picker-avatar">{seatPickerTypedName.slice(0, 1).toUpperCase()}</div>
               <div>
@@ -4724,7 +4835,7 @@ function App() {
                 key={profile.id}
                 type="button"
                 onClick={() => seatProfileAtTable(seatPickerSession, seatPicker.seatNumber, profile, Number(seatPicker.timeMinutes), seatPickerInitialBuyIn)}
-                disabled={!seatPicker.seatNumber}
+                disabled={tableMutationPending || !seatPicker.seatNumber}
               >
                 <div className="seat-picker-avatar">{profile.name.slice(0, 1).toUpperCase()}</div>
                 <div>

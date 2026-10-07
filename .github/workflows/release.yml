@@ -112,7 +112,9 @@ jobs:
           npm ci --prefix apps/api
 
       - name: Apply the approved release version without a Git mutation
-        run: npm version "${{ inputs.release_version }}" --no-git-tag-version
+        run: |
+          npm version "${{ inputs.release_version }}" --no-git-tag-version
+          npm pkg set orbitSourceSha="${{ inputs.source_sha }}"
 
       - name: Run security, dependency, and release control gates
         run: |
@@ -137,6 +139,7 @@ jobs:
       - name: Run critical production-bundle smoke paths
         run: |
           npm run e2e:management
+          npm run e2e:management:mutations
           npm run e2e:ocr-file
           npm run e2e:public
 

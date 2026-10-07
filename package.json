@@ -74,6 +74,7 @@
     "verify": "node scripts/verify.cjs",
     "stress:e2e": "node tests/e2e/stress-electron.mjs",
     "e2e:management": "node scripts/run-management-smoke.mjs",
+    "e2e:management:mutations": "node scripts/run-management-mutation-smoke.mjs",
     "e2e:ocr-file": "node tests/e2e/ocr-file-smoke.mjs",
     "e2e:public": "node scripts/run-public-smoke.mjs",
     "e2e:packaged": "node tests/e2e/packaged-electron-smoke.mjs",

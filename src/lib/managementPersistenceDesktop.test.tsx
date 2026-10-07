@@ -21,6 +21,7 @@ const harness = vi.hoisted(() => ({
   desktopPollError: false,
   desktopPollResult: null as unknown,
   desktopSaveError: false,
+  desktopSaveResult: undefined as { ok: boolean; conflict?: boolean; error?: string } | undefined,
   desktopSaveStates: [] as AppState[],
   fetchCalls: [] as string[],
   floorProps: undefined as unknown,
@@ -94,9 +95,9 @@ vi.mock('../components/AppShell', () => ({
   }
 }));
 vi.mock('../components/FloorView', () => ({
-  default: (props: unknown) => {
+  default: (props: { seatPickerModal?: ReactNode }) => {
     harness.floorProps = props;
-    return null;
+    return props.seatPickerModal ?? null;
   }
 }));
 vi.mock('./firebaseConfig', () => ({ rendererFirebaseSyncEnabled: true }));
@@ -205,9 +206,9 @@ const invokeFloor = async (name: string, ...args: unknown[]) => {
   if (typeof harness.floorProps !== 'object' || harness.floorProps === null) throw new Error('Expected Floor props');
   const callback: unknown = Reflect.get(harness.floorProps, name);
   if (typeof callback !== 'function') throw new Error(`Expected ${name}`);
-  await act(async () => {
-    await Reflect.apply(callback, undefined, args);
-  });
+  let result: unknown;
+  await act(async () => { result = await Reflect.apply(callback, undefined, args); });
+  return result;
 };
 
 describe('management desktop authoritative API persistence orchestration', () => {
@@ -249,7 +250,7 @@ describe('management desktop authoritative API persistence orchestration', () =>
       saveState: vi.fn(async (state: AppState) => {
         harness.desktopSaveStates.push(state);
         if (harness.desktopSaveError) throw new Error('isolated desktop save failure');
-        return { ok: true, path: 'fixture' };
+        return { ...(harness.desktopSaveResult ?? { ok: true }), path: 'fixture' };
       }),
       sendTextMessages: vi.fn(async () => ({ ok: true })),
       submitAnalyticalReport: vi.fn(async () => ({ ok: true })),
@@ -380,4 +381,178 @@ describe('management desktop authoritative API persistence orchestration', () =>
     expect(harness.unsubscribe).toHaveBeenCalledTimes(unsubscribeBeforeCleanup);
     expect(harness.prepareCleanup).toHaveBeenCalledTimes(prepareCleanupBefore + 1);
   });
+  it('propagates payload preflight rejection before the desktop bridge', async () => {
+    const state = buildState('payload-characterization');
+    state.sessions = [{ id: 'table-test', gameId: 'game-desktop', label: 'Table test', status: 'Running', seatsFilled: 1, maxSeats: 8, timeFeeBased: true, collectionMode: 'Time', tags: [], startedAt: now }];
+    state.playerSessions = [{ id: 'player-test', playerName: state.profiles[0].name, profileId: state.profiles[0].id, gameId: 'game-desktop', tableId: 'table-test', seatNumber: 1, seatedAt: now, timePurchasedMinutes: 60, timeRemainingMinutes: 60, lastTimeTickAt: now, timeFeeEnabled: true }];
+    state.profiles[0].notes = 'x'.repeat(1_999_900 - new TextEncoder().encode(JSON.stringify(state)).byteLength);
+    harness.desktopLoadResult = null;
+    harness.desktopPollResult = null;
+    await remount(state);
+    harness.desktopSaveStates.length = 0;
+    const result = await invokeFloor('addPlayerTime', getState().playerSessions[0], 30);
+    expect(result).toMatchObject({ ok: false, status: 'preflight-rejected' });
+    expect(harness.desktopSaveStates).toHaveLength(0);
+    expect(getState().playerSessions[0].timePurchasedMinutes).toBe(60);
+    expect(Reflect.get(harness.shellProps as object, 'saveState')).toBe('error');
+  });
+
+  const tableState = (): AppState => ({
+    ...buildState('mutation'),
+    sessions: [{ id: 'table-test', gameId: 'game-desktop', label: 'Table test', status: 'Running', seatsFilled: 0, maxSeats: 8, timeFeeBased: true, collectionMode: 'Time', tags: [], startedAt: now }],
+    playerSessions: []
+  });
+  const replaceState = async (state: AppState) => {
+    const setter = harness.stateSetter;
+    if (typeof setter !== 'function') throw new Error('Missing state setter');
+    await act(async () => { Reflect.apply(setter, undefined, [state]); });
+  };
+  const pad = (state: AppState, bytes: number) => {
+    const next = structuredClone(state);
+    next.profiles[0].notes = '';
+    next.profiles[0].notes = 'x'.repeat(bytes - new TextEncoder().encode(JSON.stringify(next)).byteLength);
+    return next;
+  };
+  const mountTable = async () => {
+    harness.desktopSaveResult = undefined;
+    harness.desktopLoadResult = null;
+    harness.desktopPollResult = null;
+    await remount(tableState());
+    harness.desktopSaveStates.length = 0;
+    vi.spyOn(window, 'prompt').mockReturnValue('Synthetic correction');
+  };
+
+  it('seats below the limit through the real seat picker and saves the operational records', async () => {
+    await mountTable();
+    await replaceState(pad(getState(), 1_998_500));
+    await invokeFloor('openSeatPicker', getState().sessions[0], 1);
+    const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.seat-picker-card')).find(item => item.textContent?.includes('mutation Player'));
+    expect(button).toBeTruthy();
+    await act(async () => { button?.click(); });
+    await flush();
+    expect(document.querySelector('.seat-picker-modal')).toBeNull();
+    const saved = harness.desktopSaveStates.at(-1)!;
+    expect(saved.sessions[0].seatsFilled).toBe(1);
+    expect(saved.playerSessions[0]).toMatchObject({ profileId: 'profile-shared', seatNumber: 1 });
+    expect(saved.interests[0].status).toBe('Seated');
+    expect(saved.playerLedger.some(item => item.type === 'Check-In')).toBe(true);
+    expect(new TextEncoder().encode(JSON.stringify(saved)).byteLength).toBeLessThanOrEqual(2_000_000);
+  });
+
+  it.each(['profile', 'typed'])('keeps the %s seat picker open when seating crosses the limit', async (kind) => {
+    await mountTable();
+    await replaceState(pad(getState(), 1_999_900));
+    await invokeFloor('openSeatPicker', getState().sessions[0], 1);
+    if (kind === 'typed') {
+      const input = document.querySelector<HTMLInputElement>('.seat-picker-modal input[placeholder]')!;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      await act(async () => { setter.call(input, 'Typed Synthetic'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    }
+    const button = kind === 'profile'
+      ? Array.from(document.querySelectorAll<HTMLButtonElement>('.seat-picker-card')).find(item => item.textContent?.includes('mutation Player'))
+      : document.querySelector<HTMLButtonElement>('.seat-picker-modal button[type="submit"]');
+    await act(async () => { button?.click(); });
+    await flush();
+    expect(harness.desktopSaveStates).toHaveLength(0);
+    expect(getState().playerSessions).toHaveLength(0);
+    expect(document.querySelector('.seat-picker-modal')).not.toBeNull();
+    expect(document.querySelector('.seat-picker-error')?.textContent).toContain('2,000,000-byte');
+  });
+
+  it.each(['addPlayerTime', 'deductPlayerTime'])('rejects %s across the limit without saving or changing balances', async (action) => {
+    await mountTable();
+    await invokeFloor('seatInterestAtTable', getState().interests[0], 'table-test', 1);
+    await invokeFloor('addPlayerTime', getState().playerSessions[0], 60);
+    await replaceState(pad(getState(), 1_999_900));
+    harness.desktopSaveStates.length = 0;
+    const before = getState();
+    const result = await invokeFloor(action, before.playerSessions[0], 30);
+    expect(result).toMatchObject({ ok: false, status: 'preflight-rejected', error: expect.stringContaining('2,000,000-byte') });
+    if (!result || typeof result !== 'object') throw new Error('Missing failure outcome');
+    expect(Reflect.get(result, 'error')).toMatch(/2,00[0-9],[0-9]{3} bytes/);
+    expect(getState()).toBe(before);
+    expect(harness.desktopSaveStates).toHaveLength(0);
+  });
+
+  it('preserves receipts, table events, and negative correction records on accepted time changes', async () => {
+    await mountTable();
+    await invokeFloor('seatInterestAtTable', getState().interests[0], 'table-test', 1);
+    const selected = getState().playerSessions[0];
+    expect(await invokeFloor('addPlayerTime', selected, 60)).toMatchObject({ ok: true, status: 'authoritative-saved' });
+    expect(await invokeFloor('deductPlayerTime', selected, 30)).toMatchObject({ ok: true });
+    const saved = harness.desktopSaveStates.at(-1)!;
+    expect(saved.playerSessions[0].timePurchasedMinutes).toBe(30);
+    expect(saved.timeFeeLogs.map(log => log.minutes)).toEqual([60, -30]);
+    expect(saved.tableEvents.some(event => event.reason === 'time added')).toBe(true);
+    expect(saved.correctionLog.length).toBeGreaterThan(0);
+  });
+
+  it('uses a newer sync snapshot through a previously captured seating callback', async () => {
+    await mountTable();
+    const captured = Reflect.get(harness.floorProps as object, 'seatInterestAtTable');
+    if (typeof captured !== 'function') throw new Error('Missing seating callback');
+    const stateA = getState();
+    const stateB = { ...stateA, profiles: [{ ...stateA.profiles[0], notes: 'server-B' }], tableEvents: [{ id: 'event-B', type: 'Started' as const, gameId: 'game-desktop', tableId: 'table-test', timestamp: now, playerCount: 0 }] };
+    harness.desktopPollResult = { schemaVersion: 4, savedAt: now, authoritative: true, revision: 2, state: stateB };
+    await advance(3000);
+    await act(async () => { await Reflect.apply(captured, undefined, [stateA.interests[0], 'table-test', 1]); });
+    expect(harness.desktopSaveStates.at(-1)?.profiles[0].notes).toBe('server-B');
+    expect(harness.desktopSaveStates.at(-1)?.tableEvents.some(item => item.id === 'event-B')).toBe(true);
+  });
+
+  it.each(['seatInterestAtTable', 'addPlayerTime', 'deductPlayerTime'])('rejects %s conflicts and reloads newer authoritative state without replay', async (action) => {
+    await mountTable();
+    if (action !== 'seatInterestAtTable') {
+      await invokeFloor('seatInterestAtTable', getState().interests[0], 'table-test', 1);
+      await invokeFloor('addPlayerTime', getState().playerSessions[0], 60);
+    }
+    const authoritative = { ...getState(), profiles: [{ ...getState().profiles[0], notes: 'server-N+1' }] };
+    harness.desktopPollResult = { schemaVersion: 4, savedAt: now, state: authoritative, authoritative: true, revision: 2 };
+    harness.desktopSaveResult = { ok: false, conflict: true, error: 'STATE_REVISION_CONFLICT' };
+    harness.desktopSaveStates.length = 0;
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    const result = action === 'seatInterestAtTable'
+      ? await invokeFloor(action, getState().interests[0], 'table-test', 1)
+      : await invokeFloor(action, getState().playerSessions[0], 30);
+    expect(result).toMatchObject({ ok: false, status: 'revision-conflict' });
+    expect(harness.desktopSaveStates).toHaveLength(1);
+    expect(getState().profiles[0].notes).toBe('server-N+1');
+    expect(getState().playerSessions).toMatchObject(authoritative.playerSessions);
+    expect(JSON.parse(localStorage.getItem(accountStorageKey)!)).toMatchObject({ profiles: [{ notes: 'server-N+1' }] });
+    harness.desktopSaveResult = undefined;
+  });
+
+  it.each(['profile', 'typed'])('constructs %s seating from B through a picker callback captured in A', async (kind) => {
+    await mountTable();
+    await invokeFloor('openSeatPicker', getState().sessions[0], 1);
+    if (kind === 'typed') {
+      const input = document.querySelector<HTMLInputElement>('.seat-picker-modal input[placeholder]')!;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      await act(async () => { setter.call(input, 'Typed Synthetic'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    }
+    const pending: unknown[] = [Reflect.get(harness.floorProps as object, 'seatPickerModal')];
+    let callback: unknown;
+    while (pending.length) {
+      const item = pending.pop();
+      if (Array.isArray(item)) { pending.push(...item); continue; }
+      if (!item || typeof item !== 'object') continue;
+      const props: unknown = Reflect.get(item, 'props');
+      if (props && typeof props === 'object') {
+        if (Reflect.get(props, 'className') === 'seat-picker-card') { callback = Reflect.get(props, 'onClick'); break; }
+        const children: unknown = Reflect.get(props, 'children');
+        pending.push(...(Array.isArray(children) ? children : [children]));
+      }
+      const children: unknown = Reflect.get(item, 'children');
+      pending.push(...(Array.isArray(children) ? children : [children]));
+    }
+    if (typeof callback !== 'function') throw new Error('Missing captured picker action');
+    const stateA = getState();
+    const stateB = { ...stateA, profiles: [{ ...stateA.profiles[0], notes: 'server-B-picker' }], tableEvents: [{ id: 'picker-event-B', type: 'Started' as const, gameId: 'game-desktop', tableId: 'table-test', timestamp: now, playerCount: 0 }] };
+    harness.desktopPollResult = { schemaVersion: 4, savedAt: now, authoritative: true, revision: 2, state: stateB };
+    await advance(3000);
+    await act(async () => { await Reflect.apply(callback, undefined, []); });
+    expect(harness.desktopSaveStates.at(-1)?.profiles[0].notes).toBe('server-B-picker');
+    expect(harness.desktopSaveStates.at(-1)?.tableEvents.some(event => event.id === 'picker-event-B')).toBe(true);
+  });
+
 });

@@ -94,8 +94,8 @@ describe('PokerTable seat rendering', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const root = createRoot(container);
-    const onAddBuyIn = vi.fn();
-    const onAddTime = vi.fn();
+    const onAddBuyIn = vi.fn(() => true);
+    const onAddTime = vi.fn(() => true);
     const onDeductTime = vi.fn(() => true);
     const onPauseAndSaveTime = vi.fn(() => true);
     const onUseSavedTime = vi.fn(() => true);
@@ -190,7 +190,7 @@ describe('PokerTable seat rendering', () => {
     act(() => {
       deductPanel?.querySelector<HTMLButtonElement>('.mini-button')?.click();
     });
-    expect(onDeductTime).toHaveBeenCalledWith('player-details', 15);
+    expect(onDeductTime).toHaveBeenCalledWith('player-details', 15, 'Time added by mistake');
     expect(details?.querySelector('[role="status"]')?.textContent).toBe('15 minutes deducted.');
 
     act(() => {
@@ -389,6 +389,44 @@ it('keeps the time form open and does not claim success when an addition is reje
   expect(onAddTime).toHaveBeenCalledWith('player', 30);
   expect(container.textContent).not.toContain('30 minutes added.');
   expect(container.querySelector('.time-action-panel')).not.toBeNull();
+  act(() => root.unmount());
+  container.remove();
+});
+
+
+it.each(['add', 'deduct'])('waits for the %s save and retains the form on asynchronous rejection', async (action) => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  let resolveSave: (result: { ok: false; status: 'preflight-rejected'; error: string }) => void = () => undefined;
+  const save = vi.fn(() => new Promise<{ ok: false; status: 'preflight-rejected'; error: string }>(resolve => { resolveSave = resolve; }));
+  const click = (text: string) => {
+    const button = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(item => item.textContent?.trim() === text);
+    if (!button) throw new Error('Missing button ' + text);
+    act(() => button.click());
+  };
+  act(() => root.render(<PokerTable players={[{ id: 'pending-player', name: 'Pending', seatNumber: 1, membershipId: 'synthetic', joinedAt: Date.now(), timeRemainingSeconds: 3600 }]} showTimeRemaining onAddTime={save} onDeductTime={save} />));
+  act(() => container.querySelector<HTMLButtonElement>('[aria-label="Open details for Pending at seat 1"]')!.click());
+  click(action === 'add' ? 'Add time' : 'Deduct time');
+  if (action === 'deduct') {
+    const reason = container.querySelector<HTMLInputElement>('.deduct-time-action-panel input:not([type])')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    act(() => { setter.call(reason, ''); reason.dispatchEvent(new Event('input', { bubbles: true })); });
+    click('-30 min');
+    expect(save).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Enter a correction reason.');
+    act(() => { setter.call(reason, 'Synthetic correction'); reason.dispatchEvent(new Event('input', { bubbles: true })); });
+  }
+  click(action === 'add' ? '+30 min' : '-30 min');
+  expect(container.textContent).toContain('Saving to server');
+  expect(container.textContent).not.toContain('minutes added.');
+  expect(container.textContent).not.toContain('minutes deducted.');
+  expect(save).toHaveBeenCalledTimes(1);
+  await act(async () => resolveSave({ ok: false, status: 'preflight-rejected', error: '2,000,123 bytes exceeds 2,000,000-byte save limit. Export a backup and contact support.' }));
+  expect(container.textContent).toContain('2,000,123 bytes');
+  expect(container.querySelector(action === 'add' ? '.time-action-panel' : '.deduct-time-action-panel')).not.toBeNull();
+  expect(container.textContent).not.toContain('minutes added.');
+  expect(container.textContent).not.toContain('minutes deducted.');
   act(() => root.unmount());
   container.remove();
 });

@@ -1,3 +1,4 @@
+import { type MutationActionCallbackResult } from '../application/management/mutationResult';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Activity, Clock, Maximize2, Minimize2, Plus, Settings2, Undo2, WalletCards, X } from 'lucide-react';
 import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
@@ -78,11 +79,11 @@ type TableViewProps = {
   getTimerStatusFromSeconds: (seconds: number) => string;
   getMoveTargets: (sourceTableId: string) => { id: string; label: string; openSeats: number }[];
   openSeatPicker: (session: GameSession, requestedSeatNumber?: number) => void;
-  addPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean | void;
-  deductPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
-  pauseAndSavePlayerTime: (playerSession: PlayerSession) => boolean;
-  useSavedPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
-  addBuyIn: (playerSession: PlayerSession, amountOverride?: number, noteOverride?: string) => void;
+  addPlayerTime: (playerSession: PlayerSession, minutes: number) => MutationActionCallbackResult;
+  deductPlayerTime: (playerSession: PlayerSession, minutes: number, reason?: string) => MutationActionCallbackResult;
+  pauseAndSavePlayerTime: (playerSession: PlayerSession) => MutationActionCallbackResult;
+  useSavedPlayerTime: (playerSession: PlayerSession, minutes: number) => MutationActionCallbackResult;
+  addBuyIn: (playerSession: PlayerSession, amountOverride?: number, noteOverride?: string) => MutationActionCallbackResult;
   requestPlayerCashOut: (playerSession: PlayerSession) => void;
   changePlayerSeat: (playerSession: PlayerSession, seatNumber: number) => void;
   movePlayerToTable: (playerSession: PlayerSession, targetTableId: string) => void;
@@ -507,9 +508,9 @@ export default function TableView({
                     const playerSession = seatedPlayers.find((player) => player.id === playerId);
                     return playerSession ? addPlayerTime(playerSession, minutes) : false;
                   }}
-                  onDeductTime={(playerId, minutes) => {
+                  onDeductTime={(playerId, minutes, reason) => {
                     const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                    return playerSession ? deductPlayerTime(playerSession, minutes) : false;
+                    return playerSession ? deductPlayerTime(playerSession, minutes, reason) : false;
                   }}
                   onPauseAndSaveTime={(playerId) => {
                     const playerSession = seatedPlayers.find((player) => player.id === playerId);
@@ -521,7 +522,7 @@ export default function TableView({
                   }}
                   onAddBuyIn={(playerId, amount, note) => {
                     const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                    if (playerSession) addBuyIn(playerSession, amount, note);
+                    return playerSession ? addBuyIn(playerSession, amount, note) : false;
                   }}
                   onRemovePlayer={(playerId) => {
                     const playerSession = seatedPlayers.find((player) => player.id === playerId);

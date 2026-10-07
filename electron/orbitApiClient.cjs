@@ -184,6 +184,7 @@ function createOrbitApiClient(dependencies) {
     const controller = new AbortController();
     const timeout = setTimeoutImpl(() => controller.abort(), options.timeoutMs ?? 3500);
     try {
+      if (pathname === '/state') writeOrbitApiLog('info', 'state-api-request', { requestId, expectedRevision: options.body?.expectedRevision, payloadBytes: Buffer.byteLength(JSON.stringify(options.body?.state || {}), 'utf8') });
       const response = await fetchImpl(`${apiUrl}${pathname}`, {
         method,
         headers: {
@@ -491,6 +492,13 @@ function createOrbitApiClient(dependencies) {
     const expectedRevision = revisionByAccount.get(accountKey) || 0;
     const stateHash = crypto.createHash('sha256').update(JSON.stringify(state)).digest('hex').slice(0, 32);
     const mutationId = `desktop:${accountKey}:${expectedRevision}:${stateHash}`;
+    const diagnostic = {
+      accountRef: crypto.createHash('sha256').update(accountKey).digest('hex').slice(0, 12),
+      expectedRevision, mutationRef: stateHash.slice(0, 12),
+      payloadBytes: Buffer.byteLength(JSON.stringify(state), 'utf8'),
+      authAvailable: Boolean(getClientAuthKeyFromState(state) || getApiConfig().apiKey)
+    };
+    writeOrbitApiLog('info', 'state-save-attempt', diagnostic);
     const payload = await requestOrbitApi('/state', {
       method: 'POST',
       body: { state, expectedRevision, mutationId },
@@ -499,6 +507,7 @@ function createOrbitApiClient(dependencies) {
       timeoutMs: 5000,
       returnFailurePayload: true
     });
+    writeOrbitApiLog(payload?.ok ? 'info' : 'warn', 'state-api-result', { ...diagnostic, result: payload?.ok ? 'accepted' : payload?.code || 'api-failure', currentRevision: Number(payload?.revision || payload?.currentRevision || 0), httpStatus: payload?.httpStatus || 0 });
     if (payload?.code === 'STATE_REVISION_CONFLICT') {
       return {
         ok: false,

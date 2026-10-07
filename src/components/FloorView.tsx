@@ -1,5 +1,6 @@
+import { mutationActionError, type MutationActionCallbackResult } from '../application/management/mutationResult';
 import * as Dialog from '@radix-ui/react-dialog';
-import { lazy, Suspense, useRef, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
+import { lazy, Suspense, useRef, useState, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
 import { ChevronDown, ChevronUp, Eye, LayoutDashboard, LayoutGrid, List, MoreHorizontal, Plus, Users, WalletCards, X } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Button } from './ui/button';
@@ -93,7 +94,7 @@ type FloorViewProps = {
   formatTimeLeft: (seconds: number) => string;
   toDateTimeInput: (iso?: string) => string;
   togglePanel: (panel: string) => void;
-  seatInterestAtTable: (interest: Interest, tableId?: string, seatNumber?: number) => void;
+  seatInterestAtTable: (interest: Interest, tableId?: string, seatNumber?: number) => MutationActionCallbackResult;
   updateInterest: (id: string, patch: Partial<Interest>) => void;
   deleteInterest: (id: string) => void;
   openTableView: (sessionId: string) => void;
@@ -102,11 +103,11 @@ type FloorViewProps = {
   updateSession: (id: string, patch: Partial<GameSession>) => void;
   recordTableEvent: (session: GameSession, type: TableEventType, reason: string, note?: string) => void;
   toggleStartPlayer: (sessionId: string, interestId: string) => void;
-  addPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean | void;
-  deductPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
-  pauseAndSavePlayerTime: (playerSession: PlayerSession) => boolean;
-  useSavedPlayerTime: (playerSession: PlayerSession, minutes: number) => boolean;
-  addBuyIn: (playerSession: PlayerSession, amountOverride?: number, noteOverride?: string) => void;
+  addPlayerTime: (playerSession: PlayerSession, minutes: number) => MutationActionCallbackResult;
+  deductPlayerTime: (playerSession: PlayerSession, minutes: number, reason?: string) => MutationActionCallbackResult;
+  pauseAndSavePlayerTime: (playerSession: PlayerSession) => MutationActionCallbackResult;
+  useSavedPlayerTime: (playerSession: PlayerSession, minutes: number) => MutationActionCallbackResult;
+  addBuyIn: (playerSession: PlayerSession, amountOverride?: number, noteOverride?: string) => MutationActionCallbackResult;
   requestPlayerCashOut: (playerSession: PlayerSession) => void;
   changePlayerSeat: (playerSession: PlayerSession, seatNumber: number) => void;
   movePlayerToTable: (playerSession: PlayerSession, targetTableId: string) => void;
@@ -146,6 +147,7 @@ export default function FloorView(props: FloorViewProps) {
     addTableDrop, failFormingGame, addPhysicalTable, addSession, setFloorViewMode, clearTable,
     deleteTable, mergeTable, addInterest, checkInProfileFromSearch
   } = props;
+  const [waitlistSeatError, setWaitlistSeatError] = useState('');
   const floorLayoutStorageKey = getFloorLayoutStorageKey(getAccountKeyFromState(state));
   const waitingCount = state.interests.filter((interest) => activeInterestStatuses.includes(interest.status)).length;
   const currentTablesTriggerRef = useRef<HTMLButtonElement>(null);
@@ -226,6 +228,7 @@ export default function FloorView(props: FloorViewProps) {
         <Dialog.Portal>
           <Dialog.Overlay className="waitlist-popup-overlay" />
           <Dialog.Content className="waitlist-popup-content">
+            {waitlistSeatError ? <p role="alert" className="seat-picker-error">{waitlistSeatError}</p> : null}
             <div className="waitlist-popup-header">
               <div>
                 <Dialog.Title className="waitlist-popup-title">Waitlist</Dialog.Title>
@@ -275,8 +278,12 @@ export default function FloorView(props: FloorViewProps) {
                                 <DropdownMenuItem
                                   key={session.id}
                                   onSelect={() => {
-                                    seatInterestAtTable(interest, session.id);
-                                    setWaitlistPopupOpen(false);
+                                    setWaitlistSeatError('');
+                                    void Promise.resolve(seatInterestAtTable(interest, session.id)).then((result) => {
+                                      const error = mutationActionError(result);
+                                      setWaitlistSeatError(error);
+                                      if (!error) setWaitlistPopupOpen(false);
+                                    }).catch(() => setWaitlistSeatError('This seating action could not be saved. Check the club connection and retry.'));
                                   }}
                                 >
                                   {session.label} · {session.maxSeats - getActivePlayerSessionsForTable(state, session.id).length} open
@@ -568,9 +575,9 @@ export default function FloorView(props: FloorViewProps) {
                                 const playerSession = seatedPlayers.find((player) => player.id === playerId);
                                 return playerSession ? addPlayerTime(playerSession, minutes) : false;
                               }}
-                              onDeductTime={(playerId, minutes) => {
+                              onDeductTime={(playerId, minutes, reason) => {
                                 const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                                return playerSession ? deductPlayerTime(playerSession, minutes) : false;
+                                return playerSession ? deductPlayerTime(playerSession, minutes, reason) : false;
                               }}
                               onPauseAndSaveTime={(playerId) => {
                                 const playerSession = seatedPlayers.find((player) => player.id === playerId);
@@ -582,7 +589,7 @@ export default function FloorView(props: FloorViewProps) {
                               }}
                               onAddBuyIn={(playerId, amount, note) => {
                                 const playerSession = seatedPlayers.find((player) => player.id === playerId);
-                                if (playerSession) addBuyIn(playerSession, amount, note);
+                                return playerSession ? addBuyIn(playerSession, amount, note) : false;
                               }}
                               onRemovePlayer={(playerId) => {
                                 const playerSession = seatedPlayers.find((player) => player.id === playerId);
