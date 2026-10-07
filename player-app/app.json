@@ -7,11 +7,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash-icon-transparent.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#060C1A"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.orbit.player",
