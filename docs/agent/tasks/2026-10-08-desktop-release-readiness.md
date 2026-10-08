@@ -35,6 +35,7 @@ GitHub's latest published stable release is [Orbit v0.1.77](https://github.com/s
 - `npm run e2e:management:mutations`: passed after palette extraction through the real renderer, preload/IPC, Electron client, and authenticated local API with an in-memory datastore. Saved receipts and final UI were verified alongside conflicts, API failures, and payload rejection.
 - `npm run e2e:management`: passed against a fresh production renderer build and local API fixture, covering profile creation, scanner/OCR, data import, seating, floor actions, responsive presentation, isolated networking, and a clean browser console.
 - Final `npm run verify` after palette extraction: exit code 1, 12 of 13 checks passed. The only failure remains the four Player package-version pins. All root/Player/Web/sales-map compiler checks, Web lint, artwork, tests, and production builds passed. Root unit tests: 205 files passed, one existing emulator file skipped; 1,453 tests passed, eight existing skips. Web: 209 tests passed. Sales map: 85 tests passed.
+- Sensitive-path release gate: `node scripts/check-sensitive-paths.cjs` passed in a clean, tracked-source-only detached worktree at `9c05e8b6385cd970d22dc73ce405c370b5e05312`. The worktree was clean and removed after verification.
 
 All application validation uses local/test endpoints with Firebase sync disabled. No production API, identity, payment, email, SMS, or Firebase operation has been performed.
 
@@ -46,7 +47,7 @@ The repository requires explicit dependency-remediation scope. Authorization was
 
 The current Player build chain also reports two unpatched High origins: [braces stack exhaustion](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) and [node-forge signature verification](https://github.com/advisories/GHSA-86w9-cpqp-85rv). The npm registry still reports `braces@3.0.3` and `node-forge@1.4.0` as latest. Local call-site review finds braces through Metro's filesystem glob watcher and node-forge through Expo CLI's signing-certificate utility; no direct Player application imports were found. This is preliminary reachability evidence, not an approved advisory exception or an assertion that those vulnerabilities are fixed.
 
-The local sensitive-path gate reports only these ignored, untracked paths: `.pilot-license-private-key.pem`, `firebase-debug.log`, and `firestore-debug.log`. Their contents were not read, moved, copied, deleted, or committed. The release must exercise this gate in an isolated clean checkout; the developer workspace is not a secret-free release source directory.
+The local sensitive-path gate reports only these ignored, untracked paths: `.pilot-license-private-key.pem`, `firebase-debug.log`, and `firestore-debug.log`. Their contents were not read, moved, copied, deleted, or committed. The unchanged gate passed on the reviewed source commit in an isolated clean checkout; the developer workspace is not a secret-free release source directory.
 
 ## Handoff
 
