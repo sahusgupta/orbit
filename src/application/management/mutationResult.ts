@@ -1,4 +1,4 @@
-import type { ManagementSaveResult } from '../../app/persistence/managementPersistence';
+import type { ManagementSaveResult } from '../../domain/managementSaveResult';
 
 export type ManagementMutationResult =
   | { ok: true; status: 'authoritative-saved'; cloud: ManagementSaveResult['cloud']; revision?: number }

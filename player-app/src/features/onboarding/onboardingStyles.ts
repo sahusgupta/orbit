@@ -17,7 +17,7 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
     paddingTop: 22
   },
   animatedGradientRoot: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: colors.canvas,
     overflow: 'hidden'
   },
@@ -32,7 +32,7 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
     opacity: 0.35
   },
   gradientShade: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(6,12,26,0.18)'
   },
   onboardingActions: {
@@ -166,7 +166,7 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
     top: 34
   },
   orbitPattern: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     opacity: 0.28
   },
   orbitRing: {

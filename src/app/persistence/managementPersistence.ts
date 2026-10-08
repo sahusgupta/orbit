@@ -2,12 +2,15 @@ import { rendererFirebaseSyncEnabled } from '../../lib/firebaseConfig';
 import { normalizeState } from '../../domain/state';
 import { getAccountKeyFromState } from '../../domain/licensing';
 import type { AppState, PersistedStateRecord, PilotAccess } from '../../domain/types';
+import type { ManagementSaveResult } from '../../domain/managementSaveResult';
 import {
   loadBrowserManagementState,
   loadBrowserManagementStateForAccount,
   saveBrowserManagementState,
   type BrowserStorage
 } from './browserStateRepository';
+
+export type { ManagementSaveResult } from '../../domain/managementSaveResult';
 
 type DesktopStatePersistence = {
   loadState?: () => Promise<PersistedStateRecord | null>;
@@ -33,16 +36,6 @@ type ManagementPersistenceDependencies = {
   getDesktopPersistence: () => DesktopStatePersistence | undefined;
   saveFirebaseState: (state: AppState) => Promise<unknown>;
   storage: BrowserStorage;
-};
-
-export type ManagementSaveResult = {
-  ok: boolean;
-  path: string;
-  accountKey?: string;
-  revision?: number;
-  conflict?: boolean;
-  error?: string;
-  cloud: 'server-pending' | 'published' | 'failed' | 'not-committed';
 };
 
 export type PilotAccessValidationResult = {

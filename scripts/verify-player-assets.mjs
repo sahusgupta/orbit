@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { inflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const require = createRequire(import.meta.url);
+const { createExpoConfig } = require('../player-app/release-config.cjs');
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 function paethPredictor(left, above, upperLeft) {
@@ -85,6 +88,17 @@ export function alphaAt(image, x, y) {
   return image.pixels[((y * image.width + x) * 4) + 3];
 }
 
+export function verifyPlayerAssetConfiguration(expoConfig) {
+  assert.equal(expoConfig.icon, './assets/icon.png');
+  const splashPlugins = expoConfig.plugins.filter((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-splash-screen');
+  assert.equal(splashPlugins.length, 1, 'Exactly one reviewed splash plugin must be configured');
+  assert.deepEqual(splashPlugins[0][1], {
+    image: './assets/splash-icon-transparent.png',
+    backgroundColor: '#060C1A',
+    resizeMode: 'contain'
+  }, 'The resolved Expo splash plugin must use the reviewed artwork and appearance');
+}
+
 export function verifyPlayerAssets() {
   const iconPath = path.join(repositoryRoot, 'player-app', 'assets', 'icon.png');
   const splashPath = path.join(repositoryRoot, 'player-app', 'assets', 'splash-icon-transparent.png');
@@ -105,9 +119,7 @@ export function verifyPlayerAssets() {
   assert.notDeepEqual(fs.readFileSync(iconPath), fs.readFileSync(splashPath), 'Icon and splash artwork must remain distinct');
 
   const appJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'player-app', 'app.json'), 'utf8'));
-  assert.equal(appJson.expo.icon, './assets/icon.png');
-  assert.equal(appJson.expo.splash.image, './assets/splash-icon-transparent.png');
-  assert.equal(appJson.expo.splash.backgroundColor, '#060C1A');
+  verifyPlayerAssetConfiguration(createExpoConfig(appJson.expo, {}));
   console.log('Orbit Player assets passed: opaque 1024px icon and transparent branded splash.');
 }
 

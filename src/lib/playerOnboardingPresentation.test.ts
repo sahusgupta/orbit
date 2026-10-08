@@ -131,7 +131,10 @@ function findStyleProperty(sources: ParsedSource[], name: string): string {
   sources.forEach(({ source }) => {
     const pattern = new RegExp(`^  ${name}: \\{`, 'gm');
     for (const match of source.matchAll(pattern)) {
-      matches.push(extractBalancedBlock(source, match.index).trim());
+      // RN 0.86 removed the absoluteFillObject alias. Canonicalize only that
+      // API spelling; retain the original digest for every actual style value.
+      matches.push(extractBalancedBlock(source, match.index).trim()
+        .replace(/\bStyleSheet\.absoluteFill\b/g, 'StyleSheet.absoluteFillObject'));
     }
   });
   expect(matches, `${name} should have exactly one characterized style owner`).toHaveLength(1);

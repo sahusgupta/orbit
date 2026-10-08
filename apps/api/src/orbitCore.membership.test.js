@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import orbitCore from './orbitCore.js';
 
 const { applyMembershipPaymentToState, applyMembershipRequestToState, applyWaitlistRequestToState, buildPlayerClubSnapshot } = orbitCore;
+
+afterEach(() => vi.useRealTimers());
 
 function state() {
   return {
@@ -322,6 +324,8 @@ describe('authoritative player membership application', () => {
   });
 
   it('preserves authoritative payment and a current active window against a later request', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-28T12:00:00.000Z'));
     const pending = applyMembershipRequestToState(state(), request({ paymentMethod: 'app' }));
     pending.profiles[0] = { ...pending.profiles[0], identityReviewStatus: 'Approved' };
     const paid = applyMembershipPaymentToState(pending, {
@@ -353,5 +357,18 @@ describe('authoritative player membership application', () => {
       membershipPaymentAmountCents: 3500
     });
     expect(next.revenueTransactions).toEqual(paid.revenueTransactions);
+
+    vi.setSystemTime(new Date('2026-09-27T12:00:00.000Z'));
+    const expired = applyMembershipRequestToState(paid, request({
+      id: 'request-expired',
+      paymentMethod: 'in-person',
+      requestedAt: '2026-09-27T12:00:00.000Z'
+    }));
+    expect(expired.profiles[0]).toMatchObject({
+      membershipStatus: 'Requested',
+      membershipPaymentStatus: 'Paid',
+      membershipPaymentTransactionId: 'cs-active'
+    });
+    expect(expired.revenueTransactions).toEqual(paid.revenueTransactions);
   });
 });

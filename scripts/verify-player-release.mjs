@@ -92,7 +92,7 @@ requireMatch(app.ios?.bundleIdentifier === 'com.orbit.player', 'iOS bundle ident
 requireMatch(app.ios?.supportsTablet === false, 'The reviewed first release must remain iPhone-only.');
 requireMatch(app.ios?.infoPlist?.ITSAppUsesNonExemptEncryption === false, 'Encryption declaration must remain explicit.');
 requireMatch(app.scheme === undefined, 'Unused production URL schemes must remain absent.');
-requireMatch(app.splash?.image === './assets/splash-icon-transparent.png', 'Expo must use the transparent splash artwork.');
+requireMatch(app.splash === undefined, 'SDK 57 splash artwork must be configured by the reviewed splash plugin.');
 requireMatch(app.icon === './assets/icon.png', 'Expo must retain the reviewed App Store icon.');
 requireMatch(app.ios?.privacyManifests?.NSPrivacyTracking === false, 'The app-owned privacy manifest must explicitly disable tracking.');
 requireMatch(
@@ -103,14 +103,15 @@ requireMatch(
 for (const dependency of ['expo-auth-session', 'expo-dev-client', 'expo-web-browser', 'react-native-purchases']) {
   requireMatch(!playerPackage.dependencies?.[dependency], `Production Player dependency ${dependency} must be absent.`);
 }
-requireMatch(playerPackage.dependencies?.expo === '54.0.37', 'Expo CLI/runtime must be pinned exactly for this release.');
-requireMatch(playerPackage.dependencies?.['expo-constants'] === '18.0.14', 'Expo Constants must be pinned to the SDK-compatible release.');
+requireMatch(playerPackage.dependencies?.expo === '57.0.27', 'Expo CLI/runtime must be pinned exactly for the reviewed SDK 57 release.');
+requireMatch(playerPackage.dependencies?.['expo-constants'] === '57.0.21', 'Expo Constants must be pinned to the SDK-compatible release.');
+requireMatch(playerPackage.dependencies?.['react-native'] === '0.86.3', 'React Native must remain pinned to the reviewed New Architecture-only runtime.');
 requireMatch(
   JSON.stringify(playerPackage.expo?.autolinking?.searchPaths) === JSON.stringify(['./node_modules']),
   'Expo autolinking must be constrained to the standalone Player dependency tree.'
 );
-requireMatch(playerPackage.dependencies?.['expo-splash-screen'] === '31.0.13', 'Expo splash plugin must use the SDK 54-compatible pinned version.');
-requireMatch(playerPackage.dependencies?.['expo-crypto'] === '~15.0.9', 'Expo Crypto must remain an SDK-compatible direct dependency for native request identifiers.');
+requireMatch(playerPackage.dependencies?.['expo-splash-screen'] === '57.0.9', 'Expo splash plugin must use the SDK 57-compatible pinned version.');
+requireMatch(playerPackage.dependencies?.['expo-crypto'] === '57.0.3', 'Expo Crypto must remain a pinned SDK-compatible direct dependency for native request identifiers.');
 requireMatch(rootPackage.devDependencies?.['eas-cli'] === '23.2.0', 'Repository EAS CLI dependency must be pinned exactly outside the Expo project.');
 requireMatch(!playerPackage.devDependencies?.['eas-cli'], 'Expo Doctor requires EAS CLI to remain outside the Player project dependencies.');
 requireMatch(playerPackage.devDependencies?.['expo-doctor'] === '1.20.4', 'Expo Doctor must be pinned exactly.');

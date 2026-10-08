@@ -62,7 +62,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
     position: 'relative'
   },
   liveMap: {
-    ...StyleSheet.absoluteFillObject
+    ...StyleSheet.absoluteFill
   },
   mapFooter: {
     gap: 3
@@ -271,7 +271,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
     paddingBottom: 22
   },
   filterSheetDismiss: {
-    ...StyleSheet.absoluteFillObject
+    ...StyleSheet.absoluteFill
   },
   filterSheetDoneAction: {
     backgroundColor: colors.primary,

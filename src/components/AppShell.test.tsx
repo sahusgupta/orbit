@@ -10,6 +10,54 @@ import AppShell from './AppShell';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('AppShell', () => {
+  it('opens commands by keyboard, filters actions, and closes after invoking the selected action once', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const action = vi.fn();
+    const scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+
+    try {
+      await act(async () => root.render(
+        <AppShell active="floor" clubName="Example Club" onNavigate={vi.fn()} onSignOut={vi.fn()}
+          commands={[{ id: 'fixture-action', label: 'Fixture action', group: 'Actions', action }]}>
+          <main>Floor</main>
+        </AppShell>
+      ));
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+      await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true })));
+      await vi.waitFor(async () => {
+        await act(async () => {});
+        expect(document.querySelector('input[placeholder="Search players, tables, actions…"]')).toBeTruthy();
+      });
+      const input = document.querySelector<HTMLInputElement>('input[placeholder="Search players, tables, actions…"]');
+      if (!input) throw new Error('Command search did not load.');
+      expect(document.activeElement).toBe(input);
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'Fixture');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('Open Players'));
+      const item = Array.from(document.querySelectorAll<HTMLElement>('[cmdk-item]')).find((candidate) => candidate.textContent === 'Fixture action');
+      if (!item) throw new Error('Filtered command was not available.');
+      await act(async () => item.click());
+
+      expect(action).toHaveBeenCalledOnce();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(container.textContent).toContain('Floor');
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+      if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollDescriptor);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    }
+  });
+
   it('shows the current desktop version in the sidebar', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);

@@ -1,0 +1,53 @@
+# Desktop release readiness - 2026-10-08
+
+The user requested a passing release and rollout of the newest update. Work is isolated on `fix/release-readiness-2026-10-08`, starting from the clean, published main commit `6e2e0ef05396c3004e59d1a510b13d9b3026f5bb`. The intended publication target is the next unused stable Windows version through [the existing candidate/promotion workflow](../../../.github/workflows/release.yml), following [the release runbook](../../operations/RELEASE_AND_ROLLBACK.md). No API, Firebase, native store, or website deployment is included.
+
+## Current delivery state
+
+GitHub's latest published stable release is [Orbit v0.1.77](https://github.com/sahusgupta/orbit/releases/tag/v0.1.77), published at `2026-09-16T06:37:22Z`. The recent [main CI run](https://github.com/sahusgupta/orbit/actions/runs/37604032447) failed the Player dependency-graph step because Expo, Expo Asset, and Expo Constants were below the compatible SDK 57 patch versions. Its separate desktop mutation job passed. No new candidate or promotion has been dispatched during this task.
+
+## Source corrections
+
+- Use the supported `StyleSheet.absoluteFill` property in eleven locations. React Native 0.86 defines the same absolute position and zero offsets as the removed alias; no style value changes. The original presentation digests remain intact by normalizing only this equivalent API spelling in the characterization test. See [the React Native reference](https://reactnative.dev/docs/stylesheet#absolutefill).
+- Explicitly include installed Node and React types for the Player's strict TypeScript 6 check, retaining source and test coverage.
+- Validate splash artwork through the resolved `expo-splash-screen` plugin instead of the removed top-level splash field. Negative tests reject changes to image, background, sizing, and duplicate/missing plugins; existing pixel checks remain intact.
+- Verify the reviewed SDK 57 / React Native 0.86.3 runtime and absence of the removed architecture option. SDK 55 and later always use the New Architecture, as documented by [Expo](https://docs.expo.dev/guides/new-architecture/); App Check permission/entitlement checks are unchanged.
+- Align exact runtime pin checks with the proposed compatible SDK 57 patch release. Package versions have not yet been changed, so these checks intentionally still fail pending dependency-remediation authorization.
+- Fix the membership test's clock to its fixture's active window and additionally check the expired window while preserving authoritative payment and ledger records. Production membership code is unchanged.
+- Add a root Vitest configuration excluding only ignored `out/**` diagnostic/release copies, while preserving the default excludes and all source test discovery. An inventory comparison confirmed all 205 tracked source test files remain discovered, plus the new email compatibility test, with no archived duplicates. A 24-processor full run hit one existing source-contract test's five-second deadline; that unchanged test passed alone. Bounding worker concurrency to at most eight made the complete source suite pass without changing deadlines or skipping source tests.
+- Move the unchanged save-result type to [the domain layer](../../../src/domain/managementSaveResult.ts), retaining its prior persistence-module re-export and every caller's public type API. This corrects the module-boundary gate without runtime changes. Existing save-result/persistence characterization tests passed before and after the move.
+- Characterize the existing report email through Nodemailer's stream transport, checking its envelope, summary, and JSON attachment without SMTP, real credentials, or filesystem access. This passes on installed Nodemailer 9 before any proposed major update.
+- The renderer budget check exposed initial gzip JavaScript at 190,154 bytes against the unchanged 190,000-byte limit. Defer only the command-palette component and `cmdk` dependency until its dialog opens. The synchronous default floor is preserved. Existing `ShellCommand` type imports remain supported through the AppShell re-export. The palette has a loading status, local recovery boundary, and explicit input focus after lazy mounting. Added keyboard/search/focus/action/close characterization passed before and after extraction; its action still runs once after requesting dialog closure. The renderer budget now passes without changing its limit. The React best-practices skill review covered the conditional module load, stable lazy declaration, unchanged hooks, precise props, focus, and local error containment.
+
+## Checks
+
+- Initial reproduction: Player TypeScript failed with 16 diagnostics, release contract and artwork failed on old SDK/config assumptions, and the membership test failed due to the elapsed fixture date.
+- After source corrections: Player TypeScript, resolved public/introspected Expo config, artwork, and focused membership/artwork tests passed (19 tests).
+- Save-result/persistence characterization: 11 tests passed before the type move; combined style and save-result/persistence checks passed afterward (23 tests).
+- Email transport/local cache compatibility: seven tests passed on the original Nodemailer version.
+- Root TypeScript: all four compiler projects passed. An initial full unit run caught the changed style API spelling; its original digest assertions passed after narrow normalization.
+- Module graph: passed with zero cycles, dependency violations, unresolved imports, or missing packaged runtime files after the type move.
+- Release controls, public-site verification, and brand verification passed.
+- First `npm run verify`: exit code 1, 11 of 13 checks passed. Player release contract failed only the four package-version pins pending remediation. Unit tests had one existing source-contract timeout (1,451 passed, one failed, eight existing skips); that test passed alone, and the full suite subsequently passed after worker contention was bounded (205 files passed, one existing emulator file skipped; 1,452 tests passed, eight existing skips). Every TypeScript check, Web lint/test/build, sales-map test/build, artwork check, and desktop renderer build passed.
+- Second `npm run verify` after bounding workers: exit code 1, 12 of 13 checks passed. The only failing check is Player release contract, which correctly rejects the four package-version pins still awaiting remediation. All compiler, artwork, Web lint/test/build, sales-map test/build, unit-test, and desktop build checks passed. Unit tests: 205 files passed, one existing emulator file skipped; 1,452 tests passed, eight existing skips. Web tests: 20 files / 209 tests passed. Sales-map tests: seven files / 85 tests passed.
+- Palette/route characterization: two files / ten tests passed before and after deferring the palette.
+- `npm run check:renderer-bundle`: passed after palette extraction; the original initial gzip JavaScript budget remains 190,000 bytes.
+- `npm run e2e:management:mutations`: passed after palette extraction through the real renderer, preload/IPC, Electron client, and authenticated local API with an in-memory datastore. Saved receipts and final UI were verified alongside conflicts, API failures, and payload rejection.
+- `npm run e2e:management`: passed against a fresh production renderer build and local API fixture, covering profile creation, scanner/OCR, data import, seating, floor actions, responsive presentation, isolated networking, and a clean browser console.
+- Final `npm run verify` after palette extraction: exit code 1, 12 of 13 checks passed. The only failure remains the four Player package-version pins. All root/Player/Web/sales-map compiler checks, Web lint, artwork, tests, and production builds passed. Root unit tests: 205 files passed, one existing emulator file skipped; 1,453 tests passed, eight existing skips. Web: 209 tests passed. Sales map: 85 tests passed.
+
+All application validation uses local/test endpoints with Firebase sync disabled. No production API, identity, payment, email, SMS, or Firebase operation has been performed.
+
+## Dependency and local-environment blockers
+
+`npm run security:dependencies` fails closed because the reviewed policy expired on `2026-09-30`. A current `npm audit --omit=dev --json` review found eight High root entries; three High and one Critical API entries; 25 High and one Critical Player entries; and six High and one Critical Web entries. The critical originating advisories include [proxy-addr IP spoofing](https://github.com/advisories/GHSA-jqcg-44mw-7w3h), [shell-quote command injection](https://github.com/advisories/GHSA-pqg4-j6r4-53mv), and [Next.js ImageResponse RCE](https://github.com/advisories/GHSA-vcvr-r3jv-pc5j). Audits describe dependency graphs, not proof that every advisory path is reachable in this application.
+
+The repository requires explicit dependency-remediation scope. Authorization was requested for only the release-blocking package updates, including Nodemailer 9 to 10. No dependency version or advisory exception has been changed while that request is pending; no blanket/forced audit fix or gate bypass was used.
+
+The current Player build chain also reports two unpatched High origins: [braces stack exhaustion](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) and [node-forge signature verification](https://github.com/advisories/GHSA-86w9-cpqp-85rv). The npm registry still reports `braces@3.0.3` and `node-forge@1.4.0` as latest. Local call-site review finds braces through Metro's filesystem glob watcher and node-forge through Expo CLI's signing-certificate utility; no direct Player application imports were found. This is preliminary reachability evidence, not an approved advisory exception or an assertion that those vulnerabilities are fixed.
+
+The local sensitive-path gate reports only these ignored, untracked paths: `.pilot-license-private-key.pem`, `firebase-debug.log`, and `firestore-debug.log`. Their contents were not read, moved, copied, deleted, or committed. The release must exercise this gate in an isolated clean checkout; the developer workspace is not a secret-free release source directory.
+
+## Handoff
+
+The release remains unpromoted until required checks pass and dependency decisions are resolved. The source/test corrections and this record are preserved on the local release-fix branch; they are not integrated into main or pushed. The exact local commit is reported in the final handoff. No release, tag, installer, updater feed, or deployment has changed during this task. Package manifests, lockfiles, and the advisory policy are unchanged.

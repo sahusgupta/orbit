@@ -942,7 +942,7 @@ function getScreenTitle(screen: Screen) {
 
 const playerAppStyles = StyleSheet.create(applyDarkComponentTheme({
   appBackdrop: {
-    ...StyleSheet.absoluteFillObject
+    ...StyleSheet.absoluteFill
   },
   shell: {
     alignSelf: 'center',

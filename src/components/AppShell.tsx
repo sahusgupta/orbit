@@ -1,12 +1,16 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { Command } from 'cmdk';
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { BarChart3, ChevronLeft, ChevronRight, CircleUserRound, Gamepad2, LayoutDashboard, Menu, Search, Settings, Trophy, Undo2, Users, X } from 'lucide-react';
 import packageJson from '../../package.json';
 import { cn } from '../lib/utils';
+import { RecoveryBoundary } from './RecoveryBoundary';
+import type { ShellCommand } from './CommandPalette';
+
+export type { ShellCommand } from './CommandPalette';
+
+const CommandPalette = lazy(() => import('./CommandPalette'));
 
 export type PrimaryDestination = 'floor' | 'players' | 'games' | 'tournaments' | 'reports' | 'settings';
-export type ShellCommand = { id: string; label: string; group?: string; keywords?: string; action: () => void };
 type UpdateStatus = { state: string; version?: string; message?: string; updateReady?: boolean };
 
 type AppShellProps = {
@@ -128,7 +132,17 @@ export default function AppShell({ active, clubName, operator, saveState, canUnd
       <nav className="orbit-bottom-nav">{destinations.slice(0, 3).map(({ id, label, icon: Icon }) => <button key={id} className={active === id ? 'active' : ''} onClick={() => navigate(id)}><Icon size={20} /><span>{label}</span></button>)}<button onClick={() => setMobileOpen(true)}><Menu size={20} /><span>More</span></button></nav>
 
       <Dialog.Root open={commandOpen} onOpenChange={setCommandOpen}>
-        <Dialog.Portal><Dialog.Overlay className="command-overlay" /><Dialog.Content className="command-dialog"><Dialog.Title className="sr-only">Command palette</Dialog.Title><Command label="Orbit command palette"><div className="command-input-row"><Search size={18} /><Command.Input placeholder="Search players, tables, actions…" /></div><Command.List><Command.Empty>No matching command.</Command.Empty>{Array.from(new Set([...defaultCommands, ...commands].map((item) => item.group || 'Actions'))).map((group) => <Command.Group key={group} heading={group}>{[...defaultCommands, ...commands].filter((item) => (item.group || 'Actions') === group).map((item) => <Command.Item key={item.id} keywords={item.keywords?.split(' ')} onSelect={() => { setCommandOpen(false); item.action(); }}>{item.label}</Command.Item>)}</Command.Group>)}</Command.List></Command></Dialog.Content></Dialog.Portal>
+        <Dialog.Portal>
+          <Dialog.Overlay className="command-overlay" />
+          <Dialog.Content className="command-dialog">
+            <Dialog.Title className="sr-only">Command palette</Dialog.Title>
+            <RecoveryBoundary label="Command palette">
+              <Suspense fallback={<p role="status">Loading commands...</p>}>
+                <CommandPalette commands={[...defaultCommands, ...commands]} onSelect={(item) => { setCommandOpen(false); item.action(); }} />
+              </Suspense>
+            </RecoveryBoundary>
+          </Dialog.Content>
+        </Dialog.Portal>
       </Dialog.Root>
     </div>
   );

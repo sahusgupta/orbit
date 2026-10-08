@@ -133,7 +133,7 @@ export const discoveryStyles = StyleSheet.create(applyDarkComponentTheme({
     backgroundColor: '#a7aaa4'
   },
   discoveryAccentGlow: { borderRadius: 999, height: 190, opacity: 0.10, position: 'absolute', right: -55, top: -45, width: 190 },
-  discoveryAnimatedBackground: { ...StyleSheet.absoluteFillObject, backgroundColor: '#07101f', overflow: 'hidden' },
+  discoveryAnimatedBackground: { ...StyleSheet.absoluteFill, backgroundColor: '#07101f', overflow: 'hidden' },
   discoveryBuyInLabel: { color: 'rgba(255,255,255,0.32)', fontSize: 10, fontWeight: '700', letterSpacing: 1.4 },
   discoveryBuyInRow: { alignItems: 'center', borderTopColor: 'rgba(255,255,255,0.10)', borderTopWidth: 1, flexDirection: 'row', justifyContent: 'space-between', paddingTop: 11 },
   discoveryBuyInValue: { color: 'rgba(255,255,255,0.72)', fontSize: 13, fontWeight: '700' },

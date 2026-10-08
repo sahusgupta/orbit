@@ -36,7 +36,10 @@ function inspectResolvedConfig() {
   const publicConfig = JSON.parse(runExpo(['config', '--type', 'public', '--json']));
   assert.equal(publicConfig.name, 'Orbit Player');
   assert.equal(publicConfig.version, '1.0.0');
-  assert.equal(publicConfig.newArchEnabled, true, 'Native App Check requires the React Native New Architecture');
+  assert.equal(publicConfig.sdkVersion, '57.0.0', 'The reviewed SDK 57 runtime always uses the New Architecture');
+  const reactNativePackage = JSON.parse(fs.readFileSync(path.join(playerRoot, 'node_modules', 'react-native', 'package.json'), 'utf8'));
+  assert.equal(reactNativePackage.version, '0.86.3', 'Native App Check must use the reviewed New Architecture-only runtime');
+  assert.equal(publicConfig.newArchEnabled, undefined, 'SDK 57 must not configure the removed architecture option');
   assert.equal(publicConfig.ios?.bundleIdentifier, 'com.orbit.player');
   assert.equal(publicConfig.ios?.infoPlist?.ITSAppUsesNonExemptEncryption, false);
   assert.equal(publicConfig.ios?.privacyManifests?.NSPrivacyTracking, false);

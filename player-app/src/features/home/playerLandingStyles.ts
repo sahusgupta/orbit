@@ -3,7 +3,7 @@ import { colors } from '../../styles/playerTheme';
 
 export const playerLandingStyles = StyleSheet.create({
   ambientFlow: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     opacity: 0.9
   },
   landingHero: {
@@ -130,13 +130,13 @@ export const playerLandingStyles = StyleSheet.create({
     position: 'relative'
   },
   tableAtmosphere: {
-    ...StyleSheet.absoluteFillObject
+    ...StyleSheet.absoluteFill
   },
   tableGradient: {
-    ...StyleSheet.absoluteFillObject
+    ...StyleSheet.absoluteFill
   },
   cardShowcase: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingTop: 44
