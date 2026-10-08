@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const forbiddenBundlePatterns = [
+  ['unpatched build-only dependency in Player runtime', /node_modules[\\/]+(?:braces|micromatch|node-forge|metro-file-map|@expo[\\/]+code-signing-certificates)[\\/]+/],
   ['server private-key material', /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/],
   ['server Firebase private-key variable', /FIREBASE_PRIVATE_KEY/],
   ['server Firebase client-email variable', /FIREBASE_CLIENT_EMAIL/],

@@ -17,6 +17,14 @@ afterEach(() => {
 });
 
 describe('Orbit Player exported-bundle verification', () => {
+  it.each(['braces', 'micromatch', 'node-forge', 'metro-file-map', '@expo/code-signing-certificates'])('rejects build-only %s in runtime source maps', (dependency) => {
+    const root = fixture();
+    for (const separator of ['/', '\\']) {
+      fs.writeFileSync(path.join(root, 'main.js.map'), JSON.stringify({ sources: [`node_modules/${dependency}/index.js`.replaceAll('/', separator)] }));
+      expect(() => verifyPlayerBundle(root)).toThrow('unpatched build-only dependency in Player runtime');
+    }
+  });
+
   it('accepts inspectable production source while skipping non-executable binary assets', () => {
     const root = fixture();
     fs.writeFileSync(path.join(root, 'index.js'), 'console.log("Orbit Player");');

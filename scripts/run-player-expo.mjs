@@ -106,9 +106,13 @@ function exportIosBundle() {
     // production configuration as text so prohibited source cannot hide inside
     // a binary artifact that a string scanner silently skips.
     const inspectableStdout = runExpo([
-      'export', '--platform', 'ios', '--output-dir', inspectableOutput, '--no-bytecode', '--clear'
+      'export', '--platform', 'ios', '--output-dir', inspectableOutput, '--no-bytecode', '--source-maps', '--clear'
     ]);
     if (inspectableStdout) process.stdout.write(inspectableStdout);
+    assert.ok(
+      fs.readdirSync(inspectableOutput, { recursive: true }).some((file) => file.endsWith('.map')),
+      'Inspectable production export must contain source maps for build-only dependency reachability checks.'
+    );
     verifyPlayerBundle(inspectableOutput);
     fs.mkdirSync(embeddedOutput);
     // EAS/Xcode use export:embed, which reloads config after Metro adds its
@@ -117,10 +121,12 @@ function exportIosBundle() {
     const embeddedStdout = runExpo([
       'export:embed', '--platform', 'ios', '--dev', 'false',
       '--entry-file', 'node_modules/expo/AppEntry.js',
-      '--bundle-output', embeddedBundle, '--assets-dest', path.join(embeddedOutput, 'assets')
+      '--bundle-output', embeddedBundle, '--sourcemap-output', path.join(embeddedOutput, 'main.js.map'),
+      '--assets-dest', path.join(embeddedOutput, 'assets')
     ]);
     if (embeddedStdout) process.stdout.write(embeddedStdout);
     assert.ok(fs.statSync(embeddedBundle).size > 0, 'EAS embedded iOS bundle must exist.');
+    assert.ok(fs.statSync(path.join(embeddedOutput, 'main.js.map')).size > 0, 'EAS embedded source map must exist.');
     verifyPlayerBundle(embeddedOutput);
   } finally {
     fs.rmSync(outputRoot, { recursive: true, force: true });

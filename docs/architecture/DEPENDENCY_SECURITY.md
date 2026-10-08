@@ -1,6 +1,10 @@
 # Production dependency security
 
-`npm run security:dependencies` audits the root, API, and Player production dependency graphs directly against the npm advisory service. Unknown advisories and every critical advisory fail the gate. Reviewed exceptions expire on the date in `config/dependency-audit-policy.json`; an expired policy fails closed.
+`npm run security:dependencies` audits the root, API, Player, and Player Web production dependency graphs directly against the npm advisory service. Unknown advisories and every critical advisory fail the gate. Reviewed exceptions expire on the date in `config/dependency-audit-policy.json`; an expired policy fails closed. Each exception also requires exact locked package versions and originating advisory URLs; a new advisory on a previously listed package fails closed.
+
+## 2026-10-08 SDK 57 and desktop release review
+
+The [current dependency review](../agent/reviews/2026-10-08-desktop-release-dependencies.md) replaces the historical SDK 54 exception below. Root, API, and Player Web production audits report zero advisories. Player retains two unpatched build-tool origins (braces and node-forge), represented by eighteen transitive npm entries. Actual production and embedded iOS source maps exclude those tooling dependencies; the bundle scanner enforces that boundary in CI. Exact-version/advisory constraints and Critical rejection remain mandatory, and the current policy expires on 2026-10-22. The historical remediation and compatibility records below remain for context.
 
 ## 2026-09-04 compatible remediation
 
@@ -22,7 +26,7 @@ After the lockfile-only changes, the root, API, and Player Web production audits
 
 The first actual iOS CocoaPods build exposed a limitation in the earlier blanket `brace-expansion` override: React Native 0.81's minimatch 3 expects the CommonJS callable export, while version 5 exposes a different API. The Player graph now selects patched `1.1.18`, `2.1.4`, or `5.0.9` by the parent's original version range. All are patched for [GHSA-rgw5-rvv9-x895](https://github.com/juliangruber/brace-expansion/security/advisories/GHSA-rgw5-rvv9-x895). No advisory exemption was added. `npm run player:codegen:ios` exercises actual native schema and provider generation in CI. Player `fast-uri` is also patched to `3.1.6` for the App Check build-properties dependency.
 
-## Player residual advisory reachability
+## Historical SDK 54 Player residual advisory reachability
 
 The remaining eight npm entries form one Expo SDK 54 Metro build-tool chain. The originating vulnerable parser is `image-size@1.2.1`, reached by `metro@0.83.3`; npm marks the installed toolchain as affected and currently offers only an incompatible Expo major upgrade as the automated repair. That is not a safe first-release lockfile change without the required native migration and regression work.
 

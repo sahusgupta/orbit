@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { localPlayerBinary, playerRoot, productionPlayerEnvironment } from './player-release-environment.mjs';
+import { verifyPlayerCodegen } from './verify-player-codegen.mjs';
 
 // Run the same native schema generator CocoaPods invokes, without Xcode or pods.
 // This catches dependency API incompatibilities that JS export/prebuild miss.
@@ -21,9 +22,7 @@ try {
   if (result.error) throw result.error;
   assert.equal(result.status, 0, 'React Native iOS schema/code generation failed.');
   const generatedRoot = path.join(temporaryRoot, 'build', 'generated', 'ios');
-  for (const file of ['ReactCodegen.podspec', 'RCTAppDependencyProvider.mm', 'RCTModuleProviders.mm']) {
-    assert.ok(fs.statSync(path.join(generatedRoot, file)).size > 0, `Missing generated native artifact: ${file}`);
-  }
+  verifyPlayerCodegen(generatedRoot);
   console.log('Player native code generation and required provider artifacts passed.');
 } finally {
   // Only remove the exact newly-created temporary directory after containment checks.

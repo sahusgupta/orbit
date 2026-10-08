@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { dependencyReviewFailures } from './dependency-review-constraints.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const policyPath = path.join(repositoryRoot, 'config', 'dependency-audit-policy.json');
@@ -40,6 +41,8 @@ for (const scope of scopes) {
   if (report.error) throw new Error(`npm audit failed for ${scope.name}: ${report.error.summary || report.error.code || 'unknown error'}`);
 
   const vulnerabilities = Object.values(report.vulnerabilities || {});
+  const lock = JSON.parse(fs.readFileSync(path.join(repositoryRoot, scope.prefix || '', 'package-lock.json'), 'utf8'));
+  failures.push(...dependencyReviewFailures(scope.name, vulnerabilities, policy.scopes?.[scope.name], lock));
   const allowed = new Set(policy.scopes?.[scope.name]?.allowed || []);
   for (const vulnerability of vulnerabilities) {
     const name = String(vulnerability.name || 'unknown');

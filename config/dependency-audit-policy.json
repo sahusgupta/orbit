@@ -1,5 +1,5 @@
 {
-  "reviewBy": "2026-09-30",
+  "reviewBy": "2026-10-22",
   "scopes": {
     "root": {
       "allowed": []
@@ -8,16 +8,51 @@
       "allowed": []
     },
     "player": {
+      "review": "docs/agent/reviews/2026-10-08-desktop-release-dependencies.md",
       "allowed": [
         "@expo/cli",
+        "@expo/code-signing-certificates",
         "@expo/metro",
         "@expo/metro-config",
+        "@react-native-firebase/app",
+        "@react-native-firebase/app-check",
+        "@react-native/community-cli-plugin",
+        "@react-native/virtualized-lists",
+        "braces",
         "expo",
-        "image-size",
         "metro",
         "metro-config",
-        "metro-transform-worker"
-      ]
+        "metro-file-map",
+        "metro-transform-worker",
+        "micromatch",
+        "node-forge",
+        "react-native",
+        "react-native-maps"
+      ],
+      "reviewedVersions": {
+        "@expo/cli": ["57.0.28"],
+        "@expo/code-signing-certificates": ["0.0.6"],
+        "@expo/metro": ["56.0.2"],
+        "@expo/metro-config": ["57.0.13"],
+        "@react-native-firebase/app": ["26.4.0"],
+        "@react-native-firebase/app-check": ["26.4.0"],
+        "@react-native/community-cli-plugin": ["0.86.3"],
+        "@react-native/virtualized-lists": ["0.86.3"],
+        "braces": ["3.0.3"],
+        "expo": ["57.0.27"],
+        "metro": ["0.84.5", "0.84.6"],
+        "metro-config": ["0.84.5", "0.84.6"],
+        "metro-file-map": ["0.84.5", "0.84.6"],
+        "metro-transform-worker": ["0.84.5", "0.84.6"],
+        "micromatch": ["4.0.8"],
+        "node-forge": ["1.4.0"],
+        "react-native": ["0.86.3"],
+        "react-native-maps": ["1.27.2"]
+      },
+      "reviewedAdvisories": {
+        "braces": ["https://github.com/advisories/GHSA-vfj7-8cjw-p6xm"],
+        "node-forge": ["https://github.com/advisories/GHSA-86w9-cpqp-85rv"]
+      }
     },
     "web": {
       "allowed": []
