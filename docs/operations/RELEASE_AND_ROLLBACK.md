@@ -36,6 +36,8 @@ Desktop auto-updaters and data schemas make version downgrades unsafe. Rollback 
 
 The release gate explicitly exercises current legacy-state migration and revision/conflict tests through the complete test suite. A future database change must add forward and backward compatibility characterization at the migration boundary before it may use this channel.
 
+`npm run e2e:management:focus` is a required CI and desktop release gate. It runs the production renderer in Electron against synthetic loopback services, with Firebase sync disabled. It clicks inputs, asserts the active element, types through keyboard events, checks clock/poll renders and DOM identity, and verifies the topmost modal's Tab/Escape/restoration behavior. `node scripts/run-management-focus-smoke.mjs --browser` runs the same focus workflows in Chromium as a control. See [the focus regression record](../agent/tasks/2026-10-09-desktop-input-focus.md) for scope and verification evidence.
+
 ## Public and API deployments
 
 The static public bundle and API must follow the same exact-source, full-gate, immutable-candidate, explicit-promotion, health-observation, and known-good roll-forward model at the selected hosting provider. Provider traffic splitting may be used for canary/blue-green promotion only after an owner supplies authorized non-production and production environments. No provider, final hostname, domain owner, DNS, certificate, or cutover value is inferred here. Repository-side SEO work continues through centralized origin configuration; production-domain ownership and cutover remain founder-deferred.

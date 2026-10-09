@@ -1,11 +1,12 @@
 import { mutationActionError, type MutationActionCallbackResult } from '../application/management/mutationResult';
 import * as Dialog from '@radix-ui/react-dialog';
-import { lazy, Suspense, useRef, useState, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
+import { lazy, Suspense, useRef, useState, type Dispatch, type FormEvent, type ReactElement, type ReactNode, type RefObject, type SetStateAction } from 'react';
 import { ChevronDown, ChevronUp, Eye, LayoutDashboard, LayoutGrid, List, MoreHorizontal, Plus, Users, WalletCards, X } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Button } from './ui/button';
 import type { Player as PokerTablePlayer } from './PokerTable';
 import PanelTitle from './PanelTitle';
+import OperationalDialog from './OperationalDialog';
 import { getAccountKeyFromState } from '../domain/licensing';
 import { hasProfileReference } from '../lib/profileRelationships';
 import { getTableFinancialOverview, getTablePlayerFinancialOverview } from '../domain/reporting';
@@ -44,6 +45,24 @@ const FloorRoomMap = lazy(() => import('./FloorRoomMap'));
 const FloorClassicOverview = lazy(() => import('./FloorClassicOverview'));
 const PokerTable = lazy(() => import('./PokerTable'));
 
+function QuickAddDialog({ open, children, onClose, returnFocusRef, triggerRef }: {
+  open: boolean;
+  children: ReactElement;
+  onClose: () => void;
+  returnFocusRef: RefObject<HTMLElement | null>;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+}) {
+  if (!open) return children;
+  return (
+    <OperationalDialog
+      backdropClassName="quick-add-drawer-backdrop"
+      onClose={onClose}
+      fallbackFocusRef={returnFocusRef.current?.isConnected ? returnFocusRef : triggerRef}
+      dismissOnOutside
+    >{children}</OperationalDialog>
+  );
+}
+
 type FloorViewProps = {
   state: AppState;
   clockNow: number;
@@ -60,6 +79,7 @@ type FloorViewProps = {
   seatPickerModal: ReactNode;
   cashOutModal: ReactNode;
   tableLedgerModal: ReactNode;
+  quickAddFallbackFocusRef: RefObject<HTMLElement | null>;
   seatPicker: SeatPickerState | null;
   activityItems: FloorActivityItem[];
   quickAddOpenSeatSessions: GameSession[];
@@ -132,7 +152,7 @@ export default function FloorView(props: FloorViewProps) {
   const {
     state, clockNow, openPanels, collapsedTables, startPlayerDrafts, eventDrafts, dropDrafts,
     dealerDrafts, handCountDrafts, formingGameId, financialOverviewTableId,
-    waitlistPopupOpen, seatPickerModal, cashOutModal, tableLedgerModal, seatPicker, activityItems,
+    waitlistPopupOpen, seatPickerModal, cashOutModal, tableLedgerModal, quickAddFallbackFocusRef, seatPicker, activityItems,
     quickAddOpenSeatSessions, form, statuses, checkInSearch, checkInMatches, inClubInterests,
     failedStartReasons, tableBreakReasons, setWaitlistPopupOpen, setOpenPanels, setCollapsedTables,
     setStartPlayerDrafts, setEventDrafts, setDropDrafts, setDealerDrafts, setHandCountDrafts,
@@ -153,6 +173,7 @@ export default function FloorView(props: FloorViewProps) {
   const currentTablesTriggerRef = useRef<HTMLButtonElement>(null);
   const tableOverviewTriggerRef = useRef<HTMLButtonElement>(null);
   const formingGamesTriggerRef = useRef<HTMLButtonElement>(null);
+  const quickAddTriggerRef = useRef<HTMLButtonElement>(null);
   const openFloorWorkspace = (panel: 'currentTables' | 'tableFinancials' | 'formingGames') => {
     setOpenPanels((panels) => ({
       ...panels,
@@ -222,7 +243,10 @@ export default function FloorView(props: FloorViewProps) {
               <strong>{waitingCount}</strong>
             </button>
           </Dialog.Trigger>
-          <button className="primary-button" onClick={() => setOpenPanels((panels) => ({ ...panels, quickAdd: true }))}><Plus size={18} /> Add player</button>
+          <button className="primary-button" ref={quickAddTriggerRef} onClick={() => {
+            quickAddFallbackFocusRef.current = quickAddTriggerRef.current;
+            setOpenPanels((panels) => ({ ...panels, quickAdd: true }));
+          }}><Plus size={18} /> Add player</button>
         </div>
       </header>
         <Dialog.Portal>
@@ -391,6 +415,10 @@ export default function FloorView(props: FloorViewProps) {
             <Dialog.Overlay className="floor-workspace-backdrop" />
             <Dialog.Content
               asChild
+              onEscapeKeyDown={(event) => {
+                // Player details handle Escape before the containing workspace closes.
+                if (event.target instanceof Element && event.target.closest('.poker-seat-card.open')) event.preventDefault();
+              }}
               onCloseAutoFocus={(event) => {
                 event.preventDefault();
                 currentTablesTriggerRef.current?.focus();
@@ -511,7 +539,7 @@ export default function FloorView(props: FloorViewProps) {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-                    <div className="table-detail-panel">
+                    <div className="table-detail-panel" onClick={(event) => event.stopPropagation()}>
                       <div className="seat-help-row">
                         <span>Click an open seat and choose a player from the club database.</span>
                         <button
@@ -1062,15 +1090,14 @@ export default function FloorView(props: FloorViewProps) {
           </Dialog.Portal>
         </Dialog.Root>
 
-        {openPanels.quickAdd ? (
-          <button
-            className="quick-add-drawer-backdrop"
-            type="button"
-            aria-label="Close Quick Add"
-            onClick={() => setOpenPanels((panels) => ({ ...panels, quickAdd: false }))}
-          />
-        ) : null}
+        <QuickAddDialog
+          open={openPanels.quickAdd}
+          onClose={() => setOpenPanels((panels) => ({ ...panels, quickAdd: false }))}
+          returnFocusRef={quickAddFallbackFocusRef}
+          triggerRef={quickAddTriggerRef}
+        >
         <section className={`panel floor-panel quick-add-panel ${openPanels.quickAdd ? '' : 'collapsed-panel'}`}>
+          {openPanels.quickAdd ? <Dialog.Title className="sr-only">Quick Add player</Dialog.Title> : null}
           {openPanels.quickAdd ? (
             <button
               className="quick-add-drawer-close"
@@ -1086,6 +1113,8 @@ export default function FloorView(props: FloorViewProps) {
           {openPanels.quickAdd ? <>
           <form className="quick-form" onSubmit={addInterest}>
             <input
+              data-dialog-initial-focus
+              aria-label="Quick Add player name"
               value={form.playerName}
               onChange={(event) => setForm({ ...form, playerName: event.target.value })}
               placeholder="Player name"
@@ -1187,6 +1216,7 @@ export default function FloorView(props: FloorViewProps) {
           </div>
           </> : null}
         </section>
+        </QuickAddDialog>
         </div>
 
       </section>

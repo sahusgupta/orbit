@@ -71,7 +71,7 @@ export const useFloorWorkspaceState = (state: AppState) => {
   useEffect(() => {
     if (!openPanels.quickAdd) return;
     const closeQuickAddOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
         setOpenPanels((panels) => ({ ...panels, quickAdd: false }));
       }
     };

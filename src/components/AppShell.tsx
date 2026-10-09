@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { BarChart3, ChevronLeft, ChevronRight, CircleUserRound, Gamepad2, LayoutDashboard, Menu, Search, Settings, Trophy, Undo2, Users, X } from 'lucide-react';
 import packageJson from '../../package.json';
@@ -40,15 +40,27 @@ export default function AppShell({ active, clubName, operator, saveState, canUnd
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  const commandReturnFocusRef = useRef<HTMLElement | null>(null);
+  const commandSelectionRef = useRef<Pick<HTMLInputElement, 'selectionStart' | 'selectionEnd' | 'selectionDirection'> | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle' });
+  const rememberCommandOpener = useCallback((element: HTMLElement) => {
+    commandReturnFocusRef.current = element;
+    commandSelectionRef.current = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+      ? { selectionStart: element.selectionStart, selectionEnd: element.selectionEnd, selectionDirection: element.selectionDirection }
+      : null;
+  }, []);
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setCommandOpen((open) => !open); }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        if (!commandOpen && document.activeElement instanceof HTMLElement) rememberCommandOpener(document.activeElement);
+        setCommandOpen(!commandOpen);
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, []);
+  }, [commandOpen, rememberCommandOpener]);
 
   useEffect(() => {
     const desktop = window.tableManagerDesktop;
@@ -96,7 +108,10 @@ export default function AppShell({ active, clubName, operator, saveState, canUnd
       <button className="orbit-mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={20} /></button>
       <aside className="orbit-sidebar">
         <div className="orbit-sidebar-brand"><img src="./orbit-icon.png" alt="" /><span>Orbit</span><button onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>{collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}</button></div>
-        <button className="orbit-command-trigger" onClick={() => setCommandOpen(true)}><Search size={17} /><span>Search or jump to</span><kbd>Ctrl K</kbd></button>
+        <button className="orbit-command-trigger" onClick={(event) => {
+          rememberCommandOpener(event.currentTarget);
+          setCommandOpen(true);
+        }}><Search size={17} /><span>Search or jump to</span><kbd>Ctrl K</kbd></button>
         <nav className="orbit-sidebar-nav">
           {destinations.map(({ id, label, icon: Icon }) => <button key={id} className={active === id ? 'active' : ''} onClick={() => navigate(id)} title={label}><Icon size={19} /><span>{label}</span></button>)}
         </nav>
@@ -134,7 +149,17 @@ export default function AppShell({ active, clubName, operator, saveState, canUnd
       <Dialog.Root open={commandOpen} onOpenChange={setCommandOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="command-overlay" />
-          <Dialog.Content className="command-dialog">
+          <Dialog.Content className="command-dialog" onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const target = commandReturnFocusRef.current;
+            if (!target?.isConnected) return;
+            target.focus();
+            const selection = commandSelectionRef.current;
+            if (document.activeElement === target && selection && selection.selectionStart !== null && selection.selectionEnd !== null &&
+              (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+              target.setSelectionRange(selection.selectionStart, selection.selectionEnd, selection.selectionDirection ?? undefined);
+            }
+          }}>
             <Dialog.Title className="sr-only">Command palette</Dialog.Title>
             <RecoveryBoundary label="Command palette">
               <Suspense fallback={<p role="status">Loading commands...</p>}>

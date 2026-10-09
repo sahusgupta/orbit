@@ -645,6 +645,19 @@ describe('floor collection projections', () => {
     );
     expect(cashOutSeat).not.toBeNull();
     act(() => cashOutSeat?.click());
+    const currentTablesDialog = document.querySelector('.current-tables-panel');
+    expect(currentTablesDialog?.contains(cashOutSeat)).toBe(true);
+    expect(cashOutSeat?.getAttribute('aria-expanded')).toBe('true');
+    act(() => {
+      cashOutSeat?.focus();
+      cashOutSeat?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+    expect(document.querySelector('.current-tables-panel')).toBe(currentTablesDialog);
+    expect(currentTablesDialog?.isConnected).toBe(true);
+    expect(currentTablesDialog?.getAttribute('data-state')).toBe('open');
+    expect(cashOutSeat?.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(cashOutSeat);
+    act(() => cashOutSeat?.click());
     act(() => {
       Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
         .find((button) => button.textContent?.trim() === 'Cash out and leave table')

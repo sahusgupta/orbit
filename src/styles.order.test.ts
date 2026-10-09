@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const stylesheetEntry = fileURLToPath(new URL('./styles.css', import.meta.url));
-const normalizedCascadeSha256 = '500d7a60a8dd294c13063a2cce95a5bee46f7d016ead1e70dfb8cc7dc3ba4304';
+// Reviewed focus fix: embedded controls visible; command/Quick Add layers above Floor dialogs.
+const normalizedCascadeSha256 = 'e498dd332a0e9a201f7d27efefae03445b8d5d52f49dc09bae5c46db712d9c6d';
 const localImportPattern = /^@import ['"](.+\.css)['"];\r?\n/gm;
 
 function flattenLocalImports(path: string, ancestors: string[] = []): string {

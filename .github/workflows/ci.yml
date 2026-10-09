@@ -101,3 +101,5 @@ jobs:
       - run: npm ci --prefix apps/api
       - name: Verify authoritative desktop mutations with isolated services
         run: npm run e2e:management:mutations
+      - name: Verify desktop input focus with isolated services
+        run: npm run e2e:management:focus

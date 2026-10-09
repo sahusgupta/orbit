@@ -1,6 +1,6 @@
 import { getTimeRemainingSeconds } from './domain/operations';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import * as Dialog from '@radix-ui/react-dialog';
 import { createRoot } from 'react-dom/client';
 import {
   BadgeCheck,
@@ -21,6 +21,7 @@ import type {
 } from './components/PokerTable';
 import AppShell, { type PrimaryDestination, type ShellCommand } from './components/AppShell';
 import FloorView from './components/FloorView';
+import OperationalDialog from './components/OperationalDialog';
 import StaffPinDialog from './components/StaffPinDialog';
 import {
   createBackupEnvelope,
@@ -541,6 +542,8 @@ function App() {
               ? 'builder'
               : 'floor';
   const [route, setRoute] = useState<AppRoute>(() => getRouteFromHash());
+  const cashOutFallbackFocusRef = useRef<HTMLElement | null>(null);
+  const quickAddFallbackFocusRef = useRef<HTMLElement | null>(null);
   const floorWorkspace = useFloorWorkspaceState(state);
   const {
     buyInDrafts,
@@ -2267,6 +2270,11 @@ function App() {
   };
 
   const requestPlayerCashOut = (playerSession: PlayerSession) => {
+    // The keyed seat marker survives removal of the player card after a successful save.
+    const renderedSeat = document.activeElement?.closest('.poker-seat-card')?.querySelector('.poker-seat-number')?.textContent;
+    const seatNumber = playerSession.seatNumber ?? Number(renderedSeat);
+    cashOutFallbackFocusRef.current = document.activeElement?.closest('.poker-table-shell')
+      ?.querySelector<HTMLButtonElement>(`.poker-position-marker[aria-label="Seat ${seatNumber} occupied"]`) ?? null;
     setCashOutDraft({ playerSessionId: playerSession.id, amount: '', note: '' });
   };
 
@@ -3954,7 +3962,14 @@ function App() {
   const shellCommands: ShellCommand[] = [
     ...state.profiles.slice(0, 30).map((profile) => ({ id: `player-${profile.id}`, label: `Player: ${profile.name}`, group: 'Players', keywords: `${profile.phone} ${profile.preferredStakes}`, action: () => { setProfileSearch(profile.name); openRoute('profiles'); } })),
     ...state.sessions.filter((session) => session.status !== 'Closed' && session.status !== 'Failed to Start').map((session) => ({ id: `table-${session.id}`, label: `Open ${session.label}`, group: 'Tables', action: () => openTableView(session.id) })),
-    { id: 'add-interest', label: 'Add player interest', group: 'Actions', action: () => { closeRoute(); setOpenPanels((panels) => ({ ...panels, quickAdd: true })); } },
+    { id: 'add-interest', label: 'Add player interest', group: 'Actions', action: () => {
+      if (!openPanels.quickAdd) {
+        quickAddFallbackFocusRef.current = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][data-state="open"]'))
+          .filter((dialog) => !dialog.classList.contains('command-dialog')).at(-1) ?? null;
+      }
+      closeRoute();
+      setOpenPanels((panels) => ({ ...panels, quickAdd: true }));
+    } },
     { id: 'open-reports', label: 'Open night report', group: 'Actions', action: () => openRoute('summary') }
   ];
   const openStaffNotification = (notification: StaffRequestNotice) => {
@@ -4742,13 +4757,13 @@ function App() {
     : undefined;
   const showSeatPickerTypedName = Boolean(seatPickerSession && seatPickerTypedName);
   const seatPickerInitialBuyIn = seatPicker?.initialBuyIn.trim() ? Number(seatPicker.initialBuyIn) : undefined;
-  const seatPickerModal = seatPicker && seatPickerSession ? createPortal(
-    <div className="modal-backdrop seat-picker-backdrop" role="dialog" aria-modal="true" aria-label={`Seat ${seatPicker.seatNumber} player`}>
+  const seatPickerModal = seatPicker && seatPickerSession ? (
+    <OperationalDialog backdropClassName="modal-backdrop seat-picker-backdrop" onClose={() => setSeatPicker(null)}>
       <section className="seat-picker-modal">
         <div className="seat-picker-head">
           <div>
             <span>{seatPickerSession.label} - {seatPickerGame?.name ?? 'Table'}</span>
-            <h2>Seat {seatPicker.seatNumber}</h2>
+            <Dialog.Title asChild><h2>Seat {seatPicker.seatNumber}<span className="sr-only"> player</span></h2></Dialog.Title>
           </div>
           <button className="icon-button" type="button" onClick={() => setSeatPicker(null)} title="Close player picker">
             <X size={18} />
@@ -4762,7 +4777,8 @@ function App() {
           }}
         >
           <input
-            autoFocus
+            data-dialog-initial-focus
+            aria-label="Player name or search"
             value={seatPicker.search}
             onChange={(event) => setSeatPicker((current) => current ? { ...current, search: event.target.value, error: undefined } : current)}
             placeholder="Type player name and press Enter"
@@ -4853,15 +4869,14 @@ function App() {
           )}
         </div>
       </section>
-    </div>,
-    document.body,
+    </OperationalDialog>
   ) : null;
 
   const cashOutPlayerSession = cashOutDraft
     ? state.playerSessions.find((playerSession) => playerSession.id === cashOutDraft.playerSessionId)
     : undefined;
-  const cashOutModal = cashOutDraft && cashOutPlayerSession ? createPortal(
-    <div className="modal-backdrop cash-out-backdrop" role="dialog" aria-modal="true" aria-label={`Cash out ${cashOutPlayerSession.playerName}`}>
+  const cashOutModal = cashOutDraft && cashOutPlayerSession ? (
+    <OperationalDialog backdropClassName="modal-backdrop cash-out-backdrop" onClose={() => setCashOutDraft(null)} fallbackFocusRef={cashOutFallbackFocusRef}>
       <form
         className="cash-out-modal"
         onSubmit={async (event) => {
@@ -4875,28 +4890,26 @@ function App() {
         }}
       >
         <div className="cash-out-head">
-          <div><span>Close player session</span><h2>{cashOutPlayerSession.playerName}</h2></div>
-          <button className="icon-button" type="button" onClick={() => setCashOutDraft(null)}><X size={18} /></button>
+          <div><span>Close player session</span><Dialog.Title className="sr-only">Cash out {cashOutPlayerSession.playerName}</Dialog.Title><h2>{cashOutPlayerSession.playerName}</h2></div>
+          <button className="icon-button" type="button" aria-label="Close cash-out" onClick={() => setCashOutDraft(null)}><X size={18} /></button>
         </div>
-        <label>Cash-out amount (optional)<input autoFocus type="number" min="0" step="0.01" value={cashOutDraft.amount} onChange={(event) => setCashOutDraft({ ...cashOutDraft, amount: event.target.value })} placeholder="$0.00" /></label>
+        <label>Cash-out amount (optional)<input data-dialog-initial-focus type="number" min="0" step="0.01" value={cashOutDraft.amount} onChange={(event) => setCashOutDraft({ ...cashOutDraft, amount: event.target.value })} placeholder="$0.00" /></label>
         <label>Note<input value={cashOutDraft.note} onChange={(event) => setCashOutDraft({ ...cashOutDraft, note: event.target.value })} placeholder="Optional note" /></label>
         <div className="cash-out-actions"><button className="ghost-button" type="button" onClick={() => setCashOutDraft(null)}>Cancel</button><button className="primary-button" type="submit">Close player session</button></div>
       </form>
-    </div>,
-    document.body,
+    </OperationalDialog>
   ) : null;
 
   const ledgerSession = tableLedgerSessionId ? state.sessions.find((session) => session.id === tableLedgerSessionId) : undefined;
-  const tableLedgerModal = ledgerSession ? createPortal(
-    <div className="modal-backdrop cash-ledger-backdrop" role="dialog" aria-modal="true" aria-label={`${ledgerSession.label} buy-in ledger`}>
+  const tableLedgerModal = ledgerSession ? (
+    <OperationalDialog backdropClassName="modal-backdrop cash-ledger-backdrop" onClose={() => setTableLedgerSessionId(null)}>
       <section className="cash-ledger-modal">
-        <div className="cash-ledger-head"><div><span>{state.games.find((game) => game.id === ledgerSession.gameId)?.name ?? 'Table'}</span><h2>{ledgerSession.label} ledger</h2></div><button className="icon-button" onClick={() => setTableLedgerSessionId(null)}><X size={18} /></button></div>
+        <div className="cash-ledger-head"><div><span>{state.games.find((game) => game.id === ledgerSession.gameId)?.name ?? 'Table'}</span><Dialog.Title asChild><h2>{ledgerSession.label}<span className="sr-only"> buy-in</span> ledger</h2></Dialog.Title></div><button className="icon-button" aria-label="Close buy-in ledger" onClick={() => setTableLedgerSessionId(null)}><X size={18} /></button></div>
         <React.Suspense fallback={<div className="cash-ledger-empty" aria-busy="true">Loading ledger...</div>}>
           <TableBuyInLedger state={state} session={ledgerSession} formatClock={formatClock} />
         </React.Suspense>
       </section>
-    </div>,
-    document.body,
+    </OperationalDialog>
   ) : null;
 
   if (route === 'table') {
@@ -5078,6 +5091,7 @@ function App() {
       seatPickerModal={seatPickerModal}
       cashOutModal={cashOutModal}
       tableLedgerModal={tableLedgerModal}
+      quickAddFallbackFocusRef={quickAddFallbackFocusRef}
       seatPicker={seatPicker}
       activityItems={floorActivityItems}
       quickAddOpenSeatSessions={quickAddOpenSeatSessions}

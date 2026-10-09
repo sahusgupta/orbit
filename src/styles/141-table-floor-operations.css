@@ -1,11 +1,10 @@
 
-/* Floor tables are launchers; management lives in a dedicated one-screen window. */
+/* Table headings launch the dedicated view; expanded controls stay in the workspace. */
 .floor-table-launcher { cursor: pointer; }
 .floor-table-launcher:hover { border-color: color-mix(in srgb, var(--primary) 52%, var(--line)); }
 .current-tables-panel .floor-table-launcher h3 {
   color: #f8fafc !important;
 }
-.current-tables-panel .floor-table-launcher .table-detail-panel { display: none; }
 
 /* Dedicated table windows must fit the viewport without document scrolling. */
 .table-view-shell {

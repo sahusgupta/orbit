@@ -150,6 +150,8 @@ function PlayerCard({
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
+      const activeDialog = document.activeElement?.closest('[role="dialog"]');
+      if (activeDialog && !activeDialog.contains(cardRef.current)) return;
       event.preventDefault();
       onClose();
       triggerRef.current?.focus();
@@ -540,6 +542,8 @@ function PlayerCard({
           <button className="poker-seat-cashout" type="button" onClick={() => {
             onRemovePlayer?.(player.id);
             onClose();
+            // The transient menu unmounts; restore a stable opener for the cash-out dialog.
+            triggerRef.current?.focus();
           }}>
             Cash out and leave table
           </button>
