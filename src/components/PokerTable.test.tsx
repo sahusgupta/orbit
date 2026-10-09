@@ -1,10 +1,12 @@
 /**
  * @vitest-environment jsdom
  */
-import React, { act } from 'react';
+import React, { act, useState } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import PokerTable from './PokerTable';
+import OperationalDialog from './OperationalDialog';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -369,6 +371,139 @@ describe('PokerTable seat rendering', () => {
       root.unmount();
     });
     container.remove();
+  });
+
+  it('returns focus to the stable seat trigger after requesting cash out', () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    const player = { id: 'cash-out-player', name: 'Jordan', seatNumber: 2, membershipId: 'synthetic', joinedAt: Date.now() };
+    const onRemovePlayer = vi.fn(() => {
+      expect(document.activeElement?.classList.contains('poker-seat-cashout')).toBe(true);
+      expect(container.querySelector('.poker-seat-menu')).not.toBeNull();
+    });
+    try {
+      act(() => root.render(<PokerTable players={[player]} onRemovePlayer={onRemovePlayer} />));
+      const seat = container.querySelector<HTMLButtonElement>('[aria-label="Open details for Jordan at seat 2"]')!;
+      act(() => seat.click());
+      const cashOut = container.querySelector<HTMLButtonElement>('.poker-seat-cashout')!;
+      act(() => { cashOut.focus(); cashOut.click(); });
+
+      expect(onRemovePlayer).toHaveBeenCalledWith(player.id);
+      expect(cashOut.isConnected).toBe(false);
+      expect(container.querySelector('.poker-seat-menu')).toBeNull();
+      expect(container.querySelector('[aria-label="Open details for Jordan at seat 2"]')).toBe(seat);
+      expect(seat.isConnected).toBe(true);
+      expect(document.activeElement).toBe(seat);
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+
+  it.each(['add', 'deduct'])('retains the focused %s time draft through a clock tick and unrelated parent render', (action) => {
+    vi.useFakeTimers();
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    const player = { id: 'draft-player', name: 'Taylor', seatNumber: 1, membershipId: 'synthetic', joinedAt: Date.now(), timeRemainingSeconds: 3600 };
+    const save = vi.fn(() => true);
+    const renderTable = (remaining: number) => root.render(
+      <PokerTable players={[{ ...player, timeRemainingSeconds: remaining }]} showTimeRemaining onAddTime={save} onDeductTime={save} />
+    );
+    try {
+      act(() => renderTable(3600));
+      act(() => container.querySelector<HTMLButtonElement>('[aria-label="Open details for Taylor at seat 1"]')!.click());
+      act(() => container.querySelector<HTMLButtonElement>(action === 'add'
+        ? '[aria-label="Show add time controls for Taylor"]'
+        : '[aria-label="Show deduct time controls for Taylor"]')!.click());
+      const selector = action === 'add' ? '.time-action-panel input' : '.deduct-time-action-panel input:not([type])';
+      const input = container.querySelector<HTMLInputElement>(selector)!;
+      const draft = action === 'add' ? '45' : 'Synthetic correction';
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      act(() => {
+        input.focus();
+        setter.call(input, draft);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(input.value).toBe(draft);
+      expect(document.activeElement).toBe(input);
+
+      act(() => vi.advanceTimersByTime(1000));
+      act(() => renderTable(3599));
+      expect(container.querySelector(selector)).toBe(input);
+      expect(input.isConnected).toBe(true);
+      expect(document.activeElement).toBe(input);
+      expect(input.value).toBe(draft);
+
+      const nativeKey = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: action === 'add' ? '6' : 'x' });
+      act(() => {
+        input.dispatchEvent(nativeKey);
+        setter.call(input, draft + (action === 'add' ? '6' : 'x'));
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(nativeKey.defaultPrevented).toBe(false);
+      expect(input.value).toBe(draft + (action === 'add' ? '6' : 'x'));
+      expect(document.activeElement).toBe(input);
+      expect(save).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves underlying player details open when Escape dismisses a separate topmost dialog', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    const parentOpenChange = vi.fn();
+    let openOtherDialog: () => void = () => undefined;
+    const player = { id: 'stack-player', name: 'Taylor', seatNumber: 1, membershipId: 'synthetic', joinedAt: Date.now(), timeRemainingSeconds: 3600 };
+    function Harness() {
+      const [otherOpen, setOtherOpen] = useState(false);
+      openOtherDialog = () => setOtherOpen(true);
+      return (
+        <Dialog.Root open onOpenChange={parentOpenChange}>
+          <Dialog.Portal>
+            <Dialog.Overlay />
+            <Dialog.Content aria-describedby={undefined}>
+              <Dialog.Title>Current tables</Dialog.Title>
+              <PokerTable players={[player]} showTimeRemaining onAddTime={() => true} />
+              {otherOpen ? (
+                <OperationalDialog backdropClassName="synthetic-dialog-backdrop" onClose={() => setOtherOpen(false)}>
+                  <section aria-label="Other operation"><Dialog.Title>Other operation</Dialog.Title><input data-dialog-initial-focus aria-label="Other operation note" /></section>
+                </OperationalDialog>
+              ) : null}
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+      );
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+      const seat = document.querySelector<HTMLButtonElement>('[aria-label="Open details for Taylor at seat 1"]')!;
+      act(() => seat.click());
+      act(() => document.querySelector<HTMLButtonElement>('[aria-label="Show add time controls for Taylor"]')!.click());
+      const draft = document.querySelector<HTMLInputElement>('.time-action-panel input')!;
+      act(() => draft.focus());
+      await act(async () => openOtherDialog());
+      const topmostInput = document.querySelector<HTMLInputElement>('[aria-label="Other operation note"]')!;
+      expect(document.activeElement).toBe(topmostInput);
+      await act(async () => {
+        topmostInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(document.querySelector('[aria-label="Other operation"]')).toBeNull();
+      expect(parentOpenChange).not.toHaveBeenCalled();
+      expect(seat.getAttribute('aria-expanded')).toBe('true');
+      expect(document.querySelector('.time-action-panel input')).toBe(draft);
+      expect(document.activeElement).toBe(draft);
+    } finally {
+      await act(async () => { root.unmount(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+      container.remove();
+    }
   });
 });
 

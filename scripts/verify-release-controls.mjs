@@ -37,7 +37,7 @@ requireMatch(includesAll(release, [
   'environment: production-release',
   'npm run security:dependencies', 'npm run check:release-controls', 'npm run audit:module-graph', 'npm run verify',
   'npm run check:renderer-bundle', 'npm run check:public-site', 'npm run check:brand',
-  'npm run e2e:management', 'npm run e2e:management:mutations', 'npm run e2e:ocr-file', 'npm run e2e:public', 'npm run e2e:packaged',
+  'npm run e2e:management', 'npm run e2e:management:mutations', 'npm run e2e:management:focus', 'npm run e2e:ocr-file', 'npm run e2e:public', 'npm run e2e:packaged',
   'CSC_IDENTITY_AUTO_DISCOVERY: "false"',
   'npx --no-install electron-builder --win --publish never --config.forceCodeSigning=false',
   'apps/api/src/stateMigration.test.js', 'apps/api/src/stateArchitecture.test.js', 'electron/accountMigration.test.js',
@@ -67,7 +67,7 @@ requireMatch(includesAll(updater, ['update-install-blocked-state-not-preserved',
 requireMatch(includesAll(preload, ["ipcRenderer.invoke('get-update-status')", "ipcRenderer.invoke('install-downloaded-update')", "ipcRenderer.on('update-status'"]), 'The reviewed preload bridge must expose update status and explicit installation.');
 requireMatch(includesAll(main, ["ipcMain.handle('get-update-status'", "ipcMain.handle('install-downloaded-update'"]), 'Trusted main-process IPC handlers must own update installation.');
 
-for (const gate of ['security:dependencies', 'check:release-controls', 'check:independent-locks', 'audit:module-graph', 'verify', 'check:renderer-bundle', 'check:public-site', 'check:brand', 'e2e:management', 'e2e:management:mutations', 'e2e:public', 'web:e2e']) {
+for (const gate of ['security:dependencies', 'check:release-controls', 'check:independent-locks', 'audit:module-graph', 'verify', 'check:renderer-bundle', 'check:public-site', 'check:brand', 'e2e:management', 'e2e:management:mutations', 'e2e:management:focus', 'e2e:public', 'web:e2e']) {
   requireMatch(ci.includes(`npm run ${gate}`), `CI is missing npm run ${gate}.`);
 }
 requireMatch(ci.includes('permissions:\n  contents: read') || ci.includes('permissions:\r\n  contents: read'), 'CI must use explicit read-only repository permissions.');

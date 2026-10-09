@@ -140,6 +140,7 @@ jobs:
         run: |
           npm run e2e:management
           npm run e2e:management:mutations
+          npm run e2e:management:focus
           npm run e2e:ocr-file
           npm run e2e:public
 

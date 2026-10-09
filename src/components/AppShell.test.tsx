@@ -1,7 +1,8 @@
 /**
  * @vitest-environment jsdom
  */
-import React, { act } from 'react';
+import React, { act, useState } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import packageJson from '../../package.json';
@@ -51,6 +52,93 @@ describe('AppShell', () => {
       expect(container.textContent).toContain('Floor');
     } finally {
       act(() => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+      if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollDescriptor);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    }
+  });
+
+  it.each(['keyboard', 'pointer'])('restores the %s command opener without remounting or clearing an editable draft', async (method) => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    const scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    function Harness() {
+      const [draft, setDraft] = useState('');
+      const draftField = <input aria-label="Quick Add player name" value={draft} onChange={(event) => setDraft(event.target.value)} />;
+      return (
+        <AppShell active="floor" clubName="Example Club" onNavigate={vi.fn()} onSignOut={vi.fn()}>
+          <main>{method === 'keyboard' ? (
+            <Dialog.Root open>
+              <Dialog.Portal>
+                <Dialog.Overlay />
+                <Dialog.Content aria-describedby={undefined}><Dialog.Title>Quick Add</Dialog.Title>{draftField}</Dialog.Content>
+              </Dialog.Portal>
+            </Dialog.Root>
+          ) : draftField}</main>
+        </AppShell>
+      );
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+      const draftInput = document.querySelector<HTMLInputElement>('[aria-label="Quick Add player name"]')!;
+      const trigger = container.querySelector<HTMLButtonElement>('.orbit-command-trigger')!;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      act(() => {
+        draftInput.focus();
+        setter.call(draftInput, 'Alice');
+        draftInput.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(document.activeElement).toBe(draftInput);
+      for (const key of ['k', '4', 'Backspace', 'ArrowLeft']) {
+        const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+        act(() => draftInput.dispatchEvent(event));
+        expect(event.defaultPrevented).toBe(false);
+      }
+      expect(document.querySelector('.command-dialog')).toBeNull();
+
+      await act(async () => {
+        if (method === 'keyboard') {
+          draftInput.setSelectionRange(1, 4, 'backward');
+          expect([draftInput.selectionStart, draftInput.selectionEnd, draftInput.selectionDirection]).toEqual([1, 4, 'backward']);
+          draftInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true }));
+        } else {
+          trigger.click();
+        }
+      });
+      await vi.waitFor(async () => {
+        await act(async () => {});
+        expect(document.querySelector('.command-dialog input')).not.toBeNull();
+      });
+      const commandInput = document.querySelector<HTMLInputElement>('.command-dialog input')!;
+      expect(document.activeElement).toBe(commandInput);
+      expect(document.querySelector('[aria-label="Quick Add player name"]')).toBe(draftInput);
+      expect(draftInput.value).toBe('Alice');
+
+      await act(async () => {
+        commandInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(document.querySelector('.command-dialog')).toBeNull();
+      expect(document.activeElement).toBe(method === 'keyboard' ? draftInput : trigger);
+      expect(document.querySelector('[aria-label="Quick Add player name"]')).toBe(draftInput);
+      expect(draftInput.isConnected).toBe(true);
+      expect(draftInput.value).toBe('Alice');
+      if (method === 'keyboard') {
+        expect([draftInput.selectionStart, draftInput.selectionEnd, draftInput.selectionDirection]).toEqual([1, 4, 'backward']);
+      }
+      act(() => {
+        draftInput.focus();
+        setter.call(draftInput, 'Alice Smith');
+        draftInput.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(draftInput.value).toBe('Alice Smith');
+      expect(document.activeElement).toBe(draftInput);
+    } finally {
+      await act(async () => { root.unmount(); await new Promise((resolve) => setTimeout(resolve, 0)); });
       container.remove();
       vi.unstubAllGlobals();
       if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollDescriptor);

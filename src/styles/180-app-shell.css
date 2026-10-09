@@ -69,8 +69,9 @@
 .sidebar-collapsed .orbit-sidebar-brand { grid-template-columns: 32px 28px; }.sidebar-collapsed .orbit-command-trigger, .sidebar-collapsed .orbit-sidebar-nav button { justify-content: center; padding: 0; }
 .orbit-mobile-menu, .orbit-mobile-close, .orbit-mobile-scrim, .orbit-bottom-nav { display: none; }
 
-.command-overlay { background: rgba(15,23,42,.36); inset: 0; position: fixed; z-index: 100; }
-.command-dialog { background: var(--panel-solid); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 24px 80px rgba(15,23,42,.24); left: 50%; max-height: min(560px, 80vh); overflow: hidden; position: fixed; top: 14vh; transform: translateX(-50%); width: min(620px, calc(100vw - 32px)); z-index: 101; }
+/* The global command dialog can open above Floor workspaces and operational dialogs. */
+.command-overlay { background: rgba(15,23,42,.36); inset: 0; position: fixed; z-index: 190; }
+.command-dialog { background: var(--panel-solid); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 24px 80px rgba(15,23,42,.24); left: 50%; max-height: min(560px, 80vh); overflow: hidden; position: fixed; top: 14vh; transform: translateX(-50%); width: min(620px, calc(100vw - 32px)); z-index: 191; }
 .staff-pin-dialog { bottom: auto; top: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); }
 .staff-pin-dialog-form { display: grid; gap: 18px; padding: 24px; }
 .staff-pin-dialog-heading { display: grid; gap: 6px; }
@@ -178,8 +179,8 @@
 .orbit-shell .table-overview-panel { display: block; }
 .orbit-shell .recommended-panel { display: none; }
 .orbit-shell .quick-add-panel.collapsed-panel { display: none; }
-.quick-add-drawer-backdrop { background: rgba(15,23,42,.22); border: 0; cursor: default; inset: 0; padding: 0; position: fixed; z-index: 79; }
-.orbit-shell .quick-add-panel:not(.collapsed-panel) { background: var(--panel-solid); border-radius: 0; box-shadow: -20px 0 60px rgba(15,23,42,.18); height: 100vh; overflow-y: auto; padding: 28px; position: fixed; right: 0; top: 0; width: min(440px, 94vw); z-index: 80; }
+.quick-add-drawer-backdrop { background: rgba(15,23,42,.22); border: 0; cursor: default; inset: 0; padding: 0; position: fixed; z-index: 180; }
+.quick-add-panel:not(.collapsed-panel) { background: var(--panel-solid); border-radius: 0; box-shadow: -20px 0 60px rgba(15,23,42,.18); height: 100vh; overflow-y: auto; padding: 28px; position: fixed; right: 0; top: 0; width: min(440px, 94vw); z-index: 181; }
 .quick-add-drawer-close { align-items: center; background: var(--canvas); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); cursor: pointer; display: inline-flex; height: 36px; justify-content: center; position: absolute; right: 68px; top: 18px; width: 36px; z-index: 3; }
 .quick-add-drawer-close:hover { border-color: var(--primary); color: var(--primary); }
 .waitlist-icon-trigger { align-items: center; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 8px; color: var(--muted); display: inline-flex; height: 40px; justify-content: center; position: relative; width: 40px; }
