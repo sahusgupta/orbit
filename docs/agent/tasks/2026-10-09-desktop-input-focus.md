@@ -55,7 +55,7 @@ The new command is required by [CI](../../../.github/workflows/ci.yml), [release
 - Final individual `npm run typecheck` and `npm run check:release-controls` passed. `node --check` passed for all three new MJS harness files. The individual `npm run build` also passed before the final command guard; the subsequent full aggregate run covers the finalized source build.
 - Final `npm run verify` after the repeated-command correction exited 0 and passed all 13 gates again. Results remained 208 passed root unit files/1,480 passed tests with the existing one-file/eight-test emulator skip, 20 passed player-web files/209 tests, and seven passed sales-map files/85 tests. All TypeScript/lint/release-contract/artwork/build checks passed; the desktop build retained only the existing ExcelJS eval and large-chunk warnings.
 
-Final review: the complete renderer, styles, tests, harness, workflow, and documentation diff was reviewed; documentation links resolve and `git diff --check` passed. The working tree has 22 task files changed on `fix/desktop-modal-input-focus`, with nothing staged or committed. No push, packaging, publication, deployment, or production service access occurred.
+Original fix handoff: the complete renderer, styles, tests, harness, workflow, and documentation diff was reviewed; documentation links resolved and `git diff --check` passed. At that handoff, the working tree had 22 task files changed on `fix/desktop-modal-input-focus`, with nothing staged or committed. No push, packaging, publication, deployment, or production service access had occurred.
 
 ## Changed files
 
@@ -66,4 +66,4 @@ Final review: the complete renderer, styles, tests, harness, workflow, and docum
 - Required gates: `package.json`, `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `scripts/verify-release-controls.mjs`.
 - Documentation: `docs/operations/RELEASE_AND_ROLLBACK.md` and this task record.
 
-Installed `v0.1.78` binaries require a new desktop release to receive this renderer fix. This task does not publish, deploy, package, commit, or push a release.
+Installed `v0.1.78` binaries require a new desktop release to receive this renderer fix. The user subsequently authorized integration and a complete stable desktop release. The fix was merged through PR 30; a release-gate test synchronization correction was merged through PR 31 without changing runtime code. The selected release source is `77373a62f160bfdc70a06eaa151d84be347d4d70`. See [the separate 0.1.79 delivery record](2026-10-09-desktop-release-0.1.79.md) for exact candidate, promotion, and public updater verification evidence.
