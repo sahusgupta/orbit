@@ -52,6 +52,7 @@ describe('AppShell', () => {
       expect(container.textContent).toContain('Floor');
     } finally {
       act(() => root.unmount());
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
       container.remove();
       vi.unstubAllGlobals();
       if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollDescriptor);
@@ -118,12 +119,14 @@ describe('AppShell', () => {
       expect(document.querySelector('[aria-label="Quick Add player name"]')).toBe(draftInput);
       expect(draftInput.value).toBe('Alice');
 
-      await act(async () => {
+      act(() => {
         commandInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-        await new Promise((resolve) => setTimeout(resolve, 0));
       });
-      expect(document.querySelector('.command-dialog')).toBeNull();
-      expect(document.activeElement).toBe(method === 'keyboard' ? draftInput : trigger);
+      // Radix defers close autofocus until after unmount, so commit Escape before waiting.
+      await vi.waitFor(() => {
+        expect(document.querySelector('.command-dialog')).toBeNull();
+        expect(document.activeElement).toBe(method === 'keyboard' ? draftInput : trigger);
+      });
       expect(document.querySelector('[aria-label="Quick Add player name"]')).toBe(draftInput);
       expect(draftInput.isConnected).toBe(true);
       expect(draftInput.value).toBe('Alice');
@@ -138,7 +141,8 @@ describe('AppShell', () => {
       expect(draftInput.value).toBe('Alice Smith');
       expect(document.activeElement).toBe(draftInput);
     } finally {
-      await act(async () => { root.unmount(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+      act(() => root.unmount());
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
       container.remove();
       vi.unstubAllGlobals();
       if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollDescriptor);
