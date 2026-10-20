@@ -1,3 +1,4 @@
+import { usePlayerTheme, useThemedStyles } from '../../styles/PlayerThemeProvider';
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,6 +7,7 @@ import { AnimatedButton } from '../../components/PlayerPresentation';
 import {
   getCompatibilitySummary,
   getClubCity,
+  getClubCoordinate,
   getGameStatusLabel,
   getPublishedAvailabilityLabel,
   getOpportunityLabel,
@@ -21,7 +23,7 @@ import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
 import { discoveryStyles } from './discoveryStyles';
 
-const styles = { ...sharedStyles, ...discoveryStyles };
+const baseStyles = { ...sharedStyles, ...discoveryStyles };
 
 export function getSeatRequestActionLabel(access: PlayerSeatRequestAccess, runningTablePublished: boolean) {
   if (access === 'active') return runningTablePublished ? 'Request a seat' : 'Send interest';
@@ -58,9 +60,11 @@ export function GameDetailsScreen({
   onJoin,
   onRefresh,
   readOnly = false,
-  onViewStore
+  onViewStore,
+  activeRequest = false,
+  onViewRequest
 }: {
-  backLabel: 'Home' | 'Matches';
+  backLabel: 'Home' | 'Games' | 'Matches';
   item: GameOpportunity | null;
   player: PlayerAccount;
   onBack: () => void;
@@ -69,7 +73,13 @@ export function GameDetailsScreen({
   onRefresh: () => void;
   readOnly?: boolean;
   onViewStore: () => void;
+  activeRequest?: boolean;
+  onViewRequest?: () => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
+  const [section, setSection] = useState<'rules' | 'structure' | 'request' | null>(null);
+  useEffect(() => setSection(null), [item ? getOpportunityKey(item) : '', readOnly]);
   if (!item || readOnly) {
     return (
       <View accessibilityRole="alert" style={styles.gameDetailsPage}>
@@ -93,6 +103,7 @@ export function GameDetailsScreen({
   const runningTablePublished = hasRunningTable(item.game);
   const accessOptionCopy = getSeatAccessOptionCopy(item.seatRequestAccess, item.club.club.name);
   const venueKind = getVenueKind(item.club);
+  const toggleSection = (next: 'rules' | 'structure' | 'request') => setSection((current) => current === next ? null : next);
   return (
     <View style={styles.gameDetailsPage}>
       <View style={styles.gameDetailsNav}>
@@ -100,102 +111,130 @@ export function GameDetailsScreen({
           <Ionicons name="arrow-back" size={19} color={colors.ink} />
           <Text style={styles.gameDetailsBackText}>{backLabel}</Text>
         </Pressable>
-        <View style={styles.gameDetailsLivePill}>
-          <View style={[styles.liveDot, !hasRunningTable(item.game) && styles.liveDotWarm]} />
-          <Text style={styles.gameDetailsLiveText}>{getGameStatusLabel(item.game)}</Text>
-        </View>
       </View>
 
       <LinearGradient
-        colors={['#101827', '#172554', '#4D7CFE']}
+        colors={[colors.panel, colors.primarySoft]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.gameDetailsHero}
+        style={styles.cashDetailsHero}
       >
-        <View style={styles.gameDetailsHeroTop}>
-          <View style={styles.venueTypeBadge}>
-            <Ionicons name={venueKind === 'Card house' ? 'business-outline' : venueKind === 'Casino' ? 'diamond-outline' : 'people-outline'} size={13} color="#ffffff" />
-            <Text style={styles.venueTypeText}>{venueKind}</Text>
+        <View style={styles.cashDetailsIdentity}>
+          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.cashDetailsMonogram}>
+            <Text style={styles.cashDetailsMonogramText}>{item.club.club.name.trim().slice(0, 1).toUpperCase()}</Text>
           </View>
-          <View style={styles.gameDetailsScore}>
-            <Text style={styles.gameDetailsScoreValue}>{getOpportunityLabel(item)}</Text>
-            <Text style={styles.compatibilityLabel}>WHY SHOWN</Text>
+          <View style={styles.cashDetailsIdentityCopy}>
+            <Text style={styles.cashDetailsVenue}>{item.club.club.name}</Text>
+            <Text style={styles.cashDetailsLocation}>{[venueKind, getClubCity(item.club), item.distanceMiles == null ? null : `${item.distanceMiles.toFixed(1)} mi away`].filter(Boolean).join(' · ')}</Text>
           </View>
         </View>
-        <View style={styles.gameDetailsHeroCopy}>
-          <Text style={styles.gameDetailsStatus}>{getGameStatusLabel(item.game)}</Text>
-          <Text style={styles.gameDetailsTitle}>{item.game.name}</Text>
-          <Text style={styles.gameDetailsClub}>{item.club.club.name}</Text>
-          <Text style={styles.gameDetailsLocation}>{[getClubCity(item.club), item.distanceMiles == null ? null : `${item.distanceMiles.toFixed(1)} mi away`].filter(Boolean).join(' · ')}</Text>
+        <Text style={styles.cashDetailsTitle}>{item.game.name}</Text>
+        <View style={styles.cashDetailsAvailability}>
+          <View style={[styles.liveDot, !runningTablePublished && styles.liveDotWarm]} />
+          <Text style={styles.cashDetailsAvailabilityText}>{getPublishedAvailabilityLabel(item.game)}</Text>
         </View>
       </LinearGradient>
 
-      <View style={styles.detailsQuickSummary}>
-        <Text style={styles.detailsQuickValue}>{getPublishedAvailabilityLabel(item.game)}</Text>
-        <Text style={styles.detailsQuickDivider}>|</Text>
-        <Text style={styles.detailsQuickValue}>{fee.label}</Text>
-        <Text style={styles.detailsQuickDivider}>|</Text>
-        <Text style={styles.detailsQuickValue}>{getPublishedTableSummary(item.game)}</Text>
-      </View>
-
-      <View style={styles.gameDetailsSection}>
-        <View style={styles.gameDetailsSectionHeading}>
-          <View style={styles.gameDetailsSectionIcon}>
-            <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
-          </View>
-          <Text style={styles.gameDetailsSectionTitle}>Why this game</Text>
-        </View>
-        <Text style={styles.gameDetailsReason}>{getCompatibilitySummary(item)}</Text>
-      </View>
-
-      <View style={styles.gameDetailsSection}>
-        <View style={styles.gameDetailsSectionHeading}>
-          <View style={styles.gameDetailsSectionIcon}>
-            <Ionicons name="information-circle-outline" size={19} color={colors.primary} />
-          </View>
-          <Text style={styles.gameDetailsSectionTitle}>At a glance</Text>
-        </View>
-        <View style={styles.gameDetailsFacts}>
-          <DetailRow icon="people-outline" label="Seats" value={getPublishedAvailabilityLabel(item.game)} />
-          <DetailRow icon="layers-outline" label="Tables" value={getPublishedTableSummary(item.game)} />
-          <DetailRow icon="receipt-outline" label="Collection" value={fee.label} />
-          <DetailRow icon="location-outline" label="Location" value={item.club.club.address ?? 'Address not published'} />
-        </View>
-      </View>
-
-      <View style={styles.notificationPromise}>
-        <View style={styles.notificationPromiseIcon}>
-          <Ionicons name="notifications-outline" size={19} color={colors.primary} />
-        </View>
-        <View style={styles.notificationPromiseCopy}>
-          <Text style={styles.cardTitle}>In-app venue updates</Text>
-          <Text style={styles.muted}>Eligible updates sent by this venue can appear inside Orbit after you join.</Text>
-        </View>
-      </View>
-
-      {item.seatRequestAccess !== 'active' ? (
-        <Pressable onPress={item.seatRequestAccess === 'pending' ? onJoin : onViewStore} style={styles.storeButton}>
-          <Ionicons name="storefront-outline" size={18} color={colors.primary} />
-          <View style={styles.storeButtonCopy}>
-            <Text style={styles.storeButtonText}>{accessOptionCopy.title}</Text>
-            <Text style={styles.muted}>{accessOptionCopy.body}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={17} color={colors.primary} />
-        </Pressable>
-      ) : null}
-
       <View style={styles.detailsActionRow}>
-        {item.club.club.address?.trim() ? (
+        {activeRequest ? (
+          <AnimatedButton variant="primary" onPress={onViewRequest} disabled={!onViewRequest} style={[styles.primaryButton, styles.detailsPrimaryButton]}>
+            <Ionicons name="receipt-outline" size={18} color={colors.onPrimary} />
+            <Text style={styles.primaryButtonText}>View your request</Text>
+          </AnimatedButton>
+        ) : (
+          <Pressable
+            accessibilityLabel="Seat request options"
+            accessibilityRole="button"
+            accessibilityState={{ expanded: section === 'request' }}
+            aria-expanded={section === 'request'}
+            onPress={() => toggleSection('request')}
+            style={[styles.primaryButton, styles.cashDetailsRequestEntry]}
+          >
+            <Ionicons name="person-add-outline" size={18} color={colors.onPrimary} />
+            <Text style={styles.primaryButtonText}>{getSeatRequestActionLabel(item.seatRequestAccess, runningTablePublished)}</Text>
+            <Ionicons name={section === 'request' ? 'chevron-up' : 'chevron-down'} size={16} color={colors.onPrimary} />
+          </Pressable>
+        )}
+        {item.club.club.address?.trim() || getClubCoordinate(item.club) ? (
           <Pressable accessibilityLabel={`Directions to ${item.club.club.name}`} accessibilityRole="button" onPress={onDirections} style={styles.detailsSecondaryButton}>
             <Ionicons name="navigate-outline" size={18} color={colors.ink} />
             <Text style={styles.detailsSecondaryText}>Directions</Text>
           </Pressable>
         ) : null}
-        <AnimatedButton variant="primary" onPress={onJoin} style={[styles.primaryButton, styles.detailsPrimaryButton]}>
-          <Ionicons name={item.seatRequestAccess === 'active' ? 'person-add-outline' : item.seatRequestAccess === 'pending' ? 'time-outline' : 'card-outline'} size={18} color="#ffffff" />
-          <Text style={styles.primaryButtonText}>{getSeatRequestActionLabel(item.seatRequestAccess, runningTablePublished)}</Text>
-        </AnimatedButton>
       </View>
+
+      <View style={styles.cashDetailsSections}>
+        <Pressable
+          accessibilityLabel="Rules"
+          accessibilityRole="button"
+          accessibilityState={{ expanded: section === 'rules' }}
+          aria-expanded={section === 'rules'}
+          onPress={() => toggleSection('rules')}
+          style={[styles.cashDetailsSectionButton, section === 'rules' && styles.cashDetailsSectionActive]}
+        >
+          <Ionicons name="reader-outline" size={18} color={colors.primary} />
+          <Text style={styles.detailsSecondaryText}>Rules</Text>
+          <Ionicons name={section === 'rules' ? 'chevron-up' : 'chevron-down'} size={16} color={colors.muted} />
+        </Pressable>
+        <Pressable
+          accessibilityLabel="Structure"
+          accessibilityRole="button"
+          accessibilityState={{ expanded: section === 'structure' }}
+          aria-expanded={section === 'structure'}
+          onPress={() => toggleSection('structure')}
+          style={[styles.cashDetailsSectionButton, section === 'structure' && styles.cashDetailsSectionActive]}
+        >
+          <Ionicons name="layers-outline" size={18} color={colors.primary} />
+          <Text style={styles.detailsSecondaryText}>Structure</Text>
+          <Ionicons name={section === 'structure' ? 'chevron-up' : 'chevron-down'} size={16} color={colors.muted} />
+        </Pressable>
+      </View>
+
+      {section === 'rules' ? (
+        <View style={styles.cashDetailsPanel}>
+          <Text accessibilityRole="header" style={styles.gameDetailsSectionTitle}>House rules</Text>
+          <Text style={styles.muted}>House rules are not published for this game. Confirm them with the venue.</Text>
+          <Text style={styles.muted}>Eligible updates sent by this venue can appear inside Orbit after you join.</Text>
+        </View>
+      ) : null}
+
+      {section === 'structure' ? (
+        <View style={styles.cashDetailsPanel}>
+          <Text accessibilityRole="header" style={styles.gameDetailsSectionTitle}>Game structure</Text>
+          <DetailRow icon="people-outline" label="Maximum seats" value={String(item.game.maxSeats)} />
+          <DetailRow icon="layers-outline" label="Tables" value={getPublishedTableSummary(item.game)} />
+          <DetailRow icon="receipt-outline" label="Collection" value={fee.label} />
+          {item.game.openTables.map((table) => (
+            <DetailRow key={table.id} icon="ellipse-outline" label={table.label} value={table.status} />
+          ))}
+          <Text style={styles.muted}>Buy-in limits are not published for this game.</Text>
+          <Text style={styles.gameDetailsSectionTitle}>Why this game</Text>
+          <Text style={styles.gameDetailsReason}>{getCompatibilitySummary(item)}</Text>
+          <DetailRow icon="location-outline" label="Location" value={item.club.club.address ?? 'Address not published'} />
+        </View>
+      ) : null}
+
+      {section === 'request' && !activeRequest ? (
+        <View style={styles.cashDetailsPanel}>
+          <Text accessibilityRole="header" style={styles.gameDetailsSectionTitle}>Seat request</Text>
+          <Text style={styles.muted}>You’ll confirm before a request is sent. Saving a game does not reserve a seat.</Text>
+          <DetailRow icon="receipt-outline" label="Collection" value={fee.label} />
+          {item.seatRequestAccess !== 'active' ? (
+            <Pressable accessibilityLabel="Venue access options" accessibilityRole="button" onPress={item.seatRequestAccess === 'pending' ? onJoin : onViewStore} style={styles.storeButton}>
+              <Ionicons name="storefront-outline" size={18} color={colors.primary} />
+              <View style={styles.storeButtonCopy}>
+                <Text style={styles.storeButtonText}>{accessOptionCopy.title}</Text>
+                <Text style={styles.muted}>{accessOptionCopy.body}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={17} color={colors.primary} />
+            </Pressable>
+          ) : null}
+          <AnimatedButton variant="primary" onPress={onJoin} style={[styles.primaryButton, styles.detailsPrimaryButton]}>
+            <Ionicons name={item.seatRequestAccess === 'active' ? 'person-add-outline' : item.seatRequestAccess === 'pending' ? 'time-outline' : 'card-outline'} size={18} color={colors.onPrimary} />
+            <Text style={styles.primaryButtonText}>{item.seatRequestAccess === 'active' && runningTablePublished ? 'Continue to request' : getSeatRequestActionLabel(item.seatRequestAccess, runningTablePublished)}</Text>
+          </AnimatedButton>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -215,6 +254,8 @@ export function DiscoveryDetailsModal({
   onJoin: () => void;
   onViewStore: () => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   const [expandedSection, setExpandedSection] = useState<'fit' | 'details' | null>(null);
   useEffect(() => setExpandedSection(null), [item ? getOpportunityKey(item) : '']);
   if (!item) return null;
@@ -312,7 +353,7 @@ export function DiscoveryDetailsModal({
                 </Pressable>
               ) : null}
               <AnimatedButton variant="primary" onPress={onJoin} style={[styles.primaryButton, styles.detailsPrimaryButton]}>
-                <Ionicons name={item.seatRequestAccess === 'active' ? 'person-add-outline' : item.seatRequestAccess === 'pending' ? 'time-outline' : 'card-outline'} size={18} color="#ffffff" />
+                <Ionicons name={item.seatRequestAccess === 'active' ? 'person-add-outline' : item.seatRequestAccess === 'pending' ? 'time-outline' : 'card-outline'} size={18} color={colors.onPrimary} />
                 <Text style={styles.primaryButtonText}>{getSeatRequestActionLabel(item.seatRequestAccess, runningTablePublished)}</Text>
               </AnimatedButton>
             </View>
@@ -324,6 +365,8 @@ export function DiscoveryDetailsModal({
 }
 
 export function DetailRow({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   return (
     <View style={styles.detailRow}>
       <View style={styles.detailRowLabel}>

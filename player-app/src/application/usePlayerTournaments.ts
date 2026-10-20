@@ -5,10 +5,11 @@ import {
   tournamentScopeKey,
   type PlayerAccount,
   type PlayerTournament,
-  type PlayerTournamentInterest
+  type PlayerTournamentInterest,
+  type PlayerTournamentRegistration
 } from '../domain/playerSync';
 import type { Screen } from '../domain/playerTypes';
-import { expressTournamentInterest, getCurrentFirebasePlayer, withdrawTournamentInterest, type FirebasePlayerIdentity } from '../data/orbitSyncApi';
+import { expressTournamentInterest, getCurrentFirebasePlayer, registerForTournament, withdrawTournamentInterest, type FirebasePlayerIdentity } from '../data/orbitSyncApi';
 
 type UsePlayerTournamentsOptions = {
   firebaseIdentity: FirebasePlayerIdentity | null;
@@ -16,28 +17,39 @@ type UsePlayerTournamentsOptions = {
   player: PlayerAccount;
   requireVerifiedAge(returnScreen: Screen, action: string, minimumAge?: 18 | 21): boolean;
   setTournamentInterests: Dispatch<SetStateAction<PlayerTournamentInterest[]>>;
+  tournaments?: PlayerTournament[];
 };
 
 export function createTournamentInterestMutationId() {
   return createSecureUuid();
 }
 
-export function usePlayerTournaments({ firebaseIdentity, getClubMinimumAge, player, requireVerifiedAge, setTournamentInterests }: UsePlayerTournamentsOptions) {
+export function usePlayerTournaments({ firebaseIdentity, getClubMinimumAge, player, requireVerifiedAge, setTournamentInterests, tournaments }: UsePlayerTournamentsOptions) {
   const [tournamentMessage, setTournamentMessage] = useState('');
   const [pendingTournamentKeys, setPendingTournamentKeys] = useState<string[]>([]);
+  const [tournamentRegistrations, setTournamentRegistrations] = useState<Record<string, PlayerTournamentRegistration>>({});
   const inFlight = useRef(new Set<string>());
   const mutationIds = useRef(new Map<string, string>());
   const actionUid = useRef(firebaseIdentity?.uid ?? '');
+  const actionGeneration = useRef(0);
 
   useEffect(() => {
     const nextUid = firebaseIdentity?.uid ?? '';
     if (actionUid.current === nextUid) return;
     actionUid.current = nextUid;
+    actionGeneration.current += 1;
     inFlight.current.clear();
     mutationIds.current.clear();
     setPendingTournamentKeys([]);
     setTournamentMessage('');
+    setTournamentRegistrations({});
   }, [firebaseIdentity?.uid]);
+
+  useEffect(() => {
+    // A newly accepted catalog is authoritative, including venue removals.
+    // Successful local acknowledgements cover only the gap before that refresh.
+    setTournamentRegistrations({});
+  }, [tournaments]);
 
   const isCurrentTournamentAction = (expectedUid: string) => (
     actionUid.current === expectedUid && getCurrentFirebasePlayer()?.uid === expectedUid
@@ -111,5 +123,33 @@ export function usePlayerTournaments({ firebaseIdentity, getClubMinimumAge, play
     }
   };
 
-  return { expressInterest, pendingTournamentKeys, tournamentMessage, withdrawInterest };
+  const registerTournament = async (tournament: PlayerTournament) => {
+    const scopeKey = tournamentScopeKey(tournament);
+    const actionKey = `register:${scopeKey}`;
+    if (!firebaseIdentity || firebaseIdentity.uid !== player.id) {
+      setTournamentMessage('Sign in under Profile before registering for an event.');
+      return;
+    }
+    const expectedUid = firebaseIdentity.uid;
+    const expectedGeneration = actionGeneration.current;
+    const isCurrentRegistration = () => actionGeneration.current === expectedGeneration && isCurrentTournamentAction(expectedUid);
+    if (!requireVerifiedAge('tournaments', 'registering for an event', getClubMinimumAge(tournament.clubId))) return;
+    if (!begin(scopeKey)) return;
+    setTournamentMessage('Registering for the event...');
+    try {
+      const mutationId = mutationIds.current.get(actionKey) ?? createTournamentInterestMutationId();
+      mutationIds.current.set(actionKey, mutationId);
+      const registration = await registerForTournament(tournament, player, mutationId);
+      if (!isCurrentRegistration()) return;
+      mutationIds.current.delete(actionKey);
+      setTournamentRegistrations((current) => ({ ...current, [scopeKey]: registration }));
+      setTournamentMessage(`Registered for ${tournament.name}. No payment was collected. Check in with the venue before play.`);
+    } catch (error) {
+      if (isCurrentRegistration()) setTournamentMessage(error instanceof Error ? error.message : 'Unable to register for this event.');
+    } finally {
+      if (isCurrentRegistration()) finish(scopeKey);
+    }
+  };
+
+  return { expressInterest, pendingTournamentKeys, tournamentMessage, withdrawInterest, registerTournament, tournamentRegistrations };
 }

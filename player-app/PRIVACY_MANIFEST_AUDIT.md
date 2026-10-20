@@ -44,29 +44,31 @@ The app-owned manifest declares `NSPrivacyTracking` as false and makes the follo
 | `NSPrivacyCollectedDataTypeEmailAddress` | App functionality | Firebase-verified email account/contact path |
 | `NSPrivacyCollectedDataTypePhoneNumber` | App functionality | Optional account phone and phone-authentication path |
 | `NSPrivacyCollectedDataTypePhysicalAddress` | App functionality | User-confirmed PDF417 address; no image, raw barcode, or document number leaves the device |
-| `NSPrivacyCollectedDataTypeCoarseLocation` | App functionality; product personalization | Optional saved home-area text and discovery preference; no GPS or player-origin coordinate |
+| `NSPrivacyCollectedDataTypeCoarseLocation` | App functionality; product personalization | Optional saved home-area text and discovery preference; search coordinates are processed locally and are not sent to Orbit servers |
 | `NSPrivacyCollectedDataTypeOtherUserContent` | App functionality; product personalization | Saved game/stakes/favorite/availability preferences and user-entered availability text |
 | `NSPrivacyCollectedDataTypeUserID` | App functionality | Firebase/player/request identifiers used for identity, isolation, and idempotency |
 | `NSPrivacyCollectedDataTypePurchaseHistory` | App functionality | Selected membership option/price/duration and later status/history; Apple includes purchase tendencies in this category |
-| `NSPrivacyCollectedDataTypeProductInteraction` | App functionality; product personalization | Membership, waitlist, check-in, tournament-interest, and favorite/preference activity and timestamps |
+| `NSPrivacyCollectedDataTypeProductInteraction` | App functionality; product personalization | Membership, waitlist, check-in, free-event registration, tournament-interest, and favorite/preference activity and timestamps |
 | `NSPrivacyCollectedDataTypeOtherDataTypes` | App functionality | Date of birth/adult state plus deletion, security, and audit state not covered by a narrower category |
 
 The native membership request sends the constant channel `in-person`, never a card, bank account, payment credential, or user-selected payment instrument. The app-owned baseline therefore does not declare `NSPrivacyCollectedDataTypePaymentInfo`; because Apple lists “form of payment” as an example, the privacy owner must explicitly confirm that this constant is only a request channel or add the linked, non-tracking App Functionality declaration before submission. Native support opens the hosted support page and has no support-content form or API, so Customer Support is not duplicated in the app-owned manifest; App Store Connect answers must still account for actual support-provider intake and retention.
 
 ## Map SDK finding and blocking archive gate
 
-Orbit Player does not request device location and has no player-origin coordinate in v1. It therefore does not calculate player-to-venue mileage. Venue pins render only for valid venue-published coordinates. When the user opens Maps, the platform map provider may receive the displayed region, those venue-published coordinates, and ordinary network/device request metadata; Directions additionally opens or sends a factual published venue address.
+Orbit Player requests a single foreground device fix only after **Use my device location**. The fix stays in owner-scoped secure local storage and expires after 15 minutes. Manual search points stay until cleared or local account data is deleted; demo points stay in memory. Search coordinates are not sent to Orbit servers, profiles, Match operations, or analytics. Background location, motion APIs, and location watchers are disabled. Distance requires both a valid local search point and valid venue-published coordinate.
 
-Despite that app behavior, the installed base `react-native-maps` manifest declares unlinked precise location for app functionality. The separately installed `AirGoogleMaps` bundle makes the additional analytics and required-reason declarations shown above. Production config removes the iOS Google Maps key, and disposable generated-native verification fails if `AirGoogleMaps` or `GoogleMapsPrivacy.bundle` appears. A prebuild source scan still does not prove what CocoaPods and Xcode aggregate into a signed archive.
+Venue pins render only for valid venue-published coordinates. When the user opens Maps or the manual point picker, the platform map provider may receive the displayed region, those venue-published coordinates, selected manual markers, and ordinary network/device request metadata; Directions opens or sends a factual published venue address. The picker never centers on the device origin and starts at the published venue extent or a neutral world view. Manual latitude/longitude input is available without opening a map.
+
+The installed base `react-native-maps` manifest declares unlinked precise location for app functionality. The separately installed `AirGoogleMaps` bundle makes the additional analytics and required-reason declarations shown above. Production config removes the iOS Google Maps key, and disposable generated-native verification fails if `AirGoogleMaps` or `GoogleMapsPrivacy.bundle` appears. A prebuild source scan still does not prove what CocoaPods and Xcode aggregate into a signed archive. The earlier camera-only archives documented below predate the foreground location feature and do not validate its native permissions or behavior.
 
 Before TestFlight, generate the Xcode privacy report from the exact signed archive and record:
 
 - Every bundled `PrivacyInfo.xcprivacy` path and its owning target/subspec.
 - Whether the base `react-native-maps` and `AirGoogleMaps` manifests were aggregated.
 - Any App Store Connect privacy warning.
-- Final App Privacy answers reconciling SDK declarations with Orbit’s actual no-device-location behavior.
+- Final App Privacy answers reconciling SDK declarations with Orbit's optional local-only foreground search location behavior.
 
-This is a blocking external candidate gate until signed-archive evidence exists. Do not assume that removing a key omitted a subspec, and do not suppress an SDK declaration because Orbit itself does not request GPS.
+This is a blocking external candidate gate until signed-archive evidence exists. Do not assume that removing a key omitted a subspec, and do not suppress an SDK declaration based on Orbit's local-only handling of search points.
 
 ## Compiled simulator evidence, September 6, 2026
 

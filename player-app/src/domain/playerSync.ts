@@ -208,7 +208,7 @@ export type PlayerClubSnapshot = {
 
 export type PlayerTimeAccess = {
   enabled: boolean;
-  hourlyFeeCents: number;
+  hourlyFeeCents?: number;
   linked: boolean;
   profileId?: string;
   savedMinutes: number;
@@ -249,6 +249,17 @@ export type PlayerTournament = {
   totalRebuys?: number;
   totalAddOns?: number;
   featured?: boolean;
+  registrationAvailable?: boolean;
+  registration?: PlayerTournamentRegistration;
+};
+
+export type PlayerTournamentRegistration = {
+  id: string;
+  tournamentId: string;
+  clubId: string;
+  playerId: string;
+  status: 'registered';
+  registeredAt: string;
 };
 
 export function isTournamentInterestOpen(tournament: PlayerTournament, nowMs = Date.now()) {

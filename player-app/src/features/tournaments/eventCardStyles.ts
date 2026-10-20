@@ -1,0 +1,36 @@
+import { StyleSheet } from 'react-native';
+import { colors, density, spacing, typography } from '../../styles/playerTheme';
+
+export const eventCardStyles = StyleSheet.create({
+  eventCard: { backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 24, borderWidth: 1, gap: spacing[3], marginBottom: spacing[4], overflow: 'hidden', padding: spacing[4] },
+  eventCardFeatured: { borderColor: colors.primary },
+  eventTopline: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: spacing[2], justifyContent: 'space-between' },
+  eventEyebrow: { color: colors.muted, fontSize: typography.sizes.meta, fontWeight: typography.weights.semibold, letterSpacing: 1 },
+  eventStatus: { borderRadius: 999, paddingHorizontal: spacing[3], paddingVertical: spacing[1] },
+  eventStatusOpen: { backgroundColor: colors.tealSoft },
+  eventStatusClosed: { backgroundColor: colors.primarySoft },
+  eventStatusText: { color: colors.ink, fontSize: typography.sizes.meta, fontWeight: typography.weights.semibold },
+  eventTitle: { color: colors.ink, fontSize: 24, fontWeight: typography.weights.bold, lineHeight: 30 },
+  eventDate: { color: colors.muted, fontSize: 13, lineHeight: 19 },
+  eventVenue: { alignItems: 'center', flexDirection: 'row', gap: spacing[1], minHeight: density.touchTarget },
+  eventVenueText: { color: colors.muted, flex: 1, fontSize: 13, lineHeight: 19 },
+  eventPriceRow: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: spacing[3], justifyContent: 'space-between' },
+  eventPriceCopy: { gap: spacing[1] },
+  eventBuyIn: { color: colors.ink, fontSize: 30, fontWeight: typography.weights.bold, lineHeight: 36 },
+  eventCaption: { color: colors.muted, fontSize: typography.sizes.label, lineHeight: 18 },
+  eventInterestStatus: { alignItems: 'center', flexDirection: 'row', flexShrink: 1, gap: spacing[1] },
+  eventInterestStatusText: { color: colors.teal, flexShrink: 1, fontSize: typography.sizes.label, fontWeight: typography.weights.medium },
+  eventControls: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing[2], marginTop: spacing[1] },
+  eventControl: { alignItems: 'center', borderColor: colors.line, borderRadius: 12, borderWidth: 1, flexBasis: 88, flexDirection: 'row', flexGrow: 1, gap: spacing[1], justifyContent: 'center', minHeight: density.touchTarget, paddingHorizontal: spacing[2], paddingVertical: spacing[2] },
+  eventControlOpen: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
+  eventControlText: { color: colors.ink, flexShrink: 1, fontSize: typography.sizes.label, fontWeight: typography.weights.semibold },
+  eventDetails: { borderTopColor: colors.line, borderTopWidth: 1, gap: spacing[3], paddingTop: spacing[4] },
+  eventDetailTitle: { color: colors.ink, fontSize: 14, fontWeight: typography.weights.semibold, lineHeight: 20 },
+  eventBody: { color: colors.muted, fontSize: typography.sizes.body, lineHeight: typography.lineHeights.body },
+  eventStats: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing[3] },
+  eventStat: { flexBasis: 84, flexGrow: 1, gap: spacing[1] },
+  eventStatValue: { color: colors.ink, fontSize: 18, fontWeight: typography.weights.semibold, lineHeight: 24 },
+  eventRequestButton: { alignItems: 'center', borderColor: colors.line, borderRadius: 14, borderWidth: 1, flexDirection: 'row', gap: spacing[2], justifyContent: 'center', minHeight: density.touchTarget, padding: spacing[3] },
+  eventRequestButtonPrimary: { backgroundColor: colors.primary, borderColor: colors.primary },
+  eventRequestText: { color: colors.ink, fontSize: typography.sizes.body, fontWeight: typography.weights.semibold, textAlign: 'center' }
+});

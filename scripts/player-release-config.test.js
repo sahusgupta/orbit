@@ -10,7 +10,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const playerRoot = path.join(repositoryRoot, 'player-app');
 const eas = JSON.parse(fs.readFileSync(path.join(playerRoot, 'eas.json'), 'utf8'));
 const playerPackage = JSON.parse(fs.readFileSync(path.join(playerRoot, 'package.json'), 'utf8'));
-const expectedProductionIosImage = 'macos-sequoia-15.6-xcode-26.0';
+const expectedProductionIosImage = 'macos-tahoe-26.5-xcode-26.6';
 const easCliRequire = createRequire(path.join(repositoryRoot, 'node_modules', 'eas-cli', 'package.json'));
 const { EasJsonAccessor, EasJsonUtils, Platform } = easCliRequire('@expo/eas-json');
 const { EXPECTED_NPM_VERSION, pinEasNpm } = require('../player-app/scripts/pin-eas-npm.cjs');
@@ -22,11 +22,30 @@ const {
 } = require('../player-app/release-config.cjs');
 
 describe('Orbit Player EAS build configuration', () => {
+  it('aligns the user-selected iOS identity with native Firebase while preserving Android identity', () => {
+    const app = JSON.parse(fs.readFileSync(path.join(playerRoot, 'app.json'), 'utf8')).expo;
+    const configured = createExpoConfig(app, eas.build.production.env);
+    const plist = require('../player-app/node_modules/@expo/plist').default;
+    const ios = plist.parse(fs.readFileSync(path.join(playerRoot, 'GoogleService-Info.plist'), 'utf8'));
+    const android = JSON.parse(fs.readFileSync(path.join(playerRoot, 'google-services.json'), 'utf8'));
+    expect(configured.ios.bundleIdentifier).toBe('com.caminuslabs.orbit');
+    expect(ios.BUNDLE_ID).toBe('com.caminuslabs.orbit');
+    expect(ios.GOOGLE_APP_ID).toBe('1:133175572500:ios:de1514cf1736c1bdfd8f01');
+    expect(ios.PROJECT_ID).toBe('tabletalk-s');
+    expect(ios.IS_ANALYTICS_ENABLED).toBe(false); expect(ios.IS_ADS_ENABLED).toBe(false);
+    expect(configured.android.package).toBe('com.orbit.player');
+    expect(android.project_info.project_id).toBe('tabletalk-s');
+    expect(android.client[0].client_info.android_client_info.package_name).toBe('com.orbit.player');
+    expect(android.client[0].client_info.mobilesdk_app_id).toBe('1:133175572500:android:522b4cfc8de1a770fd8f01');
+    expect(configured.ios.entitlements).toEqual({ 'com.apple.developer.devicecheck.appattest-environment': 'production' });
+    expect(eas.build.production.env.EXPO_PUBLIC_APP_CHECK_ENABLED).toBe('true');
+  });
+
   it('passes the repository-locked EAS schema and resolves every iOS profile', async () => {
     const accessor = EasJsonAccessor.fromProjectPath(playerRoot);
 
     await expect(accessor.readAsync()).resolves.toBeTruthy();
-    for (const profileName of ['development', 'preview', 'production', 'simulator']) {
+    for (const profileName of ['development', 'preview', 'production', 'simulator', 'iphone-test']) {
       const profile = await EasJsonUtils.getBuildProfileAsync(accessor, Platform.IOS, profileName);
       expect(profile).toMatchObject({ node: '22.16.0' });
       expect(profile).not.toHaveProperty('config');
@@ -44,6 +63,19 @@ describe('Orbit Player EAS build configuration', () => {
     expect(() => validateProductionEnvironment(profile.env)).not.toThrow();
   });
 
+  it('keeps physical iPhone test configuration on production protections without a store release or build-number increment', async () => {
+    const accessor = EasJsonAccessor.fromProjectPath(playerRoot);
+    const profile = await EasJsonUtils.getBuildProfileAsync(accessor, Platform.IOS, 'iphone-test');
+    expect(profile).toMatchObject({
+      distribution: 'internal', environment: 'production', simulator: false, autoIncrement: false,
+      image: expectedProductionIosImage, node: '22.16.0', env: eas.build.production.env
+    });
+    expect(profile.env.EXPO_PUBLIC_APP_CHECK_ENABLED).toBe('true');
+    expect(profile).not.toHaveProperty('config');
+    expect(eas.cli.requireCommit).toBe(true);
+    expect(() => validateProductionEnvironment(profile.env)).not.toThrow();
+  });
+
   it('proves the locked schema rejects the unsupported npm profile field', async () => {
     const invalidEas = structuredClone(eas);
     invalidEas.build.production.npm = EXPECTED_NPM_VERSION;
@@ -51,7 +83,7 @@ describe('Orbit Player EAS build configuration', () => {
     await expect(EasJsonAccessor.fromRawString(JSON.stringify(invalidEas)).readAsync()).rejects.toThrow(/npm.*not allowed/);
   });
 
-  it('pins production uploads to the reviewed Xcode 26 iOS image', async () => {
+  it('pins production uploads to the reviewed stable SDK 57 Xcode 26.6 image', async () => {
     const accessor = EasJsonAccessor.fromProjectPath(playerRoot);
     const profile = await EasJsonUtils.getBuildProfileAsync(accessor, Platform.IOS, 'production');
 
@@ -181,6 +213,28 @@ describe('Orbit Player production configuration', () => {
     expect(config.ios.config).not.toHaveProperty('googleMapsApiKey');
     expect(config.plugins.at(-1)).toBe('./plugins/with-no-ios-url-schemes.cjs');
     expect(JSON.stringify(config)).not.toContain('do-not-print');
+  });
+  it('allows only explicit one-shot foreground location and blocks background and motion capabilities', () => {
+    const config = createExpoConfig({ ios: {}, android: {}, plugins: [['expo-location', { isIosBackgroundLocationEnabled: true }]] }, validProductionEnvironment());
+    const plugins = config.plugins.filter((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-location');
+    expect(plugins).toHaveLength(1);
+    expect(plugins[0][1]).toMatchObject({ locationAlwaysPermission: false, locationAlwaysAndWhenInUsePermission: false, motionUsagePermission: false,
+      isIosBackgroundLocationEnabled: false, isAndroidBackgroundLocationEnabled: false, isAndroidForegroundServiceEnabled: false, isAndroidMotionActivityEnabled: false });
+    expect(config.android.blockedPermissions).toContain('android.permission.ACCESS_BACKGROUND_LOCATION');
+    expect(config.android.blockedPermissions).toContain('android.permission.ACTIVITY_RECOGNITION');
+  });
+  it('removes background location and motion from generated iOS settings while preserving foreground and camera purposes', async () => {
+    const withReleasePolicy = require('../player-app/plugins/with-no-ios-url-schemes.cjs');
+    const config = withReleasePolicy({ name: 'Orbit', slug: 'orbit-player' });
+    const result = await config.mods.ios.infoPlist({ ...config, modRequest: {}, modResults: {
+      CFBundleURLTypes: [{ CFBundleURLSchemes: ['unused'] }],
+      NSLocationWhenInUseUsageDescription: 'Foreground location purpose', NSCameraUsageDescription: 'Camera purpose',
+      NSLocationAlwaysUsageDescription: 'Unused', NSLocationAlwaysAndWhenInUseUsageDescription: 'Unused', NSMotionUsageDescription: 'Unused',
+      UIBackgroundModes: ['location', 'fetch']
+    } });
+    expect(result.modResults).toEqual({ NSLocationWhenInUseUsageDescription: 'Foreground location purpose', NSCameraUsageDescription: 'Camera purpose', UIBackgroundModes: ['fetch'] });
+    const empty = await config.mods.ios.infoPlist({ ...config, modRequest: {}, modResults: { UIBackgroundModes: ['location'] } });
+    expect(empty.modResults).not.toHaveProperty('UIBackgroundModes');
   });
 
   it('preserves the reviewed collected-data declaration for Expo serialization', () => {

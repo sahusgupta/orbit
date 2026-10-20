@@ -1,7 +1,7 @@
+import { usePlayerTheme, useThemedStyles } from '../../styles/PlayerThemeProvider';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import QRCode from 'react-native-qrcode-svg';
 import { createMembershipQrMutationId, isMembershipQrUsable, type MembershipQrCredential } from '../../domain/membershipQr';
 import { getCurrentFirebasePlayer, issueRemoteMembershipQr } from '../../data/orbitSyncApi';
@@ -16,7 +16,7 @@ import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
 import { clubStyles } from './clubStyles';
 
-const styles = { ...sharedStyles, ...clubStyles };
+const baseStyles = { ...sharedStyles, ...clubStyles };
 
 export function formatFamiliar(value?: number) {
   const count = Number(value ?? 0);
@@ -30,6 +30,8 @@ export function MembershipApplicationStatusCard({
   club: PlayerClubSnapshot;
   membership: PlayerClubSnapshot['memberships'][number];
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   return (
     <View style={styles.membershipApplicationStatus}>
       <View style={styles.membershipApplicationStatusIcon}>
@@ -48,54 +50,64 @@ export function MembershipWalletCard({
   club,
   membership,
   nowMs,
-  player
+  player,
+  demoMode = false
 }: {
   club: PlayerClubSnapshot;
   membership: PlayerClubSnapshot['memberships'][number];
   nowMs: number;
   player: PlayerAccount;
+  demoMode?: boolean;
 }) {
+  const styles = useThemedStyles(baseStyles);
   const active = isMembershipCurrentlyActive(membership, nowMs);
+  const expired = membership.status === 'Expired' || membership.status === 'Active' && !active;
   const approved = membership.status === 'Approved';
   const approvedCopy = getApprovedMembershipActivationCopy(membership);
   return (
-    <LinearGradient colors={['#111827', '#12384A', '#155E75']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.membershipWalletCard}>
+    <View style={styles.membershipWalletCard}>
       <View style={styles.membershipWalletTop}>
         <View style={styles.membershipWalletBrand}>
           <View style={styles.membershipWalletMonogram}>
             <Text style={styles.membershipWalletMonogramText}>{club.club.name.slice(0, 1)}</Text>
           </View>
-          <View>
+          <View style={styles.membershipWalletCopy}>
             <Text style={styles.membershipWalletClub}>{club.club.name}</Text>
-            <Text style={styles.membershipWalletPlan}>{getPublishedMembershipPlanLabel(membership).toUpperCase()}</Text>
+            <Text style={styles.membershipWalletPlan}>{getPublishedMembershipPlanLabel(membership)}</Text>
           </View>
         </View>
         <View style={[styles.membershipStatusBadge, !active && styles.membershipStatusBadgeInactive]}>
           <View style={[styles.membershipStatusDot, !active && styles.membershipStatusDotInactive]} />
-          <Text style={styles.membershipStatusText}>{active ? 'ACTIVE' : membership.status.toUpperCase()}</Text>
+          <Text style={styles.membershipStatusText}>{expired ? 'Expired' : active ? 'Active' : membership.status}</Text>
         </View>
       </View>
 
       <View style={styles.membershipIdentityRow}>
         <View>
-          <Text style={styles.membershipIdentityLabel}>MEMBER</Text>
+          <Text style={styles.membershipIdentityLabel}>Member</Text>
           <Text style={styles.membershipIdentityValue}>{player.name}</Text>
         </View>
       </View>
+      {active && membership.expiresAt && Number.isFinite(Date.parse(membership.expiresAt)) ? <Text style={styles.membershipWalletPlan}>Access until {new Date(membership.expiresAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</Text> : null}
 
-      {active ? <MembershipQrIssuer key={JSON.stringify([club.club.id, player.id])} clubId={club.club.id} nowMs={nowMs} playerId={player.id} /> : null}
+      {active && !demoMode ? <MembershipQrIssuer key={JSON.stringify([club.club.id, player.id])} clubId={club.club.id} nowMs={nowMs} playerId={player.id} /> : null}
 
       <View style={styles.checkedInBand}>
-        <Ionicons name={approved ? 'id-card-outline' : 'scan-outline'} size={17} color="#bfdbfe" />
-        <Text style={styles.checkedInText}>{approved
+        <Ionicons name={expired ? 'time-outline' : approved ? 'id-card-outline' : 'scan-outline'} size={17} color="#bfdbfe" />
+        <Text style={styles.checkedInText}>{demoMode
+          ? 'Demo membership only. Venue check-in is unavailable in the demo account.'
+          : expired
+          ? 'This membership has expired. Review the venue’s published access options to renew.'
+          : approved
           ? `${approvedCopy.title}. ${approvedCopy.body}`
           : 'Have staff scan this QR code to check you in.'}</Text>
       </View>
-    </LinearGradient>
+    </View>
   );
 }
 
 export function MembershipQrCode({ value }: { value: string }) {
+  const styles = useThemedStyles(baseStyles);
   return (
     <View accessibilityLabel="Membership check-in QR" style={styles.membershipQrShell}>
       <View style={styles.membershipQrCode}>
@@ -110,6 +122,7 @@ export function MembershipQrCode({ value }: { value: string }) {
 }
 
 function MembershipQrIssuer({ clubId, nowMs, playerId }: { clubId: string; nowMs: number; playerId: string }) {
+  const styles = useThemedStyles(baseStyles);
   const [credential, setCredential] = useState<MembershipQrCredential | null>(null);
   const [message, setMessage] = useState('Generate a short-lived code when venue staff is ready to scan it.');
   const [busy, setBusy] = useState(false);
@@ -159,7 +172,7 @@ function MembershipQrIssuer({ clubId, nowMs, playerId }: { clubId: string; nowMs
       {usable && credential ? <MembershipQrCode value={credential.token} /> : null}
       {credential && !usable ? <Text style={styles.checkedInText}>This check-in code expired. Request a new one when staff is ready.</Text> : null}
       <Text accessibilityLiveRegion="polite" style={styles.checkedInText}>{message}</Text>
-      <Pressable disabled={busy} onPress={() => void issue()} style={[styles.qrActionButton, busy && styles.disabledAction]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={usable ? 'Refresh membership check-in code' : 'Generate membership check-in code'} accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => void issue()} style={[styles.qrActionButton, busy && styles.disabledAction]}>
         <Text style={styles.qrActionText}>{busy ? 'Requesting code...' : usable ? 'Refresh check-in code' : 'Generate check-in code'}</Text>
       </Pressable>
     </View>

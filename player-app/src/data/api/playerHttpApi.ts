@@ -5,6 +5,7 @@ import {
   decodeMembershipQrResponse,
   decodeSnapshotEnvelope,
   decodeTournamentInterestMutationResponse,
+  decodeTournamentRegistrationMutationResponse,
   readBoundaryError,
   readFirebaseErrorCode
 } from '../../domain/decoders/playerBoundaryDecoders';
@@ -13,6 +14,8 @@ import type { ConfirmedPlayerIdentityDetails } from '../../domain/playerIdentity
 import { auth, getPlayerAppCheckHeaders } from '../firebase/firebaseClient';
 import type { SyncResult } from '../playerDataContracts';
 import { requestJson } from './boundedFetch';
+import { decodeMatchState } from '../../../../apps/api/src/shared/orbitMatchState.cjs';
+import type { MatchOperation } from '../../domain/orbitMatchTypes';
 
 export type { PlayerIdentityStatus } from '../../domain/playerIdentity';
 
@@ -39,6 +42,30 @@ function assertCurrentPlayerSession(expectedUid: string) {
   if (auth.currentUser?.uid !== expectedUid) {
     throw new Error('The signed-in Orbit Player account changed before the response was applied.');
   }
+}
+
+export async function fetchRemoteMatchState(expectedUid: string) {
+  const { headers } = await getOrbitPlayerToken(false, expectedUid);
+  const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/match`, { headers }, { dedupeKey: `match:${expectedUid}` });
+  assertCurrentPlayerSession(expectedUid);
+  const state = payload && typeof payload === 'object' ? decodeMatchState(Reflect.get(payload, 'state')) : null;
+  if (!response.ok || !state) throw new Error(readBoundaryError(payload, 'Saved Match data could not be loaded.'));
+  return state;
+}
+
+export async function submitRemoteMatchOperation(expectedUid: string, operation: MatchOperation) {
+  const { headers } = await getOrbitPlayerToken(false, expectedUid);
+  const { response, payload } = await requestJson(`${orbitApiBaseUrl}/player/match/operations`, {
+    method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(operation)
+  });
+  assertCurrentPlayerSession(expectedUid);
+  const state = payload && typeof payload === 'object' ? decodeMatchState(Reflect.get(payload, 'state')) : null;
+  if (!response.ok || !state) {
+    const error = new Error(readBoundaryError(payload, 'This Match change could not sync.'));
+    Object.assign(error, { status: response.status });
+    throw error;
+  }
+  return state;
 }
 
 export async function fetchPlayerIdentityStatus(forceTokenRefresh = false, expectedUid?: string) {
@@ -167,6 +194,23 @@ export async function submitRemoteTournamentMutation(
   const result = decodeTournamentInterestMutationResponse(body);
   if (!response.ok || !result) throw new Error(readBoundaryError(body, 'Tournament interest could not be saved.'));
   return result;
+}
+
+export async function submitRemoteTournamentRegistration(
+  payload: { clubId: string; tournamentId: string; mutationId: string },
+  expectedUid: string
+) {
+  const { headers } = await getOrbitPlayerToken(false, expectedUid);
+  const { response, payload: body } = await requestJson(`${orbitApiBaseUrl}/player/tournament-registrations`, {
+    method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(payload)
+  });
+  assertCurrentPlayerSession(expectedUid);
+  const result = decodeTournamentRegistrationMutationResponse(body);
+  if (!response.ok || !result || result.registration.playerId !== expectedUid ||
+    result.registration.clubId !== payload.clubId || result.registration.tournamentId !== payload.tournamentId) {
+    throw new Error(readBoundaryError(body, 'Event registration could not be saved.'));
+  }
+  return result.registration;
 }
 
 export async function issueRemoteMembershipQr(clubId: string, mutationId: string, expectedUid: string) {

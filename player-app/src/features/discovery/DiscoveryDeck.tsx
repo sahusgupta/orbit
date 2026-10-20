@@ -217,7 +217,6 @@ export function DiscoveryCardContent({
           </View>
           <View style={[styles.compatibilityBadge, { borderColor: `${accent.color}55` }]}>
             <Text style={[styles.compatibilityValue, { color: accent.color }]}>{getOpportunityLabel(item)}</Text>
-            <Text style={styles.compatibilityLabel}>WHY SHOWN</Text>
           </View>
         </View>
         <View style={styles.discoveryHeroBottom}>
@@ -261,7 +260,7 @@ export function DiscoveryCardContent({
                 </Pressable>
               ) : null}
               <Pressable accessibilityLabel={`See full details for ${item.game.name}`} accessibilityRole="button" onPress={onDetails} style={[styles.cardCornerAction, styles.cardDetailsAction]}>
-                <Ionicons name="location" size={24} color="#6f91ff" />
+                <Ionicons name="information-circle-outline" size={24} color="#6f91ff" />
               </Pressable>
             </View>
           ) : null}

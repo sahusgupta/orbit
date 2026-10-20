@@ -52,6 +52,19 @@ function tournamentState(overrides = {}) {
 }
 
 describe('Player response DTOs', () => {
+  it('guards operational registration with App Check, auth, deletion, and age while leaving withdrawal disabled', () => {
+    const registered = [];
+    const app = { get() {}, post(path, ...handlers) { registered.push({ method: 'POST', path, handlers }); },
+      delete(path, ...handlers) { registered.push({ method: 'DELETE', path, handlers }); } };
+    playerRoutes.registerPlayerRoutes(app);
+    const post = registered.find((route) => route.path === '/player/tournament-registrations' && route.method === 'POST');
+    expect(post.handlers.slice(0, 4).map((handler) => handler.name)).toEqual([
+      'requirePlayerAppCheck', 'requireFirebasePlayer', 'requireActivePlayerAccount', 'requireVerifiedPlayerAge'
+    ]);
+    expect(post.handlers).not.toContain(playerRoutes.rejectLegacyTournamentRegistration);
+    const withdrawal = registered.find((route) => route.path === '/player/tournament-registrations' && route.method === 'DELETE');
+    expect(withdrawal.handlers.at(-1)).toBe(playerRoutes.rejectLegacyTournamentRegistration);
+  });
   it('places the deletion barrier on every protected Player route except deletion retry', () => {
     const registered = [];
     const app = {
@@ -247,6 +260,89 @@ describe('Player response DTOs', () => {
     expect(page).toMatchObject({ hasMore: false, nextCursor: null });
   });
 
+  it('bounds filtered discovery scans and resumes even when no eligible venue was found', async () => {
+    const pages = new Map(Array.from({ length: 4 }, (_value, index) => [index ? `source-0${index}` : '', {
+      records: [{ accountKey: `source-0${index + 1}`, state: { settings: { clubAccount: { clubName: 'Stress Fixture' } } } }],
+      hasMore: true, nextCursor: `source-0${index + 1}`
+    }]));
+    pages.set('source-04', {
+      records: [{ accountKey: 'venue-05', state: { settings: {
+        clubAccount: { clubName: 'Orbit Room' }, pilotAccess: activePilotAccess('venue-05')
+      } } }], hasMore: false, nextCursor: null
+    });
+    const listStatePage = vi.fn(async ({ afterAccountKey }) => pages.get(afterAccountKey));
+    const dependencies = { listStatePage, inspectPilotLicenses: inspectActivePilotLicenses };
+    const first = await playerRoutes.listPublicStatePage({ limit: 1 }, dependencies);
+    expect(first).toEqual({ records: [], hasMore: true, nextCursor: 'source-04' });
+    expect(listStatePage).toHaveBeenCalledTimes(4);
+    expect(listStatePage.mock.calls.every(([options]) => options.limit === 50)).toBe(true);
+    const second = await playerRoutes.listPublicStatePage({ limit: 1, afterAccountKey: first.nextCursor }, dependencies);
+    expect(second.records.map((record) => record.accountKey)).toEqual(['venue-05']);
+    expect(second).toMatchObject({ hasMore: false, nextCursor: null });
+    expect(listStatePage).toHaveBeenCalledTimes(5);
+  });
+
+  it('resumes after the scanned source cursor when the cap follows a partially filled page', async () => {
+    const eligible = { accountKey: 'source-01', state: { settings: {
+      clubAccount: { clubName: 'Orbit Room' }, pilotAccess: activePilotAccess('source-01')
+    } } };
+    const listStatePage = vi.fn(async ({ afterAccountKey }) => {
+      const index = afterAccountKey ? Number(afterAccountKey.slice(-2)) + 1 : 1;
+      return { records: index === 1 ? [eligible] : [], hasMore: index < 5, nextCursor: `source-0${index}` };
+    });
+    const dependencies = { listStatePage, inspectPilotLicenses: inspectActivePilotLicenses };
+    const first = await playerRoutes.listPublicStatePage({ limit: 2 }, dependencies);
+    expect(first).toEqual({ records: [eligible], hasMore: true, nextCursor: 'source-04' });
+    expect(listStatePage).toHaveBeenCalledTimes(4);
+    const second = await playerRoutes.listPublicStatePage({ limit: 2, afterAccountKey: first.nextCursor }, dependencies);
+    expect(second).toEqual({ records: [], hasMore: false, nextCursor: null });
+  });
+
+  it('keeps the last returned account cursor at the scan cap so withheld tied-name venues are not skipped', async () => {
+    const eligible = (accountKey) => ({ accountKey, state: { settings: {
+      clubAccount: { clubName: 'Orbit Room' }, pilotAccess: activePilotAccess(accountKey)
+    } } });
+    const pages = new Map([
+      ['', { records: [], hasMore: true, nextCursor: 'source-01' }],
+      ['source-01', { records: [], hasMore: true, nextCursor: 'source-02' }],
+      ['source-02', { records: [], hasMore: true, nextCursor: 'source-03' }],
+      ['source-03', { records: [eligible('venue-a'), eligible('venue-b')], hasMore: true, nextCursor: 'venue-z' }],
+      ['venue-a', { records: [eligible('venue-b')], hasMore: false, nextCursor: null }]
+    ]);
+    const listStatePage = vi.fn(async ({ afterAccountKey }) => pages.get(afterAccountKey));
+    const dependencies = { listStatePage, inspectPilotLicenses: inspectActivePilotLicenses };
+    const first = await playerRoutes.listPublicStatePage({ limit: 1 }, dependencies);
+    expect(first.records.map((record) => record.accountKey)).toEqual(['venue-a']);
+    expect(first).toMatchObject({ hasMore: true, nextCursor: 'venue-a' });
+    expect(listStatePage).toHaveBeenCalledTimes(4);
+    const second = await playerRoutes.listPublicStatePage({ limit: 1, afterAccountKey: first.nextCursor }, dependencies);
+    expect(second.records.map((record) => record.accountKey)).toEqual(['venue-b']);
+    expect(second).toMatchObject({ hasMore: false, nextCursor: null });
+  });
+
+  it.each(['missing', 'same', 'cycle'])('rejects invalid %s source cursors without a scanning loop', async (mode) => {
+    const listStatePage = vi.fn(async ({ afterAccountKey }) => ({
+      records: [], hasMore: true,
+      nextCursor: mode === 'missing' ? null : mode === 'same' ? afterAccountKey : afterAccountKey === 'source-a' ? 'source-b' : 'source-a'
+    }));
+    await expect(playerRoutes.listPublicStatePage({}, { listStatePage, inspectPilotLicenses: inspectActivePilotLicenses }))
+      .rejects.toThrow('Public club discovery returned an invalid account cursor.');
+    expect(listStatePage.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+
+  it.each(['public', 'authenticated'])('returns a resumable empty %s discovery envelope at the scan cap', async (mode) => {
+    let sourcePage = 0;
+    const listStatePage = vi.fn(async () => ({ records: [], hasMore: true, nextCursor: `source-${++sourcePage}` }));
+    const response = { ...responseHarness(), set: vi.fn() };
+    const handle = mode === 'public' ? playerRoutes.handlePublicPlayerDiscovery : playerRoutes.handlePlayerDiscovery;
+    await handle({ query: {}, orbitPlayer: { uid: 'player-one', email: 'one@example.test', email_verified: true } }, response,
+      { listStatePage, inspectPilotLicenses: inspectActivePilotLicenses });
+    expect(response).toMatchObject({ statusCode: 200, body: {
+      ok: true, clubs: [], tournaments: [], interests: [], page: { count: 0, hasMore: true, nextCursor: 'source-4' }
+    } });
+    expect(listStatePage).toHaveBeenCalledTimes(4);
+  });
+
   it('filters test/stress clubs and games from authenticated discovery too', async () => {
     const visibleState = {
       settings: {
@@ -286,6 +382,34 @@ describe('Player response DTOs', () => {
     expect(response.body.clubs[0].club.name).toBe('Orbit Room');
     expect(response.body.clubs[0].games.map((game) => game.name)).toEqual(['1/2 Holdem']);
     expect(response.body.page).toMatchObject({ count: 1, hasMore: false });
+  });
+
+  it('publishes only counts publicly and only the authenticated player registration privately', async () => {
+    const state = {
+      ...tournamentState(),
+      settings: { clubAccount: { clubName: 'Published Room' }, membershipPlans: [], pilotAccess: activePilotAccess('club-one') },
+      tournaments: [{ id: 'event-one', name: 'Launch Freeroll', status: 'Draft', buyIn: 0, startingStack: 10000,
+        registrationStatus: 'open', registrationOpensAt: '2026-01-01T00:00:00Z', registrationClosesAt: '2099-01-01T12:00:00Z', scheduledAt: '2099-01-01T13:00:00Z',
+        players: [
+          { id: 'own-entry', registrationId: 'own-registration', profileId: 'player-one', name: 'Own Name', email: 'own@example.invalid', rebuys: 0, addOns: 0, registeredAt: '2026-10-20T12:00:00Z' },
+          { id: 'other-entry', profileId: 'other-player', name: 'Other Name', email: 'other@example.invalid', rebuys: 0, addOns: 0, registeredAt: '2026-10-20T12:00:00Z' }
+        ] }]
+    };
+    const dependencies = { listStatePage: vi.fn(async () => ({ records: [{ accountKey: 'club-one', state, savedAt: '2026-10-20T12:00:00Z' }], hasMore: false })), inspectPilotLicenses: inspectActivePilotLicenses };
+    const request = { query: {}, orbitPlayer: { uid: 'player-one' } };
+    const publicResponse = { ...responseHarness(), set: vi.fn() };
+    await playerRoutes.handlePublicPlayerDiscovery(request, publicResponse, dependencies);
+    expect(publicResponse.body.tournaments[0]).toMatchObject({ entrantCount: 2, registrationAvailable: true });
+    expect(publicResponse.body.tournaments[0]).not.toHaveProperty('registration');
+    for (const privateValue of ['player-one', 'other-player', 'Own Name', 'Other Name', 'own@example.invalid', 'other@example.invalid']) {
+      expect(JSON.stringify(publicResponse.body)).not.toContain(privateValue);
+    }
+    const privateResponse = { ...responseHarness(), set: vi.fn() };
+    await playerRoutes.handlePlayerDiscovery(request, privateResponse, dependencies);
+    expect(privateResponse.body.tournaments[0].registration).toEqual({ id: 'own-registration', playerId: 'player-one', clubId: 'club-one', tournamentId: 'event-one', status: 'registered', registeredAt: '2026-10-20T12:00:00Z' });
+    expect(JSON.stringify(privateResponse.body.tournaments)).not.toContain('other-player');
+    expect(JSON.stringify(privateResponse.body.tournaments)).not.toContain('Other Name');
+    expect(JSON.stringify(privateResponse.body.tournaments)).not.toContain('own@example.invalid');
   });
 
   it('fails snapshot reads closed for expired, revoked, or unverifiable venue licenses', async () => {
@@ -1015,7 +1139,7 @@ describe('Player response DTOs', () => {
     expect(loadState).toHaveBeenCalledTimes(2);
   });
 
-  it('rejects wrong-player fields, wrong-club lookups, and both legacy registration methods', async () => {
+  it('rejects wrong-player interest fields, wrong-club lookups, and self-service registration withdrawal', async () => {
     const loadState = vi.fn(async () => null);
     const handler = playerRoutes.createTournamentInterestHandler({ loadState });
     const wrongPlayer = responseHarness();
@@ -1031,7 +1155,7 @@ describe('Player response DTOs', () => {
     }, orbitPlayer: { uid: 'player-one' } }, wrongClub, 'express');
     expect(wrongClub).toMatchObject({ statusCode: 404, body: { code: 'CLUB_NOT_FOUND' } });
 
-    for (const method of ['POST', 'DELETE']) {
+    for (const method of ['DELETE']) {
       const legacy = responseHarness();
       playerRoutes.rejectLegacyTournamentRegistration({ method }, legacy);
       expect(legacy).toMatchObject({

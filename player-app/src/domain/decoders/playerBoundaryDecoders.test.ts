@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createRequire } from 'node:module';
 import {
   decodeDiscoveryResponse,
   decodeIdentityResponse,
@@ -10,9 +11,31 @@ import {
   decodeSnapshotEnvelope,
   decodeTournamentInterest,
   decodeTournamentInterestMutationResponse,
+  decodeTournamentRegistrationMutationResponse,
   readBoundaryError,
   readFirebaseErrorCode
 } from './playerBoundaryDecoders';
+
+const apiCore = createRequire(import.meta.url)('../../../../apps/api/src/shared/orbitCore.cjs') as {
+  buildPlayerClubSnapshot(state: unknown, player: { id: string; name: string }): unknown;
+};
+
+function projectedTimeVenue(hourlyFee?: number) {
+  const state = {
+    settings: {
+      clubAccount: { clubName: 'Fictional Rate Room', email: 'rate-room@example.invalid' },
+      defaultCollectionMode: 'Time',
+      ...(hourlyFee === undefined ? {} : { defaultHourlyFee: hourlyFee })
+    },
+    games: [{ id: 'rate-nlh', name: '$1/$2 No Limit Holdem', maxSeats: 9 }],
+    sessions: [{ id: 'rate-table', gameId: 'rate-nlh', label: 'Fictional table', status: 'Running', seatsFilled: 6, maxSeats: 9, collectionMode: 'Time', tags: [], startedAt: '2026-10-12T12:00:00.000Z' }],
+    profiles: [], playerSessions: [], buyIns: [], drops: [], interests: [], tournaments: []
+  };
+  const before = structuredClone(state);
+  const projected = apiCore.buildPlayerClubSnapshot(state, { id: 'rate-player', name: 'Fictional player' });
+  expect(state).toEqual(before);
+  return projected;
+}
 
 const identity = {
   status: 'verified',
@@ -76,6 +99,15 @@ const interest = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('Player external boundary decoders', () => {
+  it('keeps operational registrations distinct and validates their private event scope', () => {
+    const registration = { id: 'entry-one', clubId: 'club-1', tournamentId: 'event-1', playerId: 'player-one', status: 'registered', registeredAt: '2026-10-20T12:00:00Z' };
+    expect(decodePlayerTournament(tournament({ registrationAvailable: true, registration }))?.registration).toEqual(registration);
+    expect(decodePlayerTournament(tournament({ registration: { ...registration, clubId: 'other-club' } }))).toBeNull();
+    expect(decodeTournamentRegistrationMutationResponse({ ok: true, registration })).toEqual({ ok: true, registration });
+    expect(decodeTournamentRegistrationMutationResponse({ ok: true, registration: { ...registration, status: 'interested' } })).toBeNull();
+    expect(decodeTournamentRegistrationMutationResponse({ ok: true })).toBeNull();
+    expect(decodeTournamentInterest(registration)).toBeNull();
+  });
   it('decodes the identity contract and rejects malformed nested fields', () => {
     expect(decodeIdentityResponse({ ok: true, identity, verificationUrl: null })).toMatchObject({ ok: true, identity });
     expect(decodeIdentityResponse({ ok: true, identity: { ...identity, ageLevel: '21' } })).toBeNull();
@@ -152,6 +184,41 @@ describe('Player external boundary decoders', () => {
     });
     expect(decoded).toMatchObject({ ok: true, clubs: [{ club: { id: 'club-1' } }], tournaments: [{ id: 'event-1' }], interests: [{ id: 'opaque-interest-1' }] });
     expect(decodeDiscoveryResponse({ clubs: [], tournaments: [], registrations: [], page: {} })).toBeNull();
+  });
+
+  it('keeps actual API time-game discovery when the venue has not published its hourly rate', () => {
+    const projected = projectedTimeVenue();
+    expect(projected).toHaveProperty('timeAccess.enabled', true);
+    expect(projected).not.toHaveProperty('timeAccess.hourlyFeeCents');
+    const decoded = decodePlayerClubSnapshot(projected);
+    expect(decoded?.games).toMatchObject([{ id: 'rate-nlh', availableSeats: 3, openTables: [{ id: 'rate-table', status: 'Running', availableSeats: 3 }] }]);
+    expect(decoded?.timeAccess).toMatchObject({ enabled: true, linked: false, savedMinutes: 0 });
+    expect(decoded?.timeAccess).not.toHaveProperty('hourlyFeeCents');
+    const discovery = decodeDiscoveryResponse({ clubs: [projected], tournaments: [], interests: [], page: { count: 1, hasMore: false, nextCursor: null } });
+    expect(discovery?.clubs).toHaveLength(1);
+    expect(discovery?.clubs[0].games[0].openTables).toHaveLength(1);
+  });
+
+  it.each([[0, 0], [23.5, 2350]])('preserves an actually published hourly rate of %s through API projection and Expo decoding', (hourlyFee, cents) => {
+    const projected = projectedTimeVenue(hourlyFee);
+    expect(projected).toHaveProperty('timeAccess.hourlyFeeCents', cents);
+    const decoded = decodePlayerClubSnapshot(projected);
+    expect(decoded?.timeAccess?.hourlyFeeCents).toBe(cents);
+    expect(decoded?.games[0].openTables[0].availableSeats).toBe(3);
+  });
+
+  it.each([null, -1, Number.NaN, Number.POSITIVE_INFINITY, '0', {}, true])('still rejects a malformed present hourly rate (%s) at the same venue boundary', hourlyFeeCents => {
+    const projected = projectedTimeVenue() as Record<string, unknown>;
+    const malformed = { ...projected, timeAccess: { enabled: true, linked: false, savedMinutes: 0, hourlyFeeCents } };
+    expect(decodePlayerClubSnapshot(malformed)).toBeNull();
+    expect(decodeDiscoveryResponse({ clubs: [malformed], tournaments: [], interests: [], page: { count: 1, hasMore: false } })?.clubs).toEqual([]);
+  });
+
+  it('does not relax other time-access validation when the rate is legitimately unknown', () => {
+    const projected = projectedTimeVenue() as Record<string, unknown>;
+    for (const timeAccess of [{ enabled: true, linked: false }, { enabled: true, linked: 'false', savedMinutes: 0 }, { enabled: 'true', linked: false, savedMinutes: 0 }, { enabled: true, linked: false, savedMinutes: -1 }]) {
+      expect(decodePlayerClubSnapshot({ ...projected, timeAccess })).toBeNull();
+    }
   });
 
   it('preserves legitimate zeros and explicit rebuy/add-on availability while rejecting malformed events', () => {

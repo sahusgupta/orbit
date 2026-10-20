@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { decodePersistedAppState, normalizeState, seedState } from './state';
 
 describe('state normalization', () => {
+  it('restores only a valid authored venue coordinate and preserves legacy accounts without a pin', () => {
+    const account = { clubName: 'Orbit Room', accountName: 'Room', contactName: 'Manager', email: 'manager@example.test', phone: '', address: '100 Table Way' };
+    const restore = (coordinate: unknown) => normalizeState(decodePersistedAppState({
+      settings: { clubAccount: { ...account, coordinate } }
+    }) ?? {}).settings.clubAccount;
+    expect(restore({ latitude: 30.6, longitude: -96.3, accuracyMeters: 5 })?.coordinate)
+      .toEqual({ latitude: 30.6, longitude: -96.3 });
+    for (const coordinate of [undefined, null, { latitude: 91, longitude: 0 }, { latitude: '30', longitude: -96 }]) {
+      expect(restore(coordinate)).toMatchObject(account);
+      expect(restore(coordinate)?.coordinate).toBeUndefined();
+    }
+  });
+
   it('preserves immutable player references on normalized table audit events', () => {
     const tableEvent = {
       id: 'event-player-bearing',

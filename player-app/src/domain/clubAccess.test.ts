@@ -37,4 +37,11 @@ describe('venue-published collection terms', () => {
     expect(getClubFeeProfile(club(), game())).toEqual({ type: 'unknown', label: 'Collection details not published' });
     expect(getAccessProfileText(club(), game('Drop'))).toContain('Confirm current fees');
   });
+
+  it('keeps an enabled time wallet with an unpublished fee unknown', () => {
+    const unpublished: PlayerClubSnapshot = { ...club(), timeAccess: { enabled: true, linked: true, savedMinutes: 120 } };
+    expect(getClubFeeProfile(unpublished, game('Time'))).toEqual({ type: 'time', label: 'Time rate not published' });
+    expect(getAccessProfileText(unpublished, game('Time'))).toContain('Time rate not published');
+    expect(unpublished.timeAccess?.savedMinutes).toBe(120);
+  });
 });

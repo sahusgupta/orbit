@@ -1,4 +1,9 @@
 const path = require('path');
+const { installWindowsDirectoryEntryFix } = require('./scripts/windows-directory-entries.cjs');
+
+// Normalize Windows cloud reparse entries before Expo's file map crawls them.
+installWindowsDirectoryEntryFix();
+
 const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
@@ -7,6 +12,7 @@ const performanceOverlayShim = path.join(__dirname, 'src', 'shims', 'Performance
 
 config.watchFolders = [
   ...(config.watchFolders || []),
+  path.join(__dirname, '..', 'apps', 'api', 'src', 'shared'),
   path.join(__dirname, 'node_modules', 'expo', 'node_modules', '@expo', 'cli')
 ];
 

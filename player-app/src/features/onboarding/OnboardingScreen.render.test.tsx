@@ -5,7 +5,8 @@ import React, { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlayerAccount } from '../../domain/playerSync';
-import { OnboardingScreen } from './OnboardingScreen';
+import { adultDeclarationVersion } from '../../domain/playerOnboarding';
+import { OnboardingScreen, type OnboardingAccountConnection } from './OnboardingScreen';
 
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
@@ -49,6 +50,7 @@ vi.mock('react-native', async () => {
       timing: () => ({ start: (complete?: () => void) => complete?.() })
     },
     Easing: { cubic: {}, out: () => ({}) },
+    KeyboardAvoidingView: element('div'),
     Platform: { OS: 'ios' },
     Pressable: element('button'),
     ScrollView: element('div'),
@@ -98,6 +100,126 @@ describe('OnboardingScreen adult declaration gate', () => {
     container.remove();
   });
 
+  it('opens the explicit demo without creating or changing a player profile', () => {
+    const onTryDemo = vi.fn();
+    const onComplete = vi.fn();
+    const setDraftPlayer = vi.fn();
+    const setOnboardingStep = vi.fn();
+    act(() => root.render(<OnboardingScreen
+      draftPlayer={{ ...validDraft, name: '', email: '' }} onboardingStep={0}
+      setDraftPlayer={setDraftPlayer} setOnboardingStep={setOnboardingStep}
+      onComplete={onComplete} onTryDemo={onTryDemo}
+    />));
+
+    const demo = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Try demo account');
+    expect(demo?.getAttribute('role')).toBe('button');
+    expect(demo?.disabled).toBe(false);
+    expect(container.textContent).toContain('Explore fictional games at different locations. No sign-in required.');
+    act(() => demo?.click());
+    expect(onTryDemo).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(setDraftPlayer).not.toHaveBeenCalled();
+    expect(setOnboardingStep).not.toHaveBeenCalled();
+  });
+
+  it('starts with account creation, demo, and returning-account choices without completing a local profile', () => {
+    const onComplete = vi.fn();
+    const onTryDemo = vi.fn();
+    const connection = accountConnection();
+    act(() => root.render(<OnboardingScreen draftPlayer={validDraft} onboardingStep={0}
+      setDraftPlayer={vi.fn()} setOnboardingStep={vi.fn()} onComplete={onComplete} onTryDemo={onTryDemo}
+      accountConnection={connection} />));
+    expect(container.textContent).toContain('Create account');
+    expect(container.textContent).toContain('Already have an account? Sign in');
+    expect(container.querySelector('input[aria-label="Name"]')).toBeNull();
+    act(() => button('Try demo account')?.click());
+    expect(onTryDemo).toHaveBeenCalledOnce();
+    expect(connection.onConnect).not.toHaveBeenCalled();
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it('requires Firebase connection after the profile steps and keeps verification status visible without completing locally', () => {
+    const onComplete = vi.fn();
+    const connection = accountConnection();
+    function Harness() {
+      const [draftPlayer, setDraftPlayer] = useState<PlayerAccount>({ ...validDraft, adultDeclaredAt: '2026-10-20T12:00:00Z', adultDeclarationVersion });
+      const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
+      return <OnboardingScreen draftPlayer={draftPlayer} onboardingStep={step} setDraftPlayer={setDraftPlayer}
+        setOnboardingStep={setStep} onComplete={onComplete} accountConnection={connection} />;
+    }
+    act(() => root.render(<Harness />));
+    act(() => button('Create account')?.click());
+    for (let step = 0; step < 3; step += 1) act(() => button('Continue')?.click());
+    act(() => button('Continue to account')?.click());
+    expect(connection.onChangeEmail).toHaveBeenCalledWith(validDraft.email);
+    expect(container.querySelector('input[aria-label="Account password or passphrase"]')).not.toBeNull();
+    expect(onComplete).not.toHaveBeenCalled();
+    act(() => button('Create account / sign in')?.click());
+    expect(connection.onConnect).toHaveBeenCalledWith(expect.objectContaining({ name: 'Alex', email: 'alex@example.test', adultDeclarationVersion }), false, 'create');
+    expect(connection.onConnect).toHaveBeenCalledOnce();
+    const submittedProfile = vi.mocked(connection.onConnect).mock.calls[0][0];
+    expect(submittedProfile).not.toHaveProperty('password');
+    expect(onComplete).not.toHaveBeenCalled();
+    connection.status = 'Check your email to verify the account before signing in.';
+    act(() => root.render(<Harness />));
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Check your email to verify');
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it('lets a returning player authenticate with an empty local profile after the adult declaration', () => {
+    const connection = accountConnection();
+    function Harness() {
+      const [draftPlayer, setDraftPlayer] = useState({ ...validDraft, name: '', email: '' });
+      return <OnboardingScreen draftPlayer={draftPlayer} onboardingStep={0} setDraftPlayer={setDraftPlayer}
+        setOnboardingStep={vi.fn()} onComplete={vi.fn()} accountConnection={connection} />;
+    }
+    act(() => root.render(<Harness />));
+    act(() => button('Already have an account? Sign in')?.click());
+    expect(button('Sign in')?.disabled).toBe(true);
+    act(() => container.querySelector<HTMLButtonElement>('[role="checkbox"]')?.click());
+    expect(button('Sign in')?.disabled).toBe(false);
+    act(() => button('Sign in')?.click());
+    expect(connection.onConnect).toHaveBeenCalledWith(expect.objectContaining({ name: '', email: 'alex@example.test', adultDeclarationVersion }), false, 'signIn');
+    act(() => button('Forgot password')?.click());
+    expect(connection.onRecover).toHaveBeenCalledOnce();
+  });
+
+  it('preserves optional Match setup until the account is connected and allows returning to the welcome choices', () => {
+    const connection = accountConnection();
+    const onCompleteWithMatchPreferences = vi.fn();
+    function Harness() {
+      const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
+      return <OnboardingScreen draftPlayer={{ ...validDraft, adultDeclaredAt: '2026-10-20T12:00:00Z', adultDeclarationVersion }}
+        onboardingStep={step} setDraftPlayer={vi.fn()} setOnboardingStep={setStep} onComplete={vi.fn()}
+        onCompleteWithMatchPreferences={onCompleteWithMatchPreferences} accountConnection={connection} />;
+    }
+    act(() => root.render(<Harness />));
+    act(() => button('Create account')?.click());
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Previous step"]')?.click());
+    expect(container.textContent).toContain('Already have an account? Sign in');
+    act(() => button('Create account')?.click());
+    for (let step = 0; step < 3; step += 1) act(() => button('Continue')?.click());
+    act(() => button('Set Match preferences')?.click());
+    expect(onCompleteWithMatchPreferences).not.toHaveBeenCalled();
+    act(() => button('Create account / sign in')?.click());
+    expect(connection.onConnect).toHaveBeenCalledWith(expect.objectContaining({ name: 'Alex' }), true, 'create');
+  });
+
+  it('blocks duplicate authentication and edits while the account connection is pending', () => {
+    const connection = accountConnection();
+    connection.busy = true;
+    act(() => root.render(<OnboardingScreen draftPlayer={{ ...validDraft, adultDeclaredAt: '2026-10-20T12:00:00Z', adultDeclarationVersion }}
+      onboardingStep={0} setDraftPlayer={vi.fn()} setOnboardingStep={vi.fn()} onComplete={vi.fn()} accountConnection={connection} />));
+    act(() => button('Already have an account? Sign in')?.click());
+    expect(button('Connecting...')?.disabled).toBe(true);
+    act(() => button('Connecting...')?.click());
+    expect(connection.onConnect).not.toHaveBeenCalled();
+  });
+
+  function button(text: string) {
+    return Array.from(container.querySelectorAll('button')).find((candidate) => candidate.textContent === text);
+  }
+
   it('blocks completion until the player checks the 18+ declaration', () => {
     const onComplete = vi.fn();
     function Harness() {
@@ -136,4 +258,51 @@ describe('OnboardingScreen adult declaration gate', () => {
     act(() => completion?.click());
     expect(onComplete).toHaveBeenCalledOnce();
   });
+  it('offers Match setup only at the final step and uses the same adult gate while keeping normal completion independent', () => {
+    const onComplete = vi.fn();
+    const onCompleteWithMatchPreferences = vi.fn();
+    function Harness({ step }: { step: 0 | 3 }) {
+      const [draftPlayer, setDraftPlayer] = useState(validDraft);
+      return <OnboardingScreen draftPlayer={draftPlayer} onboardingStep={step} setDraftPlayer={setDraftPlayer}
+        setOnboardingStep={vi.fn()} onComplete={onComplete} onCompleteWithMatchPreferences={onCompleteWithMatchPreferences} />;
+    }
+    act(() => root.render(<Harness step={0} />));
+    expect(container.querySelector('[aria-label="Set Match preferences"]')).toBeNull();
+    act(() => root.render(<Harness step={3} />));
+    const preferences = container.querySelector<HTMLButtonElement>('[aria-label="Set Match preferences"]');
+    const declaration = container.querySelector<HTMLButtonElement>('[role="checkbox"]');
+    expect(preferences?.disabled).toBe(true);
+    act(() => preferences?.click());
+    expect(onCompleteWithMatchPreferences).not.toHaveBeenCalled();
+    act(() => declaration?.click());
+    expect(preferences?.disabled).toBe(false);
+    act(() => preferences?.click());
+    expect(onCompleteWithMatchPreferences).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Start exploring"]')?.click());
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(onCompleteWithMatchPreferences).toHaveBeenCalledOnce();
+  });
+  it.each([
+    { name: '', email: 'alex@example.test', phone: '' },
+    { name: 'Alex', email: 'invalid', phone: '' },
+    { name: 'Alex', email: 'alex@example.test', phone: 'invalid' }
+  ])('never completes an invalid profile through the optional Match path: %o', (invalid) => {
+    const onComplete = vi.fn(); const onCompleteWithMatchPreferences = vi.fn();
+    act(() => root.render(<OnboardingScreen draftPlayer={{ ...validDraft, ...invalid, adultDeclarationVersion, adultDeclaredAt: '2026-10-12T12:00:00Z' }}
+      onboardingStep={3} setDraftPlayer={vi.fn()} setOnboardingStep={vi.fn()}
+      onComplete={onComplete} onCompleteWithMatchPreferences={onCompleteWithMatchPreferences} />));
+    const preferences = container.querySelector<HTMLButtonElement>('[aria-label="Set Match preferences"]');
+    expect(preferences?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="Start exploring"]')?.disabled).toBe(true);
+    act(() => preferences?.click());
+    expect(onCompleteWithMatchPreferences).not.toHaveBeenCalled(); expect(onComplete).not.toHaveBeenCalled();
+  });
 });
+
+function accountConnection(): OnboardingAccountConnection {
+  return {
+    connected: false, email: 'alex@example.test', password: 'a-secure-passphrase', status: '', busy: false,
+    onChangeEmail: vi.fn(), onChangePassword: vi.fn(), onConnect: vi.fn(), onRecover: vi.fn()
+  };
+}

@@ -95,7 +95,7 @@ describe('settings route rendering', () => {
           }
         ],
         settings: {
-          clubAccount: { clubName: 'Settings Fixture Club' },
+          clubAccount: { clubName: 'Settings Fixture Club', accountName: '', contactName: '', email: '', phone: '', address: '' },
           pilotAccess: {
             activatedAt: '2026-08-07T12:00:00.000Z',
             authorizationCode: 'REF-006G-AUTH',
@@ -493,5 +493,74 @@ describe('settings route rendering', () => {
         field.querySelector('input')?.labels?.[0]?.textContent?.trim()
       )
     ).toEqual(['Drop / seat-hour']);
+  });
+
+  it('guards required account fields and saves only the normalized club account', async () => {
+    const clubTab = Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-nav button')).find(
+      (button) => button.textContent === 'Club & license'
+    );
+    act(() => clubTab!.click());
+    const form = document.querySelector<HTMLFormElement>('#settings-club .account-management-form')!;
+    for (const [placeholder, value] of [
+      ['Club name', ' Settings Fixture Club '], ['Account name', ' Fixture Account '],
+      ['Primary contact', ''], ['Email', 'MANAGER@EXAMPLE.TEST'],
+      ['Phone', ' +15550100 '], ['Address', ' 100 Table Way ']
+    ]) {
+      act(() => setInputValue(form.querySelector<HTMLInputElement>(`input[placeholder="${placeholder}"]`)!, value));
+    }
+    desktop.saveState.mockClear();
+    act(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    expect(document.querySelector('#settings-club')?.textContent)
+      .toContain('Club name, account name, contact name, and email are required.');
+    expect(desktop.saveState).not.toHaveBeenCalled();
+
+    act(() => setInputValue(form.querySelector<HTMLInputElement>('input[placeholder="Primary contact"]')!, ' Fixture Manager '));
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(desktop.saveState).toHaveBeenCalled());
+    const saved = desktop.saveState.mock.calls.at(-1)?.[0] as AppState;
+    expect(saved.settings.clubAccount).toEqual({
+      clubName: 'Settings Fixture Club', accountName: 'Fixture Account', contactName: 'Fixture Manager',
+      email: 'manager@example.test', phone: '+15550100', address: '100 Table Way', minimumPlayerAge: 21
+    });
+  });
+
+  it('guards incomplete and out-of-range pins, saves a valid pin, and explicitly clears it', async () => {
+    const form = document.querySelector<HTMLFormElement>('#settings-club .account-management-form')!;
+    const latitude = form.querySelector<HTMLInputElement>('input[aria-label="Venue latitude"]')!;
+    const longitude = form.querySelector<HTMLInputElement>('input[aria-label="Venue longitude"]')!;
+    expect(latitude).toMatchObject({ type: 'number', min: '-90', max: '90', step: 'any', value: '' });
+    expect(longitude).toMatchObject({ type: 'number', min: '-180', max: '180', step: 'any', value: '' });
+    expect(form.textContent).toContain('An address alone does not set a pin.');
+    for (const [lat, lng] of [['30.6', ''], ['91', '-96.3'], ['30.6', '-181']]) {
+      act(() => setInputValue(latitude, lat));
+      act(() => setInputValue(longitude, lng));
+      desktop.saveState.mockClear();
+      act(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+      expect(document.querySelector('#settings-club')?.textContent).toContain('Enter both venue coordinates');
+      expect(desktop.saveState).not.toHaveBeenCalled();
+    }
+    act(() => setInputValue(latitude, '0'));
+    act(() => setInputValue(longitude, '0'));
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(desktop.saveState).toHaveBeenCalled());
+    expect((desktop.saveState.mock.calls.at(-1)?.[0] as AppState).settings.clubAccount?.coordinate)
+      .toEqual({ latitude: 0, longitude: 0 });
+    const clear = Array.from(form.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent?.includes('Clear map pin'))!;
+    act(() => clear.click());
+    expect(latitude.value).toBe('');
+    expect(longitude.value).toBe('');
+    desktop.saveState.mockClear();
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(desktop.saveState).toHaveBeenCalled());
+    expect((desktop.saveState.mock.calls.at(-1)?.[0] as AppState).settings.clubAccount?.coordinate).toBeUndefined();
   });
 });

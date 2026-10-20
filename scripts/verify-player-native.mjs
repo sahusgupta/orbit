@@ -95,8 +95,8 @@ export function verifyPlayerNative(iosRoot) {
   assert.ok(bundleIdentifiers.length >= 1, 'Generated app target must declare PRODUCT_BUNDLE_IDENTIFIER.');
   assert.deepEqual(
     [...new Set(bundleIdentifiers)],
-    ['com.orbit.player'],
-    'Every generated app-target build configuration must use bundle identifier com.orbit.player.'
+    ['com.caminuslabs.orbit'],
+    'Every generated app-target build configuration must use bundle identifier com.caminuslabs.orbit.'
   );
   assert.equal(
     plistStringValue(appInfoPlist, 'CFBundleShortVersionString'),
@@ -126,9 +126,9 @@ export function verifyPlayerNative(iosRoot) {
   const serviceFiles = files.filter((filePath) => path.basename(filePath) === 'GoogleService-Info.plist');
   assert.equal(serviceFiles.length, 1, 'Generated iOS app must include its Firebase client configuration.');
   const serviceConfig = fs.readFileSync(serviceFiles[0], 'utf8');
-  assert.equal(plistStringValue(serviceConfig, 'BUNDLE_ID'), 'com.orbit.player', 'Native Firebase bundle identity mismatch.');
+  assert.equal(plistStringValue(serviceConfig, 'BUNDLE_ID'), 'com.caminuslabs.orbit', 'Native Firebase bundle identity mismatch.');
   assert.equal(plistStringValue(serviceConfig, 'PROJECT_ID'), 'tabletalk-s', 'Native Firebase project mismatch.');
-  assert.equal(plistStringValue(serviceConfig, 'GOOGLE_APP_ID'), '1:133175572500:ios:46a75e002225158dfd8f01', 'Native Firebase app identity mismatch.');
+  assert.equal(plistStringValue(serviceConfig, 'GOOGLE_APP_ID'), '1:133175572500:ios:de1514cf1736c1bdfd8f01', 'Native Firebase app identity mismatch.');
   const delegateFile = files.find((filePath) => path.basename(filePath) === 'AppDelegate.swift');
   assert.ok(delegateFile, 'Generated iOS app must contain AppDelegate.swift.');
   const delegate = fs.readFileSync(delegateFile, 'utf8');
@@ -140,10 +140,14 @@ export function verifyPlayerNative(iosRoot) {
   const usageDescriptionKeys = [...appInfoPlist.matchAll(/<key>(NS[A-Za-z0-9]+UsageDescription)<\/key>/g)]
     .map((match) => match[1]);
   assert.deepEqual(
-    [...new Set(usageDescriptionKeys)],
-    ['NSCameraUsageDescription'],
-    'Generated app Info.plist may contain only the reviewed camera usage-description key.'
+    [...new Set(usageDescriptionKeys)].sort(),
+    ['NSCameraUsageDescription', 'NSLocationWhenInUseUsageDescription'].sort(),
+    'Generated app Info.plist may contain only reviewed camera and foreground-location usage-description keys.'
   );
+  assert.equal(plistStringValue(appInfoPlist, 'NSLocationWhenInUseUsageDescription'),
+    'Use your location once to find poker games within your selected distance. Orbit keeps this search point on your device.', 'Foreground location requires the reviewed purpose.');
+  const parsedInfo = plist.parse(appInfoPlist);
+  assert.ok(!Array.isArray(parsedInfo.UIBackgroundModes) || !parsedInfo.UIBackgroundModes.includes('location'), 'Background location must remain absent.');
   for (const prohibited of [
     'aps-environment',
     'com.apple.developer.associated-domains',

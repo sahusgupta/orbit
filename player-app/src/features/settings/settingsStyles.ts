@@ -2,6 +2,64 @@ import { StyleSheet } from 'react-native';
 import { applyDarkComponentTheme, colors } from '../../styles/playerTheme';
 
 export const settingsStyles = StyleSheet.create(applyDarkComponentTheme({
+  profileScreen: {
+    flexGrow: 1,
+    gap: 12
+  },
+  profileHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 14,
+    paddingBottom: 8,
+    paddingTop: 4
+  },
+  profileAvatar: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 28,
+    height: 56,
+    justifyContent: 'center',
+    width: 56
+  },
+  profileInitial: {
+    color: colors.ink,
+    fontSize: 23,
+    fontWeight: '700'
+  },
+  profileHeaderCopy: {
+    flex: 1,
+    gap: 4
+  },
+  profileName: {
+    color: colors.ink,
+    fontSize: 22,
+    fontWeight: '700'
+  },
+  profileSection: {
+    backgroundColor: colors.panel,
+    borderColor: colors.line,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden'
+  },
+  profileSectionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 64,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  profileSectionCopy: {
+    flex: 1,
+    gap: 3
+  },
+  profileSectionBody: {
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    gap: 12,
+    padding: 14
+  },
   searchInputRow: {
     alignItems: 'center',
     backgroundColor: '#f4f4f1',

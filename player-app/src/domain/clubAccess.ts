@@ -8,7 +8,7 @@ export type ClubFeeProfile = {
 export function getClubFeeProfile(club: PlayerClubSnapshot, game?: PlayerSyncGame): ClubFeeProfile {
   const liveMode = game?.collectionMode ?? game?.openTables[0]?.collectionMode;
   if (liveMode === 'Time') {
-    const publishedCents = club.timeAccess?.enabled && Number.isFinite(club.timeAccess.hourlyFeeCents)
+    const publishedCents = club.timeAccess?.enabled && typeof club.timeAccess.hourlyFeeCents === 'number' && Number.isFinite(club.timeAccess.hourlyFeeCents)
       ? Math.max(0, club.timeAccess.hourlyFeeCents)
       : null;
     return {

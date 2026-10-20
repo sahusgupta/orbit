@@ -1,12 +1,16 @@
 import type { PlayerAccount } from '../../domain/playerSync';
 import { e164PhoneRequirement, normalizeE164Phone } from '../../domain/playerPhone';
+import type { MatchJournal } from '../../domain/orbitMatchTypes';
+import { decodePlayerLocalOrigin, type PlayerLocalOrigin } from '../../domain/playerLocation';
 
 export const legacyPlayerStorageKeys = ['tabletalk-player-account-v1', 'tabletalk-player-account-v2'];
 export const playerStorageKey = 'orbit-player-account-v1';
 export const dismissedAlertsStorageKey = 'orbit-player-dismissed-alerts-v1';
 export const pendingPlayerProfileStorageKey = 'orbit-player-pending-profile-v1';
 export const pendingPlayerAuthCleanupStorageKey = 'orbit-player-pending-auth-cleanup-v1';
-const allPlayerStorageKeys = [playerStorageKey, ...legacyPlayerStorageKeys, dismissedAlertsStorageKey, pendingPlayerProfileStorageKey];
+export const playerMatchJournalStorageKey = 'orbit-player-match-journal-v1';
+export const playerLocalOriginStorageKey = 'orbit-player-local-origin-v1';
+const allPlayerStorageKeys = [playerStorageKey, ...legacyPlayerStorageKeys, dismissedAlertsStorageKey, pendingPlayerProfileStorageKey, playerMatchJournalStorageKey, playerLocalOriginStorageKey];
 
 type StorageEntry = readonly [string, string | null];
 
@@ -130,6 +134,66 @@ export function createPlayerStorage(storage: PlayerStoragePort) {
   };
 
   return {
+    async loadLocalOrigin(owner: string): Promise<PlayerLocalOrigin | null> {
+      const stored = await storage.getItem(playerLocalOriginStorageKey);
+      if (!stored) return null;
+      const parsed: unknown = JSON.parse(stored);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Saved location could not be restored.');
+      if (!Object.hasOwn(parsed, owner)) return null;
+      const origin = decodePlayerLocalOrigin(Reflect.get(parsed, owner));
+      if (!origin) throw new Error('Saved location is invalid. Clear it before choosing another location.');
+      return origin;
+    },
+    saveLocalOrigin(owner: string, origin: PlayerLocalOrigin) {
+      if (!owner.trim() || !decodePlayerLocalOrigin(origin)) return Promise.reject(new Error('A valid local location and owner are required.'));
+      return sequenceRequiredWrite(async () => {
+        const stored = await storage.getItem(playerLocalOriginStorageKey);
+        const parsed: unknown = stored ? JSON.parse(stored) : {};
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Saved location could not be restored.');
+        await storage.setItem(playerLocalOriginStorageKey, JSON.stringify({ ...parsed, [owner]: origin }));
+      });
+    },
+    clearLocalOrigin(owner: string, expectedCapturedAt?: number) {
+      return sequenceRequiredWrite(async () => {
+        const stored = await storage.getItem(playerLocalOriginStorageKey);
+        if (!stored) return;
+        let parsed: unknown;
+        try { parsed = JSON.parse(stored); }
+        catch { await storage.multiRemove([playerLocalOriginStorageKey]); return; }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          await storage.multiRemove([playerLocalOriginStorageKey]);
+          return;
+        }
+        if (expectedCapturedAt !== undefined && decodePlayerLocalOrigin(Reflect.get(parsed, owner))?.capturedAt !== expectedCapturedAt) return;
+        const remaining = Object.fromEntries(Object.entries(parsed).filter(([key]) => key !== owner));
+        if (Object.keys(remaining).length) await storage.setItem(playerLocalOriginStorageKey, JSON.stringify(remaining));
+        else await storage.multiRemove([playerLocalOriginStorageKey]);
+      });
+    },
+    async loadMatchJournal(uid: string): Promise<unknown> {
+      const stored = await storage.getItem(playerMatchJournalStorageKey);
+      if (!stored) return null;
+      const journals: unknown = JSON.parse(stored);
+      if (!journals || typeof journals !== 'object' || Array.isArray(journals)) {
+        throw new Error('Saved Match data could not be restored.');
+      }
+      return Reflect.get(journals, uid) ?? null;
+    },
+
+    saveMatchJournal(uid: string, journal: MatchJournal) {
+      if (!uid || journal.uid !== uid || journal.pending.length > 100) {
+        return Promise.reject(new Error('Match changes must belong to the current account.'));
+      }
+      return sequenceRequiredWrite(async () => {
+        const stored = await storage.getItem(playerMatchJournalStorageKey);
+        const parsed: unknown = stored ? JSON.parse(stored) : {};
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('Saved Match data could not be restored.');
+        }
+        await storage.setItem(playerMatchJournalStorageKey, JSON.stringify({ ...parsed, [uid]: journal }));
+      });
+    },
+
     async loadPendingPlayerAuthCleanupUid() {
       return decodePendingPlayerAuthCleanupUid(await storage.getItem(pendingPlayerAuthCleanupStorageKey));
     },

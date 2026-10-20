@@ -35,7 +35,7 @@ export function onFirebasePlayerChanged(callback: (identity: FirebasePlayerIdent
   return onAuthStateChanged(auth, (user) => callback(user && isVerifiedPlayerUser(user) ? toFirebasePlayerIdentity(user) : null));
 }
 
-export async function signInOrCreatePlayerWithEmail(email: string, password: string) {
+export async function signInOrCreatePlayerWithEmail(email: string, password: string, options: { createIfMissing?: boolean } = {}) {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail || !password) throw new Error('Enter your email and password.');
   if (password.length < 12) throw new Error('Use a password or passphrase with at least 12 characters.');
@@ -56,6 +56,7 @@ export async function signInOrCreatePlayerWithEmail(email: string, password: str
     if (!['auth/user-not-found', 'auth/invalid-credential', 'auth/wrong-password'].includes(code ?? '')) {
       throw signInError;
     }
+    if (options.createIfMissing === false) throw signInError;
     try {
       const result = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
       try {

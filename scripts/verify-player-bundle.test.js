@@ -33,11 +33,20 @@ describe('Orbit Player exported-bundle verification', () => {
     expect(() => verifyPlayerBundle(root)).not.toThrow();
   });
 
-  it('rejects prohibited source in an inspectable bundle', () => {
+  it('rejects a registration route without the reviewed no-payment policy', () => {
     const root = fixture();
     fs.writeFileSync(path.join(root, 'index.js'), 'const route = "/player/tournament-registrations";');
 
-    expect(() => verifyPlayerBundle(root)).toThrow('removed operational tournament-registration route');
+    expect(() => verifyPlayerBundle(root)).toThrow('free-event registration is missing its no-payment policy marker');
+  });
+
+  it('accepts the free-registration route when all reviewed bundle policy markers are present', () => {
+    const root = fixture();
+    fs.writeFileSync(path.join(root, 'index.js'), [
+      '/player/tournament-registrations', 'registrationAvailable', '/player/tournament-interests',
+      'Only events without an entry, rebuy, or add-on payment can be registered in Orbit.'
+    ].join('\n'));
+    expect(() => verifyPlayerBundle(root)).not.toThrow();
   });
 
   it('fails closed when executable bytecode hides text behind NUL bytes', () => {

@@ -1,4 +1,5 @@
-import { useState, type Dispatch, type SetStateAction } from 'react';
+import { usePlayerTheme, useThemedStyles } from '../../styles/PlayerThemeProvider';
+import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { Linking, Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Chip, Field } from '../../components/PlayerFields';
@@ -12,10 +13,9 @@ import type { PlayerAccount } from '../../domain/playerSync';
 import { isValidEmail, togglePreferredGame } from '../../domain/discovery';
 import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
-import { OrbitPlayerFaq, OrbitPlayerFooter } from '../home/PlayerLandingExperience';
 import { settingsStyles } from './settingsStyles';
 
-const styles = { ...sharedStyles, ...settingsStyles };
+const baseStyles = { ...sharedStyles, ...settingsStyles };
 
 export function SettingsScreen({
   firebaseIdentity,
@@ -40,7 +40,9 @@ export function SettingsScreen({
   player,
   setPlayer,
   signOutPlayer,
-  deletePlayerAccount
+  deletePlayerAccount,
+  onTryDemo,
+  onOpenMatchPreferences
 }: {
   firebaseIdentity: FirebasePlayerIdentity | null;
   authStatus: string;
@@ -65,24 +67,33 @@ export function SettingsScreen({
   setPlayer: Dispatch<SetStateAction<PlayerAccount>>;
   signOutPlayer: () => void;
   deletePlayerAccount: () => void;
+  onTryDemo?: () => void;
+  onOpenMatchPreferences?: () => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   const [touchedAuthFields, setTouchedAuthFields] = useState<Record<string, boolean>>({});
+  const [openSection, setOpenSection] = useState<'signIn' | 'profile' | 'preferences' | null>(null);
+  const toggleSection = (section: NonNullable<typeof openSection>) => setOpenSection((current) => current === section ? null : section);
   const emailError = touchedAuthFields.email && !isValidEmail(playerAuthEmail) ? 'Enter a valid email address.' : '';
   const phoneError = touchedAuthFields.phone && !normalizeE164Phone(playerAuthPhone) ? `Enter a valid phone number. ${e164PhoneRequirement}` : '';
   const passwordError = touchedAuthFields.password && playerAuthPassword.length < 12 ? 'Use at least 12 characters.' : '';
   const codeError = touchedAuthFields.code && !/^\d{6}$/.test(playerAuthCode) ? 'Enter the six-digit verification code.' : '';
   const profileEditingDisabled = Boolean(firebaseIdentity) && !profileEditingReady;
   return (
-    <View style={styles.accountCard}>
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.sectionTitle}>Profile & settings</Text>
-          <Text style={styles.muted}>Keep your account and poker preferences current.</Text>
+    <View style={styles.profileScreen}>
+      <View style={styles.profileHeader}>
+        <View style={styles.profileAvatar}>
+          <Text style={styles.profileInitial}>{player.name.trim().slice(0, 1).toUpperCase() || 'P'}</Text>
+        </View>
+        <View style={styles.profileHeaderCopy}>
+          <Text style={styles.profileName}>{player.name}</Text>
+          <Text style={styles.muted}>{player.homeLocation?.trim() || 'Orbit Player'}</Text>
         </View>
       </View>
       {!firebaseIdentity ? (
-        <View style={styles.emailAuthPanel}>
-          <Text style={styles.cardTitle}>Account access</Text>
+        <ProfileSection title="Sign in" subtitle="Connect your account" icon="log-in-outline"
+          expanded={openSection === 'signIn'} onPress={() => toggleSection('signIn')}>
           <Text style={styles.muted}>{authStatus}</Text>
           <View style={styles.chipRow}>
             <Chip label="Email address" active={playerAuthMethod === 'email'} onPress={() => setPlayerAuthMethod('email')} />
@@ -158,7 +169,7 @@ export function SettingsScreen({
           ) : null}
           {playerAuthMethod === 'email' && passwordError ? <Text accessibilityLiveRegion="polite" style={styles.fieldError}>{passwordError}</Text> : null}
           {playerAuthMethod === 'phone' && playerPhoneChallenge && codeError ? <Text accessibilityLiveRegion="polite" style={styles.fieldError}>{codeError}</Text> : null}
-          <Pressable style={styles.compactButton} onPress={connectPlayerAccount}>
+          <Pressable accessibilityRole="button" style={styles.compactButton} onPress={connectPlayerAccount}>
             <Text style={styles.compactButtonText}>
               {playerAuthMethod === 'phone'
                 ? playerPhoneChallenge ? 'Verify code and sign in' : 'Send verification code'
@@ -166,15 +177,15 @@ export function SettingsScreen({
             </Text>
           </Pressable>
           {playerAuthMethod === 'email' ? (
-            <Pressable style={styles.secondaryActionButton} onPress={recoverPlayerAccount}>
+            <Pressable accessibilityRole="button" style={styles.secondaryActionButton} onPress={recoverPlayerAccount}>
               <Text style={styles.secondaryActionText}>Forgot password</Text>
             </Pressable>
           ) : playerPhoneChallenge ? (
-            <Pressable style={styles.secondaryActionButton} onPress={restartPlayerPhoneSignIn}>
+            <Pressable accessibilityRole="button" style={styles.secondaryActionButton} onPress={restartPlayerPhoneSignIn}>
               <Text style={styles.secondaryActionText}>Send a new code</Text>
             </Pressable>
           ) : null}
-        </View>
+        </ProfileSection>
       ) : (
         <View style={styles.googleAuthPanel}>
           <View style={styles.googleAuthIcon}>
@@ -187,78 +198,116 @@ export function SettingsScreen({
           </View>
         </View>
       )}
-      <SimpleMenuRow
-        icon="shield-checkmark-outline"
-        title="Identity & age"
-        subtitle={getIdentityStatusLabel(identityStatus, Boolean(firebaseIdentity))}
-        onPress={() => showIdentityVerification('settings')}
-      />
+      <View style={styles.simpleMenu}>
+        <SimpleMenuRow
+          icon="shield-checkmark-outline"
+          title="Identity & age"
+          subtitle={getIdentityStatusLabel(identityStatus, Boolean(firebaseIdentity))}
+          onPress={() => showIdentityVerification('settings')}
+        />
+      </View>
       {profileEditingDisabled ? (
         <View accessibilityRole="alert" style={styles.emptyState}>
           <Text style={styles.cardTitle}>Restoring your signed-in profile</Text>
           <Text style={styles.muted}>Profile editing will be available after Orbit confirms the current account's saved profile.</Text>
         </View>
       ) : null}
-      <Field editable={!profileEditingDisabled} label="Name" value={player.name} onChangeText={(name) => setPlayer((current) => ({ ...current, name }))} />
-      {!firebaseIdentity ? (
-        <>
-          <Field label="Email address" keyboardType="email-address" value={player.email} onChangeText={(email) => setPlayer((current) => ({ ...current, email }))} />
-          <Field
-            label="Phone number"
-            keyboardType="phone-pad"
-            placeholder={e164PhoneExample}
-            value={player.phone ?? ''}
-            onChangeText={(phone) => setPlayer((current) => ({ ...current, phone: normalizeE164Phone(phone) || phone }))}
-            error={(player.phone ?? '').trim() && !normalizeE164Phone(player.phone) ? `Enter a valid phone number. ${e164PhoneRequirement}` : ''}
-          />
-        </>
-      ) : null}
-      <Field
-        editable={!profileEditingDisabled}
-        label="Home area"
-        value={player.homeLocation ?? ''}
-        onChangeText={(homeLocation) => setPlayer((current) => ({ ...current, homeLocation }))}
-      />
-      <Text style={styles.fieldLabel}>Preferred games</Text>
-      <View style={styles.chipRow}>
-        {gamePreferenceOptions.map((game) => (
-          <Chip
-            key={game.id}
-            label={game.label}
-            active={player.preferredGameIds.includes(game.id)}
-            disabled={profileEditingDisabled}
-            onPress={() => setPlayer((current) => togglePreferredGame(current, game.id))}
-          />
-        ))}
-      </View>
-      <Field
-        editable={!profileEditingDisabled}
-        label="Preferred stakes"
-        value={player.preferredStakes ?? ''}
-        onChangeText={(preferredStakes) => setPlayer((current) => ({ ...current, preferredStakes }))}
-      />
-      <Field
-        editable={!profileEditingDisabled}
-        label="Typical availability"
-        value={player.typicalAvailability ?? ''}
-        placeholder="Evenings, weekends, after 6 PM..."
-        onChangeText={(typicalAvailability) => setPlayer((current) => ({ ...current, typicalAvailability }))}
-      />
+      <ProfileSection title="Edit profile" subtitle="Name, contact, and home area" icon="person-outline"
+        expanded={openSection === 'profile'} onPress={() => toggleSection('profile')}>
+        <Field editable={!profileEditingDisabled} label="Name" value={player.name} onChangeText={(name) => setPlayer((current) => ({ ...current, name }))} />
+        {!firebaseIdentity ? (
+          <>
+            <Field label="Email address" keyboardType="email-address" value={player.email} onChangeText={(email) => setPlayer((current) => ({ ...current, email }))} />
+            <Field
+              label="Phone number"
+              keyboardType="phone-pad"
+              placeholder={e164PhoneExample}
+              value={player.phone ?? ''}
+              onChangeText={(phone) => setPlayer((current) => ({ ...current, phone: normalizeE164Phone(phone) || phone }))}
+              error={(player.phone ?? '').trim() && !normalizeE164Phone(player.phone) ? `Enter a valid phone number. ${e164PhoneRequirement}` : ''}
+            />
+          </>
+        ) : null}
+        <Field
+          editable={!profileEditingDisabled}
+          label="Home area"
+          value={player.homeLocation ?? ''}
+          onChangeText={(homeLocation) => setPlayer((current) => ({ ...current, homeLocation }))}
+        />
+      </ProfileSection>
+      {onOpenMatchPreferences ? <SimpleMenuRow icon="options-outline" title="Match preferences" subtitle="Discovery, venues, and travel" onPress={onOpenMatchPreferences} /> : null}
+      <ProfileSection title="Preferences" subtitle={onOpenMatchPreferences ? 'Membership profile notes' : 'Games, stakes, and availability'} icon="options-outline"
+        expanded={openSection === 'preferences'} onPress={() => toggleSection('preferences')}>
+        <Text style={styles.fieldLabel}>Preferred games</Text>
+        <View style={styles.chipRow}>
+          {gamePreferenceOptions.map((game) => (
+            <Chip
+              key={game.id}
+              label={game.label}
+              active={player.preferredGameIds.includes(game.id)}
+              disabled={profileEditingDisabled}
+              onPress={() => setPlayer((current) => togglePreferredGame(current, game.id))}
+            />
+          ))}
+        </View>
+        <Field
+          editable={!profileEditingDisabled}
+          label="Preferred stakes"
+          value={player.preferredStakes ?? ''}
+          onChangeText={(preferredStakes) => setPlayer((current) => ({ ...current, preferredStakes }))}
+        />
+        <Field
+          editable={!profileEditingDisabled}
+          label="Typical availability"
+          value={player.typicalAvailability ?? ''}
+          placeholder="Evenings, weekends, after 6 PM..."
+          onChangeText={(typicalAvailability) => setPlayer((current) => ({ ...current, typicalAvailability }))}
+        />
+      </ProfileSection>
       <View style={styles.simpleMenu}>
         <SimpleMenuRow icon="help-circle-outline" title="Support" subtitle="Help and contact options" onPress={() => Linking.openURL(supportUrl)} />
         <SimpleMenuRow icon="shield-checkmark-outline" title="Privacy Policy" subtitle="Legal" onPress={() => Linking.openURL(privacyPolicyUrl)} />
         <SimpleMenuRow icon="document-text-outline" title="Terms of Service" subtitle="Legal" onPress={() => Linking.openURL(termsOfServiceUrl)} />
       </View>
-      <OrbitPlayerFaq />
-      <OrbitPlayerFooter />
+      {onTryDemo ? (
+        <View style={styles.simpleMenu}>
+          <SimpleMenuRow icon="play-circle-outline" title="Try demo account" subtitle="Fictional games" onPress={onTryDemo} />
+        </View>
+      ) : null}
       {firebaseIdentity ? (
-          <Pressable style={styles.secondaryActionButton} onPress={signOutPlayer}>
+          <Pressable accessibilityRole="button" style={styles.secondaryActionButton} onPress={signOutPlayer}>
             <Text style={styles.secondaryActionText}>Sign out</Text>
           </Pressable>
       ) : null}
-      <Pressable style={styles.secondaryActionButton} onPress={deletePlayerAccount}>
+      <Pressable accessibilityRole="button" style={styles.secondaryActionButton} onPress={deletePlayerAccount}>
         <Text style={[styles.secondaryActionText, { color: colors.coral }]}>{firebaseIdentity ? 'Delete account' : 'Delete local profile and data'}</Text>
       </Pressable>
+    </View>
+  );
+}
+
+function ProfileSection({ title, subtitle, icon, expanded, onPress, children }: {
+  title: string;
+  subtitle: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  expanded: boolean;
+  onPress: () => void;
+  children: ReactNode;
+}) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
+  return (
+    <View style={styles.profileSection}>
+      <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ expanded }}
+        onPress={onPress} style={styles.profileSectionRow}>
+        <Ionicons name={icon} size={20} color={colors.muted} />
+        <View style={styles.profileSectionCopy}>
+          <Text style={styles.cardTitle}>{title}</Text>
+          <Text style={styles.muted}>{subtitle}</Text>
+        </View>
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} />
+      </Pressable>
+      {expanded ? <View style={styles.profileSectionBody}>{children}</View> : null}
     </View>
   );
 }

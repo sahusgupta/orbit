@@ -56,6 +56,8 @@ export function usePlayerLiveData({
   const [tournaments, setTournaments] = useState<PlayerTournament[]>([]);
   const [tournamentInterests, setTournamentInterests] = useState<PlayerTournamentInterest[]>([]);
   const [tournamentLoadError, setTournamentLoadError] = useState('');
+  const [tournamentDataStatus, setTournamentDataStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [tournamentDataPartial, setTournamentDataPartial] = useState(false);
   const [selectedClubId, setSelectedClubId] = useState('');
   const [clubMembershipMessage, setClubMembershipMessage] = useState('');
   const [clubSelectionNotice, setClubSelectionNotice] = useState('');
@@ -81,6 +83,8 @@ export function usePlayerLiveData({
     setTournaments([]);
     setTournamentInterests([]);
     setTournamentLoadError('');
+    setTournamentDataStatus('idle');
+    setTournamentDataPartial(false);
     setSelectedClubId('');
     setClubSelectionNotice('');
     setClubMembershipMessage('');
@@ -98,6 +102,8 @@ export function usePlayerLiveData({
     setTournaments([]);
     setTournamentInterests([]);
     setTournamentLoadError('');
+    setTournamentDataStatus('idle');
+    setTournamentDataPartial(false);
     setSelectedClubId('');
     setClubSelectionNotice('');
     setClubMembershipMessage('');
@@ -330,18 +336,30 @@ export function usePlayerLiveData({
   }, [accountLoaded, firebaseIdentity?.uid, hasAccount, player.id, player.name, refreshVersion]);
 
   useEffect(() => {
-    if (!accountLoaded || !hasAccount) return;
+    if (!accountLoaded || !hasAccount) {
+      setTournamentDataStatus('idle');
+      setTournamentDataPartial(false);
+      return;
+    }
     let active = true;
     const expectedUid = firebaseIdentity?.uid === player.id ? player.id : null;
     const isCurrentSession = () => !expectedUid || getCurrentFirebasePlayer()?.uid === expectedUid;
+    setTournamentDataStatus('loading');
+    setTournamentDataPartial(false);
+    setTournamentLoadError('');
     const handleTournaments = (result: Awaited<ReturnType<typeof fetchPlayerTournaments>>) => {
       if (!active || !isCurrentSession()) return;
       setTournaments(result.tournaments);
       setTournamentInterests(result.interests);
       setTournamentLoadError('');
+      setTournamentDataStatus('ready');
+      setTournamentDataPartial(result.page.hasMore === true);
     };
     const handleTournamentError = (error: Error) => {
-      if (active && isCurrentSession()) setTournamentLoadError(error.message || 'Unable to load tournaments.');
+      if (!active || !isCurrentSession()) return;
+      setTournamentLoadError(error.message || 'Unable to load tournaments.');
+      setTournamentDataStatus('error');
+      setTournamentDataPartial(false);
     };
     // The live subscription remains active if its initial eager refresh fails.
     const playerId = firebaseIdentity?.uid === player.id ? player.id : undefined;
@@ -377,6 +395,8 @@ export function usePlayerLiveData({
     setSelectedClubId,
     setTournamentInterests,
     tournamentInterests,
+    tournamentDataStatus,
+    tournamentDataPartial,
     tournamentLoadError,
     tournaments
   };

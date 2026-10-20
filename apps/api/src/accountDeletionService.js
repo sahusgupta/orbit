@@ -1206,6 +1206,10 @@ async function cleanupFirebasePlayer(
     if (typeof database.recursiveDelete === 'function') await database.recursiveDelete(playerReference);
     else {
       await database.doc(`players/${rootPlayerId}/private/identity`).delete();
+      // Match receipts are private descendants and must not survive a fallback
+      // cleanup when the Admin SDK does not expose recursiveDelete.
+      deletedDocuments += await deleteQuery(database.collection(`players/${rootPlayerId}/orbitMatch/state/receipts`), admin);
+      await database.doc(`players/${rootPlayerId}/orbitMatch/state`).delete();
       await playerReference.delete();
     }
   }

@@ -128,6 +128,7 @@ describe('Player storage and lifecycle orchestration contract', () => {
     expect(profileHydrationEffect).toContain('isCurrentSession()');
     expect(liveClubEffect).toContain('setLiveDataPartial(result.partial === true)');
     expect(sources.map(({ source }) => source).join('\n')).not.toMatch(/configureApplePurchases|subscribeToPrivateGameListings|usePlayerPremium|usePlayerPrivateGames/);
-    expect(lifecycleDigest).toBe('e789ecd9c0ad2f8c4ebaef0804311bcb83b4d1f460ce229e62c0a2ea1b3382a3');
+    // Reviewed tournament readiness/partial metadata; the other five lifecycle effects remain unchanged.
+    expect(lifecycleDigest).toBe('43fbfcc5c090ec5cf97da92bae249be3b547f7f6f72ed77617bda712e499b6a4');
   });
 });

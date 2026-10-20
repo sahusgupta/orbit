@@ -853,6 +853,25 @@ describe('Firebase authentication boundary', () => {
     await expect(signInOrCreatePlayerWithEmail('alex@example.com', 'third-secure-passphrase')).rejects.toBe(signInFailure);
   });
 
+  it.each(['auth/user-not-found', 'auth/invalid-credential', 'auth/wrong-password'])(
+    'never creates a Firebase account after explicit sign-in fails with %s', async (code) => {
+      const failure = Object.assign(new Error('Invalid credentials.'), { code });
+      firebase.signInWithEmailAndPassword.mockRejectedValueOnce(failure);
+      await expect(signInOrCreatePlayerWithEmail('unknown@example.test', 'a-secure-passphrase', { createIfMissing: false }))
+        .rejects.toBe(failure);
+      expect(firebase.createUserWithEmailAndPassword).not.toHaveBeenCalled();
+      expect(firebase.sendEmailVerification).not.toHaveBeenCalled();
+    }
+  );
+
+  it('restores a verified account with explicit sign-in without invoking account creation', async () => {
+    firebase.signInWithEmailAndPassword.mockResolvedValueOnce({ user: signedInUser('existing-player') });
+    await expect(signInOrCreatePlayerWithEmail('  ALEX@Example.COM ', 'a-secure-passphrase', { createIfMissing: false }))
+      .resolves.toMatchObject({ uid: 'existing-player' });
+    expect(firebase.signInWithEmailAndPassword).toHaveBeenCalledWith(firebase.auth, 'alex@example.com', 'a-secure-passphrase');
+    expect(firebase.createUserWithEmailAndPassword).not.toHaveBeenCalled();
+  });
+
   it('requires verified email or an SMS OTP and offers generic email recovery', async () => {
     await expect(signInOrCreatePlayerWithEmail('', 'a-secure-passphrase')).rejects.toThrow('Enter your email and password.');
     await expect(signInOrCreatePlayerWithEmail('alex@example.com', 'short')).rejects.toThrow('at least 12 characters');

@@ -10,6 +10,10 @@ import { verifyPlayerNative } from './verify-player-native.mjs';
 assert.equal(process.platform, 'darwin', 'Native simulator QA requires macOS.');
 assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Use the disposable GitHub runner for simulator network isolation.');
 const environment = productionPlayerEnvironment();
+const demoQaFlag = environment.PLAYER_SIMULATOR_DEMO_QA;
+assert.ok(demoQaFlag === undefined || demoQaFlag === '0' || demoQaFlag === '1',
+  'PLAYER_SIMULATOR_DEMO_QA must be absent, 0, or 1.');
+const includeDemoMatch = demoQaFlag === '1';
 const evidenceRoot = path.join(repositoryRoot, 'out', 'player-simulator-qa');
 const iosRoot = path.join(playerRoot, 'ios');
 assert.ok(!fs.existsSync(iosRoot), 'Use a clean checkout; existing native work must not be overwritten.');
@@ -51,8 +55,8 @@ function run(command, arguments_, options = {}) {
 const sourceSha = run('git', ['rev-parse', 'HEAD']).trim();
 const xcodeVersion = run('xcodebuild', ['-version']).trim();
 fs.writeFileSync(path.join(evidenceRoot, 'source.json'), JSON.stringify({
-  sourceSha, xcodeVersion, bundleIdentifier: 'com.orbit.player',
-  configuration: 'Release', signing: 'ad-hoc simulator; no Apple certificate', startedAt: new Date().toISOString()
+  sourceSha, xcodeVersion, bundleIdentifier: 'com.caminuslabs.orbit',
+  configuration: 'Release', signing: 'ad-hoc simulator; no Apple certificate', includeDemoMatch, startedAt: new Date().toISOString()
 }, null, 2));
 // Detect an unavailable CoreSimulator service before spending time compiling.
 const runtimeInventory = run('xcrun', ['simctl', 'list', 'runtimes', '--json']);
@@ -88,7 +92,7 @@ const signingEntitlements = fs.readdirSync(derivedData, { recursive: true })
   }));
 fs.writeFileSync(path.join(evidenceRoot, 'simulator-entitlements.json'), JSON.stringify(signingEntitlements, null, 2));
 assert.ok(signingEntitlements.some(({ entitlements }) =>
-  String(entitlements['application-identifier'] || '').endsWith('com.orbit.player')
+  String(entitlements['application-identifier'] || '').endsWith('com.caminuslabs.orbit')
 ), 'The simulator build must include its Keychain application identity.');
 run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', application, path.join(evidenceRoot, 'OrbitPlayer-simulator.zip')]);
 const manifestPaths = fs.readdirSync(application, { recursive: true }).filter((name) => name.endsWith('.xcprivacy'));
@@ -119,6 +123,13 @@ for (const device of ['iPhone-16', 'iPhone-16-Pro-Max']) {
     run('xcrun', ['simctl', 'install', udid, application]);
     run('maestro', ['--device', udid, 'test', '--format', 'junit', '--output', path.join(output, 'results.xml'),
       '--test-output-dir', output, path.join(playerRoot, '.maestro', 'local-profile.yaml')], { cwd: output, log: `${device}.log`, timeout: 10 * 60 * 1000 });
+    if (includeDemoMatch) {
+      const demoOutput = path.join(output, 'demo-match');
+      fs.mkdirSync(demoOutput, { recursive: true });
+      run('maestro', ['--device', udid, 'test', '--format', 'junit', '--output', path.join(demoOutput, 'results.xml'),
+        '--test-output-dir', demoOutput, path.join(playerRoot, '.maestro', 'local-demo-match.yaml')],
+      { cwd: demoOutput, log: `${device}-demo-match.log`, timeout: 10 * 60 * 1000 });
+    }
     if (device === 'iPhone-16') {
       // Exercise the same controls and assertions with system text enlargement.
       // Keep separate reports so the default-size result cannot mask a failure.

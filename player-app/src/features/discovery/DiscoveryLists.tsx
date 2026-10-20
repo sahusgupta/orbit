@@ -1,3 +1,4 @@
+import { usePlayerTheme, useThemedStyles } from '../../styles/PlayerThemeProvider';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -11,7 +12,7 @@ import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
 import { discoveryStyles } from './discoveryStyles';
 
-const styles = { ...sharedStyles, ...discoveryStyles };
+const baseStyles = { ...sharedStyles, ...discoveryStyles };
 
 export function MyGamesSection({ games, message = '', readOnly = false, onCancel }: {
   games: Array<{ club: PlayerClubSnapshot; game: PlayerSyncGame; entry: PlayerWaitlistEntry }>;
@@ -19,11 +20,13 @@ export function MyGamesSection({ games, message = '', readOnly = false, onCancel
   readOnly?: boolean;
   onCancel: (club: PlayerClubSnapshot, game: PlayerSyncGame, entry: PlayerWaitlistEntry) => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   if (!games.length) return null;
   return (
     <View style={styles.myGamesSection}>
       <View style={styles.sectionHeader}>
-        <View>
+        <View style={styles.myGamesHeaderCopy}>
           <Text style={styles.sectionTitle}>My Games</Text>
           <Text style={styles.muted}>Venue-reported requests and seats</Text>
         </View>

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerAccount } from '../../domain/playerSync';
+import { createMatchState } from '../../../../apps/api/src/shared/orbitMatchState.cjs';
+import type { MatchJournal } from '../../domain/orbitMatchTypes';
 import {
   createPlayerStorage,
   dismissedAlertsStorageKey,
@@ -7,6 +9,8 @@ import {
   pendingPlayerAuthCleanupStorageKey,
   pendingPlayerProfileStorageKey,
   playerStorageKey,
+  playerMatchJournalStorageKey,
+  playerLocalOriginStorageKey,
   type PlayerStoragePort
 } from './playerStorageCore';
 
@@ -48,6 +52,104 @@ class FakeStorage implements PlayerStoragePort {
     this.values.set(key, value);
   }
 }
+
+describe('Match journal secure storage', () => {
+  const journal = (uid: string): MatchJournal => ({ uid, confirmed: createMatchState(), pending: [] });
+
+  it('serializes per-owner journal updates and preserves other account journals across restart', async () => {
+    const storage = new FakeStorage();
+    const adapter = createPlayerStorage(storage);
+    await Promise.all([adapter.saveMatchJournal('uid-one', journal('uid-one')), adapter.saveMatchJournal('uid-two', journal('uid-two'))]);
+    const restarted = createPlayerStorage(storage);
+    await expect(restarted.loadMatchJournal('uid-one')).resolves.toEqual(journal('uid-one'));
+    await expect(restarted.loadMatchJournal('uid-two')).resolves.toEqual(journal('uid-two'));
+    await expect(restarted.loadMatchJournal('uid-missing')).resolves.toBeNull();
+  });
+
+  it('rejects mismatched owners without changing an existing journal', async () => {
+    const storage = new FakeStorage();
+    const adapter = createPlayerStorage(storage);
+    await adapter.saveMatchJournal('uid-one', journal('uid-one'));
+    const before = storage.values.get(playerMatchJournalStorageKey);
+    await expect(adapter.saveMatchJournal('uid-two', journal('uid-one'))).rejects.toThrow('current account');
+    expect(storage.values.get(playerMatchJournalStorageKey)).toBe(before);
+  });
+
+  it('fails closed on corrupted journal storage without replacing recoverable bytes', async () => {
+    const storage = new FakeStorage();
+    storage.values.set(playerMatchJournalStorageKey, '{broken');
+    const adapter = createPlayerStorage(storage);
+    await expect(adapter.loadMatchJournal('uid-one')).rejects.toThrow();
+    await expect(adapter.saveMatchJournal('uid-one', journal('uid-one'))).rejects.toThrow();
+    expect(storage.values.get(playerMatchJournalStorageKey)).toBe('{broken');
+  });
+
+  it('retains deletion cleanup but erases all Match journals during account cleanup', async () => {
+    const storage = new FakeStorage();
+    const adapter = createPlayerStorage(storage);
+    await adapter.saveMatchJournal('uid-one', journal('uid-one'));
+    await adapter.saveMatchJournal('uid-two', journal('uid-two'));
+    await adapter.savePendingPlayerAuthCleanupUid('uid-one');
+    await adapter.clearPlayer();
+    expect(storage.values.has(playerMatchJournalStorageKey)).toBe(false);
+    await expect(adapter.loadPendingPlayerAuthCleanupUid()).resolves.toBe('uid-one');
+  });
+
+  it('retires queued journal writes behind an active write before cleanup can resurrect saved data', async () => {
+    const storage = new FakeStorage();
+    const writeStarted = deferred();
+    const finishWrite = deferred();
+    storage.setItem = async (key, value) => {
+      writeStarted.resolve();
+      await finishWrite.promise;
+      storage.values.set(key, value);
+    };
+    const adapter = createPlayerStorage(storage);
+    const active = adapter.saveMatchJournal('uid-one', journal('uid-one'));
+    await writeStarted.promise;
+    const queued = adapter.saveMatchJournal('uid-two', journal('uid-two'));
+    const clear = adapter.clearPlayer();
+    const duringClear = adapter.saveMatchJournal('uid-three', journal('uid-three'));
+    finishWrite.resolve();
+    const results = await Promise.allSettled([active, queued, clear, duringClear]);
+    expect(results.map((result) => result.status)).toEqual(['fulfilled', 'rejected', 'fulfilled', 'rejected']);
+    expect(storage.values.has(playerMatchJournalStorageKey)).toBe(false);
+  });
+});
+
+describe('Owner-local search origin storage', () => {
+  const origin = { coordinate: { latitude: 30, longitude: -97 }, label: 'Manual point', source: 'manual' as const, capturedAt: 1000, expiresAt: null };
+  it('isolates owner origins, clears one without deleting another, and prevents expiry clearing a newer point', async () => {
+    const storage = new FakeStorage(); const adapter = createPlayerStorage(storage);
+    await Promise.all([adapter.saveLocalOrigin('account:one', origin), adapter.saveLocalOrigin('device:one', { ...origin, capturedAt: 2000 })]);
+    await expect(adapter.loadLocalOrigin('account:two')).resolves.toBeNull();
+    await expect(adapter.loadLocalOrigin('device:one')).resolves.toMatchObject({ capturedAt: 2000 });
+    await adapter.clearLocalOrigin('device:one', 1000);
+    await expect(adapter.loadLocalOrigin('device:one')).resolves.toMatchObject({ capturedAt: 2000 });
+    await adapter.clearLocalOrigin('account:one');
+    await expect(adapter.loadLocalOrigin('account:one')).resolves.toBeNull();
+    await expect(adapter.loadLocalOrigin('device:one')).resolves.toMatchObject({ capturedAt: 2000 });
+    await adapter.clearPlayer(); expect(storage.values.has(playerLocalOriginStorageKey)).toBe(false);
+  });
+  it('rejects invalid coordinates and allows explicit recovery from corrupted local location data', async () => {
+    const storage = new FakeStorage(); const adapter = createPlayerStorage(storage);
+    await expect(adapter.saveLocalOrigin('account:one', { ...origin, coordinate: { latitude: 100, longitude: 0 } })).rejects.toThrow('valid local');
+    storage.values.set(playerLocalOriginStorageKey, '{invalid');
+    await expect(adapter.loadLocalOrigin('account:one')).rejects.toThrow();
+    await adapter.clearLocalOrigin('account:one');
+    await expect(adapter.loadLocalOrigin('account:one')).resolves.toBeNull();
+  });
+  it('retires queued local-origin writes during account cleanup', async () => {
+    const storage = new FakeStorage(); const writeStarted = deferred(); const finish = deferred();
+    storage.setItem = async (key, value) => { writeStarted.resolve(); await finish.promise; storage.values.set(key, value); };
+    const adapter = createPlayerStorage(storage); const active = adapter.saveLocalOrigin('account:one', origin);
+    await writeStarted.promise;
+    const queued = adapter.saveLocalOrigin('account:two', origin); const cleanup = adapter.clearPlayer();
+    finish.resolve();
+    expect((await Promise.allSettled([active, queued, cleanup])).map((result) => result.status)).toEqual(['fulfilled', 'rejected', 'fulfilled']);
+    expect(storage.values.has(playerLocalOriginStorageKey)).toBe(false);
+  });
+});
 
 function deferred() {
   let resolve!: () => void;
@@ -99,8 +201,8 @@ describe('Player storage adapter', () => {
     await expect(adapter.loadPlayer(emptyPlayer)).resolves.toEqual({ kind: 'invalid' });
     expect(storage.values.size).toBe(0);
     expect(storage.multiRemoveCalls).toEqual([
-      [playerStorageKey, ...legacyPlayerStorageKeys, dismissedAlertsStorageKey, pendingPlayerProfileStorageKey],
-      [playerStorageKey, ...legacyPlayerStorageKeys, dismissedAlertsStorageKey, pendingPlayerProfileStorageKey]
+      [playerStorageKey, ...legacyPlayerStorageKeys, dismissedAlertsStorageKey, pendingPlayerProfileStorageKey, playerMatchJournalStorageKey, playerLocalOriginStorageKey],
+      [playerStorageKey, ...legacyPlayerStorageKeys, dismissedAlertsStorageKey, pendingPlayerProfileStorageKey, playerMatchJournalStorageKey, playerLocalOriginStorageKey]
     ]);
   });
 
@@ -149,7 +251,7 @@ describe('Player storage adapter', () => {
 
     legacyPlayerStorageKeys.forEach((key) => storage.values.set(key, 'legacy'));
     await adapter.clearPlayer();
-    expect(storage.multiRemoveCalls).toEqual([[playerStorageKey, ...legacyPlayerStorageKeys, dismissedAlertsStorageKey, pendingPlayerProfileStorageKey]]);
+    expect(storage.multiRemoveCalls).toEqual([[playerStorageKey, ...legacyPlayerStorageKeys, dismissedAlertsStorageKey, pendingPlayerProfileStorageKey, playerMatchJournalStorageKey, playerLocalOriginStorageKey]]);
   });
 
   it('persists accepted-deletion cleanup across profile clearing and clears only the matching account marker', async () => {

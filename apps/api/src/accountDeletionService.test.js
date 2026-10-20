@@ -1053,6 +1053,42 @@ describe('classification-aware player account deletion', () => {
     expect(database.recursiveDelete).toHaveBeenCalledTimes(3);
   });
 
+  it('characterizes exact self-profile cleanup when recursive deletion is unavailable', async () => {
+    const deleted = [];
+    const query = { where: () => query, orderBy: () => query, limit: () => query, startAfter: () => query,
+      get: async () => ({ docs: [] }) };
+    const database = { collection: () => query, doc: (path) => ({ path, delete: async () => { deleted.push(path); } }) };
+    const admin = { firestore: Object.assign(vi.fn(), {
+      FieldPath: { documentId: () => '__name__' },
+      FieldValue: { delete: () => Symbol('delete'), serverTimestamp: () => 'server-timestamp' }
+    }) };
+    await cleanupFirebasePlayer('fallback-uid', [], 'deleted_subject', policy,
+      { linkedPlayerIds: ['fallback-uid'], sensitiveValues: [] }, { database, getAdminSdk: () => admin });
+    expect(deleted).toEqual(['players/fallback-uid/private/identity', 'players/fallback-uid/orbitMatch/state', 'players/fallback-uid']);
+  });
+
+  it('deletes Match operation receipts before the state in fallback cleanup and preserves unrelated owners', async () => {
+    const deleted = [];
+    const receiptPath = 'players/fallback-uid/orbitMatch/state/receipts/match-operation-one';
+    const documents = new Set([receiptPath, 'players/unrelated/orbitMatch/state/receipts/match-operation-other']);
+    const database = {
+      doc: (path) => ({ path, delete: async () => { deleted.push(path); documents.delete(path); } }),
+      collection: (path) => {
+        const query = { where: () => query, orderBy: () => query, limit: () => query, startAfter: () => query,
+          get: async () => ({ docs: [...documents].filter((item) => item.startsWith(`${path}/`)).map((item) => ({ id: item.split('/').at(-1), ref: database.doc(item) })) }) };
+        return query;
+      }
+    };
+    const admin = { firestore: Object.assign(vi.fn(), {
+      FieldPath: { documentId: () => '__name__' },
+      FieldValue: { delete: () => Symbol('delete'), serverTimestamp: () => 'server-timestamp' }
+    }) };
+    await expect(cleanupFirebasePlayer('fallback-uid', [], 'deleted_subject', policy,
+      { linkedPlayerIds: ['fallback-uid'], sensitiveValues: [] }, { database, getAdminSdk: () => admin })).resolves.toBe(1);
+    expect(deleted.indexOf(receiptPath)).toBeLessThan(deleted.indexOf('players/fallback-uid/orbitMatch/state'));
+    expect(documents.has('players/unrelated/orbitMatch/state/receipts/match-operation-other')).toBe(true);
+  });
+
   it('durably finalizes after Auth deletion when the first terminal marker write fails', async () => {
     const now = Date.parse('2026-09-04T18:00:00.000Z');
     const database = await getDatabase();

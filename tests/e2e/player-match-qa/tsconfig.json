@@ -1,0 +1,5 @@
+{
+  "extends": "../../../player-app/tsconfig.json",
+  "compilerOptions": { "baseUrl": "../../..", "paths": { "react-native": ["player-app/node_modules/react-native"] } },
+  "include": ["*.ts", "*.tsx"]
+}

@@ -4,6 +4,8 @@ import {
   createPlayerStorage,
   dismissedAlertsStorageKey,
   playerStorageKey,
+  playerMatchJournalStorageKey,
+  playerLocalOriginStorageKey,
   type PlayerStoragePort
 } from './playerStorageCore';
 
@@ -46,6 +48,9 @@ const securePlayerStoragePort: PlayerStoragePort = {
         keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY
       });
       return;
+    }
+    if (key === playerMatchJournalStorageKey || key === playerLocalOriginStorageKey) {
+      throw new Error('Secure storage is unavailable. Match and location changes could not be saved.');
     }
     volatileSecureFallback.set(key, value);
   }

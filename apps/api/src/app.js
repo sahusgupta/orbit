@@ -10,6 +10,7 @@ const { registerDashboardRoutes } = require('./routes/dashboard');
 const { registerPlayerRoutes } = require('./routes/player');
 const { registerSelfCheckInRoutes } = require('./routes/selfCheckIn');
 const { registerMembershipQrRoutes } = require('./routes/membershipQr');
+const { registerOrbitMatchRoutes } = require('./routes/orbitMatch');
 const { registerHealthRoute, registerLegalRoutes } = require('./routes/system');
 const { getDatabaseStatus } = require('./database');
 const { scheduleDeletionFinalizationDrain } = require('./accountDeletionService');
@@ -85,6 +86,7 @@ function createApp() {
   registerSelfCheckInRoutes(app);
   registerMembershipQrRoutes(app);
   registerPlayerRoutes(app);
+  registerOrbitMatchRoutes(app);
   registerLegalRoutes(app);
   registerDashboardRoutes(app, liveUpdates, startedAt);
 

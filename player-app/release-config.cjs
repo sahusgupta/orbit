@@ -121,7 +121,7 @@ function createExpoConfig(config, environment) {
   const configuredPlugins = Array.isArray(config.plugins) ? config.plugins : [];
   const retainedPlugins = configuredPlugins.filter((plugin) => {
     const name = Array.isArray(plugin) ? plugin[0] : plugin;
-    return !['expo-camera', 'expo-splash-screen'].includes(name);
+    return !['expo-camera', 'expo-splash-screen', 'expo-location'].includes(name);
   });
 
   return {
@@ -145,6 +145,16 @@ function createExpoConfig(config, environment) {
         image: './assets/splash-icon-transparent.png',
         resizeMode: 'contain'
       }],
+      ['expo-location', {
+        locationWhenInUsePermission: 'Use your location once to find poker games within your selected distance. Orbit keeps this search point on your device.',
+        locationAlwaysAndWhenInUsePermission: false,
+        locationAlwaysPermission: false,
+        motionUsagePermission: false,
+        isIosBackgroundLocationEnabled: false,
+        isAndroidBackgroundLocationEnabled: false,
+        isAndroidForegroundServiceEnabled: false,
+        isAndroidMotionActivityEnabled: false
+      }],
       './plugins/with-no-ios-url-schemes.cjs'
     ],
     ios: {
@@ -160,7 +170,9 @@ function createExpoConfig(config, environment) {
       ...config.android,
       googleServicesFile: './google-services.json',
       blockedPermissions: [
-        ...new Set([...(config.android?.blockedPermissions || []), 'android.permission.RECORD_AUDIO'])
+        ...new Set([...(config.android?.blockedPermissions || []), 'android.permission.RECORD_AUDIO',
+          'android.permission.ACCESS_BACKGROUND_LOCATION', 'android.permission.FOREGROUND_SERVICE_LOCATION',
+          'android.permission.ACTIVITY_RECOGNITION', 'com.google.android.gms.permission.ACTIVITY_RECOGNITION'])
       ],
       config: {
         ...config.android?.config,

@@ -1,18 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const native = vi.hoisted(() => ({ alert: vi.fn() }));
+const native = vi.hoisted(() => ({ alert: vi.fn(), openURL: vi.fn() }));
 
 vi.mock('react-native', () => ({
   Alert: { alert: native.alert },
   AppState: { currentState: 'active', addEventListener: vi.fn() },
-  Linking: { openSettings: vi.fn(), openURL: vi.fn() },
-  Platform: { OS: 'ios', select: (values: Record<string, string>) => values.ios }
+  Linking: { openSettings: vi.fn(), openURL: native.openURL },
+  Platform: { OS: 'ios', Version: '26.0', select: (values: Record<string, string>) => values.ios }
 }));
 
 import { playerPlatform } from './playerPlatform';
 
 describe('Player platform deletion confirmations', () => {
-  beforeEach(() => native.alert.mockReset());
+  beforeEach(() => { native.alert.mockReset(); native.openURL.mockReset().mockResolvedValue(undefined); });
+
+  it('hands the published destination to Apple Maps and exposes an OS handoff failure', async () => {
+    expect(await playerPlatform.openDirections('100 Main St', { latitude: 30.3, longitude: -97.7 })).toEqual({ ok: true });
+    expect(native.openURL).toHaveBeenCalledWith('https://maps.apple.com/directions?destination=30.3%2C-97.7&mode=driving');
+    native.openURL.mockRejectedValueOnce(new Error('OS rejected the URL'));
+    const result = await playerPlatform.openDirections('100 Main St');
+    expect(result.ok).toBe(false);
+    expect(native.alert).toHaveBeenCalledWith('Directions unavailable', expect.stringContaining('Try again'));
+  });
+
+  it('does not launch maps with an invented destination when publication is missing', async () => {
+    expect((await playerPlatform.openDirections('')).ok).toBe(false);
+    expect(native.openURL).not.toHaveBeenCalled();
+    expect(native.alert).toHaveBeenCalledWith('Directions unavailable', expect.stringContaining('valid address or coordinate'));
+  });
 
   it('distinguishes local profile/data deletion from authenticated account deletion', () => {
     const confirm = vi.fn();

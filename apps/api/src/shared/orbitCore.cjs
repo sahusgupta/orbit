@@ -35,6 +35,16 @@ function isRecord(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function decodeVenueCoordinate(value) {
+  if (!isRecord(value)) return undefined;
+  const { latitude, longitude } = value;
+  if (typeof latitude !== 'number' || !Number.isFinite(latitude) || latitude < -90 || latitude > 90
+    || typeof longitude !== 'number' || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    return undefined;
+  }
+  return { latitude, longitude };
+}
+
 function validateStatePayload(state) {
   if (!isRecord(state)) throw new Error('State payload must be an object.');
   if (!Array.isArray(state.games)) throw new Error('State payload is missing games.');
@@ -156,6 +166,7 @@ function buildPlayerClubSnapshot(state, player = {}, options = {}) {
   const electronProfile = isElectronProfile(options);
   const clubId = getAccountKeyFromState(state);
   const account = state.settings?.clubAccount || {};
+  const coordinate = decodeVenueCoordinate(account.coordinate);
   const activePlayerSessions = (state.playerSessions || []).filter((session) => !session.leftAt);
   const activeAdminCount = (state.settings?.staffAccounts || []).filter((staff) => staff.active !== false).length;
   const requestingProfile = (state.profiles || []).find((profile) => matchesAuthenticatedProfile(profile, player));
@@ -282,6 +293,7 @@ function buildPlayerClubSnapshot(state, player = {}, options = {}) {
       name: account.clubName || '',
       address: account.address,
       phone: account.phone,
+      ...(coordinate ? { coordinate } : {}),
       ...(account.minimumPlayerAge === 18 || account.minimumPlayerAge === 21
         ? { minimumAge: account.minimumPlayerAge }
         : {}),
@@ -299,7 +311,7 @@ function buildPlayerClubSnapshot(state, player = {}, options = {}) {
     games: (state.games || []).map((game) => {
       const openTables = tables.filter((table) => table.gameId === game.id);
       const runningGameTables = openTables.filter((table) => table.status === 'Running');
-      const gameWaitlist = waitlists.filter((entry) => entry.gameId === game.id && activeWaitlistStatuses.has(entry.status));
+      const gameWaitlist = allWaitlists.filter((entry) => entry.gameId === game.id && activeWaitlistStatuses.has(entry.status));
       const collectionMode = state.settings?.collectionProfiles?.find((profile) => profile.gameId === game.id)?.collectionMode ||
         openTables[0]?.collectionMode ||
         (state.settings?.defaultCollectionMode === 'Time' || state.settings?.defaultCollectionMode === 'Drop'
@@ -324,7 +336,7 @@ function buildPlayerClubSnapshot(state, player = {}, options = {}) {
       activePlayerCount: activeRunningPlayerSessions.length || runningTables.reduce((sum, table) => sum + table.seatsFilled, 0),
       adminCount: activeAdminCount,
       knownPlayersInHouse: activePlayerSessions.filter(isKnownPlayerSession).length,
-      waitlistCount: waitlists.filter((entry) => activeWaitlistStatuses.has(entry.status)).length
+      waitlistCount: allWaitlists.filter((entry) => activeWaitlistStatuses.has(entry.status)).length
     },
     ...(timeCollectionEnabled ? { timeAccess: {
       enabled: timeCollectionEnabled,
@@ -660,6 +672,7 @@ module.exports = {
   applyWaitlistRequestToState,
   buildPlayerClubSnapshot,
   createOrbitCore,
+  decodeVenueCoordinate,
   getAccountKeyFromState,
   sanitizeAccountKey,
   validateStatePayload

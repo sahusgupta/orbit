@@ -472,8 +472,8 @@ export function usePlayerIdentity({
     }
   };
 
-  const finishFirebaseAccountConnection = async (identity: FirebasePlayerIdentity) => {
-    const resolved = await resolveAuthenticatedPlayerProfile(identity, player, {
+  const finishFirebaseAccountConnection = async (identity: FirebasePlayerIdentity, localProfile: PlayerAccount) => {
+    const resolved = await resolveAuthenticatedPlayerProfile(identity, localProfile, {
       completeAdultDeclarationIfMissing: completePlayerAdultDeclarationIfMissing,
       createProfileIfMissing: createPlayerProfileIfMissing,
       readProfile: fetchPlayerProfile,
@@ -496,7 +496,7 @@ export function usePlayerIdentity({
     setScreen('identityVerification');
   };
 
-  const connectPlayerAccount = async () => {
+  const connectPlayerAccount = async (localProfile: PlayerAccount = player, signInOnly = false) => {
     if (playerAuthMethod === 'phone' && !phoneSignInEnabled) {
       setAuthStatus('Phone sign-in is unavailable in this release. Use your email address.');
       return;
@@ -506,16 +506,21 @@ export function usePlayerIdentity({
     try {
       if (playerAuthMethod === 'phone' && !playerPhoneChallenge) {
         setAuthStatus('Sending a one-time SMS code...');
-        const result = await startPlayerPhoneSignIn(playerAuthPhone || player.phone || '');
+        const result = await startPlayerPhoneSignIn(playerAuthPhone || localProfile.phone || '');
         setPlayerPhoneChallenge(result.challenge);
         setAuthStatus('Enter the one-time code sent to your phone. It expires in 10 minutes.');
         return;
       }
       setAuthStatus('Verifying and signing in...');
-      const identity = playerAuthMethod === 'email'
-        ? await signInOrCreatePlayerWithEmail(playerAuthEmail, playerAuthPassword)
-        : await completePlayerPhoneSignIn(playerAuthPhone || player.phone || '', playerAuthCode, playerPhoneChallenge);
-      await finishFirebaseAccountConnection(identity);
+      let identity: FirebasePlayerIdentity;
+      if (playerAuthMethod === 'email') {
+        identity = signInOnly
+          ? await signInOrCreatePlayerWithEmail(playerAuthEmail, playerAuthPassword, { createIfMissing: false })
+          : await signInOrCreatePlayerWithEmail(playerAuthEmail, playerAuthPassword);
+      } else {
+        identity = await completePlayerPhoneSignIn(playerAuthPhone || localProfile.phone || '', playerAuthCode, playerPhoneChallenge);
+      }
+      await finishFirebaseAccountConnection(identity, localProfile);
       setPlayerAuthPassword('');
       setPlayerAuthCode('');
       setPlayerPhoneChallenge('');

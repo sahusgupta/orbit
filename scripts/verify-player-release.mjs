@@ -23,7 +23,7 @@ const apiPackage = json('apps/api/package.json');
 const webPackage = json('player-web/package.json');
 const app = json('player-app/app.json').expo;
 const eas = json('player-app/eas.json');
-const expectedProductionIosImage = 'macos-sequoia-15.6-xcode-26.0';
+const expectedProductionIosImage = 'macos-tahoe-26.5-xcode-26.6';
 const failures = [];
 const requireMatch = (condition, message) => {
   if (!condition) failures.push(message);
@@ -79,7 +79,7 @@ try {
 requireMatch(eas.build?.production?.distribution === 'store', 'Production EAS profile must create a store build.');
 requireMatch(
   eas.build?.production?.ios?.image === expectedProductionIosImage,
-  'Production EAS profile must pin the reviewed Xcode 26/iOS 26 SDK build image.'
+  'Production EAS profile must pin the reviewed stable SDK 57 Xcode 26.6 build image.'
 );
 requireMatch(eas.build?.production?.ios?.simulator === false, 'Production EAS profile must target physical iOS devices.');
 requireMatch(eas.build?.production?.autoIncrement === true, 'Production EAS profile must auto-increment the remote build number.');
@@ -88,7 +88,8 @@ requireMatch(EXPECTED_NPM_VERSION === '10.9.2', 'The EAS pre-install hook must p
 
 requireMatch(app.name === 'Orbit Player', 'Expo app name must be Orbit Player.');
 requireMatch(app.version === '1.0.0', 'First-release marketing version must be 1.0.0.');
-requireMatch(app.ios?.bundleIdentifier === 'com.orbit.player', 'iOS bundle identifier must be com.orbit.player.');
+requireMatch(app.ios?.bundleIdentifier === 'com.caminuslabs.orbit', 'iOS bundle identifier must be com.caminuslabs.orbit.');
+requireMatch(app.android?.package === 'com.orbit.player', 'Android package identifier must remain com.orbit.player.');
 requireMatch(app.ios?.supportsTablet === false, 'The reviewed first release must remain iPhone-only.');
 requireMatch(app.ios?.infoPlist?.ITSAppUsesNonExemptEncryption === false, 'Encryption declaration must remain explicit.');
 requireMatch(app.scheme === undefined, 'Unused production URL schemes must remain absent.');
@@ -112,6 +113,11 @@ requireMatch(
 );
 requireMatch(playerPackage.dependencies?.['expo-splash-screen'] === '57.0.9', 'Expo splash plugin must use the SDK 57-compatible pinned version.');
 requireMatch(playerPackage.dependencies?.['expo-crypto'] === '57.0.3', 'Expo Crypto must remain a pinned SDK-compatible direct dependency for native request identifiers.');
+requireMatch(playerPackage.dependencies?.['expo-location'] === '57.0.20', 'Optional foreground location must use the reviewed SDK-compatible dependency.');
+requireMatch(app.ios?.infoPlist?.NSLocationWhenInUseUsageDescription === 'Use your location once to find poker games within your selected distance. Orbit keeps this search point on your device.', 'Foreground location requires the reviewed purpose text.');
+for (const key of ['NSLocationAlwaysUsageDescription', 'NSLocationAlwaysAndWhenInUseUsageDescription', 'NSMotionUsageDescription']) {
+  requireMatch(!app.ios?.infoPlist?.[key], `${key} must remain absent.`);
+}
 requireMatch(rootPackage.devDependencies?.['eas-cli'] === '23.2.0', 'Repository EAS CLI dependency must be pinned exactly outside the Expo project.');
 requireMatch(!playerPackage.devDependencies?.['eas-cli'], 'Expo Doctor requires EAS CLI to remain outside the Player project dependencies.');
 requireMatch(playerPackage.devDependencies?.['expo-doctor'] === '1.20.4', 'Expo Doctor must be pinned exactly.');
@@ -145,12 +151,23 @@ for (const [label, pattern] of [
   ['Player Premium', /Player Premium|usePlayerPremium|applePurchases|react-native-purchases/i],
   ['private-game client behavior', /PrivateGame|privateGames|private-game/i],
   ['venue checkout', /membership-checkout|createClubMembershipCheckout|connectedCheckout/i],
-  ['operational tournament registration route', /\/player\/tournament-registrations/],
-  ['unused social authentication', /expo-auth-session|googleWebClientId|googleIosClientId|googleAndroidClientId/i]
+  ['unused social authentication', /expo-auth-session|googleWebClientId|googleIosClientId|googleAndroidClientId/i],
+  ['background, watched, geocoded, or motion location behavior', /requestBackgroundPermissionsAsync|watchPositionAsync|startLocationUpdatesAsync|startGeofencingAsync|geocodeAsync|reverseGeocodeAsync|getMotionActivityAsync|watchMotionActivityAsync/]
 ]) {
   requireMatch(!pattern.test(sourceContracts), `Production native source still contains ${label}.`);
 }
 requireMatch(sourceContracts.includes('/player/tournament-interests'), 'Production native source must use the nonbinding tournament-interest route.');
+requireMatch(sourceContracts.includes('/player/tournament-registrations'), 'Native free-event registration must use the authenticated API route.');
+const registrationRepository = read('player-app/src/data/firebase/playerTournamentRepository.ts');
+for (const guard of ['registrationAvailable !== true', 'tournament.buyIn !== 0', 'tournament.rebuysAllowed && tournament.rebuyPrice !== 0', 'tournament.addOnsAllowed && tournament.addOnPrice !== 0']) {
+  requireMatch(registrationRepository.includes(guard), `Native free-event registration is missing its no-payment guard: ${guard}.`);
+}
+const registrationService = read('apps/api/src/tournamentRegistrationService.js');
+requireMatch(registrationService.includes('tournament?.buyIn === 0') && registrationService.includes('enabled === true && price === 0'), 'The API must authorize only zero-cost entries and enabled zero-cost extras.');
+requireMatch(registrationService.includes('buyIn: 0') && registrationService.includes("status: 'Registered'"), 'Free registration must create a zero-cost operational entrant.');
+requireMatch(read('apps/api/src/routes/player.js').includes("app.post('/player/tournament-registrations', requirePlayerAppCheck, requireFirebasePlayer, requireActivePlayerAccount, requireVerifiedPlayerAge"), 'Registration must retain App Check, authentication, active-account, and age middleware.');
+const registrationRoute = read('apps/api/src/routes/tournamentRegistrations.js');
+requireMatch(registrationRoute.includes('transactionPrecondition:') && registrationRoute.includes('await security(') && registrationRoute.includes('applyTournamentRegistration(context.currentState'), 'Registration must recheck security and the current no-payment tournament at commit.');
 requireMatch(!sourceContracts.includes('Math.random'), 'Production native source must not use predictable randomness.');
 const nativeSecureIdentifier = read('player-app/src/security/secureIdentifier.native.ts');
 requireMatch(nativeSecureIdentifier.includes("from 'expo-crypto'"), 'Native request identifiers must use Expo Crypto.');
@@ -259,7 +276,10 @@ if (fs.existsSync(storePackagePath)) {
   }
   for (const statement of [
     'does not accept wagers, stakes, deposits, entry fees, or prize funds',
-    'does not register the player or reserve a seat',
+    'no entry, rebuy or add-on payment',
+    'no debt, payment or ledger entry',
+    'Paid events offer nonbinding **Express interest**',
+    'interest does not register the player, reserve a seat, or establish prize eligibility',
     'No private-game listings, Premium subscription, or venue checkout exist in this build'
   ]) {
     requireMatch(storePackage.includes(statement), `App Review notes are missing: ${statement}`);

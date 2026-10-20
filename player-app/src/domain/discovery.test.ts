@@ -129,6 +129,13 @@ describe('Player discovery factual boundaries', () => {
     expect(discovery.getClubDistance(club('unknown'), origin)).toBeNull();
     expect(discovery.getClubDistance(club('published', { coordinate: origin }), null)).toBeNull();
   });
+  it('keeps valid antipodal distances finite when floating-point rounding exceeds the Haversine upper bound', () => {
+    const from = { latitude: -88.40000000000009, longitude: 0 };
+    const to = { latitude: 88.40000000000009, longitude: 180 };
+    expect(discovery.getDistanceMiles(from, to)).toBeCloseTo(Math.PI * 3958.8, 5);
+    expect(discovery.getDistanceMiles(to, from)).toBeCloseTo(Math.PI * 3958.8, 5);
+    expect(discovery.getDistanceMiles({ latitude: 90, longitude: 0 }, { latitude: -90, longitude: 180 })).toBeCloseTo(Math.PI * 3958.8, 5);
+  });
 
   it('never lets unknown coordinates match any active distance filter', () => {
     const unknown = club('unknown', { name: 'Casino Query Match', venueKind: 'Casino' });

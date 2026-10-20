@@ -9,6 +9,7 @@ import { tournamentScopeKey, type PlayerAccount, type PlayerTournament, type Pla
 const tournamentHarness = vi.hoisted(() => ({
   express: vi.fn(),
   withdraw: vi.fn(),
+  register: vi.fn(),
   currentPlayer: { uid: 'player-1' },
   mutationCounter: 0
 }));
@@ -16,7 +17,8 @@ const tournamentHarness = vi.hoisted(() => ({
 vi.mock('../data/orbitSyncApi', () => ({
   expressTournamentInterest: tournamentHarness.express,
   getCurrentFirebasePlayer: () => tournamentHarness.currentPlayer,
-  withdrawTournamentInterest: tournamentHarness.withdraw
+  withdrawTournamentInterest: tournamentHarness.withdraw,
+  registerForTournament: tournamentHarness.register
 }));
 
 vi.mock('../security/secureIdentifier', () => ({
@@ -72,11 +74,11 @@ describe('club-scoped native tournament actions', () => {
   let latestActions: ReturnType<typeof usePlayerTournaments>;
   let latestInterests: PlayerTournamentInterest[];
 
-  function Harness({ initialInterests = [] }: { initialInterests?: PlayerTournamentInterest[] }) {
+  function Harness({ initialInterests = [], uid = player.id, tournaments }: { initialInterests?: PlayerTournamentInterest[]; uid?: string; tournaments?: PlayerTournament[] }) {
     const [interests, setInterests] = useState(initialInterests);
     const actions = usePlayerTournaments({
       firebaseIdentity: {
-        uid: player.id,
+        uid,
         email: player.email,
         name: player.name,
         provider: 'email',
@@ -85,7 +87,8 @@ describe('club-scoped native tournament actions', () => {
       getClubMinimumAge: () => 21,
       player,
       requireVerifiedAge: () => true,
-      setTournamentInterests: setInterests
+      setTournamentInterests: setInterests,
+      tournaments
     });
     latestActions = actions;
     latestInterests = interests;
@@ -96,7 +99,9 @@ describe('club-scoped native tournament actions', () => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     tournamentHarness.express.mockReset();
     tournamentHarness.withdraw.mockReset();
+    tournamentHarness.register.mockReset();
     tournamentHarness.mutationCounter = 0;
+    tournamentHarness.currentPlayer.uid = player.id;
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -161,5 +166,58 @@ describe('club-scoped native tournament actions', () => {
 
     expect(tournamentHarness.express).toHaveBeenCalledTimes(2);
     expect(tournamentHarness.express.mock.calls[0][2]).not.toBe(tournamentHarness.express.mock.calls[1][2]);
+  });
+
+  it('confirms registration only from an authoritative result and keeps retries idempotent', async () => {
+    const event = { ...tournament('club-a'), registrationAvailable: true };
+    const registration = { id: 'registration-a', clubId: event.clubId, tournamentId: event.id, playerId: player.id, status: 'registered' as const, registeredAt: '2026-10-20T12:00:00Z' };
+    tournamentHarness.register.mockRejectedValueOnce(new Error('Temporary connection failure')).mockResolvedValueOnce(registration);
+    act(() => root.render(<Harness />));
+    await act(async () => latestActions.registerTournament(event));
+    expect(latestActions.tournamentRegistrations).toEqual({});
+    expect(latestActions.tournamentMessage).toContain('Temporary connection failure');
+    await act(async () => latestActions.registerTournament(event));
+    expect(tournamentHarness.register.mock.calls[0][2]).toBe(tournamentHarness.register.mock.calls[1][2]);
+    expect(latestActions.tournamentRegistrations[tournamentScopeKey(event)]).toEqual(registration);
+    expect(latestActions.tournamentMessage).toContain('No payment was collected');
+    expect(latestInterests).toEqual([]);
+  });
+
+  it('suppresses duplicate registration taps while a venue request is pending', async () => {
+    const pending = deferred<{ id: string; clubId: string; tournamentId: string; playerId: string; status: 'registered'; registeredAt: string }>();
+    const event = { ...tournament('club-a'), registrationAvailable: true };
+    tournamentHarness.register.mockReturnValue(pending.promise);
+    act(() => root.render(<Harness />));
+    act(() => { void latestActions.registerTournament(event); void latestActions.registerTournament(event); });
+    expect(tournamentHarness.register).toHaveBeenCalledOnce();
+    expect(latestActions.pendingTournamentKeys).toEqual([tournamentScopeKey(event)]);
+    await act(async () => pending.resolve({ id: 'registration-a', clubId: event.clubId, tournamentId: event.id, playerId: player.id, status: 'registered', registeredAt: '2026-10-20T12:00:00Z' }));
+    expect(latestActions.pendingTournamentKeys).toEqual([]);
+  });
+
+  it('lets a new authoritative catalog remove the local registration acknowledgement', async () => {
+    const event = { ...tournament('club-a'), registrationAvailable: true };
+    const catalog = [event];
+    tournamentHarness.register.mockResolvedValue({ id: 'registration-a', clubId: event.clubId, tournamentId: event.id, playerId: player.id, status: 'registered', registeredAt: '2026-10-20T12:00:00Z' });
+    act(() => root.render(<Harness tournaments={catalog} />));
+    await act(async () => latestActions.registerTournament(event));
+    expect(latestActions.tournamentRegistrations[tournamentScopeKey(event)]).toBeDefined();
+    act(() => root.render(<Harness tournaments={[{ ...event }]} />));
+    expect(latestActions.tournamentRegistrations).toEqual({});
+  });
+
+  it('ignores an old registration completion after the account changes away and back', async () => {
+    const event = { ...tournament('club-a'), registrationAvailable: true };
+    const pending = deferred<{ id: string; clubId: string; tournamentId: string; playerId: string; status: 'registered'; registeredAt: string }>();
+    tournamentHarness.register.mockReturnValue(pending.promise);
+    act(() => root.render(<Harness />));
+    act(() => { void latestActions.registerTournament(event); });
+    tournamentHarness.currentPlayer.uid = 'other-player';
+    act(() => root.render(<Harness uid="other-player" />));
+    tournamentHarness.currentPlayer.uid = player.id;
+    act(() => root.render(<Harness />));
+    await act(async () => pending.resolve({ id: 'stale-registration', clubId: event.clubId, tournamentId: event.id, playerId: player.id, status: 'registered', registeredAt: '2026-10-20T12:00:00Z' }));
+    expect(latestActions.tournamentRegistrations).toEqual({});
+    expect(latestActions.tournamentMessage).toBe('');
   });
 });

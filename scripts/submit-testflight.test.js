@@ -27,7 +27,7 @@ describe('exact TestFlight submission guard', () => {
           buildProfile: 'production',
           distribution: 'STORE',
           isForIosSimulator: false,
-          appIdentifier: 'com.orbit.player',
+          appIdentifier: 'com.caminuslabs.orbit',
           appVersion: '1.0.0',
           appBuildVersion: '7',
           app: { id: projectId, slug: 'tabletalk-player', ownerAccount: { name: 'saussy' } }
@@ -64,7 +64,7 @@ describe('exact TestFlight submission guard', () => {
           buildProfile: 'production',
           distribution: 'STORE',
           isForIosSimulator: false,
-          appIdentifier: 'com.orbit.player',
+          appIdentifier: 'com.caminuslabs.orbit',
           appVersion: '1.0.0',
           appBuildVersion: '7',
           app: { id: projectId, slug: 'tabletalk-player', ownerAccount: { name: 'saussy' } }
@@ -88,7 +88,7 @@ describe('exact TestFlight submission guard', () => {
           buildProfile: 'production',
           distribution: 'STORE',
           isForIosSimulator: false,
-          appIdentifier: 'com.orbit.player',
+          appIdentifier: 'com.caminuslabs.orbit',
           appVersion: '1.0.0',
           appBuildVersion: '7',
           app: { id: 'different-project', slug: 'tabletalk-player', ownerAccount: { name: 'saussy' } }
@@ -96,6 +96,18 @@ describe('exact TestFlight submission guard', () => {
       });
 
     expect(() => run(arguments_, spawn)).toThrow('does not belong to the configured Orbit Player project identity');
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a historical bundle candidate before any TestFlight submission', () => {
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: `${sourceSha}\n` })
+      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify({
+        id: buildId, gitCommitHash: sourceSha, platform: 'IOS', status: 'FINISHED', buildProfile: 'production',
+        distribution: 'STORE', isForIosSimulator: false, appIdentifier: 'com.orbit.player', appVersion: '1.0.0', appBuildVersion: '7',
+        app: { id: projectId, slug: 'tabletalk-player', ownerAccount: { name: 'saussy' } }
+      }) });
+    expect(() => run(arguments_, spawn)).toThrow('identity or marketing version does not match');
     expect(spawn).toHaveBeenCalledTimes(2);
   });
 });

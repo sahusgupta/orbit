@@ -14,6 +14,7 @@ export type Screen =
   | 'tournaments'
   | 'map'
   | 'clubs'
+  | 'membershipDetails'
   | 'clubSignup'
   | 'identityVerification'
   | 'settings';
@@ -34,6 +35,7 @@ export type SeatRequestDraft = {
   expectedArrivalTime: string;
   availabilityStartTime: string;
   availabilityEndTime: string;
+  matchAttribution?: { uid: string; saveMutationId: string; initiatedAt: number };
 };
 
 export type GameOpportunity = {

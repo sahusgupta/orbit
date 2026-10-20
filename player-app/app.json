@@ -6,12 +6,13 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.orbit.player",
+      "bundleIdentifier": "com.caminuslabs.orbit",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "Use your location once to find poker games within your selected distance. Orbit keeps this search point on your device."
       },
       "privacyManifests": {
         "NSPrivacyTracking": false,

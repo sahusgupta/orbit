@@ -13,7 +13,6 @@ const forbiddenBundlePatterns = [
   ['backend environment path', /apps[\\/]api[\\/]\.env/],
   ['removed Player Premium product', /Player Premium|player_premium|REVENUECAT/i],
   ['removed venue checkout route', /\/player\/membership-checkout/],
-  ['removed operational tournament-registration route', /\/player\/tournament-registrations/],
   ['removed private-game implementation', /PrivateGame|privateGames|private-game/i],
   ['obsolete operator identity', /Orbit Technologies LLC/]
 ];
@@ -37,6 +36,12 @@ export function verifyPlayerBundle(bundleRoot) {
   const failures = [];
   let inspectedFiles = 0;
   let skippedBinaryAssets = 0;
+  let registrationRouteFound = false;
+  const registrationGuards = new Map([
+    ['registrationAvailable', false],
+    ['Only events without an entry, rebuy, or add-on payment can be registered in Orbit.', false],
+    ['/player/tournament-interests', false]
+  ]);
   for (const filePath of exportedFiles) {
     const source = fs.readFileSync(filePath);
     if (source.includes(0)) {
@@ -49,9 +54,18 @@ export function verifyPlayerBundle(bundleRoot) {
     }
     inspectedFiles += 1;
     const text = source.toString('utf8');
+    if (text.includes('/player/tournament-registrations')) registrationRouteFound = true;
+    for (const marker of registrationGuards.keys()) {
+      if (text.includes(marker)) registrationGuards.set(marker, true);
+    }
     for (const [label, pattern] of forbiddenBundlePatterns) {
       if (pattern.test(text)) failures.push(`${path.relative(bundleRoot, filePath)} contains ${label}`);
       pattern.lastIndex = 0;
+    }
+  }
+  if (registrationRouteFound) {
+    for (const [marker, found] of registrationGuards) {
+      if (!found) failures.push(`free-event registration is missing its no-payment policy marker: ${marker}`);
     }
   }
   if (failures.length) throw new Error(`Orbit Player bundle verification failed:\n- ${failures.join('\n- ')}`);

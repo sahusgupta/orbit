@@ -1,10 +1,11 @@
+import { usePlayerTheme, useThemedStyles } from '../styles/PlayerThemeProvider';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { PlayerInAppNotification } from '../domain/playerSync';
 import { notificationStyles } from '../styles/notificationStyles';
 import { colors } from '../styles/playerTheme';
 
-const styles = notificationStyles;
+const baseStyles = notificationStyles;
 
 export function InAppNotificationPopup({
   notification,
@@ -13,6 +14,8 @@ export function InAppNotificationPopup({
   notification: PlayerInAppNotification;
   onDismiss: () => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   return (
     <View pointerEvents="box-none" style={styles.alertToastHost}>
       <View style={styles.alertPopup}>

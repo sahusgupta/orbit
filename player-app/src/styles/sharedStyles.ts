@@ -137,7 +137,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
     borderColor: colors.line,
     borderRadius: 999,
     borderWidth: 1,
-    minHeight: 38,
+    minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: 12
   },
@@ -302,7 +302,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
   filterSheetHeaderAction: {
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 36,
+    minHeight: 44,
     minWidth: 58,
     paddingHorizontal: 9
   },
@@ -325,9 +325,9 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
     borderColor: 'rgba(56,80,109,0.14)',
     borderRadius: 12,
     borderWidth: 1,
-    height: 42,
+    height: 44,
     justifyContent: 'center',
-    width: 42
+    width: 44
   },
   iconActionButtonActive: {
     backgroundColor: colors.primary,
@@ -347,7 +347,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
     alignSelf: 'flex-start',
     flexDirection: 'row',
     gap: 5,
-    minHeight: 36,
+    minHeight: 44,
     paddingHorizontal: 2
   },
   inlineBackText: {
@@ -471,6 +471,8 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
     borderColor: colors.line,
     borderWidth: 1,
     borderRadius: 10,
+    justifyContent: 'center',
+    minHeight: 44,
     paddingHorizontal: 14,
     paddingVertical: 9
   },
@@ -479,7 +481,7 @@ export const sharedStyles = StyleSheet.create(applyDarkComponentTheme({
     fontWeight: '700'
   },
   disabledAction: { opacity: 0.45 },
-  secondaryActionButton: { alignItems: 'center', borderColor: colors.line, borderRadius: 10, borderWidth: 1, minHeight: 42, justifyContent: 'center' },
+  secondaryActionButton: { alignItems: 'center', borderColor: colors.line, borderRadius: 10, borderWidth: 1, minHeight: 44, justifyContent: 'center' },
   secondaryActionText: {
     color: colors.ink,
     fontSize: 15,

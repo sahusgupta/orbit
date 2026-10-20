@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const fs = require('fs');
-const { buildPlayerClubSnapshot, getAccountKeyFromState } = require('./orbitCore');
+const { buildPlayerClubSnapshot, decodeVenueCoordinate, getAccountKeyFromState } = require('./orbitCore');
 const { protectedIdentifier } = require('./operations/dataProtection');
 
 const firebaseConfig = {
@@ -430,10 +430,12 @@ function buildCanonicalGameDocs(state, clubId, savedAt) {
 function buildCanonicalClubDoc(state, clubId, snapshot, playerDocs, savedAt) {
   const account = state.settings?.clubAccount || {};
   const publishedName = String(account.clubName || snapshot.club.name || '').trim();
+  const coordinate = decodeVenueCoordinate(account.coordinate);
   return {
     id: clubId,
     ...(publishedName ? { name: publishedName } : {}),
     address: account.address || '',
+    ...(coordinate ? { coordinate } : {}),
     ...(snapshot.club.minimumAge === 18 || snapshot.club.minimumAge === 21
       ? { minimumAge: snapshot.club.minimumAge }
       : {}),

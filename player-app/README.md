@@ -1,8 +1,8 @@
 # Orbit Player
 
-Orbit Player is the Expo/React Native companion for participating poker venues. The conservative first release supports factual venue/game/tournament discovery, operational waitlist and membership requests, nonbinding tournament interest, short-lived membership check-in QR credentials, profile/data deletion, and consented on-device PDF417 field capture.
+Orbit Player is the Expo/React Native companion for participating poker venues. The first release supports factual venue/game/tournament discovery, operational waitlist and membership requests, free-event registration, nonbinding interest for paid events, short-lived membership check-in QR credentials, profile/data deletion, and consented on-device PDF417 field capture.
 
-The first iOS release has no Player Premium subscription, in-app purchase, player-hosted/private-game surface, venue checkout, social sign-in, general push notifications, device-location request, or operational tournament registration. These exclusions are build policy and are verified across all production source and exported JavaScript.
+The first iOS release has no Player Premium subscription, in-app purchase, player-hosted/private-game surface, venue checkout, payment-method management, paid-event registration, social sign-in, general push notifications, or background location. These exclusions are build policy and are verified across production source, native configuration, and exported JavaScript. Search location supports an explicit foreground device fix or a manual point; neither point is sent to Orbit.
 
 ## Local development
 
@@ -16,6 +16,32 @@ npm run player:dev
 ```
 
 The example environment uses a loopback API and no production secrets. Every `EXPO_PUBLIC_*` value is compiled into the client and must be treated as public. Production builds use the validated values in `eas.json`; `app.config.js` does not read the API `.env`.
+
+On Windows, `metro.config.js` normalizes apparent symlinks from directory listings with `lstat` before Expo indexes files. This handles OneDrive cloud reparse points that otherwise cause `EINVAL: invalid argument, readlink`, followed by `Cannot read properties of undefined (reading 'exists')` on asset requests. Real symlinks remain unchanged. After updating this configuration, stop the existing Expo server and restart from `player-app` with `npx expo start --clear` to rebuild its cached file index.
+
+## App navigation
+
+First launch offers **Create account**, **Try demo account**, and **Sign in**. Real account setup uses Firebase Authentication with email verification and the existing private Firebase profile; passwords are never stored in profile documents. Profile fields center within the available screen height, with actions at the bottom. Short pages stretch to fill the viewport and remain scrollable on smaller screens.
+
+**Games** opens a feed with current game, venue, city, and seat information. **Find games** opens Orbit Match; labeled, accessible icons in the bottom corner keep Events, Map, Clubs, and Profile one tap away. Match uses expanded stacked game cards and round Pass/Save/Details actions. The first card shows the game, venue, location and published availability; **Game info** opens tables, queue, fees and recommendation reasons when wanted.
+
+Cash-game details start with a compact overview. **Rules**, **Structure** and the seat-request control open one section at a time. Opening a request section sends nothing; continue explicitly to the existing confirmation/access flow. Tournament cards likewise keep **Structure**, **Rules** and **Request** closed initially. **Register for free** joins the venue's entrant list only when its published entry, rebuy, and add-on terms require no payment and registration is open. Registration changes remain staff-managed. Paid events retain the explicit nonbinding interest action. Neither flow collects payment or creates a debt.
+
+**Map** searches published venue addresses and locations, filters results, and frames matching venue coordinates. Location matches take precedence over similarly named venues elsewhere. Clearing search restores the venue extent; no new geocoding service or device-location request is involved.
+
+**Clubs** shows a membership list. Selecting a club opens a separate details page with its published plan, expiry and check-in controls. **Extend membership** opens the venue's published membership options and sends the existing access request; staff confirms extension and expiry. Current active access is preserved while that request is reviewed.
+
+Orbit Match has **Discover**, **Saved**, and **Preferences** modes, with Back, Search and Filters in one header. Swipe or use Pass/Save, open details, and Undo the latest decision. Saving never joins a waitlist or registers for a tournament; existing requests require separate confirmation. Signed-in Match saves and preferences synchronize through the existing API and an owner-only listener, with a secure journal for pending changes. Device-only Match data stays separate and is not moved into an account on sign-in; its explanation is available in **Preferences**. Preference setup is optional during onboarding and remains available from Profile. See [Match persistence and privacy](../docs/architecture/ORBIT_MATCH_PERSISTENCE.md).
+
+Profile starts with an account summary. **Sign in**, **Edit profile**, and **Preferences** expand when needed; identity, help, legal links, and account actions remain available. Match preferences and demo settings are in Profile. Navigation and the shared action controls use at least 44-point touch targets, and scrolling forms retain button taps while the keyboard is open. Onboarding avoids the iOS keyboard. The app follows the system light/dark appearance and respects reduced motion in Match.
+
+## Demo account
+
+Choose **Try demo account** during onboarding, from Profile, or from a loading/error screen. The demo opens without an API URL or sign-in and always starts with eight fictional games across Austin, Chicago, Denver, and Las Vegas, four upcoming events, two sample memberships, and a sample My Games request.
+
+All demo data stays in memory. Open **Profile** for **Reset demo games**, which restores the catalog and clears saved/passed discoveries, or **Exit demo**, which restores the normal saved-profile flow. Dates also refresh each day and when returning from a suspended app. Venue requests, registrations, directions, identity verification, and check-in credentials are unavailable in the preview. The map may still load tiles from its normal map provider.
+
+The demo is an explicit preview; it never substitutes fictional venues into a connected account. Real published data still requires `EXPO_PUBLIC_ORBIT_API_URL`. No backend demo account, production data seed, or deployment is required.
 
 ## Release verification
 
@@ -43,13 +69,15 @@ The command generates native files in a disposable operating-system temporary di
 
 Production clients initialize native App Check before Firebase Auth/Firestore and send attestation on protected API calls. The release uses App Attest on iOS with the production entitlement; its real provider requires signing and supported hardware. See [App Check architecture and staged activation](../docs/architecture/PLAYER_APP_CHECK.md) for native/Web settings, registrations, provider prerequisites, and rollback. Development can keep attestation disabled against isolated services; release builds cannot.
 
+The current iPhone bundle is `com.caminuslabs.orbit`, aligned with its separately registered public Firebase iOS configuration in `tabletalk-s`. Android remains `com.orbit.player`. Earlier `com.orbit.player` iOS source/build records are historical and remain preserved. The new registration alone does not configure App Attest, authorize its App ID in the protected API, create Apple provisioning, or establish an installable iPhone build; those candidate gates remain explicit.
+
 - Firebase authentication uses email/password or optional phone OTP. Social authentication is absent.
 - A signed-in profile can store an optional phone number even when email/password is used.
-- Optional home-area text is not a coordinate. V1 has no player-origin coordinate and never calculates or displays player-to-venue mileage.
-- Venue map pins require valid venue-published coordinates. Opening Maps may send the displayed region, those coordinates, and ordinary request metadata to the platform map provider; Directions additionally opens or sends a factual published venue address. Orbit does not request device GPS or send a player-origin coordinate.
+- Optional home-area text is not a coordinate. Distance requires both a chosen, valid search origin and a valid venue-published coordinate; otherwise it remains unavailable. Device location is requested only by **Use my device location**, expires after 15 minutes, and stays in secure storage for the current local owner. Manual points stay until cleared or local account data is deleted. Demo points stay in memory and never request device location. See [local search location](../docs/architecture/PLAYER_LOCAL_LOCATION.md).
+- Connected venue map pins require valid venue-published coordinates; the explicit demo uses clearly labeled fictional locations. Opening Maps or the manual map picker may send the displayed region, published venue coordinates, selected manual markers, and ordinary request metadata to the platform map provider. The picker starts at the published venue extent or a neutral world view and never centers on the device origin. Directions opens or sends a factual published venue address in connected sessions. Search origins are not sent to Orbit APIs, profiles, Match operations, or analytics.
 - PDF417 capture happens on device. The app previews and submits only confirmed full name, date of birth, and address; it does not store or upload the document image, raw barcode, or document number.
 - Hosted Stripe Identity remains a conditional web/compatibility verification path. Stripe payment/checkout and RevenueCat client SDKs are absent from the iOS v1 binary.
-- Tournament interest is stored separately from registrations and financial records. It does not change entrants, seats, ledgers, buy-ins, or prize pools.
+- Tournament interest remains separate from registrations and financial records. Free-event registration uses the existing venue entrant shape with zero buy-in, rebuys and add-ons. Private discovery returns only the signed-in player's registration; public discovery never returns entrant identities. No payment, debt, or ledger entry is created.
 
 ## Firestore publication
 
@@ -67,7 +95,7 @@ Do not deploy rules, indexes, API code, or public pages without separate authori
 
 The `simulator` EAS profile inherits production code, environment, and the Xcode image, targets the iOS Simulator, and disables build-number auto-increment. It provides native compiler/QA evidence before Apple signing is available. Run the pinned CLI from `player-app`: `node ../node_modules/eas-cli/bin/run build --platform ios --profile simulator --non-interactive`. Record its committed source SHA and build ID. This artifact cannot be uploaded by the TestFlight submission guard, and it cannot prove real App Attest on supported hardware.
 
-EAS accepts the exact Node version in each build profile but does not support an `npm` profile field. The `eas-build-pre-install` lifecycle hook therefore installs npm 10.9.2 and fails closed unless that exact version is active before EAS runs the lockfile-immutable dependency install. The production iOS profile pins Expo's SDK 54 image `macos-sequoia-15.6-xcode-26.0` so App Store uploads are configured for Xcode 26 and the iOS 26 SDK. The repository-locked EAS schema parses every iOS profile, while release checks require the exact reviewed production-image string. Expo's current image catalog and the eventual candidate build—not schema parsing alone—provide availability and toolchain evidence. Custom EAS workflows are rejected because EAS does not run lifecycle hooks automatically for custom builds.
+EAS accepts the exact Node version in each build profile but does not support an `npm` profile field. The `eas-build-pre-install` lifecycle hook therefore installs npm 10.9.2 and fails closed unless that exact version is active before EAS runs the lockfile-immutable dependency install. The production iOS profile pins `macos-tahoe-26.5-xcode-26.6`, Expo's stable SDK 57 image with Xcode 26.6 (`17F113`); inherited simulator and physical test profiles use the same pin. SDK 57 requires Xcode 26.4 or newer. [Expo SDK requirements](https://docs.expo.dev/versions/latest/), [build server images](https://docs.expo.dev/build-reference/infrastructure/). The repository-locked EAS schema parses every iOS profile, while release checks require the exact reviewed image. Actual candidate logs/archive must confirm the resolved toolchain and applicable Apple upload requirements; schema parsing alone proves no compiler or signing success. Custom EAS workflows are rejected because EAS does not run lifecycle hooks automatically for custom builds.
 
 `npm run build:testflight --prefix player-app` starts a remote signed build and is an external action. It is permitted only after the exact pushed SHA is green and credentials/project identity are verified. Upload uses an explicit EAS build ID and source SHA:
 

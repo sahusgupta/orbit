@@ -9,6 +9,7 @@ import type {
   PlayerSyncTable,
   PlayerTournament,
   PlayerTournamentInterest,
+  PlayerTournamentRegistration,
   PlayerWaitlistEntry
 } from '../playerSync';
 import type { PlayerIdentityStatus } from '../playerIdentity';
@@ -96,6 +97,21 @@ export function decodeTournamentInterestMutationResponse(value: unknown) {
   const interest = record.interest === undefined ? undefined : decodeTournamentInterest(record.interest);
   if (record.interest !== undefined && !interest) return null;
   return { ok: true as const, ...(interest ? { interest } : {}) };
+}
+
+export function decodeTournamentRegistrationMutationResponse(value: unknown) {
+  const record = asRecord(value);
+  const registration = record && decodeTournamentRegistration(record.registration);
+  return record?.ok === true && registration ? { ok: true as const, registration } : null;
+}
+
+export function decodeTournamentRegistration(value: unknown): PlayerTournamentRegistration | null {
+  const record = asRecord(value);
+  if (!record || !nonemptyString(record.id) || !nonemptyString(record.clubId) ||
+    !nonemptyString(record.tournamentId) || !nonemptyString(record.playerId) ||
+    record.status !== 'registered' || !validTimestamp(record.registeredAt)) return null;
+  return { id: record.id, clubId: record.clubId, tournamentId: record.tournamentId,
+    playerId: record.playerId, status: 'registered', registeredAt: record.registeredAt };
 }
 
 export function decodeMembershipQrResponse(value: unknown) {
@@ -219,6 +235,9 @@ export function decodePlayerTournament(value: unknown): PlayerTournament | null 
   ] as const;
   if (numericFields.some((field) => record[field] !== undefined && nonnegativeFinite(record[field]) == null)) return null;
   if (record.unlimitedRebuys !== undefined && typeof record.unlimitedRebuys !== 'boolean') return null;
+  if (record.registrationAvailable !== undefined && typeof record.registrationAvailable !== 'boolean') return null;
+  const registration = record.registration === undefined ? undefined : decodeTournamentRegistration(record.registration);
+  if (record.registration !== undefined && (!registration || registration.clubId !== record.clubId || registration.tournamentId !== record.id)) return null;
   return {
     id: record.id,
     clubId: record.clubId,
@@ -244,7 +263,9 @@ export function decodePlayerTournament(value: unknown): PlayerTournament | null 
     ...(record.entrantCount === undefined ? {} : { entrantCount: record.entrantCount as number }),
     ...(record.totalRebuys === undefined ? {} : { totalRebuys: record.totalRebuys as number }),
     ...(record.totalAddOns === undefined ? {} : { totalAddOns: record.totalAddOns as number }),
-    ...(typeof record.featured === 'boolean' ? { featured: record.featured } : {})
+    ...(typeof record.featured === 'boolean' ? { featured: record.featured } : {}),
+    ...(typeof record.registrationAvailable === 'boolean' ? { registrationAvailable: record.registrationAvailable } : {}),
+    ...(registration ? { registration } : {})
   };
 }
 
@@ -499,7 +520,7 @@ function decodePlayerTimeAccess(value: unknown) {
   const activeSession = record?.activeSession === undefined ? undefined : asRecord(record.activeSession);
   if (
     !record || typeof record.enabled !== 'boolean' || typeof record.linked !== 'boolean' ||
-    nonnegativeFinite(record.hourlyFeeCents) == null || nonnegativeFinite(record.savedMinutes) == null ||
+    (record.hourlyFeeCents !== undefined && nonnegativeFinite(record.hourlyFeeCents) == null) || nonnegativeFinite(record.savedMinutes) == null ||
     (record.profileId !== undefined && typeof record.profileId !== 'string') ||
     (record.activeSession !== undefined && (!activeSession ||
       !nonemptyString(activeSession.id) || !nonemptyString(activeSession.tableId) || !nonemptyString(activeSession.tableLabel) ||

@@ -127,6 +127,11 @@
     }
   ],
   "fieldOverrides": [
+    { "collectionGroup": "orbitMatch", "fieldPath": "preferences", "indexes": [] },
+    { "collectionGroup": "orbitMatch", "fieldPath": "decisions", "indexes": [] },
+    { "collectionGroup": "orbitMatch", "fieldPath": "undo", "indexes": [] },
+    { "collectionGroup": "orbitMatch", "fieldPath": "events", "indexes": [] },
+    { "collectionGroup": "orbitMatch", "fieldPath": "recentMutationIds", "indexes": [] },
     {
       "collectionGroup": "orbitClientErrors",
       "fieldPath": "expiresAt",

@@ -5,13 +5,16 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
   onboardingSafeArea: {
     backgroundColor: '#0b1020'
   },
+  onboardingViewport: {
+    flex: 1
+  },
   onboardingShell: {
     flex: 1,
     paddingHorizontal: 24
   },
   onboardingContent: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     minHeight: '100%',
     paddingBottom: 34,
     paddingTop: 22
@@ -56,13 +59,54 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
   },
   onboardingFlow: {
     flex: 1,
-    gap: 26,
-    justifyContent: 'center'
+    gap: 20,
+    justifyContent: 'flex-start'
+  },
+  onboardingCenter: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 20,
+    paddingVertical: 24
+  },
+  onboardingFooter: {
+    gap: 12,
+    marginTop: 'auto'
+  },
+  onboardingIconAction: {
+    flexDirection: 'row',
+    gap: 9
+  },
+  credentialFields: {
+    gap: 18
+  },
+  welcomeArtwork: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 80,
+    height: 144,
+    justifyContent: 'center',
+    width: 144
+  },
+  adultDeclaration: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'flex-start',
+    minHeight: 44
+  },
+  adultDeclarationText: {
+    color: colors.ink,
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'left'
   },
   onboardingNextAction: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderColor: 'rgba(255,255,255,0.36)',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
     borderRadius: 12,
     borderWidth: 1,
     flexDirection: 'row',
@@ -103,11 +147,11 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
   },
   onboardingTitle: {
     color: '#ffffff',
-    fontSize: 34,
+    fontSize: 26,
     fontWeight: '700',
     letterSpacing: 0,
-    lineHeight: 38,
-    textAlign: 'center'
+    lineHeight: 32,
+    textAlign: 'left'
   },
   onboardingTopBar: {
     alignItems: 'center',
@@ -115,8 +159,6 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
     gap: 20,
     justifyContent: 'space-between',
     paddingHorizontal: 2,
-    position: 'absolute',
-    top: 0,
     width: '100%'
   },
   optionalStep: {

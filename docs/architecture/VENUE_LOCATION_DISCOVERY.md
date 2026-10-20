@@ -1,0 +1,38 @@
+# Authored venue location and bounded discovery
+
+The management account remains the venue identity. Its optional `settings.clubAccount.coordinate` contains numeric `latitude` and `longitude` only. Operators enter the public business location in Settings → Club & license → Venue map pin, then use Save Account. Latitude must be between -90 and 90; longitude between -180 and 180. Both are required when a pin is supplied. Clear map pin followed by Save Account removes it. An address never triggers geocoding, and missing or invalid coordinates remain unknown.
+
+The renderer's [coordinate validator](../../src/domain/venueCoordinate.ts) validates edits and strips extra metadata during state hydration and public projection. The API/Electron [shared transform](../../apps/api/src/shared/orbitCore.cjs) independently validates the same numeric bounds and publishes the optional field in the existing player-safe club DTO. The canonical Admin [publisher](../../apps/api/src/firebasePublisher.js) takes the coordinate from the authored account, never from a client origin or a fallback snapshot. Its parent document PATCH has no update mask, so the committed replacement removes a cleared pin. Child writes, cleanup acknowledgements, per-club isolation, and protocol-v2 parent commit-marker ordering remain unchanged. No new collection, geocoder, identity, or schema migration is needed.
+
+The Player boundary already decodes this optional DTO field. A valid venue pin makes map placement and distance possible once Match has an origin selected through its separate location flow. The public venue pin is business metadata. A Player's device/manual origin is private session data and is never copied into the venue account or PlayerAccount membership/waitlist transport.
+
+## Discovery window
+
+Both public and authenticated discovery use [listPublicStatePage](../../apps/api/src/routes/player.js). Each request scans at most four underlying state pages of up to 50 records while applying existing public-name and venue-license checks. License verification still fails closed. Responses keep the existing records/page shape and `hasMore`/`nextCursor` semantics:
+
+- If eligible records overflow the requested page, the cursor stays at the last returned eligible account. Withheld records are read on the next request.
+- If the scan cap is reached first, the cursor is the last scanned source account. The response may contain fewer records or none and still advertise another page.
+- At source exhaustion, the response reports no further page. Missing, stationary, and repeated cursors are rejected before scanning can loop.
+
+Underlying state pages are ordered by account document ID, independent of display names. The existing Player [catalog loader](../../player-app/src/data/firebase/clubSnapshotRepository.ts) accepts resumable empty pages and stops after 20 API pages, returning its remaining cursor as a partial catalog. A single catalog window therefore hydrates at most 4,000 source account records. The state query also reads one look-ahead header per page, up to 4,080 returned headers across that window. This is a bound on source paging, not all Firestore reads: each account hydrates its state chunks or compatible legacy entity documents and eligibility requires license lookup. The window is not exhaustive; later refresh may revisit records.
+
+## Local publication/discovery runtime evidence
+
+The actual [Firestore integration suite](../../tests/orbitMatch.firestore.emulator.test.js) now covers authoritative venue revisions and both consumers: protocol-v2 canonical publication and licensed public API discovery. Discovery reads `orbitAccountStates` through the real state repository; it does **not** read the publisher's `clubs` projections. The publisher and discovery DTOs derive from the same stored revision. This distinction matters when interpreting the test as source-pipeline evidence.
+
+The test commits three real Admin Firestore state transactions with queued outbox rows. It invokes the unchanged canonical publisher directly, preserving its serializers, acknowledged batch responses, owned-child cleanup and final parent marker. After completion it reads the actual parent/child protocol-v2 revisions and authored coordinate. The localhost Express public route uses its default state paging and real Firestore-backed license inspection. Its response passes through the actual Expo decoder, candidate normalization, ranking and saved-record resolver. Availability changes from three seats/two waiting to one seat/five waiting; ending the table removes it from recommendations while retaining a saved unavailable row. Revoking the real fixture license removes the venue from API discovery. Private fixture names/contact/state/license values remain absent from the public wire DTO, and another owner's Match state is untouched.
+
+Root's completed local command passed **29 tests in two files, exit0**, recorded in ignored `out/orbit-match-publication-runtime.log`: nine rules, thirteen loaded target/transport guards and seven real integration cases. A final additional origin/path-escape guard was added after that process loaded the file; the current no-host unit run separately passed **14 guards with seven real cases skipped**. A later current-tree emulator rerun must report its own count rather than relabeling the 29-test log as 30.
+
+The later complete current-tree run passed **30 tests, two files, exit0**, ignored `out/orbit-match-publication-runtime-final.log`: nine rules, fourteen guards and seven real integration cases. This supersedes the earlier coverage count without rewriting that historical result. Subsequent user authorization permitted the Match-only Firebase rules/five-exemption release to `tabletalk-s`, which root completed; it did not publish the synthetic venue fixture or deploy the API. API release remains separately staged/reviewed.
+
+The exact target remains `127.0.0.1:8085`, project `demo-orbit-release-ci`. Only an ephemeral RSA fixture generated in memory is used. OAuth is a local response double; a test-only fetch wrapper redirects exact demo-project/owned-club Firestore REST paths to loopback and rejects foreign projects, documents, configured API origins and redirects. No credential file/ADC/provider endpoint is contacted. License metadata and HTTP identity are local fixtures, not real license issuance or Firebase Auth/App Check. The outbox scheduler is not run and its rows are not claimed published; direct publisher completion is asserted separately. This proves real local server/persistence/decoder behavior, not a mounted native screen, production publisher delivery, signed device, or real-club pilot.
+
+## Controlled pilot configuration
+
+1. Configure the Player app's existing Orbit API endpoint for the reviewed pilot environment. A venue pin does not configure an API or publish state by itself.
+2. In the management account, enter that venue's public coordinates and Save Account. Use the existing API-first save/publication path with an eligible venue license.
+3. Confirm the existing publication status has completed and the Player discovery snapshot includes the authored pin. Clearing and republishing must remove it.
+4. In Player Match, select an origin through the separate location controls. Venues without pins retain unknown distance and are never assigned guessed coordinates.
+
+Local tests cover source validation, required-field save guards, invalid/clear pin actions, cross-runtime DTO parity, canonical publication privacy and commit order, bounded scans, empty/partial resume, and overflow retention. No hosted service, rules/index deployment, or live publication was used to implement or verify this change.
