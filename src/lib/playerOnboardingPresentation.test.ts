@@ -224,8 +224,9 @@ describe('Player onboarding presentation contract', () => {
     const sources = parseSources([onboardingFeatureRoot]);
     const styleDigest = digest(styleNames.map((name) => findStyleProperty(sources, name)));
 
-    // Reviewed safe-viewport content sizing without a full-window minimum; contrast-safe actions and shared 44-point touch targets remain unchanged.
-    expect(styleDigest).toBe('522b2c662653ea3a7fe57a1cf5fcdd43e371914e14cffeaab9b66dc40f4205b8');
+    // Reviewed safe-viewport sizing and shrinkable primary-action container/text; font scaling and touch targets remain unchanged.
+    // The existing accessibility-large native flow checks full CTA visibility before and after the adult declaration.
+    expect(styleDigest).toBe('232fc11eaf7d1916475716221456778af8d08cd782cbf0c143cb792d33ec8ccb');
   });
 });
 
