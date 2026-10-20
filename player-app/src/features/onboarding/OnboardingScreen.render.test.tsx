@@ -113,6 +113,7 @@ describe('OnboardingScreen adult declaration gate', () => {
 
     const demo = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Try demo account');
     expect(demo?.getAttribute('role')).toBe('button');
+    expect(demo?.getAttribute('aria-label')).toBe('Try demo account');
     expect(demo?.disabled).toBe(false);
     expect(container.textContent).toContain('Explore fictional games at different locations. No sign-in required.');
     act(() => demo?.click());
@@ -136,6 +137,33 @@ describe('OnboardingScreen adult declaration gate', () => {
     expect(onTryDemo).toHaveBeenCalledOnce();
     expect(connection.onConnect).not.toHaveBeenCalled();
     expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it('exposes exact account-choice names to native accessibility independently of decorative icons', () => {
+    act(() => root.render(<OnboardingScreen draftPlayer={validDraft} onboardingStep={0}
+      setDraftPlayer={vi.fn()} setOnboardingStep={vi.fn()} onComplete={vi.fn()} onTryDemo={vi.fn()}
+      accountConnection={accountConnection()} />));
+
+    for (const label of ['Create account', 'Try demo account', 'Already have an account? Sign in']) {
+      expect(button(label)?.getAttribute('aria-label')).toBe(label);
+    }
+  });
+
+  it.each([
+    { intent: 'create', busy: false, label: 'Create account / sign in' },
+    { intent: 'signIn', busy: false, label: 'Sign in' },
+    { intent: 'signIn', busy: true, label: 'Connecting...' }
+  ])('exposes the exact $label credential action name without its lock icon', ({ intent, busy, label }) => {
+    const connection = { ...accountConnection(), busy };
+    act(() => root.render(<OnboardingScreen
+      draftPlayer={{ ...validDraft, adultDeclaredAt: '2026-10-20T12:00:00Z', adultDeclarationVersion }}
+      onboardingStep={3} setDraftPlayer={vi.fn()} setOnboardingStep={vi.fn()} onComplete={vi.fn()}
+      accountConnection={connection} />));
+    act(() => button(intent === 'create' ? 'Create account' : 'Already have an account? Sign in')?.click());
+    if (intent === 'create') act(() => button('Continue to account')?.click());
+
+    expect(button(label)?.getAttribute('aria-label')).toBe(label);
+    expect(connection.onConnect).not.toHaveBeenCalled();
   });
 
   it('requires Firebase connection after the profile steps and keeps verification status visible without completing locally', () => {

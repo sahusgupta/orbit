@@ -15,7 +15,6 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
   onboardingContent: {
     flexGrow: 1,
     justifyContent: 'flex-start',
-    minHeight: '100%',
     paddingBottom: 34,
     paddingTop: 22
   },

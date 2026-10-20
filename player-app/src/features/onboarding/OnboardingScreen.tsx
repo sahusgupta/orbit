@@ -203,7 +203,7 @@ function OnboardingFlow({
 
       {onTryDemo && !accountConnection ? (
         <View style={styles.optionalStep}>
-          <Pressable accessibilityRole="button" onPress={onTryDemo} style={styles.onboardingNextAction}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Try demo account" onPress={onTryDemo} style={styles.onboardingNextAction}>
             <Ionicons name="play-circle-outline" size={21} color={colors.onPrimary} />
             <Text style={styles.onboardingNextActionText}>Try demo account</Text>
           </Pressable>
@@ -279,13 +279,13 @@ function OnboardingWelcome({ onCreate, onSignIn, onTryDemo }: {
       <Text style={styles.optionalStepText}>Create an account to connect with venues, or explore with a demo.</Text>
     </View>
     <View style={styles.onboardingFooter}>
-      <Pressable accessibilityRole="button" onPress={onCreate} style={styles.onboardingNextAction}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Create account" onPress={onCreate} style={styles.onboardingNextAction}>
         <Ionicons name="person-add-outline" size={21} color={colors.onPrimary} /><Text style={styles.onboardingNextActionText}>Create account</Text>
       </Pressable>
-      {onTryDemo ? <Pressable accessibilityRole="button" onPress={onTryDemo} style={[styles.secondaryActionButton, styles.onboardingIconAction]}>
+      {onTryDemo ? <Pressable accessibilityRole="button" accessibilityLabel="Try demo account" onPress={onTryDemo} style={[styles.secondaryActionButton, styles.onboardingIconAction]}>
         <Ionicons name="play-circle-outline" size={21} color={colors.ink} /><Text style={styles.secondaryActionText}>Try demo account</Text>
       </Pressable> : null}
-      <Pressable accessibilityRole="button" onPress={onSignIn} style={styles.secondaryActionButton}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Already have an account? Sign in" onPress={onSignIn} style={styles.secondaryActionButton}>
         <Text style={styles.secondaryActionText}>Already have an account? Sign in</Text>
       </Pressable>
     </View>
@@ -303,6 +303,7 @@ function OnboardingCredentials({ connection, intent, draftPlayer, setDraftPlayer
   const styles = useThemedStyles(baseStyles);
   const { colors } = usePlayerTheme();
   const canConnect = isValidEmail(connection.email) && connection.password.length >= 12 && hasAdultDeclaration(draftPlayer) && !connection.busy;
+  const submitLabel = connection.busy ? 'Connecting...' : intent === 'create' ? 'Create account / sign in' : 'Sign in';
   const connect = () => {
     if (canConnect) connection.onConnect({ ...draftPlayer, email: connection.email.trim().toLowerCase() }, withMatchPreferences, intent);
   };
@@ -334,10 +335,10 @@ function OnboardingCredentials({ connection, intent, draftPlayer, setDraftPlayer
     </View>
     <View style={styles.onboardingFooter}>
       <Text style={styles.optionalStepText}>{intent === 'create' ? 'Verify your email, then sign in to finish saving your profile.' : 'Sign in to restore your saved Orbit profile.'}</Text>
-      <Pressable accessibilityRole="button" accessibilityState={{ disabled: !canConnect }} disabled={!canConnect} onPress={connect}
+      <Pressable accessibilityRole="button" accessibilityLabel={submitLabel} accessibilityState={{ disabled: !canConnect }} disabled={!canConnect} onPress={connect}
         style={[styles.onboardingNextAction, !canConnect && styles.arrowActionDisabled]}>
         <Ionicons name="lock-closed-outline" size={20} color={colors.onPrimary} />
-        <Text style={styles.onboardingNextActionText}>{connection.busy ? 'Connecting...' : intent === 'create' ? 'Create account / sign in' : 'Sign in'}</Text>
+        <Text style={styles.onboardingNextActionText}>{submitLabel}</Text>
       </Pressable>
       <Pressable accessibilityRole="button" disabled={connection.busy || !isValidEmail(connection.email)} onPress={connection.onRecover} style={styles.secondaryActionButton}>
         <Text style={styles.secondaryActionText}>Forgot password</Text>
