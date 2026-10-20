@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   simulator:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 70
     env:
       CI: '1'
@@ -27,7 +27,7 @@ jobs:
       MAESTRO_CLI_NO_ANALYTICS: '1'
       # A fresh Xcode 26 runner took 131s to start XCTest before any app flow.
       MAESTRO_DRIVER_STARTUP_TIMEOUT: '180000'
-      DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
         with:

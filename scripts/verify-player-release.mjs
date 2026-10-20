@@ -104,16 +104,16 @@ requireMatch(
 for (const dependency of ['expo-auth-session', 'expo-dev-client', 'expo-web-browser', 'react-native-purchases']) {
   requireMatch(!playerPackage.dependencies?.[dependency], `Production Player dependency ${dependency} must be absent.`);
 }
-requireMatch(playerPackage.dependencies?.expo === '57.0.27', 'Expo CLI/runtime must be pinned exactly for the reviewed SDK 57 release.');
-requireMatch(playerPackage.dependencies?.['expo-constants'] === '57.0.21', 'Expo Constants must be pinned to the SDK-compatible release.');
+requireMatch(playerPackage.dependencies?.expo === '57.0.30', 'Expo CLI/runtime must be pinned exactly for the reviewed SDK 57 release.');
+requireMatch(playerPackage.dependencies?.['expo-constants'] === '57.0.22', 'Expo Constants must be pinned to the SDK-compatible release.');
 requireMatch(playerPackage.dependencies?.['react-native'] === '0.86.3', 'React Native must remain pinned to the reviewed New Architecture-only runtime.');
 requireMatch(
   JSON.stringify(playerPackage.expo?.autolinking?.searchPaths) === JSON.stringify(['./node_modules']),
   'Expo autolinking must be constrained to the standalone Player dependency tree.'
 );
-requireMatch(playerPackage.dependencies?.['expo-splash-screen'] === '57.0.9', 'Expo splash plugin must use the SDK 57-compatible pinned version.');
-requireMatch(playerPackage.dependencies?.['expo-crypto'] === '57.0.3', 'Expo Crypto must remain a pinned SDK-compatible direct dependency for native request identifiers.');
-requireMatch(playerPackage.dependencies?.['expo-location'] === '57.0.20', 'Optional foreground location must use the reviewed SDK-compatible dependency.');
+requireMatch(playerPackage.dependencies?.['expo-splash-screen'] === '57.0.10', 'Expo splash plugin must use the SDK 57-compatible pinned version.');
+requireMatch(playerPackage.dependencies?.['expo-crypto'] === '57.0.4', 'Expo Crypto must remain a pinned SDK-compatible direct dependency for native request identifiers.');
+requireMatch(playerPackage.dependencies?.['expo-location'] === '57.0.21', 'Optional foreground location must use the reviewed SDK-compatible dependency.');
 requireMatch(app.ios?.infoPlist?.NSLocationWhenInUseUsageDescription === 'Use your location once to find poker games within your selected distance. Orbit keeps this search point on your device.', 'Foreground location requires the reviewed purpose text.');
 for (const key of ['NSLocationAlwaysUsageDescription', 'NSLocationAlwaysAndWhenInUseUsageDescription', 'NSMotionUsageDescription']) {
   requireMatch(!app.ios?.infoPlist?.[key], `${key} must remain absent.`);
