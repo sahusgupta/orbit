@@ -1,4 +1,6 @@
 import { Alert, AppState, Linking, Platform } from 'react-native';
+import { buildPlayerDirectionsUrl, type PlayerDirectionsResult } from './playerDirections';
+import type { PlayerCoordinate } from '../domain/playerSync';
 
 export type PlayerAppState = 'active' | 'background' | 'inactive' | 'unknown' | 'extension';
 
@@ -14,15 +16,14 @@ export const playerPlatform = {
     return () => subscription.remove();
   },
 
-  openDirections(destination: string) {
-    const encodedDestination = encodeURIComponent(destination);
-    const url = Platform.select({
-      ios: `http://maps.apple.com/?daddr=${encodedDestination}`,
-      android: `google.navigation:q=${encodedDestination}`,
-      default: `https://www.google.com/maps/dir/?api=1&destination=${encodedDestination}`
-    });
-    // Navigation is handed off to the operating system with no in-app recovery surface.
-    if (url) Linking.openURL(url).catch(() => undefined);
+  async openDirections(destination: string, coordinate?: PlayerCoordinate | null): Promise<PlayerDirectionsResult> {
+    const url = buildPlayerDirectionsUrl(Platform.OS, destination, coordinate, Platform.Version);
+    const error = url ? 'Orbit could not open your maps app. Try again or use the venue’s published address.' : 'This venue has not published a valid address or coordinate for directions.';
+    if (url) {
+      try { await Linking.openURL(url); return { ok: true }; } catch { /* Display a recoverable handoff failure below. */ }
+    }
+    Alert.alert('Directions unavailable', error);
+    return { ok: false, error };
   },
 
   confirmAccountDeletion(onConfirm: () => void) {

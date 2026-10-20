@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { decodePlayerClubSnapshot } from '../../player-app/src/domain/decoders/playerBoundaryDecoders';
 import {
   applyMembershipRequestToClubState,
   applyWaitlistRequestToClubState,
@@ -220,10 +221,32 @@ describe('API and Electron player-sync boundary', () => {
     expect(apiSnapshot).toMatchObject({
       club: { id: 'license-one', name: 'Orbit Club' },
       memberships: [{ playerId: 'player-alex', status: 'Active' }],
-      social: { activePlayerCount: 1, adminCount: 1, knownPlayersInHouse: 0, waitlistCount: 0 },
+      social: { activePlayerCount: 1, adminCount: 1, knownPlayersInHouse: 0, waitlistCount: 1 },
       generatedAt: '2027-02-01T12:00:00.000Z'
     });
     expect(state).toEqual(before);
+  });
+
+  it('projects only valid authored venue coordinates identically across renderer, API, and Electron', () => {
+    const base = buildState();
+    const runtimes = [buildRendererSnapshot, apiCore.buildPlayerClubSnapshot, loadElectronSyncCore().buildPlayerClubSnapshot];
+    for (const coordinate of [{ latitude: 30.6, longitude: -96.3 }, { latitude: 0, longitude: 0 }, undefined,
+      { latitude: 91, longitude: 0 }, { latitude: 0, longitude: Number.NaN }]) {
+      const state = buildState({ settings: { ...base.settings, defaultHourlyFee: 10, clubAccount: { ...base.settings?.clubAccount, coordinate } } });
+      const before = structuredClone(state);
+      const clubs = runtimes.map((build) => (build(state) as PlayerClubSnapshot).club);
+      expect(clubs[1]).toEqual(clubs[0]);
+      expect(clubs[2]).toEqual(clubs[0]);
+      if (coordinate && Math.abs(coordinate.latitude) <= 90 && Number.isFinite(coordinate.longitude)) {
+        expect(clubs[0].coordinate).toEqual(coordinate);
+        expect(clubs[0].coordinate).not.toBe(coordinate);
+        for (const build of runtimes) expect(decodePlayerClubSnapshot(build(state))?.club.coordinate).toEqual(coordinate);
+      } else {
+        expect(clubs[0]).not.toHaveProperty('coordinate');
+        for (const build of runtimes) expect(decodePlayerClubSnapshot(build(state))?.club.coordinate).toBeUndefined();
+      }
+      expect(state).toEqual(before);
+    }
   });
 
   it('does not publish synthetic time access merely because a player profile is linked', () => {

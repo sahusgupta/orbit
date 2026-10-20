@@ -371,6 +371,8 @@ export type PilotAccess = {
   serverManaged?: boolean;
 };
 
+export type VenueCoordinate = { latitude: number; longitude: number };
+
 export type ClubAccount = {
   clubName: string;
   accountName: string;
@@ -378,6 +380,7 @@ export type ClubAccount = {
   email: string;
   phone: string;
   address: string;
+  coordinate?: VenueCoordinate;
   minimumPlayerAge?: 18 | 21;
 };
 

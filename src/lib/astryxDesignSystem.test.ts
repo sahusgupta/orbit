@@ -65,7 +65,15 @@ describe('Astryx design-system contract', () => {
     const clubHub = read('player-app/src/features/clubs/ClubHub.tsx');
     expect(clubHub.match(/accessibilityState=\{\{ expanded:/g)).toHaveLength(3);
     const details = read('player-app/src/features/discovery/DiscoveryGameDetails.tsx');
-    expect(details.match(/accessibilityState=\{\{ expanded:/g)).toHaveLength(2);
+    expect(details.match(/accessibilityState=\{\{ expanded:/g)).toHaveLength(5);
+    for (const section of ['request', 'rules', 'structure']) {
+      expect(details).toContain(`accessibilityState={{ expanded: section === '${section}' }}`);
+      expect(details).toContain(`aria-expanded={section === '${section}'}`);
+    }
+    for (const label of ['Seat request options', 'Rules', 'Structure']) expect(details).toContain(`accessibilityLabel="${label}"`);
+    const match = read('player-app/src/features/match/OrbitMatchScreen.tsx');
+    expect(match).toContain('accessibilityLabel="Game info"');
+    expect(match).toContain('accessibilityState={{ expanded }} aria-expanded={expanded}');
   });
 
   it('keeps persistent labels, live status, and names for compact controls', () => {

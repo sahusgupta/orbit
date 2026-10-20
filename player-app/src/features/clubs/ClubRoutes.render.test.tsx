@@ -14,13 +14,18 @@ import { ClubMembershipPlanScreen, ClubsScreen, SeatRequestModal } from './ClubR
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
   const { nativePaintStyle } = await import('../../test-utils/nativeContrast');
-  const element = (tag: string) => ({ children, onPress, accessibilityLabel, editable, style, ...props }: Record<string, unknown>) =>
+  const minHeight = (style: unknown): number => Array.isArray(style) ? Math.max(0, ...style.map(minHeight))
+    : style && typeof style === 'object' && 'minHeight' in style && typeof style.minHeight === 'number' ? style.minHeight : 0;
+  const element = (tag: string) => ({ children, onPress, accessibilityLabel, accessibilityRole, accessibilityState, editable, style, ...props }: Record<string, unknown>) =>
     ReactModule.createElement(tag, {
       ...props,
       style: { backgroundColor: 'transparent', ...nativePaintStyle(style) },
       ...(editable === false ? { disabled: true } : {}),
       ...(typeof onPress === 'function' ? { onClick: onPress } : {}),
-      ...(typeof accessibilityLabel === 'string' ? { 'aria-label': accessibilityLabel } : {})
+      ...(typeof accessibilityLabel === 'string' ? { 'aria-label': accessibilityLabel } : {}),
+      ...(typeof accessibilityRole === 'string' ? { role: accessibilityRole } : {}),
+      ...(accessibilityState && typeof accessibilityState === 'object' && 'selected' in accessibilityState ? { 'aria-selected': accessibilityState.selected } : {}),
+      'data-min-height': minHeight(style)
     }, children as React.ReactNode);
   return {
     Modal: element('div'),
@@ -40,12 +45,12 @@ vi.mock('../../components/PlayerPresentation', () => ({
   )
 }));
 vi.mock('./ClubHub', () => ({
-  ClubHubSections: () => <div data-testid="club-hub-actions">club hub actions</div>,
+  ClubHubSections: () => <div data-testid="club-hub-actions"><button>Request synthetic seat</button></div>,
   PlayerTimePanel: () => <div data-testid="player-time-panel">player time panel</div>
 }));
 vi.mock('./MembershipWallet', () => ({
   MembershipApplicationStatusCard: () => <div data-testid="membership-status">membership status</div>,
-  MembershipWalletCard: () => <div data-testid="membership-wallet">membership wallet</div>
+  MembershipWalletCard: () => <div data-testid="membership-wallet"><button>Generate synthetic check-in code</button></div>
 }));
 
 const player: PlayerAccount = {
@@ -97,7 +102,10 @@ describe('PlayerApp to ClubsScreen safe composition', () => {
     container.remove();
   });
 
-  function render(viewState: PlayerClubsViewState, memberClubs: PlayerClubSnapshot[], selectedMembership?: PlayerMembership) {
+  function render(viewState: PlayerClubsViewState, memberClubs: PlayerClubSnapshot[], selectedMembership?: PlayerMembership, navigation: {
+    onSelectClub?: (club: PlayerClubSnapshot) => void;
+    onOpenMembership?: (club: PlayerClubSnapshot) => void;
+  } = {}) {
     act(() => {
       root.render(
         <ClubsScreen
@@ -110,7 +118,8 @@ describe('PlayerApp to ClubsScreen safe composition', () => {
           message=""
           waitlists={[]}
           tournaments={[]}
-          onSelectClub={vi.fn()}
+          onSelectClub={navigation.onSelectClub ?? vi.fn()}
+          onOpenMembership={navigation.onOpenMembership}
           onGame={vi.fn()}
           onManageAccess={vi.fn()}
           onViewEvents={vi.fn()}
@@ -151,6 +160,73 @@ describe('PlayerApp to ClubsScreen safe composition', () => {
     expect(container.querySelector('[data-testid="club-hub-actions"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="player-time-panel"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="membership-wallet"]')).not.toBeNull();
+  });
+
+  it('opens a separate membership page and keeps the native membership list free of inline detail panels', () => {
+    const onSelectClub = vi.fn();
+    const onOpenMembership = vi.fn();
+    render(deriveClubsViewState('ready', [club], club, false, ''), [club], membership, { onSelectClub, onOpenMembership });
+    expectNoClubDependentPanels();
+    const row = container.querySelector('[aria-label="Published Club, Active"]') as HTMLButtonElement;
+    expect(row).not.toBeNull();
+    act(() => row.click());
+    expect(onOpenMembership).toHaveBeenCalledExactlyOnceWith(club);
+    expect(onSelectClub).not.toHaveBeenCalled();
+  });
+
+  it('keeps legacy inline selection behavior when no membership detail navigation is supplied', () => {
+    const onSelectClub = vi.fn();
+    render(deriveClubsViewState('ready', [club], club, false, ''), [club], membership, { onSelectClub });
+    act(() => (container.querySelector('[aria-label="Published Club, Active"]') as HTMLButtonElement).click());
+    expect(onSelectClub).toHaveBeenCalledExactlyOnceWith(club);
+    expect(container.querySelector('[data-testid="membership-wallet"]')).not.toBeNull();
+  });
+
+  it('keeps retained membership rows readable through a failed refresh and restores actions only on success', () => {
+    const ready = () => render(deriveClubsViewState('ready', [club], club, false, ''), [club], membership);
+    ready();
+    expect(container.querySelector('[data-testid="membership-wallet"] button')).not.toBeNull();
+    expect(container.querySelector('[data-testid="club-hub-actions"] button')).not.toBeNull();
+
+    render(deriveClubsViewState('error', [club], club, false, ''), [club], membership);
+    expect(container.querySelector('[aria-label="Published Club, Active"]')).not.toBeNull();
+    expect(container.textContent).toContain('Showing last loaded club data');
+    expectNoClubDependentPanels();
+
+    ready();
+    expect(container.querySelector('[data-testid="membership-wallet"] button')).not.toBeNull();
+    expect(container.querySelector('[data-testid="club-hub-actions"] button')).not.toBeNull();
+  });
+
+  it.each(['idle', 'loading'] as const)('keeps retained membership readable without wallet or game actions during %s', (status) => {
+    render(deriveClubsViewState('ready', [club], club, false, ''), [club], membership);
+    expect(container.querySelector('[data-testid="membership-wallet"] button')).not.toBeNull();
+    expect(container.querySelector('[data-testid="club-hub-actions"] button')).not.toBeNull();
+
+    render(deriveClubsViewState(status, [club], club, false, ''), [club], membership);
+    expect(container.querySelector('[aria-label="Published Club, Active"]')).not.toBeNull();
+    expect(container.textContent).toContain('Published Club');
+    expect(container.textContent).toContain('Active');
+    expect(container.querySelectorAll('[data-testid="membership-wallet"] button:not(:disabled), [data-testid="club-hub-actions"] button:not(:disabled)')).toHaveLength(0);
+    expectNoClubDependentPanels();
+
+    render(deriveClubsViewState('ready', [club], club, false, ''), [club], membership);
+    expect(container.querySelector('[data-testid="membership-wallet"] button')).not.toBeNull();
+    expect(container.querySelector('[data-testid="club-hub-actions"] button')).not.toBeNull();
+  });
+
+  it('names the selected club and presents expired access without fabricating player distance', () => {
+    const expiredMembership = { ...membership, expiresAt: '2026-08-08T12:00:00.000Z' };
+    const expiredClub = { ...club, club: { ...club.club, address: '100 Example Street, Austin, TX' }, memberships: [expiredMembership] };
+    render(deriveClubsViewState('ready', [expiredClub], expiredClub, false, ''), [expiredClub], expiredMembership);
+    const row = container.querySelector('[aria-label="Published Club, Expired"]') as HTMLButtonElement;
+    expect(row).not.toBeNull();
+    expect(row.getAttribute('role')).toBe('button');
+    expect(row.getAttribute('aria-selected')).toBe('true');
+    expect(Number(row.getAttribute('data-min-height'))).toBeGreaterThanOrEqual(44);
+    expect(container.textContent).toContain('Austin');
+    expect(container.textContent).not.toContain('Distance unavailable');
+    expect(container.textContent).not.toMatch(/\d+(?:\.\d+)? mi/);
   });
 
   it('renders club-level availability from Running tables only', () => {

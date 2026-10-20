@@ -9,11 +9,11 @@ function read(relativePath: string) {
   return readFileSync(resolve(repositoryRoot, relativePath), 'utf8');
 }
 
-describe('Orbit Player landing design continuity', () => {
-  it('carries the player-web landing palette and signature presentation motifs into native components', () => {
+describe('Orbit Player native home design continuity', () => {
+  it('keeps the shared palette and compact native game finder presentation', () => {
     const theme = read('player-app/src/styles/playerTheme.ts');
-    const experience = read('player-app/src/features/home/PlayerLandingExperience.tsx');
-    const styles = read('player-app/src/features/home/playerLandingStyles.ts');
+    const home = read('player-app/src/features/home/PlayerHomeScreen.tsx');
+    const styles = read('player-app/src/features/home/playerHomeStyles.ts');
 
     for (const token of [
       "ink: '#f4f7ff'",
@@ -27,74 +27,67 @@ describe('Orbit Player landing design continuity', () => {
     ]) expect(theme).toContain(token);
 
     for (const token of [
-      'PlayerAmbientFlow',
-      'PlayerLandingHero',
-      'OrbitMark',
-      'PokerTableAtmosphere',
-      'Current room listings start here',
-      'Find your game.',
-      'Current information published by rooms using Orbit Core',
-      'Start matching',
-      "id: 'current'",
-      "id: 'forming'",
-      "id: 'interest'",
-      'Pick a card',
-      'Now on Orbit',
-      'View matches',
-      'Interest open',
-      'Current rooms',
-      'OrbitJourney',
-      'A shorter path to the table',
-      'OrbitPlayerFaq',
-      'Straight answers for venue listings.',
-      'OrbitPlayerFooter',
-      'Developed by Caminus Labs, LLC'
-    ]) expect(experience).toContain(token);
+      'export function PlayerHomeScreen(',
+      'opportunities.slice(0, 3)',
+      'accessibilityRole="header"',
+      'accessibilityLabel="Find games"',
+      'onPress={onFindGame}',
+      'onPress={() => onOpenGame(item)}',
+      'onPress={onBrowseTournaments}',
+      'onPress={onBrowseClubs}',
+      'const city = getClubCity(item.club)',
+      'const status = getGameStatusLabel(item.game)',
+      '<Text style={styles.availability}>{status}</Text>'
+    ]) expect(home).toContain(token);
+    expect(home).not.toMatch(/PokerTableAtmosphere|PlayerLandingHero|OrbitJourney|OrbitPlayerFaq|OrbitPlayerFooter/);
+    expect(styles).toContain('colors, density, radii, spacing, typography');
+    expect(styles).toContain('minHeight: density.touchTarget');
+    expect(styles).not.toMatch(/height: 540|height: 330|textShadowRadius/);
 
     for (const styleName of [
-      'ambientFlow',
-      'heroTitle',
-      'pokerCard',
-      'cardReadout',
-      'nowBoard',
-      'liveGameRow',
-      'spotlightCard',
-      'journey',
-      'faqSection',
-      'footer'
+      'home',
+      'greeting',
+      'findGames',
+      'gameList',
+      'gameRow',
+      'gameCopy',
+      'availability',
+      'shortcuts',
+      'shortcut'
     ]) expect(styles).toMatch(new RegExp(`^  ${styleName}: \\{`, 'm'));
   });
 
-  it('wires landing controls to real app navigation, inventory, and game details', () => {
+  it('wires the compact home to real navigation, factual inventory states, and guarded game details', () => {
     const playerApp = read('player-app/src/PlayerApp.tsx');
     const playerTypes = read('player-app/src/domain/playerTypes.ts');
-    const discoveryDeck = read('player-app/src/features/discovery/DiscoveryDeck.tsx');
+    const discoveryDeck = read('player-app/src/features/match/OrbitMatchScreen.tsx');
     const discoveryDetails = read('player-app/src/features/discovery/DiscoveryGameDetails.tsx');
+    const home = read('player-app/src/features/home/PlayerHomeScreen.tsx');
     const onboarding = read('player-app/src/features/onboarding/OnboardingScreen.tsx');
     const settings = read('player-app/src/features/settings/SettingsScreen.tsx');
 
     for (const token of [
-      '<PlayerAmbientFlow />',
       "const [screen, setScreen] = useState<Screen>('home')",
-      "{ id: 'home', label: 'Home', icon: 'home-outline' }",
+      "{ id: 'home', label: 'Games', icon: 'layers-outline' }",
       "{screen === 'home' ? (",
-      '<PlayerLandingHero',
+      '<PlayerHomeScreen',
       'opportunities={broadOpportunities}',
       'inventoryPartial={liveDataPartial}',
       'inventoryStatus={liveDataStatus}',
-      "onFindGame={() => setScreen('findGames')}",
+      "onFindGame={() => { setMatchMode('discover'); setScreen('findGames'); }}",
       'onOpenGame={openDiscoveryGame}',
       "onBrowseTournaments={() => setScreen('tournaments')}",
       "onBrowseClubs={() => setScreen('clubs')}",
-      "{screen === 'home' ? <OrbitJourney /> : null}",
       "{screen === 'findGames' ? (",
-      '<DiscoveryDeck',
-      'Swipe left to pass or right to save.',
+      '<OrbitMatchScreen',
+      'candidates={match.ranked}',
+      'savedGames={match.savedGames}',
       "useState<CasinoFilter>('all')",
-      'selectContinuousDiscoveryOpportunities(opportunities, broadOpportunities)',
-      'No exact filter matches. Showing other published games',
+      'candidateFilter: matchFilter',
+      'canUndo={Boolean(match.state.undo)}',
       "setScreen(gameDetailsReturnScreen)",
-      "backLabel={gameDetailsReturnScreen === 'home' ? 'Home' : 'Matches'}",
+      "backLabel={gameDetailsReturnScreen === 'home' ? 'Games' : 'Matches'}",
+      "readOnly={liveDataStatus !== 'ready'}",
       "tab.id === 'home' && screen === 'findGames'",
       'accessibilityRole="tablist"',
       'accessibilityState={{ selected: active }}'
@@ -102,18 +95,33 @@ describe('Orbit Player landing design continuity', () => {
     expect(playerApp).not.toMatch(/showHostScreen|PrivateGame|PremiumPaywall/);
     expect(playerTypes).toContain("| 'home'");
     expect(playerApp).not.toContain('discoveryStartY');
-    expect(discoveryDeck).toContain('Loading published matches');
-    expect(discoveryDeck).toContain('Published matches unavailable');
-    expect(discoveryDeck).toContain('More matches are loading');
-    expect(discoveryDeck).toContain('No matches are in the rooms loaded so far. More rooms are still refreshing.');
-    expect(discoveryDeck).toContain('Orbit checks again automatically');
+    expect(discoveryDeck).toContain('Loading published games');
+    expect(discoveryDeck).toContain('Games could not be refreshed');
+    expect(discoveryDeck).toContain('More games may be available');
+    expect(discoveryDeck).toContain('Refresh to check for additional published games.');
+    expect(discoveryDeck).toContain('Excluded venues and strict limits stay in place.');
+    expect(discoveryDeck).toContain('Your saved games remain available.');
+    expect(playerApp).not.toContain('selectContinuousDiscoveryOpportunities(');
     expect(discoveryDetails).toContain('accessibilityLabel={`Back to ${backLabel}`}');
     expect(discoveryDetails).toContain('<Text style={styles.gameDetailsBackText}>{backLabel}</Text>');
-    expect(read('player-app/src/features/home/PlayerLandingExperience.tsx')).toContain('Published games unavailable');
-    expect(playerApp.match(/inventoryStatus=\{liveDataStatus\}/g)).toHaveLength(2);
-    expect(playerApp.match(/inventoryPartial=\{liveDataPartial\}/g)).toHaveLength(2);
-    expect(onboarding).toContain('<PlayerAmbientFlow />');
-    expect(settings).toContain('<OrbitPlayerFaq />');
-    expect(settings).toContain('<OrbitPlayerFooter />');
+    for (const token of [
+      "inventoryStatus === 'ready' && !inventoryPartial",
+      "inventoryStatus === 'idle' || inventoryStatus === 'loading'",
+      'Loading games',
+      'Game data is unavailable.',
+      'No games in the venues loaded so far.',
+      'Showing loaded venues',
+      'Last loaded games',
+      'Last loaded: ${status}',
+      'No games to show right now.'
+    ]) expect(home).toContain(token);
+    expect(discoveryDetails).toContain('if (!item || readOnly)');
+    expect(playerApp.match(/inventoryStatus=\{liveDataStatus\}/g)).toHaveLength(1);
+    expect(playerApp.match(/inventoryPartial=\{liveDataPartial\}/g)).toHaveLength(1);
+    expect(playerApp.match(/inventoryStatus=\{matchMode === 'discover' \? match\.discoveryStatus : liveDataStatus\}/g)).toHaveLength(1);
+    expect(playerApp.match(/inventoryPartial=\{matchMode === 'discover' \? match\.discoveryPartial : liveDataPartial\}/g)).toHaveLength(1);
+    for (const surface of [playerApp, onboarding, settings]) {
+      expect(surface).not.toMatch(/<(?:PlayerAmbientFlow|PlayerLandingHero|OrbitJourney|OrbitPlayerFaq|OrbitPlayerFooter)(?:\s|\/|>)/);
+    }
   });
 });

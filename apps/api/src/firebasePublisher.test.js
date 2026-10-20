@@ -310,6 +310,7 @@ describe('canonical Firestore club layout', () => {
     expect(club).not.toHaveProperty('playersWithMemberships');
     expect(club.playerCount).toBe(1);
     expect(club.activeMembershipCount).toBe(1);
+    expect(club).not.toHaveProperty('coordinate');
   });
 
   it('never invents a public club name when the venue has not published one', () => {
@@ -341,6 +342,21 @@ describe('canonical Firestore club layout', () => {
     );
     expect(adultClub.minimumAge).toBe(18);
     expect(malformedClub).not.toHaveProperty('minimumAge');
+  });
+
+  it('publishes only the authored valid venue pin and never substitutes a snapshot origin', () => {
+    const project = (coordinate) => publisher.buildCanonicalClubDoc(
+      { ...state, settings: { ...state.settings, clubAccount: { ...state.settings.clubAccount, coordinate } } },
+      'club-one', { club: { name: 'Orbit Room', coordinate: { latitude: 1, longitude: 2 } } }, [], 'now'
+    );
+    expect(project({ latitude: 30.6, longitude: -96.3, accuracyMeters: 5, source: 'device' }).coordinate)
+      .toEqual({ latitude: 30.6, longitude: -96.3 });
+    expect(project({ latitude: 0, longitude: 0 }).coordinate).toEqual({ latitude: 0, longitude: 0 });
+    for (const coordinate of [undefined, null, [], { latitude: 91, longitude: 0 },
+      { latitude: 0, longitude: 181 }, { latitude: '30', longitude: -96 },
+      { latitude: Number.NaN, longitude: 0 }, { latitude: 0, longitude: Number.POSITIVE_INFINITY }]) {
+      expect(project(coordinate)).not.toHaveProperty('coordinate');
+    }
   });
 
   it('publishes a strict public club projection without credentials or internal contacts', () => {
@@ -544,6 +560,9 @@ describe('canonical Firestore club layout', () => {
       await expect(publication).resolves.toMatchObject({ ok: true, staleProjectionDocumentsRemoved: 1 });
       const finalCall = fetchMock.mock.calls.at(-1);
       expect(finalCall[1].method).toBe('PATCH');
+      // No update mask means the parent is replaced: an absent pin is removed at commit.
+      expect(finalCall[0]).not.toContain('updateMask');
+      expect(JSON.parse(finalCall[1].body).fields).not.toHaveProperty('coordinate');
       expect(JSON.parse(finalCall[1].body).fields.syncRevision).toEqual({ stringValue: 'verified-revision' });
     } else {
       await expect(publication).rejects.toMatchObject({ category: 'batch-write-partial-failure' });

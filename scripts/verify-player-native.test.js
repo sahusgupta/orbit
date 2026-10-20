@@ -34,7 +34,7 @@ function nativeFixture({
   appPrivacyReasons = privacyReasons,
   appTrackingDomains = [],
   buildNumber = '1',
-  bundleIdentifier = 'com.orbit.player',
+  bundleIdentifier = 'com.caminuslabs.orbit',
   infoAddition = '',
   marketingVersion = '1.0.0',
   projectAddition = '',
@@ -51,11 +51,12 @@ function nativeFixture({
 <key>CFBundleVersion</key><string>${buildNumber}</string>
 <key>ITSAppUsesNonExemptEncryption</key><false/>
 <key>NSCameraUsageDescription</key><string>Allow Orbit Player to scan the PDF417 barcode on your government ID. Orbit does not save a photo.</string>
+<key>NSLocationWhenInUseUsageDescription</key><string>Use your location once to find poker games within your selected distance. Orbit keeps this search point on your device.</string>
 ${infoAddition}
 </dict></plist>`);
   fs.writeFileSync(path.join(appRoot, 'project.pbxproj'), `PRODUCT_BUNDLE_IDENTIFIER = ${bundleIdentifier};\nPrivacyInfo.xcprivacy\nCODE_SIGN_ENTITLEMENTS = OrbitPlayer/OrbitPlayer.entitlements;\n${projectAddition}`);
   fs.writeFileSync(path.join(appRoot, 'OrbitPlayer.entitlements'), '<plist version="1.0"><dict><key>com.apple.developer.devicecheck.appattest-environment</key><string>production</string></dict></plist>');
-  fs.writeFileSync(path.join(appRoot, 'GoogleService-Info.plist'), '<plist version="1.0"><dict><key>BUNDLE_ID</key><string>com.orbit.player</string><key>PROJECT_ID</key><string>tabletalk-s</string><key>GOOGLE_APP_ID</key><string>1:133175572500:ios:46a75e002225158dfd8f01</string></dict></plist>');
+  fs.writeFileSync(path.join(appRoot, 'GoogleService-Info.plist'), '<plist version="1.0"><dict><key>BUNDLE_ID</key><string>com.caminuslabs.orbit</string><key>PROJECT_ID</key><string>tabletalk-s</string><key>GOOGLE_APP_ID</key><string>1:133175572500:ios:de1514cf1736c1bdfd8f01</string></dict></plist>');
   fs.writeFileSync(path.join(appRoot, 'AppDelegate.swift'), 'RNFBAppCheckModule.sharedInstance()\nFirebaseApp.configure()');
   fs.writeFileSync(path.join(appRoot, 'PrivacyInfo.xcprivacy'), `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
@@ -88,8 +89,12 @@ describe('generated Orbit Player native verifier', () => {
   it('rejects the wrong app-target bundle identifier even when the expected identifier occurs elsewhere', () => {
     expect(() => verifyPlayerNative(nativeFixture({
       bundleIdentifier: 'com.example.wrong',
-      infoAddition: '<key>UnusedExpectedIdentifier</key><string>com.orbit.player</string>'
-    }))).toThrow(/bundle identifier com\.orbit\.player/);
+      infoAddition: '<key>UnusedExpectedIdentifier</key><string>com.caminuslabs.orbit</string>'
+    }))).toThrow(/bundle identifier com\.caminuslabs\.orbit/);
+  });
+
+  it('rejects the historical iOS app-target bundle even when the new Firebase configuration is present', () => {
+    expect(() => verifyPlayerNative(nativeFixture({ bundleIdentifier: 'com.orbit.player' }))).toThrow(/bundle identifier com\.caminuslabs\.orbit/);
   });
 
   it('rejects the wrong generated marketing version', () => {
@@ -152,6 +157,12 @@ describe('generated Orbit Player native verifier', () => {
       infoAddition: '<key>NSContactsUsageDescription</key><string>Access contacts</string>'
     }))).toThrow(/NSContactsUsageDescription/);
   });
+  it.each(['NSLocationAlwaysUsageDescription', 'NSLocationAlwaysAndWhenInUseUsageDescription', 'NSMotionUsageDescription'])('rejects unapproved %s access', (key) => {
+    expect(() => verifyPlayerNative(nativeFixture({ infoAddition: `<key>${key}</key><string>Unapproved access</string>` }))).toThrow(key);
+  });
+  it('rejects background-location modes even with only foreground purpose text', () => {
+    expect(() => verifyPlayerNative(nativeFixture({ infoAddition: '<key>UIBackgroundModes</key><array><string>location</string></array>' }))).toThrow('Background location');
+  });
 
   it('rejects photo-library add access as well as read access', () => {
     expect(() => verifyPlayerNative(nativeFixture({
@@ -188,8 +199,20 @@ describe('generated Orbit Player native verifier', () => {
   it('rejects a different native Firebase app registration', () => {
     const root = nativeFixture();
     const file = path.join(root, 'OrbitPlayer', 'GoogleService-Info.plist');
-    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('46a75e002225158dfd8f01', 'different-app'));
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('de1514cf1736c1bdfd8f01', 'different-app'));
     expect(() => verifyPlayerNative(root)).toThrow(/app identity mismatch/);
+  });
+
+  it('rejects the old Firebase iOS registration or bundle independently of the current app target', () => {
+    for (const [current, historical, failure] of [
+      ['1:133175572500:ios:de1514cf1736c1bdfd8f01', '1:133175572500:ios:46a75e002225158dfd8f01', /app identity mismatch/],
+      ['com.caminuslabs.orbit', 'com.orbit.player', /bundle identity mismatch/]
+    ]) {
+      const root = nativeFixture();
+      const file = path.join(root, 'OrbitPlayer', 'GoogleService-Info.plist');
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(current, historical));
+      expect(() => verifyPlayerNative(root)).toThrow(failure);
+    }
   });
 
   it('rejects a missing false encryption declaration', () => {
@@ -204,7 +227,7 @@ describe('generated Orbit Player native verifier', () => {
 
   it('rejects an unused app URL scheme', () => {
     expect(() => verifyPlayerNative(nativeFixture({
-      infoAddition: '<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>com.orbit.player</string></array></dict></array>'
+      infoAddition: '<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>com.caminuslabs.orbit</string></array></dict></array>'
     }))).toThrow(/unused URL scheme/);
   });
 });

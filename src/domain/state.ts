@@ -1,5 +1,6 @@
 import { resolveGameId } from '../lib/appCore';
 import { normalizePlayerSessionSeats } from '../lib/seatNormalization';
+import { decodeVenueCoordinate } from './venueCoordinate';
 import type {
   AppState,
   CollectionProfile,
@@ -446,6 +447,7 @@ export function normalizeState(parsed: PersistedAppState): AppState {
       clubAccount: parsed.settings?.clubAccount
         ? {
             ...parsed.settings.clubAccount,
+            coordinate: decodeVenueCoordinate(parsed.settings.clubAccount.coordinate),
             minimumPlayerAge: parsed.settings.clubAccount.minimumPlayerAge === 18 ? 18 : 21
           }
         : undefined,

@@ -16,7 +16,7 @@ Merged release source: `8d086bfd689b7f0af1037468c0764d16b32d77bc`. [PR #27](http
 - [x] Disposable iOS prebuild and generated-native scan pass in an isolated Linux environment.
 - [x] The same disposable iOS prebuild and generated-native scan pass on exact pushed SHA `113823ca1f7bad430bbb5943559533139126b654` in Ubuntu pull-request CI.
 - [x] Icon and splash checks pass; the 1024×1024 app icon is opaque and the transparent splash mark renders on `#060C1A`.
-- [x] Repository and exported source contain no private-game UI/data access, Premium/IAP client, venue checkout, social authentication, operational tournament registration, fabricated location, or notification promise.
+- [x] Repository source contains no private-game UI/data access, Premium/IAP client, venue checkout, payment-method management, social authentication, paid-event registration, fabricated location, or notification promise. Free-event registration is allowed by the current launch scope; the updated native export and device acceptance remain to be rerun before release.
 - [x] Privacy/support/terms pages and the App Store package agree with the final code.
 - [x] Pull-request CI is green on the exact pushed SHA.
 
@@ -48,7 +48,7 @@ These are engineering tasks. They are not human-only gates merely because they i
 
 - Legal classification, licensing, and territory approval.
 - Caminus Labs, LLC seller/account verification and Apple agreements.
-- Explicit confirmation that Expo owner `saussy`, slug `tabletalk-player`, EAS project `bb2059b7-91b3-4a6b-a66e-d5618e794fd3`, the Apple signing team, and the `com.orbit.player` App Store record are the intended Caminus Labs, LLC release identities.
+- Explicit confirmation that Expo owner `saussy`, slug `tabletalk-player`, EAS project `bb2059b7-91b3-4a6b-a66e-d5618e794fd3`, the Apple signing team, and the `com.caminuslabs.orbit` App Store record are the intended Caminus Labs, LLC release identities. Historical `com.orbit.player` iOS artifacts do not establish readiness for this bundle; Android keeps that package identity.
 - Approve only the next concrete [production mutation and rollback scope](../docs/agent/tasks/player-production-mutation-proposal.md); all three candidate/diagnostic approvals were executed; the first two deployments were removed and the final merged candidate is retained. The latest user instruction expressly reserves deployments, production configuration, credential rotation, and App Check activation for approval after that proposal. The earlier GitHub/CORS/key-metadata authorizations are resolved. A subsequent `vercel env run` inspection was rejected for possible production-secret loading; it was not retried.
 - Supply counsel-approved deletion/retention dispositions and venue/territory authority. Production `ORBIT_ACCOUNT_DELETION_POLICY_JSON` is absent; the example is not approval.
 - Authenticate the intended Apple team and provide signing/App Store Connect access through EAS or Apple's interface; the existing EAS account reports no iOS credentials or App Store Connect API keys.

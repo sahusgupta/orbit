@@ -1,3 +1,4 @@
+import { usePlayerTheme, useThemedStyles } from '../../styles/PlayerThemeProvider';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,7 +20,7 @@ import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
 import { clubStyles } from './clubStyles';
 
-const styles = { ...sharedStyles, ...clubStyles };
+const baseStyles = { ...sharedStyles, ...clubStyles };
 
 export function ClubHubSections({
   club: _club,
@@ -42,6 +43,8 @@ export function ClubHubSections({
   onManageAccess: () => void;
   onViewEvents: () => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   const [openSection, setOpenSection] = useState<'games' | 'membership' | 'events' | null>(null);
   const toggle = (section: 'games' | 'membership' | 'events') => setOpenSection((current) => current === section ? null : section);
   const openOrFormingGames = games.filter(isActivePlayerGame);
@@ -107,7 +110,7 @@ export function ClubHubSections({
         <View style={styles.clubHubIcon}><Ionicons name="card-outline" size={19} color={colors.primary} /></View>
         <View style={styles.clubHubCopy}>
           <Text style={styles.cardTitle}>Membership</Text>
-          <Text style={styles.muted}>{isMembershipCurrentlyActive(membership, nowMs) ? formatPassCountdown(membership.expiresAt, nowMs) : membership.status}</Text>
+          <Text style={styles.muted}>{isMembershipCurrentlyActive(membership, nowMs) ? formatPassCountdown(membership.expiresAt, nowMs) : membership.status === 'Active' ? 'Expired' : membership.status}</Text>
         </View>
         <Ionicons name={openSection === 'membership' ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} />
       </Pressable>
@@ -156,6 +159,7 @@ export function PlayerTimePanel({
   club: PlayerClubSnapshot;
   message: string;
 }) {
+  const styles = useThemedStyles(baseStyles);
   const access = club.timeAccess;
   if (!access?.enabled || !access.linked) return null;
   const session = access.activeSession;

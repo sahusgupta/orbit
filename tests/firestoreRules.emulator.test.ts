@@ -163,6 +163,27 @@ rulesSuite('Firestore production authorization rules', () => {
     await assertFails(setDoc(doc(playerDb, 'players/deleting-player'), profile));
   });
 
+  it('allows only a verified active owner to read Match state and reserves all mutations and receipts for the API', async () => {
+    const matchPath = 'players/match-player/orbitMatch/state';
+    const receiptPath = `${matchPath}/receipts/match-operation-one`;
+    await seed(matchPath, { schemaVersion: 1, revision: 1, decisions: [] });
+    await seed(receiptPath, { digest: 'private-idempotency-digest' });
+    const owner = environment.authenticatedContext('match-player', { email: 'owner@example.test', email_verified: true }).firestore();
+    const other = environment.authenticatedContext('other-player', { email: 'other@example.test', email_verified: true }).firestore();
+    const unverified = environment.authenticatedContext('match-player', { email: 'owner@example.test', email_verified: false }).firestore();
+    await assertSucceeds(getDoc(doc(owner, matchPath)));
+    await assertFails(getDoc(doc(other, matchPath)));
+    await assertFails(getDoc(doc(unverified, matchPath)));
+    await assertFails(getDoc(doc(environment.unauthenticatedContext().firestore(), matchPath)));
+    await assertFails(setDoc(doc(owner, matchPath), { schemaVersion: 1, revision: 2, decisions: [] }));
+    await assertFails(setDoc(doc(owner, 'players/match-player/orbitMatch/other'), { schemaVersion: 1 }));
+    await assertFails(deleteDoc(doc(owner, matchPath)));
+    await assertFails(getDoc(doc(owner, receiptPath)));
+    await assertFails(setDoc(doc(owner, receiptPath), { digest: 'forged' }));
+    await seed('playerDeletionBlocks/match-player', { status: 'blocked' });
+    await assertFails(getDoc(doc(owner, matchPath)));
+  });
+
   it('keeps tournament interests server-owned/self-readable and disables registrations', async () => {
     await seed('clubs/club-one/tournamentInterests/interest-one', {
       id: 'interest-one', clubId: 'club-one', tournamentId: 'event-one', playerId: 'player-one', status: 'interested'

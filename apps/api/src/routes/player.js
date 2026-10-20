@@ -41,6 +41,8 @@ const {
   sendPlayerVenueEligibilityError
 } = require('../playerVenueEligibility');
 const { buildPlayerTournamentDocs } = require('../firebasePublisher');
+const { buildPlayerTournamentRegistration, isNoPaymentTournament } = require('../tournamentRegistrationService');
+const { createTournamentRegistrationHandler } = require('./tournamentRegistrations');
 const {
   applyTournamentInterestTransition,
   buildPlayerTournamentInterests,
@@ -212,9 +214,13 @@ async function listPublicStatePage(options = {}, dependencies = {}) {
   const seenCursors = new Set();
   let afterAccountKey = String(options.afterAccountKey || '');
   let hasMoreRecords = true;
+  let scannedPages = 0;
+  // An all-filtered window still returns a source cursor so a later page can resume.
+  const maxSourcePages = 4;
 
-  while (visibleRecords.length <= limit && hasMoreRecords) {
+  while (visibleRecords.length <= limit && hasMoreRecords && scannedPages < maxSourcePages) {
     const page = await listPage({ limit: 50, afterAccountKey });
+    scannedPages += 1;
     const namedRecords = (page.records || []).filter((record) =>
       isPublicClubName(record.state?.settings?.clubAccount?.clubName)
     );
@@ -235,12 +241,14 @@ async function listPublicStatePage(options = {}, dependencies = {}) {
     afterAccountKey = nextCursor;
   }
 
-  const hasMore = visibleRecords.length > limit;
+  const hasVisibleOverflow = visibleRecords.length > limit;
+  const hasMore = hasVisibleOverflow || hasMoreRecords;
   const records = visibleRecords.slice(0, limit);
+  // Keep withheld eligible venues behind the last returned record, never the scan cursor.
   return {
     records,
     hasMore,
-    nextCursor: hasMore ? records.at(-1)?.accountKey || null : null
+    nextCursor: hasVisibleOverflow ? records.at(-1)?.accountKey || null : hasMore ? afterAccountKey : null
   };
 }
 
@@ -255,7 +263,11 @@ async function handlePublicPlayerDiscovery(request, response, dependencies = {})
     return;
   }
   const clubs = page.records.map((record) => buildPublicClubSnapshot(record.state));
-  const tournaments = page.records.flatMap((record) => buildPlayerTournamentDocs(record.state, record.accountKey, record.savedAt));
+  const tournaments = page.records.flatMap((record) => buildPlayerTournamentDocs(record.state, record.accountKey, record.savedAt)
+    .map((tournament) => {
+      const source = (record.state.tournaments || []).find((candidate) => candidate.id === tournament.id);
+      return { ...tournament, registrationAvailable: isNoPaymentTournament(source) };
+    }));
   response.set('cache-control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
   response.json({
     ok: true,
@@ -312,7 +324,12 @@ async function handlePlayerDiscovery(request, response, dependencies = {}) {
   }
   const player = trustedPlayerFromClaims(request.orbitPlayer);
   const clubs = page.records.map((record) => buildAuthenticatedPlayerClubSnapshot(record.state, player));
-  const tournaments = page.records.flatMap((record) => buildPlayerTournamentDocs(record.state, record.accountKey, record.savedAt));
+  const tournaments = page.records.flatMap((record) => buildPlayerTournamentDocs(record.state, record.accountKey, record.savedAt)
+    .map((tournament) => {
+      const source = (record.state.tournaments || []).find((candidate) => candidate.id === tournament.id);
+      const registration = buildPlayerTournamentRegistration(record.state, record.accountKey, tournament.id, player.id);
+      return { ...tournament, registrationAvailable: isNoPaymentTournament(source), ...(registration ? { registration } : {}) };
+    }));
   const interests = page.records.flatMap((record) => buildPlayerTournamentInterests(record.state, record.accountKey, player.id));
   response.set('cache-control', 'private, no-store');
   response.json({
@@ -889,12 +906,13 @@ function createTournamentInterestHandler(dependencies = {}) {
 }
 
 const handleTournamentInterest = createTournamentInterestHandler();
+const handleTournamentRegistration = createTournamentRegistrationHandler();
 
 function rejectLegacyTournamentRegistration(_request, response) {
   response.status(410).json({
     ok: false,
     code: 'PLAYER_TOURNAMENT_REGISTRATION_DISABLED',
-    error: 'Orbit Player does not create tournament registrations. Express nonbinding interest instead.'
+    error: 'Self-service registration withdrawal is unavailable. Contact the venue to change your registration.'
   });
 }
 
@@ -926,7 +944,7 @@ function registerPlayerRoutes(app) {
   app.post('/player/waitlist-requests', requirePlayerAppCheck, requireFirebasePlayer, requireActivePlayerAccount, requireVerifiedPlayerAge, asyncRoute(handlePlayerWaitlistRequest));
   app.post('/player/tournament-interests', requirePlayerAppCheck, requireFirebasePlayer, requireActivePlayerAccount, requireVerifiedPlayerAge, asyncRoute((request, response) => handleTournamentInterest(request, response, 'express')));
   app.delete('/player/tournament-interests', requirePlayerAppCheck, requireFirebasePlayer, requireActivePlayerAccount, requireVerifiedPlayerAge, asyncRoute((request, response) => handleTournamentInterest(request, response, 'withdraw')));
-  app.post('/player/tournament-registrations', requirePlayerAppCheck, requireFirebasePlayer, requireActivePlayerAccount, rejectLegacyTournamentRegistration);
+  app.post('/player/tournament-registrations', requirePlayerAppCheck, requireFirebasePlayer, requireActivePlayerAccount, requireVerifiedPlayerAge, asyncRoute(handleTournamentRegistration));
   app.delete('/player/tournament-registrations', requirePlayerAppCheck, requireFirebasePlayer, requireActivePlayerAccount, rejectLegacyTournamentRegistration);
 }
 

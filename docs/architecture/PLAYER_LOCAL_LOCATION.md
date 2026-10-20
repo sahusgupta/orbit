@@ -1,0 +1,19 @@
+# Local Player search location
+
+Orbit Match distance and radius filtering use an optional origin selected on the device. The public venue catalog supplies only venue-authored, validated coordinates. Missing origin or venue coordinates keep distance unavailable; a strict radius cannot include a game whose distance is unknown. Home-area profile text is not a coordinate and is never geocoded.
+
+`player-app/src/app/playerLocation.ts` requests foreground permission only after **Use my device location**, then requests one position with Expo Location `Accuracy.Balanced`. The request has a 15-second application timeout and rejects invalid or stale fixes. It installs no watcher and uses no background, motion, geocoding, or geofencing API. The native one-shot call may finish after the timeout; its retired result is ignored.
+
+`player-app/src/application/usePlayerLocation.ts` validates local restoration and completes the secure write before publishing a new origin. Session generation and owner checks retire permission, position, and storage callbacks after an owner change or unmount. The owner key includes the session namespace (`account:`, `device:`, or `demo:`). Demo points stay in memory and never call the OS location API or secure origin storage.
+
+The secure key `orbit-player-local-origin-v1` holds records by local owner, independently of `PlayerAccount`, Match journals, and remote profile state. Device points expire 15 minutes after the fix timestamp. Expired records are unusable immediately and removed when the running app processes the expiry timer or next restores local data; closing the app does not schedule background deletion. Conditional expiry cleanup cannot delete a newer point. Manual points remain until **Clear search location** or local account-data cleanup. All origin storage uses the same serialized write and cleanup boundary as other local Player data.
+
+New origin and Match-journal writes fail visibly when Expo SecureStore is unavailable; they do not fall back to the existing volatile profile map or plaintext storage. A failed origin write leaves the prior in-memory selection intact. Restoring secure availability permits a durable retry. Legacy profile/auth fallback, reads and cleanup keep their existing behavior. Local adapter tests mock the native transport and do not prove physical-device storage availability.
+
+Search coordinates are not sent to Orbit APIs, Firestore, profiles, Match operations, or analytics. The manual picker mounts a map only by explicit action, starts at the published venue extent or a neutral world view, and never centers on the device origin or enables the user-location layer. Apple Maps or Google Maps may process the viewed region, venue coordinates, selected manual markers, and ordinary request metadata. Manual latitude/longitude entry provides an alternative without opening the map.
+
+The reviewed Expo configuration permits `NSLocationWhenInUseUsageDescription` and removes Always/motion purpose descriptions, location background modes, and Android background/foreground-service-location/activity-recognition permissions. Source and generated-native release checks preserve those restrictions. Existing camera-only simulator archives predate this change; an exact new native binary, physical-device permission/denial test, and signed privacy aggregation remain launch evidence to collect.
+
+Tests cover explicit requests, denial, timeout, stale replies, owner isolation, secure-write failures, restore/clear races, expiry, demo behavior, manual selection, and native permission policy. Root verification runs the Player strict typecheck and these tests without hosted-service access.
+
+Expo API reference: [SDK 57 Location](https://docs.expo.dev/versions/v57.0.0/sdk/location/). The feature uses the exact reviewed `expo-location` version `57.0.20`; existing dependency versions are preserved.

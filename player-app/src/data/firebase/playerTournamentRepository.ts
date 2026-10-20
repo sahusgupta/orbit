@@ -1,22 +1,81 @@
-import { isTournamentInterestOpen, type PlayerAccount, type PlayerTournament, type PlayerTournamentInterest } from '../../domain/playerSync';
-import { fetchPublicPlayerDiscovery, fetchRemotePlayerDiscovery, submitRemoteTournamentMutation } from '../api/playerHttpApi';
+import { isTournamentInterestOpen, tournamentScopeKey, type PlayerAccount, type PlayerTournament, type PlayerTournamentInterest } from '../../domain/playerSync';
+import { fetchPublicPlayerDiscovery, fetchRemotePlayerDiscovery, submitRemoteTournamentMutation, submitRemoteTournamentRegistration } from '../api/playerHttpApi';
 import { ensureSignedInIdentity, getCurrentFirebasePlayer } from './playerAuth';
 
 export const playerTournamentRefreshIntervalMs = 60_000;
+const tournamentDiscoveryPageSize = 50;
+const maximumTournamentDiscoveryPages = 20;
 
 export async function fetchPlayerTournaments(playerId?: string) {
   const signedIn = getCurrentFirebasePlayer();
   if (signedIn && (!playerId || signedIn.uid !== playerId)) {
     throw new Error('The signed-in Orbit Player account does not match this profile.');
   }
-  const discovery = signedIn ? await fetchRemotePlayerDiscovery('', 50, signedIn.uid) : await fetchPublicPlayerDiscovery();
-  return {
-    tournaments: discovery.tournaments,
-    interests: signedIn
-      ? discovery.interests.filter((interest) => interest.playerId === signedIn.uid && interest.status === 'interested')
-      : [],
-    page: discovery.page
+  const expectedUid = signedIn?.uid;
+  const assertCurrentSession = () => {
+    if (expectedUid && getCurrentFirebasePlayer()?.uid !== expectedUid) {
+      throw new Error('The signed-in Orbit Player account changed while tournaments were loading.');
+    }
   };
+  const tournaments = new Map<string, PlayerTournament>();
+  const interests = new Map<string, PlayerTournamentInterest>();
+  const clubIds = new Set<string>();
+  const seenCursors = new Set<string>();
+  let cursor = '';
+  let completedPages = 0;
+  let databaseQueries = 0;
+  let hasDatabaseQueries = false;
+  const catalog = (hasMore: boolean, nextCursor: string | null) => {
+    assertCurrentSession();
+    return {
+      tournaments: [...tournaments.values()],
+      interests: [...interests.values()].filter((interest) => interest.status === 'interested'),
+      page: { count: clubIds.size, hasMore, nextCursor, databaseQueries: hasDatabaseQueries ? databaseQueries : undefined }
+    };
+  };
+  for (let pageIndex = 0; pageIndex < maximumTournamentDiscoveryPages; pageIndex += 1) {
+    assertCurrentSession();
+    let discovery: Awaited<ReturnType<typeof fetchRemotePlayerDiscovery>>;
+    try {
+      discovery = expectedUid
+        ? await fetchRemotePlayerDiscovery(cursor, tournamentDiscoveryPageSize, expectedUid)
+        : await fetchPublicPlayerDiscovery(cursor, tournamentDiscoveryPageSize);
+    } catch (error) {
+      assertCurrentSession();
+      if (!completedPages) throw error;
+      return catalog(true, cursor || null);
+    }
+    assertCurrentSession();
+    completedPages += 1;
+    for (const club of discovery.clubs) clubIds.add(club.club.id);
+    // Map replacement retains first insertion order; encounter order is not a timestamp claim.
+    for (const tournament of discovery.tournaments) {
+      const { registration, ...listing } = tournament;
+      tournaments.set(tournamentScopeKey(tournament), {
+        ...listing, ...(expectedUid && registration?.playerId === expectedUid ? { registration } : {})
+      });
+    }
+    if (expectedUid) {
+      for (const interest of discovery.interests) {
+        if (interest.playerId === expectedUid) {
+          interests.set(JSON.stringify([interest.clubId, interest.tournamentId, interest.playerId]), interest);
+        }
+      }
+    }
+    if (typeof discovery.page.databaseQueries === 'number') {
+      databaseQueries += discovery.page.databaseQueries;
+      hasDatabaseQueries = true;
+    }
+    if (!discovery.page.hasMore) return catalog(false, null);
+    const nextCursor = discovery.page.nextCursor?.trim() ?? '';
+    if (!nextCursor || nextCursor === cursor || seenCursors.has(nextCursor)) {
+      if (!clubIds.size && !tournaments.size && !interests.size) throw new Error('Orbit Player tournament discovery returned an invalid cursor.');
+      return catalog(true, null);
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+  return catalog(true, cursor || null);
 }
 
 export function subscribeToPlayerTournaments(
@@ -73,6 +132,17 @@ export async function expressTournamentInterest(tournament: PlayerTournament, pl
   }, uid);
   if (!result.interest) throw new Error('The tournament interest response was incomplete.');
   return result.interest;
+}
+
+export async function registerForTournament(tournament: PlayerTournament, player: PlayerAccount, mutationId: string) {
+  const uid = ensureSignedInIdentity();
+  if (uid !== player.id) throw new Error('The signed-in Orbit Player account does not match this profile.');
+  if (tournament.registrationAvailable !== true || tournament.buyIn !== 0 ||
+    tournament.rebuysAllowed && tournament.rebuyPrice !== 0 || tournament.addOnsAllowed && tournament.addOnPrice !== 0) {
+    throw new Error('Only events without an entry, rebuy, or add-on payment can be registered in Orbit.');
+  }
+  if (!isTournamentInterestOpen(tournament)) throw new Error('The registration window for this event is closed.');
+  return submitRemoteTournamentRegistration({ clubId: tournament.clubId, tournamentId: tournament.id, mutationId }, uid);
 }
 
 export async function withdrawTournamentInterest(

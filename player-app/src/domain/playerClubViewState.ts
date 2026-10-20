@@ -34,7 +34,7 @@ export function deriveClubsViewState(
   partial: boolean,
   selectionNotice: string
 ): PlayerClubsViewState {
-  if (liveDataStatus === 'loading' && memberClubs.length === 0) return { kind: 'loading' };
+  if (liveDataStatus === 'loading' || liveDataStatus === 'idle' && memberClubs.length > 0) return { kind: 'loading' };
   if (liveDataStatus === 'error' && memberClubs.length === 0) return { kind: 'offline' };
   if (selectionNotice) {
     return { kind: 'removed', ...(selectedClub ? { selectedClub } : {}), message: selectionNotice, partial };

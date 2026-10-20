@@ -64,7 +64,7 @@
     "player:prebuild:ios": "node scripts/run-player-prebuild.mjs",
     "player:codegen:ios": "node scripts/run-player-codegen.mjs",
     "player:bundle:verify": "node scripts/verify-player-bundle.mjs player-app/dist-release",
-    "test:firestore-rules": "firebase emulators:exec --project demo-orbit-release-ci --only firestore \"npx vitest run tests/firestoreRules.emulator.test.ts\"",
+    "test:firestore-rules": "firebase emulators:exec --project demo-orbit-release-ci --only firestore \"npx vitest run --no-file-parallelism tests/firestoreRules.emulator.test.ts tests/orbitMatch.firestore.emulator.test.js\"",
     "typecheck": "node scripts/typecheck.cjs",
     "typecheck:renderer": "tsc --project tsconfig.renderer.json --noEmit",
     "typecheck:test": "tsc --project tsconfig.test.json --noEmit",

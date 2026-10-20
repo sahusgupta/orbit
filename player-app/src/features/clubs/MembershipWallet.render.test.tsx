@@ -17,12 +17,16 @@ vi.mock('../../data/orbitSyncApi', () => ({
 }));
 vi.mock('react-native', async () => {
   const ReactModule = await import('react');
-  const element = (tag: string) => ({ children, onPress, disabled, accessibilityLabel, accessibilityLiveRegion }: Record<string, unknown>) =>
+  const minHeight = (style: unknown): number => Array.isArray(style) ? Math.max(0, ...style.map(minHeight))
+    : style && typeof style === 'object' && 'minHeight' in style && typeof style.minHeight === 'number' ? style.minHeight : 0;
+  const element = (tag: string) => ({ children, onPress, disabled, accessibilityLabel, accessibilityRole, accessibilityLiveRegion, style }: Record<string, unknown>) =>
     ReactModule.createElement(tag, {
       disabled,
       onClick: onPress,
       'aria-label': accessibilityLabel,
-      'aria-live': accessibilityLiveRegion
+      'aria-live': accessibilityLiveRegion,
+      role: accessibilityRole,
+      'data-min-height': minHeight(style)
     }, children as React.ReactNode);
   return {
     Platform: { OS: 'ios' },
@@ -90,6 +94,53 @@ describe('membership wallet QR lifecycle', () => {
   function qrValue() {
     return container.querySelector('[data-testid="qr-code"]')?.getAttribute('data-value');
   }
+
+  it('keeps demo memberships separate from real venue check-in credentials', () => {
+    act(() => root.render(<MembershipWalletCard
+      club={club} membership={membership} nowMs={nowMs} player={player} demoMode
+    />));
+
+    expect(container.textContent).toContain('Demo membership only. Venue check-in is unavailable in the demo account.');
+    expect(container.textContent).not.toContain('Have staff scan this QR code');
+    expect(container.querySelector('button')).toBeNull();
+    expect(qrValue()).toBeUndefined();
+    expect(api.issue).not.toHaveBeenCalled();
+    expect(api.currentPlayer).not.toHaveBeenCalled();
+  });
+
+  it.each(['Expired', 'Active'] as const)('shows expired %s access without a check-in action or scan promise', (status) => {
+    act(() => root.render(<MembershipWalletCard
+      club={club} membership={{ ...membership, status, expiresAt: new Date(nowMs - 1).toISOString() }} nowMs={nowMs} player={player}
+    />));
+    expect(container.textContent).toContain('Expired');
+    expect(container.textContent).toContain('Review the venue’s published access options to renew.');
+    expect(container.textContent).not.toContain('Have staff scan this QR code');
+    expect(container.querySelector('button')).toBeNull();
+    expect(api.issue).not.toHaveBeenCalled();
+    expect(api.currentPlayer).not.toHaveBeenCalled();
+  });
+
+  it('keeps venue activation, physical ID, and fee confirmation clear for approved access', () => {
+    act(() => root.render(<MembershipWalletCard
+      club={club} membership={{ ...membership, status: 'Approved', identityReviewStatus: 'Pending', paymentStatus: 'Pending' }} nowMs={nowMs} player={player}
+    />));
+    expect(container.textContent).toContain('Approved');
+    expect(container.textContent).toContain('Physical ID review needed');
+    expect(container.textContent).toContain('confirm any fee in person');
+    expect(container.querySelector('button')).toBeNull();
+    expect(api.issue).not.toHaveBeenCalled();
+  });
+
+  it('shows the published active expiry and a named check-in action with a touch target', () => {
+    act(() => root.render(<MembershipWalletCard
+      club={club} membership={{ ...membership, expiresAt: new Date(nowMs + 86_400_000).toISOString() }} nowMs={nowMs} player={player}
+    />));
+    expect(container.textContent).toContain('Access until');
+    const action = button();
+    expect(action.getAttribute('aria-label')).toBe('Generate membership check-in code');
+    expect(action.getAttribute('role')).toBe('button');
+    expect(Number(action.getAttribute('data-min-height'))).toBeGreaterThanOrEqual(44);
+  });
 
   it('shows a server-issued code only until its expiry and creates a new code on refresh', async () => {
     render();

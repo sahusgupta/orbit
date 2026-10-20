@@ -182,6 +182,45 @@ export default function SettingsView({
                   onChange={(event) => setClubDraft({ ...clubDraft, address: event.target.value })}
                   placeholder="Address"
                 />
+                <fieldset className="account-management-field">
+                  <legend>Venue map pin (optional)</legend>
+                  <label>
+                    <span>Latitude</span>
+                    <input
+                      type="number"
+                      step="any"
+                      min={-90}
+                      max={90}
+                      aria-label="Venue latitude"
+                      aria-describedby="venue-coordinate-help"
+                      value={Number.isFinite(clubDraft.coordinate?.latitude) ? clubDraft.coordinate?.latitude : ''}
+                      onChange={(event) => setClubDraft({
+                        ...clubDraft,
+                        coordinate: { latitude: event.target.valueAsNumber, longitude: clubDraft.coordinate?.longitude ?? Number.NaN }
+                      })}
+                    />
+                  </label>
+                  <label>
+                    <span>Longitude</span>
+                    <input
+                      type="number"
+                      step="any"
+                      min={-180}
+                      max={180}
+                      aria-label="Venue longitude"
+                      aria-describedby="venue-coordinate-help"
+                      value={Number.isFinite(clubDraft.coordinate?.longitude) ? clubDraft.coordinate?.longitude : ''}
+                      onChange={(event) => setClubDraft({
+                        ...clubDraft,
+                        coordinate: { latitude: clubDraft.coordinate?.latitude ?? Number.NaN, longitude: event.target.valueAsNumber }
+                      })}
+                    />
+                  </label>
+                  <small id="venue-coordinate-help">Enter both coordinates for the public venue: latitude -90 to 90, longitude -180 to 180. Players use this pin for maps and distance. An address alone does not set a pin.</small>
+                  <button className="secondary-button" type="button" onClick={() => setClubDraft({ ...clubDraft, coordinate: undefined })} disabled={!clubDraft.coordinate}>
+                    Clear map pin
+                  </button>
+                </fieldset>
                 <label className="account-management-field">
                   <span>Minimum player age</span>
                   <select

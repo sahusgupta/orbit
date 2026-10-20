@@ -1,8 +1,15 @@
+import { usePlayerTheme, useThemedStyles } from '../styles/PlayerThemeProvider';
 import React, { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { sharedStyles as styles } from '../styles/sharedStyles';
+import { sharedStyles as baseStyles } from '../styles/sharedStyles';
 import { colors } from '../styles/playerTheme';
+
+export function connectionErrorCopy(error: string, destination: 'Match' | 'published games'): string {
+  return /\b(?:fetch failed|failed to fetch|network request failed)\b/i.test(error)
+    ? `Could not connect to ${destination}. Try again shortly.`
+    : error;
+}
 
 function useReducedMotionSetting() {
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -27,6 +34,8 @@ export function SearchToolbar({
   filterLabel: string;
   onOpenFilters: () => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   return (
     <View style={styles.searchToolbar}>
       <View style={styles.plainSearchBar}>
@@ -53,14 +62,17 @@ export function FiltersBottomSheet({
   title,
   onClose,
   onReset,
+  doneAccessibilityLabel,
   children
 }: {
   visible: boolean;
   title: string;
   onClose: () => void;
-  onReset: () => void;
+  onReset?: () => void;
+  doneAccessibilityLabel?: string;
   children: React.ReactNode;
 }) {
+  const styles = useThemedStyles(baseStyles);
   return (
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.filterSheetBackdrop}>
@@ -68,11 +80,11 @@ export function FiltersBottomSheet({
         <View accessibilityViewIsModal style={styles.filterSheetCard}>
           <View style={styles.filterSheetHandle} />
           <View style={styles.filterSheetHeader}>
-            <Pressable accessibilityLabel={`Reset ${title.toLowerCase()}`} accessibilityRole="button" onPress={onReset} style={styles.filterSheetHeaderAction}>
+            {onReset ? <Pressable accessibilityLabel={`Reset ${title.toLowerCase()}`} accessibilityRole="button" onPress={onReset} style={styles.filterSheetHeaderAction}>
               <Text style={styles.filterSheetResetText}>Reset</Text>
-            </Pressable>
+            </Pressable> : <View style={styles.filterSheetHeaderAction} />}
             <Text style={styles.filterSheetTitle}>{title}</Text>
-            <Pressable accessibilityLabel={`Apply ${title.toLowerCase()}`} accessibilityRole="button" onPress={onClose} style={[styles.filterSheetHeaderAction, styles.filterSheetDoneAction]}>
+            <Pressable accessibilityLabel={doneAccessibilityLabel ?? `Apply ${title.toLowerCase()}`} accessibilityRole="button" onPress={onClose} style={[styles.filterSheetHeaderAction, styles.filterSheetDoneAction]}>
               <Text style={styles.filterSheetDoneText}>Done</Text>
             </Pressable>
           </View>
@@ -102,6 +114,8 @@ export function IconActionButton({
   active?: boolean;
   disabled?: boolean;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   const [hovered, setHovered] = useState(false);
   return (
     <Pressable
@@ -114,7 +128,7 @@ export function IconActionButton({
       onHoverOut={() => setHovered(false)}
       style={[styles.iconActionButton, active && styles.iconActionButtonActive, disabled && styles.iconActionButtonDisabled]}
     >
-      <Ionicons name={icon} size={19} color={active ? '#ffffff' : disabled ? colors.muted : colors.primary} />
+      <Ionicons name={icon} size={19} color={active ? colors.onPrimary : disabled ? colors.muted : colors.primary} />
       {hovered && !disabled ? (
         <View pointerEvents="none" style={styles.iconTooltip}>
           <Text style={styles.iconTooltipText}>{label}</Text>
@@ -176,6 +190,7 @@ export function AnimatedButton({
   disabled?: boolean;
   variant: 'primary' | 'soft';
 }) {
+  const styles = useThemedStyles(baseStyles);
   const scale = useRef(new Animated.Value(1)).current;
   const glow = useRef(new Animated.Value(0)).current;
   const reducedMotion = useReducedMotionSetting();
@@ -229,6 +244,8 @@ export function SimpleMenuRow({
   subtitle: string;
   onPress: () => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   return (
     <Pressable accessibilityLabel={title} accessibilityRole="button" onPress={onPress} style={styles.simpleMenuRow}>
       <View style={styles.simpleMenuIcon}><Ionicons name={icon} size={20} color={colors.primary} /></View>

@@ -1,3 +1,6 @@
+import type { VenueCoordinate } from '../domain/types';
+import { decodeVenueCoordinate } from '../domain/venueCoordinate';
+
 export type PlayerSyncGameStatus = 'Running' | 'Forming' | 'Paused' | 'Closed' | 'Failed to Start';
 export type PlayerSyncInterestStatus =
   | 'Interested'
@@ -14,6 +17,7 @@ export type PlayerSyncClub = {
   name: string;
   phone?: string;
   address?: string;
+  coordinate?: VenueCoordinate;
   membershipOptions?: PlayerMembershipOption[];
 };
 
@@ -332,6 +336,7 @@ export type ManagementClubState = {
       address?: string;
       email?: string;
       minimumPlayerAge?: 18 | 21;
+      coordinate?: VenueCoordinate;
     };
     pilotAccess?: {
       licenseId?: string;
@@ -397,6 +402,7 @@ export function buildPlayerClubSnapshot(
 ): PlayerClubSnapshot {
   const clubId = getClubIdFromState(state);
   const account = state.settings?.clubAccount;
+  const coordinate = decodeVenueCoordinate(account?.coordinate);
   const activePlayerSessions = (state.playerSessions ?? []).filter((session) => !session.leftAt);
   const activeAdminCount = (state.settings?.staffAccounts ?? []).filter((staff) => staff.active !== false).length;
   const requestingProfile = getRequestingProfile(state.profiles, player);
@@ -527,6 +533,7 @@ export function buildPlayerClubSnapshot(
       name: account?.clubName || '',
       address: account?.address,
       phone: account?.phone,
+      ...(coordinate ? { coordinate } : {}),
       ...(account?.minimumPlayerAge === 18 || account?.minimumPlayerAge === 21
         ? { minimumAge: account.minimumPlayerAge }
         : {}),

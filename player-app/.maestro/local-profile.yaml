@@ -1,51 +1,66 @@
-appId: com.orbit.player
-name: Fresh install, age gate, local restoration, and local deletion
+appId: com.caminuslabs.orbit
+name: Fresh account choices, adult gate, and credentials without authentication
 ---
 - launchApp:
     clearState: true
     permissions:
       all: deny
 - extendedWaitUntil:
-    visible: Find room-published games and send requests
+    visible: Find your next game
     timeout: 30000
+- assertVisible: Create account
+- assertVisible: Try demo account
+- assertVisible: Already have an account? Sign in
 - takeScreenshot: 01-first-launch
-- scrollUntilVisible:
-    element: Your name
-    direction: DOWN
+- tapOn: Create account
 - tapOn: Your name
 - inputText: Release Reviewer
-- hideKeyboard
+- assertVisible:
+    id: delete
+- swipe:
+    start: 5%, 35%
+    end: 5%, 20%
+    duration: 400
+- assertNotVisible:
+    id: delete
+- assertNotVisible:
+    id: space
+- assertVisible: Release Reviewer
 - scrollUntilVisible:
     element: Continue
-    direction: DOWN
-- tapOn: Continue
-- scrollUntilVisible:
-    element: you@example.com
-    direction: UP
-- tapOn: you@example.com
-- inputText: release.qa@example.invalid
-- hideKeyboard
-- scrollUntilVisible:
-    element: Continue
-    direction: DOWN
-- tapOn: Continue
-- scrollUntilVisible:
-    element: Phone Number
-    direction: UP
-- assertVisible: Phone Number
-- scrollUntilVisible:
-    element: Continue
-    direction: DOWN
-- tapOn: Continue
-- scrollUntilVisible:
-    element: Home Area
-    direction: UP
-- assertVisible: Home Area
-- scrollUntilVisible:
-    element: Start exploring
     direction: DOWN
 - assertVisible:
-    text: Start exploring
+    text: Continue
+    enabled: true
+- tapOn: Continue
+- tapOn: you@example.com
+- inputText: release.qa@example.invalid
+- assertVisible:
+    id: delete
+- swipe:
+    start: 5%, 35%
+    end: 5%, 20%
+    duration: 400
+- assertNotVisible:
+    id: delete
+- assertNotVisible:
+    id: space
+- assertVisible: release.qa@example.invalid
+- scrollUntilVisible:
+    element: Continue
+    direction: DOWN
+- assertVisible:
+    text: Continue
+    enabled: true
+- tapOn: Continue
+- assertVisible: Phone Number
+- tapOn: Continue
+- assertVisible: Home Area
+- scrollUntilVisible:
+    element: Continue to account
+    direction: DOWN
+- assertVisible:
+    text: Continue to account
     enabled: false
 - takeScreenshot: 02-age-gate
 - scrollUntilVisible:
@@ -53,51 +68,33 @@ name: Fresh install, age gate, local restoration, and local deletion
     direction: UP
 - tapOn: I confirm that I am 18 or older
 - scrollUntilVisible:
-    element: Start exploring
+    element: Continue to account
     direction: DOWN
 - assertVisible:
-    text: Start exploring
+    text: Continue to account
     enabled: true
-- tapOn: Start exploring
-- extendedWaitUntil:
-    visible: ".*Profile$"
-    timeout: 30000
-- tapOn: ".*Profile$"
-- assertVisible: Profile & settings
-- takeScreenshot: 03-local-profile
+- tapOn: Continue to account
+- assertVisible: Create your account
+- assertVisible: release.qa@example.invalid
+- assertVisible: Account password or passphrase
+- assertVisible:
+    text: Create account / sign in
+    enabled: false
+- assertNotVisible: Account connected
+- takeScreenshot: 03-account-credentials
 - pressKey: Home
 - launchApp:
     stopApp: false
-- assertVisible: Profile & settings
+- assertVisible: Create your account
+- assertVisible: release.qa@example.invalid
+- assertNotVisible: Account connected
 - stopApp
 - launchApp
 - extendedWaitUntil:
-    visible: ".*Profile$"
+    visible: Find your next game
     timeout: 30000
-- tapOn: ".*Profile$"
-- assertVisible: Profile & settings
-- scrollUntilVisible:
-    element: Release Reviewer
-    direction: DOWN
-    timeout: 20000
-- assertVisible: Release Reviewer
-- scrollUntilVisible:
-    element: Delete local profile and data
-    direction: DOWN
-    timeout: 30000
-- takeScreenshot: 04-local-deletion
-- tapOn: Delete local profile and data
-- assertVisible: Delete local data
-- tapOn: Cancel
-- assertVisible: Delete local profile and data
-- tapOn: Delete local profile and data
-- tapOn: Delete local data
-- extendedWaitUntil:
-    visible: Local profile deleted
-    timeout: 15000
-- tapOn: OK
-- assertVisible: Find room-published games and send requests
-- stopApp
-- launchApp
-- assertVisible: Your name
-- takeScreenshot: 05-deletion-restored-empty
+- assertVisible: Create account
+- assertVisible: Try demo account
+- assertNotVisible: Release Reviewer
+- assertNotVisible: Account connected
+- takeScreenshot: 04-cold-welcome

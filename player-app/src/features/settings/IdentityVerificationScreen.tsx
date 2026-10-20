@@ -1,3 +1,4 @@
+import { usePlayerTheme, useThemedStyles } from '../../styles/PlayerThemeProvider';
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,7 +32,7 @@ const cameraStyles = StyleSheet.create({
   captureActions: { gap: 8 }
 });
 
-const styles = { ...sharedStyles, ...settingsStyles, ...cameraStyles };
+const baseStyles = { ...sharedStyles, ...settingsStyles, ...cameraStyles };
 
 export function IdentityVerificationScreen({
   status,
@@ -56,6 +57,8 @@ export function IdentityVerificationScreen({
   onStart: (details: Pick<ScannedGovernmentId, 'fullName' | 'dateOfBirth' | 'address'>) => void | Promise<void>;
   onRefresh: () => void | Promise<unknown>;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   const [permission, requestPermission] = useCameraPermissions();
   const [scannedIdentity, setScannedIdentity] = useState<ScannedGovernmentId | null>(null);
   const [scanMessage, setScanMessage] = useState('');
@@ -190,6 +193,7 @@ function IdentityPreview({
   identity: Pick<ScannedGovernmentId, 'fullName' | 'dateOfBirth' | 'address'> & Partial<Pick<ScannedGovernmentId, 'age'>>;
   ageLabel?: string;
 }) {
+  const styles = useThemedStyles(baseStyles);
   return (
     <View style={styles.previewCard}>
       <Text style={styles.previewTitle}>ID details</Text>
@@ -202,5 +206,6 @@ function IdentityPreview({
 }
 
 function IdentityDetail({ label, value }: { label: string; value: string }) {
+  const styles = useThemedStyles(baseStyles);
   return <View style={styles.detailRow}><Text style={styles.detailLabel}>{label}</Text><Text style={styles.detailValue}>{value}</Text></View>;
 }

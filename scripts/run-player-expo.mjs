@@ -40,7 +40,8 @@ function inspectResolvedConfig() {
   const reactNativePackage = JSON.parse(fs.readFileSync(path.join(playerRoot, 'node_modules', 'react-native', 'package.json'), 'utf8'));
   assert.equal(reactNativePackage.version, '0.86.3', 'Native App Check must use the reviewed New Architecture-only runtime');
   assert.equal(publicConfig.newArchEnabled, undefined, 'SDK 57 must not configure the removed architecture option');
-  assert.equal(publicConfig.ios?.bundleIdentifier, 'com.orbit.player');
+  assert.equal(publicConfig.ios?.bundleIdentifier, 'com.caminuslabs.orbit');
+  assert.equal(publicConfig.android?.package, 'com.orbit.player');
   assert.equal(publicConfig.ios?.infoPlist?.ITSAppUsesNonExemptEncryption, false);
   assert.equal(publicConfig.ios?.privacyManifests?.NSPrivacyTracking, false);
   assert.deepEqual(
@@ -62,11 +63,14 @@ function inspectResolvedConfig() {
     infoPlist.NSCameraUsageDescription,
     'Allow Orbit Player to scan the PDF417 barcode on your government ID. Orbit does not save a photo.'
   );
+  assert.equal(
+    infoPlist.NSLocationWhenInUseUsageDescription,
+    'Use your location once to find poker games within your selected distance. Orbit keeps this search point on your device.'
+  );
   for (const key of [
     'NSMicrophoneUsageDescription',
     'NSLocationAlwaysAndWhenInUseUsageDescription',
     'NSLocationAlwaysUsageDescription',
-    'NSLocationWhenInUseUsageDescription',
     'NSPhotoLibraryAddUsageDescription',
     'NSPhotoLibraryUsageDescription',
     'NSUserTrackingUsageDescription',

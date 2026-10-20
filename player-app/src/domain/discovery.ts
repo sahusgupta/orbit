@@ -244,7 +244,8 @@ export function getDistanceMiles(from: Coordinate, to: Coordinate) {
   const haversine =
     Math.sin(latitudeDelta / 2) ** 2 +
     Math.cos(fromLat) * Math.cos(toLat) * Math.sin(longitudeDelta / 2) ** 2;
-  return earthRadiusMiles * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+  const boundedHaversine = Math.max(0, Math.min(1, haversine));
+  return earthRadiusMiles * 2 * Math.atan2(Math.sqrt(boundedHaversine), Math.sqrt(1 - boundedHaversine));
 }
 
 export function getClubDistance(club: PlayerClubSnapshot, originCoordinate: Coordinate | null) {

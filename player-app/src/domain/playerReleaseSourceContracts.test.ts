@@ -14,12 +14,30 @@ describe('Player conservative-release source boundary', () => {
   const sourceRoot = resolve(process.cwd(), 'player-app/src');
 
   it('contains no reachable removed feature modules or synthetic geography residue', () => {
-    const prohibited = /usePlayerPremium|usePlayerPrivateGames|applePurchases|privateGameRepository|DiscoveryHosting|MapPicker|RevenueCat|purchases-react-native|checkout|tournament-registrations|tournamentRegistrations|Bryan|College Station|30\.613|-96\.342|defaultRegion/i;
+    const prohibited = /usePlayerPremium|usePlayerPrivateGames|applePurchases|privateGameRepository|DiscoveryHosting|MapPicker|RevenueCat|purchases-react-native|checkout|Bryan|College Station|30\.613|-96\.342|defaultRegion/i;
     const violations = productionSources(sourceRoot).flatMap((path) => {
       const match = prohibited.exec(readFileSync(path, 'utf8'));
       return match ? [`${relative(sourceRoot, path)}: ${match[0]}`] : [];
     });
     expect(violations).toEqual([]);
+  });
+
+  it('allows operational registration only through the guarded no-payment route', () => {
+    const repository = readFileSync(join(sourceRoot, 'data/firebase/playerTournamentRepository.ts'), 'utf8');
+    const api = readFileSync(join(sourceRoot, 'data/api/playerHttpApi.ts'), 'utf8');
+    const server = readFileSync(resolve(process.cwd(), 'apps/api/src/tournamentRegistrationService.js'), 'utf8');
+    expect(repository).toContain('registrationAvailable !== true');
+    expect(repository).toContain('tournament.buyIn !== 0');
+    expect(repository).toContain('tournament.rebuysAllowed && tournament.rebuyPrice !== 0');
+    expect(repository).toContain('tournament.addOnsAllowed && tournament.addOnPrice !== 0');
+    expect(repository).toContain('ensureSignedInIdentity()');
+    expect(api).toContain('/player/tournament-registrations');
+    expect(api).toContain('result.registration.playerId !== expectedUid');
+    expect(api).toContain('/player/tournament-interests');
+    expect(server).toContain('tournament?.buyIn === 0');
+    expect(server).toContain('enabled === true && price === 0');
+    expect(server).toContain('buyIn: 0');
+    expect(server).not.toMatch(/revenueTransactions:|playerLedger:|buyIns:/);
   });
 
   it('keeps phone and game communication copy truthful and in-app-only', () => {

@@ -1,3 +1,4 @@
+import { usePlayerTheme, useThemedStyles } from '../../styles/PlayerThemeProvider';
 import React, { useState } from 'react';
 import { Modal, Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,21 +12,21 @@ import type {
   PlayerTournament,
   PlayerWaitlistEntry
 } from '../../domain/playerSync';
-import { getClubAvailabilityLabel, getClubDistance, hasRunningTable } from '../../domain/discovery';
+import { getClubAvailabilityLabel, getClubCity, getClubDistance, hasRunningTable } from '../../domain/discovery';
 import type { PlayerClubsViewState } from '../../domain/playerClubViewState';
 import type { Coordinate, SeatRequestDraft } from '../../domain/playerTypes';
-import { isPlayerMembership } from '../../domain/playerSync';
+import { isMembershipCurrentlyActive, isPlayerMembership } from '../../domain/playerSync';
 import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
 import { ClubHubSections, PlayerTimePanel } from './ClubHub';
 import { MembershipApplicationStatusCard, MembershipWalletCard } from './MembershipWallet';
 import { clubStyles } from './clubStyles';
 
-const styles = { ...sharedStyles, ...clubStyles };
+const baseStyles = { ...sharedStyles, ...clubStyles };
 
 function formatClubDistance(club: PlayerClubSnapshot, originCoordinate: Coordinate | null) {
   const distance = getClubDistance(club, originCoordinate);
-  return distance == null ? 'Distance unavailable' : `${distance.toFixed(1)} mi`;
+  return distance == null ? '' : `${distance.toFixed(1)} mi`;
 }
 
 function compareClubDistance(left: PlayerClubSnapshot, right: PlayerClubSnapshot, originCoordinate: Coordinate | null) {
@@ -48,9 +49,11 @@ export function ClubsScreen({
   waitlists,
   tournaments,
   onSelectClub,
+  onOpenMembership,
   onGame,
   onManageAccess,
-  onViewEvents
+  onViewEvents,
+  demoMode = false
 }: {
   memberClubs: PlayerClubSnapshot[];
   selectedMembership?: PlayerMembership;
@@ -62,10 +65,14 @@ export function ClubsScreen({
   waitlists: PlayerWaitlistEntry[];
   tournaments: PlayerTournament[];
   onSelectClub: (club: PlayerClubSnapshot) => void;
+  onOpenMembership?: (club: PlayerClubSnapshot) => void;
   onGame: (game: PlayerSyncGame) => void;
   onManageAccess: () => void;
   onViewEvents: () => void;
+  demoMode?: boolean;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   // Club-dependent panels contain actions. Render them only for a current,
   // successfully refreshed selection; stale/removed states stay read-only.
   const renderableClub = viewState.kind === 'ready' ? viewState.selectedClub : undefined;
@@ -107,26 +114,32 @@ export function ClubsScreen({
         .map((club) => {
           const isSelected = club.club.id === renderableClub?.club.id;
           const membership = club.memberships.find((item) => isPlayerMembership(item, player));
+          const status = membership?.status === 'Active' && !isMembershipCurrentlyActive(membership, nowMs)
+            ? 'Expired' : membership?.status ?? (club.timeAccess?.linked ? 'Core linked' : 'Join');
           const availability = getClubAvailabilityLabel(club);
-          const familiarText = club.social?.knownPlayersInHouse ? ` - ${club.social.knownPlayersInHouse} familiar players` : '';
+          const location = club.club.address?.trim() ? getClubCity(club) : '';
+          const familiar = club.social?.knownPlayersInHouse ? `${club.social.knownPlayersInHouse} familiar players` : '';
+          const detail = [location, formatClubDistance(club, originCoordinate), availability, familiar].filter(Boolean).join(' · ');
           return (
             <Pressable
               key={club.club.id}
-              onPress={() => onSelectClub(club)}
-              style={[styles.clubCard, isSelected && styles.selectedCard]}
+              accessibilityRole="button"
+              accessibilityLabel={`${club.club.name}, ${status}`}
+              accessibilityState={{ selected: isSelected }}
+              onPress={() => (onOpenMembership ?? onSelectClub)(club)}
+              style={[styles.clubVenueRow, isSelected && styles.selectedCard]}
             >
               <View style={[styles.clubAvatar, isSelected && styles.clubAvatarActive]}>
                 <Text style={[styles.clubAvatarText, isSelected && styles.clubAvatarTextActive]}>{club.club.name.slice(0, 1)}</Text>
               </View>
-              <View style={styles.clubMain}>
+              <View style={styles.clubVenueCopy}>
                 <Text style={styles.cardTitle}>{club.club.name}</Text>
-                <Text style={styles.muted}>
-                  {formatClubDistance(club, originCoordinate)} - {availability}{familiarText}
-                </Text>
+                <Text style={styles.muted}>{detail}</Text>
               </View>
               <View style={styles.statusPill}>
-                <Text style={styles.statusText}>{membership?.status ?? (club.timeAccess?.linked ? 'Core linked' : 'Join')}</Text>
+                <Text style={styles.statusText}>{status}</Text>
               </View>
+              {onOpenMembership ? <Ionicons name="chevron-forward" size={18} color={colors.muted} /> : null}
             </Pressable>
           );
         }) : viewState.kind === 'empty' ? (
@@ -136,7 +149,7 @@ export function ClubsScreen({
           </View>
         ) : null}
 
-      {selectedMembership && renderableClub ? (
+      {!onOpenMembership && selectedMembership && renderableClub ? (
         <>
           {selectedMembership.status === 'Requested' ? (
             <MembershipApplicationStatusCard club={renderableClub} membership={selectedMembership} />
@@ -146,6 +159,7 @@ export function ClubsScreen({
               membership={selectedMembership}
               nowMs={nowMs}
               player={player}
+              demoMode={demoMode}
             />
           )}
           {message ? <Text style={styles.actionStatus}>{message}</Text> : null}
@@ -162,7 +176,7 @@ export function ClubsScreen({
           />
         </>
       ) : null}
-      {renderableClub ? <PlayerTimePanel club={renderableClub} message={message} /> : null}
+      {!onOpenMembership && renderableClub ? <PlayerTimePanel club={renderableClub} message={message} /> : null}
     </>
   );
 }
@@ -182,6 +196,8 @@ export function ClubMembershipPlanScreen({
   onBack: () => void;
   onSubmit: (membershipOption?: PlayerMembershipOption) => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   const membershipOptions: PlayerMembershipOption[] = club.club.membershipOptions ?? [];
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const selectedOption = membershipOptions.find((option) => option.id === selectedOptionId);
@@ -243,8 +259,8 @@ export function ClubMembershipPlanScreen({
         </View>
       ) : null}
 
-      <AnimatedButton disabled={busy || !selectedOption} variant="primary" onPress={() => onSubmit(selectedOption)} style={[styles.primaryButton, styles.fullWidthButton]}>
-        <Ionicons name="person-add-outline" size={18} color="#ffffff" />
+      <AnimatedButton disabled={busy || !selectedOption} variant="primary" onPress={() => onSubmit(selectedOption)} style={[styles.primaryButton, styles.fullWidthButton, { marginTop: 'auto' }]}>
+        <Ionicons name="person-add-outline" size={18} color={colors.onPrimary} />
         <Text style={styles.primaryButtonText}>{busy ? 'Sending request...' : selectedOption ? `Request ${selectedOption.name}` : 'Choose an option'}</Text>
       </AnimatedButton>
       {message ? <Text style={styles.actionStatus}>{message}</Text> : null}
@@ -269,6 +285,8 @@ export function SeatRequestModal({
   onClose: () => void;
   onSubmit: () => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   if (!draft) return null;
   const hasOpenTable = hasRunningTable(draft.game);
   const update = (patch: Partial<SeatRequestDraft>) => onChange((current) => current ? { ...current, ...patch } : current);
@@ -296,7 +314,7 @@ export function SeatRequestModal({
                 style={[styles.attendanceChoice, draft.attendance === 'arrived' && styles.attendanceChoiceActive]}
                 onPress={() => update({ attendance: 'arrived', expectedArrivalTime: '' })}
               >
-                <Ionicons name="location-outline" size={20} color={draft.attendance === 'arrived' ? '#fff' : colors.primary} />
+                <Ionicons name="location-outline" size={20} color={draft.attendance === 'arrived' ? colors.onPrimary : colors.primary} />
                 <Text style={[styles.attendanceChoiceTitle, draft.attendance === 'arrived' && styles.attendanceChoiceTextActive]}>At club now</Text>
                 <Text style={[styles.attendanceChoiceBody, draft.attendance === 'arrived' && styles.attendanceChoiceTextActive]}>Mark me arrived</Text>
               </Pressable>
@@ -305,7 +323,7 @@ export function SeatRequestModal({
                 style={[styles.attendanceChoice, draft.attendance === 'confirmed' && styles.attendanceChoiceActive]}
                 onPress={() => update({ attendance: 'confirmed' })}
               >
-                <Ionicons name="time-outline" size={20} color={draft.attendance === 'confirmed' ? '#fff' : colors.primary} />
+                <Ionicons name="time-outline" size={20} color={draft.attendance === 'confirmed' ? colors.onPrimary : colors.primary} />
                 <Text style={[styles.attendanceChoiceTitle, draft.attendance === 'confirmed' && styles.attendanceChoiceTextActive]}>Coming later</Text>
                 <Text style={[styles.attendanceChoiceBody, draft.attendance === 'confirmed' && styles.attendanceChoiceTextActive]}>Confirm a time</Text>
               </Pressable>
@@ -353,7 +371,7 @@ export function SeatRequestModal({
           {message ? <Text style={styles.formError}>{message}</Text> : null}
           {readOnly ? <Text accessibilityRole="alert" style={styles.formError}>Refresh published venue data before sending this request.</Text> : null}
           <AnimatedButton disabled={busy || readOnly} variant="primary" onPress={onSubmit} style={[styles.primaryButton, styles.fullWidthButton]}>
-            <Ionicons name={draft.attendance === 'arrived' ? 'location-outline' : 'checkmark-circle-outline'} size={18} color="#fff" />
+            <Ionicons name={draft.attendance === 'arrived' ? 'location-outline' : 'checkmark-circle-outline'} size={18} color={colors.onPrimary} />
             <Text style={styles.primaryButtonText}>{readOnly ? 'Refresh required' : busy ? 'Sending...' : draft.attendance === 'arrived' ? 'Tell club I am here' : 'Send request'}</Text>
           </AnimatedButton>
         </View>
@@ -377,6 +395,8 @@ export function MembershipPlanCard({
   selected: boolean;
   onPress: () => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   return (
     <Pressable accessibilityLabel={`${title}, ${price}`} accessibilityRole="button" accessibilityState={{ selected }} style={[styles.planCard, selected && styles.planCardFeatured]} onPress={onPress}>
       <View style={styles.planIcon}>

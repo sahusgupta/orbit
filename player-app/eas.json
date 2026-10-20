@@ -5,6 +5,13 @@
     "requireCommit": true
   },
   "build": {
+    "iphone-test": {
+      "extends": "production",
+      "distribution": "internal",
+      "environment": "production",
+      "autoIncrement": false,
+      "ios": { "simulator": false }
+    },
     "simulator": {
       "extends": "production",
       "distribution": "internal",
@@ -53,7 +60,7 @@
       "distribution": "store",
       "node": "22.16.0",
       "ios": {
-        "image": "macos-sequoia-15.6-xcode-26.0",
+        "image": "macos-tahoe-26.5-xcode-26.6",
         "simulator": false
       },
       "env": {

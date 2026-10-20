@@ -1,3 +1,4 @@
+import { usePlayerTheme, useThemedStyles } from '../../styles/PlayerThemeProvider';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Chip, Field } from '../../components/PlayerFields';
@@ -8,7 +9,7 @@ import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
 import { discoveryStyles } from './discoveryStyles';
 
-const styles = { ...sharedStyles, ...discoveryStyles };
+const baseStyles = { ...sharedStyles, ...discoveryStyles };
 
 export function DiscoverySearchModal({
   visible,
@@ -21,6 +22,8 @@ export function DiscoverySearchModal({
   onChangeText: (value: string) => void;
   onClose: () => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.discoverySearchBackdrop}>
@@ -70,8 +73,6 @@ export function GameFilterPanel({
   setSelectedCasinoId,
   stakes,
   setStakes,
-  fitScoreEnabled,
-  setFitScoreEnabled,
 }: {
   clubs: PlayerClubSnapshot[];
   gameType: GameTypeFilter;
@@ -85,6 +86,7 @@ export function GameFilterPanel({
   fitScoreEnabled: boolean;
   setFitScoreEnabled: (value: boolean) => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
   const typeOptions: Array<{ id: GameTypeFilter; label: string }> = [
     { id: 'all', label: 'All' },
     { id: 'card-house', label: 'Card house' },
@@ -151,13 +153,6 @@ export function GameFilterPanel({
       <View style={styles.filterGrid}>
         <Field label="Stakes" value={stakes} onChangeText={setStakes} />
       </View>
-      <Pressable
-        style={[styles.lockedFilterRow, fitScoreEnabled && styles.lockedFilterRowActive]}
-        onPress={() => setFitScoreEnabled(!fitScoreEnabled)}
-      >
-        <Ionicons name="analytics-outline" size={16} color={fitScoreEnabled ? colors.teal : colors.muted} />
-        <Text style={styles.lockedFilterText}>Sort by my preferences</Text>
-      </Pressable>
     </View>
   );
 }
@@ -169,6 +164,7 @@ export function MapFilterControls({
   venue: MapVenueFilter;
   setVenue: (value: MapVenueFilter) => void;
 }) {
+  const styles = useThemedStyles(baseStyles);
   const options: Array<{ id: MapVenueFilter; label: string }> = [
     { id: 'all', label: 'All places' },
     { id: 'card-house', label: 'Card houses' },

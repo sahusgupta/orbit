@@ -1,4 +1,5 @@
 import { getTimeRemainingSeconds } from './domain/operations';
+import { decodeVenueCoordinate } from './domain/venueCoordinate';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { createRoot } from 'react-dom/client';
@@ -3708,6 +3709,11 @@ function App() {
       setPilotKeyError('Club name, account name, contact name, and email are required.');
       return;
     }
+    const coordinate = decodeVenueCoordinate(clubDraft.coordinate);
+    if (clubDraft.coordinate !== undefined && !coordinate) {
+      setPilotKeyError('Enter both venue coordinates: latitude from -90 to 90 and longitude from -180 to 180, or clear the map pin.');
+      return;
+    }
     setPilotKeyError('');
     updateSettings({
       clubAccount: {
@@ -3718,6 +3724,7 @@ function App() {
         email: clubDraft.email.trim().toLowerCase(),
         phone: clubDraft.phone.trim(),
         address: clubDraft.address.trim(),
+        coordinate,
         minimumPlayerAge: clubDraft.minimumPlayerAge === 18 ? 18 : 21
       }
     });

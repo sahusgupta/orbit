@@ -1,0 +1,62 @@
+appId: com.caminuslabs.orbit
+name: Fictional offline Match save, remove, pass, undo, and demo exit
+---
+- launchApp:
+    clearState: true
+    permissions:
+      all: deny
+- extendedWaitUntil:
+    visible: Find your next game
+    timeout: 30000
+- tapOn: Try demo account
+- extendedWaitUntil:
+    visible: Hi, Demo
+    timeout: 30000
+- tapOn: Find games
+- extendedWaitUntil:
+    visible: Orbit Match
+    timeout: 30000
+- assertVisible: Saved games, 0
+- scrollUntilVisible:
+    element: "Save .*"
+    direction: DOWN
+    timeout: 15000
+- tapOn: "Save .*"
+- scrollUntilVisible:
+    element: Saved games, 1
+    direction: UP
+- tapOn: Saved games, 1
+- scrollUntilVisible:
+    element: "Remove saved .*"
+    direction: DOWN
+- takeScreenshot: 06-demo-saved
+- tapOn: "Remove saved .*"
+- assertVisible: No saved games yet
+- scrollUntilVisible:
+    element: Saved games, 0
+    direction: UP
+- assertVisible: Saved games, 0
+- tapOn: Discover games
+- scrollUntilVisible:
+    element: "Pass .*"
+    direction: DOWN
+- tapOn: "Pass .*"
+- scrollUntilVisible:
+    element: Undo last swipe
+    direction: UP
+- assertVisible:
+    text: Undo last swipe
+    enabled: true
+- tapOn: Undo last swipe
+- assertVisible:
+    text: Undo last swipe
+    enabled: false
+- takeScreenshot: 07-demo-undo
+- tapOn: Profile
+- tapOn: Exit demo
+- extendedWaitUntil:
+    visible: Find your next game
+    timeout: 30000
+- assertVisible: Create account
+- assertNotVisible: Demo Player
+- takeScreenshot: 08-demo-exit

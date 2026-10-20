@@ -44,6 +44,7 @@ export {
 export {
   fetchPlayerTournaments,
   expressTournamentInterest,
+  registerForTournament,
   subscribeToPlayerTournaments,
   withdrawTournamentInterest
 } from './firebase/playerTournamentRepository';

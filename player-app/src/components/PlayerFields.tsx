@@ -1,6 +1,7 @@
+import { usePlayerTheme, useThemedStyles } from '../styles/PlayerThemeProvider';
 import { useState, type ComponentProps } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import { sharedStyles as styles } from '../styles/sharedStyles';
+import { sharedStyles as baseStyles } from '../styles/sharedStyles';
 import { colors } from '../styles/playerTheme';
 
 export function Field({
@@ -24,6 +25,8 @@ export function Field({
   placeholder?: string;
   editable?: boolean;
 }) {
+  const styles = useThemedStyles(baseStyles);
+  const { colors } = usePlayerTheme();
   const [touched, setTouched] = useState(false);
   const visibleError = touched ? error : '';
   return (
@@ -38,7 +41,7 @@ export function Field({
         }}
         onSubmitEditing={onSubmit}
         placeholder={placeholder ?? label}
-        placeholderTextColor={tone === 'light' ? 'rgba(255,255,255,0.56)' : colors.muted}
+        placeholderTextColor={colors.muted}
         returnKeyType={onSubmit ? 'next' : 'done'}
         keyboardType={keyboardType}
         editable={editable}
@@ -53,6 +56,7 @@ export function Field({
   );
 }
 export function Chip({ label, active, disabled = false, onPress }: { label: string; active: boolean; disabled?: boolean; onPress: () => void }) {
+  const styles = useThemedStyles(baseStyles);
   return (
     <Pressable
       accessibilityLabel={label}
