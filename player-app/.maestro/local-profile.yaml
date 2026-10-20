@@ -15,11 +15,43 @@ name: Fresh account choices, adult gate, and credentials without authentication
 - tapOn: Create account
 - tapOn: Your name
 - inputText: Release Reviewer
-- hideKeyboard
+- assertVisible:
+    id: delete
+- swipe:
+    start: 5%, 35%
+    end: 5%, 20%
+    duration: 400
+- assertNotVisible:
+    id: delete
+- assertNotVisible:
+    id: space
+- assertVisible: Release Reviewer
+- scrollUntilVisible:
+    element: Continue
+    direction: DOWN
+- assertVisible:
+    text: Continue
+    enabled: true
 - tapOn: Continue
 - tapOn: you@example.com
 - inputText: release.qa@example.invalid
-- hideKeyboard
+- assertVisible:
+    id: delete
+- swipe:
+    start: 5%, 35%
+    end: 5%, 20%
+    duration: 400
+- assertNotVisible:
+    id: delete
+- assertNotVisible:
+    id: space
+- assertVisible: release.qa@example.invalid
+- scrollUntilVisible:
+    element: Continue
+    direction: DOWN
+- assertVisible:
+    text: Continue
+    enabled: true
 - tapOn: Continue
 - assertVisible: Phone Number
 - tapOn: Continue

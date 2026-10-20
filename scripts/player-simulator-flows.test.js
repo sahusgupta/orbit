@@ -21,6 +21,27 @@ function expectOrdered(commands, expected) {
 }
 
 describe('isolated native Player smoke contracts', () => {
+  it('dismisses each keyboard through the scroll margin without losing input or bypassing enabled controls', () => {
+    const [, commands] = readFlow('local-profile');
+    for (const value of ['Release Reviewer', 'release.qa@example.invalid']) {
+      const inputIndex = commandIndex(commands, { inputText: value });
+      expect(inputIndex).toBeGreaterThanOrEqual(0);
+      expect(commands.slice(inputIndex, inputIndex + 9)).toEqual([
+        { inputText: value },
+        { assertVisible: { id: 'delete' } },
+        { swipe: { start: '5%, 35%', end: '5%, 20%', duration: 400 } },
+        { assertNotVisible: { id: 'delete' } },
+        { assertNotVisible: { id: 'space' } },
+        { assertVisible: value },
+        { scrollUntilVisible: { element: 'Continue', direction: 'DOWN' } },
+        { assertVisible: { text: 'Continue', enabled: true } },
+        { tapOn: 'Continue' }
+      ]);
+    }
+    expect(commands).not.toContain('hideKeyboard');
+    expect(JSON.stringify(commands)).not.toMatch(/"(?:optional|continueOnFailure)":true/);
+  });
+
   it('requires the adult declaration before opening account credentials on a denied-permissions fresh install', () => {
     const [metadata, commands] = readFlow('local-profile');
     expect(metadata.appId).toBe('com.caminuslabs.orbit');
