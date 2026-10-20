@@ -11,6 +11,10 @@ name: Fresh account choices, adult gate, and credentials without authentication
 - assertVisible: Create account
 - assertVisible: Try demo account
 - assertVisible: Already have an account? Sign in
+- scrollUntilVisible:
+    element: Already have an account? Sign in
+    direction: DOWN
+    centerElement: true
 - takeScreenshot: 01-first-launch
 - tapOn: Create account
 - tapOn: Your name
@@ -59,6 +63,7 @@ name: Fresh account choices, adult gate, and credentials without authentication
 - scrollUntilVisible:
     element: Continue to account
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: Continue to account
     enabled: false
@@ -70,6 +75,7 @@ name: Fresh account choices, adult gate, and credentials without authentication
 - scrollUntilVisible:
     element: Continue to account
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: Continue to account
     enabled: true
@@ -77,11 +83,18 @@ name: Fresh account choices, adult gate, and credentials without authentication
 - assertVisible: Create your account
 - assertVisible: release.qa@example.invalid
 - assertVisible: Account password or passphrase
+- scrollUntilVisible:
+    element: Create account / sign in
+    direction: DOWN
+    centerElement: true
 - assertVisible:
     text: Create account / sign in
     enabled: false
 - assertNotVisible: Account connected
 - takeScreenshot: 03-account-credentials
+- scrollUntilVisible:
+    element: Create your account
+    direction: UP
 - pressKey: Home
 - launchApp:
     stopApp: false
@@ -97,4 +110,8 @@ name: Fresh account choices, adult gate, and credentials without authentication
 - assertVisible: Try demo account
 - assertNotVisible: Release Reviewer
 - assertNotVisible: Account connected
+- scrollUntilVisible:
+    element: Already have an account? Sign in
+    direction: DOWN
+    centerElement: true
 - takeScreenshot: 04-cold-welcome

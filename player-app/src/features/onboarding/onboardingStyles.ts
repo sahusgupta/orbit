@@ -109,6 +109,7 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
     borderRadius: 12,
     borderWidth: 1,
     flexDirection: 'row',
+    flexShrink: 1,
     gap: 9,
     justifyContent: 'center',
     minHeight: 48,
@@ -117,6 +118,7 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
   },
   onboardingNextActionText: {
     color: '#ffffff',
+    flexShrink: 1,
     fontSize: 14,
     fontWeight: '700'
   },
