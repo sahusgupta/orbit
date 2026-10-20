@@ -188,8 +188,8 @@ describe('Player onboarding presentation contract', () => {
       '<OnboardingFlow'
     ];
 
-    // Reviewed account-first flow; Firebase verification and age gates are covered below and in connection/render tests.
-    expect(componentDigest).toBe('ec645fe58034e07b5db23f70179564825b3fdd41d7b665c65b95f840ddd35a58');
+    // Reviewed account-first flow with an explicit demo action label; Firebase verification and age gates remain covered below and in connection/render tests.
+    expect(componentDigest).toBe('8fdbc5036bb3990e68d4d3f6b0d8e18c23077c31c75a23df1863ba58643478a1');
     orderedShellTokens.forEach((token) => expect(shell).toContain(token));
     expect(shell).toContain('keyboardShouldPersistTaps="handled"');
     expect(shell).toContain('keyboardDismissMode="on-drag"');
@@ -224,8 +224,8 @@ describe('Player onboarding presentation contract', () => {
     const sources = parseSources([onboardingFeatureRoot]);
     const styleDigest = digest(styleNames.map((name) => findStyleProperty(sources, name)));
 
-    // Reviewed contrast-safe primary actions and shared 44-point touch targets.
-    expect(styleDigest).toBe('cb12a5bec137fab6778d6576eaa46da870087f82730a539a59f6f007c26c57c0');
+    // Reviewed safe-viewport content sizing without a full-window minimum; contrast-safe actions and shared 44-point touch targets remain unchanged.
+    expect(styleDigest).toBe('522b2c662653ea3a7fe57a1cf5fcdd43e371914e14cffeaab9b66dc40f4205b8');
   });
 });
 
