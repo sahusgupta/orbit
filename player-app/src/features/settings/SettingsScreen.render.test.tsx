@@ -160,7 +160,7 @@ describe('SettingsScreen local deletion action', () => {
     act(() => button('Forgot password').click());
     expect(recoverPlayerAccount).toHaveBeenCalledOnce();
     expect(container.textContent).not.toContain('Send verification code');
-    const demo = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Try demo account');
+    const demo = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Try sample account');
     expect(demo?.getAttribute('role')).toBe('button');
     act(() => demo?.click());
     expect(onTryDemo).toHaveBeenCalledOnce();
@@ -232,7 +232,7 @@ describe('SettingsScreen local deletion action', () => {
     expect(container.querySelector('[data-field="Name"]')?.getAttribute('data-editable')).toBe('true');
     expect(container.querySelector('[data-field="Email address"]')).toBeNull();
     expect(container.querySelector('[data-field="Phone number"]')).toBeNull();
-    const demo = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Try demo account');
+    const demo = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Try sample account');
     act(() => demo?.click());
     expect(onTryDemo).toHaveBeenCalledOnce();
     expect(signOutPlayer).not.toHaveBeenCalled();

@@ -9,7 +9,7 @@ name: Fresh account choices, adult gate, and credentials without authentication
     visible: Find your next game
     timeout: 30000
 - assertVisible: Create account
-- assertVisible: Try demo account
+- assertVisible: Try sample account
 - assertVisible: Already have an account? Sign in
 - scrollUntilVisible:
     element: Already have an account? Sign in
@@ -107,7 +107,7 @@ name: Fresh account choices, adult gate, and credentials without authentication
     visible: Find your next game
     timeout: 30000
 - assertVisible: Create account
-- assertVisible: Try demo account
+- assertVisible: Try sample account
 - assertNotVisible: Release Reviewer
 - assertNotVisible: Account connected
 - scrollUntilVisible:

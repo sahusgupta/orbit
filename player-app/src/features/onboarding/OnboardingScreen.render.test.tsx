@@ -111,9 +111,9 @@ describe('OnboardingScreen adult declaration gate', () => {
       onComplete={onComplete} onTryDemo={onTryDemo}
     />));
 
-    const demo = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Try demo account');
+    const demo = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Try sample account');
     expect(demo?.getAttribute('role')).toBe('button');
-    expect(demo?.getAttribute('aria-label')).toBe('Try demo account');
+    expect(demo?.getAttribute('aria-label')).toBe('Try sample account');
     expect(demo?.disabled).toBe(false);
     expect(container.textContent).toContain('Explore fictional games at different locations. No sign-in required.');
     act(() => demo?.click());
@@ -133,7 +133,7 @@ describe('OnboardingScreen adult declaration gate', () => {
     expect(container.textContent).toContain('Create account');
     expect(container.textContent).toContain('Already have an account? Sign in');
     expect(container.querySelector('input[aria-label="Name"]')).toBeNull();
-    act(() => button('Try demo account')?.click());
+    act(() => button('Try sample account')?.click());
     expect(onTryDemo).toHaveBeenCalledOnce();
     expect(connection.onConnect).not.toHaveBeenCalled();
     expect(onComplete).not.toHaveBeenCalled();
@@ -144,7 +144,7 @@ describe('OnboardingScreen adult declaration gate', () => {
       setDraftPlayer={vi.fn()} setOnboardingStep={vi.fn()} onComplete={vi.fn()} onTryDemo={vi.fn()}
       accountConnection={accountConnection()} />));
 
-    for (const label of ['Create account', 'Try demo account', 'Already have an account? Sign in']) {
+    for (const label of ['Create account', 'Try sample account', 'Already have an account? Sign in']) {
       expect(button(label)?.getAttribute('aria-label')).toBe(label);
     }
   });

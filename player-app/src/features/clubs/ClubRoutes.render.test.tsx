@@ -174,6 +174,9 @@ describe('PlayerApp to ClubsScreen safe composition', () => {
     const row = container.querySelector('[aria-label="Published Club, Active"]') as HTMLButtonElement;
     expect(row).not.toBeNull();
     act(() => row.click());
+    expect(onOpenMembership).not.toHaveBeenCalled();
+    expect(container.querySelector('[aria-label="Back to wallet"]')).not.toBeNull();
+    act(() => row.click());
     expect(onOpenMembership).toHaveBeenCalledExactlyOnceWith(club);
     expect(onSelectClub).not.toHaveBeenCalled();
   });

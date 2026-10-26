@@ -188,8 +188,8 @@ describe('Player onboarding presentation contract', () => {
       '<OnboardingFlow'
     ];
 
-    // Reviewed account-first flow with an explicit demo action label; Firebase verification and age gates remain covered below and in connection/render tests.
-    expect(componentDigest).toBe('8fdbc5036bb3990e68d4d3f6b0d8e18c23077c31c75a23df1863ba58643478a1');
+    // Reviewed sample-account entry copy; Firebase verification and age gates remain covered below and in connection/render tests.
+    expect(componentDigest).toBe('891648e64ec18ec15d5f4aadc1a7169782a720992ac192d9484ae2f494ff7ed6');
     orderedShellTokens.forEach((token) => expect(shell).toContain(token));
     expect(shell).toContain('keyboardShouldPersistTaps="handled"');
     expect(shell).toContain('keyboardDismissMode="on-drag"');
@@ -214,7 +214,7 @@ describe('Player onboarding presentation contract', () => {
     expect(adultDeclaration).toContain('accessibilityRole="checkbox"');
     expect(adultDeclaration).toContain('accessibilityState={{ checked: declared, disabled }}');
     expect(findFunction(sources, 'OnboardingWelcome')).toContain('Create account');
-    expect(findFunction(sources, 'OnboardingWelcome')).toContain('Try demo account');
+    expect(findFunction(sources, 'OnboardingWelcome')).toContain('Try sample account');
     expect(findFunction(sources, 'OnboardingCredentials')).toContain('secureTextEntry');
     expect(findFunction(sources, 'OnboardingCredentials')).toContain('connection.onConnect');
     expect(onboardingFlow).not.toMatch(/LocationStep|MapPicker|device location|text updates/i);
@@ -283,7 +283,7 @@ describe('Player discovery presentation contract', () => {
     expect(gameDetails).toContain('Continue to request');
     expect(findFunction(sources, 'FiltersBottomSheet')).toContain('doneAccessibilityLabel?: string;');
     expect(playerApp).not.toContain('accessibilityLabel="Demo options"');
-    expect(playerApp).toContain('accessibilityLabel="Demo settings"');
+    expect(playerApp).toContain('accessibilityLabel="Sample settings"');
   });
 
   it('characterizes the reviewed mobile discovery layout and shared styles', () => {
@@ -346,15 +346,15 @@ describe('Player clubs and membership presentation contract', () => {
     const clubsScreen = findFunction(sources, 'ClubsScreen');
     const wallet = findFunction(sources, 'MembershipWalletCard');
 
-    // Reviewed metallic wallet/pass presentation, named actions and OS themes; QR guards remain below and in render tests.
-    expect(componentDigest).toBe('446de4ac528ad408e375c0057db33ff8c9a387af42bb864fb499d948a8c40b83');
+    // Reviewed isolate-then-open wallet and sample-account copy; QR guards remain below and in render tests.
+    expect(componentDigest).toBe('566bc854a06bd777c8e730601539736c545a3e3fb46d3eaea4577a4389a3663b');
     ['<ClubsScreen', '<ClubMembershipPlanScreen', '<SeatRequestModal'].forEach((token) => expect(playerApp).toContain(token));
     expect(playerApp).not.toMatch(/ClubAccessCheckoutScreen|NearbyCheckInPanel/);
     expect(clubsScreen).toContain('<ClubHubSections');
     expect(clubsScreen).toContain('demoMode={demoMode}');
     expect(wallet).toContain('demoMode = false');
     expect(wallet).toContain('active && !demoMode ? <MembershipQrIssuer');
-    expect(wallet).toContain('Demo membership only. Venue check-in is unavailable in the demo account.');
+    expect(wallet).toContain('Sample membership only. Venue check-in is unavailable in the sample account.');
     expect(clubsScreen).toContain('<MembershipPassWallet');
     expect(findFunction(sources, 'MembershipDetailsScreen')).toContain("viewState.kind === 'ready'");
   });
@@ -400,7 +400,7 @@ describe('Player identity and settings presentation contract', () => {
       'title="Support"',
       'title="Privacy Policy"',
       'title="Terms of Service"',
-      'title="Try demo account"',
+      'title="Try sample account"',
       'onPress={signOutPlayer}',
       'onPress={deletePlayerAccount}'
     ];
@@ -422,8 +422,8 @@ describe('Player identity and settings presentation contract', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const componentDigest = digest(settingsComponentNames.map((name) => findFunction(sources, name)));
 
-    // Reviewed Club pass navigation title; identity/account guards remain below and in render tests.
-    expect(componentDigest).toBe('075c5c6659cc6d8caa0a7f2a66a237d25965165642712d253021b2f703ae05a0');
+    // Reviewed sample-account entry copy; identity/account guards remain below and in render tests.
+    expect(componentDigest).toBe('058da2fa51dc2928dc816664041ca258a83e0aa9711204a1e80fe767e369f1c7');
     const settings = findSettingsPresentationSource(sources);
     expect(settings).toContain('onTryDemo?: () => void;');
     expect(settings).toContain('onPress={onTryDemo}');

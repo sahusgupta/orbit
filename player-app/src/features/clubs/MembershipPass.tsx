@@ -1,4 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   getPublishedMembershipPlanLabel,
@@ -8,6 +9,7 @@ import {
   type PlayerClubSnapshot,
   type PlayerMembership
 } from '../../domain/playerSync';
+import { useMembershipPalette } from './membershipPresentation';
 
 type MembershipPassProps = {
   club: PlayerClubSnapshot;
@@ -84,25 +86,39 @@ export function MembershipPassWallet({ clubs, player, nowMs, onSelectClub, selec
   onSelectClub: (club: PlayerClubSnapshot) => void;
   selectedClubId?: string;
 }) {
+  const palette = useMembershipPalette();
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const passes = clubs.flatMap((club) => {
     const membership = club.memberships.find((item) => item.clubId === club.club.id && isPlayerMembership(item, player));
     return membership ? [{ club, membership }] : [];
   });
+  const passKey = (clubId: string, membershipId: string) => JSON.stringify([player.id, clubId, membershipId]);
+  const focusedPass = passes.find(({ club, membership }) => passKey(club.club.id, membership.id) === focusedKey);
+  const focusAvailable = Boolean(focusedPass);
+  useEffect(() => {
+    if (focusedKey && !focusAvailable) setFocusedKey(null);
+  }, [focusedKey, focusAvailable]);
   if (!passes.length) return null;
+  const visiblePasses = focusedPass ? [focusedPass] : passes;
   return (
     <View style={styles.wallet}>
-      {passes.map(({ club, membership }, index) => (
+      {focusedPass ? (
+        <Pressable accessibilityRole="button" accessibilityLabel="Back to wallet" onPress={() => setFocusedKey(null)} style={styles.walletBack}>
+          <Text style={[styles.walletBackText, { color: palette.accent }]}>Back to wallet</Text>
+        </Pressable>
+      ) : null}
+      {visiblePasses.map(({ club, membership }, index) => (
         <Pressable
-          key={JSON.stringify([club.club.id, membership.id])}
+          key={passKey(club.club.id, membership.id)}
           accessibilityRole="button"
           accessibilityLabel={`${club.club.name}, ${membershipStatus(membership, nowMs)}`}
-          accessibilityHint="Open membership details"
-          accessibilityState={{ selected: club.club.id === selectedClubId }}
-          onPress={() => onSelectClub(club)}
+          accessibilityHint={focusedPass ? 'Open membership details' : 'Show this membership card'}
+          accessibilityState={{ selected: Boolean(focusedPass) || club.club.id === selectedClubId, expanded: Boolean(focusedPass) }}
+          onPress={() => focusedPass ? onSelectClub(club) : setFocusedKey(passKey(club.club.id, membership.id))}
           style={({ pressed }) => [
             styles.walletCard,
             index > 0 && styles.overlappingCard,
-            club.club.id === selectedClubId && styles.selectedPass,
+            (focusedPass || club.club.id === selectedClubId) && styles.selectedPass,
             pressed && styles.pressedCard
           ]}
         >
@@ -115,6 +131,8 @@ export function MembershipPassWallet({ clubs, player, nowMs, onSelectClub, selec
 
 const styles = StyleSheet.create({
   wallet: { width: '100%', paddingTop: 2, paddingBottom: 4 },
+  walletBack: { alignSelf: 'flex-start', justifyContent: 'center', minHeight: 44, paddingRight: 16, marginBottom: 12 },
+  walletBackText: { fontSize: 15, fontWeight: '600' },
   walletCard: { height: CARD_HEIGHT, minHeight: EXPOSED_HEIGHT, borderRadius: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', shadowColor: '#000000', shadowOpacity: 0.3, shadowOffset: { width: 0, height: -4 }, shadowRadius: 10 },
   overlappingCard: { marginTop: -(CARD_HEIGHT - EXPOSED_HEIGHT) },
   selectedPass: { borderColor: '#EBD29B' },

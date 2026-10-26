@@ -88,7 +88,7 @@ vi.mock('./features/onboarding/OnboardingScreen', () => ({
   OnboardingScreen: ({ onComplete, onTryDemo, onCompleteWithMatchPreferences, accountConnection, draftPlayer }: React.ComponentProps<typeof import('./features/onboarding/OnboardingScreen').OnboardingScreen>) => <div>
     Normal onboarding<button onClick={onComplete}>Create profile</button>
     {onCompleteWithMatchPreferences ? <button onClick={onCompleteWithMatchPreferences}>Set Match preferences</button> : null}
-    {onTryDemo ? <button onClick={onTryDemo}>Try demo account</button> : null}
+    {onTryDemo ? <button onClick={onTryDemo}>Try sample account</button> : null}
     {accountConnection ? <button onClick={() => accountConnection.onConnect(draftPlayer)}>Connect Firebase account</button> : null}
     {accountConnection ? <button onClick={() => accountConnection.onConnect(draftPlayer, false, 'signIn')}>Sign in Firebase account</button> : null}
   </div>
@@ -207,7 +207,7 @@ vi.mock('./features/clubs/MembershipDetailsScreen', () => ({
 vi.mock('./features/settings/IdentityVerificationScreen', () => ({ IdentityVerificationScreen: () => null }));
 vi.mock('./features/settings/SettingsScreen', () => ({
   SettingsScreen: ({ onTryDemo, onOpenMatchPreferences }: { onTryDemo?: () => void; onOpenMatchPreferences?: () => void }) => <div>Normal profile settings
-    {onTryDemo ? <button onClick={onTryDemo}>Try demo account</button> : null}
+    {onTryDemo ? <button onClick={onTryDemo}>Try sample account</button> : null}
     {onOpenMatchPreferences ? <button onClick={onOpenMatchPreferences}>Match preferences</button> : null}
   </div>
 }));
@@ -494,7 +494,7 @@ describe('Player session boundary', () => {
     expect(container.textContent).toContain('Published venue data is unavailable');
     click('Retry published data');
     expect(state.liveData.retryLiveData).toHaveBeenCalledOnce();
-    expect(Array.from(container.querySelectorAll('button')).some((item) => item.textContent === 'Try demo account')).toBe(true);
+    expect(Array.from(container.querySelectorAll('button')).some((item) => item.textContent === 'Try sample account')).toBe(true);
   });
 
   it('keeps partial published-data failures readable with the existing retry action', () => {
@@ -758,8 +758,8 @@ describe('Player session boundary', () => {
       if (entry === 'profile storage error') state.storage.playerStorageError = 'Saved profile could not be read';
       render();
       if (entry === 'profile') click('Profile');
-      click('Try demo account');
-      expect(container.querySelector('[aria-label="Demo account"]')).not.toBeNull();
+      click('Try sample account');
+      expect(container.querySelector('[aria-label="Sample account"]')).not.toBeNull();
       expect(container.textContent).not.toContain('Published venue data is unavailable');
       const demoInventory = container.querySelector('[data-inventory-status="ready"]');
       expect(demoInventory?.querySelectorAll('button').length).toBeGreaterThan(4);
@@ -775,7 +775,7 @@ describe('Player session boundary', () => {
 
   it('returns from saved game details to Saved mode and opens preferences from Profile', async () => {
     render();
-    click('Try demo account');
+    click('Try sample account');
     click('Find games');
     await act(async () => { clickMatching(/^Save: /); });
     click('Open Match saves');
@@ -785,7 +785,7 @@ describe('Player session boundary', () => {
     click('Back from game');
     expect(container.querySelector('[data-match-mode="saved"]')).not.toBeNull();
     click('Profile');
-    click('Exit demo');
+    click('Exit sample');
     click('Profile');
     click('Match preferences');
     expect(container.querySelector('[data-match-mode="preferences"]')).not.toBeNull();
@@ -902,7 +902,7 @@ describe('Player session boundary', () => {
 
   it('keeps demo browsing, requests, directions, and tournament intent isolated from live callbacks and persistence', () => {
     render();
-    click('Try demo account');
+    click('Try sample account');
     for (const method of Object.values(persistence)) method.mockClear();
     hooks.storage.mockClear();
     hooks.identity.mockClear();
@@ -930,7 +930,7 @@ describe('Player session boundary', () => {
     click('Club access');
     clickMatching(/^Club game: /);
     click('Profile');
-    expect(container.textContent).toContain('Demo profile');
+    expect(container.textContent).toContain('Sample profile');
     expect(container.textContent).not.toContain('Normal profile settings');
     expect(hooks.storage).not.toHaveBeenCalled();
     expect(hooks.identity).not.toHaveBeenCalled();
@@ -944,19 +944,19 @@ describe('Player session boundary', () => {
   });
 
   it('keeps demo feedback outside the scroll area and preserves dismissal and navigation cleanup', () => {
-    render(); click('Try demo account'); click('Find games'); clickMatching(/^Cancel: /);
+    render(); click('Try sample account'); click('Find games'); clickMatching(/^Cancel: /);
     const feedback = () => Array.from(container.querySelectorAll('[role="alert"]')).find(node => node.textContent?.includes('These venues and games are fictional.'));
     expect(feedback()).toBeDefined();
     expect(feedback()?.closest('[data-player-scroll]')).toBeNull();
     expect(state.clubs.cancelWaitlist).not.toHaveBeenCalled();
-    click('Dismiss demo notice'); expect(feedback()).toBeUndefined();
+    click('Dismiss sample notice'); expect(feedback()).toBeUndefined();
     clickMatching(/^Cancel: /); expect(feedback()).toBeDefined();
     click('Profile'); expect(feedback()).toBeUndefined();
   });
 
   it('resets sample games and discovery decisions and reloads the full catalog when demo is reopened', async () => {
     render();
-    click('Try demo account');
+    click('Try sample account');
     const initialInventoryCount = container.querySelector('[data-inventory-status="ready"]')?.querySelectorAll('button').length;
     click('Find games');
     expect(container.textContent).toContain('Saved games: 0');
@@ -966,15 +966,15 @@ describe('Player session boundary', () => {
     await act(async () => { clickMatching(/^Pass: /); });
     expect(container.querySelector('[aria-label="Demo options"]')).toBeNull();
     click('Profile');
-    click('Reset demo games');
+    click('Reset sample games');
     expect(container.querySelector('[data-inventory-status="ready"]')?.querySelectorAll('button').length).toBe(initialInventoryCount);
     click('Find games');
     expect(container.textContent).toContain('Saved games: 0');
     expect(container.querySelector('[data-saved-games]')).toBeNull();
     click('Profile');
-    click('Exit demo');
+    click('Exit sample');
     expect(container.textContent).toContain('Published venue data is unavailable');
-    click('Try demo account');
+    click('Try sample account');
     expect(container.querySelector('[data-inventory-status="ready"]')?.querySelectorAll('button').length).toBe(initialInventoryCount);
   });
 
@@ -982,16 +982,16 @@ describe('Player session boundary', () => {
     hooks.liveData.mockImplementation(() => ({ ...state.liveData, liveDataStatus: 'ready', clubs: [liveClub] }));
     render();
     click('Profile');
-    click('Try demo account');
+    click('Try sample account');
     expect(container.textContent).not.toContain('Connected venue: 1/2 NLH');
     click('Profile');
-    expect(container.textContent).toContain('Demo Player');
+    expect(container.textContent).toContain('Alex Example');
     hooks.storage.mockClear();
     hooks.identity.mockClear();
     hooks.liveData.mockClear();
-    click('Exit demo');
+    click('Exit sample');
     expect(container.textContent).toContain('Connected venue: 1/2 NLH');
-    expect(container.textContent).not.toContain('Demo account');
+    expect(container.textContent).not.toContain('Sample account');
     expect(hooks.storage).toHaveBeenCalledOnce();
     expect(hooks.identity).toHaveBeenCalledOnce();
     expect(hooks.liveData).toHaveBeenCalledOnce();

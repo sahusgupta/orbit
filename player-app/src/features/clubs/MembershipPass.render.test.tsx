@@ -18,17 +18,20 @@ vi.mock('react-native', async () => {
       'data-background': resolved.backgroundColor
     }, children as React.ReactNode);
   };
-  const Pressable = ({ children, style, onPress, accessibilityLabel, accessibilityRole, accessibilityState }: Record<string, unknown>) => {
+  const Pressable = ({ children, style, onPress, accessibilityLabel, accessibilityHint, accessibilityRole, accessibilityState }: Record<string, unknown>) => {
     const [pressed, setPressed] = ReactModule.useState(false);
     const resolved = flatten(typeof style === 'function' ? style({ pressed }) : style);
     const selected = accessibilityState && typeof accessibilityState === 'object' && 'selected' in accessibilityState ? accessibilityState.selected : undefined;
+    const expanded = accessibilityState && typeof accessibilityState === 'object' && 'expanded' in accessibilityState ? accessibilityState.expanded : undefined;
     return ReactModule.createElement('button', {
       onClick: onPress,
       onMouseDown: () => setPressed(true),
       onMouseUp: () => setPressed(false),
       'aria-label': accessibilityLabel,
+      'data-hint': accessibilityHint,
       role: accessibilityRole,
       'aria-selected': selected,
+      'aria-expanded': expanded,
       'data-height': resolved.height,
       'data-min-height': resolved.minHeight,
       'data-margin-top': resolved.marginTop,
@@ -53,6 +56,9 @@ const membership: PlayerMembership = {
 const club: PlayerClubSnapshot = {
   club: { id: 'club-1', name: 'River Room' }, memberships: [membership], games: [], waitlists: [], notifications: [], generatedAt: new Date(nowMs).toISOString()
 };
+const secondClub: PlayerClubSnapshot = {
+  ...club, club: { id: 'club-2', name: 'Second Room' }, memberships: [{ ...membership, id: 'second-membership', clubId: 'club-2' }]
+};
 
 describe('Metallic membership passes', () => {
   let container: HTMLDivElement;
@@ -64,19 +70,63 @@ describe('Metallic membership passes', () => {
     root = createRoot(container);
   });
   afterEach(() => { act(() => root.unmount()); container.remove(); });
-  function renderWallet(clubs = [club], onSelectClub = vi.fn(), selectedClubId?: string) {
-    act(() => root.render(<MembershipPassWallet clubs={clubs} player={player} nowMs={nowMs} onSelectClub={onSelectClub} selectedClubId={selectedClubId} />));
+  function renderWallet(clubs = [club], onSelectClub = vi.fn(), selectedClubId?: string, account = player) {
+    act(() => root.render(<MembershipPassWallet clubs={clubs} player={account} nowMs={nowMs} onSelectClub={onSelectClub} selectedClubId={selectedClubId} />));
     return onSelectClub;
   }
+  function cards() { return Array.from(container.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')); }
+  function backToWallet() {
+    const button = container.querySelector<HTMLButtonElement>('button[aria-label="Back to wallet"]');
+    expect(button).not.toBeNull();
+    act(() => button?.click());
+  }
 
-  it('opens the selected published club and marks its pass as selected', () => {
-    const onSelectClub = renderWallet([club], vi.fn(), club.club.id);
-    const button = container.querySelector('button');
+  it('isolates a pass on the first tap and opens its published club on the second tap', () => {
+    const onSelectClub = renderWallet([club, secondClub]);
+    const button = cards()[0];
     expect(button?.getAttribute('aria-label')).toBe('River Room, Active');
     expect(button?.getAttribute('role')).toBe('button');
-    expect(button?.getAttribute('aria-selected')).toBe('true');
+    expect(button?.getAttribute('aria-expanded')).toBe('false');
+    expect(button?.getAttribute('data-hint')).toBe('Show this membership card');
     act(() => button?.click());
+    expect(onSelectClub).not.toHaveBeenCalled();
+    expect(cards()).toHaveLength(1);
+    expect(container.textContent).not.toContain('Second Room');
+    const isolated = cards()[0];
+    expect(isolated.getAttribute('aria-selected')).toBe('true');
+    expect(isolated.getAttribute('aria-expanded')).toBe('true');
+    expect(isolated.getAttribute('data-hint')).toBe('Open membership details');
+    expect(Number(isolated.getAttribute('data-height'))).toBe(244);
+    act(() => isolated.click());
     expect(onSelectClub).toHaveBeenCalledExactlyOnceWith(club);
+  });
+
+  it('requires a first tap even when the club was already selected by app navigation', () => {
+    const onSelectClub = renderWallet([club], vi.fn(), club.club.id);
+    const button = cards()[0];
+    expect(button.getAttribute('aria-selected')).toBe('true');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    act(() => button.click());
+    expect(onSelectClub).not.toHaveBeenCalled();
+    expect(cards()[0].getAttribute('aria-expanded')).toBe('true');
+    act(() => cards()[0].click());
+    expect(onSelectClub).toHaveBeenCalledExactlyOnceWith(club);
+  });
+
+  it('returns to all cards without navigation and requires a fresh first tap', () => {
+    const onSelectClub = renderWallet([club, secondClub]);
+    act(() => cards()[1].click());
+    expect(cards()).toHaveLength(1);
+    expect(cards()[0].getAttribute('aria-label')).toBe('Second Room, Active');
+    const back = container.querySelector('button[aria-label="Back to wallet"]');
+    expect(Number(back?.getAttribute('data-min-height'))).toBeGreaterThanOrEqual(44);
+    backToWallet();
+    expect(cards()).toHaveLength(2);
+    expect(container.querySelector('button[aria-label="Back to wallet"]')).toBeNull();
+    expect(cards().every((card) => card.getAttribute('aria-expanded') === 'false')).toBe(true);
+    act(() => cards()[1].click());
+    expect(onSelectClub).not.toHaveBeenCalled();
+    expect(cards()).toHaveLength(1);
   });
 
   it('keeps every pass in the supplied order when there are more than five', () => {
@@ -87,6 +137,77 @@ describe('Metallic membership passes', () => {
     renderWallet(clubs);
     expect(Array.from(container.querySelectorAll('button')).map((button) => button.getAttribute('aria-label'))).toEqual(clubs.map((item) => `${item.club.name}, Active`));
     expect(container.querySelectorAll('[data-testid="card-finish"]')).toHaveLength(7);
+    act(() => cards()[6].click());
+    expect(cards()).toHaveLength(1);
+    expect(cards()[0].getAttribute('aria-label')).toBe('Room 3, Active');
+    backToWallet();
+    expect(cards()).toHaveLength(7);
+  });
+
+  it('clears local focus when a different account owns the current cards', () => {
+    const onSelectClub = renderWallet([club, secondClub]);
+    act(() => cards()[0].click());
+    const account = { ...player, id: 'player-2', name: 'Another Player' };
+    const nextClubs = [club, secondClub].map((item) => ({ ...item, memberships: item.memberships.map((itemMembership) => ({ ...itemMembership, playerId: account.id, playerName: account.name })) }));
+    renderWallet(nextClubs, onSelectClub, club.club.id, account);
+    expect(cards()).toHaveLength(2);
+    expect(cards().every((card) => card.getAttribute('aria-expanded') === 'false')).toBe(true);
+    expect(container.querySelector('button[aria-label="Back to wallet"]')).toBeNull();
+    act(() => cards()[0].click());
+    expect(onSelectClub).not.toHaveBeenCalled();
+    act(() => cards()[0].click());
+    expect(onSelectClub).toHaveBeenCalledExactlyOnceWith(nextClubs[0]);
+  });
+
+  it('clears focus if the first matching published membership is replaced', () => {
+    const onSelectClub = renderWallet([club, secondClub]);
+    act(() => cards()[0].click());
+    const replacement = { ...club, memberships: [{ ...membership, id: 'replacement-membership' }] };
+    renderWallet([replacement, secondClub], onSelectClub);
+    expect(cards()).toHaveLength(2);
+    expect(container.textContent).toContain('replacement-membership');
+    expect(container.textContent).not.toContain(membership.id);
+    expect(container.querySelector('button[aria-label="Back to wallet"]')).toBeNull();
+    act(() => cards()[0].click());
+    expect(onSelectClub).not.toHaveBeenCalled();
+    act(() => cards()[0].click());
+    expect(onSelectClub).toHaveBeenCalledExactlyOnceWith(replacement);
+  });
+
+  it('clears removed focus so a returning pass does not reopen by itself', () => {
+    const onSelectClub = renderWallet([club, secondClub]);
+    act(() => cards()[0].click());
+    renderWallet([secondClub], onSelectClub);
+    expect(cards()).toHaveLength(1);
+    expect(cards()[0].getAttribute('aria-expanded')).toBe('false');
+    renderWallet([club, secondClub], onSelectClub);
+    expect(cards()).toHaveLength(2);
+    expect(cards().every((card) => card.getAttribute('aria-expanded') === 'false')).toBe(true);
+    act(() => cards()[0].click());
+    expect(onSelectClub).not.toHaveBeenCalled();
+  });
+
+  it('clears focus through an empty wallet without restoring stale state later', () => {
+    const onSelectClub = renderWallet([club, secondClub]);
+    act(() => cards()[0].click());
+    renderWallet([], onSelectClub);
+    expect(container.children).toHaveLength(0);
+    renderWallet([club, secondClub], onSelectClub);
+    expect(cards()).toHaveLength(2);
+    expect(cards().every((card) => card.getAttribute('aria-expanded') === 'false')).toBe(true);
+    expect(onSelectClub).not.toHaveBeenCalled();
+  });
+
+  it('uses the latest club snapshot when the focused membership remains the same', () => {
+    const onSelectClub = renderWallet([club, secondClub]);
+    act(() => cards()[0].click());
+    const refreshed = { ...club, club: { ...club.club, name: 'Updated River Room' }, memberships: [{ ...membership, planName: 'Updated published access' }] };
+    renderWallet([refreshed, secondClub], onSelectClub);
+    expect(cards()).toHaveLength(1);
+    expect(cards()[0].getAttribute('aria-label')).toBe('Updated River Room, Active');
+    expect(container.textContent).toContain('UPDATED PUBLISHED ACCESS');
+    act(() => cards()[0].click());
+    expect(onSelectClub).toHaveBeenCalledExactlyOnceWith(refreshed);
   });
 
   it('shows only memberships belonging to this player and their enclosing club', () => {

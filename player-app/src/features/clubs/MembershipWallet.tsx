@@ -79,7 +79,7 @@ export function MembershipWalletCard({
         <View style={presentation.statusBand}>
           <Ionicons name={expired ? 'time-outline' : approved ? 'id-card-outline' : 'scan-outline'} size={17} color={palette.accent} />
           <Text style={[styles.checkedInText, { color: palette.muted }]}>{demoMode
-            ? 'Demo membership only. Venue check-in is unavailable in the demo account.'
+            ? 'Sample membership only. Venue check-in is unavailable in the sample account.'
             : expired
             ? 'This membership has expired. Review the venue’s published access options to renew.'
             : approved

@@ -62,18 +62,21 @@ try {
     page.on('pageerror', (error) => result.pageErrors.push(error.message));
     page.on('console', (event) => { if (event.type() === 'warning') result.warnings.push(event.text()); });
     const audit = () => page.evaluate(() => window.__ORBIT_SHELL_QA__.audit());
-    const shot = async (name) => { const file = `${scheme}-${name}.png`; await page.screenshot({ path: path.join(out, file), fullPage: true, animations: 'disabled' }); result.screenshots.push(file);
+    const shot = async (name) => {
+      await expect(page.getByText(/\bdemo\b/i).filter({ visible: true })).toHaveCount(0);
+      await expect(page.locator('[aria-label*="demo" i]').filter({ visible: true })).toHaveCount(0);
+      const file = `${scheme}-${name}.png`; await page.screenshot({ path: path.join(out, file), fullPage: true, animations: 'disabled' }); result.screenshots.push(file);
       const findings = await page.evaluate(() => window.__ORBIT_SHELL_QA__.contrastFailures()); if (findings.length) result.paintFindings.push({ surface: name, findings }); expect(findings).toEqual([]); };
     const button = (name) => page.getByRole('button', { name, exact: true });
     const tab = (name) => page.getByRole('tab', { name, exact: true });
     const check = async (name, run) => { const at = performance.now(); await run(); result.checks.push({ name, status: 'pass', elapsedMs: Math.round(performance.now() - at) }); console.log(`PASS ${scheme} ${name}`); };
-    const demoReady = async () => { await expect(page.getByLabel('Demo account', { exact: true })).toBeVisible(); await expect(button('Find games')).toBeVisible(); };
-    const enterDemo = async () => { await button('Try demo account').first().click(); await demoReady(); };
+    const demoReady = async () => { await expect(page.getByLabel('Sample account', { exact: true })).toBeVisible(); await expect(page.getByText('Sample · fictional venues', { exact: true })).toBeVisible(); await expect(button('Find games')).toBeVisible(); };
+    const enterDemo = async () => { await button('Try sample account').first().click(); await demoReady(); };
     const closeNotification = async () => { const dismiss = button('Dismiss notification'); if (await dismiss.count()) await dismiss.click(); };
-    const openOptions = async () => { await tab('Profile').click(); await expect(button('Exit demo')).toBeVisible(); };
+    const openOptions = async () => { await tab('Profile').click(); await expect(button('Exit sample')).toBeVisible(); };
     await check('welcome offers account/demo choices and profile fields use the viewport with bottom actions', async () => {
       await page.goto(baseUrl); await expect(page.getByRole('heading', { name: 'Find your next game' })).toBeVisible();
-      await expect(button('Create account')).toBeVisible(); await expect(button('Try demo account')).toBeVisible();
+      await expect(button('Create account')).toBeVisible(); await expect(button('Try sample account')).toBeVisible();
       await shot('welcome-360'); await button('Create account').click();
       const field = page.getByRole('textbox', { name: 'Name', exact: true }); await expect(field).toBeVisible();
       const geometry = await field.evaluate((element) => { const rect = element.getBoundingClientRect(); return { center: (rect.top + rect.bottom) / 2, viewport: innerHeight }; });
@@ -96,8 +99,8 @@ try {
       await expect.poll(async () => (await audit()).mountedConnected).toBe(0);
       expect((await audit()).forbiddenCalls).toEqual([]); expect((await audit()).storageCalls).toEqual([]);
       await shot('home-360');
-      await tab('Events').click(); await expect(page.getByText('Demo Holdem Freeroll', { exact: true })).toBeVisible();
-      await expect(button('Request for Demo Holdem Freeroll')).toHaveAttribute('aria-expanded', 'false');
+      await tab('Events').click(); await expect(page.getByText('Pocket Aces Freeroll', { exact: true })).toBeVisible();
+      await expect(button('Request for Pocket Aces Freeroll')).toHaveAttribute('aria-expanded', 'false');
       await expect(page.getByRole('heading', { name: 'Published structure', exact: true })).toHaveCount(0);
       await expect(page.getByRole('heading', { name: 'Published rules', exact: true })).toHaveCount(0);
       await expect(button('Express interest')).toHaveCount(0); await shot('events-initial-collapsed');
@@ -145,28 +148,30 @@ try {
       result.requestFeedback = feedback;
       await shot('scrolled-request-feedback');
       expect(feedback.inViewport).toBe(true);
-      await button('Dismiss demo notice').click();
+      await button('Dismiss sample notice').click();
       await tab('Saved games, 1').click();
       expect((await audit()).storageCalls).toEqual(before.storageCalls); expect((await audit()).connectedMounts).toEqual(before.connectedMounts); expect((await audit()).forbiddenCalls).toEqual([]);
       await shot('saved-back-mode');
     });
-    await check('membership wallet and published club passes fit 320/360/390px with reachable stacked cards and isolated actions', async () => {
+    await check('two-step wallet focus and published club passes fit 320/360/390px with isolated actions and stack restoration', async () => {
       const before = await audit();
       const memberships = [
-        { clubName: 'Demo River Card House', id: 'demo-austin-membership' },
-        { clubName: 'Demo Lakeside Poker Club', id: 'demo-chicago-membership' }
+        { clubName: 'Wonderland Card House', id: 'sample-austin-membership' },
+        { clubName: 'Moonbeam Poker Club', id: 'sample-chicago-membership' }
       ];
       result.membershipGeometry = [];
       await tab('Clubs').click();
       for (const width of [320, 360, 390]) {
         await page.setViewportSize({ width, height: 740 });
         await expect(page.getByText('Your wallet', { exact: true })).toBeVisible();
-        await expect(page.getByText('Demo membership only. Venue check-in is unavailable in the demo account.')).toHaveCount(0);
+        await expect(page.getByText('Sample membership only. Venue check-in is unavailable in the sample account.')).toHaveCount(0);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await shot(`membership-wallet-${width}`);
         for (const membership of memberships) {
           const pass = button(`${membership.clubName}, Active`);
+          const other = memberships.find((candidate) => candidate !== membership);
           await expect(pass).toBeVisible();
+          await expect(button(`${other.clubName}, Active`)).toBeVisible();
           const geometry = await pass.evaluate((element) => {
             const rect = element.getBoundingClientRect(), x = rect.left + rect.width / 2;
             let run = 0, longest = 0, activationY = 0;
@@ -182,13 +187,30 @@ try {
           expect(geometry.left).toBeGreaterThanOrEqual(0); expect(geometry.right).toBeLessThanOrEqual(width);
           expect(geometry.visibleTouchStrip).toBeGreaterThanOrEqual(44); expect(geometry.gradients).toHaveLength(1);
           await pass.click({ position: { x: geometry.width / 2, y: geometry.activationY } });
+          await expect(page.getByText('Your wallet', { exact: true })).toBeVisible();
+          await expect(page.getByText('Club pass', { exact: true })).toHaveCount(0);
+          await expect(pass).toBeVisible();
+          await expect(button(`${other.clubName}, Active`)).toHaveCount(0);
+          await expect(button('Back to wallet')).toBeVisible();
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+          const focused = await audit();
+          expect(focused.forbiddenCalls).toEqual(before.forbiddenCalls); expect(focused.storageCalls).toEqual(before.storageCalls);
+          expect(focused.connectedMounts).toEqual(before.connectedMounts); expect(result.outbound).toEqual([]);
+          await shot(`wallet-focused-${membership.id}-${width}`);
+          await button('Back to wallet').click();
+          await expect(pass).toBeVisible();
+          await expect(button(`${other.clubName}, Active`)).toBeVisible();
+          await expect(button('Back to wallet')).toHaveCount(0);
+          await pass.click({ position: { x: geometry.width / 2, y: geometry.activationY } });
+          await expect(button('Back to wallet')).toBeVisible();
+          await pass.click();
           await expect(page.getByText('Club pass', { exact: true })).toBeVisible();
           await expect(page.getByText(membership.clubName, { exact: true }).first()).toBeVisible();
           await expect(page.getByText(membership.id, { exact: true }).first()).toBeVisible();
-          await expect(page.getByText(memberships.find((other) => other !== membership).id, { exact: true })).toHaveCount(0);
-          await expect(page.getByText('Demo monthly access', { exact: true })).toBeVisible();
+          await expect(page.getByText(other.id, { exact: true })).toHaveCount(0);
+          await expect(page.getByText('Monthly practice pass', { exact: true })).toBeVisible();
           await expect(page.getByText(/Rake back|Priority seating|Comp drinks|Reserved table access|Monthly event entry|ORB-2048-731|MR-1186-042/)).toHaveCount(0);
-          await expect(page.getByText('Demo membership only. Venue check-in is unavailable in the demo account.')).toBeVisible();
+          await expect(page.getByText('Sample membership only. Venue check-in is unavailable in the sample account.')).toBeVisible();
           await expect(button('Generate membership check-in code')).toHaveCount(0);
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
           await shot(`club-pass-${membership.id}-${width}`);
@@ -198,11 +220,13 @@ try {
             await shot('membership-extension');
             await button('Extend membership').click();
             await expect(page.getByText('These venues and games are fictional. Use a real account for venue requests, check-in, and directions.')).toBeVisible();
-            await button('Dismiss demo notice').click();
+            await button('Dismiss sample notice').click();
           }
           await button('Back to memberships').click();
           await expect(page.getByText('Your wallet', { exact: true })).toBeVisible();
           await expect(pass).toBeVisible();
+          await expect(button(`${other.clubName}, Active`)).toBeVisible();
+          await expect(button('Back to wallet')).toHaveCount(0);
         }
       }
       await page.setViewportSize({ width: 360, height: 740 });
@@ -211,9 +235,9 @@ try {
       expect(after.connectedMounts).toEqual(before.connectedMounts); expect(result.outbound).toEqual([]);
     });
     await check('actual demo Profile/events/map stay isolated and reset restores catalog and saved state', async () => {
-      await tab('Profile').click(); await expect(page.getByText('This sample profile stays in memory. Exit demo to return to your saved account.')).toBeVisible(); await shot('profile');
-      await tab('Events').click(); await expect(page.getByText('Demo Holdem Freeroll', { exact: true })).toBeVisible();
-      const eventName = 'Demo Omaha Evening', eventRequest = button(`Request for ${eventName}`);
+      await tab('Profile').click(); await expect(page.getByText('This sample profile stays in memory. Exit the sample account to return to your saved account.')).toBeVisible(); await shot('profile');
+      await tab('Events').click(); await expect(page.getByText('Pocket Aces Freeroll', { exact: true })).toBeVisible();
+      const eventName = 'Moonlight Omaha Evening', eventRequest = button(`Request for ${eventName}`);
       await expect(eventRequest).toHaveAttribute('aria-expanded', 'false');
       await expect(page.getByRole('heading', { name: 'Published structure', exact: true })).toHaveCount(0);
       await expect(page.getByRole('heading', { name: 'Published rules', exact: true })).toHaveCount(0);
@@ -229,15 +253,15 @@ try {
       expect((await audit()).forbiddenCalls).toEqual(beforeEventDetails.forbiddenCalls);
       expect((await audit()).storageCalls).toEqual(beforeEventDetails.storageCalls); expect(result.outbound).toEqual([]);
       await button('Express interest').click(); await expect(page.getByText('These venues and games are fictional. Use a real account for venue requests, check-in, and directions.')).toBeVisible();
-      await button('Dismiss demo notice').click(); await shot('events');
+      await button('Dismiss sample notice').click(); await shot('events');
       await tab('Map').click(); await expect(page.getByText('Map canvas adapter · no tiles or OS handoff')).toBeVisible(); await shot('map-adapter');
-      await page.getByRole('button', { name: /^Directions to Demo / }).first().click(); await expect(page.getByText('These venues and games are fictional. Use a real account for venue requests, check-in, and directions.')).toBeVisible();
-      await button('Dismiss demo notice').click();
-      await openOptions(); await button('Reset demo games').click(); await demoReady(); await button('Find games').click(); await expect(tab('Saved games, 0')).toBeVisible();
+      await page.getByRole('button', { name: /^Directions to (?:Wonderland Card House|Moonbeam Poker Club|Cloud Nine Card House|Stardust Sandbox Casino)/ }).first().click(); await expect(page.getByText('These venues and games are fictional. Use a real account for venue requests, check-in, and directions.')).toBeVisible();
+      await button('Dismiss sample notice').click();
+      await openOptions(); await button('Reset sample games').click(); await demoReady(); await button('Find games').click(); await expect(tab('Saved games, 0')).toBeVisible();
       expect((await audit()).forbiddenCalls).toEqual([]); expect((await audit()).storageCalls).toEqual([]);
     });
     await check('demo exit restores onboarding; reentry is fresh; whole shell fits larger viewport and text stress', async () => {
-      await openOptions(); await button('Exit demo').click(); await expect(page.getByRole('heading', { name: 'Find your next game' })).toBeVisible();
+      await openOptions(); await button('Exit sample').click(); await expect(page.getByRole('heading', { name: 'Find your next game' })).toBeVisible();
       await enterDemo(); await button('Find games').click(); await expect(tab('Saved games, 0')).toBeVisible();
       await page.setViewportSize({ width: 390, height: 844 }); await tab('Profile').click(); await button('Match preferences').click();
       await page.evaluate(() => { for (const element of document.querySelectorAll('[dir="auto"], input')) { const style = getComputedStyle(element); element.style.fontSize = `${parseFloat(style.fontSize) * 2}px`; if (style.lineHeight !== 'normal') element.style.lineHeight = `${parseFloat(style.lineHeight) * 2}px`; } });
@@ -249,8 +273,8 @@ try {
     await check('a preserved connected QA profile survives demo entry and exit without live authentication', async () => {
       await page.goto(`${baseUrl}/?entry=profile`); await expect(page.getByText('Published venue data is unavailable')).toBeVisible();
       await tab('Profile').click(); await expect(page.getByText('Local QA Profile', { exact: true })).toBeVisible(); await enterDemo();
-      const before = await audit(); await tab('Profile').click(); await expect(page.getByText('Demo Player', { exact: true })).toBeVisible();
-      await openOptions(); await button('Exit demo').click(); await tab('Profile').click(); await expect(page.getByText('Local QA Profile', { exact: true })).toBeVisible();
+      const before = await audit(); await tab('Profile').click(); await expect(page.getByText('Alex Example', { exact: true })).toBeVisible();
+      await openOptions(); await button('Exit sample').click(); await tab('Profile').click(); await expect(page.getByText('Local QA Profile', { exact: true })).toBeVisible();
       expect((await audit()).forbiddenCalls).toEqual([]); expect((await audit()).connectedMounts.storage).toBe(before.connectedMounts.storage + 1);
       await shot('restored-qa-profile');
     });

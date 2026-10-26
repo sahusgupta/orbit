@@ -203,9 +203,9 @@ function OnboardingFlow({
 
       {onTryDemo && !accountConnection ? (
         <View style={styles.optionalStep}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Try demo account" onPress={onTryDemo} style={styles.onboardingNextAction}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Try sample account" onPress={onTryDemo} style={styles.onboardingNextAction}>
             <Ionicons name="play-circle-outline" size={21} color={colors.onPrimary} />
-            <Text style={styles.onboardingNextActionText}>Try demo account</Text>
+            <Text style={styles.onboardingNextActionText}>Try sample account</Text>
           </Pressable>
           <Text style={styles.optionalStepText}>Explore fictional games at different locations. No sign-in required.</Text>
         </View>
@@ -276,14 +276,14 @@ function OnboardingWelcome({ onCreate, onSignIn, onTryDemo }: {
     <View style={styles.onboardingCenter}>
       <View style={styles.welcomeArtwork}><Ionicons name="planet-outline" size={80} color={colors.primary} /></View>
       <Text accessibilityRole="header" style={styles.onboardingTitle}>Find your next game</Text>
-      <Text style={styles.optionalStepText}>Create an account to connect with venues, or explore with a demo.</Text>
+      <Text style={styles.optionalStepText}>Create an account to connect with venues, or explore a sample account.</Text>
     </View>
     <View style={styles.onboardingFooter}>
       <Pressable accessibilityRole="button" accessibilityLabel="Create account" onPress={onCreate} style={styles.onboardingNextAction}>
         <Ionicons name="person-add-outline" size={21} color={colors.onPrimary} /><Text style={styles.onboardingNextActionText}>Create account</Text>
       </Pressable>
-      {onTryDemo ? <Pressable accessibilityRole="button" accessibilityLabel="Try demo account" onPress={onTryDemo} style={[styles.secondaryActionButton, styles.onboardingIconAction]}>
-        <Ionicons name="play-circle-outline" size={21} color={colors.ink} /><Text style={styles.secondaryActionText}>Try demo account</Text>
+      {onTryDemo ? <Pressable accessibilityRole="button" accessibilityLabel="Try sample account" onPress={onTryDemo} style={[styles.secondaryActionButton, styles.onboardingIconAction]}>
+        <Ionicons name="play-circle-outline" size={21} color={colors.ink} /><Text style={styles.secondaryActionText}>Try sample account</Text>
       </Pressable> : null}
       <Pressable accessibilityRole="button" accessibilityLabel="Already have an account? Sign in" onPress={onSignIn} style={styles.secondaryActionButton}>
         <Text style={styles.secondaryActionText}>Already have an account? Sign in</Text>

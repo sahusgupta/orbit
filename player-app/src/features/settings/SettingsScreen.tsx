@@ -271,7 +271,7 @@ export function SettingsScreen({
       </View>
       {onTryDemo ? (
         <View style={styles.simpleMenu}>
-          <SimpleMenuRow icon="play-circle-outline" title="Try demo account" subtitle="Fictional games" onPress={onTryDemo} />
+          <SimpleMenuRow icon="play-circle-outline" title="Try sample account" subtitle="Fictional games" onPress={onTryDemo} />
         </View>
       ) : null}
       {firebaseIdentity ? (

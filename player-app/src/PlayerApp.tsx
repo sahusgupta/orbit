@@ -134,12 +134,12 @@ function ConnectedPlayerSession({ onTryDemo }: { onTryDemo: () => void }) {
 function DemoPlayerSession({ onExitDemo }: { onExitDemo: () => void }) {
   const { storage, liveData } = useDemoPlayerSession();
   const [screen, setScreen] = useState<Screen>('home');
-  const [syncStatus, setSyncStatus] = useState('Demo account ready. All venues and games are fictional.');
+  const [syncStatus, setSyncStatus] = useState('Sample account ready. All venues and games are fictional.');
   const [experienceVersion, setExperienceVersion] = useState(0);
   const resetDemo = () => {
     liveData.retryLiveData();
     setScreen('home');
-    setSyncStatus('Demo games restored. All venues and games are fictional.');
+    setSyncStatus('Sample games restored. All venues and games are fictional.');
     setExperienceVersion((current) => current + 1);
   };
   return <PlayerExperience key={experienceVersion} storage={storage} identity={null} liveData={liveData}
@@ -614,15 +614,15 @@ function PlayerExperience({ storage, identity, liveData, screen, setScreen, sync
           ) : null}
 
           {demoMode ? (
-            <View accessibilityLabel="Demo account" style={styles.demoBar}>
+            <View accessibilityLabel="Sample account" style={styles.demoBar}>
               <Ionicons name="play-circle-outline" size={16} color={colors.muted} />
-              <Text style={styles.demoLabel}>Demo · sample games</Text>
+              <Text style={styles.demoLabel}>Sample · fictional venues</Text>
             </View>
           ) : null}
           {demoActionMessage ? (
             <View accessibilityRole="alert" style={styles.demoNotice}>
               <Text style={[styles.muted, { flex: 1 }]}>{demoActionMessage}</Text>
-              <Pressable accessibilityRole="button" accessibilityLabel="Dismiss demo notice" onPress={() => setDemoActionMessage('')} style={styles.demoOptions}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Dismiss sample notice" onPress={() => setDemoActionMessage('')} style={styles.demoOptions}>
                 <Ionicons name="close" size={20} color={colors.muted} />
               </Pressable>
             </View>
@@ -928,22 +928,22 @@ function PlayerExperience({ storage, identity, liveData, screen, setScreen, sync
             ) : null}
             {screen === 'settings' && demoMode ? (
               <View style={styles.accountCard}>
-                <Text style={styles.sectionTitle}>Demo profile</Text>
+                <Text style={styles.sectionTitle}>Sample profile</Text>
                 <Text style={styles.cardTitle}>{player.name}</Text>
                 <Text style={styles.muted}>{player.email}</Text>
-                <Text style={styles.muted}>This sample profile stays in memory. Exit demo to return to your saved account.</Text>
-                <View accessibilityLabel="Demo settings">
+                <Text style={styles.muted}>This sample profile stays in memory. Exit the sample account to return to your saved account.</Text>
+                <View accessibilityLabel="Sample settings">
                   <Pressable accessibilityRole="button" accessibilityLabel="Match preferences" onPress={() => { setMatchMode('preferences'); setScreen('findGames'); }} style={styles.demoMenuAction}>
                     <Ionicons name="options-outline" size={20} color={colors.primary} />
                     <Text style={styles.demoOptionsText}>Match preferences</Text>
                   </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Reset demo games" onPress={onResetDemo} style={styles.demoMenuAction}>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Reset sample games" onPress={onResetDemo} style={styles.demoMenuAction}>
                     <Ionicons name="refresh-outline" size={20} color={colors.primary} />
-                    <Text style={styles.demoOptionsText}>Reset demo games</Text>
+                    <Text style={styles.demoOptionsText}>Reset sample games</Text>
                   </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Exit demo" onPress={onExitDemo} style={styles.demoMenuAction}>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Exit sample" onPress={onExitDemo} style={styles.demoMenuAction}>
                     <Ionicons name="log-out-outline" size={20} color={colors.primary} />
-                    <Text style={styles.demoOptionsText}>Exit demo</Text>
+                    <Text style={styles.demoOptionsText}>Exit sample</Text>
                   </Pressable>
                 </View>
               </View>
@@ -1051,7 +1051,7 @@ function DemoEntryButton({ onPress }: { onPress?: () => void }) {
   const styles = useThemedStyles(baseStyles);
   return onPress ? (
     <Pressable accessibilityRole="button" onPress={onPress} style={styles.compactButton}>
-      <Text style={styles.compactButtonText}>Try demo account</Text>
+      <Text style={styles.compactButtonText}>Try sample account</Text>
     </Pressable>
   ) : null;
 }

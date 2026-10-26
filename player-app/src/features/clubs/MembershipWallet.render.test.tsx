@@ -100,7 +100,7 @@ describe('membership wallet QR lifecycle', () => {
       club={club} membership={membership} nowMs={nowMs} player={player} demoMode
     />));
 
-    expect(container.textContent).toContain('Demo membership only. Venue check-in is unavailable in the demo account.');
+    expect(container.textContent).toContain('Sample membership only. Venue check-in is unavailable in the sample account.');
     expect(container.textContent).not.toContain('Have staff scan this QR code');
     expect(container.querySelector('button')).toBeNull();
     expect(qrValue()).toBeUndefined();

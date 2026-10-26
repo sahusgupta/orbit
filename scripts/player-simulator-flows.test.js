@@ -71,7 +71,7 @@ describe('isolated native Player smoke contracts', () => {
       'launchApp',
       { extendedWaitUntil: { visible: 'Find your next game', timeout: 30000 } },
       { assertVisible: 'Create account' },
-      { assertVisible: 'Try demo account' },
+      { assertVisible: 'Try sample account' },
       { assertNotVisible: 'Release Reviewer' },
       { assertNotVisible: 'Account connected' }
     ]);
@@ -82,7 +82,7 @@ describe('isolated native Player smoke contracts', () => {
     expectOrdered(commands, [
       { extendedWaitUntil: { visible: 'Find your next game', timeout: 30000 } },
       { assertVisible: 'Create account' },
-      { assertVisible: 'Try demo account' },
+      { assertVisible: 'Try sample account' },
       { assertVisible: 'Already have an account? Sign in' },
       { tapOn: 'Create account' },
       { assertVisible: 'release.qa@example.invalid' },
@@ -98,8 +98,8 @@ describe('isolated native Player smoke contracts', () => {
     expect(metadata.appId).toBe('com.caminuslabs.orbit');
     expect(commands[0]).toEqual({ launchApp: { clearState: true, permissions: { all: 'deny' } } });
     expectOrdered(commands, [
-      { tapOn: 'Try demo account' },
-      { extendedWaitUntil: { visible: 'Hi, Demo', timeout: 30000 } },
+      { tapOn: 'Try sample account' },
+      { extendedWaitUntil: { visible: 'Hi, Alex', timeout: 30000 } },
       { tapOn: 'Find games' },
       { assertVisible: 'Saved games, 0' },
       { tapOn: 'Save .*' },
@@ -113,9 +113,9 @@ describe('isolated native Player smoke contracts', () => {
       { tapOn: 'Undo last swipe' },
       { assertVisible: { text: 'Undo last swipe', enabled: false } },
       { tapOn: 'Profile' },
-      { tapOn: 'Exit demo' },
+      { tapOn: 'Exit sample' },
       { assertVisible: 'Create account' },
-      { assertNotVisible: 'Demo Player' }
+      { assertNotVisible: 'Alex Example' }
     ]);
     const taps = commands.filter((command) => typeof command === 'object' && 'tapOn' in command).map((command) => command.tapOn);
     expect(taps).not.toContain('Map');

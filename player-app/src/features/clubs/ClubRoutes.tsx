@@ -123,7 +123,7 @@ export function ClubsScreen({
           <MembershipPassWallet clubs={memberClubs.slice().sort((left, right) => compareClubDistance(left, right, originCoordinate))}
             player={player} nowMs={nowMs} onSelectClub={onOpenMembership} selectedClubId={renderableClub?.club.id} />
           {memberClubs.some((club) => club.memberships.some((item) => item.clubId === club.club.id && isPlayerMembership(item, player)))
-            ? <Text style={[presentation.body, { color: palette.muted }]}>Tap a pass for membership details and venue check-in.</Text> : null}
+            ? <Text style={[presentation.body, { color: palette.muted }]}>Tap a card to isolate it. Tap it again to open your club pass.</Text> : null}
         </View>
       ) : null}
       {memberClubs.length ? memberClubs

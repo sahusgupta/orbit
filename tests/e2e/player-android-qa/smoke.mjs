@@ -240,7 +240,7 @@ async function main() {
     assert(!/Error:|Exception/.test(output) && /Status:\s*ok/.test(output), 'QA activity launch failed.');
     const observation = { name, wallMs: Date.now() - start, reported: Object.fromEntries([...output.matchAll(/^(ThisTime|TotalTime|WaitTime):\s*(\d+)$/gm)].map(match => [match[1], Number(match[2])])) };
     report.launches.push(observation);
-    await waitFor(/Set up your profile|Hi, Android|Hi, Demo|Profile/);
+    await waitFor(/Set up your profile|Hi, Android|Hi, Alex|Profile/);
     observation.uiObservedAfterStartMs = Date.now() - start; // Includes UI Automator polling; an observed upper bound, not a frame timestamp.
   }
   async function configure(scheme, font, reduced) {
@@ -250,12 +250,12 @@ async function main() {
     await sleep(400);
   }
   async function enterDemo() {
-    await tap('Try demo account'); await waitFor('Hi, Demo'); await waitFor('Find games');
+    await tap('Try sample account'); await waitFor('Hi, Alex'); await waitFor('Find games');
     const notification = find(ui(), 'Dismiss notification'); if (notification) await tapNode(notification);
   }
   async function findGames() { await tap('Find games'); await waitFor('Orbit Match'); await waitFor('Saved games, 0'); }
   async function swipeCard(direction, distance = .36, duration = 350) {
-    const card = await seek(/^Open .+ at Demo /); const [x1, y1, x2, y2] = card.rect;
+    const card = await seek(/^Open .+ at (?:Wonderland Card House|Moonbeam Poker Club|Cloud Nine Card House|Stardust Sandbox Casino)/); const [x1, y1, x2, y2] = card.rect;
     const centerX = Math.round((x1 + x2) / 2); const y = Math.round((y1 + y2) / 2);
     const delta = Math.round(width * distance) * (direction === 'right' ? 1 : -1);
     shell('input', 'swipe', String(centerX - Math.round(delta / 2)), String(y), String(centerX + Math.round(delta / 2)), String(y), String(duration));
@@ -267,21 +267,21 @@ async function main() {
       await check('current source: retained guest enters loaded fictional Match and saves a game', async () => {
         await tap('Profile'); await waitFor('Android QA Fixture'); await capture('current-guest-before-demo');
         await enterDemo(); await findGames();
-        const first = await waitFor(/^Open .+ at Demo /);
+        const first = await waitFor(/^Open .+ at (?:Wonderland Card House|Moonbeam Poker Club|Cloud Nine Card House|Stardust Sandbox Casino)/);
         await tap(/^Save /); await waitFor('Saved games, 1');
-        const next = await waitFor(/^Open .+ at Demo /); assert(next['content-desc'] !== first['content-desc'], 'Current demo must promote a different published game after Save.');
+        const next = await waitFor(/^Open .+ at (?:Wonderland Card House|Moonbeam Poker Club|Cloud Nine Card House|Stardust Sandbox Casino)/); assert(next['content-desc'] !== first['content-desc'], 'Current demo must promote a different published game after Save.');
         await capture('current-demo-loaded-saved');
       });
       await check('current source: demo map keeps four fictional venue locations', async () => {
         await tap('Map');
-        for (const [venue, city] of [['Demo Desert Casino','Las Vegas, NV'],['Demo Lakeside Poker Club','Chicago, IL'],['Demo River Card House','Austin, TX'],['Demo Summit Card House','Denver, CO']]) {
-          await seek(new RegExp(`^Fictional demo location, ${city} - `)); await seek(`View games at ${venue}`);
+        for (const [venue, city] of [['Stardust Sandbox Casino','Las Vegas, NV'],['Moonbeam Poker Club','Chicago, IL'],['Wonderland Card House','Austin, TX'],['Cloud Nine Card House','Denver, CO']]) {
+          await seek(new RegExp(`^Fictional venue, ${city} - `)); await seek(`View games at ${venue}`);
         }
         await capture('current-demo-four-location-rows');
       });
       await check('current source: demo reset reloads games and exit preserves the guest', async () => {
-        await tap('Profile', { direction: 'up' }); await tap('Reset demo games'); await waitFor('Hi, Demo'); await findGames(); await waitFor('Saved games, 0'); await capture('current-demo-reset');
-        await tap('Profile', { direction: 'up' }); await tap('Exit demo'); await tap('Profile'); await waitFor('Android QA Fixture'); await capture('current-guest-after-demo');
+        await tap('Profile', { direction: 'up' }); await tap('Reset sample games'); await waitFor('Hi, Alex'); await findGames(); await waitFor('Saved games, 0'); await capture('current-demo-reset');
+        await tap('Profile', { direction: 'up' }); await tap('Exit sample'); await tap('Profile'); await waitFor('Android QA Fixture'); await capture('current-guest-after-demo');
       });
     } else {
     if (!resume) {
@@ -292,31 +292,31 @@ async function main() {
         await capture(`${scheme}-match-first-view`);
         await tap('Cancel request for 1/2 No Limit Holdem'); await waitFor(/These venues and games are fictional/);
         await capture(`${scheme}-scrolled-cancel-feedback`);
-        await tap('Dismiss demo notice', { direction: 'up' });
+        await tap('Dismiss sample notice', { direction: 'up' });
         await tap('Discover games', { direction: 'up' });
       });
       await check(`${scheme}: short and vertical gestures retain the card; buttons have native 44dp height`, async () => {
-        const before = await swipeCard('right', .025, 800); const retained = await seek(/^Open .+ at Demo /);
+        const before = await swipeCard('right', .025, 800); const retained = await seek(/^Open .+ at (?:Wonderland Card House|Moonbeam Poker Club|Cloud Nine Card House|Stardust Sandbox Casino)/);
         assert(retained['content-desc'] === before, 'A short slow native gesture must not decide the game.');
         const [x1, y1, x2, y2] = retained.rect; const x = Math.round((x1 + x2) / 2); const y = Math.round((y1 + y2) / 2);
         shell('input', 'swipe', String(x), String(y), String(x + 5), String(Math.max(Math.round(height * .25), y - 150)), '500'); await sleep(250);
         const undoButton = await seek('Undo last swipe', { enabled: false, direction: 'up' });
         assert(undoButton.enabled === 'false', 'A native vertical scroll must not create a decision to undo.');
-        assert((await seek(/^Open .+ at Demo /))['content-desc'] === before, 'Vertical scrolling must retain the game.');
+        assert((await seek(/^Open .+ at (?:Wonderland Card House|Moonbeam Poker Club|Cloud Nine Card House|Stardust Sandbox Casino)/))['content-desc'] === before, 'Vertical scrolling must retain the game.');
         const save = await seek(/^Save /, { minHeightDp: 43.5 }); assert((save.rect[3] - save.rect[1]) / density >= 43.5, 'Fully revealed Save button must retain a 44dp native target.');
       });
-      await check(`${scheme}: native pass gesture and undo`, async () => { const before = await swipeCard('left'); await tap('Undo last swipe', { direction: 'up' }); const returned = await seek(/^Open .+ at Demo /); assert(returned['content-desc'] === before, 'Undo must restore the same game after a native left swipe.'); await capture(`${scheme}-undo`); });
+      await check(`${scheme}: native pass gesture and undo`, async () => { const before = await swipeCard('left'); await tap('Undo last swipe', { direction: 'up' }); const returned = await seek(/^Open .+ at (?:Wonderland Card House|Moonbeam Poker Club|Cloud Nine Card House|Stardust Sandbox Casino)/); assert(returned['content-desc'] === before, 'Undo must restore the same game after a native left swipe.'); await capture(`${scheme}-undo`); });
       await check(`${scheme}: native save gesture, real Saved and details back mode`, async () => {
         await swipeCard('right'); await tap('Saved games, 1', { direction: 'up' }); await tap(/^Details for saved /); await waitFor('Back to Matches');
         await capture(`${scheme}-saved-details`);
-        await tap('Request a seat'); await waitFor(/These venues and games are fictional/); await tap('Dismiss demo notice', { direction: 'up' });
-        await tap(/^Directions to Demo /); await waitFor(/These venues and games are fictional/); await tap('Dismiss demo notice', { direction: 'up' });
+        await tap('Request a seat'); await waitFor(/These venues and games are fictional/); await tap('Dismiss sample notice', { direction: 'up' });
+        await tap(/^Directions to (?:Wonderland Card House|Moonbeam Poker Club|Cloud Nine Card House|Stardust Sandbox Casino)/); await waitFor(/These venues and games are fictional/); await tap('Dismiss sample notice', { direction: 'up' });
         await tap('Back to Matches', { direction: 'up' }); await waitFor(/^Remove saved /); await capture(`${scheme}-saved`);
         await tap(/^Remove saved /); await waitFor('No saved games yet');
       });
       await check(`${scheme}: optional manual origin, invalid coordinate and demo GPS suppression`, async () => {
         await tap('Profile', { direction: 'up' }); await tap('Match preferences'); await tap('Match travel preferences'); await tap('Choose discovery location');
-        await waitFor('Demo uses manual sample search points. Device location stays off.');
+        await waitFor('The sample account uses manual search points. Device location stays off.');
         assert(!find(ui(), 'Use my device location', { enabled: false }), 'Demo must not offer the device GPS action.');
         await input('Search latitude', '91'); await input('Search longitude', '-97.7431'); await tap('Use selected search point');
         await waitFor('Latitude must be -90 to 90 and longitude -180 to 180.');
@@ -326,20 +326,20 @@ async function main() {
         await tap('Clear discovery location'); await waitFor('No location selected. Choose an area to use a travel radius.');
       });
       await check(`${scheme}: reset, native large font and OS scheme switch`, async () => {
-        await tap('Discover games', { direction: 'up' }); await tap(/^Save /); await tap('Profile', { direction: 'up' }); await tap('Reset demo games');
-        await waitFor('Hi, Demo'); await findGames();
-        await tap('Profile', { direction: 'up' }); await tap('Exit demo');
+        await tap('Discover games', { direction: 'up' }); await tap(/^Save /); await tap('Profile', { direction: 'up' }); await tap('Reset sample games');
+        await waitFor('Hi, Alex'); await findGames();
+        await tap('Profile', { direction: 'up' }); await tap('Exit sample');
         // Android may recreate the activity for fontScale; establish enlarged text before entering the in-memory preview.
         await configure(scheme, 1.5, true); await launch(`${scheme}-large-font-cold`); await enterDemo(); await findGames(); await capture(`${scheme}-match-first-view-large`); await seek(/^Save /); await capture(`${scheme}-match-large-reduced`);
         await tap('Profile', { direction: 'up' }); await tap('Match preferences'); await seek('Match games preferences'); await capture(`${scheme}-preferences-large`);
         await seek('Save Match preferences', { minHeightDp: 43.5 }); await capture(`${scheme}-preferences-controls-large`);
         await configure(scheme === 'dark' ? 'light' : 'dark', 1.5, true); await waitFor('Save Match preferences', 15_000, { minHeightDp: 43.5 }); await capture(`${scheme}-live-scheme-switch`);
-        await tap('Profile', { direction: 'up' }); await tap('Exit demo'); await waitFor('Set up your profile'); await configure(scheme, 1, false);
+        await tap('Profile', { direction: 'up' }); await tap('Exit sample'); await waitFor('Set up your profile'); await configure(scheme, 1, false);
       });
       await check(`${scheme}: demo history stays ephemeral after native cold relaunch`, async () => {
         await enterDemo(); await findGames(); await tap(/^Save /); await waitFor('Saved games, 1'); await launch(`${scheme}-demo-cold-relaunch`);
         await waitFor('Set up your profile'); await enterDemo(); await findGames(); await waitFor('Saved games, 0');
-        await tap('Profile', { direction: 'up' }); await tap('Exit demo'); await waitFor('Set up your profile');
+        await tap('Profile', { direction: 'up' }); await tap('Exit sample'); await waitFor('Set up your profile');
       });
     }
     await configure('light', 1, true);
@@ -381,19 +381,36 @@ async function main() {
       report.locationPermission = { requestedBy: qaTarget.package, action: 'denied', controller: denial.package, resourceId: denial['resource-id'], physicalCoordinatesRead: false, manualOriginRetained: true };
     });
     await check('demo reset and exit preserve restored local guest profile', async () => {
-      await tap('Profile', { direction: 'up' }); await tap('Try demo account'); await waitFor('Hi, Demo'); await tap('Profile'); await waitFor('Demo profile');
+      await tap('Profile', { direction: 'up' }); await tap('Try sample account'); await waitFor('Hi, Alex'); await tap('Profile'); await waitFor('Sample profile');
       await capture('demo-profile'); await tap('Clubs');
-      for (const venue of ['Demo Lakeside Poker Club', 'Demo River Card House']) {
-        await tap(`${venue}, Active`, { direction: 'up' });
-        const selected = await waitFor(`${venue}, Active`); assert(selected.selected === 'true', 'Club selection must expose its actual accessibility selection state.');
+      const membershipVenues = ['Moonbeam Poker Club', 'Wonderland Card House'];
+      const tapWalletStrip = async venue => {
+        const node = await seek(`${venue}, Active`, { direction: 'up', press: true, minHeightDp: 44 });
+        const [x1, y1, x2, y2] = node.rect;
+        // The top 44dp is exposed even when the rest of this card is behind the next pass.
+        await tapNode({ ...node, rect: [x1, y1, x2, Math.min(y2, y1 + Math.round(44 * density))] });
+      };
+      for (const venue of membershipVenues) {
+        const otherVenue = membershipVenues.find(name => name !== venue);
+        await tapWalletStrip(venue); await waitFor('Your wallet'); await waitFor('Back to wallet');
+        const focusedNodes = ui();
+        assert(!find(focusedNodes, `${otherVenue}, Active`) && !find(focusedNodes, 'Club pass'), 'First tap must isolate one wallet pass without opening membership details.');
+        await capture(`wallet-focused-${venue.split(' ')[0].toLowerCase()}`);
+        await tap('Back to wallet', { direction: 'up' });
+        for (const name of membershipVenues) await seek(`${name}, Active`, { direction: 'up' });
+        await tapWalletStrip(venue); await waitFor('Back to wallet');
+        await tap(`${venue}, Active`); await waitFor('Club pass');
+        await seek(/Sample membership only\. Venue check-in is unavailable/); await capture(`club-pass-${venue.split(' ')[0].toLowerCase()}`);
+        const allLabels = ui().map(node => `${node['content-desc'] ?? ''} ${node.text ?? ''}`).join('\n');
+        assert(!/Membership check-in QR|Generate membership check-in code|Refresh membership check-in code/.test(allLabels), 'The sample account must suppress a scannable membership credential.');
+        await tap('Back to memberships', { direction: 'up' }); await waitFor('Your wallet');
+        for (const name of membershipVenues) await seek(`${name}, Active`, { direction: 'up' });
+        assert(!find(ui(), 'Back to wallet'), 'Returning from details must restore the stacked wallet.');
       }
-      await seek(/Demo membership only\. Venue check-in is unavailable/); await capture('demo-clubs');
-      const allLabels = ui().map(node => `${node['content-desc'] ?? ''} ${node.text ?? ''}`).join('\n');
-      assert(!/Membership check-in QR|Generate membership check-in code|Refresh membership check-in code/.test(allLabels), 'Demo must suppress a scannable membership credential.');
       await tap('Map');
-      for (const venue of ['Demo Desert Casino', 'Demo Lakeside Poker Club', 'Demo River Card House', 'Demo Summit Card House']) await seek(`View games at ${venue}`);
+      for (const venue of ['Stardust Sandbox Casino', 'Moonbeam Poker Club', 'Wonderland Card House', 'Cloud Nine Card House']) await seek(`View games at ${venue}`);
       await capture('demo-map-venue-list');
-      await tap('Profile', { direction: 'up' }); await tap('Exit demo'); await tap('Profile'); await waitFor('Android QA Fixture');
+      await tap('Profile', { direction: 'up' }); await tap('Exit sample'); await tap('Profile'); await waitFor('Android QA Fixture');
     });
     }
     preflight();
