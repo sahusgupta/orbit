@@ -10,7 +10,7 @@ name: Fictional offline Match save, remove, pass, undo, and demo exit
     timeout: 30000
 - tapOn: Try sample account
 - extendedWaitUntil:
-    visible: Hi, Alex
+    visible: Find games
     timeout: 30000
 - tapOn: Find games
 - extendedWaitUntil:

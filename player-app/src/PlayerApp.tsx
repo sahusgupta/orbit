@@ -641,7 +641,6 @@ function PlayerExperience({ storage, identity, liveData, screen, setScreen, sync
             ) : null}
             {screen === 'home' ? (
               <PlayerHomeScreen
-                playerName={player.name}
                 opportunities={broadOpportunities}
                 inventoryPartial={liveDataPartial}
                 inventoryStatus={liveDataStatus}
@@ -928,10 +927,9 @@ function PlayerExperience({ storage, identity, liveData, screen, setScreen, sync
             ) : null}
             {screen === 'settings' && demoMode ? (
               <View style={styles.accountCard}>
-                <Text style={styles.sectionTitle}>Sample profile</Text>
                 <Text style={styles.cardTitle}>{player.name}</Text>
                 <Text style={styles.muted}>{player.email}</Text>
-                <Text style={styles.muted}>This sample profile stays in memory. Exit the sample account to return to your saved account.</Text>
+                <Text style={styles.muted}>Changes are not saved.</Text>
                 <View accessibilityLabel="Sample settings">
                   <Pressable accessibilityRole="button" accessibilityLabel="Match preferences" onPress={() => { setMatchMode('preferences'); setScreen('findGames'); }} style={styles.demoMenuAction}>
                     <Ionicons name="options-outline" size={20} color={colors.primary} />
@@ -1057,6 +1055,7 @@ function DemoEntryButton({ onPress }: { onPress?: () => void }) {
 }
 
 function getScreenTitle(screen: Screen) {
+  if (screen === 'clubs') return 'Your wallet';
   if (screen === 'membershipDetails') return 'Club pass';
   if (screen === 'findGames') return 'Orbit Match';
   if (screen === 'settings') return 'Profile';

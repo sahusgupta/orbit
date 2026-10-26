@@ -115,7 +115,7 @@ describe('OnboardingScreen adult declaration gate', () => {
     expect(demo?.getAttribute('role')).toBe('button');
     expect(demo?.getAttribute('aria-label')).toBe('Try sample account');
     expect(demo?.disabled).toBe(false);
-    expect(container.textContent).toContain('Explore fictional games at different locations. No sign-in required.');
+    expect(container.textContent).not.toContain('Explore fictional games at different locations. No sign-in required.');
     act(() => demo?.click());
     expect(onTryDemo).toHaveBeenCalledOnce();
     expect(onComplete).not.toHaveBeenCalled();
@@ -132,6 +132,10 @@ describe('OnboardingScreen adult declaration gate', () => {
       accountConnection={connection} />));
     expect(container.textContent).toContain('Create account');
     expect(container.textContent).toContain('Already have an account? Sign in');
+    expect(container.querySelector('[role="header"]')?.textContent).toBe('Find your next game');
+    expect(container.textContent).not.toContain('ORBIT');
+    expect(container.textContent).not.toContain('PLAYER');
+    expect(container.textContent).not.toContain('Create an account to connect with venues, or explore a sample account.');
     expect(container.querySelector('input[aria-label="Name"]')).toBeNull();
     act(() => button('Try sample account')?.click());
     expect(onTryDemo).toHaveBeenCalledOnce();
@@ -163,6 +167,11 @@ describe('OnboardingScreen adult declaration gate', () => {
     if (intent === 'create') act(() => button('Continue to account')?.click());
 
     expect(button(label)?.getAttribute('aria-label')).toBe(label);
+    expect(container.querySelector('[role="header"]')?.textContent).toBe(intent === 'create' ? 'Create account' : 'Sign in');
+    expect(container.querySelector('input[aria-label="Account password or passphrase"]')?.getAttribute('placeholder')).toBe('At least 12 characters');
+    expect(container.textContent).not.toContain('ORBIT');
+    expect(container.textContent).not.toContain('Sign in to restore your saved Orbit profile.');
+    if (intent === 'create') expect(container.textContent).toContain('Verify your email, then sign in to finish saving your profile.');
     expect(connection.onConnect).not.toHaveBeenCalled();
   });
 

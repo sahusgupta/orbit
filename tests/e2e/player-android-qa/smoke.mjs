@@ -240,7 +240,7 @@ async function main() {
     assert(!/Error:|Exception/.test(output) && /Status:\s*ok/.test(output), 'QA activity launch failed.');
     const observation = { name, wallMs: Date.now() - start, reported: Object.fromEntries([...output.matchAll(/^(ThisTime|TotalTime|WaitTime):\s*(\d+)$/gm)].map(match => [match[1], Number(match[2])])) };
     report.launches.push(observation);
-    await waitFor(/Set up your profile|Hi, Android|Hi, Alex|Profile/);
+    await waitFor(/Set up your profile|Find games|Profile/);
     observation.uiObservedAfterStartMs = Date.now() - start; // Includes UI Automator polling; an observed upper bound, not a frame timestamp.
   }
   async function configure(scheme, font, reduced) {
@@ -250,7 +250,7 @@ async function main() {
     await sleep(400);
   }
   async function enterDemo() {
-    await tap('Try sample account'); await waitFor('Hi, Alex'); await waitFor('Find games');
+    await tap('Try sample account'); await waitFor('Find games');
     const notification = find(ui(), 'Dismiss notification'); if (notification) await tapNode(notification);
   }
   async function findGames() { await tap('Find games'); await waitFor('Orbit Match'); await waitFor('Saved games, 0'); }
@@ -280,7 +280,7 @@ async function main() {
         await capture('current-demo-four-location-rows');
       });
       await check('current source: demo reset reloads games and exit preserves the guest', async () => {
-        await tap('Profile', { direction: 'up' }); await tap('Reset sample games'); await waitFor('Hi, Alex'); await findGames(); await waitFor('Saved games, 0'); await capture('current-demo-reset');
+        await tap('Profile', { direction: 'up' }); await tap('Reset sample games'); await waitFor('Find games'); await findGames(); await waitFor('Saved games, 0'); await capture('current-demo-reset');
         await tap('Profile', { direction: 'up' }); await tap('Exit sample'); await tap('Profile'); await waitFor('Android QA Fixture'); await capture('current-guest-after-demo');
       });
     } else {
@@ -327,7 +327,7 @@ async function main() {
       });
       await check(`${scheme}: reset, native large font and OS scheme switch`, async () => {
         await tap('Discover games', { direction: 'up' }); await tap(/^Save /); await tap('Profile', { direction: 'up' }); await tap('Reset sample games');
-        await waitFor('Hi, Alex'); await findGames();
+        await waitFor('Find games'); await findGames();
         await tap('Profile', { direction: 'up' }); await tap('Exit sample');
         // Android may recreate the activity for fontScale; establish enlarged text before entering the in-memory preview.
         await configure(scheme, 1.5, true); await launch(`${scheme}-large-font-cold`); await enterDemo(); await findGames(); await capture(`${scheme}-match-first-view-large`); await seek(/^Save /); await capture(`${scheme}-match-large-reduced`);
@@ -347,7 +347,7 @@ async function main() {
       await input('Name', 'Android QA Fixture'); await tap('Continue'); await input('Email', 'android.qa@example.invalid'); await tap('Continue');
       await waitFor('Phone Number'); await tap('Continue'); await waitFor('Home Area');
       const gated = await seek('Start exploring', { enabled: false }); assert(gated.enabled === 'false', 'Adult declaration must gate completion.');
-      await tap('I confirm that I am 18 or older'); await tap('Start exploring'); await waitFor('Hi, Android'); await tap('Profile');
+      await tap('I confirm that I am 18 or older'); await tap('Start exploring'); await waitFor('Find games'); await tap('Profile');
       await waitFor('Android QA Fixture'); await capture('local-guest-profile'); await launch('local-profile-cold-relaunch');
       await tap('Profile'); await waitFor('Android QA Fixture');
       assert(!find(ui(), 'Account connected'), 'Synthetic offline profile must remain a local guest.');
@@ -381,7 +381,7 @@ async function main() {
       report.locationPermission = { requestedBy: qaTarget.package, action: 'denied', controller: denial.package, resourceId: denial['resource-id'], physicalCoordinatesRead: false, manualOriginRetained: true };
     });
     await check('demo reset and exit preserve restored local guest profile', async () => {
-      await tap('Profile', { direction: 'up' }); await tap('Try sample account'); await waitFor('Hi, Alex'); await tap('Profile'); await waitFor('Sample profile');
+      await tap('Profile', { direction: 'up' }); await tap('Try sample account'); await waitFor('Find games'); await tap('Profile'); await waitFor('Changes are not saved.');
       await capture('demo-profile'); await tap('Clubs');
       const membershipVenues = ['Moonbeam Poker Club', 'Wonderland Card House'];
       const tapWalletStrip = async venue => {

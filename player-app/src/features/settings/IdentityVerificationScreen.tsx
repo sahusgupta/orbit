@@ -98,7 +98,7 @@ export function IdentityVerificationScreen({
         />
       </View>
       <View style={styles.identityCopy}>
-        <Text style={styles.sectionTitle}>
+        <Text accessibilityRole="header" style={styles.sectionTitle}>
           {approved
             ? 'ID approved'
             : provisional
@@ -107,15 +107,13 @@ export function IdentityVerificationScreen({
                 ? 'Age requirement not met'
                 : `Scan your ID to confirm ${requiredMinimumAge}+`}
         </Text>
-        <Text style={styles.muted}>
-          {approved
-            ? 'Identity and age verification approved.'
-            : provisional
+        {!approved ? <Text style={styles.muted}>
+          {provisional
               ? 'You may continue sharing nonbinding tournament interest and sending membership or waitlist requests. Venue staff must check the physical ID on your first visit.'
             : underage
               ? `This venue action requires players to be age ${requiredMinimumAge} or older.`
-              : 'Use the camera on the PDF417 barcode on the back of a government-issued ID. Orbit reads the name, date of birth, and address on this device.'}
-        </Text>
+              : 'Scan the PDF417 barcode on the back of your ID.'}
+        </Text> : null}
       </View>
       {!signedIn ? (
         <Pressable onPress={onSignIn} style={[styles.primaryButton, styles.fullWidthButton]}>

@@ -18,7 +18,6 @@ export function useMembershipPalette() { return getMembershipPalette(usePlayerTh
 export const membershipPresentation = StyleSheet.create({
   screen: { flexGrow: 1, gap: 24, paddingTop: 4, paddingBottom: 12 },
   intro: { gap: 8 },
-  eyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 2.5 },
   heading: { fontSize: 28, lineHeight: 34, fontWeight: '700' },
   body: { fontSize: 14, lineHeight: 21 },
   section: { gap: 16 },

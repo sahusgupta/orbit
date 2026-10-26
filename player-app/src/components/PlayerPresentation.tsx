@@ -241,7 +241,7 @@ export function SimpleMenuRow({
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
-  subtitle: string;
+  subtitle?: string;
   onPress: () => void;
 }) {
   const styles = useThemedStyles(baseStyles);
@@ -251,7 +251,7 @@ export function SimpleMenuRow({
       <View style={styles.simpleMenuIcon}><Ionicons name={icon} size={20} color={colors.primary} /></View>
       <View style={styles.simpleMenuCopy}>
         <Text style={styles.cardTitle}>{title}</Text>
-        <Text style={styles.muted}>{subtitle}</Text>
+        {subtitle ? <Text style={styles.muted}>{subtitle}</Text> : null}
       </View>
       <Ionicons name="chevron-forward" size={18} color={colors.muted} />
     </Pressable>

@@ -134,6 +134,7 @@ describe('MapExploreScreen venue actions', () => {
     act(() => root.render(<MapExploreScreen clubs={[first, second]} query="" readOnly={false} setQuery={vi.fn()}
       onOpenFilters={vi.fn()} onDirections={onDirections} onShowGames={vi.fn()} onRequestAccess={vi.fn()} />));
     expect(container.textContent).toContain('Apple Maps');
+    expect(container.textContent).not.toContain('Venue-published locations. Select a venue');
     const map = container.querySelector('[data-testid="map"]');
     expect(map?.getAttribute('data-provider')).toBe('default');
     expect(map?.getAttribute('data-region')).toContain('"latitude":36.1');

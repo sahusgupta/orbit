@@ -168,7 +168,7 @@ describe('PlayerApp to ClubsScreen safe composition', () => {
     const onOpenMembership = vi.fn();
     render(deriveClubsViewState('ready', [club], club, false, ''), [club], membership, { onSelectClub, onOpenMembership });
     expectNoClubDependentPanels();
-    expect(container.textContent).toContain('Your wallet');
+    expect(container.textContent).not.toMatch(/Your wallet|Your rooms\.|Tap a card/);
     expect(container.textContent).toContain('MEMBERSHIP ID');
     expect(container.textContent).toContain(membership.id);
     const row = container.querySelector('[aria-label="Published Club, Active"]') as HTMLButtonElement;

@@ -53,7 +53,7 @@ describe('isolated native Player smoke contracts', () => {
       { tapOn: 'I confirm that I am 18 or older' },
       { assertVisible: { text: 'Continue to account', enabled: true } },
       { tapOn: 'Continue to account' },
-      { assertVisible: 'Create your account' },
+      { assertVisible: 'Create account' },
       { assertVisible: 'Account password or passphrase' },
       { assertVisible: { text: 'Create account / sign in', enabled: false } }
     ]);
@@ -64,7 +64,7 @@ describe('isolated native Player smoke contracts', () => {
     expectOrdered(commands, [
       { pressKey: 'Home' },
       { launchApp: { stopApp: false } },
-      { assertVisible: 'Create your account' },
+      { assertVisible: 'Create account' },
       { assertVisible: 'release.qa@example.invalid' },
       { assertNotVisible: 'Account connected' },
       'stopApp',
@@ -99,7 +99,7 @@ describe('isolated native Player smoke contracts', () => {
     expect(commands[0]).toEqual({ launchApp: { clearState: true, permissions: { all: 'deny' } } });
     expectOrdered(commands, [
       { tapOn: 'Try sample account' },
-      { extendedWaitUntil: { visible: 'Hi, Alex', timeout: 30000 } },
+      { extendedWaitUntil: { visible: 'Find games', timeout: 30000 } },
       { tapOn: 'Find games' },
       { assertVisible: 'Saved games, 0' },
       { tapOn: 'Save .*' },

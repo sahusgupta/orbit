@@ -200,7 +200,7 @@ async function main() {
   const waitDiagnostic = (predicate, message) => until(() => diagnostics().find(predicate), message);
   const inspect = owner => server.command('inspect', { owner });
   async function check(name, task) { report.stage = name; const start = Date.now(); await task(); report.checks.push({ name, status: 'passed', elapsedMs: Date.now()-start }); delete report.stage; console.log(`PASS ${name}`); }
-  async function launch() { preflight(); shell('am','force-stop',connectedNativeTarget.package); const output = shell('am','start','-W','-n',connectedNativeTarget.activity); assert(/Status:\s*ok/.test(output), 'Connected QA activity launch failed.'); await waitFor(/Find your next game|Hi, Native|Profile/); }
+  async function launch() { preflight(); shell('am','force-stop',connectedNativeTarget.package); const output = shell('am','start','-W','-n',connectedNativeTarget.activity); assert(/Status:\s*ok/.test(output), 'Connected QA activity launch failed.'); await waitFor(/Find your next game|Find games|Profile/); }
   async function guest() {
     await waitFor('Find your next game'); await waitFor('Create account'); await waitFor('Already have an account? Sign in');
   }

@@ -930,7 +930,8 @@ describe('Player session boundary', () => {
     click('Club access');
     clickMatching(/^Club game: /);
     click('Profile');
-    expect(container.textContent).toContain('Sample profile');
+    expect(container.textContent).toContain('Changes are not saved.');
+    expect(container.textContent).not.toContain('Sample profile');
     expect(container.textContent).not.toContain('Normal profile settings');
     expect(hooks.storage).not.toHaveBeenCalled();
     expect(hooks.identity).not.toHaveBeenCalled();

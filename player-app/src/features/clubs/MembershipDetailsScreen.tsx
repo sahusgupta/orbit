@@ -50,8 +50,6 @@ export function MembershipDetailsScreen({ viewState, player, nowMs, message, onB
               <MembershipPassCard club={club} membership={membership} player={player} nowMs={nowMs} variant="detail" />
               <View style={styles.section}>
                 <View style={[styles.intro, styles.rule, { borderColor: palette.line }]}>
-                  <Text style={[styles.eyebrow, { color: palette.accent }]}>MEMBERSHIP</Text>
-                  <Text accessibilityRole="header" style={[styles.heading, { color: palette.ink }]}>{club.club.name}</Text>
                   <Text style={[styles.body, { color: palette.muted }]}>{getPublishedMembershipPlanLabel(membership)}</Text>
                   {club.club.address ? <Text style={[styles.body, { color: palette.muted }]}>{club.club.address}</Text> : null}
                 </View>
@@ -85,7 +83,7 @@ export function MembershipDetailsScreen({ viewState, player, nowMs, message, onB
                   <Ionicons name="calendar-outline" size={18} color={palette.onAccent} />
                   <Text style={[styles.actionText, { color: palette.onAccent }]}>{membership ? 'Extend membership' : 'View membership options'}</Text>
                 </Pressable>
-                <Text style={[styles.body, { color: palette.muted }]}>{membership ? 'Choose a published option to request an extension. The venue confirms your extension and expiry.' : 'Choose a published option to request venue access.'}</Text>
+                <Text style={[styles.body, { color: palette.muted }]}>Venue approval required.</Text>
               </>
             ) : <Text style={[styles.body, { color: palette.muted }]}>Contact the venue to {membership ? 'extend your membership' : 'request membership'}; no membership options are currently published.</Text>}
           </View>

@@ -80,7 +80,7 @@ name: Fresh account choices, adult gate, and credentials without authentication
     text: Continue to account
     enabled: true
 - tapOn: Continue to account
-- assertVisible: Create your account
+- assertVisible: Create account
 - assertVisible: release.qa@example.invalid
 - assertVisible: Account password or passphrase
 - scrollUntilVisible:
@@ -93,12 +93,12 @@ name: Fresh account choices, adult gate, and credentials without authentication
 - assertNotVisible: Account connected
 - takeScreenshot: 03-account-credentials
 - scrollUntilVisible:
-    element: Create your account
+    element: Create account
     direction: UP
 - pressKey: Home
 - launchApp:
     stopApp: false
-- assertVisible: Create your account
+- assertVisible: Create account
 - assertVisible: release.qa@example.invalid
 - assertNotVisible: Account connected
 - stopApp

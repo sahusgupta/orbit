@@ -192,10 +192,6 @@ function OnboardingFlow({
   return (
     <View style={styles.onboardingFlow}>
       <View style={styles.onboardingTopBar}>
-        <View>
-          <Text style={styles.onboardingBrand}>ORBIT</Text>
-          <Text style={styles.onboardingBrandSubtle}>PLAYER</Text>
-        </View>
         <OnboardingProgress activeStep={onboardingStep} totalSteps={totalSteps} />
       </View>
 
@@ -207,7 +203,6 @@ function OnboardingFlow({
             <Ionicons name="play-circle-outline" size={21} color={colors.onPrimary} />
             <Text style={styles.onboardingNextActionText}>Try sample account</Text>
           </Pressable>
-          <Text style={styles.optionalStepText}>Explore fictional games at different locations. No sign-in required.</Text>
         </View>
       ) : null}
 
@@ -272,11 +267,9 @@ function OnboardingWelcome({ onCreate, onSignIn, onTryDemo }: {
   const styles = useThemedStyles(baseStyles);
   const { colors } = usePlayerTheme();
   return <View style={styles.onboardingFlow}>
-    <View><Text style={styles.onboardingBrand}>ORBIT</Text><Text style={styles.onboardingBrandSubtle}>PLAYER</Text></View>
     <View style={styles.onboardingCenter}>
       <View style={styles.welcomeArtwork}><Ionicons name="planet-outline" size={80} color={colors.primary} /></View>
       <Text accessibilityRole="header" style={styles.onboardingTitle}>Find your next game</Text>
-      <Text style={styles.optionalStepText}>Create an account to connect with venues, or explore a sample account.</Text>
     </View>
     <View style={styles.onboardingFooter}>
       <Pressable accessibilityRole="button" accessibilityLabel="Create account" onPress={onCreate} style={styles.onboardingNextAction}>
@@ -312,9 +305,8 @@ function OnboardingCredentials({ connection, intent, draftPlayer, setDraftPlayer
       <Pressable accessibilityRole="button" accessibilityLabel="Back" disabled={connection.busy} onPress={onBack} style={styles.arrowAction}>
         <Ionicons name="arrow-back" size={24} color={colors.ink} />
       </Pressable>
-      <Text style={styles.onboardingBrand}>ORBIT</Text>
     </View>
-    <Text accessibilityRole="header" style={styles.onboardingTitle}>{intent === 'create' ? 'Create your account' : 'Welcome back'}</Text>
+    <Text accessibilityRole="header" style={styles.onboardingTitle}>{intent === 'create' ? 'Create account' : 'Sign in'}</Text>
     <View style={styles.onboardingCenter}>
       <View style={styles.credentialFields}>
         <View style={styles.field}>
@@ -334,7 +326,7 @@ function OnboardingCredentials({ connection, intent, draftPlayer, setDraftPlayer
       </View>
     </View>
     <View style={styles.onboardingFooter}>
-      <Text style={styles.optionalStepText}>{intent === 'create' ? 'Verify your email, then sign in to finish saving your profile.' : 'Sign in to restore your saved Orbit profile.'}</Text>
+      {intent === 'create' ? <Text style={styles.optionalStepText}>Verify your email, then sign in to finish saving your profile.</Text> : null}
       <Pressable accessibilityRole="button" accessibilityLabel={submitLabel} accessibilityState={{ disabled: !canConnect }} disabled={!canConnect} onPress={connect}
         style={[styles.onboardingNextAction, !canConnect && styles.arrowActionDisabled]}>
         <Ionicons name="lock-closed-outline" size={20} color={colors.onPrimary} />

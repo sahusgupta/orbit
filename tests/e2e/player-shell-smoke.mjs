@@ -164,6 +164,10 @@ try {
       for (const width of [320, 360, 390]) {
         await page.setViewportSize({ width, height: 740 });
         await expect(page.getByText('Your wallet', { exact: true })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Your wallet', exact: true })).toHaveCount(1);
+        await expect(page.getByText('MEMBERSHIPS', { exact: true })).toHaveCount(0);
+        await expect(page.getByText('Your rooms. Your access. All in one place.', { exact: true })).toHaveCount(0);
+        await expect(page.getByText('Tap a card to isolate it. Tap it again to open your club pass.', { exact: true })).toHaveCount(0);
         await expect(page.getByText('Sample membership only. Venue check-in is unavailable in the sample account.')).toHaveCount(0);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await shot(`membership-wallet-${width}`);
@@ -235,7 +239,7 @@ try {
       expect(after.connectedMounts).toEqual(before.connectedMounts); expect(result.outbound).toEqual([]);
     });
     await check('actual demo Profile/events/map stay isolated and reset restores catalog and saved state', async () => {
-      await tab('Profile').click(); await expect(page.getByText('This sample profile stays in memory. Exit the sample account to return to your saved account.')).toBeVisible(); await shot('profile');
+      await tab('Profile').click(); await expect(page.getByText('Changes are not saved.')).toBeVisible(); await expect(page.getByText('Sample profile', { exact: true })).toHaveCount(0); await shot('profile');
       await tab('Events').click(); await expect(page.getByText('Pocket Aces Freeroll', { exact: true })).toBeVisible();
       const eventName = 'Moonlight Omaha Evening', eventRequest = button(`Request for ${eventName}`);
       await expect(eventRequest).toHaveAttribute('aria-expanded', 'false');

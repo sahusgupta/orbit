@@ -217,7 +217,7 @@ async function main() {
     await tap('Discover games', { direction: 'up' });
   }
   async function resetDemo() {
-    await tap('Profile', { direction: 'up' }); await tap('Reset sample games'); await waitFor('Hi, Alex');
+    await tap('Profile', { direction: 'up' }); await tap('Reset sample games'); await waitFor('Find games');
     await tap('Find games'); await waitFor('Orbit Match'); await waitFor('Saved games, 0');
   }
   function uniqueField() {
@@ -296,10 +296,10 @@ async function main() {
     shell('am', 'force-stop', qaTarget.package);
     const launched = shell('am', 'start', '-W', '-n', qaTarget.activity); assert(/Status:\s*ok/.test(launched) && !/Error:|Exception/.test(launched));
     report.startup = Object.fromEntries([...launched.matchAll(/^(ThisTime|TotalTime|WaitTime):\s*(\d+)$/gm)].map(match => [match[1], Number(match[2])]));
-    await waitFor(/Find your next game|Set up your profile|Hi, |Profile/);
+    await waitFor(/Find your next game|Set up your profile|Find games|Profile/);
     const entryNodes = ui();
     if (!find(entryNodes, 'Try sample account', { press: true }) && !find(entryNodes, 'Set up your profile')) await tap('Profile');
-    await tap('Try sample account'); await waitFor('Hi, Alex');
+    await tap('Try sample account'); await waitFor('Find games');
     if (find(ui(), 'Dismiss notification', { press: true })) await tap('Dismiss notification');
     await resetDemo();
     if (options.has('--measure-gestures')) {

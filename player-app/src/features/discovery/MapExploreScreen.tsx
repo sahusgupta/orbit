@@ -85,10 +85,6 @@ export function MapExploreScreen({ clubs, query, readOnly, setQuery, onOpenFilte
             <Text style={styles.muted}>{visibleClubs.length ? 'Venues without a published map pin are listed below.' : 'Try a published city, address, venue, or game.'}</Text>
           </View>
         )}
-        <View style={styles.mapFooter}>
-          <Text style={styles.cardTitle}>{Platform.OS === 'ios' ? 'Apple Maps' : 'Venue map'}</Text>
-          <Text style={styles.muted}>Venue-published locations. Select a venue to see its games or access options.</Text>
-        </View>
       </View>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Venue results</Text>

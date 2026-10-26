@@ -63,7 +63,6 @@ describe('Native player Home', () => {
       inventoryStatus: 'ready',
       openTournamentCount: 4,
       clubCount: 2,
-      playerName: '  Alex Smith ',
       onFindGame: vi.fn(),
       onOpenGame: vi.fn(),
       onBrowseTournaments: vi.fn(),
@@ -79,9 +78,9 @@ describe('Native player Home', () => {
     container.remove();
   });
 
-  it('shows a compact greeting and at most three game rows with factual venue, city, and availability', () => {
+  it('starts with game actions and at most three rows without a duplicate greeting or heading', () => {
     render();
-    expect(container.textContent).toContain('Hi, Alex');
+    expect(container.querySelector('[role="header"]')).toBeNull();
     expect(container.textContent).toContain('1/2 No Limit Holdem');
     expect(container.textContent).toContain('Wonderland Card House · Austin');
     expect(container.textContent).toContain('3 seats open');
@@ -121,8 +120,7 @@ describe('Native player Home', () => {
   });
 
   it('keeps empty ready inventory truthful and offers the game finder', () => {
-    render({ opportunities: [], clubCount: 0, openTournamentCount: 0, playerName: undefined });
-    expect(container.textContent).toContain('Welcome back');
+    render({ opportunities: [], clubCount: 0, openTournamentCount: 0 });
     expect(container.textContent).toContain('No games to show right now.');
     expect(container.querySelector('[role="progressbar"]')).toBeNull();
     click('Find games');

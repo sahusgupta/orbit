@@ -40,8 +40,6 @@ const styleNames = [
   'iconTooltip',
   'iconTooltipText',
   'onboardingActions',
-  'onboardingBrand',
-  'onboardingBrandSubtle',
   'onboardingFlow',
   'onboardingNextAction',
   'onboardingNextActionText',
@@ -189,7 +187,8 @@ describe('Player onboarding presentation contract', () => {
     ];
 
     // Reviewed sample-account entry copy; Firebase verification and age gates remain covered below and in connection/render tests.
-    expect(componentDigest).toBe('891648e64ec18ec15d5f4aadc1a7169782a720992ac192d9484ae2f494ff7ed6');
+    // Reviewed removal of decorative overlines and repeated onboarding subtitles.
+    expect(componentDigest).toBe('b02e32b16c2b201d830a1afe03556e84c1ea7063aa3d407673259ee150cccf33');
     orderedShellTokens.forEach((token) => expect(shell).toContain(token));
     expect(shell).toContain('keyboardShouldPersistTaps="handled"');
     expect(shell).toContain('keyboardDismissMode="on-drag"');
@@ -204,7 +203,7 @@ describe('Player onboarding presentation contract', () => {
     expect(onboardingFlow).toContain('accessibilityState={{ disabled: !canSubmit }}');
     expect(onboardingFlow).toContain('onTryDemo?: () => void;');
     expect(onboardingFlow).toContain('onPress={onTryDemo}');
-    expect(onboardingFlow).toContain('Explore fictional games at different locations. No sign-in required.');
+    expect(onboardingFlow).not.toContain('Explore fictional games at different locations. No sign-in required.');
     expect(onboardingFlow).toContain('Set up your profile');
     expect(onboardingFlow).toContain('Set Match preferences');
     expect(onboardingFlow).toContain('onCompleteWithMatchPreferences?: () => void;');
@@ -226,7 +225,7 @@ describe('Player onboarding presentation contract', () => {
 
     // Reviewed safe-viewport sizing and shrinkable primary-action container/text; font scaling and touch targets remain unchanged.
     // The existing accessibility-large native flow checks full CTA visibility before and after the adult declaration.
-    expect(styleDigest).toBe('232fc11eaf7d1916475716221456778af8d08cd782cbf0c143cb792d33ec8ccb');
+    expect(styleDigest).toBe('814a0940c1c9be25b9287a612ba2c91ce7f5cc83cc59d3791a9fc240b1b659d0');
   });
 });
 
@@ -263,7 +262,8 @@ describe('Player discovery presentation contract', () => {
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
 
     // Reviewed cash-detail disclosures; action/access/confirmation guards remain covered by render tests.
-    expect(componentDigest).toBe('48dcf7852ceda316852fb3841923afda4873e95e41e4cb3e962e98c5a1d6c0e9');
+    // Reviewed removal of the redundant map footer.
+    expect(componentDigest).toBe('7c766da85dfd3c790f3dc313986b9470874e2b3b6af9aa06df3160f0c1eedf88');
     [
       '<GameDetailsScreen',
       '<MyGamesSection',
@@ -347,7 +347,8 @@ describe('Player clubs and membership presentation contract', () => {
     const wallet = findFunction(sources, 'MembershipWalletCard');
 
     // Reviewed isolate-then-open wallet and sample-account copy; QR guards remain below and in render tests.
-    expect(componentDigest).toBe('566bc854a06bd777c8e730601539736c545a3e3fb46d3eaea4577a4389a3663b');
+    // Reviewed the single wallet heading and concise pass copy.
+    expect(componentDigest).toBe('fd8c7e016ddaf7c9242c941ba56c568a2bc5832f35d53a1072bb67cf37ced017');
     ['<ClubsScreen', '<ClubMembershipPlanScreen', '<SeatRequestModal'].forEach((token) => expect(playerApp).toContain(token));
     expect(playerApp).not.toMatch(/ClubAccessCheckoutScreen|NearbyCheckInPanel/);
     expect(clubsScreen).toContain('<ClubHubSections');
@@ -423,7 +424,8 @@ describe('Player identity and settings presentation contract', () => {
     const componentDigest = digest(settingsComponentNames.map((name) => findFunction(sources, name)));
 
     // Reviewed sample-account entry copy; identity/account guards remain below and in render tests.
-    expect(componentDigest).toBe('058da2fa51dc2928dc816664041ca258a83e0aa9711204a1e80fe767e369f1c7');
+    // Reviewed removal of static settings subtitles and concise ID instructions.
+    expect(componentDigest).toBe('95709a7895c176bc0c3d0a49a29b6ef6b850261835a060b94a77ab5c654a3302');
     const settings = findSettingsPresentationSource(sources);
     expect(settings).toContain('onTryDemo?: () => void;');
     expect(settings).toContain('onPress={onTryDemo}');

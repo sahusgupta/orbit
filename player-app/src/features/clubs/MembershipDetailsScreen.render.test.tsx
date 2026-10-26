@@ -64,7 +64,7 @@ describe('Dedicated membership details', () => {
     expect(container.textContent).toContain('Annual access');
     expect(container.textContent).toContain('365-day membership');
     expect(container.textContent).toContain('2026');
-    expect(container.textContent).toContain('The venue confirms your extension and expiry.');
+    expect(container.textContent).toContain('Venue approval required.');
     expect(container.querySelector('[data-testid="wallet"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="player-time"]')).not.toBeNull();
     const extension = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Extend membership');
