@@ -1,6 +1,6 @@
 # Player wallet focus and fictional sample names — 2026-10-26
 
-Status: requested UI changes complete; final verification passed 11 of 13 gates, with existing dependency-upgrade failures recorded below.
+Status: requested UI changes complete; all 13 verification gates passed against main's pinned dependencies in an isolated integration checkout. Earlier results under the user's uncommitted dependency upgrades are recorded below.
 
 ## Scope and behavior
 
@@ -12,7 +12,7 @@ Live action, device-location, and check-in credential guards are unchanged. The 
 
 Current usage is documented in [the player README](../../../player-app/README.md) and [App Store reviewer flow](../../../player-app/APP_STORE_SUBMISSION.md). Historical release records and SDK information were preserved.
 
-## Verification
+## Verification in the original checkout
 
 - `npm test -- player-app/src/demo/demoPlayerData.test.ts`: 7 tests passed. The initial sandbox invocation could not load the Vitest configuration because esbuild could not read a parent directory; the same command passed with approved execution outside that sandbox.
 - Focused player component/session suite: final 12 files and 192 tests passed. The first run had 189 passing tests and three stale presentation snapshot digests; expected digests were updated after reviewing the intentional text changes.
@@ -38,3 +38,14 @@ The six existing `player:release:verify` failure messages are:
 6. Optional foreground location must use the reviewed SDK-compatible dependency.
 
 Dependency remediation was outside this task. Verification used unreachable localhost API endpoints and disabled Firebase sync and telemetry; browser QA excluded live service modules and blocked outbound requests. No production services, credentials, deployments, or pushes were involved. Following validation on `release/player-ui-api-20261020`, the user requested a local commit and integration onto `main`. The user's package and lockfile edits are preserved separately in the original checkout. Generated logs, builds, and screenshots are not staged.
+
+## Local main integration verification
+
+An isolated integration branch starts from fetched `origin/main` at `b4b5c0d19265793ba53e24c9585a2e0a58cff2c9`. The wallet implementation and follow-up interaction/copy changes were cherry-picked as `395beb6` and `9ec3ff9`, preserving newer main changes. The tracked package manifests and lockfiles match main; the user's two uncommitted player dependency files remain in the original checkout with unchanged SHA-256 hashes.
+
+- `npm run player:typecheck` passed with the pinned player dependencies. The focused component/session and QA helper suites passed 15 files and 232 tests.
+- `node tests/e2e/player-shell-smoke.mjs` passed all 14 checks and 64 screenshots across both themes and three widths. There were no overflow, contrast, JavaScript, forbidden-action, or outbound-request findings. No native device run was performed.
+- The first integration `npm run verify` passed 12 of 13 gates. The web production build rejected the external `node_modules` junction used to reuse installed dependencies. This was an environment issue; no application or build configuration was changed. Lockfile-preserving local installs replaced the root and web junctions, and `npm run web:build` then passed individually.
+- The final `npm run verify` exited 0 with all 13 gates passing. Root unit results: 253 suites passed, one skipped; 2,280 tests passed and 16 skipped. Web tests: 20 suites and 209 tests passed. Internal-tool tests: seven suites and 85 tests passed. Existing ExcelJS `eval` and renderer chunk-size warnings remain.
+
+Integration verification used unreachable localhost API endpoints with Firebase sync and telemetry disabled. Logs and browser artifacts remain under the integration checkout's ignored `out/` directory, including `player-wallet-main-verify.log`, `player-wallet-main-web-build.log`, `player-wallet-main-verify-final.log`, and `player-shell-qa/`. Only source, tests, and documentation are committed; nothing was pushed or deployed.
