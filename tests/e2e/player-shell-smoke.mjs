@@ -30,7 +30,8 @@ const forbidden = normalizedInputs.filter((input) => /firebaseClient|firebase-ad
 if (forbidden.length) throw new Error(`Production service code reached the shell QA bundle: ${forbidden.join(', ')}`);
 for (const required of ['src/PlayerApp.tsx', 'src/demo/useDemoPlayerSession.ts', 'src/demo/demoPlayerData.ts', 'src/application/usePlayerMatch.ts',
   'src/application/usePlayerLocation.ts', 'src/application/usePlayerClubs.ts', 'src/features/home/PlayerHomeScreen.tsx', 'src/features/match/OrbitMatchScreen.tsx',
-  'src/features/discovery/DiscoveryGameDetails.tsx', 'src/features/settings/SettingsScreen.tsx', 'src/features/clubs/ClubRoutes.tsx']) {
+  'src/features/discovery/DiscoveryGameDetails.tsx', 'src/features/settings/SettingsScreen.tsx', 'src/features/clubs/ClubRoutes.tsx',
+  'src/features/clubs/MembershipPass.tsx', 'src/features/clubs/MembershipDetailsScreen.tsx']) {
   if (!normalizedInputs.some((input) => input.endsWith(required))) throw new Error(`Actual application module missing from QA bundle: ${required}`);
 }
 await writeFile(path.join(out, 'bundle-inputs.json'), JSON.stringify(normalizedInputs, null, 2));
@@ -149,16 +150,68 @@ try {
       expect((await audit()).storageCalls).toEqual(before.storageCalls); expect((await audit()).connectedMounts).toEqual(before.connectedMounts); expect((await audit()).forbiddenCalls).toEqual([]);
       await shot('saved-back-mode');
     });
-    await check('actual demo Profile/Clubs/events/map stay isolated and reset restores catalog and saved state', async () => {
+    await check('membership wallet and published club passes fit 320/360/390px with reachable stacked cards and isolated actions', async () => {
+      const before = await audit();
+      const memberships = [
+        { clubName: 'Demo River Card House', id: 'demo-austin-membership' },
+        { clubName: 'Demo Lakeside Poker Club', id: 'demo-chicago-membership' }
+      ];
+      result.membershipGeometry = [];
+      await tab('Clubs').click();
+      for (const width of [320, 360, 390]) {
+        await page.setViewportSize({ width, height: 740 });
+        await expect(page.getByText('Your wallet', { exact: true })).toBeVisible();
+        await expect(page.getByText('Demo membership only. Venue check-in is unavailable in the demo account.')).toHaveCount(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await shot(`membership-wallet-${width}`);
+        for (const membership of memberships) {
+          const pass = button(`${membership.clubName}, Active`);
+          await expect(pass).toBeVisible();
+          const geometry = await pass.evaluate((element) => {
+            const rect = element.getBoundingClientRect(), x = rect.left + rect.width / 2;
+            let run = 0, longest = 0, activationY = 0;
+            for (let y = Math.ceil(Math.max(0, rect.top)); y < Math.min(innerHeight, rect.bottom); y += 1) {
+              const hit = document.elementFromPoint(x, y);
+              run = hit && element.contains(hit) ? run + 1 : 0;
+              if (run > longest) { longest = run; activationY = y - run / 2 - rect.top; }
+            }
+            const gradients = [...element.querySelectorAll('*')].map((child) => getComputedStyle(child).backgroundImage).filter((value) => value.includes('linear-gradient'));
+            return { left: rect.left, right: rect.right, width: rect.width, visibleTouchStrip: longest, activationY, gradients };
+          });
+          result.membershipGeometry.push({ viewportWidth: width, club: membership.clubName, ...geometry });
+          expect(geometry.left).toBeGreaterThanOrEqual(0); expect(geometry.right).toBeLessThanOrEqual(width);
+          expect(geometry.visibleTouchStrip).toBeGreaterThanOrEqual(44); expect(geometry.gradients).toHaveLength(1);
+          await pass.click({ position: { x: geometry.width / 2, y: geometry.activationY } });
+          await expect(page.getByText('Club pass', { exact: true })).toBeVisible();
+          await expect(page.getByText(membership.clubName, { exact: true }).first()).toBeVisible();
+          await expect(page.getByText(membership.id, { exact: true }).first()).toBeVisible();
+          await expect(page.getByText(memberships.find((other) => other !== membership).id, { exact: true })).toHaveCount(0);
+          await expect(page.getByText('Demo monthly access', { exact: true })).toBeVisible();
+          await expect(page.getByText(/Rake back|Priority seating|Comp drinks|Reserved table access|Monthly event entry|ORB-2048-731|MR-1186-042/)).toHaveCount(0);
+          await expect(page.getByText('Demo membership only. Venue check-in is unavailable in the demo account.')).toBeVisible();
+          await expect(button('Generate membership check-in code')).toHaveCount(0);
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+          await shot(`club-pass-${membership.id}-${width}`);
+          await button('Extend membership').scrollIntoViewIfNeeded();
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+          if (width === 360 && membership === memberships[0]) {
+            await shot('membership-extension');
+            await button('Extend membership').click();
+            await expect(page.getByText('These venues and games are fictional. Use a real account for venue requests, check-in, and directions.')).toBeVisible();
+            await button('Dismiss demo notice').click();
+          }
+          await button('Back to memberships').click();
+          await expect(page.getByText('Your wallet', { exact: true })).toBeVisible();
+          await expect(pass).toBeVisible();
+        }
+      }
+      await page.setViewportSize({ width: 360, height: 740 });
+      const after = await audit();
+      expect(after.forbiddenCalls).toEqual(before.forbiddenCalls); expect(after.storageCalls).toEqual(before.storageCalls);
+      expect(after.connectedMounts).toEqual(before.connectedMounts); expect(result.outbound).toEqual([]);
+    });
+    await check('actual demo Profile/events/map stay isolated and reset restores catalog and saved state', async () => {
       await tab('Profile').click(); await expect(page.getByText('This sample profile stays in memory. Exit demo to return to your saved account.')).toBeVisible(); await shot('profile');
-      await tab('Clubs').click(); await expect(page.getByText('Demo membership only. Venue check-in is unavailable in the demo account.')).toHaveCount(0);
-      await expect(page.getByText('Demo River Card House', { exact: true }).first()).toBeVisible(); await expect(page.getByText('Demo Lakeside Poker Club', { exact: true }).first()).toBeVisible();
-      await shot('clubs'); await page.getByRole('button', { name: /^Demo River Card House, / }).click();
-      await expect(page.getByText('Demo membership only. Venue check-in is unavailable in the demo account.')).toBeVisible();
-      await expect(button('Extend membership')).toBeVisible(); await shot('membership-details');
-      await button('Extend membership').scrollIntoViewIfNeeded(); await shot('membership-extension');
-      await button('Extend membership').click(); await expect(page.getByText('These venues and games are fictional. Use a real account for venue requests, check-in, and directions.')).toBeVisible();
-      await button('Dismiss demo notice').click(); await button('Back to memberships').click();
       await tab('Events').click(); await expect(page.getByText('Demo Holdem Freeroll', { exact: true })).toBeVisible();
       const eventName = 'Demo Omaha Evening', eventRequest = button(`Request for ${eventName}`);
       await expect(eventRequest).toHaveAttribute('aria-expanded', 'false');

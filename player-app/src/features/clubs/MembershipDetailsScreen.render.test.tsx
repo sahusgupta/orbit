@@ -20,6 +20,7 @@ vi.mock('react-native', async () => {
   return { Platform: { OS: 'web' }, Pressable: element('button'), Text: element('span'), View: element('div'), StyleSheet: { create: <T,>(styles: T) => styles } };
 });
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => <span /> }));
+vi.mock('expo-linear-gradient', () => ({ LinearGradient: ({ children }: { children?: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('../../components/PlayerPresentation', () => ({
   AnimatedButton: ({ children, onPress }: { children: React.ReactNode; onPress?: () => void }) => <button onClick={onPress}>{children}</button>
 }));
@@ -122,5 +123,27 @@ describe('Dedicated membership details', () => {
   it('forwards demo mode to the existing wallet guard', () => {
     render(ready(), vi.fn(), vi.fn(), true);
     expect(container.querySelector('[data-testid="wallet"]')?.getAttribute('data-demo')).toBe('true');
+  });
+
+  it('shows only published pass details and venue notes without inventing benefits or a join date', () => {
+    render(ready({ ...club, memberships: [{ ...membership, joinedAt: '2024-03-15T12:00:00Z', clubNote: 'Bring your physical ID to the front desk.' }] }));
+    expect(container.textContent).toContain('Membership ID');
+    expect(container.textContent).toContain(membership.id);
+    expect(container.textContent).toContain('March 2024');
+    expect(container.textContent).toContain('From your venue');
+    expect(container.textContent).toContain('Bring your physical ID to the front desk.');
+    expect(container.textContent).not.toMatch(/Rake back|Priority seating|Comp drinks|ORB-2048-731/);
+    render(ready({ ...club, memberships: [{ ...membership, joinedAt: 'invalid', expiresAt: 'invalid' }] }));
+    expect(container.textContent).toContain('Not published');
+    expect(container.textContent).toContain('Expiry not published');
+    expect(container.textContent).not.toContain('Invalid Date');
+    expect(container.textContent).not.toContain('From your venue');
+  });
+
+  it('does not fall back to a membership belonging to a different venue', () => {
+    render(ready({ ...club, memberships: [{ ...membership, clubId: 'other-venue' }] }));
+    expect(container.textContent).toContain('No membership has been published for your profile.');
+    expect(container.textContent).not.toContain(membership.id);
+    expect(container.querySelector('[data-testid="wallet"]')).toBeNull();
   });
 });

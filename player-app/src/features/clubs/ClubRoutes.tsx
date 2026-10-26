@@ -20,6 +20,8 @@ import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
 import { ClubHubSections, PlayerTimePanel } from './ClubHub';
 import { MembershipApplicationStatusCard, MembershipWalletCard } from './MembershipWallet';
+import { MembershipPassWallet } from './MembershipPass';
+import { membershipPresentation as presentation, useMembershipPalette } from './membershipPresentation';
 import { clubStyles } from './clubStyles';
 
 const baseStyles = { ...sharedStyles, ...clubStyles };
@@ -73,11 +75,19 @@ export function ClubsScreen({
 }) {
   const styles = useThemedStyles(baseStyles);
   const { colors } = usePlayerTheme();
+  const palette = useMembershipPalette();
   // Club-dependent panels contain actions. Render them only for a current,
   // successfully refreshed selection; stale/removed states stay read-only.
   const renderableClub = viewState.kind === 'ready' ? viewState.selectedClub : undefined;
   return (
     <>
+      {onOpenMembership ? (
+        <View style={presentation.intro}>
+          <Text style={[presentation.eyebrow, { color: palette.accent }]}>MEMBERSHIPS</Text>
+          <Text accessibilityRole="header" style={[presentation.heading, { color: palette.ink }]}>Your wallet</Text>
+          <Text style={[presentation.body, { color: palette.muted }]}>Your rooms. Your access. All in one place.</Text>
+        </View>
+      ) : null}
       {viewState.kind === 'loading' ? (
         <View accessibilityLabel="Loading clubs" accessibilityRole="progressbar" style={styles.emptyState}>
           <Text style={styles.cardTitle}>Loading your clubs</Text>
@@ -108,9 +118,18 @@ export function ClubsScreen({
           <Text style={styles.muted}>The memberships shown below come from the rooms loaded so far.</Text>
         </View>
       ) : null}
+      {onOpenMembership && memberClubs.length ? (
+        <View style={presentation.section}>
+          <MembershipPassWallet clubs={memberClubs.slice().sort((left, right) => compareClubDistance(left, right, originCoordinate))}
+            player={player} nowMs={nowMs} onSelectClub={onOpenMembership} selectedClubId={renderableClub?.club.id} />
+          {memberClubs.some((club) => club.memberships.some((item) => item.clubId === club.club.id && isPlayerMembership(item, player)))
+            ? <Text style={[presentation.body, { color: palette.muted }]}>Tap a pass for membership details and venue check-in.</Text> : null}
+        </View>
+      ) : null}
       {memberClubs.length ? memberClubs
         .slice()
         .sort((left, right) => compareClubDistance(left, right, originCoordinate))
+        .filter((club) => !onOpenMembership || !club.memberships.some((item) => item.clubId === club.club.id && isPlayerMembership(item, player)))
         .map((club) => {
           const isSelected = club.club.id === renderableClub?.club.id;
           const membership = club.memberships.find((item) => isPlayerMembership(item, player));

@@ -335,7 +335,7 @@ describe('Player tournament presentation contract', () => {
   });
 });
 
-const clubComponentNames = ["ClubMembershipPlanScreen","SeatRequestModal","MembershipPlanCard","formatFamiliar","MembershipApplicationStatusCard","MembershipWalletCard","MembershipQrCode","MembershipQrIssuer","formatQrExpiry","ClubHubSections","PlayerTimePanel","SimpleMenuRow"] as const;
+const clubComponentNames = ["ClubMembershipPlanScreen","SeatRequestModal","MembershipPlanCard","formatFamiliar","MembershipApplicationStatusCard","MembershipWalletCard","MembershipPassCard","MembershipPassWallet","MembershipDetailsScreen","MembershipQrCode","MembershipQrIssuer","formatQrExpiry","ClubHubSections","PlayerTimePanel","SimpleMenuRow"] as const;
 const clubStyleNames = 'accountCard,actionStatus,agentKicker,attendanceChoice,attendanceChoiceActive,attendanceChoiceBody,attendanceChoiceRow,attendanceChoiceTextActive,attendanceChoiceTitle,cardTitle,checkedInBand,checkedInText,clubAvatar,clubAvatarActive,clubAvatarText,clubAvatarTextActive,clubCard,clubGameGroupLabel,clubHub,clubHubCopy,clubHubIcon,clubHubPanel,clubHubRow,clubMain,clubRequestHeader,compactEventRow,compactGameAction,compactGameActionMuted,compactGameCopy,compactGameRow,compactManageButton,compactManageText,compactStatLabel,compactStatValue,disabledAction,emptyState,formError,fullWidthButton,inlineBackAction,inlineBackText,inputLabel,membershipApplicationCard,membershipApplicationStatus,membershipApplicationStatusCopy,membershipApplicationStatusIcon,membershipCompactStats,membershipHero,membershipHeroCopy,membershipHeroIcon,membershipHeroText,membershipIdentityLabel,membershipIdentityRow,membershipIdentityValue,membershipProfileAvatar,membershipProfileAvatarText,membershipProfileCopy,membershipProfileSummary,membershipQrCode,membershipQrCopy,membershipQrMember,membershipQrShell,membershipQrTitle,membershipScreen,membershipStatusBadge,membershipStatusBadgeInactive,membershipStatusDot,membershipStatusDotInactive,membershipStatusText,membershipTitle,membershipWalletBrand,membershipWalletCard,membershipWalletClub,membershipWalletMonogram,membershipWalletMonogramText,membershipWalletPlan,membershipWalletTop,modalBackdrop,modalCloseButton,muted,planCard,planCardCopy,planCardFeatured,planCardPriceBlock,planCompactPrice,planGrid,planIcon,primaryButton,primaryButtonText,qrActionButton,qrActionText,requestGameRow,seatRequestHeader,seatRequestHeaderCopy,seatRequestModal,seatTimeField,seatTimeInput,sectionTitle,selectedCard,statusPill,statusText,timeRangeInput,timeRangeRow'.split(',');
 
 describe('Player clubs and membership presentation contract', () => {
@@ -346,8 +346,8 @@ describe('Player clubs and membership presentation contract', () => {
     const clubsScreen = findFunction(sources, 'ClubsScreen');
     const wallet = findFunction(sources, 'MembershipWalletCard');
 
-    // Reviewed compact membership presentation, named actions and system-theme hooks; QR guards remain below.
-    expect(componentDigest).toBe('b5b01972d75051cbb76abd66c7c2402ba78918503325317aedcf5e682c86ec6f');
+    // Reviewed metallic wallet/pass presentation, named actions and OS themes; QR guards remain below and in render tests.
+    expect(componentDigest).toBe('446de4ac528ad408e375c0057db33ff8c9a387af42bb864fb499d948a8c40b83');
     ['<ClubsScreen', '<ClubMembershipPlanScreen', '<SeatRequestModal'].forEach((token) => expect(playerApp).toContain(token));
     expect(playerApp).not.toMatch(/ClubAccessCheckoutScreen|NearbyCheckInPanel/);
     expect(clubsScreen).toContain('<ClubHubSections');
@@ -355,6 +355,8 @@ describe('Player clubs and membership presentation contract', () => {
     expect(wallet).toContain('demoMode = false');
     expect(wallet).toContain('active && !demoMode ? <MembershipQrIssuer');
     expect(wallet).toContain('Demo membership only. Venue check-in is unavailable in the demo account.');
+    expect(clubsScreen).toContain('<MembershipPassWallet');
+    expect(findFunction(sources, 'MembershipDetailsScreen')).toContain("viewState.kind === 'ready'");
   });
 
   it('characterizes clubs/membership-owned styles and accessible shared back actions', () => {
@@ -420,8 +422,8 @@ describe('Player identity and settings presentation contract', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const componentDigest = digest(settingsComponentNames.map((name) => findFunction(sources, name)));
 
-    // Reviewed direct Match preferences entry and OS theme; identity/account guards remain below and in render tests.
-    expect(componentDigest).toBe('ff54ca227af86ba67c4792f2ac8839790347d307eae0ec635e6657215f60451f');
+    // Reviewed Club pass navigation title; identity/account guards remain below and in render tests.
+    expect(componentDigest).toBe('075c5c6659cc6d8caa0a7f2a66a237d25965165642712d253021b2f703ae05a0');
     const settings = findSettingsPresentationSource(sources);
     expect(settings).toContain('onTryDemo?: () => void;');
     expect(settings).toContain('onPress={onTryDemo}');
