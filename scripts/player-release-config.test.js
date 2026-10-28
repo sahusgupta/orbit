@@ -10,7 +10,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const playerRoot = path.join(repositoryRoot, 'player-app');
 const eas = JSON.parse(fs.readFileSync(path.join(playerRoot, 'eas.json'), 'utf8'));
 const playerPackage = JSON.parse(fs.readFileSync(path.join(playerRoot, 'package.json'), 'utf8'));
-const expectedProductionIosImage = 'macos-tahoe-26.5-xcode-26.6';
+const expectedProductionIosImage = 'macos-tahoe-26.6-xcode-27.0';
 const easCliRequire = createRequire(path.join(repositoryRoot, 'node_modules', 'eas-cli', 'package.json'));
 const { EasJsonAccessor, EasJsonUtils, Platform } = easCliRequire('@expo/eas-json');
 const { EXPECTED_NPM_VERSION, pinEasNpm } = require('../player-app/scripts/pin-eas-npm.cjs');
@@ -38,6 +38,7 @@ describe('Orbit Player EAS build configuration', () => {
     expect(android.client[0].client_info.android_client_info.package_name).toBe('com.orbit.player');
     expect(android.client[0].client_info.mobilesdk_app_id).toBe('1:133175572500:android:522b4cfc8de1a770fd8f01');
     expect(configured.ios.entitlements).toEqual({ 'com.apple.developer.devicecheck.appattest-environment': 'production' });
+    expect(configured.plugins).toContain('./plugins/with-firebase-scene-initialization.cjs');
     expect(eas.build.production.env.EXPO_PUBLIC_APP_CHECK_ENABLED).toBe('true');
   });
 
@@ -83,7 +84,7 @@ describe('Orbit Player EAS build configuration', () => {
     await expect(EasJsonAccessor.fromRawString(JSON.stringify(invalidEas)).readAsync()).rejects.toThrow(/npm.*not allowed/);
   });
 
-  it('pins production uploads to the reviewed stable SDK 57 Xcode 26.6 image', async () => {
+  it('pins production uploads to the reviewed stable SDK 58 Xcode 27.0 image', async () => {
     const accessor = EasJsonAccessor.fromProjectPath(playerRoot);
     const profile = await EasJsonUtils.getBuildProfileAsync(accessor, Platform.IOS, 'production');
 

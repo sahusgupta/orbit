@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
 import { dependencyReviewFailures } from './dependency-review-constraints.mjs';
 
 const url = 'https://github.com/advisories/GHSA-vfj7-8cjw-p6xm';
@@ -13,6 +14,23 @@ function fixture() {
   };
 }
 function check({ entries, review, lock }) { return dependencyReviewFailures('player', entries, review, lock); }
+
+function lowSeverityFixture() {
+  const advisory = 'https://github.com/advisories/GHSA-gcqx-w48m-w2h4';
+  return {
+    entries: [
+      { name: 'deepmerge', severity: 'low', nodes: ['node_modules/deepmerge'], via: [{ url: advisory, severity: 'low' }] },
+      { name: '@expo/config', severity: 'low', nodes: ['node_modules/@expo/config'], via: ['deepmerge'] }
+    ],
+    review: {
+      allowed: ['deepmerge', '@expo/config'],
+      reviewedVersions: { deepmerge: ['4.3.1'], '@expo/config': ['58.0.8'] },
+      reviewedSeverities: { deepmerge: 'low', '@expo/config': 'low' },
+      reviewedAdvisories: { deepmerge: [advisory] }
+    },
+    lock: { packages: { 'node_modules/deepmerge': { version: '4.3.1' }, 'node_modules/@expo/config': { version: '58.0.8' } } }
+  };
+}
 
 describe('bounded production advisory review', () => {
   it('accepts only the exact reviewed origin, locked versions, and transitive chain', () => {
@@ -50,9 +68,45 @@ describe('bounded production advisory review', () => {
     value.entries[0].via = [];
     expect(check(value).join('\n')).toContain('incomplete advisory evidence');
   });
-  it('does not carry the Player exception into the root, API, or Web scope', () => {
-    const value = fixture();
-    value.review = { allowed: [] };
-    expect(check(value)).toHaveLength(2);
+  it('accepts an explicitly reviewed Low origin and its exact transitive package severity', () => {
+    expect(check(lowSeverityFixture())).toEqual([]);
+  });
+  it('keeps the legacy High default when a package has no explicit severity review', () => {
+    const value = lowSeverityFixture();
+    delete value.review.reviewedSeverities;
+    expect(check(value).join('\n')).toContain('unreviewed severity low');
+    expect(check(fixture())).toEqual([]);
+  });
+  it.each(['info', 'moderate', 'high', 'critical', 'unknown'])('rejects severity drift from reviewed Low to %s', (severity) => {
+    const value = lowSeverityFixture();
+    value.entries[0].severity = severity;
+    expect(check(value).join('\n')).toContain(`unreviewed severity ${severity}`);
+  });
+  it('rejects originating advisory severity drift even when the package severity is unchanged', () => {
+    const value = lowSeverityFixture();
+    value.entries[0].via[0].severity = 'high';
+    expect(check(value).join('\n')).toContain('unreviewed or critical originating advisory');
+  });
+  it('rejects Critical even if a policy tries to declare it reviewed', () => {
+    const value = lowSeverityFixture();
+    value.review.reviewedSeverities.deepmerge = 'critical';
+    value.entries[0].severity = 'critical';
+    value.entries[0].via[0].severity = 'critical';
+    const failures = check(value).join('\n');
+    expect(failures).toContain('invalid reviewed severity critical');
+    expect(failures).toContain('unreviewed severity critical');
+    expect(failures).toContain('critical originating advisory');
+  });
+  it('rejects new originating advisories on an explicitly reviewed Low package', () => {
+    const value = lowSeverityFixture();
+    value.entries[0].via.push({ url: 'https://github.com/advisories/GHSA-new-advisory', severity: 'low' });
+    expect(check(value).join('\n')).toContain('unreviewed or critical originating advisory');
+  });
+  it.each(['root', 'api', 'web'])('does not carry the Player exception into the %s scope', (scope) => {
+    const value = lowSeverityFixture();
+    const policy = JSON.parse(fs.readFileSync(new URL('../config/dependency-audit-policy.json', import.meta.url), 'utf8'));
+    expect(policy.scopes[scope].allowed).toEqual([]);
+    expect(dependencyReviewFailures(scope, value.entries, policy.scopes[scope], value.lock)).toHaveLength(2);
+    expect(dependencyReviewFailures('player', value.entries, policy.scopes.player, value.lock)).toEqual([]);
   });
 });

@@ -8,7 +8,18 @@ export const playerPlatform = {
   os: Platform.OS,
 
   getCurrentAppState(): PlayerAppState | null {
-    return AppState.currentState;
+    const state = AppState.currentState;
+    if (state == null) return null;
+    switch (state) {
+      case 'active':
+      case 'background':
+      case 'inactive':
+      case 'unknown':
+      case 'extension':
+        return state;
+      default:
+        return 'unknown';
+    }
   },
 
   subscribeToAppState(listener: (state: PlayerAppState) => void) {

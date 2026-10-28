@@ -132,9 +132,26 @@ export function verifyPlayerNative(iosRoot) {
   const delegateFile = files.find((filePath) => path.basename(filePath) === 'AppDelegate.swift');
   assert.ok(delegateFile, 'Generated iOS app must contain AppDelegate.swift.');
   const delegate = fs.readFileSync(delegateFile, 'utf8');
+  assert.equal([...delegate.matchAll(/\bRNFBAppCheckModule\.sharedInstance\s*\(/g)].length, 1, 'Native App Check provider factory must be registered exactly once.');
+  assert.equal([...delegate.matchAll(/\bFirebaseApp\.configure\s*\(/g)].length, 1, 'Native Firebase app must be configured exactly once.');
+  const executableDelegate = delegate.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"/g,
+    (nonCode) => nonCode.replace(/[^\r\n]/g, ' '));
+  assert.equal([...executableDelegate.matchAll(/^[ \t]*RNFBAppCheckModule\.sharedInstance\(\)[ \t]*$/gm)].length, 1, 'Native App Check requires one executable provider registration statement.');
+  assert.equal([...executableDelegate.matchAll(/^[ \t]*FirebaseApp\.configure\(\)[ \t]*$/gm)].length, 1, 'Native Firebase requires one executable configuration statement.');
   const factoryPosition = delegate.indexOf('RNFBAppCheckModule.sharedInstance()');
   const firebasePosition = delegate.indexOf('FirebaseApp.configure()');
   assert.ok(factoryPosition >= 0 && firebasePosition > factoryPosition, 'Native App Check provider factory must precede Firebase initialization.');
+  const bridgingHeaders = files.filter((filePath) => filePath.endsWith('-Bridging-Header.h'));
+  assert.equal(bridgingHeaders.length, 1, 'Native App Check requires one Swift bridging header.');
+  const bridgingHeader = fs.readFileSync(bridgingHeaders[0], 'utf8');
+  assert.equal([...bridgingHeader.matchAll(/^#import "RNFBAppCheckModule\.h"[ \t]*$/gm)].length, 1, 'Native App Check class must be exposed by one quoted bridging-header import.');
+  if (delegate.includes('ExpoReactNativeFactoryProvider')) {
+    const launchReturn = delegate.indexOf('return super.application(application, didFinishLaunchingWithOptions: launchOptions)');
+    assert.ok(launchReturn > firebasePosition, 'Native Firebase initialization must precede scene startup.');
+    assert.match(executableDelegate,
+      /public override func application\(\s+_ application: UIApplication,\s+didFinishLaunchingWithOptions launchOptions: \[UIApplication\.LaunchOptionsKey: Any\]\? = nil\s+\) -> Bool \{\s*RNFBAppCheckModule\.sharedInstance\(\)\s*FirebaseApp\.configure\(\)\s*let delegate = ReactNativeDelegate\(\)/,
+      'Native App Check and Firebase initialization must be straight-line statements before scene startup.');
+  }
   assert.match(appInfoPlist, /<key>ITSAppUsesNonExemptEncryption<\/key>\s*<false\s*\/>/);
   assert.ok(!appInfoPlist.includes('<key>CFBundleURLTypes</key>'), 'Generated app Info.plist must not expose an unused URL scheme.');
   const usageDescriptionKeys = [...appInfoPlist.matchAll(/<key>(NS[A-Za-z0-9]+UsageDescription)<\/key>/g)]

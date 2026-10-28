@@ -9,7 +9,7 @@ const { createExpoConfig } = require('../player-app/release-config.cjs');
 const root = path.resolve(process.cwd());
 
 describe('Orbit Player release artwork', () => {
-  it('checks the SDK 57 splash plugin without requiring the removed legacy splash field', () => {
+  it('checks the SDK 58 splash plugin without requiring the removed legacy splash field', () => {
     const config = createExpoConfig({ icon: './assets/icon.png' }, {});
     expect(config).not.toHaveProperty('splash');
     expect(() => verifyPlayerAssetConfiguration(config)).not.toThrow();

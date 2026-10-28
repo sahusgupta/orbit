@@ -1,6 +1,6 @@
 import { PlayerThemeProvider, usePlayerTheme, useThemedStyles } from './styles/PlayerThemeProvider';
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -210,7 +210,7 @@ function PlayerExperience({ storage, identity, liveData, screen, setScreen, sync
   const [selectedDiscoveryOpportunity, setSelectedDiscoveryOpportunity] = useState<GameOpportunity | null>(null);
   const [gameDetailsReturnScreen, setGameDetailsReturnScreen] = useState<'home' | 'findGames'>('findGames');
   const [demoActionMessage, setDemoActionMessage] = useState('');
-  const mainScrollRef = useRef<ScrollView>(null);
+  const mainScrollRef = useRef<ScrollViewInstance>(null);
   const [contentHeight, setContentHeight] = useState(0);
   const matchDetailsRef = useRef<MatchReference | null>(null);
   const {

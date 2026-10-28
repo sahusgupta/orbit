@@ -58,6 +58,7 @@ ${infoAddition}
   fs.writeFileSync(path.join(appRoot, 'OrbitPlayer.entitlements'), '<plist version="1.0"><dict><key>com.apple.developer.devicecheck.appattest-environment</key><string>production</string></dict></plist>');
   fs.writeFileSync(path.join(appRoot, 'GoogleService-Info.plist'), '<plist version="1.0"><dict><key>BUNDLE_ID</key><string>com.caminuslabs.orbit</string><key>PROJECT_ID</key><string>tabletalk-s</string><key>GOOGLE_APP_ID</key><string>1:133175572500:ios:de1514cf1736c1bdfd8f01</string></dict></plist>');
   fs.writeFileSync(path.join(appRoot, 'AppDelegate.swift'), 'RNFBAppCheckModule.sharedInstance()\nFirebaseApp.configure()');
+  fs.writeFileSync(path.join(appRoot, 'OrbitPlayer-Bridging-Header.h'), '#import "RNFBAppCheckModule.h"\n');
   fs.writeFileSync(path.join(appRoot, 'PrivacyInfo.xcprivacy'), `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
 <key>NSPrivacyTracking</key><false/>
@@ -194,6 +195,56 @@ describe('generated Orbit Player native verifier', () => {
     const root = nativeFixture();
     fs.writeFileSync(path.join(root, 'OrbitPlayer', 'AppDelegate.swift'), 'FirebaseApp.configure()\nRNFBAppCheckModule.sharedInstance()');
     expect(() => verifyPlayerNative(root)).toThrow(/must precede/);
+  });
+
+  it.each(['RNFBAppCheckModule.sharedInstance()', 'FirebaseApp.configure()'])('rejects duplicate native %s initialization', (call) => {
+    const root = nativeFixture();
+    const delegate = path.join(root, 'OrbitPlayer', 'AppDelegate.swift');
+    fs.appendFileSync(delegate, `\n${call}`);
+    expect(() => verifyPlayerNative(root)).toThrow(/exactly once/);
+  });
+
+  it('rejects a missing App Check bridging-header import', () => {
+    const root = nativeFixture();
+    fs.writeFileSync(path.join(root, 'OrbitPlayer', 'OrbitPlayer-Bridging-Header.h'), '// Missing App Check class\n');
+    expect(() => verifyPlayerNative(root)).toThrow(/quoted bridging-header import/);
+  });
+
+  it.each([
+    '// RNFBAppCheckModule.sharedInstance()\n// FirebaseApp.configure()',
+    '/*\nRNFBAppCheckModule.sharedInstance()\nFirebaseApp.configure()\n*/'
+  ])('rejects comment-only native initialization', (contents) => {
+    const root = nativeFixture();
+    fs.writeFileSync(path.join(root, 'OrbitPlayer', 'AppDelegate.swift'), contents);
+    expect(() => verifyPlayerNative(root)).toThrow(/executable provider registration statement/);
+  });
+
+  it('rejects conditional scene initialization', () => {
+    const root = nativeFixture();
+    fs.writeFileSync(path.join(root, 'OrbitPlayer', 'AppDelegate.swift'), `class AppDelegate: ExpoAppDelegate, ExpoReactNativeFactoryProvider {
+  public override func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+  ) -> Bool {
+    if false {
+      RNFBAppCheckModule.sharedInstance()
+      FirebaseApp.configure()
+    }
+    let delegate = ReactNativeDelegate()
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+}`);
+    expect(() => verifyPlayerNative(root)).toThrow(/straight-line statements/);
+  });
+
+  it('rejects Firebase initialization after scene startup', () => {
+    const root = nativeFixture();
+    fs.writeFileSync(path.join(root, 'OrbitPlayer', 'AppDelegate.swift'), `class AppDelegate: ExpoAppDelegate, ExpoReactNativeFactoryProvider {
+return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+RNFBAppCheckModule.sharedInstance()
+FirebaseApp.configure()
+}`);
+    expect(() => verifyPlayerNative(root)).toThrow(/must precede scene startup/);
   });
 
   it('rejects a different native Firebase app registration', () => {
