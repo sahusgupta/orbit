@@ -5,7 +5,7 @@ import { useMemo } from 'react';
 import { filterGames, getGameTypeLabel, getStakesLabel } from '@/src/domain/selectors';
 import type { GameFilters, PlayerClubSnapshot } from '@/src/domain/types';
 import { useLocation } from '@/src/location/location-context';
-import { replaceRouteQuery } from '@/src/navigation/query-state';
+import { readRouteQuery, replaceRouteQuery } from '@/src/navigation/query-state';
 import { EmptyState } from '@/src/components/ui/state-panels';
 import { SearchField, SelectField } from '@/src/components/ui/fields';
 import { Disclosure } from '@/src/components/ui/disclosure';
@@ -31,7 +31,7 @@ export function GamesExplorer({ clubs }: { clubs: PlayerClubSnapshot[] }) {
   const gameTypes = useMemo(() => Array.from(new Set(clubs.flatMap((club) => club.games.map((game) => getGameTypeLabel(game).toLowerCase())))).sort(), [clubs]);
 
   const update = (key: string, value: string) => {
-    const next = new URLSearchParams(searchParams.toString());
+    const next = readRouteQuery(pathname, searchParams);
     if (!value || value === defaults[key as keyof GameFilters]) next.delete(key);
     else next.set(key, value);
     replaceRouteQuery(pathname, next);

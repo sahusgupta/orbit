@@ -326,6 +326,15 @@ describe('Player Web route and component behavior', () => {
     expect(screen.getByText('No games match those filters')).toBeVisible();
   });
 
+  it('combines the game query and status instead of retaining either individual match', () => {
+    testState.search = 'q=PLO&status=running';
+    render(<LocationProvider><GamesExplorer clubs={discovery.clubs} /></LocationProvider>);
+
+    expect(screen.getByText('No games match those filters')).toBeVisible();
+    expect(screen.queryByRole('heading', { name: '2/5 PLO' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '1/2 NLH' })).not.toBeInTheDocument();
+  });
+
   it('preserves game search in route query state', async () => {
     render(<LocationProvider><GamesExplorer clubs={discovery.clubs} /></LocationProvider>);
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search games or clubs' }), { target: { value: 'PLO' } });
@@ -340,6 +349,29 @@ describe('Player Web route and component behavior', () => {
     await user.keyboard('{ArrowDown}');
     await user.click(await screen.findByRole('option', { name: 'Forming' }));
     expect(`${window.location.pathname}${window.location.search}`).toBe('/games?status=forming');
+    expect(testState.replace).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { pathname: '/games', search: 'Search games or clubs', query: 'PLO', filter: 'Status', option: 'Running now', expected: 'q=PLO&status=running' },
+    { pathname: '/clubs', search: 'Search clubs', query: 'River', filter: 'Activity', option: 'Running games', expected: 'q=River&activity=active' },
+    { pathname: '/tournaments', search: 'Search tournaments', query: 'Deep Stack', filter: 'Interest', option: 'Interest open', expected: 'q=Deep+Stack&interest=open' }
+  ])('preserves pending $pathname search when the next filter changes before the router renders', async ({ pathname, search, query, filter, option, expected }) => {
+    const user = userEvent.setup();
+    testState.pathname = pathname;
+    render(<LocationProvider>{pathname === '/games'
+      ? <GamesExplorer clubs={discovery.clubs} />
+      : pathname === '/clubs' ? <ClubsExplorer clubs={discovery.clubs} /> : <TournamentsExplorer discovery={discovery} />}</LocationProvider>);
+
+    // Keep the mocked Next snapshot at its previous render, as a pending
+    // history transition does, while the browser URL already has this query.
+    fireEvent.change(screen.getByRole('searchbox', { name: search }), { target: { value: query } });
+    expect(new URLSearchParams(window.location.search).get('q')).toBe(query);
+    act(() => screen.getByRole('combobox', { name: filter }).focus());
+    await user.keyboard('{ArrowDown}');
+    await user.click(await screen.findByRole('option', { name: option }));
+
+    expect(`${window.location.pathname}${window.location.search}`).toBe(`${pathname}?${expected}`);
     expect(testState.replace).not.toHaveBeenCalled();
   });
 
