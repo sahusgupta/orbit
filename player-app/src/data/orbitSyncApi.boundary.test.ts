@@ -2014,7 +2014,7 @@ describe('live club subscription lifecycle and revisions', () => {
     subscription.unsubscribe();
   });
 
-  it('deduplicates concurrent refreshes and owns one restartable polling timer', async () => {
+  it('coalesces concurrent explicit refreshes into one follow-up and owns one restartable polling timer', async () => {
     vi.useFakeTimers();
     signedInUser();
     firebase.fetch.mockResolvedValue(jsonResponse({
@@ -2029,8 +2029,10 @@ describe('live club subscription lifecycle and revisions', () => {
 
     const firstRefresh = subscription.refresh();
     const secondRefresh = subscription.refresh();
+    expect(secondRefresh).toBe(firstRefresh);
     await Promise.all([firstRefresh, secondRefresh]);
-    expect(firebase.fetch).toHaveBeenCalledTimes(1);
+    expect(firebase.fetch).toHaveBeenCalledTimes(2);
+    expect(callback).toHaveBeenCalledTimes(2);
 
     subscription.startPolling();
     expect(vi.getTimerCount()).toBe(1);
