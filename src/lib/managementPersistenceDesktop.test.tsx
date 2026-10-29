@@ -345,7 +345,7 @@ describe('management desktop authoritative API persistence orchestration', () =>
         interests: [{ id: 'interest-desktop-new', profileId: 'profile-desktop-new', playerName: 'Desktop New', gameId: 'game-desktop', status: 'Interested', timestamp: '2026-08-08T21:59:00.000Z', interestedAt: '2026-08-08T21:59:00.000Z', notes: '' }]
       }
     } satisfies PersistedStateRecord;
-    await advance(30_000);
+    await advance(3_000);
     expect(getState().profiles.map((candidate) => candidate.name)).toEqual(['Desktop Replacement', 'Desktop New']);
     expect(getState().interests.map((interest) => interest.id)).toEqual(['interest-desktop-new']);
     const persistedNotifications = JSON.parse(
@@ -355,7 +355,7 @@ describe('management desktop authoritative API persistence orchestration', () =>
       {
         id: 'seat-interest-desktop-new',
         kind: 'seat',
-        createdAt: '2026-08-08T22:00:30.002Z',
+        createdAt: '2026-08-08T22:00:03.002Z',
         read: false
       }
     ]);
@@ -364,7 +364,7 @@ describe('management desktop authoritative API persistence orchestration', () =>
     const afterDesktopMerge = getState();
     const pollsBeforeFailure = harness.loadForAccountCalls.length;
     harness.desktopPollError = true;
-    await advance(30_000);
+    await advance(3_000);
     expect(harness.loadForAccountCalls).toHaveLength(pollsBeforeFailure + 1);
     expect(getState()).toBe(afterDesktopMerge);
     harness.desktopPollError = false;

@@ -10,6 +10,7 @@ const { createOrbitCore } = require('../apps/api/src/shared/orbitCore.cjs');
 const { createEmbeddedBackend } = require('./embeddedBackend.cjs');
 const { createLocalStore } = require('./localStore.cjs');
 const { createManagementSessionStore } = require('./managementSessionStore.cjs');
+const { createManagementStateSubscriptions } = require('./managementStateEvents.cjs');
 const { createOrbitApiClient } = require('./orbitApiClient.cjs');
 const { createSelfCheckInPdf, selectSelfCheckInPdfDestination } = require('./selfCheckInKit.cjs');
 const { createStaffAuthorization } = require('./staffAuthorization.cjs');
@@ -215,6 +216,7 @@ const {
   sendClientUpdateEvent,
   startClientTelemetry,
   stopClientTelemetry,
+  subscribeToManagementState,
   submitAnalyticalReportApiFirst,
   validatePilotAccessApi
 } = createOrbitApiClient({
@@ -237,6 +239,8 @@ const embeddedBackend = createEmbeddedBackend({
   loadStateWithFirebaseFallback,
   storeAnalyticalReport
 });
+
+const managementStateSubscriptions = createManagementStateSubscriptions({ subscribe: subscribeToManagementState });
 
 const staffAuthorization = createStaffAuthorization({
   loadStateForAccess: (access) => peekStateFromApi(getAccountKeyFromAccess(access), access)
@@ -272,10 +276,10 @@ function isTrustedIpcSender(event) {
   }
 }
 
-function trustedIpc(handler) {
+function trustedIpc(handler, includeSender = false) {
   return (event, ...args) => {
     if (!isTrustedIpcSender(event)) throw new Error('Untrusted renderer IPC request rejected.');
-    return handler(...args);
+    return includeSender ? handler(event.sender, ...args) : handler(...args);
   };
 }
 
@@ -294,6 +298,16 @@ ipcMain.handle('open-route-window', trustedIpc((route, context = {}) => {
 ipcMain.handle('load-state', trustedIpc(async () => loadStateApiFirst()));
 
 ipcMain.handle('load-state-for-account', trustedIpc(async (access) => loadStateApiFirst(getAccountKeyFromAccess(access), boundedPayload(access, 16_000))));
+
+ipcMain.handle('subscribe-management-state', trustedIpc((sender, subscriptionId, access) => {
+  const bounded = boundedPayload(access, 16_000);
+  if (!isRecord(bounded)) throw new Error('Management access is invalid.');
+  managementStateSubscriptions.subscribe(sender, subscriptionId, bounded);
+}, true));
+
+ipcMain.handle('unsubscribe-management-state', trustedIpc((sender, subscriptionId) => {
+  managementStateSubscriptions.unsubscribe(sender, subscriptionId);
+}, true));
 
 ipcMain.handle('save-state', trustedIpc(async (state) => {
   const payload = boundedPayload(state);
@@ -595,6 +609,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  managementStateSubscriptions.stop();
   sendClientEvent('app-closed', 'lifecycle', {
     startedAt: appStartedAt,
     uptimeSeconds: Math.round(process.uptime()),

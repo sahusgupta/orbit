@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { seedState } from '../../domain/state';
 import type { AppState, PlayerProfile } from '../../domain/types';
 import type { BrowserStorage } from './browserStateRepository';
-import { createManagementPersistence } from './managementPersistence';
+import { createManagementPersistence, type ManagementStateSubscriptionEvent } from './managementPersistence';
 
 const buildState = (): AppState => ({
   ...structuredClone(seedState),
@@ -54,6 +54,35 @@ const createStorage = () => {
 };
 
 describe('management persistence adapter', () => {
+  it('forwards the optional desktop revision subscription and returns its synchronous cleanup', () => {
+    const access = buildState().settings.pilotAccess!;
+    const onEvent = vi.fn<(event: ManagementStateSubscriptionEvent) => void>();
+    const cleanup = vi.fn();
+    const subscribe = vi.fn((_access: typeof access, callback: (event: ManagementStateSubscriptionEvent) => void) => {
+      callback({ type: 'change', revision: 7 });
+      return cleanup;
+    });
+    const persistence = createManagementPersistence({
+      bridgeBaseUrl: 'http://127.0.0.1:4629', fetchState: vi.fn<typeof fetch>(), firebaseEnabled: false,
+      getDesktopPersistence: () => ({ saveState: vi.fn(async () => ({ ok: true, path: 'desktop' })), subscribeToManagementState: subscribe }),
+      saveFirebaseState: vi.fn(async () => undefined), storage: createStorage().storage
+    });
+    expect(persistence.subscribeToDesktopStateForAccount(access, onEvent)).toBe(cleanup);
+    expect(subscribe).toHaveBeenCalledWith(access, onEvent);
+    expect(onEvent).toHaveBeenCalledWith({ type: 'change', revision: 7 });
+  });
+
+  it('reports an unsupported desktop subscription without inventing one or starting a request', () => {
+    const fetchState = vi.fn<typeof fetch>();
+    const persistence = createManagementPersistence({
+      bridgeBaseUrl: 'http://127.0.0.1:4629', fetchState, firebaseEnabled: false,
+      getDesktopPersistence: () => ({ saveState: vi.fn(async () => ({ ok: true, path: 'desktop' })) }),
+      saveFirebaseState: vi.fn(async () => undefined), storage: createStorage().storage
+    });
+    expect(persistence.subscribeToDesktopStateForAccount(buildState().settings.pilotAccess!, vi.fn())).toBeUndefined();
+    expect(fetchState).not.toHaveBeenCalled();
+  });
+
   it('treats browser storage as cache and commits through the revisioned localhost API', async () => {
     const state = buildState();
     const { storage, values } = createStorage();

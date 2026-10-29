@@ -6,6 +6,8 @@ const baseUrl = 'http://127.0.0.1:5173/';
 const storageKey = 'table-manager-state-v1:' + accountKey;
 const runtime = process.env.ORBIT_FOCUS_RUNTIME;
 if (!['browser', 'electron'].includes(runtime) || process.env.ORBIT_API_URL !== api || process.env.VITE_ENABLE_FIREBASE_SYNC !== 'false' || !process.env.TABLEMANAGER_USER_DATA_DIR?.includes('orbit-focus-smoke-')) throw new Error('Isolated focus launcher required.');
+// Incoming changes must render promptly through push or the local bridge.
+const incomingUpdateTimeoutMs = 3_000;
 const control = async (suffix = 'snapshot') => {
   const response = await fetch(api + '/__focus/' + suffix, { headers: { 'x-orbit-api-key': testKey } });
   if (!response.ok) throw new Error('Isolated API control failed.');
@@ -79,14 +81,15 @@ const typeAndRetain = async (input, prefix, suffix, label, { poll = false, unrel
   expect(await input.evaluate((element, original) => element === original, node), label + ' DOM identity must survive clock render').toBe(true);
   if (poll) {
     const before = (await control()).reads;
-    await expect.poll(async () => (await control()).reads, { timeout: 10_000 }).toBeGreaterThan(before);
+    await control('no-op');
+    await expect.poll(async () => (await control()).reads, { timeout: incomingUpdateTimeoutMs }).toBeGreaterThan(before);
     await assertFocused(input, label + ' after authoritative no-op poll');
     expect(await input.evaluate((element, original) => element === original, node), label + ' DOM identity must survive no-op poll').toBe(true);
   }
   if (unrelated) {
     const update = await control('unrelated');
     const note = update.record.state.profiles[0].notes;
-    await floor.waitForFunction(({ key, note }) => JSON.parse(localStorage.getItem(key)).profiles[0].notes === note, { key: storageKey, note }, { timeout: 10_000 });
+    await floor.waitForFunction(({ key, note }) => JSON.parse(localStorage.getItem(key)).profiles[0].notes === note, { key: storageKey, note }, { timeout: incomingUpdateTimeoutMs });
     await assertFocused(input, label + ' after unrelated parent state update');
     expect(await input.evaluate((element, original) => element === original, node), label + ' DOM identity must survive parent state update').toBe(true);
   }
@@ -146,6 +149,14 @@ try {
   }, { state: createMutationState(), accountKey });
   await floor.reload();
   await expect.poll(async () => (await control()).reads, { timeout: 10_000 }).toBeGreaterThan(0);
+  if (runtime === 'electron') {
+    await expect.poll(async () => (await control()).watchers, { timeout: 10_000 }).toBeGreaterThan(0);
+    await scenario('Healthy push connection avoids repeated idle state reads', async () => {
+      const readsBeforeIdle = (await control()).reads;
+      await floor.waitForTimeout(3_500);
+      expect((await control()).reads, 'An idle healthy stream must not perform the old three-second state poll').toBe(readsBeforeIdle);
+    });
+  }
   await floor.getByRole('button', { name: 'Current tables', exact: true }).click();
   const workspace = floor.getByRole('dialog', { name: 'Current tables', exact: true });
   const card = workspace.locator('.active-game-card').filter({ hasText: 'Mutation table' });

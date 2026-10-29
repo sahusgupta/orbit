@@ -20,7 +20,8 @@ const {
   upsertClient
 } = require('../database');
 const { getAccountKeyFromState, sanitizeAccountKey } = require('../orbitCore');
-const { asyncRoute, blockLatestStateForPilotAuth, requireClientAuth, requireOwnerApiKey } = require('../http/auth');
+const { asyncRoute, blockLatestStateForPilotAuth, getReceivedApiKey, requireClientAuth, requireOwnerApiKey, safeEqual } = require('../http/auth');
+const { createManagementStateEvents } = require('../http/managementStateEvents');
 const { logDomainChange, logStateChanges } = require('../http/domainEvents');
 const { protectedIdentifier, redactText } = require('../http/dataProtection');
 const { getManagementAccountService } = require('../managementAccountService');
@@ -91,7 +92,25 @@ function createPublicationRecoveryHandler(dependencies = {}) {
   };
 }
 
-function registerClientRoutes(app, liveUpdates) {
+function managementStateEventsExpiry(request) {
+  if (request.orbitAuth?.type === 'pilot-key') {
+    const expiry = Date.parse(request.orbitAuth.license?.expiresAt || '');
+    return Number.isFinite(expiry) ? expiry : undefined;
+  }
+  if (request.orbitAuth?.type !== 'machine-key') return undefined;
+  try {
+    const configured = JSON.parse(process.env.ORBIT_MACHINE_CREDENTIALS_JSON || '[]');
+    if (!Array.isArray(configured)) return undefined;
+    const credential = configured.find((entry) => entry?.id === request.orbitAuth.credentialId
+      && safeEqual(entry.key, getReceivedApiKey(request)));
+    const expiry = Date.parse(credential?.expiresAt || '');
+    return Number.isFinite(expiry) ? expiry : undefined;
+  } catch { return undefined; }
+}
+
+function registerClientRoutes(app, liveUpdates, dependencies = {}) {
+  const stateEvents = createManagementStateEvents(dependencies.managementStateEvents);
+  const authenticateClient = dependencies.requireClientAuth || requireClientAuth;
   const managementAccounts = getManagementAccountService();
   const recordSecurityActivity = async (payload) => {
     try {
@@ -112,7 +131,7 @@ function registerClientRoutes(app, liveUpdates) {
     '/state',
     '/analytical-reports',
     '/management/recovery'
-  ], requireClientAuth);
+  ], authenticateClient);
 
   const bindTenantPayload = (request, response) => {
     const payload = request.body && typeof request.body === 'object' ? { ...request.body } : {};
@@ -351,6 +370,25 @@ function registerClientRoutes(app, liveUpdates) {
     }
     response.json({ ok: true, ...record });
   }));
+
+  app.get('/state/:venueId/events', (request, response) => {
+    const accountKey = sanitizeAccountKey(request.params.venueId);
+    if (request.orbitAuth?.accountKey && request.orbitAuth.accountKey !== accountKey) {
+      response.status(403).json({ ok: false, error: 'Authenticated tenant cannot read another venue account.' });
+      return;
+    }
+    stateEvents.connect(request, response, {
+      accountKey,
+      getExpiresAt: () => managementStateEventsExpiry(request),
+      revalidate: async () => {
+        let authorized = false;
+        // Reuse the existing credential checks; never send auth errors into SSE.
+        const denied = { status() { return this; }, json() { return this; } };
+        await authenticateClient(request, denied, () => { authorized = true; });
+        return authorized && (!request.orbitAuth?.accountKey || request.orbitAuth.accountKey === accountKey);
+      }
+    });
+  });
 
   app.get('/state/:venueId', asyncRoute(async (request, response) => {
     if (request.orbitAuth?.accountKey && request.orbitAuth.accountKey !== sanitizeAccountKey(request.params.venueId)) {

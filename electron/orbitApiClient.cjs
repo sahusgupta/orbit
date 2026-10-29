@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { createManagementStateEvents } = require('./managementStateEvents.cjs');
 const {
   getAccountKeyFromAccess,
   getAccountKeyFromState,
@@ -55,6 +56,7 @@ function createOrbitApiClient(dependencies) {
   const setIntervalImpl = dependencies.setIntervalImpl || setInterval;
   const setTimeoutImpl = dependencies.setTimeoutImpl || setTimeout;
   const userDataPath = dependencies.userDataPath || (() => app.getPath('userData'));
+  const createStateEvents = dependencies.createStateEvents || createManagementStateEvents;
 
   let cachedDeviceId;
   let clientHeartbeatTimer;
@@ -301,6 +303,42 @@ function createOrbitApiClient(dependencies) {
       publication: payload.publication || { status: 'not-queued' }
     };
     return record;
+  }
+
+  function subscribeToManagementState(access, onEvent) {
+    const accountKey = getAccountKeyFromAccess(access);
+    const accessKey = getClientAuthKeyFromAccess(access);
+    // Unlike legacy state reads, the event URL must never fall back to an auth
+    // code as its account identifier. Legacy access keeps the existing GET path.
+    if (!isRecord(access) || typeof access.licenseId !== 'string' || !access.licenseId.trim() || !accountKey || typeof onEvent !== 'function') {
+      throw new Error('A current management account is required.');
+    }
+    return createStateEvents({
+      onEvent,
+      setTimeoutImpl,
+      clearTimeoutImpl,
+      connect: ({ signal }) => {
+        const { apiUrl, apiKey } = getApiConfig();
+        const authKey = accessKey || apiKey;
+        if (!authKey || typeof fetchImpl !== 'function') throw new Error('Management state notifications are unavailable.');
+        const url = new URL(`${apiUrl}/state/${encodeURIComponent(accountKey)}/events`);
+        if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+          throw new Error('Management notification API URL is invalid.');
+        }
+        return fetchImpl(url.href, {
+          method: 'GET',
+          headers: {
+            accept: 'text/event-stream',
+            'x-orbit-api-key': authKey,
+            'x-orbit-auth-key': authKey,
+            'x-orbit-request-id': randomUUID()
+          },
+          cache: 'no-store',
+          redirect: 'error',
+          signal
+        });
+      }
+    });
   }
 
   async function loadStateFromApi(accountKey, access) {
@@ -705,6 +743,7 @@ function createOrbitApiClient(dependencies) {
     sendClientUpdateEvent,
     startClientTelemetry,
     stopClientTelemetry,
+    subscribeToManagementState,
     submitAnalyticalReportApiFirst,
     submitAnalyticalReportToApi,
     validatePilotAccessApi

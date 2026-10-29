@@ -10,6 +10,7 @@ import { useManagementPlayerUpdateSync } from './useManagementPlayerUpdateSync';
 vi.mock('../../../app/persistence/managementPersistence', () => ({
   hasManagementDesktopPersistence: vi.fn(),
   loadDesktopManagementStateForAccount: vi.fn(),
+  subscribeToDesktopManagementStateForAccount: vi.fn(),
   loadManagementStateFromLocalBridge: vi.fn(),
   publishStateToLocalOrbitBridge: vi.fn()
 }));
