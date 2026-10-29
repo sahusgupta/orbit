@@ -53,7 +53,10 @@ export async function requestJson(
         const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 12_000);
         try {
           const response = await fetch(url, { ...init, signal: controller.signal });
-          const payload: unknown = await response.json().catch(() => ({}));
+          const payload: unknown = await response.json().catch((error: unknown) => {
+            if (controller.signal.aborted || upstreamSignal?.aborted) throw error;
+            return {};
+          });
           if (response.ok || typeof response.status !== 'number' || response.status < 500 || attempt === maximumAttempts - 1) {
             finalOutcome = response.ok ? 'ok' : 'http-error';
             return { response, payload };
