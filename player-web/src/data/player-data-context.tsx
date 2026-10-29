@@ -76,6 +76,8 @@ function PlayerDataSession({
   const [status, setStatus] = useState<PlayerDataStatus>('idle');
   const [error, setError] = useState('');
   const refreshInFlight = useRef<Promise<void> | null>(null);
+  const refreshPending = useRef(false);
+  const mutationAcknowledgement = useRef(0);
   const disposed = useRef(false);
   const requestControllers = useRef(new Set<AbortController>());
 
@@ -84,6 +86,7 @@ function PlayerDataSession({
     const controllers = requestControllers.current;
     return () => {
       disposed.current = true;
+      refreshPending.current = false;
       for (const controller of controllers) controller.abort();
       controllers.clear();
     };
@@ -106,31 +109,58 @@ function PlayerDataSession({
     }
   }, [assertActiveSession]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback((): Promise<void> => {
     if (!user || !player) {
-      assertActiveSession();
+      try {
+        assertActiveSession();
+      } catch (refreshError) {
+        return Promise.reject(refreshError);
+      }
+      refreshPending.current = false;
       setData(emptyDiscovery);
       setStatus('idle');
       setError('');
-      return;
+      return Promise.resolve();
     }
+    // Signed-in refreshes retired during cleanup have always settled quietly.
+    if (disposed.current) return refreshInFlight.current ?? Promise.resolve();
+    refreshPending.current = true;
+    // Reuse the owned completion directly, including for a busy stream. An
+    // async wrapper would retain one adoption promise per notification.
     if (refreshInFlight.current) return refreshInFlight.current;
     setStatus((current) => current === 'ready' ? current : 'loading');
-    const task = runSessionOperation((signal) => fetchAuthenticatedDiscovery(user, signal))
-      .then((discovery) => {
-        assertActiveSession();
-        setData(discovery);
-        setError('');
-        setStatus('ready');
-      })
-      .catch((refreshError) => {
-        if (isRetiredRequest(refreshError) || disposed.current) return;
-        setError(refreshError instanceof Error ? refreshError.message : 'My Orbit could not refresh.');
-        setStatus('error');
-      })
-      .finally(() => {
+    const task = Promise.resolve().then(async () => {
+      try {
+        while (refreshPending.current && !disposed.current) {
+          refreshPending.current = false;
+          const acknowledgementAtStart = mutationAcknowledgement.current;
+          try {
+            const discovery = await runSessionOperation((signal) => fetchAuthenticatedDiscovery(user, signal));
+            assertActiveSession();
+            if (acknowledgementAtStart !== mutationAcknowledgement.current) {
+              refreshPending.current = true;
+              continue;
+            }
+            // A later invalidation needs another read, but does not make this
+            // response unsafe: render progress while draining a busy stream.
+            setData(discovery);
+            setError('');
+            setStatus('ready');
+          } catch (refreshError) {
+            if (isRetiredRequest(refreshError) || disposed.current) {
+              refreshPending.current = false;
+              return;
+            }
+            setError(refreshError instanceof Error ? refreshError.message : 'My Orbit could not refresh.');
+            setStatus('error');
+          }
+        }
+      } finally {
+        // Release ownership in the same continuation as the pending check.
+        // An outer Promise.finally would leave a notification handoff gap.
         if (refreshInFlight.current === task) refreshInFlight.current = null;
-      });
+      }
+    });
     refreshInFlight.current = task;
     return task;
   }, [assertActiveSession, player, runSessionOperation, user]);
@@ -168,15 +198,21 @@ function PlayerDataSession({
     };
   }, [refresh, user]);
 
-  const replaceClub = useCallback((snapshot: PlayerClubSnapshot) => {
+  const acknowledgeMutation = useCallback(() => {
     assertActiveSession();
+    mutationAcknowledgement.current += 1;
+    if (refreshInFlight.current) refreshPending.current = true;
+  }, [assertActiveSession]);
+
+  const replaceClub = useCallback((snapshot: PlayerClubSnapshot) => {
+    acknowledgeMutation();
     setData((current) => ({
       ...current,
       clubs: current.clubs.some((club) => club.club.id === snapshot.club.id)
         ? current.clubs.map((club) => club.club.id === snapshot.club.id ? snapshot : club)
         : [snapshot, ...current.clubs]
     }));
-  }, [assertActiveSession]);
+  }, [acknowledgeMutation]);
 
   const requestMembership = useCallback(async (club: PlayerClubSnapshot, option: PlayerMembershipOption) => {
     if (!user || !player) throw new Error('Sign in before requesting membership.');
@@ -196,23 +232,23 @@ function PlayerDataSession({
   const expressInterest = useCallback(async (tournament: PlayerTournament) => {
     if (!user) throw new Error('Sign in before expressing tournament interest.');
     const interest = await runSessionOperation((signal) => expressTournamentInterest(user, tournament, signal));
-    assertActiveSession();
+    acknowledgeMutation();
     setData((current) => ({
       ...current,
       interests: [interest, ...current.interests.filter((item) => !isSameTournamentInterest(item, interest))]
     }));
     return interest;
-  }, [assertActiveSession, runSessionOperation, user]);
+  }, [acknowledgeMutation, runSessionOperation, user]);
 
   const withdrawInterest = useCallback(async (tournament: PlayerTournament) => {
     if (!user) throw new Error('Sign in before changing tournament interest.');
     await runSessionOperation((signal) => withdrawTournamentInterest(user, tournament, signal));
-    assertActiveSession();
+    acknowledgeMutation();
     setData((current) => ({
       ...current,
       interests: current.interests.filter((item) => item.playerId !== user.uid || !isTournamentInterestFor(item, tournament))
     }));
-  }, [assertActiveSession, runSessionOperation, user]);
+  }, [acknowledgeMutation, runSessionOperation, user]);
 
   const value = useMemo<PlayerDataContextValue>(() => ({
     ...data,
