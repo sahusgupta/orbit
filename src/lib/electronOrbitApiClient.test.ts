@@ -1097,3 +1097,319 @@ it('rejects a delayed read that would roll back a newer saved revision and cache
   expect(JSON.parse(fetch.mock.calls[3][1].body).expectedRevision).toBe(8);
   expect(writeLocalDatabase).toHaveBeenCalledTimes(1);
 });
+
+describe('Electron full-state revision ownership', () => {
+  type StateFixture = {
+    games: Array<{ id: string }>;
+    sessions: never[];
+    playerSessions: never[];
+    staffRequests: Array<{ id: string }>;
+    settings: { pilotAccess: { licenseId: string; authorizationCode: string } };
+  };
+  const state = (accountKey: string, marker: string): StateFixture => ({
+    games: [{ id: marker }],
+    sessions: [],
+    playerSessions: [],
+    staffRequests: [],
+    settings: { pilotAccess: { licenseId: accountKey, authorizationCode: 'synthetic-test-only' } }
+  });
+
+  it('allows a stable full read after a completed write to establish the next writable revision', async () => {
+    const writeLocalDatabase = vi.fn<(saved: ReturnType<typeof state>) => void>();
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response(JSON.stringify({ accountKey: 'club-one', revision: 7, state: state('club-one', 'initial') })))
+      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","revision":8}'))
+      .mockResolvedValueOnce(response(JSON.stringify({ accountKey: 'club-one', revision: 9, state: state('club-one', 'remote') })))
+      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","revision":10}'));
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, writeLocalDatabase }));
+
+    await client.loadStateFromApi('club-one');
+    await client.saveStateToApi(state('club-one', 'first-local'));
+    await client.loadStateFromApi('club-one');
+    await client.saveStateToApi(state('club-one', 'after-adoption'));
+
+    expect(JSON.parse(String(fetch.mock.calls[1][1].body)).expectedRevision).toBe(7);
+    expect(JSON.parse(String(fetch.mock.calls[3][1].body)).expectedRevision).toBe(9);
+    expect(writeLocalDatabase.mock.calls.map(([saved]) => saved.games[0].id)).toEqual(['initial', 'remote']);
+  });
+
+  it('retains QR redemption full-state adoption when it is the sole queued account mutation', async () => {
+    const remote = state('club-one', 'checked-in');
+    const writeLocalDatabase = vi.fn<(saved: ReturnType<typeof state>) => void>();
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response(JSON.stringify({ accountKey: 'club-one', revision: 7, state: state('club-one', 'initial') })))
+      .mockResolvedValueOnce(response('{"ok":true,"status":"checked-in","playerName":"Synthetic Member"}'))
+      .mockResolvedValueOnce(response(JSON.stringify({ accountKey: 'club-one', revision: 8, state: remote })))
+      .mockResolvedValueOnce(response('{"ok":true,"accountKey":"club-one","revision":9}'));
+    const client = createOrbitApiClient(baseDependencies({ fetchImpl: fetch, writeLocalDatabase }));
+
+    await client.loadStateFromApi('club-one');
+    await expect(client.redeemMembershipQrApi(
+      { licenseId: 'club-one', authorizationCode: 'synthetic-test-only' }, `omq1_${'C'.repeat(43)}`
+    )).resolves.toMatchObject({ ok: true, state: remote });
+    await client.saveStateToApi(remote);
+
+    expect(JSON.parse(String(fetch.mock.calls[3][1].body)).expectedRevision).toBe(8);
+    expect(writeLocalDatabase.mock.calls.map(([saved]) => saved.games[0].id)).toEqual(['initial', 'checked-in']);
+  });
+
+  const flushQueue = async () => {
+    for (let index = 0; index < 12; index += 1) await Promise.resolve();
+  };
+  const deferredResponse = () => {
+    let complete: ((value: ReturnType<typeof response>) => void) | undefined;
+    const pending = new Promise<ReturnType<typeof response>>((resolve) => { complete = resolve; });
+    return {
+      pending,
+      finish(value: ReturnType<typeof response>) {
+        if (!complete) throw new Error('Expected an initialized response');
+        complete(value);
+      }
+    };
+  };
+
+  function revisionServer(options: { unscopedReads?: boolean } = {}) {
+    const records = new Map<string, { revision: number; state: StateFixture }>([
+      ['club-one', { revision: 1, state: state('club-one', 'initial') }],
+      ['club-two', { revision: 1, state: state('club-two', 'other-initial') }]
+    ]);
+    const posts: Array<{ accountKey: string; expectedRevision: number; state: StateFixture }> = [];
+    const writeLocalDatabase = vi.fn<(saved: StateFixture) => void>();
+    let nextRead: ReturnType<typeof deferredResponse> | undefined;
+    let nextWrite: ReturnType<typeof deferredResponse> | undefined;
+    let finishWrite: (() => void) | undefined;
+    const record = (accountKey: string) => {
+      const current = records.get(accountKey);
+      if (!current) throw new Error('Unexpected synthetic account');
+      return current;
+    };
+    const readResponse = (accountKey: string) => response(JSON.stringify({
+      accountKey, ...record(accountKey)
+    }));
+    const fetch = vi.fn(async (url: string, options: RequestInit) => {
+      const pathname = new URL(url).pathname;
+      if (options.method === 'GET') {
+        const requestedKey = decodeURIComponent(pathname.split('/').at(-1) || '');
+        const accountKey = requestedKey === 'latest' ? 'club-one' : requestedKey;
+        if (nextRead) {
+          const pending = nextRead;
+          nextRead = undefined;
+          return pending.pending;
+        }
+        return readResponse(accountKey);
+      }
+      if (pathname === '/management/membership-qr/redeem') {
+        const current = record('club-one');
+        current.revision += 1;
+        current.state = { ...current.state, staffRequests: [{ id: 'qr-check-in' }] };
+        return response('{"ok":true,"status":"checked-in","playerName":"Synthetic Member"}');
+      }
+      const body: { expectedRevision: number; state: StateFixture } = JSON.parse(String(options.body));
+      const accountKey = body.state.settings.pilotAccess.licenseId;
+      posts.push({ accountKey, ...body });
+      const compareAndSwap = () => {
+        const current = record(accountKey);
+        if (body.expectedRevision !== current.revision) {
+          return response(JSON.stringify({
+            ok: false, code: 'STATE_REVISION_CONFLICT', currentRevision: current.revision
+          }), { ok: false, status: 409 });
+        }
+        current.revision += 1;
+        current.state = body.state;
+        return response(JSON.stringify({ ok: true, accountKey, revision: current.revision }));
+      };
+      if (nextWrite) {
+        const pending = nextWrite;
+        nextWrite = undefined;
+        finishWrite = () => pending.finish(compareAndSwap());
+        return pending.pending;
+      }
+      return compareAndSwap();
+    });
+    const client = createOrbitApiClient(baseDependencies({
+      fetchImpl: fetch, writeLocalDatabase,
+      ...(options.unscopedReads ? { readLocalDatabase: () => null } : {})
+    }));
+    return {
+      client, posts, record, writeLocalDatabase,
+      pauseRead(accountKey = 'club-one') {
+        const deferred = deferredResponse();
+        nextRead = deferred;
+        return () => deferred.finish(readResponse(accountKey));
+      },
+      pauseWrite() {
+        nextWrite = deferredResponse();
+        return () => {
+          if (!finishWrite) throw new Error('Expected an in-flight synthetic write');
+          finishWrite();
+        };
+      },
+      remoteChange(accountKey = 'club-one') {
+        const current = record(accountKey);
+        current.revision += 1;
+        current.state = { ...current.state, staffRequests: [{ id: 'remote-request' }] };
+      }
+    };
+  }
+
+  it('does not lend a discarded read revision to stale queued saves after an earlier conflict', async () => {
+    const server = revisionServer();
+    await server.client.loadStateFromApi('club-one');
+    const finishRead = server.pauseRead();
+    const incoming = server.client.loadStateFromApi('club-one');
+    const finishWrite = server.pauseWrite();
+    const first = server.client.saveStateToApi(state('club-one', 'first-local'));
+    const second = server.client.saveStateToApi(state('club-one', 'second-local'));
+    await flushQueue();
+    server.remoteChange();
+    finishRead();
+    await incoming;
+    finishWrite();
+
+    await expect(first).resolves.toMatchObject({ conflict: true, expectedRevision: 1, currentRevision: 2 });
+    await expect(second).resolves.toMatchObject({ conflict: true, expectedRevision: 1, currentRevision: 2 });
+    expect(server.posts.map((post) => post.expectedRevision)).toEqual([1, 1]);
+    expect(server.record('club-one').state.staffRequests).toEqual([{ id: 'remote-request' }]);
+    expect(server.writeLocalDatabase).toHaveBeenCalledTimes(1);
+
+    await server.client.loadStateFromApi('club-one');
+    await expect(server.client.saveStateToApi({ ...server.record('club-one').state, games: [{ id: 'reconciled-local' }] }))
+      .resolves.toMatchObject({ ok: true, revision: 3 });
+    expect(server.posts.at(-1)?.expectedRevision).toBe(2);
+    expect(server.record('club-one').state.staffRequests).toEqual([{ id: 'remote-request' }]);
+  });
+
+  it('keeps a read that started during an existing write from promoting the cursor after that queue settles', async () => {
+    const server = revisionServer();
+    await server.client.loadStateFromApi('club-one');
+    const finishWrite = server.pauseWrite();
+    const local = server.client.saveStateToApi(state('club-one', 'first-local'));
+    await flushQueue();
+    const finishRead = server.pauseRead();
+    const incoming = server.client.loadStateFromApi('club-one');
+    server.remoteChange();
+    finishWrite();
+    await expect(local).resolves.toMatchObject({ conflict: true });
+    finishRead();
+    await incoming;
+
+    await expect(server.client.saveStateToApi(state('club-one', 'still-stale-local')))
+      .resolves.toMatchObject({ conflict: true, expectedRevision: 1, currentRevision: 2 });
+    expect(server.writeLocalDatabase).toHaveBeenCalledTimes(1);
+    expect(server.record('club-one').state.staffRequests).toEqual([{ id: 'remote-request' }]);
+  });
+
+  it('retains mutation history while a read spans a write that has already finished', async () => {
+    const server = revisionServer();
+    await server.client.loadStateFromApi('club-one');
+    const finishRead = server.pauseRead();
+    const incoming = server.client.loadStateFromApi('club-one');
+    server.remoteChange();
+    await expect(server.client.saveStateToApi(state('club-one', 'conflicting-local')))
+      .resolves.toMatchObject({ conflict: true, expectedRevision: 1 });
+    finishRead();
+    await incoming;
+
+    await expect(server.client.saveStateToApi(state('club-one', 'another-stale-local')))
+      .resolves.toMatchObject({ conflict: true, expectedRevision: 1 });
+    expect(server.writeLocalDatabase).toHaveBeenCalledTimes(1);
+    expect(server.record('club-one').state.staffRequests).toEqual([{ id: 'remote-request' }]);
+  });
+
+  it('keeps an own accepted write revision without borrowing a later unread server revision', async () => {
+    const server = revisionServer();
+    await server.client.loadStateFromApi('club-one');
+    const finishRead = server.pauseRead();
+    const incoming = server.client.loadStateFromApi('club-one');
+    await expect(server.client.saveStateToApi(state('club-one', 'accepted-local')))
+      .resolves.toMatchObject({ ok: true, revision: 2 });
+    server.remoteChange();
+    finishRead();
+    await incoming;
+
+    await expect(server.client.saveStateToApi(state('club-one', 'stale-after-own-save')))
+      .resolves.toMatchObject({ conflict: true, expectedRevision: 2, currentRevision: 3 });
+    expect(server.posts.map((post) => post.expectedRevision)).toEqual([1, 2]);
+    expect(server.record('club-one').state.games).toEqual([{ id: 'accepted-local' }]);
+    expect(server.record('club-one').state.staffRequests).toEqual([{ id: 'remote-request' }]);
+  });
+
+  it('keeps a different account mutation from invalidating a stable full read', async () => {
+    const server = revisionServer();
+    await server.client.loadStateFromApi('club-one');
+    await server.client.loadStateFromApi('club-two');
+    const finishWrite = server.pauseWrite();
+    const otherSave = server.client.saveStateToApi(state('club-two', 'other-local'));
+    await flushQueue();
+    server.remoteChange();
+    await server.client.loadStateFromApi('club-one');
+    await expect(server.client.saveStateToApi(server.record('club-one').state)).resolves.toMatchObject({ ok: true, revision: 3 });
+    finishWrite();
+    await expect(otherSave).resolves.toMatchObject({ ok: true, revision: 2 });
+    expect(server.posts.map((post) => [post.accountKey, post.expectedRevision])).toEqual([
+      ['club-two', 1], ['club-one', 2]
+    ]);
+  });
+
+  it('retains revision and cache adoption for an idle legacy latest-state read', async () => {
+    const server = revisionServer({ unscopedReads: true });
+    await server.client.loadStateFromApi();
+    await expect(server.client.saveStateToApi(state('club-one', 'after-latest')))
+      .resolves.toMatchObject({ ok: true, revision: 2 });
+    expect(server.posts[0].expectedRevision).toBe(1);
+    expect(server.writeLocalDatabase).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps legacy latest-state reads from bypassing a conflicting mutation that completed in flight', async () => {
+    const server = revisionServer({ unscopedReads: true });
+    await server.client.loadStateFromApi('club-one');
+    const finishRead = server.pauseRead();
+    const incoming = server.client.loadStateFromApi();
+    server.remoteChange();
+    await expect(server.client.saveStateToApi(state('club-one', 'conflicting-local')))
+      .resolves.toMatchObject({ conflict: true, expectedRevision: 1 });
+    finishRead();
+    await incoming;
+
+    await expect(server.client.saveStateToApi(state('club-one', 'stale-after-latest')))
+      .resolves.toMatchObject({ conflict: true, expectedRevision: 1 });
+    expect(server.writeLocalDatabase).toHaveBeenCalledTimes(1);
+    expect(server.record('club-one').state.staffRequests).toEqual([{ id: 'remote-request' }]);
+  });
+
+  it('retains the account mutation guard until every overlapping read has settled', async () => {
+    const server = revisionServer();
+    await server.client.loadStateFromApi('club-one');
+    const finishLaterRead = server.pauseRead();
+    const laterRead = server.client.loadStateFromApi('club-one');
+    await server.client.loadStateFromApi('club-one');
+    server.remoteChange();
+    await expect(server.client.saveStateToApi(state('club-one', 'conflicting-local')))
+      .resolves.toMatchObject({ conflict: true, expectedRevision: 1 });
+    finishLaterRead();
+    await laterRead;
+
+    await expect(server.client.saveStateToApi(state('club-one', 'stale-after-last-read')))
+      .resolves.toMatchObject({ conflict: true, expectedRevision: 1 });
+    expect(server.writeLocalDatabase).toHaveBeenCalledTimes(1);
+    expect(server.record('club-one').state.staffRequests).toEqual([{ id: 'remote-request' }]);
+  });
+
+  it.each(['before-read', 'during-read'] as const)('does not promote an internal QR read over a stale state save queued %s', async (timing) => {
+    const server = revisionServer();
+    await server.client.loadStateFromApi('club-one');
+    const finishRead = server.pauseRead();
+    const checkedIn = server.client.redeemMembershipQrApi(
+      { licenseId: 'club-one', authorizationCode: 'synthetic-test-only' }, `omq1_${'D'.repeat(43)}`
+    );
+    if (timing === 'during-read') await flushQueue();
+    const staleSave = server.client.saveStateToApi(state('club-one', 'stale-after-check-in'));
+    await flushQueue();
+    finishRead();
+
+    await expect(checkedIn).resolves.toMatchObject({ ok: true, state: { staffRequests: [{ id: 'qr-check-in' }] } });
+    await expect(staleSave).resolves.toMatchObject({ conflict: true, expectedRevision: 1, currentRevision: 2 });
+    expect(server.record('club-one').state.staffRequests).toEqual([{ id: 'qr-check-in' }]);
+    expect(server.writeLocalDatabase).toHaveBeenCalledTimes(1);
+  });
+});

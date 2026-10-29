@@ -63,18 +63,41 @@ function createOrbitApiClient(dependencies) {
   let lastUpdateStatus = '';
   let lastUpdateEvent = '';
   const revisionByAccount = new Map();
-  const stateMutationQueueByAccount = new Map();
+  /** @type {Map<string, { pending?: Promise<unknown>, epoch?: symbol, reads: number }>} */
+  const accountMutationContexts = new Map();
+  let lastMutationEpoch;
+  let pendingMutationCount = 0;
+
+  function getAccountMutationContext(accountKey) {
+    let context = accountMutationContexts.get(accountKey);
+    if (!context) {
+      context = { reads: 0 };
+      accountMutationContexts.set(accountKey, context);
+    }
+    return context;
+  }
+
+  function releaseAccountMutationContext(accountKey, context) {
+    if (!context.pending && context.reads === 0 && accountMutationContexts.get(accountKey) === context) {
+      accountMutationContexts.delete(accountKey);
+    }
+  }
 
   function enqueueAccountMutation(accountKey, mutation) {
-    const previousMutation = stateMutationQueueByAccount.get(accountKey) || Promise.resolve();
+    const context = getAccountMutationContext(accountKey);
+    const epoch = Symbol('account-mutation');
+    context.epoch = epoch;
+    lastMutationEpoch = epoch;
+    pendingMutationCount += 1;
+    const previousMutation = context.pending || Promise.resolve();
     const pendingMutation = previousMutation
       .catch(() => undefined)
-      .then(mutation);
-    stateMutationQueueByAccount.set(accountKey, pendingMutation);
+      .then(() => mutation(epoch));
+    context.pending = pendingMutation;
     void pendingMutation.finally(() => {
-      if (stateMutationQueueByAccount.get(accountKey) === pendingMutation) {
-        stateMutationQueueByAccount.delete(accountKey);
-      }
+      pendingMutationCount -= 1;
+      if (context.pending === pendingMutation) context.pending = undefined;
+      releaseAccountMutationContext(accountKey, context);
     }).catch(() => undefined);
     return pendingMutation;
   }
@@ -341,23 +364,47 @@ function createOrbitApiClient(dependencies) {
     });
   }
 
-  async function loadStateFromApi(accountKey, access) {
-    const record = await peekStateFromApi(accountKey, access);
-    if (!record) return null;
-    const priorRevision = revisionByAccount.get(record.accountKey);
-    // A read can finish after a newer save; never roll its revision or cache back.
-    if (priorRevision !== undefined && record.revision < priorRevision) {
-      throw new Error('Discarded an outdated Orbit state response.');
-    }
-    revisionByAccount.set(record.accountKey, record.revision);
-    if (priorRevision !== record.revision) {
-      try {
-        writeLocalDatabase(record.state);
-      } catch {
-        // The encrypted local cache is non-authoritative and best-effort.
+  async function readStateWithRevisionOwnership(accountKey, access, owningMutation) {
+    const resolvedAccountKey = sanitizeAccountKey(accountKey || getLocalAccountKey());
+    const context = resolvedAccountKey ? getAccountMutationContext(resolvedAccountKey) : undefined;
+    if (context) context.reads += 1;
+    const epochAtStart = context ? context.epoch : lastMutationEpoch;
+    const queuedAtStart = context ? Boolean(context.pending) : pendingMutationCount > 0;
+    try {
+      const record = await peekStateFromApi(resolvedAccountKey, access);
+      if (!record) return null;
+      const priorRevision = revisionByAccount.get(record.accountKey);
+      // A read can finish after a newer save; never roll its revision or cache back.
+      if (priorRevision !== undefined && record.revision < priorRevision) {
+        throw new Error('Discarded an outdated Orbit state response.');
+      }
+      const epochUnchanged = (context ? context.epoch : lastMutationEpoch) === epochAtStart;
+      const queuedNow = context ? Boolean(context.pending) : pendingMutationCount > 0;
+      // Renderer guards may discard this read while optimistic writes are queued.
+      // Lending its revision to those older snapshots would bypass server CAS.
+      // The QR mutation may adopt its own full read only without a queued successor.
+      const ownedRead = owningMutation !== undefined && context &&
+        epochAtStart === owningMutation && context.epoch === owningMutation;
+      if (!ownedRead && (queuedAtStart || queuedNow || !epochUnchanged)) return record;
+      revisionByAccount.set(record.accountKey, record.revision);
+      if (priorRevision !== record.revision) {
+        try {
+          writeLocalDatabase(record.state);
+        } catch {
+          // The encrypted local cache is non-authoritative and best-effort.
+        }
+      }
+      return record;
+    } finally {
+      if (context) {
+        context.reads -= 1;
+        releaseAccountMutationContext(resolvedAccountKey, context);
       }
     }
-    return record;
+  }
+
+  function loadStateFromApi(accountKey, access) {
+    return readStateWithRevisionOwnership(accountKey, access);
   }
 
   async function createSelfCheckInQrKitApi(access) {
@@ -430,7 +477,7 @@ function createOrbitApiClient(dependencies) {
     if (!/^omq1_[A-Za-z0-9_-]{43}$/.test(normalizedToken)) {
       return { ok: false, code: 'INVALID_INPUT', error: 'That is not a valid Orbit membership QR.' };
     }
-    return enqueueAccountMutation(accountKey, async () => {
+    return enqueueAccountMutation(accountKey, async (owningMutation) => {
       const mutationId = `scan:${randomUUID()}`;
       const redeem = () => requestOrbitApi('/management/membership-qr/redeem', {
         method: 'POST',
@@ -448,7 +495,7 @@ function createOrbitApiClient(dependencies) {
           error: String(payload?.error || 'Orbit could not confirm this check-in. Scan the same code again.')
         };
       }
-      const record = await loadStateFromApi(accountKey, access).catch(() => null);
+      const record = await readStateWithRevisionOwnership(accountKey, access, owningMutation).catch(() => null);
       return {
         ok: true,
         status: payload.status === 'already-checked-in' ? 'already-checked-in' : 'checked-in',
