@@ -97,6 +97,140 @@ const player: PlayerAccount = {
   favoriteClubIds: []
 };
 
+const tournamentOptions = (overrides: Partial<discovery.FilterTournamentsOptions> = {}): discovery.FilterTournamentsOptions => ({
+  clubs: [club('club-a')],
+  originCoordinate: null,
+  playerId: player.id,
+  query: '',
+  interests: [],
+  nowMs: Date.parse('2026-08-09T12:00:00.000Z'),
+  tournamentClubFilter: 'all',
+  tournamentDistanceFilter: 'none',
+  tournamentFilter: 'all',
+  tournaments: [tournament()],
+  ...overrides
+});
+
+describe('Native tournament discovery joins', () => {
+  it('keeps the first club and first eligible interested record rather than later duplicates', () => {
+    const origin = { latitude: 30.6, longitude: -96.3 };
+    const firstClub = club('club-a', { name: 'First venue', coordinate: origin });
+    const duplicateClub = club('club-a', { name: 'Later venue' });
+    const selected = interest({ id: 'first-eligible' });
+    const options = tournamentOptions({
+      clubs: [firstClub, duplicateClub],
+      originCoordinate: origin,
+      interests: [
+        interest({ id: 'other-player', playerId: 'other' }),
+        interest({ id: 'withdrawn', status: 'withdrawn' }),
+        selected,
+        interest({ id: 'later-eligible' })
+      ]
+    });
+
+    const [listing] = discovery.filterTournaments(options);
+    expect(listing?.club).toBe(firstClub);
+    expect(listing?.interest).toBe(selected);
+    expect(listing?.distanceMiles).toBe(0);
+    expect(discovery.filterTournaments({ ...options, query: 'later venue' })).toEqual([]);
+    expect(discovery.filterTournaments({ ...options, tournamentDistanceFilter: 5 })).toHaveLength(1);
+  });
+
+  it('requires an exact player match even when the requested player ID is empty', () => {
+    const emptyPlayerInterest = interest({ playerId: '' });
+    const options = tournamentOptions({ playerId: '', interests: [interest(), emptyPlayerInterest] });
+    expect(discovery.filterTournaments(options)[0]?.interest).toBe(emptyPlayerInterest);
+    expect(discovery.filterTournaments({ ...options, interests: [interest()] })[0]?.interest).toBeUndefined();
+    expect(discovery.filterTournaments({ ...options, interests: [interest()], tournamentFilter: 'interested' })).toEqual([]);
+  });
+
+  it('keeps raw club and tournament tuple identities distinct, including separator and prototype-like IDs', () => {
+    const scopes = [
+      { clubId: 'a:b', id: 'c' },
+      { clubId: 'a', id: 'b:c' },
+      { clubId: '__proto__', id: 'constructor' },
+      { clubId: 'constructor', id: '__proto__' },
+      { clubId: '', id: '' }
+    ];
+    const clubs = scopes.map(({ clubId }) => club(clubId));
+    const tournaments = scopes.map((scope) => tournament(scope));
+    const interests = scopes.map(({ clubId, id }, index) => interest({ clubId, tournamentId: id, id: `interest-${index}` }));
+    const listings = discovery.filterTournaments(tournamentOptions({ clubs, tournaments, interests }));
+
+    expect(listings).toHaveLength(scopes.length);
+    listings.forEach((listing, index) => {
+      expect(listing.club).toBe(clubs[index]);
+      expect(listing.tournament).toBe(tournaments[index]);
+      expect(listing.interest).toBe(interests[index]);
+    });
+  });
+
+  it('retains duplicate events, stable start-time order and input object references without mutation', () => {
+    const firstTie = tournament({ id: 'first-tie' });
+    const secondTie = tournament({ id: 'second-tie' });
+    const earlier = tournament({ id: 'earlier', startsAt: '2026-08-10T12:00:00.000Z' });
+    const later = tournament({ id: 'later', startsAt: '2026-08-11T12:00:00.000Z' });
+    const options = tournamentOptions({ tournaments: [secondTie, later, earlier, firstTie, secondTie], interests: [interest()] });
+    const before = JSON.stringify(options);
+    options.clubs.forEach((item) => { Object.freeze(item.club); Object.freeze(item); });
+    options.tournaments.forEach((item) => { Object.freeze(item.rules); Object.freeze(item); });
+    options.interests.forEach(Object.freeze);
+    Object.freeze(options.clubs);
+    Object.freeze(options.tournaments);
+    Object.freeze(options.interests);
+
+    const listings = discovery.filterTournaments(options);
+    expect(listings.map((listing) => listing.tournament)).toEqual([earlier, secondTie, firstTie, secondTie, later]);
+    expect(listings[1]?.tournament).toBe(secondTie);
+    expect(listings[3]?.tournament).toBe(secondTie);
+    expect(listings.every((listing) => listing.club === options.clubs[0])).toBe(true);
+    expect(JSON.stringify(options)).toBe(before);
+  });
+
+  it('returns empty discovery without reading unrelated club or interest records', () => {
+    let reads = 0;
+    const currentClub = club('club-a');
+    const currentInterest = interest();
+    Object.defineProperty(currentClub.club, 'id', { get: () => { reads += 1; return 'club-a'; } });
+    Object.defineProperty(currentInterest, 'clubId', { get: () => { reads += 1; return 'club-a'; } });
+
+    expect(discovery.filterTournaments(tournamentOptions({ clubs: [], tournaments: [], interests: [] }))).toEqual([]);
+    expect(discovery.filterTournaments(tournamentOptions({ clubs: [currentClub], tournaments: [], interests: [currentInterest] }))).toEqual([]);
+    expect(reads).toBe(0);
+  });
+
+  it.each([
+    { clubCount: 10, eventCount: 50, includeInterests: true },
+    { clubCount: 50, eventCount: 250, includeInterests: true },
+    { clubCount: 1_000, eventCount: 5_000, includeInterests: false },
+    { clubCount: 1_000, eventCount: 5_000, includeInterests: true }
+  ])('bounds related-record reads for $clubCount clubs / $eventCount events / interests=$includeInterests', ({ clubCount, eventCount, includeInterests }) => {
+    let clubReads = 0;
+    let interestReads = 0;
+    const clubs = Array.from({ length: clubCount }, (_, index) => {
+      const id = `club-${index}`;
+      const item = club(id);
+      Object.defineProperty(item.club, 'id', { get: () => { clubReads += 1; return id; } });
+      return item;
+    });
+    const tournaments = Array.from({ length: eventCount }, (_, index) => tournament({ id: `event-${index}`, clubId: `club-${index % clubCount}` }));
+    const interests = includeInterests ? tournaments.map((event, index) => {
+      const clubId = event.clubId;
+      const item = interest({ id: `interest-${index}`, clubId, tournamentId: event.id });
+      Object.defineProperty(item, 'clubId', { get: () => { interestReads += 1; return clubId; } });
+      return item;
+    }) : [];
+
+    const listings = discovery.filterTournaments(tournamentOptions({ clubs, tournaments, interests }));
+    expect(listings).toHaveLength(eventCount);
+    expect(listings[0]?.tournament).toBe(tournaments[0]);
+    expect(listings[eventCount - 1]?.interest).toBe(interests[eventCount - 1]);
+    // A linear budget allows implementation freedom without tolerating a scan per event.
+    expect.soft(clubReads).toBeLessThanOrEqual(4 * (clubCount + eventCount));
+    expect.soft(interestReads).toBeLessThanOrEqual(4 * (interests.length + eventCount));
+  });
+});
+
 describe('Player discovery factual boundaries', () => {
   it('resolves a selected game only from the current authoritative catalog', () => {
     const currentClub = club('club-a');

@@ -1,7 +1,6 @@
 import {
   getPlayerSeatRequestAccess,
   isTournamentInterestOpen,
-  isTournamentInterestFor,
   type PlayerAccount,
   type PlayerClubSnapshot,
   type PlayerSyncGame,
@@ -75,10 +74,29 @@ export function filterTournaments({
   tournaments
 }: FilterTournamentsOptions): TournamentOpportunity[] {
   const query = rawQuery.trim().toLowerCase();
+  if (tournaments.length === 0) return [];
+
+  const clubsById = new Map<string, PlayerClubSnapshot>();
+  for (const club of clubs) {
+    const id = club.club.id;
+    if (!clubsById.has(id)) clubsById.set(id, club);
+  }
+  const interestsByClub = new Map<string, Map<string, PlayerTournamentInterest>>();
+  for (const interest of interests) {
+    if (interest.playerId !== playerId || interest.status !== 'interested') continue;
+    const { clubId, tournamentId } = interest;
+    let byTournament = interestsByClub.get(clubId);
+    if (!byTournament) {
+      byTournament = new Map<string, PlayerTournamentInterest>();
+      interestsByClub.set(clubId, byTournament);
+    }
+    if (!byTournament.has(tournamentId)) byTournament.set(tournamentId, interest);
+  }
+
   return tournaments
     .map((tournament) => {
-      const club = clubs.find((item) => item.club.id === tournament.clubId);
-      const interest = interests.find((item) => isTournamentInterestFor(item, tournament) && item.playerId === playerId && item.status === 'interested');
+      const club = clubsById.get(tournament.clubId);
+      const interest = interestsByClub.get(tournament.clubId)?.get(tournament.id);
       const distanceMiles = club ? getClubDistance(club, originCoordinate) : null;
       return { tournament, club, interest, distanceMiles };
     })

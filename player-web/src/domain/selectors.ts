@@ -6,8 +6,7 @@ import {
   isActivePlayerGameRequest,
   isMembershipCurrentlyActive,
   isPlayerMembership,
-  isPlayerWaitlistEntry,
-  isTournamentInterestFor
+  isPlayerWaitlistEntry
 } from '@orbit/player-domain/playerSync';
 import type {
   ClubFilters,
@@ -20,6 +19,7 @@ import type {
   PlayerClubSnapshot,
   PlayerSyncGame,
   PlayerTournament,
+  PlayerTournamentInterest,
   TournamentFilters,
   TournamentListing
 } from './types';
@@ -194,11 +194,29 @@ export function filterTournaments(
 ): TournamentListing[] {
   const query = filters.query.trim().toLowerCase();
   const maximumDistance = Number(filters.distance);
+  if (discovery.tournaments.length === 0) return [];
+
+  const clubsById = new Map<string, PlayerClubSnapshot>();
+  for (const club of discovery.clubs) {
+    const id = club.club.id;
+    if (!clubsById.has(id)) clubsById.set(id, club);
+  }
+  const interestsByClub = new Map<string, Map<string, PlayerTournamentInterest>>();
+  for (const interest of discovery.interests) {
+    if (playerId && interest.playerId !== playerId) continue;
+    const { clubId, tournamentId } = interest;
+    let byTournament = interestsByClub.get(clubId);
+    if (!byTournament) {
+      byTournament = new Map<string, PlayerTournamentInterest>();
+      interestsByClub.set(clubId, byTournament);
+    }
+    if (!byTournament.has(tournamentId)) byTournament.set(tournamentId, interest);
+  }
+
   return discovery.tournaments
     .map((tournament) => {
-      const club = discovery.clubs.find((candidate) => candidate.club.id === tournament.clubId);
-      const interest = discovery.interests.find((candidate) =>
-        isTournamentInterestFor(candidate, tournament) && (!playerId || candidate.playerId === playerId));
+      const club = clubsById.get(tournament.clubId);
+      const interest = interestsByClub.get(tournament.clubId)?.get(tournament.id);
       return {
         tournament,
         club,
