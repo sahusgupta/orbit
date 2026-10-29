@@ -83,6 +83,9 @@ function createMemoryStore(documents = memoryDocuments) {
       const normalized = validateDocumentPath(documentPath);
       return documents.has(normalized) ? clone(documents.get(normalized)) : null;
     },
+    async getDocuments(documentPaths) {
+      return Promise.all(documentPaths.map((documentPath) => store.getDocument(documentPath)));
+    },
     async setDocument(documentPath, value, options = {}) {
       const normalized = validateDocumentPath(documentPath);
       const previous = documents.get(normalized);
@@ -155,6 +158,11 @@ function createAdminFirestoreStore() {
       const snapshot = await transaction.get(reference(documentPath));
       return snapshot.exists ? snapshot.data() : null;
     },
+    async getDocuments(documentPaths) {
+      if (!documentPaths.length) return [];
+      const snapshots = await transaction.getAll(...documentPaths.map(reference));
+      return snapshots.map((snapshot) => snapshot.exists ? snapshot.data() : null);
+    },
     setDocument(documentPath, value, options = {}) {
       transaction.set(reference(documentPath), normalizeFirestoreValue(value), options);
     },
@@ -173,6 +181,11 @@ function createAdminFirestoreStore() {
     async getDocument(documentPath) {
       const snapshot = await reference(documentPath).get();
       return snapshot.exists ? snapshot.data() : null;
+    },
+    async getDocuments(documentPaths) {
+      if (!documentPaths.length) return [];
+      const snapshots = await database.getAll(...documentPaths.map(reference));
+      return snapshots.map((snapshot) => snapshot.exists ? snapshot.data() : null);
     },
     async setDocument(documentPath, value, options = {}) {
       await reference(documentPath).set(normalizeFirestoreValue(value), options);

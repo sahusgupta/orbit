@@ -165,10 +165,21 @@ function encodeState(state) {
 
 async function readStateChunks(reader, accountKey, revision, chunkCount) {
   const chunks = [];
-  for (let index = 0; index < Number(chunkCount || 0); index += 1) {
-    const chunk = await reader.getDocument(stateChunkPath(accountKey, revision, index));
-    if (!chunk?.payload) throw new Error(`Authoritative Firestore state chunk ${index} is missing.`);
-    chunks.push(Buffer.from(chunk.payload));
+  const count = Number(chunkCount || 0);
+  const supportsBatchReads = typeof reader.getDocuments === 'function';
+  // Normal states fit in one bounded native read. Retain bounded groups for
+  // legacy headers and serial compatibility for injected readers.
+  for (let start = 0; start < count; start += maximumStateChunks) {
+    const paths = [];
+    for (let index = start; index < count && index < start + maximumStateChunks; index += 1) {
+      paths.push(stateChunkPath(accountKey, revision, index));
+    }
+    const records = supportsBatchReads ? await reader.getDocuments(paths) : null;
+    for (let offset = 0; offset < paths.length; offset += 1) {
+      const chunk = supportsBatchReads ? records[offset] : await reader.getDocument(paths[offset]);
+      if (!chunk?.payload) throw new Error(`Authoritative Firestore state chunk ${start + offset} is missing.`);
+      chunks.push(Buffer.from(chunk.payload));
+    }
   }
   if (!chunks.length) return null;
   return JSON.parse(zlib.gunzipSync(Buffer.concat(chunks)).toString('utf8'));
