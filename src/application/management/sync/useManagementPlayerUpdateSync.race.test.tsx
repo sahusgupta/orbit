@@ -27,6 +27,7 @@ describe.each(['desktop', 'browser'] as const)('%s poll ordering', (mode) => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
     savePending = false;
     stateRef = { current: structuredClone(seedState) };
     stateRef.current.settings.pilotAccess = { authorized: true, licenseId: 'sync-test', authorizationCode: 'test-only', activatedAt: '2026-09-10', expiresAt: '2099-12-31' };
@@ -42,7 +43,7 @@ describe.each(['desktop', 'browser'] as const)('%s poll ordering', (mode) => {
     document.body.append(container);
     root = createRoot(container);
   });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.useRealTimers(); localStorage.clear(); });
+  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.useRealTimers(); localStorage.clear(); });
   const mount = async () => {
     function Harness() {
       useManagementPlayerUpdateSync({ activeAccountKey: 'sync-test', announceIncomingPlayerRequest: vi.fn(), hasAuthenticated: true,
@@ -76,6 +77,26 @@ describe.each(['desktop', 'browser'] as const)('%s poll ordering', (mode) => {
   it('does not overlap slow polls', async () => {
     await mount();
     await act(async () => vi.advanceTimersByTime(6000));
+    expect(loader).toHaveBeenCalledTimes(1);
+  });
+  it('discards an in-flight response when a save starts before it completes', async () => {
+    await mount();
+    savePending = true;
+    await act(async () => resolveLoad(withBalance(90)));
+    expect(stateRef.current.playerSessions[0].timeRemainingMinutes).toBe(60);
+    expect(setState).not.toHaveBeenCalled();
+    expect(clearUndo).not.toHaveBeenCalled();
+  });
+  it('does not merge or poll again after unmount', async () => {
+    await mount();
+    await act(async () => root.unmount());
+    await act(async () => {
+      resolveLoad(withBalance(90));
+      vi.advanceTimersByTime(600_000);
+    });
+    expect(stateRef.current.playerSessions[0].timeRemainingMinutes).toBe(60);
+    expect(setState).not.toHaveBeenCalled();
+    expect(clearUndo).not.toHaveBeenCalled();
     expect(loader).toHaveBeenCalledTimes(1);
   });
   if (mode === 'desktop') it('rejects offline cache snapshots', async () => {

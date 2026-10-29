@@ -91,6 +91,10 @@ npm run test:firestore-rules
 
 Do not deploy rules, indexes, API code, or public pages without separate authorization.
 
+## Local iOS build and upload
+
+The [local Mac/Xcode runbook](./LOCAL_IOS_BUILD.md) generates a persistent production iOS project, archives with the approved production bundle environment, and uploads through Apple's tools. It requires a Mac, Xcode, and the intended Apple signing team. This route does not use EAS cloud-build quota or EAS Submit; the remote EAS build-number counter does not apply.
+
 ## Cloud build and TestFlight
 
 The `simulator` EAS profile inherits production code, environment, and the Xcode image, targets the iOS Simulator, and disables build-number auto-increment. It provides native compiler/QA evidence before Apple signing is available. Run the pinned CLI from `player-app`: `node ../node_modules/eas-cli/bin/run build --platform ios --profile simulator --non-interactive`. Record its committed source SHA and build ID. This artifact cannot be uploaded by the TestFlight submission guard, and it cannot prove real App Attest on supported hardware.

@@ -133,14 +133,38 @@ export const useManagementPlayerUpdateSync = ({
     if (!hasAuthenticated || !activeAccountKey || !hasManagementDesktopPersistence() || !state.settings.pilotAccess) return;
     let cancelled = false;
     let syncInFlight = false;
+    let timer: number | undefined;
+    const pollIntervalMs = 30_000;
+    const maximumRetryDelayMs = 5 * 60_000;
+    let retryDelayMs = pollIntervalMs;
+    let nextPollAt = Date.now();
+
+    const clearTimer = () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = undefined;
+    };
+
+    const scheduleNextPoll = () => {
+      clearTimer();
+      if (cancelled || document.hidden || syncInFlight) return;
+      timer = window.setTimeout(() => void syncDesktopApiUpdates(), Math.max(0, nextPollAt - Date.now()));
+    };
 
     const syncDesktopApiUpdates = async () => {
-      if (cancelled || syncInFlight || isManagementSavePending(activeAccountKey)) return;
+      if (cancelled || document.hidden || syncInFlight) return;
+      if (isManagementSavePending(activeAccountKey)) {
+        nextPollAt = Date.now() + pollIntervalMs;
+        scheduleNextPoll();
+        return;
+      }
       syncInFlight = true;
       const stateWhenLoadStarted = stateRef.current;
+      let readSucceeded = false;
       try {
         const record = await loadDesktopManagementStateForAccount(state.settings.pilotAccess!);
-        if (cancelled || !record?.state || record.authoritative === false ||
+        if (!record?.state || record.authoritative === false) return;
+        readSucceeded = true;
+        if (cancelled ||
           isManagementSavePending(activeAccountKey) || stateRef.current !== stateWhenLoadStarted) return;
         const remoteState = normalizeState(record.state);
         const latestState = stateRef.current;
@@ -154,17 +178,28 @@ export const useManagementPlayerUpdateSync = ({
         saveBrowserManagementState(mergedState);
         setSaveStatus({ state: 'saved', message: 'Player operations synced' });
       } catch {
-        // The next authoritative API poll retries without accepting cache data as a commit.
+        readSucceeded = false;
+        // Retry failed reads more slowly without accepting cache data as a commit.
       } finally {
         syncInFlight = false;
+        retryDelayMs = readSucceeded ? pollIntervalMs : Math.min(retryDelayMs * 2, maximumRetryDelayMs);
+        nextPollAt = Date.now() + retryDelayMs;
+        scheduleNextPoll();
       }
     };
 
-    void syncDesktopApiUpdates();
-    const timer = window.setInterval(() => void syncDesktopApiUpdates(), 3_000);
+    const handleVisibilityChange = () => {
+      // Retain the deadline so hiding and showing cannot bypass failure backoff.
+      if (document.hidden) clearTimer();
+      else scheduleNextPoll();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    if (!document.hidden) void syncDesktopApiUpdates();
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      clearTimer();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [activeAccountKey, hasAuthenticated, state.settings.pilotAccess?.licenseId]);
 };
