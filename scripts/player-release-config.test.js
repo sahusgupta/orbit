@@ -22,6 +22,28 @@ const {
 } = require('../player-app/release-config.cjs');
 
 describe('Orbit Player EAS build configuration', () => {
+  it('locks the reviewed SDK 58 patches to their installed native runtime', () => {
+    const reviewedPatches = {
+      expo: '58.0.21',
+      'expo-asset': '58.0.19',
+      'expo-camera': '58.0.14',
+      'expo-constants': '58.0.14',
+      'expo-font': '58.0.11',
+      'expo-location': '58.0.20',
+      'expo-splash-screen': '58.0.12',
+      'react-native': '0.88.1'
+    };
+    const bundledNativeModules = JSON.parse(fs.readFileSync(path.join(playerRoot, 'node_modules', 'expo', 'bundledNativeModules.json'), 'utf8'));
+    for (const [name, version] of Object.entries(reviewedPatches)) {
+      const installed = JSON.parse(fs.readFileSync(path.join(playerRoot, 'node_modules', name, 'package.json'), 'utf8'));
+      expect(playerPackage.dependencies[name], name).toBe(version);
+      expect(installed.version, name).toBe(version);
+      if (name !== 'expo') {
+        expect(bundledNativeModules[name].replace(/^~/, ''), name).toBe(version);
+      }
+    }
+  });
+
   it('aligns the user-selected iOS identity with native Firebase while preserving Android identity', () => {
     const app = JSON.parse(fs.readFileSync(path.join(playerRoot, 'app.json'), 'utf8')).expo;
     const configured = createExpoConfig(app, eas.build.production.env);

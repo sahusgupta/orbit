@@ -24,11 +24,11 @@ function lowSeverityFixture() {
     ],
     review: {
       allowed: ['deepmerge', '@expo/config'],
-      reviewedVersions: { deepmerge: ['4.3.1'], '@expo/config': ['58.0.8'] },
+      reviewedVersions: { deepmerge: ['4.3.1'], '@expo/config': ['58.0.9'] },
       reviewedSeverities: { deepmerge: 'low', '@expo/config': 'low' },
       reviewedAdvisories: { deepmerge: [advisory] }
     },
-    lock: { packages: { 'node_modules/deepmerge': { version: '4.3.1' }, 'node_modules/@expo/config': { version: '58.0.8' } } }
+    lock: { packages: { 'node_modules/deepmerge': { version: '4.3.1' }, 'node_modules/@expo/config': { version: '58.0.9' } } }
   };
 }
 

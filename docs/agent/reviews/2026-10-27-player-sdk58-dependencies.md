@@ -74,3 +74,67 @@ A fresh all-scope audit after the acceptance found additional, unaccepted findin
 - No `.easignore` exists at the repository root or in `player-app`; EAS source selection therefore relies on the existing Git ignore rules. A tracked-path scan for environment, private-key, credential, and signing patterns returned only the four `.env.example` template paths. No template or credential contents were inspected by that scan. This is not a complete EAS archive inspection; inspect the exact build archive and its authored-source identity before submission.
 
 The enclosing preparation task owns aggregate `npm run verify`, Expo checks/export, native generation, the post-remediation aggregate audit, and final diff/status evidence. This review does not assign results to checks it did not execute. Only the explicit bounded Player acceptance above was implemented by this audit; no cloud build started, signing credentials accessed, production application service called, or App Store upload performed.
+
+## October 28 compatible patch refresh
+
+The subsequent release preparation at committed source `758227d` encountered Expo's live compatibility check requiring seven newer SDK 58 module patches. This section records the resulting same-SDK refresh; the October 27 observations above remain historical. The current Expo [module recommendations](https://github.com/expo/expo/blob/sdk-58/packages/expo/bundledNativeModules.json) and [Expo 58.0.21 release notes](https://github.com/expo/expo/blob/sdk-58/packages/expo/CHANGELOG.md) additionally require React Native `0.88.1`. The new Camera, Font, Location, and Expo Modules Core iOS binaries are rebuilt against that React Native patch, so leaving the previous `0.88.0` pin would not complete compatibility alignment.
+
+| Direct dependency | Prior locked selection | Refreshed exact selection | Primary release evidence |
+| --- | --- | --- | --- |
+| Expo | `58.0.20` | `58.0.21` | [Runtime/tooling dependencies and RN alignment](https://github.com/expo/expo/blob/sdk-58/packages/expo/CHANGELOG.md) |
+| Expo Asset | `58.0.18` | `58.0.19` | [Constants and image-utils dependency updates](https://github.com/expo/expo/blob/sdk-58/packages/expo-asset/CHANGELOG.md) |
+| Expo Camera | `58.0.13` | `58.0.14` | [Precompiled iOS binary rebuild](https://github.com/expo/expo/blob/sdk-58/packages/expo-camera/CHANGELOG.md) |
+| Expo Constants | `58.0.13` | `58.0.14` | [Require-utils dependency update](https://github.com/expo/expo/blob/sdk-58/packages/expo-constants/CHANGELOG.md) |
+| Expo Font | `58.0.10` | `58.0.11` | [Precompiled iOS binary rebuild](https://github.com/expo/expo/blob/sdk-58/packages/expo-font/CHANGELOG.md) |
+| Expo Location | `58.0.19` | `58.0.20` | [iOS rebuild and Android background-service fixes](https://github.com/expo/expo/blob/sdk-58/packages/expo-location/CHANGELOG.md) |
+| Expo Splash Screen | `58.0.11` | `58.0.12` | [Config-plugin and image-utils dependency updates](https://github.com/expo/expo/blob/sdk-58/packages/expo-splash-screen/CHANGELOG.md) |
+| React Native | `0.88.0` | `0.88.1` | [Native/JSI, layout, and iOS fixes](https://github.com/react/react-native/releases/tag/v0.88.1) |
+
+The inherited application configuration still disables background location and keeps the existing foreground-only permission boundary. This dependency refresh does not enable the background services mentioned by upstream Location release notes. React/React DOM `19.3.0`, Firebase native packages `26.4.0`, Maps `1.29.11`, Node/npm `22.16.0`/`10.9.2`, and EAS CLI `23.2.0` remain unchanged. The already reviewed `re2js@2.8.7` leaf correction is preserved.
+
+Relevant transitive changes include Expo CLI `58.1.17`, Config `58.0.9`, Config Plugins `58.0.11`, Local Build Cache Provider `58.0.9`, Metro Config `58.0.19`, Prebuild Config `58.0.17`, Modules Core `58.0.28`, JSI `58.0.21`, Modules Macros `0.27.1`, and the React Native/Hermes dependency family. Upstream [Modules Core notes](https://github.com/expo/expo/blob/sdk-58/packages/expo-modules-core/CHANGELOG.md) describe native macro/event handling and inspector repairs; [Modules CLI 0.4.0](https://github.com/expo/expo/blob/sdk-58/packages/expo-modules-cli/CHANGELOG.md) adds Swift macro inspection commands. These are real native/tooling changes, not a claim of byte-identical runtime output. Fresh export, generated-native, compiler, and device evidence remain necessary.
+
+The settled Player lock has 627 records and SHA-256 `519da33c2be26a1f5bf102fd3a206eb868f3440388441b7818ecc13c1ddc78e5`; the prior committed lock hash was `fcba9820f1d13c9bff1efa95fea7d3e004981d909b284956522a198a7289f5bd`. Comparing with `HEAD` found 52 changed/new-path records, including 44 version changes at retained paths and dependency hoisting moves. The unique package-name set did not gain or lose a package, every changed resolved URL uses the public npm registry, and the `re2js@2.8.7` record is unchanged. This audit did not run a broad `npm audit fix` or edit any dependency manifest/lockfile.
+
+Fresh `npm audit --omit=dev --json` from Player returned exit 1 with the same eight affected names, exactly the same three High/five Low severities, zero Critical, and only the previously accepted Zod and Deepmerge origins. Their leaf versions remain `zod@3.25.76` and `deepmerge@4.3.1`; no new exception or advisory origin was accepted. The policy refresh replaces only these six exact parent-version selections:
+
+| Accepted parent | Prior exact policy version | Current exact policy version |
+| --- | --- | --- |
+| `@expo/cli` | `58.1.16` | `58.1.17` |
+| `@expo/config` | `58.0.8` | `58.0.9` |
+| `@expo/local-build-cache-provider` | `58.0.8` | `58.0.9` |
+| `@expo/metro-config` | `58.0.18` | `58.0.19` |
+| `@expo/prebuild-config` | `58.0.16` | `58.0.17` |
+| `expo` | `58.0.20` | `58.0.21` |
+
+The eight-name list, both originating advisory URLs, exact severity mapping, empty root/API/Web exception lists, unconditional Critical prohibition, and **November 3** review deadline are unchanged. The policy test's Config fixture was updated to `58.0.9` so its actual-policy acceptance assertion continues to test the current exact pin; no rejection assertion was removed.
+
+Checks performed for this refresh:
+
+- Before changes, `npm run security:dependencies`: passed; root/API/Web had zero findings, Player retained the exact eight reviewed entries.
+- After the settled patch lock and six-parent policy refresh, `npm run security:dependencies`: passed with the same counts and November 3 deadline.
+- `npx --no-install vitest run scripts/dependency-review-constraints.test.js`: all 19 tests passed both before and after the fixture refresh.
+- Player's raw audit remains exit 1 because the accepted vulnerabilities still exist; the successful policy gate reports those findings rather than suppressing them.
+
+The release-preparation task and dependency-install owner record clean-install, Expo compatibility/Doctor, aggregate verification, export/native-generation, and subsequent candidate results separately. This advisory review alone proves no successful iOS compilation, signing, device installation, App Attest exchange, or App Store upload.
+
+### Independently verified public compatibility-metadata conflict
+
+During October 28 validation, the credential-free [SDK 58 native-module endpoint](https://api.expo.dev/v2/sdks/58.0.0/native-modules) returned React Native `0.88.1`, and every one of its 124 module names/ranges exactly matched installed Expo `58.0.21`'s published `bundledNativeModules.json`. The separate [versions/latest endpoint](https://api.expo.dev/v2/versions/latest) identified the same Expo release as `~58.0.21` but still advertised `facebookReactNativeVersion: 0.88.0`. The pinned Expo CLI merges that general version metadata after its native-module matrix, which explains its sole recommendation to downgrade the installed `0.88.1`. Upstream Expo/Camera/Font/Location release evidence above requires retaining `0.88.1`.
+
+Before resolution, the original live `expo install --check` exited 1 with exactly that RN mismatch. Original Expo Doctor `1.20.4` ran all 20 checks and exited 1: **19/20 passed**, with only the package-version check reporting expected `0.88.0`, found `0.88.1`. Those are the raw tool results; they are not described as a 20/20 Doctor pass.
+
+The focused [compatibility validator](../../../scripts/player-expo-compatibility.mjs) preserves the original command output and independently verifies the disputed property. The check action always runs both the live, cache-disabled `expo install --check` and a second explicitly offline bundled-SDK check. A resolution is possible only for installed Expo `58.0.21`, installed/bundled RN `0.88.1`, an otherwise successful offline check, and the exact sole live mismatch above. It then freshly fetches both fixed HTTPS endpoints without credentials, cache reuse, or redirects and requires the reviewed versions/latest conflict plus equality of the **entire** fresh native-module matrix with the bundled matrix. Any extra mismatch, different version/SDK, changed module set/range, duplicated record, unexpected output/status, malformed response, network failure, or changed endpoint remains a failure. If a cached CLI result disagrees with newly corrected live metadata, the resolution fails rather than relying on the old snapshot.
+
+Doctor still executes its complete original online check set normally. Its resolver accepts only Doctor `1.20.4`'s exact sole package-version failure and raw 19/20 result above, then reruns the full live/offline compatibility validation and fresh endpoint proof. Any other failed check, warning, package mismatch, reduced check count, changed source version, or failure to independently reproduce the metadata conflict remains fatal. Online validation explicitly removes inherited offline, nonproduction-host, platform-narrowing, Doctor check-skip/directory-disable, and network-error-ignore overrides. No Doctor check is excluded or run offline. Normal raw 20/20 success remains a separate supported outcome.
+
+The `check` and `doctor` actions print their original failures and a separate explanation when the property has been independently verified; successful wrapper exit does not erase the raw exit-1 evidence. Config and export actions keep their existing implementations and failure behavior. No dependency, `node_modules`, exclusion list, audit policy scope, advisory deadline, or application protocol was changed to resolve this metadata error.
+
+Executed evidence after this change:
+
+- `npx --no-install vitest run scripts/player-expo-compatibility.test.js scripts/dependency-review-constraints.test.js`: **80 tests passed** (61 metadata/transport/environment/Doctor tests and 19 existing policy tests). Negative cases cover wrong installed RN even when stale live data recommends it, unreviewed SDKs, extra/unknown mismatches, unsuccessful commands, offline failures, stale-versus-fresh metadata, endpoint/network/shape failures, and additional or altered Doctor failures.
+- `npm run player:expo:check`: wrapper exit 0 after printing the original sole live RN mismatch, successful bundled-SDK check, and fresh official-matrix resolution.
+- `npm run player:expo:doctor`: wrapper exit 0 after printing the original raw **19/20 / exit 1** Doctor result and independently verifying its sole incorrectly computed compatibility property through both checks and both fresh endpoints.
+- `npm run player:config:verify` and `npm run player:release:verify`: passed; production configuration, permission, entitlement, and release assertions remain enforced.
+
+Aggregate verification, export, actual native compilation, signing, and device acceptance remain owned by the enclosing task. This narrowly versioned resolver does not establish any of those outcomes or accept an additional security risk.
