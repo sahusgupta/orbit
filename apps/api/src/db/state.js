@@ -211,7 +211,6 @@ async function saveState(state, options = {}) {
   const database = await getDatabase();
   const accountKey = getAccountKeyFromState(state);
   const savedAt = new Date().toISOString();
-  const venueName = state.settings?.clubAccount?.clubName || '';
   const mutationId = String(options.mutationId || crypto.randomUUID()).trim().slice(0, 180);
   const mutationType = String(options.mutationType || 'state-replace').trim().slice(0, 80);
   const globalMutationScope = String(options.globalMutationScope || '').trim();
@@ -311,6 +310,7 @@ async function saveState(state, options = {}) {
       }
       transactionResult = evaluated?.result || null;
     }
+    const venueName = stateToCommit.settings?.clubAccount?.clubName || '';
     const encoded = encodeState(stateToCommit);
     const revision = currentRevision + 1;
     const changedEntityCount = countEntityChanges(previousState, stateToCommit);
