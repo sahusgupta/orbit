@@ -32,6 +32,8 @@ export async function proxy(request: NextRequest) {
       });
     } finally {
       clearTimeout(timeout);
+      // Authorization uses headers only; release the unused response body.
+      controller.abort();
     }
     if (!verification.ok) return signInRedirect(request);
     return NextResponse.next();

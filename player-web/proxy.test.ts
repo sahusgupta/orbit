@@ -99,4 +99,61 @@ describe('Player Web protected-route proxy', () => {
 
     await expect(pendingResponse).resolves.toMatchObject({ status: 307 });
   });
+
+  it.each([200, 204, 299, 300, 401, 403, 500])('keeps the status-only authorization decision for HTTP %i without parsing a body', async (status) => {
+    vi.useFakeTimers();
+    const verification = new Response(status === 204 ? null : '{ malformed synthetic body', { status });
+    const readJson = vi.spyOn(verification, 'json');
+    const readText = vi.spyOn(verification, 'text');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(verification);
+
+    const response = await proxy(protectedRequest('/clubs?tab=nearby', 'synthetic-status-token'));
+
+    expect(readJson).not.toHaveBeenCalled();
+    expect(readText).not.toHaveBeenCalled();
+    if (status < 300) {
+      expect(response.headers.get('x-middleware-next')).toBe('1');
+      expect(response.headers.get('set-cookie')).toBeNull();
+    } else {
+      expect(response.status).toBe(307);
+      expect(response.headers.get('location')).toBe('https://player.example/sign-in?returnTo=%2Fclubs%3Ftab%3Dnearby');
+      expect(response.headers.get('set-cookie')).toContain(`${PLAYER_SESSION_COOKIE}=`);
+      expect(response.headers.get('set-cookie')).toContain(`${PLAYER_APP_CHECK_COOKIE}=`);
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('returns after successful headers without waiting for an unused JSON body', async () => {
+    const verification = new Response(new ReadableStream<Uint8Array>(), { status: 200 });
+    const readJson = vi.spyOn(verification, 'json');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(verification);
+
+    try {
+      const response = await proxy(protectedRequest('/games', 'synthetic-stream-token'));
+      expect(response.headers.get('x-middleware-next')).toBe('1');
+      expect(readJson).not.toHaveBeenCalled();
+      expect(verification.bodyUsed).toBe(false);
+    } finally {
+      await verification.body?.cancel();
+    }
+  });
+
+  it.each([200, 401, 500])('releases the verification transport after HTTP %i headers', async (status) => {
+    vi.useFakeTimers();
+    const verification = new Response(new ReadableStream<Uint8Array>(), { status });
+    let signal: AbortSignal | null | undefined;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      signal = init?.signal;
+      return verification;
+    });
+
+    try {
+      const response = await proxy(protectedRequest('/clubs', 'synthetic-cleanup-token'));
+      expect(response.status).toBe(status === 200 ? 200 : 307);
+      expect(signal?.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      await verification.body?.cancel();
+    }
+  });
 });
