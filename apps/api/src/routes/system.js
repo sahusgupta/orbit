@@ -26,7 +26,7 @@ function sendPublicAlias(response, fileName, canonicalPath) {
   response.set('x-robots-tag', 'noindex, follow');
   const canonical = publicCanonicalUrl(canonicalPath);
   if (canonical) response.set('link', `<${canonical}>; rel="canonical"`);
-  response.sendFile(path.join(publicDirectory, fileName));
+  response.sendFile(fileName, { root: publicDirectory });
 }
 
 function registerHealthRoute(app, startedAt) {
@@ -71,11 +71,11 @@ function registerLegalRoutes(app) {
   });
 
   app.get('/legal.css', (_request, response) => {
-    response.sendFile(path.join(publicDirectory, 'legal.css'));
+    response.sendFile('legal.css', { root: publicDirectory });
   });
 
   app.get('/orbit-logo.svg', (_request, response) => {
-    response.sendFile(path.join(publicDirectory, 'orbit-logo.svg'));
+    response.sendFile('orbit-logo.svg', { root: publicDirectory });
   });
 }
 
