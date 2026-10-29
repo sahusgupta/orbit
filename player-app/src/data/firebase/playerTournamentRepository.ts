@@ -1,6 +1,7 @@
 import { isTournamentInterestOpen, tournamentScopeKey, type PlayerAccount, type PlayerTournament, type PlayerTournamentInterest } from '../../domain/playerSync';
 import { fetchPublicPlayerDiscovery, fetchRemotePlayerDiscovery, submitRemoteTournamentMutation, submitRemoteTournamentRegistration } from '../api/playerHttpApi';
 import { ensureSignedInIdentity, getCurrentFirebasePlayer } from './playerAuth';
+import { createPlayerPollingSubscription } from '../subscriptions/playerPollingSubscription';
 
 export const playerTournamentRefreshIntervalMs = 60_000;
 const tournamentDiscoveryPageSize = 50;
@@ -84,39 +85,19 @@ export function subscribeToPlayerTournaments(
   onError: (error: Error) => void = () => undefined
 ) {
   let active = true;
-  let refreshInFlight: Promise<void> | null = null;
-  let refreshTimer: ReturnType<typeof setInterval> | undefined;
-  const refresh = () => {
-    if (!active) return Promise.resolve();
-    if (refreshInFlight) return refreshInFlight;
-    refreshInFlight = fetchPlayerTournaments(playerId)
+  const refreshOperation = () => fetchPlayerTournaments(playerId)
       .then((result) => {
         if (active) callback(result);
       })
       .catch((error) => {
         if (active) onError(error instanceof Error ? error : new Error('Unable to refresh tournaments.'));
-      })
-      .finally(() => {
-        refreshInFlight = null;
       });
-    return refreshInFlight;
-  };
-  const stopPolling = () => {
-    if (!refreshTimer) return;
-    clearInterval(refreshTimer);
-    refreshTimer = undefined;
-  };
-  const startPolling = () => {
-    stopPolling();
-    refreshTimer = setInterval(() => void refresh(), playerTournamentRefreshIntervalMs);
-  };
+  const polling = createPlayerPollingSubscription(refreshOperation, playerTournamentRefreshIntervalMs);
   return {
-    refresh,
-    startPolling,
-    stopPolling,
+    ...polling,
     unsubscribe() {
       active = false;
-      stopPolling();
+      polling.unsubscribe();
     }
   };
 }

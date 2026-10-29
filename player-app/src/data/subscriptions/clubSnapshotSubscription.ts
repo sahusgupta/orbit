@@ -1,5 +1,6 @@
 import type { PlayerAccount, PlayerClubSnapshot } from '../../domain/playerSync';
 import { fetchAllClubSnapshots } from '../firebase/clubSnapshotRepository';
+import { createPlayerPollingSubscription } from './playerPollingSubscription';
 
 export const cardHouseGameRefreshIntervalMs = 60_000;
 export type ClubSnapshotSubscriptionResult =
@@ -11,15 +12,10 @@ export function subscribeToAllClubSnapshots(
   callback: (result: ClubSnapshotSubscriptionResult) => void
 ) {
   let disposed = false;
-  let refreshInFlight: Promise<void> | null = null;
-  let refreshTimer: ReturnType<typeof setInterval> | undefined;
   let latestClubs: PlayerClubSnapshot[] = [];
   let latestPartial = false;
 
-  const refresh = () => {
-    if (disposed) return Promise.resolve();
-    if (refreshInFlight) return refreshInFlight;
-    refreshInFlight = fetchAllClubSnapshots(player)
+  const refreshOperation = () => fetchAllClubSnapshots(player)
       .then((result) => {
         if (disposed) return;
         if (result.ok) {
@@ -39,31 +35,14 @@ export function subscribeToAllClubSnapshots(
             ? { ...failure, clubs: latestClubs, stale: true }
             : failure);
         }
-      })
-      .finally(() => {
-        refreshInFlight = null;
       });
-    return refreshInFlight;
-  };
-
-  const stopPolling = () => {
-    if (!refreshTimer) return;
-    clearInterval(refreshTimer);
-    refreshTimer = undefined;
-  };
-
-  const startPolling = () => {
-    stopPolling();
-    refreshTimer = setInterval(() => void refresh(), cardHouseGameRefreshIntervalMs);
-  };
+  const polling = createPlayerPollingSubscription(refreshOperation, cardHouseGameRefreshIntervalMs);
 
   return {
-    refresh,
-    startPolling,
-    stopPolling,
+    ...polling,
     unsubscribe: () => {
       disposed = true;
-      stopPolling();
+      polling.unsubscribe();
     }
   };
 }
