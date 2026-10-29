@@ -32,6 +32,126 @@ import {
 import { clubAlpha, clubBeta, discovery, formingGame, interest, openTournament, paidTournament, player, runningGame, scheduledGame } from '@/tests/fixtures';
 
 const gameFilters = { query: '', gameType: 'all', stakes: 'all', venue: 'all', status: 'all', distance: '0' };
+const tournamentFilters = { query: '', club: 'all', distance: '0', interest: 'all' };
+
+describe('Web tournament discovery joins', () => {
+  it('keeps the first club and first matching player record even when that record was withdrawn', () => {
+    const firstClub = { ...clubAlpha, club: { ...clubAlpha.club, name: 'First venue' } };
+    const duplicateClub = { ...clubAlpha, club: { ...clubAlpha.club, name: 'Later venue' } };
+    const selected = { ...interest, id: 'first-for-player', status: 'withdrawn' as const };
+    const payload = {
+      ...discovery,
+      clubs: [firstClub, duplicateClub],
+      tournaments: [openTournament],
+      interests: [{ ...interest, playerId: 'other' }, selected, { ...interest, id: 'later-interested' }]
+    };
+
+    const [listing] = filterTournaments(payload, tournamentFilters, player.id);
+    expect(listing?.club).toBe(firstClub);
+    expect(listing?.interest).toBe(selected);
+    expect(filterTournaments(payload, { ...tournamentFilters, query: 'later venue' }, player.id)).toEqual([]);
+    expect(filterTournaments(payload, { ...tournamentFilters, interest: 'interested' }, player.id)).toEqual([]);
+  });
+
+  it('keeps the first record from any player for anonymous discovery and requires the named player otherwise', () => {
+    const otherPlayer = { ...interest, playerId: 'other', id: 'other-player-first' };
+    const payload = { ...discovery, tournaments: [openTournament], interests: [otherPlayer, interest] };
+    expect(filterTournaments(payload, tournamentFilters)[0]?.interest).toBe(otherPlayer);
+    expect(filterTournaments(payload, tournamentFilters, player.id)[0]?.interest).toBe(interest);
+    expect(filterTournaments(payload, tournamentFilters, 'missing-player')[0]?.interest).toBeUndefined();
+  });
+
+  it('keeps raw club and tournament tuple identities distinct, including separator and prototype-like IDs', () => {
+    const scopes = [
+      { clubId: 'a:b', id: 'c' },
+      { clubId: 'a', id: 'b:c' },
+      { clubId: '__proto__', id: 'constructor' },
+      { clubId: 'constructor', id: '__proto__' },
+      { clubId: '', id: '' }
+    ];
+    const clubs = scopes.map(({ clubId }) => ({ ...clubAlpha, club: { ...clubAlpha.club, id: clubId } }));
+    const tournaments = scopes.map((scope) => ({ ...openTournament, ...scope }));
+    const interests = scopes.map(({ clubId, id }, index) => ({ ...interest, clubId, tournamentId: id, id: `interest-${index}` }));
+    const listings = filterTournaments({ ...discovery, clubs, tournaments, interests }, tournamentFilters, player.id);
+
+    expect(listings).toHaveLength(scopes.length);
+    listings.forEach((listing, index) => {
+      expect(listing.club).toBe(clubs[index]);
+      expect(listing.tournament).toBe(tournaments[index]);
+      expect(listing.interest).toBe(interests[index]);
+    });
+  });
+
+  it('retains duplicate and past events, stable start-time order and input references without mutation', () => {
+    const firstTie = { ...openTournament, id: 'first-tie' };
+    const secondTie = { ...openTournament, id: 'second-tie' };
+    const past = { ...openTournament, id: 'past', startsAt: '2026-01-01T12:00:00.000Z' };
+    const later = { ...openTournament, id: 'later', startsAt: '2030-06-17T12:00:00.000Z' };
+    const payload = {
+      ...discovery,
+      clubs: [{ ...clubAlpha, club: { ...clubAlpha.club } }],
+      tournaments: [secondTie, later, past, firstTie, secondTie],
+      interests: [{ ...interest }]
+    };
+    const before = JSON.stringify(payload);
+    payload.clubs.forEach((item) => { Object.freeze(item.club); Object.freeze(item); });
+    payload.tournaments.forEach(Object.freeze);
+    payload.interests.forEach(Object.freeze);
+    Object.freeze(payload.clubs);
+    Object.freeze(payload.tournaments);
+    Object.freeze(payload.interests);
+
+    const listings = filterTournaments(payload, tournamentFilters, player.id);
+    expect(listings.map((listing) => listing.tournament)).toEqual([past, secondTie, firstTie, secondTie, later]);
+    expect(listings[1]?.tournament).toBe(secondTie);
+    expect(listings[3]?.tournament).toBe(secondTie);
+    expect(listings.every((listing) => listing.club === payload.clubs[0])).toBe(true);
+    expect(JSON.stringify(payload)).toBe(before);
+  });
+
+  it('returns empty discovery without reading unrelated club or interest records', () => {
+    let reads = 0;
+    const currentClub = { ...clubAlpha, club: { ...clubAlpha.club } };
+    const currentInterest = { ...interest };
+    Object.defineProperty(currentClub.club, 'id', { get: () => { reads += 1; return 'club-alpha'; } });
+    Object.defineProperty(currentInterest, 'clubId', { get: () => { reads += 1; return 'club-alpha'; } });
+
+    expect(filterTournaments({ ...discovery, clubs: [], tournaments: [], interests: [] }, tournamentFilters)).toEqual([]);
+    expect(filterTournaments({ ...discovery, clubs: [currentClub], tournaments: [], interests: [currentInterest] }, tournamentFilters)).toEqual([]);
+    expect(reads).toBe(0);
+  });
+
+  it.each([
+    { clubCount: 10, eventCount: 50, includeInterests: true },
+    { clubCount: 50, eventCount: 250, includeInterests: true },
+    { clubCount: 1_000, eventCount: 5_000, includeInterests: false },
+    { clubCount: 1_000, eventCount: 5_000, includeInterests: true }
+  ])('bounds related-record reads for $clubCount clubs / $eventCount events / interests=$includeInterests', ({ clubCount, eventCount, includeInterests }) => {
+    let clubReads = 0;
+    let interestReads = 0;
+    const clubs = Array.from({ length: clubCount }, (_, index) => {
+      const id = `club-${index}`;
+      const item = { ...clubAlpha, club: { ...clubAlpha.club, id } };
+      Object.defineProperty(item.club, 'id', { get: () => { clubReads += 1; return id; } });
+      return item;
+    });
+    const tournaments = Array.from({ length: eventCount }, (_, index) => ({ ...openTournament, id: `event-${index}`, clubId: `club-${index % clubCount}` }));
+    const interests = includeInterests ? tournaments.map((event, index) => {
+      const clubId = event.clubId;
+      const item = { ...interest, id: `interest-${index}`, clubId, tournamentId: event.id };
+      Object.defineProperty(item, 'clubId', { get: () => { interestReads += 1; return clubId; } });
+      return item;
+    }) : [];
+
+    const listings = filterTournaments({ ...discovery, clubs, tournaments, interests }, tournamentFilters, player.id);
+    expect(listings).toHaveLength(eventCount);
+    expect(listings[0]?.tournament).toBe(tournaments[0]);
+    expect(listings[eventCount - 1]?.interest).toBe(interests[eventCount - 1]);
+    // A linear budget allows implementation freedom without tolerating a scan per event.
+    expect.soft(clubReads).toBeLessThanOrEqual(4 * (clubCount + eventCount));
+    expect.soft(interestReads).toBeLessThanOrEqual(4 * (interests.length + eventCount));
+  });
+});
 
 describe('Player Web domain selectors', () => {
   it('normalizes route labels without losing a usable fallback', () => {
