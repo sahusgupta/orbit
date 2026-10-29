@@ -139,12 +139,18 @@ function createOrbitApiClient(dependencies) {
     }
   }
 
-  function getApiConfig() {
+  function getApiUrl() {
     // Vercel's generated hostname is valid without www. The www variant does not
     // currently present a matching TLS certificate and must not be used by clients.
-    const apiUrl = (environment.ORBIT_API_URL || 'https://orbitapp-one.vercel.app').replace(/\/+$/, '');
-    const apiKey = environment.ORBIT_CLIENT_API_KEY || getLocalClientAuthKey();
-    return { apiUrl, apiKey };
+    return (environment.ORBIT_API_URL || 'https://orbitapp-one.vercel.app').replace(/\/+$/, '');
+  }
+
+  function getApiAuthKey() {
+    return environment.ORBIT_CLIENT_API_KEY || getLocalClientAuthKey();
+  }
+
+  function getApiConfig() {
+    return { apiUrl: getApiUrl(), apiKey: getApiAuthKey() };
   }
 
   async function postClientTelemetry(pathname, payload) {
@@ -174,9 +180,9 @@ function createOrbitApiClient(dependencies) {
     }
   }
 
-  async function requestOrbitApi(pathname, options = {}) {
-    const { apiUrl, apiKey } = getApiConfig();
-    const authKey = options.authKey || apiKey;
+  async function performOrbitApiRequest(pathname, options = {}, statePayloadBytes) {
+    const apiUrl = getApiUrl();
+    const authKey = options.authKey || getApiAuthKey();
     if (!authKey || typeof fetchImpl !== 'function') {
       return null;
     }
@@ -186,7 +192,7 @@ function createOrbitApiClient(dependencies) {
     const controller = new AbortController();
     const timeout = setTimeoutImpl(() => controller.abort(), options.timeoutMs ?? 3500);
     try {
-      if (pathname === '/state') writeOrbitApiLog('info', 'state-api-request', { requestId, expectedRevision: options.body?.expectedRevision, payloadBytes: Buffer.byteLength(JSON.stringify(options.body?.state || {}), 'utf8') });
+      if (pathname === '/state') writeOrbitApiLog('info', 'state-api-request', { requestId, expectedRevision: options.body?.expectedRevision, payloadBytes: statePayloadBytes ?? Buffer.byteLength(JSON.stringify(options.body?.state || {}), 'utf8') });
       const response = await fetchImpl(`${apiUrl}${pathname}`, {
         method,
         headers: {
@@ -221,6 +227,10 @@ function createOrbitApiClient(dependencies) {
     } finally {
       clearTimeoutImpl(timeout);
     }
+  }
+
+  function requestOrbitApi(pathname, options = {}) {
+    return performOrbitApiRequest(pathname, options);
   }
 
   async function getRemoteBackendStatus() {
@@ -318,8 +328,8 @@ function createOrbitApiClient(dependencies) {
       setTimeoutImpl,
       clearTimeoutImpl,
       connect: ({ signal }) => {
-        const { apiUrl, apiKey } = getApiConfig();
-        const authKey = accessKey || apiKey;
+        const apiUrl = getApiUrl();
+        const authKey = accessKey || getApiAuthKey();
         if (!authKey || typeof fetchImpl !== 'function') throw new Error('Management state notifications are unavailable.');
         const url = new URL(`${apiUrl}/state/${encodeURIComponent(accountKey)}/events`);
         if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
@@ -528,23 +538,27 @@ function createOrbitApiClient(dependencies) {
 
   async function performStateSave(state, accountKey) {
     const expectedRevision = revisionByAccount.get(accountKey) || 0;
-    const stateHash = crypto.createHash('sha256').update(JSON.stringify(state)).digest('hex').slice(0, 32);
+    const serializedState = JSON.stringify(state);
+    const stateHash = crypto.createHash('sha256').update(serializedState).digest('hex').slice(0, 32);
+    const payloadBytes = Buffer.byteLength(serializedState, 'utf8');
     const mutationId = `desktop:${accountKey}:${expectedRevision}:${stateHash}`;
     const diagnostic = {
       accountRef: crypto.createHash('sha256').update(accountKey).digest('hex').slice(0, 12),
       expectedRevision, mutationRef: stateHash.slice(0, 12),
-      payloadBytes: Buffer.byteLength(JSON.stringify(state), 'utf8'),
+      payloadBytes,
       authAvailable: Boolean(getClientAuthKeyFromState(state) || getApiConfig().apiKey)
     };
     writeOrbitApiLog('info', 'state-save-attempt', diagnostic);
-    const payload = await requestOrbitApi('/state', {
+    // Existing request diagnostics measure {} for falsy direct-client inputs.
+    const requestPayloadBytes = state ? payloadBytes : 2;
+    const payload = await performOrbitApiRequest('/state', {
       method: 'POST',
       body: { state, expectedRevision, mutationId },
       headers: { 'x-orbit-mutation-id': mutationId },
       authKey: getClientAuthKeyFromState(state) || undefined,
       timeoutMs: 5000,
       returnFailurePayload: true
-    });
+    }, requestPayloadBytes);
     writeOrbitApiLog(payload?.ok ? 'info' : 'warn', 'state-api-result', { ...diagnostic, result: payload?.ok ? 'accepted' : payload?.code || 'api-failure', currentRevision: Number(payload?.revision || payload?.currentRevision || 0), httpStatus: payload?.httpStatus || 0 });
     if (payload?.code === 'STATE_REVISION_CONFLICT') {
       return {
