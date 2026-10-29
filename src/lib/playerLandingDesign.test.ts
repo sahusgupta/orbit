@@ -46,7 +46,7 @@ describe('Orbit Player native home design continuity', () => {
 
     for (const styleName of [
       'home',
-      'greeting',
+      'gameName',
       'findGames',
       'gameList',
       'gameRow',

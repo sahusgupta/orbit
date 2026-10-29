@@ -43,19 +43,6 @@ export const onboardingStyles = StyleSheet.create(applyDarkComponentTheme({
     justifyContent: 'space-between',
     paddingHorizontal: 2
   },
-  onboardingBrand: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 1.2
-  },
-  onboardingBrandSubtle: {
-    color: 'rgba(255,255,255,0.68)',
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1.6,
-    textTransform: 'uppercase'
-  },
   onboardingFlow: {
     flex: 1,
     gap: 20,

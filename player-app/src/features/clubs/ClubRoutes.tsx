@@ -20,6 +20,7 @@ import { sharedStyles } from '../../styles/sharedStyles';
 import { colors } from '../../styles/playerTheme';
 import { ClubHubSections, PlayerTimePanel } from './ClubHub';
 import { MembershipApplicationStatusCard, MembershipWalletCard } from './MembershipWallet';
+import { MembershipPassWallet } from './MembershipPass';
 import { clubStyles } from './clubStyles';
 
 const baseStyles = { ...sharedStyles, ...clubStyles };
@@ -108,9 +109,14 @@ export function ClubsScreen({
           <Text style={styles.muted}>The memberships shown below come from the rooms loaded so far.</Text>
         </View>
       ) : null}
+      {onOpenMembership && memberClubs.length ? (
+        <MembershipPassWallet clubs={memberClubs.slice().sort((left, right) => compareClubDistance(left, right, originCoordinate))}
+          player={player} nowMs={nowMs} onSelectClub={onOpenMembership} selectedClubId={renderableClub?.club.id} />
+      ) : null}
       {memberClubs.length ? memberClubs
         .slice()
         .sort((left, right) => compareClubDistance(left, right, originCoordinate))
+        .filter((club) => !onOpenMembership || !club.memberships.some((item) => item.clubId === club.club.id && isPlayerMembership(item, player)))
         .map((club) => {
           const isSelected = club.club.id === renderableClub?.club.id;
           const membership = club.memberships.find((item) => isPlayerMembership(item, player));

@@ -41,7 +41,7 @@ export function MatchLocationSheet({ visible, onClose, controller, clubs, demoMo
       {!demoMode ? <Pressable accessibilityRole="button" accessibilityLabel="Use my device location" disabled={!controller.ready || controller.busy}
         accessibilityState={{ disabled: !controller.ready || controller.busy }} style={styles.control} onPress={() => { void controller.useDevice().then((accepted) => { if (accepted) onClose(); }); }}>
         <Text style={styles.controlText}>{controller.busy ? 'Finding location…' : 'Use my device location'}</Text>
-      </Pressable> : <Text style={styles.copy}>Demo uses manual sample search points. Device location stays off.</Text>}
+      </Pressable> : <Text style={styles.copy}>The sample account uses manual search points. Device location stays off.</Text>}
       <Text style={styles.copy}>Device location expires after 15 minutes. Manual points stay until you clear them or clear local account data.</Text>
       <Pressable accessibilityRole="button" accessibilityLabel="Choose a point on the map" accessibilityState={{ expanded: showMap }} style={styles.control} onPress={() => setShowMap((value) => !value)}>
         <Text style={styles.controlText}>{showMap ? 'Hide map picker' : 'Choose a point on the map'}</Text>

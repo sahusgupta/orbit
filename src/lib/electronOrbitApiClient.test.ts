@@ -29,6 +29,7 @@ type OrbitApiClient = {
   sendClientUpdateEvent: (event: string, status: string, details?: Record<string, unknown>) => void;
   startClientTelemetry: () => void;
   stopClientTelemetry: () => void;
+  subscribeToManagementState: (access: unknown, onEvent: (event: unknown) => void) => () => void;
   submitAnalyticalReportApiFirst: (report: unknown) => Promise<unknown>;
   submitAnalyticalReportToApi: (report: unknown) => Promise<unknown>;
   validatePilotAccessApi: (access: unknown) => Promise<Record<string, unknown>>;
@@ -102,6 +103,54 @@ function requestBodies(fetch: ReturnType<typeof vi.fn>) {
 }
 
 describe('Electron Orbit API transport', () => {
+  it('opens revision notifications with existing main-process access-key precedence and no state/cache writes', async () => {
+    let connect: ((options: { signal: AbortSignal }) => Promise<unknown>) | undefined;
+    const stop = vi.fn();
+    const createStateEvents = vi.fn((options: { connect: typeof connect }) => { connect = options.connect; return stop; });
+    const fetch = vi.fn().mockResolvedValue({ ok: true });
+    const dependencies = baseDependencies({ fetchImpl: fetch, createStateEvents });
+    const client = createOrbitApiClient(dependencies);
+    const onEvent = vi.fn();
+    expect(client.subscribeToManagementState({ licenseId: 'Club / One', authorizationCode: 'test-access-key' }, onEvent)).toBe(stop);
+    expect(createStateEvents).toHaveBeenCalledWith(expect.objectContaining({ onEvent }));
+    const controller = new AbortController();
+    if (!connect) throw new Error('Notification connection was not provided.');
+    await connect({ signal: controller.signal });
+    expect(fetch).toHaveBeenCalledExactlyOnceWith('http://127.0.0.1:4310/state/club-one/events', {
+      method: 'GET', headers: {
+        accept: 'text/event-stream', 'x-orbit-api-key': 'test-access-key', 'x-orbit-auth-key': 'test-access-key', 'x-orbit-request-id': 'request-001'
+      }, signal: controller.signal, redirect: 'error', cache: 'no-store'
+    });
+    expect(dependencies.writeLocalDatabase).not.toHaveBeenCalled();
+    expect(dependencies.saveStateEverywhere).not.toHaveBeenCalled();
+    expect(dependencies.loadStateWithFirebaseFallback).not.toHaveBeenCalled();
+    expect(dependencies.writeOrbitApiLog).not.toHaveBeenCalled();
+  });
+
+  it('re-resolves main-process configured credentials on reconnect and rejects URL credentials/query parameters', async () => {
+    let connect: ((options: { signal: AbortSignal }) => Promise<unknown>) | undefined;
+    const environment = { ORBIT_API_URL: 'http://127.0.0.1:4310', ORBIT_CLIENT_API_KEY: 'test-first-key' };
+    const fetch = vi.fn().mockResolvedValue({ ok: true });
+    const createStateEvents = vi.fn((options: { connect: typeof connect }) => { connect = options.connect; return () => undefined; });
+    const client = createOrbitApiClient(baseDependencies({ environment, fetchImpl: fetch, createStateEvents }));
+    expect(() => client.subscribeToManagementState({}, vi.fn())).toThrow('management account');
+    expect(() => client.subscribeToManagementState({ authorizationCode: 'test-only-secret' }, vi.fn())).toThrow('management account');
+    expect(fetch).not.toHaveBeenCalled();
+    expect(createStateEvents).not.toHaveBeenCalled();
+    client.subscribeToManagementState({ licenseId: 'club-one' }, vi.fn());
+    if (!connect) throw new Error('Notification connection was not provided.');
+    const signal = new AbortController().signal;
+    await connect({ signal }); environment.ORBIT_CLIENT_API_KEY = 'test-replaced-key'; await connect({ signal });
+    expect(fetch.mock.calls.map(([, options]) => (options as RequestInit).headers)).toEqual([
+      expect.objectContaining({ 'x-orbit-auth-key': 'test-first-key' }), expect.objectContaining({ 'x-orbit-auth-key': 'test-replaced-key' })
+    ]);
+    for (const url of ['http://127.0.0.1:4310/?key=test-only', 'http://test-only:password@127.0.0.1:4310', 'http://127.0.0.1:4310/#fragment', 'file:///test-only']) {
+      environment.ORBIT_API_URL = url;
+      expect(() => connect?.({ signal })).toThrow('API URL is invalid');
+    }
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('parses JSON and bounds normalized non-JSON response previews', async () => {
     await expect(readApiResponse(response('{"ok":true}'))).resolves.toEqual({
       payload: { ok: true },

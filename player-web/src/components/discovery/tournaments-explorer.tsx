@@ -7,7 +7,7 @@ import { usePlayerData } from '@/src/data/player-data-context';
 import { filterTournaments } from '@/src/domain/selectors';
 import type { DiscoveryPayload, TournamentFilters } from '@/src/domain/types';
 import { useLocation } from '@/src/location/location-context';
-import { replaceRouteQuery } from '@/src/navigation/query-state';
+import { readRouteQuery, replaceRouteQuery } from '@/src/navigation/query-state';
 import { SearchField, SelectField } from '@/src/components/ui/fields';
 import { Disclosure } from '@/src/components/ui/disclosure';
 import { EmptyState } from '@/src/components/ui/state-panels';
@@ -29,7 +29,7 @@ export function TournamentsExplorer({ discovery }: { discovery: DiscoveryPayload
   }), [searchParams]);
   const matches = useMemo(() => filterTournaments(source, filters, user?.uid ?? '', coordinate), [coordinate, filters, source, user?.uid]);
   const update = (key: string, value: string) => {
-    const next = new URLSearchParams(searchParams.toString());
+    const next = readRouteQuery(pathname, searchParams);
     if (!value || value === 'all' || value === '0') next.delete(key); else next.set(key, value);
     replaceRouteQuery(pathname, next);
   };

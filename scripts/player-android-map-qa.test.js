@@ -16,7 +16,7 @@ const offline = () => ({ state: 'device\n', emulator: '1\n', boot: '1\n', avd: '
   connectivity: 'Active default network: none', reverses: '' });
 const display = { width: 1080, height: 2400, density: 2.625 };
 const node = (label, extra = {}) => ({ package: 'com.orbit.player.qa', 'content-desc': label, enabled: 'true', clickable: 'true', rect: [30, 300, 1030, 600], ...extra });
-const saved = { game: '1/3 No Limit Holdem', venue: 'Demo Summit Card House' };
+const saved = { game: '1/3 No Limit Holdem', venue: 'Cloud Nine Card House' };
 
 describe('current-source offline Android Map QA guards', () => {
   it('requires the exact approved current APK and rejects the historical baseline', () => {
@@ -150,30 +150,30 @@ describe('current-source offline Android Map QA guards', () => {
   });
 
   it('selects the actual front candidate rather than assuming ranking order', () => {
-    const plo = { game: '2/5 Pot Limit Omaha', venue: 'Demo River Card House', label: 'Open 2/5 Pot Limit Omaha at Demo River Card House' };
+    const plo = { game: '2/5 Pot Limit Omaha', venue: 'Wonderland Card House', label: 'Open 2/5 Pot Limit Omaha at Wonderland Card House' };
     expect(fixtureFrontCard([node(plo.label)], display)).toEqual(plo);
-    expect(() => fixtureFrontCard([node(plo.label), node('Open 1/3 No Limit Holdem at Demo Summit Card House')], display)).toThrow();
+    expect(() => fixtureFrontCard([node(plo.label), node('Open 1/3 No Limit Holdem at Cloud Nine Card House')], display)).toThrow();
     expect(() => fixtureFrontCard([node(plo.label, { package: 'com.other' })], display)).toThrow();
   });
 
   it('retains exact fixture identity and the full accessible name when primary facts follow the summary separator', () => {
-    const card = { game: '2/5 Pot Limit Omaha', venue: 'Demo River Card House',
-      label: 'Open 2/5 Pot Limit Omaha at Demo River Card House; OMAHA; 3 seats open; Austin \u00b7 2.4 mi away' };
+    const card = { game: '2/5 Pot Limit Omaha', venue: 'Wonderland Card House',
+      label: 'Open 2/5 Pot Limit Omaha at Wonderland Card House; OMAHA; 3 seats open; Austin \u00b7 2.4 mi away' };
     expect(fixtureFrontCard([node(card.label)], display)).toEqual(card);
-    expect(() => fixtureFrontCard([node(card.label), node('Open 1/3 No Limit Holdem at Demo Summit Card House; HOLD\u2019EM; 1 seat open')], display)).toThrow();
+    expect(() => fixtureFrontCard([node(card.label), node('Open 1/3 No Limit Holdem at Cloud Nine Card House; HOLD\u2019EM; 1 seat open')], display)).toThrow();
     for (const extra of [{ package: 'com.other' }, { enabled: 'false' }, { clickable: 'false' }, { rect: [30, 2300, 1030, 2450] }]) {
       expect(() => fixtureFrontCard([node(card.label, extra)], display)).toThrow();
     }
   });
 
   it('rejects a changed game or venue prefix and a summary without the explicit separator', () => {
-    for (const label of ['Save 2/5 Pot Limit Omaha at Demo River Card House; OMAHA',
-      'Open 2/5 Pot Limit Omaha extra at Demo River Card House; OMAHA',
-      'Open 2/5 Pot Limit Omaha at Demo River Card House extra; OMAHA',
+    for (const label of ['Save 2/5 Pot Limit Omaha at Wonderland Card House; OMAHA',
+      'Open 2/5 Pot Limit Omaha extra at Wonderland Card House; OMAHA',
+      'Open 2/5 Pot Limit Omaha at Wonderland Card House extra; OMAHA',
       'Open 2/5 Pot Limit Omaha at Other venue; OMAHA',
-      'Open 2/5 Pot Limit Omaha at Demo River Card House OMAHA',
-      'Open 2/5 Pot Limit Omaha at Demo River Card House; ',
-      'Open 2/5 Pot Limit Omaha at Demo River Card House; OMAHA\n']) {
+      'Open 2/5 Pot Limit Omaha at Wonderland Card House OMAHA',
+      'Open 2/5 Pot Limit Omaha at Wonderland Card House; ',
+      'Open 2/5 Pot Limit Omaha at Wonderland Card House; OMAHA\n']) {
       expect(() => fixtureFrontCard([node(label)], display)).toThrow();
     }
   });
@@ -198,7 +198,7 @@ describe('current-source offline Android Map QA guards', () => {
   });
 
   it('rejects paused/active-request games and foreign venues as front-card fixtures', () => {
-    for (const label of ['Open 4/8 Mixed Games at Demo Summit Card House', 'Open 1/2 No Limit Holdem at Demo River Card House', 'Open 1/2 No Limit Holdem at Real venue']) {
+    for (const label of ['Open 4/8 Mixed Games at Cloud Nine Card House', 'Open 1/2 No Limit Holdem at Wonderland Card House', 'Open 1/2 No Limit Holdem at Real venue']) {
       expect(() => fixtureFrontCard([node(label)], display)).toThrow();
     }
   });
@@ -226,7 +226,7 @@ describe('current-source offline Android Map QA guards', () => {
     expect(actual).toHaveLength(10);
     for (const venue of mapFixtureVenues) {
       const club = demo.clubs.find(item => item.club.name === venue.name);
-      expect(club?.club.address).toBe(`Fictional demo location, ${venue.city}`);
+      expect(club?.club.address).toBe(`Fictional venue, ${venue.city}`);
       expect(actual.filter(item => item.summary.venueName === venue.name).map(item => item.summary.gameName).sort()).toEqual([...venue.games].sort());
     }
   });

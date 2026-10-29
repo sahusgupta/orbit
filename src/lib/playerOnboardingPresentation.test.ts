@@ -40,8 +40,6 @@ const styleNames = [
   'iconTooltip',
   'iconTooltipText',
   'onboardingActions',
-  'onboardingBrand',
-  'onboardingBrandSubtle',
   'onboardingFlow',
   'onboardingNextAction',
   'onboardingNextActionText',
@@ -188,8 +186,9 @@ describe('Player onboarding presentation contract', () => {
       '<OnboardingFlow'
     ];
 
-    // Reviewed account-first flow with an explicit demo action label; Firebase verification and age gates remain covered below and in connection/render tests.
-    expect(componentDigest).toBe('8fdbc5036bb3990e68d4d3f6b0d8e18c23077c31c75a23df1863ba58643478a1');
+    // Reviewed sample-account entry copy; Firebase verification and age gates remain covered below and in connection/render tests.
+    // Reviewed removal of decorative overlines and repeated onboarding subtitles.
+    expect(componentDigest).toBe('b02e32b16c2b201d830a1afe03556e84c1ea7063aa3d407673259ee150cccf33');
     orderedShellTokens.forEach((token) => expect(shell).toContain(token));
     expect(shell).toContain('keyboardShouldPersistTaps="handled"');
     expect(shell).toContain('keyboardDismissMode="on-drag"');
@@ -204,7 +203,7 @@ describe('Player onboarding presentation contract', () => {
     expect(onboardingFlow).toContain('accessibilityState={{ disabled: !canSubmit }}');
     expect(onboardingFlow).toContain('onTryDemo?: () => void;');
     expect(onboardingFlow).toContain('onPress={onTryDemo}');
-    expect(onboardingFlow).toContain('Explore fictional games at different locations. No sign-in required.');
+    expect(onboardingFlow).not.toContain('Explore fictional games at different locations. No sign-in required.');
     expect(onboardingFlow).toContain('Set up your profile');
     expect(onboardingFlow).toContain('Set Match preferences');
     expect(onboardingFlow).toContain('onCompleteWithMatchPreferences?: () => void;');
@@ -214,7 +213,7 @@ describe('Player onboarding presentation contract', () => {
     expect(adultDeclaration).toContain('accessibilityRole="checkbox"');
     expect(adultDeclaration).toContain('accessibilityState={{ checked: declared, disabled }}');
     expect(findFunction(sources, 'OnboardingWelcome')).toContain('Create account');
-    expect(findFunction(sources, 'OnboardingWelcome')).toContain('Try demo account');
+    expect(findFunction(sources, 'OnboardingWelcome')).toContain('Try sample account');
     expect(findFunction(sources, 'OnboardingCredentials')).toContain('secureTextEntry');
     expect(findFunction(sources, 'OnboardingCredentials')).toContain('connection.onConnect');
     expect(onboardingFlow).not.toMatch(/LocationStep|MapPicker|device location|text updates/i);
@@ -226,7 +225,7 @@ describe('Player onboarding presentation contract', () => {
 
     // Reviewed safe-viewport sizing and shrinkable primary-action container/text; font scaling and touch targets remain unchanged.
     // The existing accessibility-large native flow checks full CTA visibility before and after the adult declaration.
-    expect(styleDigest).toBe('232fc11eaf7d1916475716221456778af8d08cd782cbf0c143cb792d33ec8ccb');
+    expect(styleDigest).toBe('814a0940c1c9be25b9287a612ba2c91ce7f5cc83cc59d3791a9fc240b1b659d0');
   });
 });
 
@@ -263,7 +262,8 @@ describe('Player discovery presentation contract', () => {
     const playerApp = sources.find(({ path }) => path === playerAppPath)?.source ?? '';
 
     // Reviewed cash-detail disclosures; action/access/confirmation guards remain covered by render tests.
-    expect(componentDigest).toBe('48dcf7852ceda316852fb3841923afda4873e95e41e4cb3e962e98c5a1d6c0e9');
+    // Reviewed removal of the redundant map footer.
+    expect(componentDigest).toBe('7c766da85dfd3c790f3dc313986b9470874e2b3b6af9aa06df3160f0c1eedf88');
     [
       '<GameDetailsScreen',
       '<MyGamesSection',
@@ -283,7 +283,7 @@ describe('Player discovery presentation contract', () => {
     expect(gameDetails).toContain('Continue to request');
     expect(findFunction(sources, 'FiltersBottomSheet')).toContain('doneAccessibilityLabel?: string;');
     expect(playerApp).not.toContain('accessibilityLabel="Demo options"');
-    expect(playerApp).toContain('accessibilityLabel="Demo settings"');
+    expect(playerApp).toContain('accessibilityLabel="Sample settings"');
   });
 
   it('characterizes the reviewed mobile discovery layout and shared styles', () => {
@@ -335,7 +335,7 @@ describe('Player tournament presentation contract', () => {
   });
 });
 
-const clubComponentNames = ["ClubMembershipPlanScreen","SeatRequestModal","MembershipPlanCard","formatFamiliar","MembershipApplicationStatusCard","MembershipWalletCard","MembershipQrCode","MembershipQrIssuer","formatQrExpiry","ClubHubSections","PlayerTimePanel","SimpleMenuRow"] as const;
+const clubComponentNames = ["ClubMembershipPlanScreen","SeatRequestModal","MembershipPlanCard","formatFamiliar","MembershipApplicationStatusCard","MembershipWalletCard","MembershipPassCard","MembershipPassWallet","MembershipDetailsScreen","MembershipQrCode","MembershipQrIssuer","formatQrExpiry","ClubHubSections","PlayerTimePanel","SimpleMenuRow"] as const;
 const clubStyleNames = 'accountCard,actionStatus,agentKicker,attendanceChoice,attendanceChoiceActive,attendanceChoiceBody,attendanceChoiceRow,attendanceChoiceTextActive,attendanceChoiceTitle,cardTitle,checkedInBand,checkedInText,clubAvatar,clubAvatarActive,clubAvatarText,clubAvatarTextActive,clubCard,clubGameGroupLabel,clubHub,clubHubCopy,clubHubIcon,clubHubPanel,clubHubRow,clubMain,clubRequestHeader,compactEventRow,compactGameAction,compactGameActionMuted,compactGameCopy,compactGameRow,compactManageButton,compactManageText,compactStatLabel,compactStatValue,disabledAction,emptyState,formError,fullWidthButton,inlineBackAction,inlineBackText,inputLabel,membershipApplicationCard,membershipApplicationStatus,membershipApplicationStatusCopy,membershipApplicationStatusIcon,membershipCompactStats,membershipHero,membershipHeroCopy,membershipHeroIcon,membershipHeroText,membershipIdentityLabel,membershipIdentityRow,membershipIdentityValue,membershipProfileAvatar,membershipProfileAvatarText,membershipProfileCopy,membershipProfileSummary,membershipQrCode,membershipQrCopy,membershipQrMember,membershipQrShell,membershipQrTitle,membershipScreen,membershipStatusBadge,membershipStatusBadgeInactive,membershipStatusDot,membershipStatusDotInactive,membershipStatusText,membershipTitle,membershipWalletBrand,membershipWalletCard,membershipWalletClub,membershipWalletMonogram,membershipWalletMonogramText,membershipWalletPlan,membershipWalletTop,modalBackdrop,modalCloseButton,muted,planCard,planCardCopy,planCardFeatured,planCardPriceBlock,planCompactPrice,planGrid,planIcon,primaryButton,primaryButtonText,qrActionButton,qrActionText,requestGameRow,seatRequestHeader,seatRequestHeaderCopy,seatRequestModal,seatTimeField,seatTimeInput,sectionTitle,selectedCard,statusPill,statusText,timeRangeInput,timeRangeRow'.split(',');
 
 describe('Player clubs and membership presentation contract', () => {
@@ -346,15 +346,18 @@ describe('Player clubs and membership presentation contract', () => {
     const clubsScreen = findFunction(sources, 'ClubsScreen');
     const wallet = findFunction(sources, 'MembershipWalletCard');
 
-    // Reviewed compact membership presentation, named actions and system-theme hooks; QR guards remain below.
-    expect(componentDigest).toBe('b5b01972d75051cbb76abd66c7c2402ba78918503325317aedcf5e682c86ec6f');
+    // Reviewed isolate-then-open wallet and sample-account copy; QR guards remain below and in render tests.
+    // Reviewed the single wallet heading and concise pass copy.
+    expect(componentDigest).toBe('fd8c7e016ddaf7c9242c941ba56c568a2bc5832f35d53a1072bb67cf37ced017');
     ['<ClubsScreen', '<ClubMembershipPlanScreen', '<SeatRequestModal'].forEach((token) => expect(playerApp).toContain(token));
     expect(playerApp).not.toMatch(/ClubAccessCheckoutScreen|NearbyCheckInPanel/);
     expect(clubsScreen).toContain('<ClubHubSections');
     expect(clubsScreen).toContain('demoMode={demoMode}');
     expect(wallet).toContain('demoMode = false');
     expect(wallet).toContain('active && !demoMode ? <MembershipQrIssuer');
-    expect(wallet).toContain('Demo membership only. Venue check-in is unavailable in the demo account.');
+    expect(wallet).toContain('Sample membership only. Venue check-in is unavailable in the sample account.');
+    expect(clubsScreen).toContain('<MembershipPassWallet');
+    expect(findFunction(sources, 'MembershipDetailsScreen')).toContain("viewState.kind === 'ready'");
   });
 
   it('characterizes clubs/membership-owned styles and accessible shared back actions', () => {
@@ -398,7 +401,7 @@ describe('Player identity and settings presentation contract', () => {
       'title="Support"',
       'title="Privacy Policy"',
       'title="Terms of Service"',
-      'title="Try demo account"',
+      'title="Try sample account"',
       'onPress={signOutPlayer}',
       'onPress={deletePlayerAccount}'
     ];
@@ -420,8 +423,9 @@ describe('Player identity and settings presentation contract', () => {
     const sources = parseSources([settingsFeatureRoot]);
     const componentDigest = digest(settingsComponentNames.map((name) => findFunction(sources, name)));
 
-    // Reviewed direct Match preferences entry and OS theme; identity/account guards remain below and in render tests.
-    expect(componentDigest).toBe('ff54ca227af86ba67c4792f2ac8839790347d307eae0ec635e6657215f60451f');
+    // Reviewed sample-account entry copy; identity/account guards remain below and in render tests.
+    // Reviewed removal of static settings subtitles and concise ID instructions.
+    expect(componentDigest).toBe('95709a7895c176bc0c3d0a49a29b6ef6b850261835a060b94a77ab5c654a3302');
     const settings = findSettingsPresentationSource(sources);
     expect(settings).toContain('onTryDemo?: () => void;');
     expect(settings).toContain('onPress={onTryDemo}');

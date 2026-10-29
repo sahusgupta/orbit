@@ -39,6 +39,7 @@ vi.mock('react-native', async () => {
 });
 
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => <span data-testid="icon" /> }));
+vi.mock('expo-linear-gradient', () => ({ LinearGradient: ({ children }: { children?: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('../../components/PlayerPresentation', () => ({
   AnimatedButton: ({ children, disabled, onPress }: { children: React.ReactNode; disabled?: boolean; onPress?: () => void }) => (
     <button disabled={disabled} onClick={onPress}>{children}</button>
@@ -167,8 +168,14 @@ describe('PlayerApp to ClubsScreen safe composition', () => {
     const onOpenMembership = vi.fn();
     render(deriveClubsViewState('ready', [club], club, false, ''), [club], membership, { onSelectClub, onOpenMembership });
     expectNoClubDependentPanels();
+    expect(container.textContent).not.toMatch(/Your wallet|Your rooms\.|Tap a card/);
+    expect(container.textContent).toContain('MEMBERSHIP ID');
+    expect(container.textContent).toContain(membership.id);
     const row = container.querySelector('[aria-label="Published Club, Active"]') as HTMLButtonElement;
     expect(row).not.toBeNull();
+    act(() => row.click());
+    expect(onOpenMembership).not.toHaveBeenCalled();
+    expect(container.querySelector('[aria-label="Back to wallet"]')).not.toBeNull();
     act(() => row.click());
     expect(onOpenMembership).toHaveBeenCalledExactlyOnceWith(club);
     expect(onSelectClub).not.toHaveBeenCalled();

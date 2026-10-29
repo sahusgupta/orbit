@@ -63,7 +63,6 @@ describe('Native player Home', () => {
       inventoryStatus: 'ready',
       openTournamentCount: 4,
       clubCount: 2,
-      playerName: '  Alex Smith ',
       onFindGame: vi.fn(),
       onOpenGame: vi.fn(),
       onBrowseTournaments: vi.fn(),
@@ -79,17 +78,17 @@ describe('Native player Home', () => {
     container.remove();
   });
 
-  it('shows a compact greeting and at most three game rows with factual venue, city, and availability', () => {
+  it('starts with game actions and at most three rows without a duplicate greeting or heading', () => {
     render();
-    expect(container.textContent).toContain('Hi, Alex');
+    expect(container.querySelector('[role="header"]')).toBeNull();
     expect(container.textContent).toContain('1/2 No Limit Holdem');
-    expect(container.textContent).toContain('Demo River Card House · Austin');
+    expect(container.textContent).toContain('Wonderland Card House · Austin');
     expect(container.textContent).toContain('3 seats open');
-    expect(container.textContent).toContain('Demo Lakeside Poker Club · Chicago');
+    expect(container.textContent).toContain('Moonbeam Poker Club · Chicago');
     expect(container.textContent).toContain('Table forming');
-    expect(container.textContent).toContain('Demo Summit Card House · Denver');
+    expect(container.textContent).toContain('Cloud Nine Card House · Denver');
     expect(container.textContent).toContain('Table paused');
-    expect(container.textContent).not.toContain('Demo Desert Casino');
+    expect(container.textContent).not.toContain('Stardust Sandbox Casino');
     expect(container.querySelectorAll('button[aria-label^="Open "]')).toHaveLength(3);
     for (const button of container.querySelectorAll('button')) {
       expect(button.getAttribute('role')).toBe('button');
@@ -102,7 +101,7 @@ describe('Native player Home', () => {
     click('Find games');
     click('Browse events, 4 open');
     click('Browse clubs, 2 clubs');
-    click('Open 1/2 No Limit Holdem at Demo River Card House, Austin. 3 seats open');
+    click('Open 1/2 No Limit Holdem at Wonderland Card House, Austin. 3 seats open');
     expect(props.onFindGame).toHaveBeenCalledOnce();
     expect(props.onBrowseTournaments).toHaveBeenCalledOnce();
     expect(props.onBrowseClubs).toHaveBeenCalledOnce();
@@ -121,8 +120,7 @@ describe('Native player Home', () => {
   });
 
   it('keeps empty ready inventory truthful and offers the game finder', () => {
-    render({ opportunities: [], clubCount: 0, openTournamentCount: 0, playerName: undefined });
-    expect(container.textContent).toContain('Welcome back');
+    render({ opportunities: [], clubCount: 0, openTournamentCount: 0 });
     expect(container.textContent).toContain('No games to show right now.');
     expect(container.querySelector('[role="progressbar"]')).toBeNull();
     click('Find games');
@@ -147,7 +145,7 @@ describe('Native player Home', () => {
     expect(container.textContent).toContain('Last loaded games');
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(container.querySelector('[aria-label="Browse events, 4 open"]')).toBeNull();
-    click('Open 1/2 No Limit Holdem at Demo River Card House, Austin. Last loaded: 3 seats open');
+    click('Open 1/2 No Limit Holdem at Wonderland Card House, Austin. Last loaded: 3 seats open');
     expect(props.onOpenGame).toHaveBeenCalledExactlyOnceWith(opportunities[0]);
     render({ opportunities: [], inventoryStatus: 'error' });
     expect(container.textContent).toContain('Game data is unavailable.');

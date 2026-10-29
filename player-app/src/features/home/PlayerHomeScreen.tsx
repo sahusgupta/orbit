@@ -12,7 +12,6 @@ type PlayerHomeScreenProps = {
   inventoryStatus: 'idle' | 'loading' | 'ready' | 'error';
   openTournamentCount: number | null;
   clubCount: number;
-  playerName?: string;
   onFindGame: () => void;
   onOpenGame: (item: GameOpportunity) => void;
   onBrowseTournaments: () => void;
@@ -25,7 +24,6 @@ export function PlayerHomeScreen({
   inventoryStatus,
   openTournamentCount,
   clubCount,
-  playerName,
   onFindGame,
   onOpenGame,
   onBrowseTournaments,
@@ -33,7 +31,6 @@ export function PlayerHomeScreen({
 }: PlayerHomeScreenProps) {
   const styles = useThemedStyles(baseStyles);
   const { colors } = usePlayerTheme();
-  const firstName = playerName?.trim().split(/\s+/)[0];
   const games = opportunities.slice(0, 3);
   const inventoryReady = inventoryStatus === 'ready' && !inventoryPartial;
   const eventCountReady = inventoryReady && openTournamentCount !== null;
@@ -45,8 +42,6 @@ export function PlayerHomeScreen({
 
   return (
     <View style={styles.home}>
-      <Text accessibilityRole="header" style={styles.greeting}>{firstName ? `Hi, ${firstName}` : 'Welcome back'}</Text>
-
       <Pressable
         accessibilityLabel="Find games"
         accessibilityRole="button"
@@ -59,12 +54,12 @@ export function PlayerHomeScreen({
       </Pressable>
 
       <View style={styles.section}>
-        <View style={styles.sectionHeading}>
-          <Text accessibilityRole="header" style={styles.sectionTitle}>{inventoryStatus === 'error' && games.length ? 'Last loaded games' : 'Games'}</Text>
+        {games.length && (inventoryStatus === 'error' || loading || inventoryPartial) ? <View style={styles.sectionHeading}>
+          {inventoryStatus === 'error' ? <Text accessibilityRole="header" style={styles.sectionTitle}>Last loaded games</Text> : null}
           {games.length && inventoryStatus !== 'error' && (loading || inventoryPartial) ? (
             <Text accessibilityLiveRegion="polite" style={styles.statusNote}>{loading ? 'Updating…' : 'Showing loaded venues'}</Text>
           ) : null}
-        </View>
+        </View> : null}
         {games.length ? (
           <View style={styles.gameList}>
             {games.map((item, index) => {

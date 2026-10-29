@@ -22,14 +22,14 @@ export function createDemoPlayerData(nowMs = Date.now()): DemoPlayerData {
   const at = (offsetMs: number) => new Date(nowMs + offsetMs).toISOString();
   const player: PlayerAccount = {
     id: 'demo-player',
-    name: 'Demo Player',
-    email: 'demo@example.test',
+    name: 'Alex Example',
+    email: 'alex@example.test',
     homeLocation: 'Austin, TX',
     searchRadiusMiles: 50,
     preferredGameIds: ['demo-austin-nlh-1-2', 'demo-chicago-plo-1-2'],
     favoriteClubIds: ['demo-austin', 'demo-chicago'],
     preferredStakes: '1/2',
-    typicalAvailability: 'Demo evenings and weekends',
+    typicalAvailability: 'Evenings and weekends',
     adultDeclaredAt: at(0),
     adultDeclarationVersion: 'v1'
   };
@@ -49,13 +49,13 @@ export function createDemoPlayerData(nowMs = Date.now()): DemoPlayerData {
     openTables: [{
       id: `${id}-table`,
       gameId: id,
-      label: 'Demo Table 1',
+      label: 'Practice Table 1',
       status,
       seatsFilled,
       maxSeats: 9,
       availableSeats: 9 - seatsFilled,
       collectionMode,
-      tags: ['Fictional demo game'],
+      tags: ['Fictional practice game'],
       startedAt: at(-2 * hourMs),
       social: { seatedPlayerCount: seatsFilled, adminCount: 1, knownPlayersCount: Math.min(2, seatsFilled) }
     }],
@@ -70,8 +70,8 @@ export function createDemoPlayerData(nowMs = Date.now()): DemoPlayerData {
     {
       club: {
         id: 'demo-austin',
-        name: 'Demo River Card House',
-        address: 'Fictional demo location, Austin, TX',
+        name: 'Wonderland Card House',
+        address: 'Fictional venue, Austin, TX',
         coordinate: { latitude: 30.2672, longitude: -97.7431 },
         venueKind: 'Card house',
         minimumAge: 21
@@ -88,8 +88,8 @@ export function createDemoPlayerData(nowMs = Date.now()): DemoPlayerData {
     {
       club: {
         id: 'demo-chicago',
-        name: 'Demo Lakeside Poker Club',
-        address: 'Fictional demo location, Chicago, IL',
+        name: 'Moonbeam Poker Club',
+        address: 'Fictional venue, Chicago, IL',
         coordinate: { latitude: 41.8781, longitude: -87.6298 },
         venueKind: 'Poker club',
         minimumAge: 21
@@ -106,8 +106,8 @@ export function createDemoPlayerData(nowMs = Date.now()): DemoPlayerData {
     {
       club: {
         id: 'demo-denver',
-        name: 'Demo Summit Card House',
-        address: 'Fictional demo location, Denver, CO',
+        name: 'Cloud Nine Card House',
+        address: 'Fictional venue, Denver, CO',
         coordinate: { latitude: 39.7392, longitude: -104.9903 },
         venueKind: 'Card house',
         minimumAge: 21
@@ -124,8 +124,8 @@ export function createDemoPlayerData(nowMs = Date.now()): DemoPlayerData {
     {
       club: {
         id: 'demo-las-vegas',
-        name: 'Demo Desert Casino',
-        address: 'Fictional demo location, Las Vegas, NV',
+        name: 'Stardust Sandbox Casino',
+        address: 'Fictional venue, Las Vegas, NV',
         coordinate: { latitude: 36.1699, longitude: -115.1398 },
         venueKind: 'Casino',
         minimumAge: 21
@@ -144,10 +144,10 @@ export function createDemoPlayerData(nowMs = Date.now()): DemoPlayerData {
   clubs.forEach((club, index) => {
     club.club.membershipOptions = [{
       id: `${club.club.id}-monthly`,
-      name: 'Demo monthly access',
-      priceLabel: '$0 demo only',
+      name: 'Monthly practice pass',
+      priceLabel: '$0 · sample only',
       durationDays: 30,
-      description: 'Fictional membership for exploring the demo.'
+      description: 'Fictional membership for exploring Orbit.'
     }];
     club.social = {
       activePlayerCount: club.games.reduce((total, game) => total + game.openTables[0].seatsFilled, 0),
@@ -157,7 +157,7 @@ export function createDemoPlayerData(nowMs = Date.now()): DemoPlayerData {
     };
     if (index < 2) {
       club.memberships = [{
-        id: `${club.club.id}-membership`,
+        id: `sample-${club.club.id.slice('demo-'.length)}-membership`,
         clubId: club.club.id,
         playerId: player.id,
         playerName: player.name,
@@ -165,13 +165,13 @@ export function createDemoPlayerData(nowMs = Date.now()): DemoPlayerData {
         joinedAt: at(-7 * dayMs),
         expiresAt: at(23 * dayMs),
         plan: 'monthly',
-        planName: 'Demo monthly access',
+        planName: 'Monthly practice pass',
         membershipDurationDays: 30,
         paymentStatus: 'Not required',
         identityReviewStatus: 'Not required',
         preferredGameIds: club.games.map((game) => game.id),
         preferredStakes: player.preferredStakes,
-        clubNote: 'Fictional demo membership.',
+        clubNote: 'Fictional membership. No venue access.',
         loyalty: {
           clubId: club.club.id,
           points: index === 0 ? 120 : 45,
@@ -197,19 +197,19 @@ export function createDemoPlayerData(nowMs = Date.now()): DemoPlayerData {
   const tournaments: PlayerTournament[] = clubs.map((club, index) => ({
     id: `${club.club.id}-event`,
     clubId: club.club.id,
-    name: ['Demo Holdem Freeroll', 'Demo Omaha Evening', 'Demo Mixed Game Meetup', 'Demo Holdem Deep Stack'][index],
+    name: ['Pocket Aces Freeroll', 'Moonlight Omaha Evening', 'Cloud Nine Mixed Game Meetup', 'Stardust Holdem Deep Stack'][index],
     startsAt: at((index + 2) * dayMs),
     interestOpensAt: at(-dayMs),
     interestClosesAt: at((index + 2) * dayMs - hourMs),
     interestStatus: 'open',
     buyIn: index === 0 ? 0 : 50 + index * 25,
-    prizePoolLabel: 'Fictional demo prize pool',
+    prizePoolLabel: 'Fictional prize pool',
     startingStack: 20_000 + index * 5_000,
     levelMinutes: 20,
     lateRegistrationThroughLevel: 4,
     rebuysAllowed: false,
     addOnsAllowed: false,
-    rules: ['Fictional demo event; no real entry, payment, or prize.'],
+    rules: ['Fictional event; no real entry, payment, or prize.'],
     withdrawalAllowed: true,
     entrantCount: 12 + index * 4,
     totalRebuys: 0,

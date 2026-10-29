@@ -74,7 +74,7 @@ export function usePlayerLocation({ owner, demoMode, enabled = true, port = play
   };
   const useDevice = async () => {
     if (!enabled || !current.ready || !active.current || ownerRef.current !== owner || inFlight.current) return false;
-    if (demoMode) { setSnapshot((state) => ({ ...state, error: 'Device location is unavailable in demo. You can choose a sample search point manually.' })); return false; }
+    if (demoMode) { setSnapshot((state) => ({ ...state, error: 'Device location is unavailable in the sample account. You can choose a search point manually.' })); return false; }
     inFlight.current = true;
     const token = ++operation.current;
     const version = generation.current;

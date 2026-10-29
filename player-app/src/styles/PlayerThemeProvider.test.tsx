@@ -75,7 +75,7 @@ describe('player system theme', () => {
       text.style.color = typeof foreground.color === 'string' ? foreground.color : ''; text.textContent = name; panel.appendChild(text); container.appendChild(panel);
       expect(nativeTextContrast(text), name).toBeGreaterThanOrEqual(4.5);
     };
-    paint('Home greeting', home.greeting, {});
+    paint('Home game title', home.gameName, {});
     paint('Profile title', profile.profileName, {});
     paint('Profile description', shared.muted, {});
     paint('Membership venue', clubs.membershipWalletClub, clubs.membershipWalletCard);

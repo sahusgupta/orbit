@@ -12,9 +12,14 @@ import {
 
 export type { ManagementSaveResult } from '../../domain/managementSaveResult';
 
+export type ManagementStateSubscriptionEvent =
+  | { type: 'change'; revision: number }
+  | { type: 'status'; connected: boolean };
+
 type DesktopStatePersistence = {
   loadState?: () => Promise<PersistedStateRecord | null>;
   loadStateForAccount?: (access: PilotAccess) => Promise<PersistedStateRecord | null>;
+  subscribeToManagementState?: (access: PilotAccess, onEvent: (event: ManagementStateSubscriptionEvent) => void) => () => void;
   onPrepareForUpdate?: (callback: (requestId: string) => void) => () => void;
   preserveStateForUpdate?: (requestId: string, state: AppState) => Promise<{ ok: boolean }>;
   saveState: (state: AppState) => Promise<{
@@ -169,6 +174,8 @@ export const createManagementPersistence = (dependencies: ManagementPersistenceD
     loadDesktopState: () => dependencies.getDesktopPersistence()?.loadState?.(),
     loadDesktopStateForAccount: (access: PilotAccess) =>
       dependencies.getDesktopPersistence()?.loadStateForAccount?.(access),
+    subscribeToDesktopStateForAccount: (access: PilotAccess, onEvent: (event: ManagementStateSubscriptionEvent) => void) =>
+      dependencies.getDesktopPersistence()?.subscribeToManagementState?.(access, onEvent),
     loadExistingStateForAccount,
     loadState: () => loadBrowserManagementState(dependencies.storage),
     loadStateFromLocalBridge,
@@ -198,6 +205,8 @@ export const loadDesktopManagementState = () =>
   getDefaultManagementPersistence().loadDesktopState();
 export const loadDesktopManagementStateForAccount = (access: PilotAccess) =>
   getDefaultManagementPersistence().loadDesktopStateForAccount(access);
+export const subscribeToDesktopManagementStateForAccount = (access: PilotAccess, onEvent: (event: ManagementStateSubscriptionEvent) => void) =>
+  getDefaultManagementPersistence().subscribeToDesktopStateForAccount(access, onEvent);
 export const loadExistingManagementStateForAccount = (access: PilotAccess) =>
   getDefaultManagementPersistence().loadExistingStateForAccount(access);
 export const loadManagementState = () => getDefaultManagementPersistence().loadState();

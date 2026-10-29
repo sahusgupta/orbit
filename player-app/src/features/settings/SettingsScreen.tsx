@@ -88,11 +88,11 @@ export function SettingsScreen({
         </View>
         <View style={styles.profileHeaderCopy}>
           <Text style={styles.profileName}>{player.name}</Text>
-          <Text style={styles.muted}>{player.homeLocation?.trim() || 'Orbit Player'}</Text>
+          {player.homeLocation?.trim() ? <Text style={styles.muted}>{player.homeLocation.trim()}</Text> : null}
         </View>
       </View>
       {!firebaseIdentity ? (
-        <ProfileSection title="Sign in" subtitle="Connect your account" icon="log-in-outline"
+        <ProfileSection title="Sign in" icon="log-in-outline"
           expanded={openSection === 'signIn'} onPress={() => toggleSection('signIn')}>
           <Text style={styles.muted}>{authStatus}</Text>
           <View style={styles.chipRow}>
@@ -193,7 +193,6 @@ export function SettingsScreen({
           </View>
           <View style={styles.googleAuthBody}>
             <Text style={styles.cardTitle}>Account connected</Text>
-            <Text style={styles.muted}>{firebaseIdentity.provider === 'phone' ? 'Sign-in phone' : 'Sign-in email'}</Text>
             <Text style={styles.muted}>{firebaseIdentity.provider === 'phone' ? firebaseIdentity.phone : firebaseIdentity.email}</Text>
           </View>
         </View>
@@ -212,7 +211,7 @@ export function SettingsScreen({
           <Text style={styles.muted}>Profile editing will be available after Orbit confirms the current account's saved profile.</Text>
         </View>
       ) : null}
-      <ProfileSection title="Edit profile" subtitle="Name, contact, and home area" icon="person-outline"
+      <ProfileSection title="Edit profile" icon="person-outline"
         expanded={openSection === 'profile'} onPress={() => toggleSection('profile')}>
         <Field editable={!profileEditingDisabled} label="Name" value={player.name} onChangeText={(name) => setPlayer((current) => ({ ...current, name }))} />
         {!firebaseIdentity ? (
@@ -235,8 +234,8 @@ export function SettingsScreen({
           onChangeText={(homeLocation) => setPlayer((current) => ({ ...current, homeLocation }))}
         />
       </ProfileSection>
-      {onOpenMatchPreferences ? <SimpleMenuRow icon="options-outline" title="Match preferences" subtitle="Discovery, venues, and travel" onPress={onOpenMatchPreferences} /> : null}
-      <ProfileSection title="Preferences" subtitle={onOpenMatchPreferences ? 'Membership profile notes' : 'Games, stakes, and availability'} icon="options-outline"
+      {onOpenMatchPreferences ? <SimpleMenuRow icon="options-outline" title="Match preferences" onPress={onOpenMatchPreferences} /> : null}
+      <ProfileSection title="Preferences" icon="options-outline"
         expanded={openSection === 'preferences'} onPress={() => toggleSection('preferences')}>
         <Text style={styles.fieldLabel}>Preferred games</Text>
         <View style={styles.chipRow}>
@@ -265,13 +264,13 @@ export function SettingsScreen({
         />
       </ProfileSection>
       <View style={styles.simpleMenu}>
-        <SimpleMenuRow icon="help-circle-outline" title="Support" subtitle="Help and contact options" onPress={() => Linking.openURL(supportUrl)} />
-        <SimpleMenuRow icon="shield-checkmark-outline" title="Privacy Policy" subtitle="Legal" onPress={() => Linking.openURL(privacyPolicyUrl)} />
-        <SimpleMenuRow icon="document-text-outline" title="Terms of Service" subtitle="Legal" onPress={() => Linking.openURL(termsOfServiceUrl)} />
+        <SimpleMenuRow icon="help-circle-outline" title="Support" onPress={() => Linking.openURL(supportUrl)} />
+        <SimpleMenuRow icon="shield-checkmark-outline" title="Privacy Policy" onPress={() => Linking.openURL(privacyPolicyUrl)} />
+        <SimpleMenuRow icon="document-text-outline" title="Terms of Service" onPress={() => Linking.openURL(termsOfServiceUrl)} />
       </View>
       {onTryDemo ? (
         <View style={styles.simpleMenu}>
-          <SimpleMenuRow icon="play-circle-outline" title="Try demo account" subtitle="Fictional games" onPress={onTryDemo} />
+          <SimpleMenuRow icon="play-circle-outline" title="Try sample account" onPress={onTryDemo} />
         </View>
       ) : null}
       {firebaseIdentity ? (
@@ -286,9 +285,8 @@ export function SettingsScreen({
   );
 }
 
-function ProfileSection({ title, subtitle, icon, expanded, onPress, children }: {
+function ProfileSection({ title, icon, expanded, onPress, children }: {
   title: string;
-  subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
   expanded: boolean;
   onPress: () => void;
@@ -303,7 +301,6 @@ function ProfileSection({ title, subtitle, icon, expanded, onPress, children }: 
         <Ionicons name={icon} size={20} color={colors.muted} />
         <View style={styles.profileSectionCopy}>
           <Text style={styles.cardTitle}>{title}</Text>
-          <Text style={styles.muted}>{subtitle}</Text>
         </View>
         <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted} />
       </Pressable>

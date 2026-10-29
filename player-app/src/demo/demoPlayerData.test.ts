@@ -29,8 +29,7 @@ describe('Local demo player data', () => {
     expect(clubs.map(getClubCity)).toEqual(['Austin', 'Chicago', 'Denver', 'Las Vegas']);
     expect(new Set(clubs.map((club) => JSON.stringify(getClubCoordinate(club)))).size).toBe(4);
     for (const club of clubs) {
-      expect(club.club.name).toMatch(/^Demo /);
-      expect(club.club.address).toContain('Fictional demo location');
+      expect(club.club.address).toContain('Fictional venue');
       expect(getClubCoordinate(club)).not.toBeNull();
       expect(club.games.length).toBeGreaterThanOrEqual(2);
       expect(new Set(club.games.map((game) => game.name)).size).toBe(club.games.length);
@@ -41,6 +40,53 @@ describe('Local demo player data', () => {
       .toEqual(['Austin']);
     expect(new Set(clubs.flatMap((club) => club.games.flatMap((game) => game.openTables.map((table) => table.status)))))
       .toEqual(new Set(['Running', 'Forming', 'Paused']));
+  });
+
+  it('uses fictional sample content without a demo label in displayed names or copy', () => {
+    const { player, clubs, tournaments } = createDemoPlayerData(nowMs);
+    expect(player.name).toBe('Alex Example');
+    expect(player.email).toBe('alex@example.test');
+    expect(clubs.map((club) => club.club.name)).toEqual([
+      'Wonderland Card House',
+      'Moonbeam Poker Club',
+      'Cloud Nine Card House',
+      'Stardust Sandbox Casino'
+    ]);
+    expect(tournaments.map((event) => event.name)).toEqual([
+      'Pocket Aces Freeroll',
+      'Moonlight Omaha Evening',
+      'Cloud Nine Mixed Game Meetup',
+      'Stardust Holdem Deep Stack'
+    ]);
+    const displayedCopy = [
+      player.name,
+      player.email,
+      player.homeLocation,
+      player.typicalAvailability,
+      ...clubs.flatMap((club) => [
+        club.club.name,
+        club.club.address,
+        ...(club.club.membershipOptions ?? []).flatMap((option) => [option.name, option.priceLabel, option.description]),
+        ...club.games.flatMap((game) => [game.name, ...game.openTables.flatMap((table) => [table.label, ...table.tags])]),
+        ...club.memberships.flatMap((membership) => [membership.playerName, membership.planName, membership.clubNote]),
+        ...club.waitlists.map((entry) => entry.playerName)
+      ]),
+      ...tournaments.flatMap((event) => [event.name, event.prizePoolLabel, ...event.rules])
+    ];
+    for (const copy of displayedCopy) expect(copy ?? '').not.toMatch(/\bdemo\b/i);
+    for (const club of clubs) {
+      expect(club.club.address).toMatch(/^Fictional venue, /);
+      expect(club.games.every((game) => game.openTables.every((table) => table.tags.includes('Fictional practice game')))).toBe(true);
+      for (const option of club.club.membershipOptions ?? []) {
+        expect(option.priceLabel).toBe('$0 · sample only');
+        expect(option.description).toMatch(/^Fictional membership/);
+      }
+      for (const membership of club.memberships) expect(membership.clubNote).toBe('Fictional membership. No venue access.');
+    }
+    for (const event of tournaments) {
+      expect(event.prizePoolLabel).toBe('Fictional prize pool');
+      expect(event.rules).toContain('Fictional event; no real entry, payment, or prize.');
+    }
   });
 
   it('loads a confirmed My Games request while retaining discoveries in every demo venue', () => {
@@ -134,19 +180,21 @@ describe('Local demo player data', () => {
     expect(createDemoPlayerData(nowMs)).toEqual(expected);
     expect(changed).not.toEqual(expected);
 
-    const ids = [
+    const membershipIds = expected.clubs.flatMap((club) => club.memberships.map((membership) => membership.id));
+    expect(membershipIds).toEqual(['sample-austin-membership', 'sample-chicago-membership']);
+    const internalIds = [
       expected.player.id,
       ...expected.clubs.flatMap((club) => [
         club.club.id,
         ...(club.club.membershipOptions ?? []).map((option) => option.id),
         ...club.games.flatMap((game) => [game.id, ...game.openTables.map((table) => table.id)]),
-        ...club.memberships.map((membership) => membership.id),
         ...club.waitlists.map((entry) => entry.id)
       ]),
       ...expected.tournaments.map((tournament) => tournament.id),
       ...expected.tournamentInterests.map((interest) => interest.id)
     ];
-    expect(ids.every((id) => id.startsWith('demo-'))).toBe(true);
+    expect(internalIds.every((id) => id.startsWith('demo-'))).toBe(true);
+    const ids = [...internalIds, ...membershipIds];
     expect(new Set(ids).size).toBe(ids.length);
   });
 });

@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { localPlayerBinary, playerRoot, productionPlayerEnvironment } from './player-release-environment.mjs';
 import { reviewedPlayerCollectedDataTypes } from './player-privacy-manifest.mjs';
 import { verifyPlayerBundle } from './verify-player-bundle.mjs';
+import { expoCompatibilityEnvironment, verifyPlayerExpoCompatibility, verifyPlayerExpoDoctor } from './player-expo-compatibility.mjs';
 
 const action = process.argv[2];
 const expoCli = localPlayerBinary('expo', path.join('bin', 'cli'));
@@ -36,10 +37,10 @@ function inspectResolvedConfig() {
   const publicConfig = JSON.parse(runExpo(['config', '--type', 'public', '--json']));
   assert.equal(publicConfig.name, 'Orbit Player');
   assert.equal(publicConfig.version, '1.0.0');
-  assert.equal(publicConfig.sdkVersion, '57.0.0', 'The reviewed SDK 57 runtime always uses the New Architecture');
+  assert.equal(publicConfig.sdkVersion, '58.0.0', 'The reviewed SDK 58 runtime always uses the New Architecture');
   const reactNativePackage = JSON.parse(fs.readFileSync(path.join(playerRoot, 'node_modules', 'react-native', 'package.json'), 'utf8'));
-  assert.equal(reactNativePackage.version, '0.86.3', 'Native App Check must use the reviewed New Architecture-only runtime');
-  assert.equal(publicConfig.newArchEnabled, undefined, 'SDK 57 must not configure the removed architecture option');
+  assert.equal(reactNativePackage.version, '0.88.1', 'Native App Check must use the reviewed New Architecture-only runtime');
+  assert.equal(publicConfig.newArchEnabled, undefined, 'SDK 58 must not configure the removed architecture option');
   assert.equal(publicConfig.ios?.bundleIdentifier, 'com.caminuslabs.orbit');
   assert.equal(publicConfig.android?.package, 'com.orbit.player');
   assert.equal(publicConfig.ios?.infoPlist?.ITSAppUsesNonExemptEncryption, false);
@@ -137,18 +138,51 @@ function exportIosBundle() {
   }
 }
 
-function checkExpoDependencies() {
-  const stdout = runExpo(['install', '--check']);
-  if (stdout) process.stdout.write(stdout);
+function installedCompatibilityEvidence() {
+  return {
+    expoVersion: JSON.parse(fs.readFileSync(path.join(playerRoot, 'node_modules', 'expo', 'package.json'), 'utf8')).version,
+    reactNativeVersion: JSON.parse(fs.readFileSync(path.join(playerRoot, 'node_modules', 'react-native', 'package.json'), 'utf8')).version,
+    bundledNativeModules: JSON.parse(fs.readFileSync(path.join(playerRoot, 'node_modules', 'expo', 'bundledNativeModules.json'), 'utf8'))
+  };
 }
 
-function runExpoDoctor() {
-  const stdout = runPlayerTool(expoDoctorCli, []);
-  if (stdout) process.stdout.write(stdout);
+function captureCompatibilityTool(binary, arguments_, offline = false) {
+  const result = spawnSync(process.execPath, [binary, ...arguments_], {
+    cwd: playerRoot, encoding: 'utf8', env: expoCompatibilityEnvironment(environment, offline), maxBuffer: 50 * 1024 * 1024
+  });
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  return result;
+}
+
+async function checkExpoDependencies() {
+  const result = await verifyPlayerExpoCompatibility({ installed: installedCompatibilityEvidence(),
+    runCheck: ({ offline }) => captureCompatibilityTool(expoCli, ['install', '--check'], offline) });
+  console.log(result.metadataConflict
+    ? 'Verified the exact Expo 58.0.21 metadata conflict: fresh native-module and bundled SDK matrices agree; reviewed React Native 0.88.1 is retained.'
+    : 'Live Expo and independent bundled SDK compatibility checks passed.');
+  return result;
+}
+
+async function reportValidationFailure(action) {
+  try { await action(); }
+  catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = error.exitCode || 1;
+  }
+}
+
+async function runExpoDoctor() {
+  const doctorResult = captureCompatibilityTool(expoDoctorCli, []);
+  const result = await verifyPlayerExpoDoctor({
+    doctorVersion: JSON.parse(fs.readFileSync(path.join(playerRoot, 'node_modules', 'expo-doctor', 'package.json'), 'utf8')).version,
+    doctorResult, runCompatibilityCheck: checkExpoDependencies
+  });
+  if (!result.rawPassed) console.log('Raw Expo Doctor exited 1 with 19/20 checks passed; the sole SDK-version metadata false positive was independently verified above.');
 }
 
 if (action === 'config') inspectResolvedConfig();
-else if (action === 'check') checkExpoDependencies();
-else if (action === 'doctor') runExpoDoctor();
+else if (action === 'check') await reportValidationFailure(checkExpoDependencies);
+else if (action === 'doctor') await reportValidationFailure(runExpoDoctor);
 else if (action === 'export') exportIosBundle();
 else throw new Error('Usage: node scripts/run-player-expo.mjs <config|check|doctor|export>');

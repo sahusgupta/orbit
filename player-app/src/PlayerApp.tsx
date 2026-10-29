@@ -1,6 +1,6 @@
 import { PlayerThemeProvider, usePlayerTheme, useThemedStyles } from './styles/PlayerThemeProvider';
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -45,6 +45,7 @@ import { TournamentFilterControls, TournamentScreen } from './features/tournamen
 import { tournamentStyles } from './features/tournaments/tournamentStyles';
 import { ClubMembershipPlanScreen, ClubsScreen, SeatRequestModal } from './features/clubs/ClubRoutes';
 import { MembershipDetailsScreen } from './features/clubs/MembershipDetailsScreen';
+import { getMembershipPalette } from './features/clubs/membershipPresentation';
 import { clubStyles } from './features/clubs/clubStyles';
 import { PlayerHomeScreen } from './features/home/PlayerHomeScreen';
 import { IdentityVerificationScreen } from './features/settings/IdentityVerificationScreen';
@@ -133,12 +134,12 @@ function ConnectedPlayerSession({ onTryDemo }: { onTryDemo: () => void }) {
 function DemoPlayerSession({ onExitDemo }: { onExitDemo: () => void }) {
   const { storage, liveData } = useDemoPlayerSession();
   const [screen, setScreen] = useState<Screen>('home');
-  const [syncStatus, setSyncStatus] = useState('Demo account ready. All venues and games are fictional.');
+  const [syncStatus, setSyncStatus] = useState('Sample account ready. All venues and games are fictional.');
   const [experienceVersion, setExperienceVersion] = useState(0);
   const resetDemo = () => {
     liveData.retryLiveData();
     setScreen('home');
-    setSyncStatus('Demo games restored. All venues and games are fictional.');
+    setSyncStatus('Sample games restored. All venues and games are fictional.');
     setExperienceVersion((current) => current + 1);
   };
   return <PlayerExperience key={experienceVersion} storage={storage} identity={null} liveData={liveData}
@@ -159,7 +160,9 @@ function PlayerExperience({ storage, identity, liveData, screen, setScreen, sync
   onResetDemo?: () => void;
 }) {
   const styles = useThemedStyles(baseStyles);
-  const { colors } = usePlayerTheme();
+  const { colors, scheme } = usePlayerTheme();
+  const membershipSurface = screen === 'clubs' || screen === 'membershipDetails';
+  const membershipPalette = getMembershipPalette(scheme);
   const demoMode = identity === null;
   const authLoaded = identity?.authLoaded ?? true;
   const authInitializationError = identity?.authInitializationError ?? '';
@@ -207,7 +210,7 @@ function PlayerExperience({ storage, identity, liveData, screen, setScreen, sync
   const [selectedDiscoveryOpportunity, setSelectedDiscoveryOpportunity] = useState<GameOpportunity | null>(null);
   const [gameDetailsReturnScreen, setGameDetailsReturnScreen] = useState<'home' | 'findGames'>('findGames');
   const [demoActionMessage, setDemoActionMessage] = useState('');
-  const mainScrollRef = useRef<ScrollView>(null);
+  const mainScrollRef = useRef<ScrollViewInstance>(null);
   const [contentHeight, setContentHeight] = useState(0);
   const matchDetailsRef = useRef<MatchReference | null>(null);
   const {
@@ -594,32 +597,32 @@ function PlayerExperience({ storage, identity, liveData, screen, setScreen, sync
 
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={[styles.safeArea, membershipSurface && { backgroundColor: membershipPalette.canvas }]}>
         <View style={styles.shell}>
           {screen !== 'gameDetails' && screen !== 'findGames' ? (
             <View style={styles.header}>
-              <Text accessibilityRole="header" style={styles.title}>{screen === 'clubSignup' ? 'Membership request' : getScreenTitle(screen)}</Text>
+              <Text accessibilityRole="header" style={[styles.title, membershipSurface && { color: membershipPalette.ink }]}>{screen === 'clubSignup' ? 'Membership request' : getScreenTitle(screen)}</Text>
               <Pressable
                 accessibilityLabel="Open settings"
                 accessibilityRole="button"
-                style={styles.avatar}
+                style={[styles.avatar, membershipSurface && { backgroundColor: membershipPalette.panel, borderColor: membershipPalette.line }]}
                 onPress={() => setScreen('settings')}
               >
-                <Text style={styles.avatarText}>{player.name.slice(0, 1)}</Text>
+                <Text style={[styles.avatarText, membershipSurface && { color: membershipPalette.accent }]}>{player.name.slice(0, 1)}</Text>
               </Pressable>
             </View>
           ) : null}
 
           {demoMode ? (
-            <View accessibilityLabel="Demo account" style={styles.demoBar}>
+            <View accessibilityLabel="Sample account" style={styles.demoBar}>
               <Ionicons name="play-circle-outline" size={16} color={colors.muted} />
-              <Text style={styles.demoLabel}>Demo · sample games</Text>
+              <Text style={styles.demoLabel}>Sample · fictional venues</Text>
             </View>
           ) : null}
           {demoActionMessage ? (
             <View accessibilityRole="alert" style={styles.demoNotice}>
               <Text style={[styles.muted, { flex: 1 }]}>{demoActionMessage}</Text>
-              <Pressable accessibilityRole="button" accessibilityLabel="Dismiss demo notice" onPress={() => setDemoActionMessage('')} style={styles.demoOptions}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Dismiss sample notice" onPress={() => setDemoActionMessage('')} style={styles.demoOptions}>
                 <Ionicons name="close" size={20} color={colors.muted} />
               </Pressable>
             </View>
@@ -638,7 +641,6 @@ function PlayerExperience({ storage, identity, liveData, screen, setScreen, sync
             ) : null}
             {screen === 'home' ? (
               <PlayerHomeScreen
-                playerName={player.name}
                 opportunities={broadOpportunities}
                 inventoryPartial={liveDataPartial}
                 inventoryStatus={liveDataStatus}
@@ -925,22 +927,21 @@ function PlayerExperience({ storage, identity, liveData, screen, setScreen, sync
             ) : null}
             {screen === 'settings' && demoMode ? (
               <View style={styles.accountCard}>
-                <Text style={styles.sectionTitle}>Demo profile</Text>
                 <Text style={styles.cardTitle}>{player.name}</Text>
                 <Text style={styles.muted}>{player.email}</Text>
-                <Text style={styles.muted}>This sample profile stays in memory. Exit demo to return to your saved account.</Text>
-                <View accessibilityLabel="Demo settings">
+                <Text style={styles.muted}>Changes are not saved.</Text>
+                <View accessibilityLabel="Sample settings">
                   <Pressable accessibilityRole="button" accessibilityLabel="Match preferences" onPress={() => { setMatchMode('preferences'); setScreen('findGames'); }} style={styles.demoMenuAction}>
                     <Ionicons name="options-outline" size={20} color={colors.primary} />
                     <Text style={styles.demoOptionsText}>Match preferences</Text>
                   </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Reset demo games" onPress={onResetDemo} style={styles.demoMenuAction}>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Reset sample games" onPress={onResetDemo} style={styles.demoMenuAction}>
                     <Ionicons name="refresh-outline" size={20} color={colors.primary} />
-                    <Text style={styles.demoOptionsText}>Reset demo games</Text>
+                    <Text style={styles.demoOptionsText}>Reset sample games</Text>
                   </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel="Exit demo" onPress={onExitDemo} style={styles.demoMenuAction}>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Exit sample" onPress={onExitDemo} style={styles.demoMenuAction}>
                     <Ionicons name="log-out-outline" size={20} color={colors.primary} />
-                    <Text style={styles.demoOptionsText}>Exit demo</Text>
+                    <Text style={styles.demoOptionsText}>Exit sample</Text>
                   </Pressable>
                 </View>
               </View>
@@ -948,7 +949,7 @@ function PlayerExperience({ storage, identity, liveData, screen, setScreen, sync
           </ScrollView>
 
           {screen !== 'gameDetails' && screen !== 'identityVerification' ? (
-            <View accessibilityLabel="Primary navigation" accessibilityRole="tablist" style={styles.tabBar}>
+            <View accessibilityLabel="Primary navigation" accessibilityRole="tablist" style={[styles.tabBar, membershipSurface && { backgroundColor: membershipPalette.panel, borderColor: membershipPalette.line }]}>
               {tabs.map((tab) => {
                 const active = screen === tab.id || (tab.id === 'home' && screen === 'findGames')
                   || (tab.id === 'clubs' && (screen === 'membershipDetails' || screen === 'clubSignup'));
@@ -962,9 +963,9 @@ function PlayerExperience({ storage, identity, liveData, screen, setScreen, sync
                       setScreen(tab.id);
                       setSelectedDiscoveryOpportunity(null);
                     }}
-                    style={[styles.tab, active && styles.activeTab]}
+                    style={[styles.tab, active && styles.activeTab, active && membershipSurface && { backgroundColor: membershipPalette.accentSoft }]}
                   >
-                    <Ionicons name={tab.icon} size={22} color={active ? colors.primary : colors.muted} />
+                    <Ionicons name={tab.icon} size={22} color={membershipSurface ? active ? membershipPalette.accent : membershipPalette.muted : active ? colors.primary : colors.muted} />
                   </Pressable>
                 );
               })}
@@ -1048,13 +1049,14 @@ function DemoEntryButton({ onPress }: { onPress?: () => void }) {
   const styles = useThemedStyles(baseStyles);
   return onPress ? (
     <Pressable accessibilityRole="button" onPress={onPress} style={styles.compactButton}>
-      <Text style={styles.compactButtonText}>Try demo account</Text>
+      <Text style={styles.compactButtonText}>Try sample account</Text>
     </Pressable>
   ) : null;
 }
 
 function getScreenTitle(screen: Screen) {
-  if (screen === 'membershipDetails') return 'Membership';
+  if (screen === 'clubs') return 'Your wallet';
+  if (screen === 'membershipDetails') return 'Club pass';
   if (screen === 'findGames') return 'Orbit Match';
   if (screen === 'settings') return 'Profile';
   if (screen === 'identityVerification') return 'Age Verification';

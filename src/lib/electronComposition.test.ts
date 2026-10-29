@@ -59,6 +59,28 @@ function loadIpcHandler<T>(channel: string, globals: Record<string, unknown>): T
 }
 
 describe('Electron IPC and preload composition audit', () => {
+  it('accepts only the trusted top frame and strips Electron event objects from ordinary handlers', () => {
+    const isTrustedIpcSender = loadFunction<(event: unknown) => boolean>('isTrustedIpcSender', { isDev: true, path });
+    const frame = { url: 'http://127.0.0.1:5173/#/floor' };
+    const sender = { mainFrame: frame };
+    const event = { sender, senderFrame: frame };
+    expect(isTrustedIpcSender(event)).toBe(true);
+    expect(isTrustedIpcSender({ sender, senderFrame: { ...frame } })).toBe(false);
+    expect(isTrustedIpcSender({ sender, senderFrame: undefined })).toBe(false);
+    const untrusted = { url: 'https://untrusted.example/' };
+    expect(isTrustedIpcSender({ sender: { mainFrame: untrusted }, senderFrame: untrusted })).toBe(false);
+    const trustedIpc = loadFunction<(handler: (...args: unknown[]) => unknown) => (event: unknown, ...args: unknown[]) => unknown>('trustedIpc', { isTrustedIpcSender });
+    const handler = vi.fn().mockReturnValue('handled');
+    const payload = { licenseId: 'club-one', authorizationCode: 'test-only-key' };
+    expect(trustedIpc(handler)(event, payload)).toBe('handled');
+    expect(handler).toHaveBeenCalledExactlyOnceWith(payload);
+    expect(() => trustedIpc(handler)({ sender, senderFrame: undefined }, payload)).toThrow('Untrusted renderer');
+    const boundedPayload = loadFunction<(value: unknown, maximumBytes?: number) => unknown>('boundedPayload', { Buffer });
+    expect(boundedPayload(payload, 200)).toBe(payload);
+    expect(() => boundedPayload(payload, 10)).toThrow('too large');
+    expect(() => boundedPayload(null)).toThrow('invalid');
+  });
+
   it('keeps the exact main/preload invoke channel surface synchronized', () => {
     const mainChannels = [...electronMainSource.matchAll(/ipcMain\.handle\('([^']+)'/g)].map((match) => match[1]);
     const preloadChannels = [...electronPreloadSource.matchAll(/ipcRenderer\.invoke\('([^']+)'/g)].map((match) => match[1]);
@@ -66,6 +88,8 @@ describe('Electron IPC and preload composition audit', () => {
       'open-route-window',
       'load-state',
       'load-state-for-account',
+      'subscribe-management-state',
+      'unsubscribe-management-state',
       'save-state',
       'preserve-state-for-update',
       'get-update-status',
@@ -112,6 +136,7 @@ describe('Electron IPC and preload composition audit', () => {
       'openWindow',
       'loadState',
       'loadStateForAccount',
+      'subscribeToManagementState',
       'saveState',
       'preserveStateForUpdate',
       'getUpdateStatus',
@@ -212,6 +237,58 @@ describe('Electron IPC and preload composition audit', () => {
       ['table', { sessionId: 'session-1' }],
       ['floor', {}]
     ]);
+  });
+
+  it('owns management subscriptions through trusted sender-aware handlers and bounded access', () => {
+    const managementStateSubscriptions = { subscribe: vi.fn(), unsubscribe: vi.fn() };
+    const boundedPayload = vi.fn((value: unknown) => value);
+    const trustedIpc = loadFunction<(handler: (...args: unknown[]) => unknown, includeSender?: boolean) => (event: unknown, ...args: unknown[]) => unknown>('trustedIpc', {
+      isTrustedIpcSender: (event: { trusted?: boolean }) => event.trusted === true
+    });
+    const globals = { trustedIpc, boundedPayload, managementStateSubscriptions, isRecord: (value: unknown) => value !== null && typeof value === 'object' && !Array.isArray(value) };
+    const subscribe = loadIpcHandler<(event: unknown, id: string, access: unknown) => unknown>('subscribe-management-state', globals);
+    const unsubscribe = loadIpcHandler<(event: unknown, id: string) => unknown>('unsubscribe-management-state', globals);
+    const sender = {}; const event = { trusted: true, sender }; const access = { licenseId: 'club-one', authorizationCode: 'test-only' };
+    subscribe(event, 'management-1', access);
+    expect(boundedPayload).toHaveBeenCalledExactlyOnceWith(access, 16000);
+    expect(managementStateSubscriptions.subscribe).toHaveBeenCalledExactlyOnceWith(sender, 'management-1', access);
+    unsubscribe(event, 'management-1');
+    expect(managementStateSubscriptions.unsubscribe).toHaveBeenCalledExactlyOnceWith(sender, 'management-1');
+    expect(() => subscribe({ sender, trusted: false }, 'management-1', access)).toThrow('Untrusted renderer');
+    expect(() => unsubscribe({ sender, trusted: false }, 'management-1')).toThrow('Untrusted renderer');
+    expect(() => subscribe(event, 'management-1', [])).toThrow('Management access');
+  });
+
+  it('filters preload notification payloads and synchronously disposes while IPC setup is pending', async () => {
+    let resolveSubscription: (() => void) | undefined;
+    const invoke = vi.fn((channel: string, ..._arguments: unknown[]) => channel === 'subscribe-management-state'
+      ? new Promise<void>((resolve) => { resolveSubscription = resolve; })
+      : Promise.resolve());
+    const on = vi.fn(); const removeListener = vi.fn(); const exposeInMainWorld = vi.fn();
+    Function('require', 'process', electronPreloadSource)(() => ({ contextBridge: { exposeInMainWorld }, ipcRenderer: { invoke, on, removeListener } }), { platform: 'win32' });
+    const bridge = exposeInMainWorld.mock.calls[0][1] as { subscribeToManagementState: (access: unknown, callback: (event: unknown) => void) => () => void };
+    const callback = vi.fn(); const access = { licenseId: 'club-one', authorizationCode: 'test-only' };
+    const stop = bridge.subscribeToManagementState(access, callback);
+    expect(typeof stop).toBe('function');
+    const subscribeCall = invoke.mock.calls[0];
+    if (!subscribeCall || typeof subscribeCall[1] !== 'string') throw new Error('Preload did not create a subscription ID.');
+    const subscriptionId = subscribeCall[1];
+    expect(subscriptionId).toMatch(/^management-[a-z0-9]+-[a-z0-9]+-1$/);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('subscribe-management-state', subscriptionId, access);
+    const listener = on.mock.calls[0][1] as (event: unknown, id: string, payload: unknown) => void;
+    listener({ sender: 'must-not-escape' }, 'other-id', { type: 'change', revision: 2 });
+    for (const value of [{ type: 'change', revision: -1 }, { type: 'change', revision: 1.5 }, { type: 'status', connected: 'true' }, { type: 'unknown' }]) listener({}, subscriptionId, value);
+    expect(callback).not.toHaveBeenCalled();
+    listener({}, subscriptionId, { type: 'change', revision: 3, authorizationCode: 'discarded' });
+    listener({}, subscriptionId, { type: 'status', connected: true, privateState: {} });
+    expect(callback.mock.calls).toEqual([[{ type: 'change', revision: 3 }], [{ type: 'status', connected: true }]]);
+    stop(); stop();
+    expect(removeListener).toHaveBeenCalledExactlyOnceWith('management-state-event', listener);
+    expect(invoke).toHaveBeenLastCalledWith('unsubscribe-management-state', subscriptionId);
+    expect(invoke).toHaveBeenCalledTimes(2);
+    resolveSubscription?.(); await Promise.resolve();
+    listener({}, subscriptionId, { type: 'change', revision: 4 });
+    expect(callback).toHaveBeenCalledTimes(2);
   });
 
   it('requires manager authorization, chooses a destination before rotation, and keeps the capability out of IPC results', async () => {

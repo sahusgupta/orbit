@@ -310,6 +310,7 @@ declare global {
       openWindow: (route: AppRoute, context?: { sessionId?: string; tournamentId?: string }) => Promise<void>;
       loadState: () => Promise<PersistedStateRecord | null>;
       loadStateForAccount: (access: PilotAccess) => Promise<PersistedStateRecord | null>;
+      subscribeToManagementState?: (access: PilotAccess, onEvent: (event: { type: 'change'; revision: number } | { type: 'status'; connected: boolean }) => void) => () => void;
       saveState: (state: AppState) => Promise<{ ok: boolean; path: string; accountKey?: string }>;
       preserveStateForUpdate: (requestId: string, state: AppState) => Promise<{ ok: boolean }>;
       onPrepareForUpdate: (callback: (requestId: string) => void) => () => void;

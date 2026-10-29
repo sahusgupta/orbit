@@ -84,10 +84,7 @@ export function TournamentScreen({
       ) : null}
       {message ? <Text style={styles.tournamentMessage}>{message}</Text> : null}
 
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Upcoming tournaments</Text>
-        {countLabel ? <Text style={styles.muted}>{countLabel}</Text> : null}
-      </View>
+      {countLabel ? <Text style={styles.muted}>{countLabel}</Text> : null}
       {inventoryStatus === 'ready' && inventoryPartial && opportunities.length ? <Text style={styles.muted}>More tournaments may be available. This list covers only the venues loaded so far.</Text> : null}
       {opportunities.length ? opportunities.map(({ tournament, club, distanceMiles, interest }) => (
         <TournamentCard

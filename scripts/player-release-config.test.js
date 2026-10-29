@@ -10,7 +10,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const playerRoot = path.join(repositoryRoot, 'player-app');
 const eas = JSON.parse(fs.readFileSync(path.join(playerRoot, 'eas.json'), 'utf8'));
 const playerPackage = JSON.parse(fs.readFileSync(path.join(playerRoot, 'package.json'), 'utf8'));
-const expectedProductionIosImage = 'macos-tahoe-26.5-xcode-26.6';
+const expectedProductionIosImage = 'macos-tahoe-26.6-xcode-27.0';
 const easCliRequire = createRequire(path.join(repositoryRoot, 'node_modules', 'eas-cli', 'package.json'));
 const { EasJsonAccessor, EasJsonUtils, Platform } = easCliRequire('@expo/eas-json');
 const { EXPECTED_NPM_VERSION, pinEasNpm } = require('../player-app/scripts/pin-eas-npm.cjs');
@@ -22,6 +22,28 @@ const {
 } = require('../player-app/release-config.cjs');
 
 describe('Orbit Player EAS build configuration', () => {
+  it('locks the reviewed SDK 58 patches to their installed native runtime', () => {
+    const reviewedPatches = {
+      expo: '58.0.21',
+      'expo-asset': '58.0.19',
+      'expo-camera': '58.0.14',
+      'expo-constants': '58.0.14',
+      'expo-font': '58.0.11',
+      'expo-location': '58.0.20',
+      'expo-splash-screen': '58.0.12',
+      'react-native': '0.88.1'
+    };
+    const bundledNativeModules = JSON.parse(fs.readFileSync(path.join(playerRoot, 'node_modules', 'expo', 'bundledNativeModules.json'), 'utf8'));
+    for (const [name, version] of Object.entries(reviewedPatches)) {
+      const installed = JSON.parse(fs.readFileSync(path.join(playerRoot, 'node_modules', name, 'package.json'), 'utf8'));
+      expect(playerPackage.dependencies[name], name).toBe(version);
+      expect(installed.version, name).toBe(version);
+      if (name !== 'expo') {
+        expect(bundledNativeModules[name].replace(/^~/, ''), name).toBe(version);
+      }
+    }
+  });
+
   it('aligns the user-selected iOS identity with native Firebase while preserving Android identity', () => {
     const app = JSON.parse(fs.readFileSync(path.join(playerRoot, 'app.json'), 'utf8')).expo;
     const configured = createExpoConfig(app, eas.build.production.env);
@@ -38,6 +60,7 @@ describe('Orbit Player EAS build configuration', () => {
     expect(android.client[0].client_info.android_client_info.package_name).toBe('com.orbit.player');
     expect(android.client[0].client_info.mobilesdk_app_id).toBe('1:133175572500:android:522b4cfc8de1a770fd8f01');
     expect(configured.ios.entitlements).toEqual({ 'com.apple.developer.devicecheck.appattest-environment': 'production' });
+    expect(configured.plugins).toContain('./plugins/with-firebase-scene-initialization.cjs');
     expect(eas.build.production.env.EXPO_PUBLIC_APP_CHECK_ENABLED).toBe('true');
   });
 
@@ -83,7 +106,7 @@ describe('Orbit Player EAS build configuration', () => {
     await expect(EasJsonAccessor.fromRawString(JSON.stringify(invalidEas)).readAsync()).rejects.toThrow(/npm.*not allowed/);
   });
 
-  it('pins production uploads to the reviewed stable SDK 57 Xcode 26.6 image', async () => {
+  it('pins production uploads to the reviewed stable SDK 58 Xcode 27.0 image', async () => {
     const accessor = EasJsonAccessor.fromProjectPath(playerRoot);
     const profile = await EasJsonUtils.getBuildProfileAsync(accessor, Platform.IOS, 'production');
 

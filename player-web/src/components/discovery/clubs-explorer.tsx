@@ -6,7 +6,7 @@ import { getClubDistance } from '@orbit/player-domain/discovery';
 import { filterClubs } from '@/src/domain/selectors';
 import type { ClubFilters, PlayerClubSnapshot } from '@/src/domain/types';
 import { useLocation } from '@/src/location/location-context';
-import { replaceRouteQuery } from '@/src/navigation/query-state';
+import { readRouteQuery, replaceRouteQuery } from '@/src/navigation/query-state';
 import { SearchField, SelectField } from '@/src/components/ui/fields';
 import { Disclosure } from '@/src/components/ui/disclosure';
 import { EmptyState } from '@/src/components/ui/state-panels';
@@ -24,7 +24,7 @@ export function ClubsExplorer({ clubs }: { clubs: PlayerClubSnapshot[] }) {
   }), [searchParams]);
   const matches = useMemo(() => filterClubs(clubs, filters, coordinate), [clubs, coordinate, filters]);
   const update = (key: string, value: string) => {
-    const next = new URLSearchParams(searchParams.toString());
+    const next = readRouteQuery(pathname, searchParams);
     if (!value || value === 'all' || value === '0') next.delete(key); else next.set(key, value);
     replaceRouteQuery(pathname, next);
   };

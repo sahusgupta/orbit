@@ -47,7 +47,7 @@ vi.mock('../../components/PlayerFields', () => ({
   Field: ({ editable = true, label }: { editable?: boolean; label: string }) => <div data-editable={String(editable)} data-field={label}>{label}</div>
 }));
 vi.mock('../../components/PlayerPresentation', () => ({
-  SimpleMenuRow: ({ title, onPress }: { title: string; onPress: () => void }) => <button role="button" aria-label={title} onClick={onPress}>{title}</button>
+  SimpleMenuRow: ({ title, subtitle, onPress }: { title: string; subtitle?: string; onPress: () => void }) => <button role="button" aria-label={title} onClick={onPress}>{title}{subtitle ? <span>{subtitle}</span> : null}</button>
 }));
 vi.mock('../home/PlayerLandingExperience', () => ({ OrbitPlayerFaq: () => <span>Marketing FAQ</span>, OrbitPlayerFooter: () => <span>Marketing footer</span> }));
 
@@ -122,6 +122,10 @@ describe('SettingsScreen local deletion action', () => {
     expect(container.querySelector('[data-field]')).toBeNull();
     ['Sign in', 'Edit profile', 'Preferences'].forEach((label) => expect(button(label).getAttribute('aria-expanded')).toBe('false'));
     ['Identity & age', 'Support', 'Privacy Policy', 'Terms of Service'].forEach((label) => expect(button(label)).toBeDefined());
+    expect(container.textContent).toContain('Not signed in');
+    for (const subtitle of ['Connect your account', 'Name, contact, and home area', 'Discovery, venues, and travel', 'Membership profile notes', 'Help and contact options', 'Fictional games']) {
+      expect(container.textContent).not.toContain(subtitle);
+    }
     expect(container.textContent).not.toContain('Marketing FAQ');
     expect(container.textContent).not.toContain('Marketing footer');
     act(() => button('Match preferences').click());
@@ -160,7 +164,7 @@ describe('SettingsScreen local deletion action', () => {
     act(() => button('Forgot password').click());
     expect(recoverPlayerAccount).toHaveBeenCalledOnce();
     expect(container.textContent).not.toContain('Send verification code');
-    const demo = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Try demo account');
+    const demo = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Try sample account');
     expect(demo?.getAttribute('role')).toBe('button');
     act(() => demo?.click());
     expect(onTryDemo).toHaveBeenCalledOnce();
@@ -224,7 +228,8 @@ describe('SettingsScreen local deletion action', () => {
       );
     });
 
-    expect(container.textContent).toContain('Sign-in email');
+    expect(container.textContent).toContain('Account connected');
+    expect(container.textContent).toContain('Not verified');
     expect(container.textContent).toContain('verified@example.test');
     expect(container.textContent).not.toContain('stale@example.test');
     expect(container.textContent).not.toContain('+15550001111');
@@ -232,7 +237,7 @@ describe('SettingsScreen local deletion action', () => {
     expect(container.querySelector('[data-field="Name"]')?.getAttribute('data-editable')).toBe('true');
     expect(container.querySelector('[data-field="Email address"]')).toBeNull();
     expect(container.querySelector('[data-field="Phone number"]')).toBeNull();
-    const demo = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Try demo account');
+    const demo = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Try sample account');
     act(() => demo?.click());
     expect(onTryDemo).toHaveBeenCalledOnce();
     expect(signOutPlayer).not.toHaveBeenCalled();

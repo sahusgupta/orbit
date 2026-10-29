@@ -3,12 +3,6 @@ import { colors, density, radii, spacing, typography } from '../../styles/player
 
 export const playerHomeStyles = StyleSheet.create({
   home: { flex: 1, gap: spacing[5] },
-  greeting: {
-    color: colors.ink,
-    fontSize: typography.sizes.heading,
-    fontWeight: typography.weights.semibold,
-    lineHeight: typography.lineHeights.heading
-  },
   findGames: {
     alignItems: 'center',
     backgroundColor: colors.primarySoft,

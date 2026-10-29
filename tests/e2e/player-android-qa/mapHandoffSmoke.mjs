@@ -27,10 +27,10 @@ export const mapArtifactPolicy = Object.freeze({
 });
 
 export const mapFixtureVenues = Object.freeze([
-  Object.freeze({ name: 'Demo Desert Casino', city: 'Las Vegas, NV', games: Object.freeze(['5/10 No Limit Holdem', '4/8 Limit Holdem', 'Demo Holdem Deep Stack']) }),
-  Object.freeze({ name: 'Demo Lakeside Poker Club', city: 'Chicago, IL', games: Object.freeze(['2/5 No Limit Holdem', '1/2 Pot Limit Omaha', 'Demo Omaha Evening']) }),
-  Object.freeze({ name: 'Demo River Card House', city: 'Austin, TX', games: Object.freeze(['2/5 Pot Limit Omaha', 'Demo Holdem Freeroll']) }),
-  Object.freeze({ name: 'Demo Summit Card House', city: 'Denver, CO', games: Object.freeze(['1/3 No Limit Holdem', 'Demo Mixed Game Meetup']) })
+  Object.freeze({ name: 'Stardust Sandbox Casino', city: 'Las Vegas, NV', games: Object.freeze(['5/10 No Limit Holdem', '4/8 Limit Holdem', 'Stardust Holdem Deep Stack']) }),
+  Object.freeze({ name: 'Moonbeam Poker Club', city: 'Chicago, IL', games: Object.freeze(['2/5 No Limit Holdem', '1/2 Pot Limit Omaha', 'Moonlight Omaha Evening']) }),
+  Object.freeze({ name: 'Wonderland Card House', city: 'Austin, TX', games: Object.freeze(['2/5 Pot Limit Omaha', 'Pocket Aces Freeroll']) }),
+  Object.freeze({ name: 'Cloud Nine Card House', city: 'Denver, CO', games: Object.freeze(['1/3 No Limit Holdem', 'Cloud Nine Mixed Game Meetup']) })
 ]);
 
 export function assertMapOptions(options) {
@@ -217,7 +217,7 @@ async function main() {
     await tap('Discover games', { direction: 'up' });
   }
   async function resetDemo() {
-    await tap('Profile', { direction: 'up' }); await tap('Reset demo games'); await waitFor('Hi, Demo');
+    await tap('Profile', { direction: 'up' }); await tap('Reset sample games'); await waitFor('Find games');
     await tap('Find games'); await waitFor('Orbit Match'); await waitFor('Saved games, 0');
   }
   function uniqueField() {
@@ -256,7 +256,7 @@ async function main() {
   async function mapVenue(venue) {
     await tap('Map');
     await seek('Venue map', { direction: 'up' });
-    await seek(new RegExp(`^Fictional demo location, ${venue.city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: -|$)`));
+    await seek(new RegExp(`^Fictional venue, ${venue.city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: -|$)`));
     await tap(`View games at ${venue.name}`); await waitFor('Orbit Match');
   }
   async function exhaustVenue(venue, saved) {
@@ -296,10 +296,10 @@ async function main() {
     shell('am', 'force-stop', qaTarget.package);
     const launched = shell('am', 'start', '-W', '-n', qaTarget.activity); assert(/Status:\s*ok/.test(launched) && !/Error:|Exception/.test(launched));
     report.startup = Object.fromEntries([...launched.matchAll(/^(ThisTime|TotalTime|WaitTime):\s*(\d+)$/gm)].map(match => [match[1], Number(match[2])]));
-    await waitFor(/Find your next game|Set up your profile|Hi, |Profile/);
+    await waitFor(/Find your next game|Set up your profile|Find games|Profile/);
     const entryNodes = ui();
-    if (!find(entryNodes, 'Try demo account', { press: true }) && !find(entryNodes, 'Set up your profile')) await tap('Profile');
-    await tap('Try demo account'); await waitFor('Hi, Demo');
+    if (!find(entryNodes, 'Try sample account', { press: true }) && !find(entryNodes, 'Set up your profile')) await tap('Profile');
+    await tap('Try sample account'); await waitFor('Find games');
     if (find(ui(), 'Dismiss notification', { press: true })) await tap('Dismiss notification');
     await resetDemo();
     if (options.has('--measure-gestures')) {
@@ -347,7 +347,7 @@ async function main() {
       report.savedRecord = { game: saved.game, venue: saved.venue }; await tap('Map');
       await seek('Venue map', { direction: 'up' });
       for (const venue of mapFixtureVenues) {
-        await seek(new RegExp(`^Fictional demo location, ${venue.city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: -|$)`));
+        await seek(new RegExp(`^Fictional venue, ${venue.city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: -|$)`));
         await seek(`View games at ${venue.name}`, { press: true }); await capture(`map-${venue.city.split(',')[0].toLowerCase().replaceAll(' ', '-')}`);
       }
       report.locations = mapFixtureVenues.map(({ name, city }) => ({ name, city }));

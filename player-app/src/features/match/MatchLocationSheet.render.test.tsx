@@ -81,6 +81,8 @@ describe('Manual and foreground Match location sheet', () => {
   });
   it('hides device location in demo and disables clear/save while restoring or busy', () => {
     render({ demoMode: true });
+    expect(container.textContent).toContain('The sample account uses manual search points. Device location stays off.');
+    expect(container.textContent).not.toMatch(/\bdemo\b/i);
     expect(container.querySelector('[aria-label="Use my device location"]')).toBeNull();
     render({ controller: { ...props.controller, ready: false } });
     expect(button('Use my device location').disabled).toBe(true);

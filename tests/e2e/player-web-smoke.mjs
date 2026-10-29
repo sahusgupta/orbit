@@ -1,4 +1,4 @@
-import { chromium } from '@playwright/test';
+import { chromium, expect } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -255,9 +255,14 @@ try {
 }
 await page.getByRole('combobox', { name: 'Status' }).click();
 await page.getByRole('option', { name: 'Running now' }).click();
-await page.waitForURL(/status=running/);
-await page.waitForLoadState('networkidle');
-if (await page.getByText('No games match those filters').count() !== 1) failures.push('Combined game filters did not show the honest empty state.');
+await page.waitForURL((url) => url.searchParams.get('q') === 'PLO' && url.searchParams.get('status') === 'running');
+// Native history changes precede Next's transitioned search-parameter render;
+// no network request exists for networkidle to use as a readiness boundary.
+try {
+  await expect(page.getByText('No games match those filters', { exact: true })).toBeVisible({ timeout: 2_000 });
+} catch {
+  failures.push('Combined game filters did not show the honest empty state.');
+}
 
 await authorizeFixtureSession(page);
 const clubsResponse = await page.goto(`${baseUrl}/clubs`, { waitUntil: 'networkidle' });
@@ -275,13 +280,16 @@ await page.goto(`${baseUrl}/tournaments`, { waitUntil: 'networkidle' });
 await page.getByRole('combobox', { name: 'Interest' }).click();
 await page.getByRole('option', { name: 'Interest open' }).click();
 await page.waitForURL(/interest=open/);
-await page.waitForLoadState('networkidle');
+try {
+  await expect(page.getByRole('heading', { name: 'Deep Stack Classic', exact: true })).toHaveCount(0, { timeout: 2_000 });
+} catch {
+  failures.push('Open tournament filtering retained a closed event.');
+}
 try {
   await page.getByRole('heading', { name: 'Sunday Orbit Major', exact: true }).waitFor({ state: 'visible', timeout: 2_000 });
 } catch {
   failures.push('Open tournament filtering did not retain the available event.');
 }
-if (await page.getByRole('heading', { name: 'Deep Stack Classic', exact: true }).count()) failures.push('Open tournament filtering retained a closed event.');
 if (await page.getByRole('combobox', { name: 'Distance' }).count()) failures.push('Tournaments exposes a distance filter even though v1 has no player origin.');
 
 await authorizeFixtureSession(page);

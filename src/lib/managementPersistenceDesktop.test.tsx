@@ -28,6 +28,7 @@ const harness = vi.hoisted(() => ({
   latestState: undefined as unknown,
   loadCloudCalls: [] as string[],
   loadForAccountCalls: [] as unknown[],
+  loadForAccountTimes: [] as number[],
   prepareCallback: undefined as ((requestId: string) => void) | undefined,
   prepareCleanup: vi.fn(),
   preserveCalls: [] as Array<{ requestId: string; state: AppState }>,
@@ -214,6 +215,7 @@ const invokeFloor = async (name: string, ...args: unknown[]) => {
 describe('management desktop authoritative API persistence orchestration', () => {
   beforeAll(async () => {
     vi.useFakeTimers();
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
     vi.setSystemTime(new Date(now));
     window.location.hash = '#floor';
     setLocalState(buildState('initial-local'));
@@ -233,6 +235,7 @@ describe('management desktop authoritative API persistence orchestration', () =>
       }),
       loadStateForAccount: vi.fn(async (pilotAccess: unknown) => {
         harness.loadForAccountCalls.push(pilotAccess);
+        harness.loadForAccountTimes.push(Date.now());
         if (harness.desktopPollError) throw new Error('isolated desktop API offline');
         return harness.desktopPollResult;
       }),
@@ -342,7 +345,7 @@ describe('management desktop authoritative API persistence orchestration', () =>
         interests: [{ id: 'interest-desktop-new', profileId: 'profile-desktop-new', playerName: 'Desktop New', gameId: 'game-desktop', status: 'Interested', timestamp: '2026-08-08T21:59:00.000Z', interestedAt: '2026-08-08T21:59:00.000Z', notes: '' }]
       }
     } satisfies PersistedStateRecord;
-    await advance(3000);
+    await advance(3_000);
     expect(getState().profiles.map((candidate) => candidate.name)).toEqual(['Desktop Replacement', 'Desktop New']);
     expect(getState().interests.map((interest) => interest.id)).toEqual(['interest-desktop-new']);
     const persistedNotifications = JSON.parse(
@@ -359,13 +362,23 @@ describe('management desktop authoritative API persistence orchestration', () =>
     expect(JSON.stringify(persistedNotifications)).not.toContain('Desktop New');
 
     const afterDesktopMerge = getState();
+    const pollsBeforeFailure = harness.loadForAccountCalls.length;
     harness.desktopPollError = true;
-    await advance(3000);
+    await advance(3_000);
+    expect(harness.loadForAccountCalls).toHaveLength(pollsBeforeFailure + 1);
     expect(getState()).toBe(afterDesktopMerge);
     harness.desktopPollError = false;
     harness.desktopPollResult = { schemaVersion: 4, savedAt: now, state: afterDesktopMerge };
 
-    await advance(30_000);
+    const pollsBeforeRecovery = harness.loadForAccountCalls.length;
+    // The mount helper already advanced one millisecond past the poll's timer slot.
+    const failedPollAt = harness.loadForAccountTimes.at(-1);
+    if (failedPollAt === undefined) throw new Error('Missing failed poll timestamp');
+    const untilRetry = failedPollAt + 60_000 - Date.now();
+    await advance(untilRetry - 1);
+    expect(harness.loadForAccountCalls).toHaveLength(pollsBeforeRecovery);
+    await advance(1);
+    expect(harness.loadForAccountCalls).toHaveLength(pollsBeforeRecovery + 1);
     expect(getState()).toBe(afterDesktopMerge);
     expect(harness.syncCalls).toEqual([]);
     expect(harness.subscriptionCallback).toBeUndefined();
@@ -494,7 +507,8 @@ describe('management desktop authoritative API persistence orchestration', () =>
     const stateA = getState();
     const stateB = { ...stateA, profiles: [{ ...stateA.profiles[0], notes: 'server-B' }], tableEvents: [{ id: 'event-B', type: 'Started' as const, gameId: 'game-desktop', tableId: 'table-test', timestamp: now, playerCount: 0 }] };
     harness.desktopPollResult = { schemaVersion: 4, savedAt: now, authoritative: true, revision: 2, state: stateB };
-    await advance(3000);
+    // mountTable starts without a server record, so its first retry uses failure backoff.
+    await advance(60_000);
     await act(async () => { await Reflect.apply(captured, undefined, [stateA.interests[0], 'table-test', 1]); });
     expect(harness.desktopSaveStates.at(-1)?.profiles[0].notes).toBe('server-B');
     expect(harness.desktopSaveStates.at(-1)?.tableEvents.some(item => item.id === 'event-B')).toBe(true);
@@ -549,7 +563,7 @@ describe('management desktop authoritative API persistence orchestration', () =>
     const stateA = getState();
     const stateB = { ...stateA, profiles: [{ ...stateA.profiles[0], notes: 'server-B-picker' }], tableEvents: [{ id: 'picker-event-B', type: 'Started' as const, gameId: 'game-desktop', tableId: 'table-test', timestamp: now, playerCount: 0 }] };
     harness.desktopPollResult = { schemaVersion: 4, savedAt: now, authoritative: true, revision: 2, state: stateB };
-    await advance(3000);
+    await advance(60_000);
     await act(async () => { await Reflect.apply(callback, undefined, []); });
     expect(harness.desktopSaveStates.at(-1)?.profiles[0].notes).toBe('server-B-picker');
     expect(harness.desktopSaveStates.at(-1)?.tableEvents.some(event => event.id === 'picker-event-B')).toBe(true);

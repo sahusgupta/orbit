@@ -36,7 +36,8 @@ function resumePendingAccountDeletionFinalizers(_request, _response, next) {
   next();
 }
 
-function createApp() {
+/** @param {{ clientRoutes?: Parameters<typeof registerClientRoutes>[2] }} [dependencies] */
+function createApp(dependencies = {}) {
   assertLogHashConfiguration();
   // Validate the server-only authoritative Firestore configuration during cold
   // start. Hosted production must never fall back to an in-memory test store.
@@ -90,7 +91,7 @@ function createApp() {
   registerLegalRoutes(app);
   registerDashboardRoutes(app, liveUpdates, startedAt);
 
-  registerClientRoutes(app, liveUpdates);
+  registerClientRoutes(app, liveUpdates, dependencies.clientRoutes);
   app.use(handleApiError);
 
   return app;

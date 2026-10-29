@@ -23,7 +23,7 @@ const apiPackage = json('apps/api/package.json');
 const webPackage = json('player-web/package.json');
 const app = json('player-app/app.json').expo;
 const eas = json('player-app/eas.json');
-const expectedProductionIosImage = 'macos-tahoe-26.5-xcode-26.6';
+const expectedProductionIosImage = 'macos-tahoe-26.6-xcode-27.0';
 const failures = [];
 const requireMatch = (condition, message) => {
   if (!condition) failures.push(message);
@@ -40,7 +40,7 @@ try {
     if (profileName === 'production') {
       requireMatch(
         resolvedProfile.image === expectedProductionIosImage,
-        'The resolved production iOS profile must use the reviewed Xcode 26 build image.'
+        'The resolved production iOS profile must use the reviewed stable Xcode 27 build image.'
       );
     }
   }
@@ -79,7 +79,7 @@ try {
 requireMatch(eas.build?.production?.distribution === 'store', 'Production EAS profile must create a store build.');
 requireMatch(
   eas.build?.production?.ios?.image === expectedProductionIosImage,
-  'Production EAS profile must pin the reviewed stable SDK 57 Xcode 26.6 build image.'
+  'Production EAS profile must pin the reviewed stable SDK 58 Xcode 27.0 build image.'
 );
 requireMatch(eas.build?.production?.ios?.simulator === false, 'Production EAS profile must target physical iOS devices.');
 requireMatch(eas.build?.production?.autoIncrement === true, 'Production EAS profile must auto-increment the remote build number.');
@@ -93,7 +93,7 @@ requireMatch(app.android?.package === 'com.orbit.player', 'Android package ident
 requireMatch(app.ios?.supportsTablet === false, 'The reviewed first release must remain iPhone-only.');
 requireMatch(app.ios?.infoPlist?.ITSAppUsesNonExemptEncryption === false, 'Encryption declaration must remain explicit.');
 requireMatch(app.scheme === undefined, 'Unused production URL schemes must remain absent.');
-requireMatch(app.splash === undefined, 'SDK 57 splash artwork must be configured by the reviewed splash plugin.');
+requireMatch(app.splash === undefined, 'SDK 58 splash artwork must be configured by the reviewed splash plugin.');
 requireMatch(app.icon === './assets/icon.png', 'Expo must retain the reviewed App Store icon.');
 requireMatch(app.ios?.privacyManifests?.NSPrivacyTracking === false, 'The app-owned privacy manifest must explicitly disable tracking.');
 requireMatch(
@@ -104,16 +104,19 @@ requireMatch(
 for (const dependency of ['expo-auth-session', 'expo-dev-client', 'expo-web-browser', 'react-native-purchases']) {
   requireMatch(!playerPackage.dependencies?.[dependency], `Production Player dependency ${dependency} must be absent.`);
 }
-requireMatch(playerPackage.dependencies?.expo === '57.0.30', 'Expo CLI/runtime must be pinned exactly for the reviewed SDK 57 release.');
-requireMatch(playerPackage.dependencies?.['expo-constants'] === '57.0.22', 'Expo Constants must be pinned to the SDK-compatible release.');
-requireMatch(playerPackage.dependencies?.['react-native'] === '0.86.3', 'React Native must remain pinned to the reviewed New Architecture-only runtime.');
+requireMatch(playerPackage.dependencies?.expo === '58.0.21', 'Expo CLI/runtime must be pinned exactly for the reviewed SDK 58 release.');
+requireMatch(playerPackage.dependencies?.['expo-asset'] === '58.0.19', 'Expo Asset must be pinned to the SDK-compatible release.');
+requireMatch(playerPackage.dependencies?.['expo-camera'] === '58.0.14', 'Expo Camera must be pinned to the SDK-compatible release.');
+requireMatch(playerPackage.dependencies?.['expo-constants'] === '58.0.14', 'Expo Constants must be pinned to the SDK-compatible release.');
+requireMatch(playerPackage.dependencies?.['expo-font'] === '58.0.11', 'Expo Font must be pinned to the SDK-compatible release.');
+requireMatch(playerPackage.dependencies?.['react-native'] === '0.88.1', 'React Native must remain pinned to the reviewed New Architecture-only runtime.');
 requireMatch(
   JSON.stringify(playerPackage.expo?.autolinking?.searchPaths) === JSON.stringify(['./node_modules']),
   'Expo autolinking must be constrained to the standalone Player dependency tree.'
 );
-requireMatch(playerPackage.dependencies?.['expo-splash-screen'] === '57.0.10', 'Expo splash plugin must use the SDK 57-compatible pinned version.');
-requireMatch(playerPackage.dependencies?.['expo-crypto'] === '57.0.4', 'Expo Crypto must remain a pinned SDK-compatible direct dependency for native request identifiers.');
-requireMatch(playerPackage.dependencies?.['expo-location'] === '57.0.21', 'Optional foreground location must use the reviewed SDK-compatible dependency.');
+requireMatch(playerPackage.dependencies?.['expo-splash-screen'] === '58.0.12', 'Expo splash plugin must use the SDK 58-compatible pinned version.');
+requireMatch(playerPackage.dependencies?.['expo-crypto'] === '58.0.7', 'Expo Crypto must remain a pinned SDK-compatible direct dependency for native request identifiers.');
+requireMatch(playerPackage.dependencies?.['expo-location'] === '58.0.20', 'Optional foreground location must use the reviewed SDK-compatible dependency.');
 requireMatch(app.ios?.infoPlist?.NSLocationWhenInUseUsageDescription === 'Use your location once to find poker games within your selected distance. Orbit keeps this search point on your device.', 'Foreground location requires the reviewed purpose text.');
 for (const key of ['NSLocationAlwaysUsageDescription', 'NSLocationAlwaysAndWhenInUseUsageDescription', 'NSMotionUsageDescription']) {
   requireMatch(!app.ios?.infoPlist?.[key], `${key} must remain absent.`);

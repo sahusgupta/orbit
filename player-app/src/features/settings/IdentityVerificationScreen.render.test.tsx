@@ -127,6 +127,8 @@ describe('IdentityVerificationScreen camera and data-minimization composition', 
 
   it('requests camera permission when it may still prompt', () => {
     render();
+    expect(container.textContent).toContain('Scan your ID to confirm 18+');
+    expect(container.textContent).toContain('Scan the PDF417 barcode on the back of your ID.');
     expect(container.textContent).toContain('Allow camera access');
     act(() => button('Allow camera access')?.click());
     expect(camera.requestPermission).toHaveBeenCalledTimes(1);

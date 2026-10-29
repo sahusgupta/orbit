@@ -1,15 +1,41 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const native = vi.hoisted(() => ({ alert: vi.fn(), openURL: vi.fn() }));
+const native = vi.hoisted(() => ({
+  alert: vi.fn(),
+  openURL: vi.fn(),
+  currentAppState: vi.fn<() => string | null | undefined>()
+}));
 
 vi.mock('react-native', () => ({
   Alert: { alert: native.alert },
-  AppState: { currentState: 'active', addEventListener: vi.fn() },
+  AppState: { get currentState() { return native.currentAppState(); }, addEventListener: vi.fn() },
   Linking: { openSettings: vi.fn(), openURL: native.openURL },
   Platform: { OS: 'ios', Version: '26.0', select: (values: Record<string, string>) => values.ios }
 }));
 
 import { playerPlatform } from './playerPlatform';
+
+describe('Player platform app-state boundary', () => {
+  it.each(['active', 'background', 'inactive', 'unknown', 'extension'] as const)('preserves the supported %s state', (state) => {
+    native.currentAppState.mockReturnValue(state);
+    expect(playerPlatform.getCurrentAppState()).toBe(state);
+  });
+
+  it('preserves an uninitialized null state', () => {
+    native.currentAppState.mockReturnValue(null);
+    expect(playerPlatform.getCurrentAppState()).toBeNull();
+  });
+
+  it('normalizes an unset native state to the uninitialized fallback', () => {
+    native.currentAppState.mockReturnValue(undefined);
+    expect(playerPlatform.getCurrentAppState()).toBeNull();
+  });
+
+  it('keeps an unfamiliar native state outside the active polling state', () => {
+    native.currentAppState.mockReturnValue('future-native-state');
+    expect(playerPlatform.getCurrentAppState()).toBe('unknown');
+  });
+});
 
 describe('Player platform deletion confirmations', () => {
   beforeEach(() => { native.alert.mockReset(); native.openURL.mockReset().mockResolvedValue(undefined); });

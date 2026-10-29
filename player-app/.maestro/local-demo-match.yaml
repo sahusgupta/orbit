@@ -8,9 +8,9 @@ name: Fictional offline Match save, remove, pass, undo, and demo exit
 - extendedWaitUntil:
     visible: Find your next game
     timeout: 30000
-- tapOn: Try demo account
+- tapOn: Try sample account
 - extendedWaitUntil:
-    visible: Hi, Demo
+    visible: Find games
     timeout: 30000
 - tapOn: Find games
 - extendedWaitUntil:
@@ -53,10 +53,10 @@ name: Fictional offline Match save, remove, pass, undo, and demo exit
     enabled: false
 - takeScreenshot: 07-demo-undo
 - tapOn: Profile
-- tapOn: Exit demo
+- tapOn: Exit sample
 - extendedWaitUntil:
     visible: Find your next game
     timeout: 30000
 - assertVisible: Create account
-- assertNotVisible: Demo Player
+- assertNotVisible: Alex Example
 - takeScreenshot: 08-demo-exit
