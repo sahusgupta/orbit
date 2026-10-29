@@ -724,15 +724,15 @@ function createSelfCheckInHandlers(dependencies = {}) {
 function registerSelfCheckInRoutes(app, _dependencies = {}) {
   app.get('/check-in', (_request, response) => {
     setPrivateResponseHeaders(response);
-    response.sendFile(path.join(publicDirectory, 'self-check-in.html'));
+    response.sendFile('self-check-in.html', { root: publicDirectory });
   });
   app.get('/self-check-in.css', (_request, response) => {
     setPrivateResponseHeaders(response);
-    response.sendFile(path.join(publicDirectory, 'self-check-in.css'));
+    response.sendFile('self-check-in.css', { root: publicDirectory });
   });
   app.get('/self-check-in.js', (_request, response) => {
     setPrivateResponseHeaders(response);
-    response.sendFile(path.join(publicDirectory, 'self-check-in.js'));
+    response.sendFile('self-check-in.js', { root: publicDirectory });
   });
   app.post('/management/self-check-in/qr', requireClientAuth, requireSelfCheckInIssuer, rejectSelfCheckInKitIssuance);
   app.post('/player/check-in/context', rejectUnauthenticatedPlayerCheckIn);

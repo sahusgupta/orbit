@@ -37,15 +37,15 @@ function registerDashboardRoutes(app, liveUpdates, startedAt) {
     }
   };
   app.get('/dashboard', (_request, response) => {
-    response.sendFile(path.join(publicDirectory, 'dashboard.html'));
+    response.sendFile('dashboard.html', { root: publicDirectory });
   });
 
   app.get('/dashboard.js', (_request, response) => {
-    response.sendFile(path.join(publicDirectory, 'dashboard.js'));
+    response.sendFile('dashboard.js', { root: publicDirectory });
   });
 
   app.get('/dashboard.css', (_request, response) => {
-    response.sendFile(path.join(publicDirectory, 'dashboard.css'));
+    response.sendFile('dashboard.css', { root: publicDirectory });
   });
 
   app.post('/dashboard/session', (request, response) => {
