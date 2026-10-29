@@ -16,26 +16,26 @@ function apiBaseUrl() {
 async function fetchJson(path: string, timeoutMs = PUBLIC_DATA_TIMEOUT_MS): Promise<{ response: Response; payload: unknown }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
-  let response: Response;
   try {
-    response = await fetch(`${apiBaseUrl()}${path}`, {
+    const response = await fetch(`${apiBaseUrl()}${path}`, {
       headers: { accept: 'application/json' },
       next: { revalidate: 30 },
       signal: controller.signal
     });
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      if (controller.signal.aborted) throw error;
+      payload = null;
+    }
+    return { response, payload };
   } catch (error) {
     if (controller.signal.aborted) throw new Error('Orbit live data took too long to respond. Try again.');
     throw error;
   } finally {
     clearTimeout(timeout);
   }
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
-  }
-  return { response, payload };
 }
 
 export async function getPublicDiscovery(): Promise<DataResult<DiscoveryPayload>> {
