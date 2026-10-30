@@ -13,6 +13,15 @@ const allowedPublicNames = new Set([
   ...Object.keys(requiredIdentity), 'NEXT_PUBLIC_FIREBASE_API_KEY',
   'NEXT_PUBLIC_APP_CHECK_SITE_KEY', 'NEXT_PUBLIC_ORBIT_API_URL', 'NEXT_PUBLIC_PLAYER_WEB_URL'
 ]);
+const allowedVercelMetadataNames = new Set([
+  'VERCEL_URL', 'VERCEL_ENV', 'VERCEL_TARGET_ENV', 'VERCEL_REGION',
+  'VERCEL_BRANCH_URL', 'VERCEL_PROJECT_PRODUCTION_URL', 'VERCEL_DEPLOYMENT_ID', 'VERCEL_PROJECT_ID',
+  'VERCEL_HASH_SALT', 'VERCEL_GIT_PROVIDER', 'VERCEL_GIT_REPO_SLUG', 'VERCEL_GIT_REPO_OWNER',
+  'VERCEL_GIT_REPO_ID', 'VERCEL_GIT_COMMIT_REF', 'VERCEL_GIT_COMMIT_SHA', 'VERCEL_GIT_COMMIT_MESSAGE',
+  'VERCEL_GIT_COMMIT_AUTHOR_LOGIN', 'VERCEL_GIT_COMMIT_AUTHOR_NAME', 'VERCEL_GIT_PREVIOUS_SHA',
+  'VERCEL_GIT_PULL_REQUEST_ID'
+]);
+const playerWebVercelProjectId = 'prj_22SN9L7TvAKHTye7x6PZmBhvNkoq';
 
 export function validateHostedPlayerWebEnvironment(environment: Environment) {
   if (!environment.VERCEL && environment.ORBIT_WEB_ENV !== 'production') return;
@@ -28,7 +37,15 @@ export function validateHostedPlayerWebEnvironment(environment: Environment) {
   if (!/^AIza[A-Za-z0-9_-]{35}$/.test(environment.NEXT_PUBLIC_FIREBASE_API_KEY || '')) invalid('NEXT_PUBLIC_FIREBASE_API_KEY');
   if (!/^6L[A-Za-z0-9_-]{20,100}$/.test(environment.NEXT_PUBLIC_APP_CHECK_SITE_KEY || '')) invalid('NEXT_PUBLIC_APP_CHECK_SITE_KEY');
   for (const [name, value] of Object.entries(environment)) {
-    if (name.startsWith('NEXT_PUBLIC_') && !allowedPublicNames.has(name)) invalid(name);
+    if (name.startsWith('NEXT_PUBLIC_') && !allowedPublicNames.has(name)) {
+      // The platform adds reviewed public mirrors; reject overrides and unknown names.
+      const sourceName = name.slice('NEXT_PUBLIC_'.length);
+      if (
+        environment.VERCEL !== '1' || !allowedVercelMetadataNames.has(sourceName)
+        || typeof environment[sourceName] !== 'string' || value !== environment[sourceName]
+        || (sourceName === 'VERCEL_PROJECT_ID' && value !== playerWebVercelProjectId)
+      ) invalid(name);
+    }
     if (/EMULATOR|FIREBASE_AUTH_HOST/i.test(name) && value) invalid(name);
   }
 }
