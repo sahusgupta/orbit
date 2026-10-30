@@ -128,3 +128,63 @@ describe('hosted Player Web public platform metadata', () => {
     expect(() => validateHostedPlayerWebEnvironment({ ...production, [name]: value, ...platformMetadata, ...platformMirrors })).toThrow(name);
   });
 });
+
+describe('hosted Player Web public observability configuration', () => {
+  const publicName = 'NEXT_PUBLIC_VERCEL_OBSERVABILITY_CLIENT_CONFIG';
+  const sourceName = 'VERCEL_OBSERVABILITY_CLIENT_CONFIG';
+  const analytics = { analytics: { scriptSrc: '/synthetic/analytics.js', eventEndpoint: '/synthetic/event', viewEndpoint: '/synthetic/view' } };
+  const speedInsights = { speedInsights: { scriptSrc: '/synthetic/speed.js', endpoint: '/synthetic/vitals' } };
+  const combined = JSON.stringify({ ...analytics, ...speedInsights });
+  const withObservability = (value: string) => ({
+    ...production, ...platformMetadata, ...platformMirrors, [sourceName]: value, [publicName]: value
+  });
+
+  it.each([analytics, speedInsights])('accepts a matching documented public client configuration %#', (configuration) => {
+    expect(() => validateHostedPlayerWebEnvironment(withObservability(JSON.stringify(configuration)))).not.toThrow();
+  });
+  it('accepts combined client options alongside the complete twenty-one-name set', () => {
+    expect(() => validateHostedPlayerWebEnvironment(withObservability(combined))).not.toThrow();
+  });
+  it('accepts the observed eighteen-name injected shape without requiring absent platform metadata', () => {
+    const observedMirrors = Object.fromEntries(Object.entries(platformMetadata)
+      .filter(([name]) => !['VERCEL_REGION', 'VERCEL_BRANCH_URL', 'VERCEL_HASH_SALT'].includes(name))
+      .map(([name, value]) => [`NEXT_PUBLIC_${name}`, value]));
+    expect(Object.keys(observedMirrors)).toHaveLength(17);
+    expect(() => validateHostedPlayerWebEnvironment({
+      ...production, ...platformMetadata, ...observedMirrors, [sourceName]: combined, [publicName]: combined
+    })).not.toThrow();
+  });
+  it.each([undefined, 'different-config'])('rejects an absent or different source counterpart (%s)', (sourceValue) => {
+    expect(() => validateHostedPlayerWebEnvironment({ ...withObservability(combined), [sourceName]: sourceValue })).toThrow(publicName);
+  });
+  it('rejects undefined mirrored values instead of treating absence as a string match', () => {
+    expect(() => validateHostedPlayerWebEnvironment({
+      ...production, [sourceName]: undefined, [publicName]: undefined
+    })).toThrow(publicName);
+  });
+  it.each([undefined, '0', 'true'])('rejects observability mirrors when VERCEL is %s', (vercel) => {
+    expect(() => validateHostedPlayerWebEnvironment({
+      ...production, ORBIT_WEB_ENV: 'production', VERCEL: vercel, [sourceName]: combined, [publicName]: combined
+    })).toThrow(publicName);
+  });
+  it.each([
+    'VERCEL_OBSERVABILITY_SECRET', 'VERCEL_OBSERVABILITY_TOKEN',
+    'VERCEL_OBSERVABILITY_CLIENT_CONFIG_SECRET', 'VERCEL_OBSERVABILITY_BASEPATH'
+  ])('rejects the unreviewed public %s even with a matching string counterpart', (name) => {
+    const syntheticValue = 'synthetic-sensitive-value';
+    const environment = { ...production, [name]: syntheticValue, [`NEXT_PUBLIC_${name}`]: syntheticValue };
+    expect(() => validateHostedPlayerWebEnvironment(environment)).toThrow(`NEXT_PUBLIC_${name}`);
+    try { validateHostedPlayerWebEnvironment(environment); } catch (error) {
+      expect((error as Error).message).not.toContain(syntheticValue);
+    }
+  });
+  it('retains the canonical project pin with matching observability configuration', () => {
+    expect(() => validateHostedPlayerWebEnvironment({
+      ...withObservability(combined), VERCEL_PROJECT_ID: 'prj_unreviewed', NEXT_PUBLIC_VERCEL_PROJECT_ID: 'prj_unreviewed'
+    })).toThrow('NEXT_PUBLIC_VERCEL_PROJECT_ID');
+  });
+  it('retains required App Check with matching observability configuration', () => {
+    expect(() => validateHostedPlayerWebEnvironment({ ...withObservability(combined), NEXT_PUBLIC_APP_CHECK_ENABLED: 'false' }))
+      .toThrow('NEXT_PUBLIC_APP_CHECK_ENABLED');
+  });
+});
