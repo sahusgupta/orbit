@@ -490,8 +490,10 @@ describe('PokerTable seat rendering', () => {
       await act(async () => openOtherDialog());
       const topmostInput = document.querySelector<HTMLInputElement>('[aria-label="Other operation note"]')!;
       expect(document.activeElement).toBe(topmostInput);
-      await act(async () => {
+      act(() => {
         topmostInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' }));
+      });
+      await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
 
