@@ -18,6 +18,7 @@
     "build": "vite build",
     "audit:module-graph": "node scripts/audit-module-graph.mjs",
     "measure:renderer-bundle": "node scripts/measure-renderer-bundle.mjs",
+    "measure:api-resources": "node scripts/measure-api-resources.mjs",
     "check:renderer-bundle": "node scripts/measure-renderer-bundle.mjs --check",
     "security:paths": "node scripts/check-sensitive-paths.cjs",
     "preview": "vite preview --host 127.0.0.1",
