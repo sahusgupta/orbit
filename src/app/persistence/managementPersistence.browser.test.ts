@@ -179,3 +179,98 @@ it.each(['fetch', 'malformed JSON'])('preserves %s failure identity and the prev
   expect((await publishStateToLocalOrbitBridge(state)).conflict).toBe(true);
   expect(attempts).toEqual([1]);
 });
+
+const deferredReadFixture = async (name: string) => {
+  const state = structuredClone(seedState);
+  const accountKey = `browser-deferred-${name}`;
+  state.settings.pilotAccess = { authorized: true, licenseId: accountKey, authorizationCode: 'test-only', activatedAt: '2026-09-10', expiresAt: '2099-12-31' };
+  let revision = 1;
+  const attempts: number[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+    if (init?.method !== 'POST') return new Response(JSON.stringify({ accountKey, state, revision }));
+    const payload: { expectedRevision: number } = JSON.parse(String(init.body));
+    attempts.push(payload.expectedRevision);
+    if (payload.expectedRevision !== revision) return new Response(JSON.stringify({ currentRevision: revision }), { status: 409 });
+    return new Response(JSON.stringify({ ok: true, revision: ++revision }));
+  }));
+  await loadManagementStateFromLocalBridge(accountKey);
+  return { state, accountKey, attempts, setRevision(value: number) { revision = value; } };
+};
+
+it('forwards deferred acceptance through the public loader without evaluating or adopting until committed', async () => {
+  const f = await deferredReadFixture('forwarding');
+  f.setRevision(2);
+  const canAcceptRead = vi.fn(() => true);
+  const loaded = await loadManagementStateFromLocalBridge(f.accountKey, canAcceptRead, { deferRevisionAcceptance: true });
+  expect(loaded.status).toBe('available');
+  expect(canAcceptRead).not.toHaveBeenCalled();
+  expect((await publishStateToLocalOrbitBridge(f.state)).conflict).toBe(true);
+  expect(f.attempts).toEqual([1]);
+  if (loaded.status !== 'available' || !loaded.acceptReadRevision) throw new Error('Deferred read did not expose its acceptance callback.');
+  expect(loaded.state).toEqual(f.state);
+  expect(loaded.acceptReadRevision()).toBe(true);
+  expect(canAcceptRead).toHaveBeenCalledOnce();
+  expect((await publishStateToLocalOrbitBridge(f.state)).ok).toBe(true);
+  expect(f.attempts).toEqual([1, 2]);
+});
+
+it('defers revision adoption without requiring a predicate', async () => {
+  const f = await deferredReadFixture('no-predicate');
+  f.setRevision(2);
+  const loaded = await loadManagementStateFromLocalBridge(f.accountKey, undefined, { deferRevisionAcceptance: true });
+  expect((await publishStateToLocalOrbitBridge(f.state)).conflict).toBe(true);
+  expect(f.attempts).toEqual([1]);
+  if (loaded.status !== 'available' || !loaded.acceptReadRevision) throw new Error('Deferred read did not expose its acceptance callback.');
+  expect(loaded.acceptReadRevision()).toBe(true);
+  expect((await publishStateToLocalOrbitBridge(f.state)).ok).toBe(true);
+  expect(f.attempts).toEqual([1, 2]);
+});
+
+it('evaluates a deferred predicate at commit and retains the old revision after late rejection', async () => {
+  const f = await deferredReadFixture('late-rejection');
+  f.setRevision(2);
+  let accepts = true;
+  const canAcceptRead = vi.fn(() => accepts);
+  const loaded = await loadManagementStateFromLocalBridge(f.accountKey, canAcceptRead, { deferRevisionAcceptance: true });
+  expect(canAcceptRead).not.toHaveBeenCalled();
+  accepts = false;
+  if (loaded.status !== 'available' || !loaded.acceptReadRevision) throw new Error('Deferred read did not expose its acceptance callback.');
+  expect(loaded.acceptReadRevision()).toBe(false);
+  expect(canAcceptRead).toHaveBeenCalledOnce();
+  expect((await publishStateToLocalOrbitBridge(f.state)).conflict).toBe(true);
+  expect(f.attempts).toEqual([1]);
+});
+
+it('preserves a late deferred predicate error without adopting its revision', async () => {
+  const f = await deferredReadFixture('late-error');
+  f.setRevision(2);
+  let failure: Error | undefined;
+  const canAcceptRead = vi.fn(() => {
+    if (failure) throw failure;
+    return true;
+  });
+  const loaded = await loadManagementStateFromLocalBridge(f.accountKey, canAcceptRead, { deferRevisionAcceptance: true });
+  expect(canAcceptRead).not.toHaveBeenCalled();
+  failure = new Error('Synthetic late deferred acceptance failure.');
+  if (loaded.status !== 'available' || !loaded.acceptReadRevision) throw new Error('Deferred read did not expose its acceptance callback.');
+  let thrown: unknown;
+  try { loaded.acceptReadRevision(); }
+  catch (error) { thrown = error; }
+  expect(thrown).toBe(failure);
+  expect(canAcceptRead).toHaveBeenCalledOnce();
+  expect((await publishStateToLocalOrbitBridge(f.state)).conflict).toBe(true);
+  expect(f.attempts).toEqual([1]);
+});
+
+it.each(['read', 'save'] as const)('does not let an older deferred snapshot replace a newer revision from a %s', async source => {
+  const f = await deferredReadFixture(`newer-${source}`);
+  const loaded = await loadManagementStateFromLocalBridge(f.accountKey, undefined, { deferRevisionAcceptance: true });
+  if (loaded.status !== 'available' || !loaded.acceptReadRevision) throw new Error('Deferred read did not expose its acceptance callback.');
+  if (source === 'read') {
+    f.setRevision(3);
+    await loadManagementStateFromLocalBridge(f.accountKey);
+  } else expect((await publishStateToLocalOrbitBridge(f.state)).ok).toBe(true);
+  expect(loaded.acceptReadRevision()).toBe(false);
+  expect((await publishStateToLocalOrbitBridge(f.state)).ok).toBe(true);
+  expect(f.attempts).toEqual(source === 'read' ? [3] : [1, 2]);
+});

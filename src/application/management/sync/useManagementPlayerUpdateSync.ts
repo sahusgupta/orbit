@@ -94,7 +94,8 @@ export const useManagementPlayerUpdateSync = ({
       const stateWhenLoadStarted = stateRef.current;
       try {
         const record = await loadManagementStateFromLocalBridge(activeAccountKey, () =>
-          !cancelled && !isManagementSavePending(activeAccountKey) && stateRef.current === stateWhenLoadStarted
+          !cancelled && !isManagementSavePending(activeAccountKey) && stateRef.current === stateWhenLoadStarted,
+          { deferRevisionAcceptance: true }
         );
         if (cancelled || isManagementSavePending(activeAccountKey) || stateRef.current !== stateWhenLoadStarted) return;
         if (record.status === 'missing') {
@@ -105,11 +106,13 @@ export const useManagementPlayerUpdateSync = ({
           return;
         }
         if (record.status === 'unavailable') return;
-        bridgeInitialized = true;
         if (cancelled || !record.state) return;
         const latestState = stateRef.current;
         const remoteState = normalizeState(record.state);
-        if (hasSameIncomingPlayerOperations(latestState, remoteState)) return;
+        const hasSameOperations = hasSameIncomingPlayerOperations(latestState, remoteState);
+        if (record.acceptReadRevision && !record.acceptReadRevision()) return;
+        bridgeInitialized = true;
+        if (hasSameOperations) return;
         announceIncomingPlayerRequest(latestState, remoteState);
         const mergedState = mergeIncomingPlayerOperations(latestState, remoteState);
         clearUndo();
