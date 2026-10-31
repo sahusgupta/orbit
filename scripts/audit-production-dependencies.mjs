@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dependencyReviewFailures } from './dependency-review-constraints.mjs';
+import { auditBundledRuntimeDependencies } from './audit-bundled-runtime-dependencies.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const policyPath = path.join(repositoryRoot, 'config', 'dependency-audit-policy.json');
@@ -69,5 +70,7 @@ for (const scope of scopes) {
 if (failures.length) {
   throw new Error(`Dependency advisory gate failed:\n- ${failures.join('\n- ')}`);
 }
+
+await auditBundledRuntimeDependencies(repositoryRoot);
 
 console.log(`Dependency advisory reachability policy passed; next mandatory review: ${policy.reviewBy}.`);
