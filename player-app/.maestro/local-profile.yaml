@@ -63,7 +63,7 @@ name: Fresh account choices, adult gate, and credentials without authentication
 - scrollUntilVisible:
     element: Continue to account
     direction: DOWN
-    centerElement: true
+    visibilityPercentage: 100
 - assertVisible:
     text: Continue to account
     enabled: false
@@ -75,7 +75,7 @@ name: Fresh account choices, adult gate, and credentials without authentication
 - scrollUntilVisible:
     element: Continue to account
     direction: DOWN
-    centerElement: true
+    visibilityPercentage: 100
 - assertVisible:
     text: Continue to account
     enabled: true
