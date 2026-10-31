@@ -56,6 +56,7 @@
     "player:rules:deploy": "firebase deploy --only firestore:rules,firestore:indexes",
     "player:build:preview": "npm run build:preview --prefix player-app",
     "player:build:production": "npm run build:production --prefix player-app",
+    "player:build:preflight": "node scripts/player-build-preflight.mjs",
     "player:release:verify": "node scripts/verify-player-release.mjs",
     "player:assets:verify": "node scripts/verify-player-assets.mjs",
     "player:config:verify": "node scripts/run-player-expo.mjs config",
