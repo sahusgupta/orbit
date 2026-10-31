@@ -97,13 +97,19 @@ export const createManagementPersistence = (dependencies: ManagementPersistenceD
     };
   };
 
-  const loadStateFromLocalBridge = async (accountKey: string): Promise<LocalBridgeStateResult> => {
+  const loadStateFromLocalBridge = async (
+    accountKey: string,
+    canAcceptRead?: () => boolean
+  ): Promise<LocalBridgeStateResult> => {
     const response = await dependencies.fetchState(
       `${dependencies.bridgeBaseUrl}/state/${encodeURIComponent(accountKey)}`
     );
     if (response.status === 404) return { status: 'missing' };
     if (!response.ok) return { status: 'unavailable' };
     const record = await response.json() as { accountKey?: string; revision?: number; state?: AppState };
+    // A discarded background snapshot must not lend its revision to queued
+    // writes built from an older state and thereby bypass the server's CAS.
+    if (canAcceptRead && !canAcceptRead()) return { status: 'unavailable' };
     if (record.accountKey) {
       const revision = Number(record.revision || 0);
       const priorRevision = bridgeRevisionByAccount.get(record.accountKey);
@@ -210,8 +216,8 @@ export const subscribeToDesktopManagementStateForAccount = (access: PilotAccess,
 export const loadExistingManagementStateForAccount = (access: PilotAccess) =>
   getDefaultManagementPersistence().loadExistingStateForAccount(access);
 export const loadManagementState = () => getDefaultManagementPersistence().loadState();
-export const loadManagementStateFromLocalBridge = (accountKey: string) =>
-  getDefaultManagementPersistence().loadStateFromLocalBridge(accountKey);
+export const loadManagementStateFromLocalBridge = (accountKey: string, canAcceptRead?: () => boolean) =>
+  getDefaultManagementPersistence().loadStateFromLocalBridge(accountKey, canAcceptRead);
 export const publishStateToLocalOrbitBridge = (state: AppState) =>
   getDefaultManagementPersistence().publishStateToLocalBridge(state);
 export const registerManagementUpdatePreservation = (getState: () => AppState) =>
