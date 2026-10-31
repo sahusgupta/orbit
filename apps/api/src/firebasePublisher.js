@@ -81,6 +81,22 @@ function getRecordProperty(value, key) {
     : undefined;
 }
 
+/**
+ * @param {unknown} payload
+ * @param {Set<string>} seenPageTokens
+ * @param {string} category
+ * @param {string} path
+ */
+function readNextPageToken(payload, seenPageTokens, category, path) {
+  const token = String(getRecordProperty(payload, 'nextPageToken') || '');
+  if (token && seenPageTokens.has(token)) {
+    // A repeated opaque cursor cannot progress; never include it in diagnostics.
+    throw new FirebasePublicationError(category, { pathRef: protectedIdentifier(path) });
+  }
+  if (token) seenPageTokens.add(token);
+  return token;
+}
+
 function loadServiceAccount() {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
     const value = process.env.FIREBASE_SERVICE_ACCOUNT_JSON.trim();
@@ -663,6 +679,7 @@ async function deleteLegacyPlayerDocuments(projectId, token, clubId, playerDocs)
   if (!expectedIdsByProfile.size) return 0;
 
   const stalePaths = [];
+  const seenPageTokens = new Set();
   let pageToken = '';
   do {
     const endpoint = new URL(`${restBase(projectId)}/clubs/${encodeURIComponent(clubId)}/players`);
@@ -702,7 +719,7 @@ async function deleteLegacyPlayerDocuments(projectId, token, clubId, playerDocs)
       const expectedId = expectedIdsByProfile.get(sourceProfileId);
       return expectedId && expectedId !== documentId && typeof documentName === 'string' ? [documentName] : [];
     }));
-    pageToken = String(getRecordProperty(payload, 'nextPageToken') || '');
+    pageToken = readNextPageToken(payload, seenPageTokens, 'player-list-response-invalid', `clubs/${clubId}/players`);
   } while (pageToken);
 
   await batchWriteDocuments(projectId, token, stalePaths.map((documentName) => ({ delete: documentName })));
@@ -727,6 +744,7 @@ async function reconcileProjectionDocuments(projectId, token, clubId, expectedId
     const expectedIds = expectedIdsByCollection[collectionName] instanceof Set
       ? expectedIdsByCollection[collectionName]
       : new Set(expectedIdsByCollection[collectionName] || []);
+    const seenPageTokens = new Set();
     let pageToken = '';
     do {
       const endpoint = new URL(
@@ -783,7 +801,7 @@ async function reconcileProjectionDocuments(projectId, token, clubId, expectedId
           }
         }
       }
-      pageToken = String(getRecordProperty(payload, 'nextPageToken') || '');
+      pageToken = readNextPageToken(payload, seenPageTokens, 'projection-list-response-invalid', collectionPath);
     } while (pageToken);
   }
   await batchWriteDocuments(projectId, token, stalePaths.map((documentName) => ({ delete: documentName })));

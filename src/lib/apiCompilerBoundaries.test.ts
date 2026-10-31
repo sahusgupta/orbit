@@ -72,6 +72,11 @@ const getFirebaseRecordProperty = loadFunction<(value: unknown, key: string) => 
   'apps/api/src/firebasePublisher.js',
   'getRecordProperty'
 );
+const getFirebaseNextPageToken = loadFunction<(
+  payload: unknown, seenPageTokens: Set<string>, category: string, path: string
+) => string>(firebasePublisherSource, 'apps/api/src/firebasePublisher.js', 'readNextPageToken', {
+  getRecordProperty: getFirebaseRecordProperty
+});
 
 afterEach(() => {
   vi.useRealTimers();
@@ -154,6 +159,7 @@ describe('API Firebase REST compiler boundaries', () => {
         fetchFirebase: (_category: string, input: string, init: unknown) => fetch(input, init),
         getRecordProperty: getFirebaseRecordProperty,
         restBase: (projectId: string) => `https://firestore.googleapis.test/v1/projects/${projectId}/documents`,
+        readNextPageToken: getFirebaseNextPageToken,
         URL
       }
     );
@@ -239,6 +245,7 @@ describe('API Firebase REST compiler boundaries', () => {
         },
         getRecordProperty: getFirebaseRecordProperty,
         protectedIdentifier: () => '0123456789abcdef',
+        readNextPageToken: getFirebaseNextPageToken,
         restBase: (projectId: string) => `https://firestore.googleapis.test/v1/projects/${projectId}/documents`
       }
     );
