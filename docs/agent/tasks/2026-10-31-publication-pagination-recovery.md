@@ -33,8 +33,23 @@ publisher suites pass. API checkJs passes. Independent review found no concern
 in token identity, scope, redaction or phase ordering. Evidence is under ignored
 `out/resource-reliability-20261031/pagination/`.
 
-Full repository verification and CI remain pending integration of the separate
-tooling-advisory repair. This record does not claim a complete rollout, a bound
+The first integrated `npm run verify` completed all checks but failed one
+compiler-boundary test: its extracted legacy-cleanup function did not receive
+the new private token helper. The harness now extracts and supplies that real
+helper without changing its request, deletion or input-preservation assertions.
+All 80 tests across the compiler-boundary and publisher suites then passed.
+The complete `npm run verify` rerun passed all 13 checks: 3,324 tests passed,
+with 16 existing skips. Clean root/Player installs and the
+fresh advisory, sensitive-path, independent-lockfile, release-control and
+module-graph gates passed after integrating the separate tooling repair.
+
+The fresh audit reports zero root/API/Web production findings and five Player
+findings in this run; the original eight-entry Player policy and November 3
+review deadline remain unchanged. Seven unshipped Node aggregate findings stay
+visible in the supplemental browser artifact audit. Existing test-adapter and
+Vite eval/large-chunk warnings remain.
+
+CI is still pending. This record does not claim a complete rollout, a bound
 on an arbitrarily long sequence of unique valid pages, or production Firestore
-billing measurements. No hosted service, credentials, EAS build or deployment
-was used for this change.
+billing measurements. No live application service, real Firebase credentials,
+EAS build or deployment was used for this change.
