@@ -93,7 +93,9 @@ export const useManagementPlayerUpdateSync = ({
       syncInFlight = true;
       const stateWhenLoadStarted = stateRef.current;
       try {
-        const record = await loadManagementStateFromLocalBridge(activeAccountKey);
+        const record = await loadManagementStateFromLocalBridge(activeAccountKey, () =>
+          !cancelled && !isManagementSavePending(activeAccountKey) && stateRef.current === stateWhenLoadStarted
+        );
         if (cancelled || isManagementSavePending(activeAccountKey) || stateRef.current !== stateWhenLoadStarted) return;
         if (record.status === 'missing') {
           if (!bridgeInitialized) {
