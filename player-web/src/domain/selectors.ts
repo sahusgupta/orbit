@@ -72,8 +72,17 @@ export function findGameByRouteKey(clubs: PlayerClubSnapshot[], key: string) {
 }
 
 export function findTournamentByRouteKey(discovery: DiscoveryPayload, key: string) {
+  const clubsById = new Map<string, PlayerClubSnapshot>();
+  let nextClubIndex = 0;
   const canonicalMatch = discovery.tournaments.find((tournament) => {
-    const club = discovery.clubs.find((candidate) => candidate.club.id === tournament.clubId);
+    let club = clubsById.get(tournament.clubId);
+    // Reuse the visited prefix while keeping early canonical matches cheap.
+    while (!club && nextClubIndex < discovery.clubs.length) {
+      const candidate = discovery.clubs[nextClubIndex++];
+      const id = candidate.club.id;
+      if (!clubsById.has(id)) clubsById.set(id, candidate);
+      if (id === tournament.clubId) club = candidate;
+    }
     return tournamentRouteKey(club, tournament) === key;
   });
   if (canonicalMatch) return canonicalMatch;
