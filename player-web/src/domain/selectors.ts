@@ -182,6 +182,7 @@ export function filterGames(clubs: PlayerClubSnapshot[], filters: GameFilters, o
 export function filterClubs(clubs: PlayerClubSnapshot[], filters: ClubFilters, origin: Coordinate | null = null) {
   const query = filters.query.trim().toLowerCase();
   const maximumDistance = Number(filters.distance);
+  const distancesByClub = new Map<PlayerClubSnapshot, number | null>();
   return [...clubs]
     .filter((club) => {
       const searchText = `${club.club.name} ${club.club.address ?? ''} ${club.games.map((game) => game.name).join(' ')}`.toLowerCase();
@@ -189,9 +190,10 @@ export function filterClubs(clubs: PlayerClubSnapshot[], filters: ClubFilters, o
       if (filters.activity === 'active' && !club.games.some((game) => getGameState(game) === 'running')) return false;
       if (filters.activity === 'forming' && !club.games.some((game) => getGameState(game) === 'forming')) return false;
       const distance = getClubDistance(club, origin);
+      distancesByClub.set(club, distance);
       return !Number.isFinite(maximumDistance) || maximumDistance <= 0 || (distance != null && distance <= maximumDistance);
     })
-    .sort((left, right) => compareOptionalDistances(getClubDistance(left, origin), getClubDistance(right, origin)));
+    .sort((left, right) => compareOptionalDistances(distancesByClub.get(left) ?? null, distancesByClub.get(right) ?? null));
 }
 
 export function filterTournaments(
