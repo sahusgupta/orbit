@@ -21,6 +21,46 @@ const scopes = [
 ];
 const failures = [];
 
+const severities = ['info', 'low', 'moderate', 'high', 'critical'];
+const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function readAuditReport(result, scope) {
+  if (result.error) throw result.error;
+  if (![0, 1].includes(result.status) || result.signal !== null) {
+    throw new Error(`npm audit did not complete with a valid status for ${scope}.`);
+  }
+
+  let report;
+  try {
+    report = JSON.parse(result.stdout);
+  } catch {
+    throw new Error(`npm audit returned non-JSON output for ${scope}.`);
+  }
+  if (!isRecord(report)) throw new Error(`npm audit returned an invalid report for ${scope}.`);
+  if (report.error !== undefined) throw new Error(`npm audit failed for ${scope}: ${report.error?.summary || report.error?.code || 'unknown error'}`);
+
+  const counts = report.metadata?.vulnerabilities;
+  if (report.auditReportVersion !== 2 || !isRecord(report.vulnerabilities)
+    || !isRecord(report.metadata) || !isRecord(counts)
+    || [...severities, 'total'].some(severity => !Number.isSafeInteger(counts[severity]) || counts[severity] < 0)) {
+    throw new Error(`npm audit returned incomplete evidence for ${scope}.`);
+  }
+  const observed = Object.fromEntries(severities.map(severity => [severity, 0]));
+  const entries = Object.entries(report.vulnerabilities);
+  for (const [name, vulnerability] of entries) {
+    if (!name || !isRecord(vulnerability) || vulnerability.name !== name || !severities.includes(vulnerability.severity)) {
+      throw new Error(`npm audit returned an invalid vulnerability for ${scope}.`);
+    }
+    observed[vulnerability.severity] += 1;
+  }
+  if (entries.length !== counts.total || severities.some(severity => counts[severity] !== observed[severity])
+    || severities.reduce((sum, severity) => sum + counts[severity], 0) !== counts.total
+    || result.status === 1 && counts.total === 0) {
+    throw new Error(`npm audit returned inconsistent evidence for ${scope}.`);
+  }
+  return report;
+}
+
 for (const scope of scopes) {
   const args = ['audit', '--omit=dev', '--json'];
   if (scope.prefix) args.push('--prefix', scope.prefix);
@@ -31,17 +71,8 @@ for (const scope of scopes) {
     encoding: 'utf8',
     windowsHide: true
   });
-  if (result.error) throw result.error;
-
-  let report;
-  try {
-    report = JSON.parse(result.stdout || '{}');
-  } catch {
-    throw new Error(`npm audit returned non-JSON output for ${scope.name}.`);
-  }
-  if (report.error) throw new Error(`npm audit failed for ${scope.name}: ${report.error.summary || report.error.code || 'unknown error'}`);
-
-  const vulnerabilities = Object.values(report.vulnerabilities || {});
+  const report = readAuditReport(result, scope.name);
+  const vulnerabilities = Object.values(report.vulnerabilities);
   const lock = JSON.parse(fs.readFileSync(path.join(repositoryRoot, scope.prefix || '', 'package-lock.json'), 'utf8'));
   failures.push(...dependencyReviewFailures(scope.name, vulnerabilities, policy.scopes?.[scope.name], lock));
   const allowed = new Set(policy.scopes?.[scope.name]?.allowed || []);
@@ -57,7 +88,7 @@ for (const scope of scopes) {
 
   const observedNames = new Set(vulnerabilities.map((entry) => String(entry.name || 'unknown')));
   const resolvedPolicyEntries = [...allowed].filter((name) => !observedNames.has(name));
-  const counts = report.metadata?.vulnerabilities || {};
+  const counts = report.metadata.vulnerabilities;
   const summary = ['critical', 'high', 'moderate', 'low']
     .map((severity) => `${severity}=${Number(counts[severity] || 0)}`)
     .join(' ');
