@@ -60,7 +60,9 @@ export type PilotAccessValidationResult = {
 export type LocalBridgeStateResult =
   | { status: 'missing' }
   | { status: 'unavailable' }
-  | { status: 'available'; state?: AppState };
+  | { status: 'available'; state?: AppState; acceptReadRevision?: () => boolean };
+
+type LocalBridgeReadOptions = { deferRevisionAcceptance?: boolean };
 
 const defaultBridgeBaseUrl = (import.meta.env.VITE_ORBIT_LOCAL_API_URL || 'http://127.0.0.1:4629').replace(/\/$/, '');
 
@@ -99,7 +101,8 @@ export const createManagementPersistence = (dependencies: ManagementPersistenceD
 
   const loadStateFromLocalBridge = async (
     accountKey: string,
-    canAcceptRead?: () => boolean
+    canAcceptRead?: () => boolean,
+    options?: LocalBridgeReadOptions
   ): Promise<LocalBridgeStateResult> => {
     const response = await dependencies.fetchState(
       `${dependencies.bridgeBaseUrl}/state/${encodeURIComponent(accountKey)}`
@@ -107,15 +110,25 @@ export const createManagementPersistence = (dependencies: ManagementPersistenceD
     if (response.status === 404) return { status: 'missing' };
     if (!response.ok) return { status: 'unavailable' };
     const record = await response.json() as { accountKey?: string; revision?: number; state?: AppState };
-    // A discarded background snapshot must not lend its revision to queued
-    // writes built from an older state and thereby bypass the server's CAS.
-    if (canAcceptRead && !canAcceptRead()) return { status: 'unavailable' };
-    if (record.accountKey) {
-      const revision = Number(record.revision || 0);
-      const priorRevision = bridgeRevisionByAccount.get(record.accountKey);
-      if (priorRevision !== undefined && revision < priorRevision) return { status: 'unavailable' };
-      bridgeRevisionByAccount.set(record.accountKey, revision);
+    const deferRevisionAcceptance = options?.deferRevisionAcceptance === true;
+    if (!deferRevisionAcceptance && canAcceptRead && !canAcceptRead()) return { status: 'unavailable' };
+    const readAccountKey = record.accountKey;
+    const readRevision = readAccountKey ? Number(record.revision || 0) : 0;
+    const acceptReadRevision = () => {
+      if (deferRevisionAcceptance && canAcceptRead && !canAcceptRead()) return false;
+      if (readAccountKey) {
+        const priorRevision = bridgeRevisionByAccount.get(readAccountKey);
+        if (priorRevision !== undefined && readRevision < priorRevision) return false;
+        bridgeRevisionByAccount.set(readAccountKey, readRevision);
+      }
+      return true;
+    };
+    // Background consumers accept in their resumed synchronous turn. Another
+    // queued microtask may change ownership after this loader resolves.
+    if (deferRevisionAcceptance) {
+      return { status: 'available', state: record.state, acceptReadRevision };
     }
+    if (!acceptReadRevision()) return { status: 'unavailable' };
     return { status: 'available', state: record.state };
   };
 
@@ -216,8 +229,11 @@ export const subscribeToDesktopManagementStateForAccount = (access: PilotAccess,
 export const loadExistingManagementStateForAccount = (access: PilotAccess) =>
   getDefaultManagementPersistence().loadExistingStateForAccount(access);
 export const loadManagementState = () => getDefaultManagementPersistence().loadState();
-export const loadManagementStateFromLocalBridge = (accountKey: string, canAcceptRead?: () => boolean) =>
-  getDefaultManagementPersistence().loadStateFromLocalBridge(accountKey, canAcceptRead);
+export const loadManagementStateFromLocalBridge = (
+  accountKey: string,
+  canAcceptRead?: () => boolean,
+  options?: LocalBridgeReadOptions
+) => getDefaultManagementPersistence().loadStateFromLocalBridge(accountKey, canAcceptRead, options);
 export const publishStateToLocalOrbitBridge = (state: AppState) =>
   getDefaultManagementPersistence().publishStateToLocalBridge(state);
 export const registerManagementUpdatePreservation = (getState: () => AppState) =>

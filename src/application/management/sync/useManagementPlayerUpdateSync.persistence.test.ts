@@ -48,13 +48,23 @@ async function flush() {
   for (let index = 0; index < 16; index += 1) await Promise.resolve();
 }
 
-async function fixture(initialPending = false, options: { deferBody?: boolean; throwAcceptanceOnce?: boolean } = {}) {
+async function fixture(initialPending = false, options: {
+  deferBody?: boolean;
+  throwAcceptanceOnce?: boolean;
+  rejectAcceptanceOnce?: boolean;
+  missingAfterRead?: boolean;
+  unchangedRemote?: boolean;
+  malformedNormalization?: boolean;
+} = {}) {
   const base = baseState();
   const other = baseState(otherAccountKey);
-  const remote = normalizeState({ ...base, profiles: base.profiles.map(profile => ({ ...profile, notes: 'external note' })) });
+  const remote = options.unchangedRemote ? structuredClone(base)
+    : normalizeState({ ...base, profiles: base.profiles.map(profile => ({ ...profile, notes: 'external note' })) });
   let release = (_response: Response) => {};
   const pendingResponse = new Promise<Response>(resolve => { release = resolve; });
-  const remoteBody = { accountKey, revision: 2, state: remote };
+  const remoteBody = { accountKey, revision: 2, state: options.malformedNormalization
+    ? { ...remote, settings: { ...remote.settings, collectionProfiles: {} } }
+    : remote };
   let releaseBody = (_body: typeof remoteBody) => {};
   const pendingBody = new Promise<typeof remoteBody>(resolve => { releaseBody = resolve; });
   let bodyStarted = false;
@@ -74,6 +84,7 @@ async function fixture(initialPending = false, options: { deferBody?: boolean; t
     gets += 1;
     if (gets === 1) return record(1, base);
     if (gets === 2) return options.deferBody ? headersBeforeBody : pendingResponse;
+    if (options.missingAfterRead) return new Response(null, { status: 404 });
     // Each later poll owns a fresh body; never reuse an already-consumed Response.
     return record(2, remote);
   });
@@ -81,13 +92,12 @@ async function fixture(initialPending = false, options: { deferBody?: boolean; t
     getDesktopPersistence: () => undefined, saveFirebaseState: async () => undefined, storage: localStorage });
   await persistence.loadStateFromLocalBridge(accountKey);
   let acceptanceChecks = 0;
-  if (options.throwAcceptanceOnce) {
-    bridge.load.mockImplementation((key, canAcceptRead) => persistence.loadStateFromLocalBridge(key, () => {
-      acceptanceChecks += 1;
-      if (acceptanceChecks === 1) throw new Error('Synthetic acceptance failure after body parsing.');
-      return canAcceptRead ? canAcceptRead() : true;
-    }));
-  } else bridge.load.mockImplementation(persistence.loadStateFromLocalBridge);
+  bridge.load.mockImplementation((key, canAcceptRead, readOptions) => persistence.loadStateFromLocalBridge(key, () => {
+    acceptanceChecks += 1;
+    if (options.throwAcceptanceOnce && acceptanceChecks === 1) throw new Error('Synthetic acceptance failure after body parsing.');
+    if (options.rejectAcceptanceOnce && acceptanceChecks === 1) return false;
+    return canAcceptRead ? canAcceptRead() : true;
+  }, readOptions));
   bridge.publish.mockImplementation(persistence.publishStateToLocalBridge);
   const stateRef = { current: base };
   const gate = { pending: initialPending };
@@ -119,6 +129,10 @@ async function fixture(initialPending = false, options: { deferBody?: boolean; t
   return {
     base, other, remote, stateRef, gate, setState, clearUndo, setSaveStatus, posts, persistence, unmount,
     getCount: () => gets, bodyStarted: () => bodyStarted, acceptanceChecks: () => acceptanceChecks,
+    queueAfterBody(callback: () => void) {
+      expect(bodyStarted).toBe(true);
+      return pendingBody.then(callback);
+    },
     async switchAccount() {
       stateRef.current = other;
       await act(async () => { root.render(createElement(Harness, { activeAccountKey: otherAccountKey })); });
@@ -225,6 +239,29 @@ describe('actual browser persistence and incoming-sync composition', () => {
     expect(f.posts[0].expectedRevision).toBe(1);
   });
 
+  it.each(rejectedReads)('retains the prior revision when a queued body microtask means $name', async ({ pending, changed }) => {
+    const f = await fixture(false, { deferBody: true });
+    const local = changed
+      ? normalizeState({ ...f.base, profiles: f.base.profiles.map(profile => ({ ...profile, notes: 'local note from queued continuation' })) })
+      : f.base;
+    // The adapter already awaits this native body Promise. This independently
+    // queued continuation can run before its hook consumer resumes.
+    const localContinuation = f.queueAfterBody(() => {
+      f.stateRef.current = local;
+      f.gate.pending = pending;
+    });
+    await f.release();
+    await localContinuation;
+    expect(f.stateRef.current).toBe(local);
+    expect(f.setState).not.toHaveBeenCalled();
+    expect(bridge.cache).not.toHaveBeenCalled();
+    expect(f.clearUndo).not.toHaveBeenCalled();
+    expect(f.setSaveStatus).not.toHaveBeenCalled();
+    expect(bridge.publish).not.toHaveBeenCalled();
+    await f.persistence.publishStateToLocalBridge(local);
+    expect(f.posts[0].expectedRevision).toBe(1);
+  });
+
   it('releases the busy gate after a throwing acceptance predicate so the next poll can recover', async () => {
     const f = await fixture(false, { throwAcceptanceOnce: true });
     await f.release();
@@ -243,5 +280,76 @@ describe('actual browser persistence and incoming-sync composition', () => {
     expect(bridge.publish).not.toHaveBeenCalled();
     await f.persistence.publishStateToLocalBridge(f.stateRef.current);
     expect(f.posts[0].expectedRevision).toBe(2);
+  });
+
+  it.each(['reject', 'throw'] as const)('keeps a deferred %s from applying or initializing the bridge before a later missing read', async outcome => {
+    const f = await fixture(false, { deferBody: true, missingAfterRead: true,
+      rejectAcceptanceOnce: outcome === 'reject', throwAcceptanceOnce: outcome === 'throw' });
+    await f.release();
+    expect(f.acceptanceChecks()).toBe(1);
+    expect(f.stateRef.current).toBe(f.base);
+    expect(f.setState).not.toHaveBeenCalled();
+    expect(bridge.cache).not.toHaveBeenCalled();
+    expect(f.clearUndo).not.toHaveBeenCalled();
+    expect(f.setSaveStatus).not.toHaveBeenCalled();
+    expect(bridge.publish).not.toHaveBeenCalled();
+    expect(f.posts).toHaveLength(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); await flush(); });
+    expect(f.getCount()).toBe(3);
+    expect(bridge.publish).toHaveBeenCalledOnce();
+    expect(f.posts).toHaveLength(1);
+    expect(f.posts[0].expectedRevision).toBe(1);
+    expect(f.posts[0].state).toEqual(f.base);
+    expect(f.setState).not.toHaveBeenCalled();
+    expect(bridge.cache).not.toHaveBeenCalled();
+  });
+
+  it('accepts a revision with unchanged operations without applying UI or reinitializing after a later missing read', async () => {
+    const f = await fixture(false, { deferBody: true, unchangedRemote: true, missingAfterRead: true });
+    await f.release();
+    expect(f.acceptanceChecks()).toBe(1);
+    expect(f.stateRef.current).toBe(f.base);
+    expect(f.setState).not.toHaveBeenCalled();
+    expect(bridge.cache).not.toHaveBeenCalled();
+    expect(f.clearUndo).not.toHaveBeenCalled();
+    expect(f.setSaveStatus).not.toHaveBeenCalled();
+    expect(bridge.publish).not.toHaveBeenCalled();
+    await f.persistence.publishStateToLocalBridge(f.base);
+    expect(f.posts[0].expectedRevision).toBe(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); await flush(); });
+    expect(f.getCount()).toBe(3);
+    expect(bridge.publish).not.toHaveBeenCalled();
+    expect(f.posts).toHaveLength(1);
+  });
+
+  it('does not acknowledge a body whose malformed collection profiles fail normalization', async () => {
+    const f = await fixture(false, { deferBody: true, malformedNormalization: true });
+    await f.release();
+    expect(f.acceptanceChecks()).toBe(0);
+    expect(f.stateRef.current).toBe(f.base);
+    expect(f.setState).not.toHaveBeenCalled();
+    expect(bridge.cache).not.toHaveBeenCalled();
+    expect(f.clearUndo).not.toHaveBeenCalled();
+    expect(f.setSaveStatus).not.toHaveBeenCalled();
+    expect(bridge.publish).not.toHaveBeenCalled();
+    await f.persistence.publishStateToLocalBridge(f.base);
+    expect(f.posts[0].expectedRevision).toBe(1);
+  });
+
+  it('does not acknowledge a snapshot when comparing local operations throws', async () => {
+    const f = await fixture(false, { deferBody: true });
+    Object.defineProperty(f.base.profiles, 'toJSON', { configurable: true,
+      value() { throw new Error('Synthetic local operation comparison failure.'); } });
+    try { await f.release(); }
+    finally { Reflect.deleteProperty(f.base.profiles, 'toJSON'); }
+    expect(f.acceptanceChecks()).toBe(0);
+    expect(f.stateRef.current).toBe(f.base);
+    expect(f.setState).not.toHaveBeenCalled();
+    expect(bridge.cache).not.toHaveBeenCalled();
+    expect(f.clearUndo).not.toHaveBeenCalled();
+    expect(f.setSaveStatus).not.toHaveBeenCalled();
+    expect(bridge.publish).not.toHaveBeenCalled();
+    await f.persistence.publishStateToLocalBridge(f.base);
+    expect(f.posts[0].expectedRevision).toBe(1);
   });
 });
