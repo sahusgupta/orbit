@@ -47,11 +47,14 @@ const setInputValue = (input: HTMLInputElement, value: string) => {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 };
 
-const submitForm = async (form: HTMLFormElement) => {
+const submitForm = async (form: HTMLFormElement, expectedMessage: string) => {
   await act(async () => {
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
+  await vi.waitFor(async () => {
+    await act(async () => {});
+    expect(document.querySelector('#expired-data-export-message')?.textContent).toBe(expectedMessage);
+  }, { timeout: 3_000, interval: 20 });
 };
 
 describe('expired-license room data export', () => {
@@ -168,7 +171,7 @@ describe('expired-license room data export', () => {
       setInputValue(emailInput, 'expired@example.test');
       setInputValue(passwordInput, 'wrong password');
     });
-    await submitForm(form!);
+    await submitForm(form!, 'Email or password is incorrect. Room data was not exported.');
 
     expect(document.querySelector('#expired-data-export-message')?.textContent).toBe(
       'Email or password is incorrect. Room data was not exported.'
@@ -190,7 +193,7 @@ describe('expired-license room data export', () => {
       setInputValue(emailInput, 'expired@example.test');
       setInputValue(passwordInput, 'correct horse battery staple');
     });
-    await submitForm(form);
+    await submitForm(form, 'Room data exported.');
 
     expect(document.querySelector('#expired-data-export-message')?.textContent).toBe('Room data exported.');
     expect(harness.downloads).toHaveLength(1);

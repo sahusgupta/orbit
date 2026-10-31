@@ -47,10 +47,32 @@ Actual commands, source/test/policy hashes and raw outputs are retained locally 
 `out/dependency-audit-fail-closed-20261031/`. Runtime endpoints were loopback only,
 storage was in memory, and sync, dotenv and telemetry were disabled. These mocked
 tests establish failure handling; they do not establish current registry advisory
-counts. A separate live public-registry audit is required for that claim.
+counts. The separate public-registry audit below provides that evidence.
 The raw aggregate log SHA-256 is
 `4c4526e7b93f322e45f19af4ff01d05835bce0cad286ee07884dd21327d58491`.
 The source, tests and unchanged advisory policy retained their frozen hashes.
+
+## Public registry audit and CI follow-up
+
+The separate audit of commit `6fb72acc02a854116ab334774b42ec24e74d6609`
+completed normally on 2026-10-31 at 23:38:42 UTC. All four production scopes
+reported zero vulnerabilities and zero reviewed exceptions. The ExcelJS browser
+artifact check passed; seven Node-only aggregate moderate findings remain visible
+as excluded from the shipped artifact. This does not claim that every development
+or aggregate dependency is free of findings. The audit result SHA-256 is
+`7876735f0244ee7ca172c10293f29a63998c69e60918aae25411341d6b7d8210`.
+
+The first CI run for that commit failed the existing wrong-password export test:
+the expected error message was absent after one timer turn. The handler awaits
+real WebCrypto password verification. Local checks had passed; the precise CI
+scheduling cause was not reproduced. The test helper now submits once and waits
+at most three seconds for the exact observable message, flushing React on each
+attempt. Both password cases still use real crypto, and every existing
+authorization, download, sanitization, locked-shell and no-network assertion
+remains. Application and authentication source are unchanged. The repaired
+three-test export suite passed locally; aggregate retry evidence is retained in
+`out/expired-export-ci-wait-20261031/` separately from the original successful run
+and the failed CI record.
 
 The previously failed nine-epoch/180-minute native sustained validation and its
 unexecuted supplemental games gate remain unmet. This task started no production
