@@ -32,6 +32,26 @@ function lowSeverityFixture() {
   };
 }
 
+function retiredHighSeverityFixture() {
+  const advisory = 'https://github.com/advisories/GHSA-mrhx-c7xc-m3w5';
+  return {
+    entries: [
+      { name: 'zod', severity: 'high', nodes: ['node_modules/zod'], via: [{ url: advisory, severity: 'high' }] },
+      { name: '@expo/cli', severity: 'high', nodes: ['node_modules/@expo/cli'], via: ['zod'] }
+    ],
+    lock: { packages: { 'node_modules/zod': { version: '3.25.76' }, 'node_modules/@expo/cli': { version: '58.1.17' } } }
+  };
+}
+
+function actualPolicy() {
+  return JSON.parse(fs.readFileSync(new URL('../config/dependency-audit-policy.json', import.meta.url), 'utf8'));
+}
+
+const retiredPlayerChains = [
+  { label: 'Low deepmerge/Config', create: lowSeverityFixture },
+  { label: 'High zod/CLI', create: retiredHighSeverityFixture }
+];
+
 describe('bounded production advisory review', () => {
   it('accepts only the exact reviewed origin, locked versions, and transitive chain', () => {
     expect(check(fixture())).toEqual([]);
@@ -102,11 +122,21 @@ describe('bounded production advisory review', () => {
     value.entries[0].via.push({ url: 'https://github.com/advisories/GHSA-new-advisory', severity: 'low' });
     expect(check(value).join('\n')).toContain('unreviewed or critical originating advisory');
   });
-  it.each(['root', 'api', 'web'])('does not carry the Player exception into the %s scope', (scope) => {
-    const value = lowSeverityFixture();
-    const policy = JSON.parse(fs.readFileSync(new URL('../config/dependency-audit-policy.json', import.meta.url), 'utf8'));
+  it.each(retiredPlayerChains)('rejects the retired $label chain at its formerly reviewed versions under the actual Player policy', ({ create }) => {
+    const value = create();
+    const policy = actualPolicy();
+    expect(dependencyReviewFailures('player', value.entries, policy.scopes.player, value.lock)).toEqual(
+      value.entries.map((entry) => `player:${entry.name} is not in the reviewed policy.`)
+    );
+  });
+  it.each(['root', 'api', 'player', 'web'])('keeps the actual %s scope closed to both retired Player chains', (scope) => {
+    const policy = actualPolicy();
     expect(policy.scopes[scope].allowed).toEqual([]);
-    expect(dependencyReviewFailures(scope, value.entries, policy.scopes[scope], value.lock)).toHaveLength(2);
-    expect(dependencyReviewFailures('player', value.entries, policy.scopes.player, value.lock)).toEqual([]);
+    for (const { create } of retiredPlayerChains) {
+      const value = create();
+      expect(dependencyReviewFailures(scope, value.entries, policy.scopes[scope], value.lock)).toEqual(
+        value.entries.map((entry) => `${scope}:${entry.name} is not in the reviewed policy.`)
+      );
+    }
   });
 });
