@@ -32,7 +32,7 @@ function loadIsolatedModule(relativePath, dependencies, globals = {}) {
   const source = fs.readFileSync(filename, 'utf8');
   const exported = { exports: {} };
   const context = vm.createContext({
-    module: exported, exports: exported.exports, Buffer, URL, URLSearchParams,
+    module: exported, exports: exported.exports, Buffer, URL, URLSearchParams, AbortController, setTimeout, clearTimeout,
     Date: FixtureDate,
     require(name) {
       if (!Object.hasOwn(dependencies, name)) throw new Error(`Unexpected baseline dependency: ${name}`);

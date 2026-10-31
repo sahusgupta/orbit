@@ -85,7 +85,7 @@ function fixture(page, { requestLimit = 40 } = {}) {
   };
   const module = { exports: {} };
   vm.runInNewContext(fs.readFileSync(require.resolve('./firebasePublisher.js'), 'utf8'), {
-    module, Buffer, Date, JSON, URL, URLSearchParams,
+    module, Buffer, Date, JSON, URL, URLSearchParams, AbortController, setTimeout, clearTimeout,
     process: { env: { NODE_ENV: 'test', FIREBASE_SERVICE_ACCOUNT_JSON: JSON.stringify({
       project_id: projectId, client_email: 'synthetic-publisher@example.invalid', private_key: 'unused-fixture'
     }) } },
