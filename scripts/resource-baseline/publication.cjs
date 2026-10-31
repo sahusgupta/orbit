@@ -62,6 +62,17 @@ function fixtureState(players) {
   };
 }
 
+// Model only the publisher's supported top-level cleanup masks. This synthetic
+// provider must not keep returning full fields after the real request narrows.
+function applyListFieldMask(document, fieldPaths) {
+  if (!fieldPaths.length) return document;
+  assert.ok(fieldPaths.every(field => ['syncSource', 'sourceProfileId'].includes(field)), 'Unsupported synthetic cleanup mask.');
+  const { fields: originalFields, ...metadata } = document;
+  const fields = Object.fromEntries(fieldPaths.filter(field => Object.hasOwn(originalFields || {}, field))
+    .map(field => [field, originalFields[field]]));
+  return Object.keys(fields).length ? { ...metadata, fields } : metadata;
+}
+
 function createTransport(state, { stalePlayers, legacyPlayers, foreignPlayers }) {
   const documents = new Map();
   const expectedDeleted = new Set();
@@ -70,7 +81,7 @@ function createTransport(state, { stalePlayers, legacyPlayers, foreignPlayers })
   const metrics = {
     requests: 0, tokenRequests: 0, listRequests: 0, listedDocuments: 0,
     updateBatchRequests: 0, deleteBatchRequests: 0, documentUpdates: 0,
-    documentDeletes: 0, parentWrites: 0, requestBodyBytes: 0, responseBodyBytes: 0,
+    documentDeletes: 0, parentWrites: 0, requestBodyBytes: 0, responseBodyBytes: 0, listResponseBodyBytes: 0,
     listRequestsByCollection: Object.fromEntries(collections.map((name) => [name, 0])),
     listedDocumentsByCollection: Object.fromEntries(collections.map((name) => [name, 0]))
   };
@@ -161,7 +172,11 @@ function createTransport(state, { stalePlayers, legacyPlayers, foreignPlayers })
     metrics.listedDocuments += page.length;
     metrics.listedDocumentsByCollection[collectionName] += page.length;
     events.push({ kind: 'list', collection: collectionName, count: page.length });
-    return response({ documents: page, ...(offset + 500 < snapshot.length ? { nextPageToken: `offset-${offset + 500}` } : {}) });
+    const fieldPaths = endpoint.searchParams.getAll('mask.fieldPaths');
+    const payload = { documents: page.map(document => applyListFieldMask(document, fieldPaths)),
+      ...(offset + 500 < snapshot.length ? { nextPageToken: `offset-${offset + 500}` } : {}) };
+    metrics.listResponseBodyBytes += Buffer.byteLength(JSON.stringify(payload));
+    return response(payload);
   }
   return {
     fetchFixture, documents, metrics, events, expectedDeleted, preservedNames,
@@ -294,4 +309,4 @@ async function measurePublication({ players, sampleCount = 1, ...options }) {
   };
 }
 
-module.exports = { createPublicationScenario, defaultSizes, measurePublication, runPublicationScenario };
+module.exports = { applyListFieldMask, createPublicationScenario, defaultSizes, measurePublication, runPublicationScenario };

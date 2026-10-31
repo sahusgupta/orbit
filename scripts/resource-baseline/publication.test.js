@@ -1,6 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import publication from './publication.cjs';
 
+describe('synthetic provider cleanup masks', () => {
+  const document = () => ({ name: 'projects/demo-orbit-mask/databases/(default)/documents/clubs/fixture/players/row',
+    createTime: '2026-10-31T00:00:00Z', updateTime: '2026-10-31T00:01:00Z',
+    fields: { syncSource: { stringValue: 'orbit-api' }, sourceProfileId: { stringValue: 'profile' },
+      unused: { stringValue: 'This field remains in the full backing document.' } } });
+
+  it('returns all fields when the request has no mask', () => {
+    const full = document();
+    expect(publication.applyListFieldMask(full, [])).toEqual(full);
+  });
+
+  it.each([['syncSource'], ['sourceProfileId'], ['syncSource', 'sourceProfileId']])('returns selected fields and retains document metadata for %j', (...fields) => {
+    const full = document();
+    const before = structuredClone(full);
+    const result = publication.applyListFieldMask(full, fields);
+    expect(Object.keys(result.fields)).toEqual(fields);
+    expect(result).toMatchObject({ name: full.name, createTime: full.createTime, updateTime: full.updateTime });
+    expect(result.fields).not.toHaveProperty('unused');
+    expect(full).toEqual(before);
+  });
+
+  it('retains fieldless documents and rejects masks the fixture cannot model', () => {
+    const { fields: _fields, ...metadata } = document();
+    expect(publication.applyListFieldMask(metadata, ['syncSource'])).toEqual(metadata);
+    expect(() => publication.applyListFieldMask(document(), ['nested.field'])).toThrow('Unsupported synthetic cleanup mask.');
+  });
+});
+
 describe('isolated publication resource baseline', () => {
   it.each([0, 10, 250, 501, 1000])('counts real publisher operations for %i synthetic players', async (players) => {
     const originalFetch = globalThis.fetch;
@@ -15,6 +43,8 @@ describe('isolated publication resource baseline', () => {
     expect(result.operations.parentWrites).toBe(1);
     expect(result.operations.requestBodyBytes).toBeGreaterThan(0);
     expect(result.operations.responseBodyBytes).toBeGreaterThan(0);
+    expect(result.operations.listResponseBodyBytes).toBeGreaterThan(0);
+    expect(result.operations.listResponseBodyBytes).toBeLessThan(result.operations.responseBodyBytes);
     expect(result.parentMarkerLast).toBe(true);
     expect(result.unexpectedRequests).toBe(0);
     expect(result.finalDocumentCount).toBe(2 * players + 2);

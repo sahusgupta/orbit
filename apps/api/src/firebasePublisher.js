@@ -798,6 +798,7 @@ async function deleteLegacyPlayerDocuments(projectId, token, clubId, playerDocs)
   do {
     const endpoint = new URL(`${restBase(projectId)}/clubs/${encodeURIComponent(clubId)}/players`);
     endpoint.searchParams.set('pageSize', '500');
+    endpoint.searchParams.set('mask.fieldPaths', 'sourceProfileId');
     if (pageToken) endpoint.searchParams.set('pageToken', pageToken);
     const payload = await withFirebaseResponse(
       'player-list',
@@ -866,6 +867,8 @@ async function reconcileProjectionDocuments(projectId, token, clubId, expectedId
         `${restBase(projectId)}/clubs/${encodeURIComponent(clubId)}/${encodeURIComponent(collectionName)}`
       );
       endpoint.searchParams.set('pageSize', '500');
+      endpoint.searchParams.append('mask.fieldPaths', 'syncSource');
+      if (collectionName === 'players') endpoint.searchParams.append('mask.fieldPaths', 'sourceProfileId');
       if (pageToken) endpoint.searchParams.set('pageToken', pageToken);
       const collectionPath = `clubs/${clubId}/${collectionName}`;
       const payload = await withFirebaseResponse(

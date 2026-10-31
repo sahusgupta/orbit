@@ -181,11 +181,11 @@ describe('API Firebase REST compiler boundaries', () => {
 
     expect(fetch.mock.calls).toEqual([
       [
-        'https://firestore.googleapis.test/v1/projects/local-project/documents/clubs/club-a/players?pageSize=500',
+        'https://firestore.googleapis.test/v1/projects/local-project/documents/clubs/club-a/players?pageSize=500&mask.fieldPaths=sourceProfileId',
         { headers: { authorization: 'Bearer local-token' } }
       ],
       [
-        'https://firestore.googleapis.test/v1/projects/local-project/documents/clubs/club-a/players?pageSize=500',
+        'https://firestore.googleapis.test/v1/projects/local-project/documents/clubs/club-a/players?pageSize=500&mask.fieldPaths=sourceProfileId',
         { headers: { authorization: 'Bearer local-token' } }
       ]
     ]);
