@@ -42,6 +42,13 @@ function loadFunction<T>(source: string, file: string, name: string, globals: Re
   return factory(...names.map((key) => globals[key])) as T;
 }
 
+function withFixtureResponse(request: (input: string, init: unknown) => Promise<unknown>) {
+  return async (
+    _category: string, input: string, init: unknown, _path: string,
+    consumeResponse: (response: unknown) => Promise<unknown>
+  ) => consumeResponse(await request(input, init));
+}
+
 type GetServiceAccountToken = (serviceAccount: { client_email: string; private_key: string }) => Promise<string>;
 type DeleteLegacyPlayerDocuments = (
   projectId: string,
@@ -103,7 +110,7 @@ describe('API Firebase REST compiler boundaries', () => {
         base64Url: (value: string) => Buffer.from(value).toString('base64url'),
         crypto: { createSign: vi.fn(() => signer) },
         fetch,
-        fetchFirebase: (_category: string, input: string, init: unknown) => fetch(input, init),
+        withFirebaseResponse: withFixtureResponse(fetch),
         getRecordProperty: getFirebaseRecordProperty,
         URLSearchParams
       }
@@ -156,7 +163,7 @@ describe('API Firebase REST compiler boundaries', () => {
         encodeURIComponent,
         batchWriteDocuments,
         fetch,
-        fetchFirebase: (_category: string, input: string, init: unknown) => fetch(input, init),
+        withFirebaseResponse: withFixtureResponse(fetch),
         getRecordProperty: getFirebaseRecordProperty,
         restBase: (projectId: string) => `https://firestore.googleapis.test/v1/projects/${projectId}/documents`,
         readNextPageToken: getFirebaseNextPageToken,
@@ -209,7 +216,7 @@ describe('API Firebase REST compiler boundaries', () => {
         base64Url: (value: string) => Buffer.from(value).toString('base64url'),
         crypto: { createSign: vi.fn(() => signer) },
         fetch: tokenFetch,
-        fetchFirebase: (_category: string, input: string, init: unknown) => tokenFetch(input, init),
+        withFirebaseResponse: withFixtureResponse(tokenFetch),
         getRecordProperty: getFirebaseRecordProperty,
         URLSearchParams
       }
@@ -232,7 +239,7 @@ describe('API Firebase REST compiler boundaries', () => {
       {
         encodeURIComponent,
         fetch: listingFetch,
-        fetchFirebase: (_category: string, input: string, init: unknown) => listingFetch(input, init),
+        withFirebaseResponse: withFixtureResponse(listingFetch),
         FirebasePublicationError: class extends Error {
           category: string;
           pathRef: string;
