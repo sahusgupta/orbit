@@ -40,10 +40,10 @@ describe('isolated discovery resource measurement', () => {
     expect(report.sourceSha).toMatch(/^[a-f0-9]{40}$/);
     expect(Object.values(report.sourceFiles).every((hash) => /^[a-f0-9]{64}$/.test(hash))).toBe(true);
     const expected = [
-      [1, 1, 1, 1, 1, 1], [25, 1, 25, 25, 25, 25],
-      [50, 1, 50, 50, 50, 25], [200, 1, 51, 50, 50, 25],
-      [200, 2, 102, 100, 100, 50], [200, 4, 203, 200, 200, 0],
-      [50, 1, 50, 50, 50, 25], [1, 1, 1, 1, 1, 1]
+      [1, 1, 1, 0, 1, 1], [25, 1, 25, 0, 25, 25],
+      [50, 1, 50, 0, 50, 25], [200, 1, 51, 0, 50, 25],
+      [200, 2, 102, 0, 100, 50], [200, 4, 203, 0, 200, 0],
+      [50, 1, 50, 0, 50, 25], [1, 1, 1, 0, 1, 1]
     ];
     expect(report.scenarios).toHaveLength(expected.length);
     for (const [index, sample] of report.scenarios.entries()) {
