@@ -104,7 +104,8 @@ requireMatch(
 for (const dependency of ['expo-auth-session', 'expo-dev-client', 'expo-web-browser', 'react-native-purchases']) {
   requireMatch(!playerPackage.dependencies?.[dependency], `Production Player dependency ${dependency} must be absent.`);
 }
-requireMatch(playerPackage.dependencies?.expo === '58.0.21', 'Expo CLI/runtime must be pinned exactly for the reviewed SDK 58 release.');
+requireMatch(playerPackage.dependencies?.expo === '58.0.22', 'Expo CLI/runtime must be pinned exactly for the reviewed SDK 58 release.');
+requireMatch(playerPackage.dependencies?.['expo-build-properties'] === '58.0.12', 'Expo Build Properties must be pinned to the reviewed SDK-compatible static-framework plugin.');
 requireMatch(playerPackage.dependencies?.['expo-asset'] === '58.0.19', 'Expo Asset must be pinned to the SDK-compatible release.');
 requireMatch(playerPackage.dependencies?.['expo-camera'] === '58.0.14', 'Expo Camera must be pinned to the SDK-compatible release.');
 requireMatch(playerPackage.dependencies?.['expo-constants'] === '58.0.14', 'Expo Constants must be pinned to the SDK-compatible release.');
