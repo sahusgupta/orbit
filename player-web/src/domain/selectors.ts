@@ -148,13 +148,15 @@ export function getGamePrimaryAction(game: PlayerSyncGame) {
 }
 
 export function flattenGames(clubs: PlayerClubSnapshot[], origin: Coordinate | null = null): GameListing[] {
-  return clubs.flatMap((club) => club.games.map((game) => ({
-    club,
-    game,
-    state: getGameState(game),
-    distanceMiles: getClubDistance(club, origin),
-    stakes: getStakesLabel(game)
-  })));
+  return clubs.flatMap((club) => {
+    let cachedDistance: number | null | undefined;
+    return club.games.map((game) => {
+      const state = getGameState(game);
+      const distanceMiles = cachedDistance === undefined ? getClubDistance(club, origin) : cachedDistance;
+      cachedDistance = distanceMiles;
+      return { club, game, state, distanceMiles, stakes: getStakesLabel(game) };
+    });
+  });
 }
 
 export function filterGames(clubs: PlayerClubSnapshot[], filters: GameFilters, origin: Coordinate | null = null) {
