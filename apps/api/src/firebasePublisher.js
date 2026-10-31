@@ -720,8 +720,9 @@ const reconciledProjectionCollections = Object.freeze([
   'tournamentInterests'
 ]);
 
-async function deleteStaleOwnedProjectionDocuments(projectId, token, clubId, expectedIdsByCollection) {
+async function reconcileProjectionDocuments(projectId, token, clubId, expectedIdsByCollection, expectedLegacyIdsByProfile = new Map()) {
   const stalePaths = [];
+  let hasLegacyPlayerCandidates = false;
   for (const collectionName of reconciledProjectionCollections) {
     const expectedIds = expectedIdsByCollection[collectionName] instanceof Set
       ? expectedIdsByCollection[collectionName]
@@ -765,18 +766,35 @@ async function deleteStaleOwnedProjectionDocuments(projectId, token, clubId, exp
         const documentId = String(documentName || '').split('/').pop() || '';
         const fields = getRecordProperty(document, 'fields');
         const syncSource = getRecordProperty(getRecordProperty(fields, 'syncSource'), 'stringValue');
-        if (
+        const isOwnedStale = (
           typeof documentName === 'string' &&
           documentId &&
           syncSource === 'orbit-api' &&
           !expectedIds.has(documentId)
-        ) stalePaths.push(documentName);
+        );
+        if (isOwnedStale) {
+          stalePaths.push(documentName);
+        } else if (collectionName === 'players' && !hasLegacyPlayerCandidates && expectedLegacyIdsByProfile.size) {
+          const sourceProfile = getRecordProperty(fields, 'sourceProfileId');
+          const sourceProfileId = getRecordProperty(sourceProfile, 'stringValue');
+          const expectedId = expectedLegacyIdsByProfile.get(sourceProfileId);
+          if (expectedId && expectedId !== documentId && typeof documentName === 'string') {
+            hasLegacyPlayerCandidates = true;
+          }
+        }
       }
       pageToken = String(getRecordProperty(payload, 'nextPageToken') || '');
     } while (pageToken);
   }
   await batchWriteDocuments(projectId, token, stalePaths.map((documentName) => ({ delete: documentName })));
-  return stalePaths.length;
+  return { staleProjectionDocumentsRemoved: stalePaths.length, hasLegacyPlayerCandidates };
+}
+
+async function deleteStaleOwnedProjectionDocuments(projectId, token, clubId, expectedIdsByCollection) {
+  const { staleProjectionDocumentsRemoved } = await reconcileProjectionDocuments(
+    projectId, token, clubId, expectedIdsByCollection
+  );
+  return staleProjectionDocumentsRemoved;
 }
 
 async function publishStateToFirebase(state, options = {}) {
@@ -864,7 +882,7 @@ async function publishStateToFirebase(state, options = {}) {
   )));
 
   const publicationWriteCount = await batchWriteDocuments(projectId, token, writes);
-  const staleProjectionDocumentsRemoved = await deleteStaleOwnedProjectionDocuments(
+  const { staleProjectionDocumentsRemoved, hasLegacyPlayerCandidates } = await reconcileProjectionDocuments(
     projectId,
     token,
     accountKey,
@@ -879,9 +897,15 @@ async function publishStateToFirebase(state, options = {}) {
       notifications: new Set(notificationDocs.map((notification) => firestoreDocumentId(notification.id))),
       tournaments: new Set(tournamentDocs.map((tournament) => firestoreDocumentId(tournament.id))),
       tournamentInterests: new Set(tournamentInterestDocs.map((interest) => firestoreDocumentId(interest.id)))
-    }
+    },
+    new Map(playerDocs.filter((player) => player.sourceProfileId).map((player) => [player.sourceProfileId, player.id]))
   );
-  const legacyPlayersRemoved = await deleteLegacyPlayerDocuments(projectId, token, accountKey, playerDocs);
+  // Recheck observed legacy candidates after owned cleanup rather than deleting
+  // cached paths that another publisher may have changed. A clean first scan
+  // needs no repeat enumeration; later-created legacy rows wait for the next publication.
+  const legacyPlayersRemoved = hasLegacyPlayerCandidates
+    ? await deleteLegacyPlayerDocuments(projectId, token, accountKey, playerDocs)
+    : 0;
 
   // The parent club document is the commit marker. Publishing it last prevents
   // mobile clients from promoting a partially written child revision.

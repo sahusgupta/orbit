@@ -8,9 +8,9 @@ describe('isolated publication resource baseline', () => {
     const pages = Math.max(1, Math.ceil(players / 500));
     expect(result.operations.documentUpdates).toBe(1 + 2 * players);
     expect(result.operations.updateBatchRequests).toBe(Math.ceil((1 + 2 * players) / 250));
-    expect(result.operations.listRequestsByCollection.players).toBe(players ? 2 * pages : 1);
+    expect(result.operations.listRequestsByCollection.players).toBe(pages);
     expect(result.operations.listRequestsByCollection.memberships).toBe(pages);
-    expect(result.operations.listedDocuments).toBe(3 * players);
+    expect(result.operations.listedDocuments).toBe(2 * players);
     expect(result.operations.documentDeletes).toBe(0);
     expect(result.operations.parentWrites).toBe(1);
     expect(result.operations.requestBodyBytes).toBeGreaterThan(0);

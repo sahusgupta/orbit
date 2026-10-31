@@ -35,8 +35,12 @@ async function main() {
   }
   if (selected !== 'discovery') {
     const { createPublicationScenario } = require('./publication.cjs');
-    for (const players of [0, 10, 250, 1000]) {
-      scenarios.push(await measure(createPublicationScenario({ players }), samples));
+    for (const options of [
+      ...[0, 10, 250, 1000].map((players) => ({ players })),
+      { players: 10, stalePlayers: 3, legacyPlayers: 2, foreignPlayers: 4 },
+      { players: 1000, stalePlayers: 20, legacyPlayers: 10, foreignPlayers: 10 }
+    ]) {
+      scenarios.push(await measure(createPublicationScenario(options), samples));
     }
   }
   guard.assertUnused();
