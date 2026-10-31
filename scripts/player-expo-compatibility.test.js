@@ -1,90 +1,125 @@
+import { spawnSync } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  expoCompatibilityEnvironment, expoNativeModulesUrl, expoVersionsUrl, fetchExpoPublicMetadata,
-  verifyPlayerExpoCompatibility, verifyPlayerExpoDoctor
+  expoCompatibilityEnvironment, verifyPlayerExpoCompatibility, verifyPlayerExpoDoctor
 } from './player-expo-compatibility.mjs';
+import { productionPlayerEnvironment } from './player-release-environment.mjs';
 
-function fixture() {
-  const live = { status: 1, signal: null, stdout: '', stderr: [
-    'The following packages should be updated for best compatibility with the installed expo version:',
-    '  react-native@0.88.1 - expected version: 0.88.0',
-    'Your project may not work correctly until you install the expected versions of the packages.',
-    'Found outdated dependencies\n'
-  ].join('\n') };
-  const offline = { status: 0, signal: null, stdout: 'Dependencies are up to date\n', stderr: 'Dependency validation is unreliable in offline-mode\n' };
-  const installed = { expoVersion: '58.0.21', reactNativeVersion: '0.88.1', bundledNativeModules: { 'react-native': '0.88.1', 'expo-camera': '~58.0.14' } };
-  const versions = { data: { sdkVersions: { '58.0.0': { expoVersion: '~58.0.21', facebookReactNativeVersion: '0.88.0' } } } };
-  const nativeModules = { data: [
-    { sdkVersion: '58.0.0', npmPackage: 'react-native', versionRange: '0.88.1' },
-    { sdkVersion: '58.0.0', npmPackage: 'expo-camera', versionRange: '~58.0.14' }
-  ] };
-  const runCheck = vi.fn(({ offline: useBundle }) => useBundle ? offline : live);
-  const fetchJson = vi.fn(async (url) => {
-    if (url === expoVersionsUrl) return versions;
-    if (url === expoNativeModulesUrl) return nativeModules;
-    throw new Error('Unreviewed metadata endpoint');
-  });
-  return { live, offline, installed, versions, nativeModules, runCheck, fetchJson };
+const retiredLiveMismatch = [
+  'The following packages should be updated for best compatibility with the installed expo version:',
+  '  react-native@0.88.1 - expected version: 0.88.0',
+  'Your project may not work correctly until you install the expected versions of the packages.',
+  'Found outdated dependencies\n'
+].join('\n');
+const retiredDoctorStdout = [
+  'Running 20 checks on your project...',
+  '19/20 checks passed. 1 checks failed. Possible issues detected:',
+  'Use the --verbose flag to see more details about passed checks.',
+  '', '✖ Check that packages match versions required by installed Expo SDK',
+  '', '🔧 Patch version mismatches',
+  'package       expected  found   ',
+  'react-native  0.88.0    0.88.1  ',
+  '', '', '', '1 package out of date.', 'Advice:',
+  "Use 'npx expo install --check' to review and upgrade your dependencies.",
+  'To ignore specific packages, add them to "expo.install.exclude" in package.json. Learn more: https://expo.fyi/dependency-validation',
+  '', ''
+].join('\n');
+
+function installedFixture() {
+  return {
+    expoVersion: '58.0.22', reactNativeVersion: '0.88.1',
+    bundledNativeModules: { 'react-native': '0.88.1', 'expo-camera': '~58.0.14' }
+  };
 }
 
-describe('Player Expo compatibility metadata agreement', () => {
-  it('resolves only the independently verified SDK 58.0.21 React Native conflict', async () => {
+function fixture() {
+  const live = { status: 0, signal: null, stdout: 'Dependencies are up to date\n', stderr: '' };
+  const offline = { status: 0, signal: null, stdout: 'Dependencies are up to date\n', stderr: 'Dependency validation is unreliable in offline-mode\n' };
+  return { live, offline, installed: installedFixture(),
+    runCheck: vi.fn(({ offline: useBundle }) => useBundle ? offline : live) };
+}
+
+const checkOrder = [[{ offline: false }], [{ offline: true }]];
+
+describe('strict Player Expo compatibility checks', () => {
+  it('requires both live and independent bundled SDK success on the reviewed install', async () => {
     const value = fixture();
-    await expect(verifyPlayerExpoCompatibility(value)).resolves.toEqual({ metadataConflict: true });
-    expect(value.runCheck.mock.calls).toEqual([[{ offline: false }], [{ offline: true }]]);
-    expect(value.fetchJson.mock.calls).toEqual([[expoVersionsUrl], [expoNativeModulesUrl]]);
+    await expect(verifyPlayerExpoCompatibility(value)).resolves.toEqual({ metadataConflict: false });
+    expect(value.runCheck.mock.calls).toEqual(checkOrder);
   });
 
-  it('still requires the bundled SDK check when live compatibility passes', async () => {
+  it('normalizes terminal formatting while retaining the exact success messages', async () => {
     const value = fixture();
-    Object.assign(value.live, { status: 0, stdout: 'Dependencies are up to date\n', stderr: '' });
+    value.live.stdout = '\u001b[32mDependencies are up to date\u001b[0m\r\n';
     await expect(verifyPlayerExpoCompatibility(value)).resolves.toEqual({ metadataConflict: false });
-    expect(value.runCheck).toHaveBeenCalledTimes(2);
-    expect(value.fetchJson).not.toHaveBeenCalled();
+    expect(value.runCheck.mock.calls).toEqual(checkOrder);
+  });
+
+  it('rejects the retired SDK 58.0.21 metadata waiver', async () => {
+    const value = fixture();
+    value.installed.expoVersion = '58.0.21';
+    Object.assign(value.live, { status: 1, stdout: '', stderr: retiredLiveMismatch });
+    await expect(verifyPlayerExpoCompatibility(value)).rejects.toThrow();
+    expect(value.runCheck.mock.calls).toEqual(checkOrder);
+  });
+
+  it('does not extend the old React Native mismatch waiver to SDK 58.0.22', async () => {
+    const value = fixture();
+    Object.assign(value.live, { status: 1, stdout: '', stderr: retiredLiveMismatch });
+    await expect(verifyPlayerExpoCompatibility(value)).rejects.toThrow(/live Expo compatibility check failed/);
+    expect(value.runCheck.mock.calls).toEqual(checkOrder);
   });
 
   it.each([
     ['wrong installed React Native', (v) => { v.installed.reactNativeVersion = '0.88.0'; }],
     ['wrong bundled React Native', (v) => { v.installed.bundledNativeModules['react-native'] = '0.88.0'; }],
-    ['unreviewed Expo version', (v) => { v.installed.expoVersion = '58.0.22'; }],
-    ['previous Expo version', (v) => { v.installed.expoVersion = '58.0.20'; }],
+    ['unreviewed Expo version', (v) => { v.installed.expoVersion = '58.0.23'; }],
+    ['previous Expo version', (v) => { v.installed.expoVersion = '58.0.21'; }],
+    ['missing installed evidence', (v) => { v.installed = null; }],
     ['missing bundled matrix', (v) => { v.installed.bundledNativeModules = null; }],
-    ['additional package mismatch', (v) => { v.live.stderr += 'expo-camera@58.0.13 - expected version: ~58.0.14\n'; }],
-    ['other React Native mismatch', (v) => { v.live.stderr = v.live.stderr.replace('expected version: 0.88.0', 'expected version: 0.88.2'); }],
-    ['unknown CLI failure', (v) => { v.live.stderr = 'Unable to contact Expo servers'; }],
+    ['array bundled matrix', (v) => { v.installed.bundledNativeModules = []; }],
+    ['invalid bundled version', (v) => { v.installed.bundledNativeModules['expo-camera'] = null; }],
+    ['empty bundled version', (v) => { v.installed.bundledNativeModules['expo-camera'] = ''; }],
+    ['live package mismatch', (v) => { v.live.status = 1; v.live.stderr = 'expo-camera@58.0.13 - expected version: ~58.0.14\n'; }],
+    ['other React Native mismatch', (v) => { v.live.status = 1; v.live.stderr = retiredLiveMismatch.replace('expected version: 0.88.0', 'expected version: 0.88.2'); }],
+    ['unknown CLI failure', (v) => { v.live.status = 1; v.live.stderr = 'Unable to contact Expo servers'; }],
     ['different failing exit status', (v) => { v.live.status = 2; }],
+    ['successful status with outdated packages', (v) => { v.live.stderr = retiredLiveMismatch; }],
+    ['live unexpected output', (v) => { v.live.stdout += 'Additional warning\n'; }],
     ['live process signal', (v) => { v.live.signal = 'SIGTERM'; }],
+    ['missing live signal', (v) => { delete v.live.signal; }],
+    ['missing live exit status', (v) => { v.live.status = null; }],
+    ['negative live exit status', (v) => { v.live.status = -1; }],
+    ['fractional live exit status', (v) => { v.live.status = 0.5; }],
+    ['non-numeric live exit status', (v) => { v.live.status = '0'; }],
+    ['missing live stdout', (v) => { delete v.live.stdout; }],
+    ['missing live stderr', (v) => { delete v.live.stderr; }],
+    ['live spawn failure', (v) => { v.live.error = new Error('spawn failed'); }],
     ['offline command failure', (v) => { v.offline.status = 1; }],
     ['offline unexpected output', (v) => { v.offline.stderr += 'Network failure'; }],
+    ['missing offline warning', (v) => { v.offline.stderr = ''; }],
+    ['offline successful status with outdated packages', (v) => { v.offline.stdout = retiredLiveMismatch; }],
     ['missing offline exit status', (v) => { v.offline.status = null; }],
-    ['incomplete command result', (v) => { delete v.live.signal; }],
-    ['stale CLI versus corrected fresh metadata', (v) => { v.versions.data.sdkVersions['58.0.0'].facebookReactNativeVersion = '0.88.1'; }],
-    ['different fresh Expo version', (v) => { v.versions.data.sdkVersions['58.0.0'].expoVersion = '~58.0.22'; }],
-    ['different native SDK', (v) => { v.nativeModules.data[0].sdkVersion = '57.0.0'; }],
-    ['disagreeing fresh native React Native', (v) => { v.nativeModules.data[0].versionRange = '0.88.0'; }],
-    ['disagreeing other fresh native module', (v) => { v.nativeModules.data[1].versionRange = '~58.0.15'; }],
-    ['missing fresh native module', (v) => { v.nativeModules.data.pop(); }],
-    ['duplicate native module', (v) => { v.nativeModules.data.push(v.nativeModules.data[0]); }],
-    ['new native module', (v) => { v.nativeModules.data.push({ sdkVersion: '58.0.0', npmPackage: 'new-module', versionRange: '1.0.0' }); }],
-    ['invalid versions response shape', (v) => { v.versions.data = []; }],
-    ['invalid native response shape', (v) => { v.nativeModules.data = {}; }],
-    ['invalid native entry', (v) => { v.nativeModules.data[0].versionRange = null; }]
-  ])('rejects %s', async (_label, mutate) => {
+    ['offline process signal', (v) => { v.offline.signal = 'SIGTERM'; }],
+    ['missing offline signal', (v) => { delete v.offline.signal; }],
+    ['missing offline stdout', (v) => { delete v.offline.stdout; }],
+    ['offline spawn failure', (v) => { v.offline.error = new Error('offline spawn failed'); }]
+  ])('rejects %s and still runs both checks', async (_label, mutate) => {
     const value = fixture();
     mutate(value);
     await expect(verifyPlayerExpoCompatibility(value)).rejects.toThrow();
+    expect(value.runCheck.mock.calls).toEqual(checkOrder);
   });
 
   it('rejects React Native 0.88.0 even if a stale live check passes it', async () => {
     const value = fixture();
     value.installed.reactNativeVersion = '0.88.0';
-    Object.assign(value.live, { status: 0, stdout: 'Dependencies are up to date\n', stderr: '' });
     await expect(verifyPlayerExpoCompatibility(value)).rejects.toThrow(/React Native/);
   });
 
   it('rejects a successful CLI result that silently fell back after network failure', async () => {
     const value = fixture();
-    Object.assign(value.live, { status: 0, stdout: 'Dependencies are up to date\n', stderr: 'Unable to fetch Expo versions; using bundled versions.' });
+    value.live.stderr = 'Unable to fetch Expo versions; using bundled versions.';
     await expect(verifyPlayerExpoCompatibility(value)).rejects.toThrow(/unexpected output/);
   });
 
@@ -95,65 +130,26 @@ describe('Player Expo compatibility metadata agreement', () => {
       return value.offline;
     });
     await expect(verifyPlayerExpoCompatibility(value)).rejects.toThrow('spawn failed');
-    expect(value.runCheck).toHaveBeenCalledTimes(2);
+    expect(value.runCheck.mock.calls).toEqual(checkOrder);
   });
 
   it('fails when the independent offline command throws after live success', async () => {
     const value = fixture();
     value.runCheck.mockImplementation(({ offline }) => {
       if (offline) throw new Error('offline spawn failed');
-      return { ...value.live, status: 0, stdout: 'Dependencies are up to date\n', stderr: '' };
+      return value.live;
     });
     await expect(verifyPlayerExpoCompatibility(value)).rejects.toThrow('offline spawn failed');
-    expect(value.fetchJson).not.toHaveBeenCalled();
-  });
-
-  it('fails when fresh endpoint access fails', async () => {
-    const value = fixture();
-    value.fetchJson.mockRejectedValue(new Error('request failed'));
-    await expect(verifyPlayerExpoCompatibility(value)).rejects.toThrow('request failed');
-  });
-});
-
-describe('credential-free official Expo metadata transport', () => {
-  function response(url, changes = {}) {
-    return { ok: true, status: 200, url, redirected: false,
-      headers: new Headers({ 'content-type': 'application/json; charset=utf-8' }),
-      text: async () => '{"data":{}}', ...changes };
-  }
-
-  it('fetches only the official URL with no credentials, redirects, or cache reuse', async () => {
-    const fetch = vi.fn(async (url) => response(url));
-    await expect(fetchExpoPublicMetadata(expoVersionsUrl, fetch)).resolves.toEqual({ data: {} });
-    expect(fetch).toHaveBeenCalledWith(expoVersionsUrl, expect.objectContaining({
-      credentials: 'omit', redirect: 'error', cache: 'no-store',
-      headers: { accept: 'application/json', 'cache-control': 'no-cache' }
-    }));
-  });
-
-  it.each(['https://example.com/versions/latest', 'http://api.expo.dev/v2/versions/latest', `${expoVersionsUrl}?token=value`])('rejects an unreviewed endpoint %s before fetching', async (url) => {
-    const fetch = vi.fn();
-    await expect(fetchExpoPublicMetadata(url, fetch)).rejects.toThrow(/reviewed public Expo/);
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ['HTTP failure', { ok: false, status: 503 }],
-    ['unexpected status', { status: 201 }],
-    ['redirected endpoint', { redirected: true }],
-    ['different final URL', { url: 'https://example.com/' }],
-    ['non-JSON content', { headers: new Headers({ 'content-type': 'text/html' }) }],
-    ['malformed JSON', { text: async () => '{' }],
-    ['oversized response', { text: async () => ' '.repeat(2 * 1024 * 1024 + 1) }]
-  ])('fails on %s', async (_label, changes) => {
-    await expect(fetchExpoPublicMetadata(expoVersionsUrl, async (url) => response(url, changes))).rejects.toThrow();
+    expect(value.runCheck.mock.calls).toEqual(checkOrder);
   });
 });
 
 describe('normal online Expo validation environment', () => {
+  const blocked = ['FORCE_COLOR', 'EXPO_OFFLINE', 'EXPO_API_HOST', 'EXPO_STAGING', 'EXPO_LOCAL', 'EAS_BUILD_PLATFORM',
+    'EXPO_DOCTOR_SKIP_DEPENDENCY_VERSION_CHECK', 'EXPO_DOCTOR_ENABLE_DIRECTORY_CHECK', 'EXPO_DOCTOR_WARN_ON_NETWORK_ERRORS'];
+  const controlled = { EXPO_NO_CACHE: '1', EXPO_NO_TELEMETRY: '1', NO_COLOR: '1' };
+
   it('does not inherit offline, endpoint, platform, Doctor skip, or network-ignore overrides', () => {
-    const blocked = ['FORCE_COLOR', 'EXPO_OFFLINE', 'EXPO_API_HOST', 'EXPO_STAGING', 'EXPO_LOCAL', 'EAS_BUILD_PLATFORM',
-      'EXPO_DOCTOR_SKIP_DEPENDENCY_VERSION_CHECK', 'EXPO_DOCTOR_ENABLE_DIRECTORY_CHECK', 'EXPO_DOCTOR_WARN_ON_NETWORK_ERRORS'];
     const parent = { PATH: 'task-bin', ...Object.fromEntries(blocked.map((name) => [name, '1'])) };
     const environment = expoCompatibilityEnvironment(parent);
     expect(environment.PATH).toBe('task-bin');
@@ -162,71 +158,146 @@ describe('normal online Expo validation environment', () => {
     expect(parent.EXPO_OFFLINE).toBe('1');
     expect(expoCompatibilityEnvironment(parent, true).EXPO_OFFLINE).toBe('1');
   });
-});
 
-describe('independent resolution of the sole Expo Doctor metadata false positive', () => {
-  function doctorFixture() {
-    const doctorResult = { status: 1, signal: null, stdout: [
-      'Running 20 checks on your project...',
-      '19/20 checks passed. 1 checks failed. Possible issues detected:',
-      'Use the --verbose flag to see more details about passed checks.',
-      '', '✖ Check that packages match versions required by installed Expo SDK',
-      '', '🔧 Patch version mismatches',
-      'package       expected  found   ',
-      'react-native  0.88.0    0.88.1  ',
-      '', '', '', '1 package out of date.', 'Advice:',
-      "Use 'npx expo install --check' to review and upgrade your dependencies.",
-      'To ignore specific packages, add them to "expo.install.exclude" in package.json. Learn more: https://expo.fyi/dependency-validation',
-      '', ''
-    ].join('\n'), stderr: '1 check failed, indicating possible issues with the project.\n' };
-    return { doctorVersion: '1.20.4', doctorResult, runCompatibilityCheck: vi.fn(async () => ({ metadataConflict: true })) };
-  }
-
-  it('retains the raw 19/20 outcome and independently verifies only the incorrect SDK property', async () => {
-    const value = doctorFixture();
-    await expect(verifyPlayerExpoDoctor(value)).resolves.toEqual({ rawPassed: false, metadataConflict: true });
-    expect(value.doctorResult.status).toBe(1);
-    expect(value.doctorResult.stdout).toContain('19/20 checks passed.');
-    expect(value.runCompatibilityCheck).toHaveBeenCalledTimes(1);
+  it.each([
+    ['lowercase', (name) => name.toLowerCase()],
+    ['mixed-case', (name) => name.toLowerCase().replace(/[a-z]/g, (letter, index) => index % 2 ? letter.toUpperCase() : letter)]
+  ])('removes %s override keys without dropping unrelated production values', (_label, variant) => {
+    const unrelated = { Path: 'task-bin', EXPO_PUBLIC_ORBIT_API_URL: 'http://127.0.0.1:9', ORBIT_APP_ENV: 'production' };
+    const parent = { ...unrelated, ...Object.fromEntries(blocked.map((name) => [variant(name), '1'])) };
+    const original = { ...parent };
+    const online = expoCompatibilityEnvironment(parent);
+    expect(Object.keys(online).filter((key) => blocked.includes(key.toUpperCase()))).toEqual([]);
+    expect(online).toMatchObject({ ...unrelated, ...controlled });
+    const offline = expoCompatibilityEnvironment(parent, true);
+    expect(Object.keys(offline).filter((key) => key.toUpperCase() === 'EXPO_OFFLINE')).toEqual(['EXPO_OFFLINE']);
+    expect(offline.EXPO_OFFLINE).toBe('1');
+    expect(parent).toEqual(original);
   });
 
-  it('preserves an original successful Doctor run without invoking the conflict resolver', async () => {
+  it('deduplicates casing variants before setting controlled uppercase values', () => {
+    const parent = Object.fromEntries(Object.keys(controlled).flatMap((name) =>
+      [[name, '0'], [name.toLowerCase(), '0'], [name[0] + name.slice(1).toLowerCase(), '0']]));
+    const environment = expoCompatibilityEnvironment(parent);
+    expect(Object.keys(environment).filter((key) => Object.hasOwn(controlled, key.toUpperCase())).sort())
+      .toEqual(Object.keys(controlled).sort());
+    expect(environment).toMatchObject(controlled);
+  });
+
+  it('removes synthetic overrides surviving the production environment filter', () => {
+    const marker = 'http://127.0.0.1:9/validation-host-marker';
+    const parent = { EXPO_API_HOST: marker, expo_api_host: marker,
+      EXPO_DOCTOR_SKIP_DEPENDENCY_VERSION_CHECK: '1', ExPo_DoCtOr_SkIp_DePeNdEnCy_VeRsIoN_ChEcK: '1' };
+    const production = productionPlayerEnvironment(parent);
+    expect(production).toMatchObject(parent);
+    const environment = expoCompatibilityEnvironment(production);
+    expect(Object.keys(environment).filter((key) => blocked.includes(key.toUpperCase()))).toEqual([]);
+    for (const [key, value] of Object.entries(production)) {
+      if (!blocked.includes(key.toUpperCase()) && !Object.hasOwn(controlled, key.toUpperCase())) {
+        expect(environment[key]).toBe(value);
+      }
+    }
+  });
+
+  it('passes only reviewed validation controls to a real Node child without contacting a service', () => {
+    const parent = { ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+      expo_api_host: 'http://127.0.0.1:9/validation-host-marker', ExPo_DoCtOr_SkIp_DePeNdEnCy_VeRsIoN_ChEcK: '1',
+      expo_no_cache: '0', ExPo_No_TeLeMeTrY: '0', no_color: '0', SYNTHETIC_VALIDATION_MARKER: 'retained' };
+    const environment = expoCompatibilityEnvironment(productionPlayerEnvironment(parent));
+    const child = spawnSync(process.execPath, ['-e', [
+      'const blocked = ' + JSON.stringify(blocked) + ';',
+      'process.stdout.write(JSON.stringify({',
+      'platform: process.platform,',
+      'forbiddenKeys: Object.keys(process.env).filter((key) => blocked.includes(key.toUpperCase())),',
+      'apiHost: process.env.EXPO_API_HOST ?? null,',
+      'doctorSkip: process.env.EXPO_DOCTOR_SKIP_DEPENDENCY_VERSION_CHECK ?? null,',
+      'offline: process.env.EXPO_OFFLINE ?? null,',
+      'fixed: { EXPO_NO_CACHE: process.env.EXPO_NO_CACHE, EXPO_NO_TELEMETRY: process.env.EXPO_NO_TELEMETRY, NO_COLOR: process.env.NO_COLOR },',
+      'marker: process.env.SYNTHETIC_VALIDATION_MARKER',
+      '}));'
+    ].join('\n')], { env: environment, encoding: 'utf8', timeout: 5000, windowsHide: true });
+    expect(child.error).toBeUndefined();
+    expect(child.signal).toBeNull();
+    expect(child.status).toBe(0);
+    expect(child.stderr).toBe('');
+    expect(JSON.parse(child.stdout)).toEqual({ platform: process.platform, forbiddenKeys: [],
+      apiHost: null, doctorSkip: null, offline: null, fixed: controlled, marker: 'retained' });
+  });
+});
+
+function doctorFixture() {
+  return {
+    installed: installedFixture(), doctorVersion: '1.20.4',
+    doctorResult: { status: 0, signal: null,
+      stdout: 'Running 20 checks on your project...\n20/20 checks passed. No issues detected!\n', stderr: '' }
+  };
+}
+
+describe('bounded process exit statuses', () => {
+  it.each(['live', 'offline', 'Doctor'].flatMap((phase) =>
+    [256, 0xc0000005].map((status) => [phase, status])))('rejects %s status %i with a safe failure exit code', async (phase, status) => {
+    const value = phase === 'Doctor' ? doctorFixture() : fixture();
+    const result = phase === 'Doctor' ? value.doctorResult : value[phase];
+    result.status = status;
+    const verification = phase === 'Doctor' ? verifyPlayerExpoDoctor(value) : verifyPlayerExpoCompatibility(value);
+    const label = phase === 'offline' ? 'bundled SDK' : phase;
+    await expect(verification).rejects.toMatchObject({
+      message: `Expo ${label} compatibility check did not complete normally.`, exitCode: 1
+    });
+    if (phase !== 'Doctor') expect(value.runCheck.mock.calls).toEqual(checkOrder);
+  });
+});
+
+describe('strict original Expo Doctor checks', () => {
+  it('accepts only the reviewed original raw 20/20 Doctor success', async () => {
+    await expect(verifyPlayerExpoDoctor(doctorFixture())).resolves.toEqual({ rawPassed: true, metadataConflict: false });
+  });
+
+  it('rejects the retired raw 19/20 Doctor metadata waiver', async () => {
     const value = doctorFixture();
-    Object.assign(value.doctorResult, { status: 0, stdout: 'Running 20 checks on your project...\n20/20 checks passed. No issues detected!\n', stderr: '' });
-    await expect(verifyPlayerExpoDoctor(value)).resolves.toEqual({ rawPassed: true, metadataConflict: false });
-    expect(value.runCompatibilityCheck).not.toHaveBeenCalled();
+    Object.assign(value.doctorResult, {
+      status: 1, stdout: retiredDoctorStdout, stderr: '1 check failed, indicating possible issues with the project.\n'
+    });
+    const retiredResolver = vi.fn(async () => ({ metadataConflict: true }));
+    await expect(verifyPlayerExpoDoctor({ ...value, runCompatibilityCheck: retiredResolver })).rejects.toThrow();
+    expect(retiredResolver).not.toHaveBeenCalled();
   });
 
   it.each([
     ['another Doctor version', (v) => { v.doctorVersion = '1.20.5'; }],
-    ['additional failed check', (v) => { v.doctorResult.stdout = v.doctorResult.stdout.replace('19/20', '18/20').replace('1 checks failed', '2 checks failed'); }],
-    ['different failed check', (v) => { v.doctorResult.stdout = v.doctorResult.stdout.replace('Check that packages match versions required by installed Expo SDK', 'Check native configuration'); }],
+    ['missing Doctor version', (v) => { delete v.doctorVersion; }],
+    ['previous Expo install', (v) => { v.installed.expoVersion = '58.0.21'; }],
+    ['wrong installed React Native', (v) => { v.installed.reactNativeVersion = '0.88.0'; }],
+    ['wrong bundled React Native', (v) => { v.installed.bundledNativeModules['react-native'] = '0.88.0'; }],
+    ['missing installed evidence', (v) => { v.installed = null; }],
+    ['additional failed check', (v) => { v.doctorResult.stdout = v.doctorResult.stdout.replace('20/20 checks passed. No issues detected!', '18/20 checks passed. 2 checks failed. Possible issues detected:'); }],
     ['another package mismatch', (v) => { v.doctorResult.stdout += 'expo-camera 58.0.14 58.0.13\n'; }],
-    ['different expected RN', (v) => { v.doctorResult.stdout = v.doctorResult.stdout.replace('react-native  0.88.0', 'react-native  0.88.2'); }],
-    ['different installed RN', (v) => { v.doctorResult.stdout = v.doctorResult.stdout.replace('0.88.1  ', '0.88.0  '); }],
     ['other warning', (v) => { v.doctorResult.stderr += 'Additional warning\n'; }],
     ['network error', (v) => { v.doctorResult.stderr += 'Error connecting to Expo servers\n'; }],
     ['skipped check', (v) => { v.doctorResult.stdout = v.doctorResult.stdout.replace('Running 20', 'Running 19'); }],
+    ['reduced successful checks', (v) => { v.doctorResult.stdout = v.doctorResult.stdout.replace('20', '19').replace('20/20', '19/19'); }],
+    ['additional successful checks', (v) => { v.doctorResult.stdout = v.doctorResult.stdout.replaceAll('20', '21'); }],
+    ['missing check count', (v) => { v.doctorResult.stdout = '20/20 checks passed. No issues detected!\n'; }],
+    ['verbose extra output', (v) => { v.doctorResult.stdout += '✔ Additional check details\n'; }],
+    ['explicit skipped output', (v) => { v.doctorResult.stdout += 'Skipped dependency version check\n'; }],
     ['unexpected exit status', (v) => { v.doctorResult.status = 2; }],
+    ['failed status with successful output', (v) => { v.doctorResult.status = 1; }],
     ['stopped process', (v) => { v.doctorResult.signal = 'SIGTERM'; }],
-    ['missing result shape', (v) => { delete v.doctorResult.stdout; }],
-    ['successful status with failed checks', (v) => { v.doctorResult.status = 0; }]
-  ])('rejects %s without invoking the metadata resolver', async (_label, mutate) => {
+    ['missing process signal', (v) => { delete v.doctorResult.signal; }],
+    ['missing stdout', (v) => { delete v.doctorResult.stdout; }],
+    ['missing stderr', (v) => { delete v.doctorResult.stderr; }],
+    ['missing exit status', (v) => { v.doctorResult.status = null; }],
+    ['negative exit status', (v) => { v.doctorResult.status = -1; }],
+    ['fractional exit status', (v) => { v.doctorResult.status = 0.5; }],
+    ['spawn failure', (v) => { v.doctorResult.error = new Error('Doctor spawn failed'); }],
+    ['empty output', (v) => { v.doctorResult.stdout = ''; }],
+    ['successful status with the former failure', (v) => {
+      v.doctorResult.stdout = retiredDoctorStdout;
+      v.doctorResult.stderr = '1 check failed, indicating possible issues with the project.\n';
+    }]
+  ])('rejects %s', async (_label, mutate) => {
     const value = doctorFixture();
     mutate(value);
     await expect(verifyPlayerExpoDoctor(value)).rejects.toThrow();
-    expect(value.runCompatibilityCheck).not.toHaveBeenCalled();
-  });
-
-  it('rejects a Doctor result that does not reproduce the fresh live metadata conflict', async () => {
-    const value = doctorFixture();
-    value.runCompatibilityCheck.mockResolvedValue({ metadataConflict: false });
-    await expect(verifyPlayerExpoDoctor(value)).rejects.toThrow(/independently reproduced/);
-  });
-
-  it('preserves independent SDK or endpoint failures after the exact Doctor false positive', async () => {
-    const value = doctorFixture();
-    value.runCompatibilityCheck.mockRejectedValue(new Error('Fresh native matrix disagrees'));
-    await expect(verifyPlayerExpoDoctor(value)).rejects.toThrow('Fresh native matrix disagrees');
   });
 });
