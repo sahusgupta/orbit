@@ -54,11 +54,120 @@ function firebaseRequestError(category, error, path = '') {
   });
 }
 
-async function fetchFirebase(category, input, init, path = '') {
+/** @param {Response | undefined} response */
+function discardFirebaseResponse(response) {
   try {
-    return await fetch(input, init);
-  } catch (error) {
-    throw firebaseRequestError(category, error, path);
+    if (response?.body && !response.bodyUsed) void response.body.cancel().catch(() => undefined);
+  } catch {
+    // Cleanup must not replace the request's acknowledgement or failure.
+  }
+}
+
+/**
+ * @template T
+ * @param {string} category
+ * @param {string} input
+ * @param {RequestInit} init
+ * @param {string} path
+ * @param {(response: { ok: boolean, status: number, json: () => Promise<unknown>, text: () => Promise<string> }) => Promise<T>} consumeResponse
+ * @returns {Promise<T>}
+ */
+async function withFirebaseResponse(category, input, init, path, consumeResponse) {
+  const controller = new AbortController();
+  /** @type {(reason: unknown) => void} */
+  let rejectDeadline;
+  /** @type {Promise<never>} */
+  const deadline = new Promise((_resolve, reject) => { rejectDeadline = reject; });
+  // Observe an already-aborted caller even before a read race is attached.
+  void deadline.catch(() => undefined);
+  /** @type {ReadableStreamDefaultReader<Uint8Array> | undefined} */
+  let bodyReader;
+  const cancelBodyReader = () => {
+    const reader = bodyReader;
+    bodyReader = undefined;
+    try {
+      if (reader) void reader.cancel().catch(() => undefined);
+    } catch {
+      // Cancellation is best effort and cannot replace the original failure.
+    }
+  };
+  const abortRequest = (reason) => {
+    rejectDeadline(reason);
+    cancelBodyReader();
+    controller.abort(reason);
+  };
+  const timer = setTimeout(() => abortRequest(new Error('Firebase request deadline exceeded.')), 30_000);
+  let finished = false;
+  /** @type {Response | undefined} */
+  let response;
+  let removeCallerAbort = () => {};
+  const pendingResponse = Promise.resolve().then(() => {
+    if (controller.signal.aborted) throw controller.signal.reason;
+    return fetch(input, { ...init, signal: controller.signal });
+  });
+  void pendingResponse.then((lateResponse) => {
+    if (finished || controller.signal.aborted) discardFirebaseResponse(lateResponse);
+  }, () => undefined);
+  try {
+    try {
+      const callerSignal = init.signal;
+      if (callerSignal) {
+        const onAbort = () => abortRequest(callerSignal.reason || new Error('Firebase request was aborted.'));
+        if (callerSignal.aborted) onAbort();
+        else {
+          callerSignal.addEventListener('abort', onAbort, { once: true });
+          removeCallerAbort = () => callerSignal.removeEventListener('abort', onAbort);
+        }
+      }
+      response = await Promise.race([pendingResponse, deadline]);
+    } catch (error) {
+      throw firebaseRequestError(category, error, path);
+    }
+    const currentResponse = response;
+    /** @param {Response} received @returns {Promise<string>} */
+    async function readBodyText(received) {
+      const body = received.body;
+      if (!body) return '';
+      if (received.bodyUsed || body.locked) throw new TypeError('Body is unusable: Body has already been read');
+      const reader = body.getReader();
+      bodyReader = reader;
+      /** @type {Uint8Array[]} */
+      const chunks = [];
+      let completed = false;
+      try {
+        while (true) {
+          const chunk = await reader.read();
+          if (controller.signal.aborted) throw controller.signal.reason;
+          if (chunk.done) {
+            completed = true;
+            break;
+          }
+          chunks.push(chunk.value);
+        }
+        // Match the pinned Node fetch decoder's raw and decoded BOM removal.
+        return Buffer.concat(chunks).toString('utf8').replace(/^\uFEFF{1,2}/, '');
+      } finally {
+        if (!completed) cancelBodyReader();
+        if (bodyReader === reader) bodyReader = undefined;
+        try { reader.releaseLock(); } catch { /* A retired reader must not mask the outcome. */ }
+      }
+    }
+    const hasBodyReader = currentResponse.body && typeof currentResponse.body.getReader === 'function';
+    return await consumeResponse({
+      ok: currentResponse.ok,
+      status: currentResponse.status,
+      json: () => Promise.race([Promise.resolve().then(async () => hasBodyReader
+        ? JSON.parse(await readBodyText(currentResponse)) : currentResponse.json()), deadline]),
+      text: () => Promise.race([Promise.resolve().then(() => hasBodyReader
+        ? readBodyText(currentResponse) : currentResponse.text()), deadline])
+    });
+  } finally {
+    finished = true;
+    clearTimeout(timer);
+    removeCallerAbort();
+    cancelBodyReader();
+    discardFirebaseResponse(response);
+    controller.abort();
   }
 }
 
@@ -79,6 +188,22 @@ function getRecordProperty(value, key) {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? Reflect.get(value, key)
     : undefined;
+}
+
+/**
+ * @param {unknown} payload
+ * @param {Set<string>} seenPageTokens
+ * @param {string} category
+ * @param {string} path
+ */
+function readNextPageToken(payload, seenPageTokens, category, path) {
+  const token = String(getRecordProperty(payload, 'nextPageToken') || '');
+  if (token && seenPageTokens.has(token)) {
+    // A repeated opaque cursor cannot progress; never include it in diagnostics.
+    throw new FirebasePublicationError(category, { pathRef: protectedIdentifier(path) });
+  }
+  if (token) seenPageTokens.add(token);
+  return token;
 }
 
 function loadServiceAccount() {
@@ -142,26 +267,27 @@ async function getServiceAccountToken(serviceAccount) {
     .replace(/=/g, '')
     .replace(/\+/g, '-')
     .replace(/\//g, '_');
-  const response = await fetchFirebase('token-request', 'https://oauth2.googleapis.com/token', {
+  return withFirebaseResponse('token-request', 'https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
       assertion: `${unsignedJwt}.${signature}`
     })
+  }, '', async (response) => {
+    if (!response.ok) throw await firebaseResponseError('token-request', response);
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw firebaseRequestError('token-response-invalid', error);
+    }
+    const accessToken = getRecordProperty(payload, 'access_token');
+    if (typeof accessToken !== 'string' || !accessToken.trim()) {
+      throw new Error('Firebase token response did not include an access token.');
+    }
+    return accessToken;
   });
-  if (!response.ok) throw await firebaseResponseError('token-request', response);
-  let payload;
-  try {
-    payload = await response.json();
-  } catch (error) {
-    throw firebaseRequestError('token-response-invalid', error);
-  }
-  const accessToken = getRecordProperty(payload, 'access_token');
-  if (typeof accessToken !== 'string' || !accessToken.trim()) {
-    throw new Error('Firebase token response did not include an access token.');
-  }
-  return accessToken;
 }
 
 function stripUndefined(value) {
@@ -597,7 +723,7 @@ async function batchWriteDocuments(projectId, token, writes, chunkSize = 250) {
   for (let offset = 0; offset < writes.length; offset += chunkSize) {
     const batch = writes.slice(offset, offset + chunkSize);
     const endpoint = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:batchWrite`;
-    const response = await fetchFirebase(
+    await withFirebaseResponse(
       'batch-write',
       endpoint,
       {
@@ -607,53 +733,57 @@ async function batchWriteDocuments(projectId, token, writes, chunkSize = 250) {
           'content-type': 'application/json'
         },
         body: JSON.stringify({ writes: batch })
+      },
+      '',
+      async (response) => {
+        if (!response.ok) throw await firebaseResponseError('batch-write', response, endpoint);
+        // batchWrite is non-atomic: HTTP 200 does not confirm individual writes.
+        // Never publish the parent commit marker after an unconfirmed child write.
+        let payload;
+        try {
+          payload = await response.json();
+        } catch (error) {
+          throw firebaseRequestError('batch-write-response-invalid', error, endpoint);
+        }
+        const statuses = getRecordProperty(payload, 'status');
+        if (!Array.isArray(statuses) || statuses.length !== batch.length || statuses.some((status) => {
+          const code = getRecordProperty(status, 'code');
+          return !status || typeof status !== 'object' || Array.isArray(status) ||
+            (code !== undefined && (typeof code !== 'number' || !Number.isInteger(code) || code < 0));
+        })) {
+          throw new FirebasePublicationError('batch-write-response-invalid', {
+            pathRef: protectedIdentifier(endpoint)
+          });
+        }
+        // Protobuf JSON may omit the default OK code, represented by an empty object.
+        const failedStatus = statuses.find((status) => {
+          const code = getRecordProperty(status, 'code');
+          return code !== undefined && code !== 0;
+        });
+        if (failedStatus) {
+          throw new FirebasePublicationError('batch-write-partial-failure', {
+            pathRef: protectedIdentifier(endpoint),
+            responseRef: protectedIdentifier(JSON.stringify(failedStatus).slice(0, 4_096))
+          });
+        }
       }
     );
-    if (!response.ok) throw await firebaseResponseError('batch-write', response, endpoint);
-    // batchWrite is non-atomic: HTTP 200 does not confirm individual writes.
-    // Never publish the parent commit marker after an unconfirmed child write.
-    let payload;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      throw firebaseRequestError('batch-write-response-invalid', error, endpoint);
-    }
-    const statuses = getRecordProperty(payload, 'status');
-    if (!Array.isArray(statuses) || statuses.length !== batch.length || statuses.some((status) => {
-      const code = getRecordProperty(status, 'code');
-      return !status || typeof status !== 'object' || Array.isArray(status) ||
-        (code !== undefined && (typeof code !== 'number' || !Number.isInteger(code) || code < 0));
-    })) {
-      throw new FirebasePublicationError('batch-write-response-invalid', {
-        pathRef: protectedIdentifier(endpoint)
-      });
-    }
-    // Protobuf JSON may omit the default OK code, represented by an empty object.
-    const failedStatus = statuses.find((status) => {
-      const code = getRecordProperty(status, 'code');
-      return code !== undefined && code !== 0;
-    });
-    if (failedStatus) {
-      throw new FirebasePublicationError('batch-write-partial-failure', {
-        pathRef: protectedIdentifier(endpoint),
-        responseRef: protectedIdentifier(JSON.stringify(failedStatus).slice(0, 4_096))
-      });
-    }
   }
   return writes.length;
 }
 
 async function patchDocument(projectId, token, path, record) {
   const endpoint = `${restBase(projectId)}/${path}`;
-  const response = await fetchFirebase('document-write', endpoint, {
+  await withFirebaseResponse('document-write', endpoint, {
     method: 'PATCH',
     headers: {
       authorization: `Bearer ${token}`,
       'content-type': 'application/json'
     },
     body: JSON.stringify({ fields: jsToFirestoreFields(record) })
+  }, '', async (response) => {
+    if (!response.ok) throw await firebaseResponseError('document-write', response, path);
   });
-  if (!response.ok) throw await firebaseResponseError('document-write', response, path);
 }
 
 async function deleteLegacyPlayerDocuments(projectId, token, clubId, playerDocs) {
@@ -663,24 +793,27 @@ async function deleteLegacyPlayerDocuments(projectId, token, clubId, playerDocs)
   if (!expectedIdsByProfile.size) return 0;
 
   const stalePaths = [];
+  const seenPageTokens = new Set();
   let pageToken = '';
   do {
     const endpoint = new URL(`${restBase(projectId)}/clubs/${encodeURIComponent(clubId)}/players`);
     endpoint.searchParams.set('pageSize', '500');
+    endpoint.searchParams.set('mask.fieldPaths', 'sourceProfileId');
     if (pageToken) endpoint.searchParams.set('pageToken', pageToken);
-    const response = await fetchFirebase(
+    const payload = await withFirebaseResponse(
       'player-list',
       endpoint.toString(),
       { headers: { authorization: `Bearer ${token}` } },
-      `clubs/${clubId}/players`
+      `clubs/${clubId}/players`,
+      async (response) => {
+        if (!response.ok) throw await firebaseResponseError('player-list', response, `clubs/${clubId}/players`);
+        try {
+          return await response.json();
+        } catch (error) {
+          throw firebaseRequestError('player-list-response-invalid', error, `clubs/${clubId}/players`);
+        }
+      }
     );
-    if (!response.ok) throw await firebaseResponseError('player-list', response, `clubs/${clubId}/players`);
-    let payload;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      throw firebaseRequestError('player-list-response-invalid', error, `clubs/${clubId}/players`);
-    }
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       throw new FirebasePublicationError('player-list-response-invalid', {
         pathRef: protectedIdentifier(`clubs/${clubId}/players`)
@@ -702,7 +835,7 @@ async function deleteLegacyPlayerDocuments(projectId, token, clubId, playerDocs)
       const expectedId = expectedIdsByProfile.get(sourceProfileId);
       return expectedId && expectedId !== documentId && typeof documentName === 'string' ? [documentName] : [];
     }));
-    pageToken = String(getRecordProperty(payload, 'nextPageToken') || '');
+    pageToken = readNextPageToken(payload, seenPageTokens, 'player-list-response-invalid', `clubs/${clubId}/players`);
   } while (pageToken);
 
   await batchWriteDocuments(projectId, token, stalePaths.map((documentName) => ({ delete: documentName })));
@@ -720,35 +853,38 @@ const reconciledProjectionCollections = Object.freeze([
   'tournamentInterests'
 ]);
 
-async function deleteStaleOwnedProjectionDocuments(projectId, token, clubId, expectedIdsByCollection) {
+async function reconcileProjectionDocuments(projectId, token, clubId, expectedIdsByCollection, expectedLegacyIdsByProfile = new Map()) {
   const stalePaths = [];
+  let hasLegacyPlayerCandidates = false;
   for (const collectionName of reconciledProjectionCollections) {
     const expectedIds = expectedIdsByCollection[collectionName] instanceof Set
       ? expectedIdsByCollection[collectionName]
       : new Set(expectedIdsByCollection[collectionName] || []);
+    const seenPageTokens = new Set();
     let pageToken = '';
     do {
       const endpoint = new URL(
         `${restBase(projectId)}/clubs/${encodeURIComponent(clubId)}/${encodeURIComponent(collectionName)}`
       );
       endpoint.searchParams.set('pageSize', '500');
+      endpoint.searchParams.append('mask.fieldPaths', 'syncSource');
+      if (collectionName === 'players') endpoint.searchParams.append('mask.fieldPaths', 'sourceProfileId');
       if (pageToken) endpoint.searchParams.set('pageToken', pageToken);
       const collectionPath = `clubs/${clubId}/${collectionName}`;
-      const response = await fetchFirebase(
+      const payload = await withFirebaseResponse(
         'projection-list',
         endpoint.toString(),
         { headers: { authorization: `Bearer ${token}` } },
-        collectionPath
+        collectionPath,
+        async (response) => {
+          if (!response.ok) throw await firebaseResponseError('projection-list', response, collectionPath);
+          try {
+            return await response.json();
+          } catch (error) {
+            throw firebaseRequestError('projection-list-response-invalid', error, collectionPath);
+          }
+        }
       );
-      if (!response.ok) {
-        throw await firebaseResponseError('projection-list', response, collectionPath);
-      }
-      let payload;
-      try {
-        payload = await response.json();
-      } catch (error) {
-        throw firebaseRequestError('projection-list-response-invalid', error, collectionPath);
-      }
       if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
         throw new FirebasePublicationError('projection-list-response-invalid', {
           pathRef: protectedIdentifier(collectionPath)
@@ -765,18 +901,35 @@ async function deleteStaleOwnedProjectionDocuments(projectId, token, clubId, exp
         const documentId = String(documentName || '').split('/').pop() || '';
         const fields = getRecordProperty(document, 'fields');
         const syncSource = getRecordProperty(getRecordProperty(fields, 'syncSource'), 'stringValue');
-        if (
+        const isOwnedStale = (
           typeof documentName === 'string' &&
           documentId &&
           syncSource === 'orbit-api' &&
           !expectedIds.has(documentId)
-        ) stalePaths.push(documentName);
+        );
+        if (isOwnedStale) {
+          stalePaths.push(documentName);
+        } else if (collectionName === 'players' && !hasLegacyPlayerCandidates && expectedLegacyIdsByProfile.size) {
+          const sourceProfile = getRecordProperty(fields, 'sourceProfileId');
+          const sourceProfileId = getRecordProperty(sourceProfile, 'stringValue');
+          const expectedId = expectedLegacyIdsByProfile.get(sourceProfileId);
+          if (expectedId && expectedId !== documentId && typeof documentName === 'string') {
+            hasLegacyPlayerCandidates = true;
+          }
+        }
       }
-      pageToken = String(getRecordProperty(payload, 'nextPageToken') || '');
+      pageToken = readNextPageToken(payload, seenPageTokens, 'projection-list-response-invalid', collectionPath);
     } while (pageToken);
   }
   await batchWriteDocuments(projectId, token, stalePaths.map((documentName) => ({ delete: documentName })));
-  return stalePaths.length;
+  return { staleProjectionDocumentsRemoved: stalePaths.length, hasLegacyPlayerCandidates };
+}
+
+async function deleteStaleOwnedProjectionDocuments(projectId, token, clubId, expectedIdsByCollection) {
+  const { staleProjectionDocumentsRemoved } = await reconcileProjectionDocuments(
+    projectId, token, clubId, expectedIdsByCollection
+  );
+  return staleProjectionDocumentsRemoved;
 }
 
 async function publishStateToFirebase(state, options = {}) {
@@ -864,7 +1017,7 @@ async function publishStateToFirebase(state, options = {}) {
   )));
 
   const publicationWriteCount = await batchWriteDocuments(projectId, token, writes);
-  const staleProjectionDocumentsRemoved = await deleteStaleOwnedProjectionDocuments(
+  const { staleProjectionDocumentsRemoved, hasLegacyPlayerCandidates } = await reconcileProjectionDocuments(
     projectId,
     token,
     accountKey,
@@ -879,9 +1032,15 @@ async function publishStateToFirebase(state, options = {}) {
       notifications: new Set(notificationDocs.map((notification) => firestoreDocumentId(notification.id))),
       tournaments: new Set(tournamentDocs.map((tournament) => firestoreDocumentId(tournament.id))),
       tournamentInterests: new Set(tournamentInterestDocs.map((interest) => firestoreDocumentId(interest.id)))
-    }
+    },
+    new Map(playerDocs.filter((player) => player.sourceProfileId).map((player) => [player.sourceProfileId, player.id]))
   );
-  const legacyPlayersRemoved = await deleteLegacyPlayerDocuments(projectId, token, accountKey, playerDocs);
+  // Recheck observed legacy candidates after owned cleanup rather than deleting
+  // cached paths that another publisher may have changed. A clean first scan
+  // needs no repeat enumeration; later-created legacy rows wait for the next publication.
+  const legacyPlayersRemoved = hasLegacyPlayerCandidates
+    ? await deleteLegacyPlayerDocuments(projectId, token, accountKey, playerDocs)
+    : 0;
 
   // The parent club document is the commit marker. Publishing it last prevents
   // mobile clients from promoting a partially written child revision.

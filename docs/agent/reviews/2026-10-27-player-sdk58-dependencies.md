@@ -138,3 +138,9 @@ Executed evidence after this change:
 - `npm run player:config:verify` and `npm run player:release:verify`: passed; production configuration, permission, entitlement, and release assertions remain enforced.
 
 Aggregate verification, export, actual native compilation, signing, and device acceptance remain owned by the enclosing task. This narrowly versioned resolver does not establish any of those outcomes or accept an additional security risk.
+
+### October 31 retirement amendment
+
+The [SDK 58 patch repair record](../tasks/2026-10-31-player-sdk58-patch-compatibility.md) documents Expo `58.0.22` and Build Properties `58.0.12`, including their required tooling/core patches. The new Config and CLI packages remove the only locked production parent references to Deepmerge and Zod. After a clean Player install, raw `npm audit --omit=dev --json` at `2026-10-31T11:30:26.770Z` exited 0 with an empty vulnerability map and zero findings at every severity; neither originating package nor a dependency reference to either remains in the lock. Root independently reviewed the evidence and retired all eight Player exceptions. The November 3 deadline and empty root/API/Web allowances remain unchanged. The prior audit results and acceptance above remain historical evidence.
+
+The two public Expo metadata endpoints now agree on React Native `0.88.1`, and the entire fresh 124-entry matrix agrees with published Expo `58.0.22`. The historical `.21` compatibility resolver has been removed. Current checks require normal live/bundled compatibility success and raw Doctor `1.20.4` 20/20 success; the former mismatch/19-of-20 result is rejected. No successor metadata waiver or audit allowance was introduced. The linked task record owns the fresh validation results and remaining native/signing/device gates.

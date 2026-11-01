@@ -1,0 +1,42 @@
+{
+  "dependencies": [
+    {
+      "packageName": "exceljs",
+      "version": "3.10.0",
+      "manifestRange": "^3.4.0",
+      "browserEntry": "dist/exceljs.min.js",
+      "browserEntryBytes": 1070370,
+      "browserEntrySha256": "910c39409857444ff10c0f2340964f8e43800d321c11f7963b8349dfa3ecabc2",
+      "expandedBrowserEntry": "dist/exceljs.js",
+      "expandedBrowserEntryBytes": 1987053,
+      "expandedBrowserEntrySha256": "74c9cb026c3aac6aa6fe4b450e90d2542f099ac8e580478418b40f709bfe8217",
+      "rendererImporter": "src/lib/profileWorkbookImport.ts",
+      "packageMain": "electron/main.cjs",
+      "packagerVersion": "26.15.3",
+      "reviewedBuildConfigSha256": "79e07b44a185e80969f7cf460a1dafa58b373ca636cb916fd16c7fbe6196dc4e",
+      "reviewedViteConfigSha256": "974f5355e98cdff5a2a75df492728c207cf48edd96e5d0325f7cc026525c7ef0",
+      "buildToolVersions": {
+        "vite": "7.3.7",
+        "@vitejs/plugin-react": "5.2.0"
+      },
+      "review": "docs/agent/reviews/2026-10-31-exceljs-renderer-boundary.md",
+      "reviewedNodeVersions": {
+        "node_modules/exceljs": "3.10.0",
+        "node_modules/archiver": "4.0.2",
+        "node_modules/archiver-utils": "2.1.0",
+        "node_modules/glob": "7.2.3",
+        "node_modules/glob/node_modules/minimatch": "3.1.5",
+        "node_modules/rimraf": "2.6.3",
+        "node_modules/zip-stream": "3.0.1"
+      },
+      "reviewedNodeOrigins": [
+        {
+          "name": "minimatch",
+          "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249",
+          "severity": "moderate",
+          "range": "<11.0.1"
+        }
+      ]
+    }
+  ]
+}

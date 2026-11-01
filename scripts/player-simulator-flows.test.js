@@ -59,6 +59,24 @@ describe('isolated native Player smoke contracts', () => {
     ]);
   });
 
+  it('requires fully visible account footers without trying to center them before checking the adult gate', () => {
+    const [, commands] = readFlow('local-profile');
+    const footerScrollIndices = commands.flatMap((command, index) =>
+      command?.scrollUntilVisible?.element === 'Continue to account' ? [index] : []);
+    expect(footerScrollIndices).toHaveLength(2);
+
+    for (const [occurrence, index] of footerScrollIndices.entries()) {
+      const scroll = commands[index].scrollUntilVisible;
+      expect(scroll.direction).toBe('DOWN');
+      expect(scroll.centerElement ?? false).toBe(false);
+      expect(scroll.visibilityPercentage).toBe(100);
+      expect(scroll.timeout ?? 20000).toBe(20000);
+      expect(commands[index + 1]).toEqual({
+        assertVisible: { text: 'Continue to account', enabled: occurrence === 1 }
+      });
+    }
+  });
+
   it('retains the draft in the background and returns to account choices after cold launch without authenticating', () => {
     const [, commands] = readFlow('local-profile');
     expectOrdered(commands, [

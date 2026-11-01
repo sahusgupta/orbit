@@ -72,8 +72,17 @@ export function findGameByRouteKey(clubs: PlayerClubSnapshot[], key: string) {
 }
 
 export function findTournamentByRouteKey(discovery: DiscoveryPayload, key: string) {
+  const clubsById = new Map<string, PlayerClubSnapshot>();
+  let nextClubIndex = 0;
   const canonicalMatch = discovery.tournaments.find((tournament) => {
-    const club = discovery.clubs.find((candidate) => candidate.club.id === tournament.clubId);
+    let club = clubsById.get(tournament.clubId);
+    // Reuse the visited prefix while keeping early canonical matches cheap.
+    while (!club && nextClubIndex < discovery.clubs.length) {
+      const candidate = discovery.clubs[nextClubIndex++];
+      const id = candidate.club.id;
+      if (!clubsById.has(id)) clubsById.set(id, candidate);
+      if (id === tournament.clubId) club = candidate;
+    }
     return tournamentRouteKey(club, tournament) === key;
   });
   if (canonicalMatch) return canonicalMatch;
@@ -139,13 +148,15 @@ export function getGamePrimaryAction(game: PlayerSyncGame) {
 }
 
 export function flattenGames(clubs: PlayerClubSnapshot[], origin: Coordinate | null = null): GameListing[] {
-  return clubs.flatMap((club) => club.games.map((game) => ({
-    club,
-    game,
-    state: getGameState(game),
-    distanceMiles: getClubDistance(club, origin),
-    stakes: getStakesLabel(game)
-  })));
+  return clubs.flatMap((club) => {
+    let cachedDistance: number | null | undefined;
+    return club.games.map((game) => {
+      const state = getGameState(game);
+      const distanceMiles = cachedDistance === undefined ? getClubDistance(club, origin) : cachedDistance;
+      cachedDistance = distanceMiles;
+      return { club, game, state, distanceMiles, stakes: getStakesLabel(game) };
+    });
+  });
 }
 
 export function filterGames(clubs: PlayerClubSnapshot[], filters: GameFilters, origin: Coordinate | null = null) {
@@ -173,6 +184,7 @@ export function filterGames(clubs: PlayerClubSnapshot[], filters: GameFilters, o
 export function filterClubs(clubs: PlayerClubSnapshot[], filters: ClubFilters, origin: Coordinate | null = null) {
   const query = filters.query.trim().toLowerCase();
   const maximumDistance = Number(filters.distance);
+  const distancesByClub = new Map<PlayerClubSnapshot, number | null>();
   return [...clubs]
     .filter((club) => {
       const searchText = `${club.club.name} ${club.club.address ?? ''} ${club.games.map((game) => game.name).join(' ')}`.toLowerCase();
@@ -180,9 +192,10 @@ export function filterClubs(clubs: PlayerClubSnapshot[], filters: ClubFilters, o
       if (filters.activity === 'active' && !club.games.some((game) => getGameState(game) === 'running')) return false;
       if (filters.activity === 'forming' && !club.games.some((game) => getGameState(game) === 'forming')) return false;
       const distance = getClubDistance(club, origin);
+      distancesByClub.set(club, distance);
       return !Number.isFinite(maximumDistance) || maximumDistance <= 0 || (distance != null && distance <= maximumDistance);
     })
-    .sort((left, right) => compareOptionalDistances(getClubDistance(left, origin), getClubDistance(right, origin)));
+    .sort((left, right) => compareOptionalDistances(distancesByClub.get(left) ?? null, distancesByClub.get(right) ?? null));
 }
 
 export function filterTournaments(

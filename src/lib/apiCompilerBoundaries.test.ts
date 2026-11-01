@@ -42,6 +42,13 @@ function loadFunction<T>(source: string, file: string, name: string, globals: Re
   return factory(...names.map((key) => globals[key])) as T;
 }
 
+function withFixtureResponse(request: (input: string, init: unknown) => Promise<unknown>) {
+  return async (
+    _category: string, input: string, init: unknown, _path: string,
+    consumeResponse: (response: unknown) => Promise<unknown>
+  ) => consumeResponse(await request(input, init));
+}
+
 type GetServiceAccountToken = (serviceAccount: { client_email: string; private_key: string }) => Promise<string>;
 type DeleteLegacyPlayerDocuments = (
   projectId: string,
@@ -72,6 +79,11 @@ const getFirebaseRecordProperty = loadFunction<(value: unknown, key: string) => 
   'apps/api/src/firebasePublisher.js',
   'getRecordProperty'
 );
+const getFirebaseNextPageToken = loadFunction<(
+  payload: unknown, seenPageTokens: Set<string>, category: string, path: string
+) => string>(firebasePublisherSource, 'apps/api/src/firebasePublisher.js', 'readNextPageToken', {
+  getRecordProperty: getFirebaseRecordProperty
+});
 
 afterEach(() => {
   vi.useRealTimers();
@@ -98,7 +110,7 @@ describe('API Firebase REST compiler boundaries', () => {
         base64Url: (value: string) => Buffer.from(value).toString('base64url'),
         crypto: { createSign: vi.fn(() => signer) },
         fetch,
-        fetchFirebase: (_category: string, input: string, init: unknown) => fetch(input, init),
+        withFirebaseResponse: withFixtureResponse(fetch),
         getRecordProperty: getFirebaseRecordProperty,
         URLSearchParams
       }
@@ -151,9 +163,10 @@ describe('API Firebase REST compiler boundaries', () => {
         encodeURIComponent,
         batchWriteDocuments,
         fetch,
-        fetchFirebase: (_category: string, input: string, init: unknown) => fetch(input, init),
+        withFirebaseResponse: withFixtureResponse(fetch),
         getRecordProperty: getFirebaseRecordProperty,
         restBase: (projectId: string) => `https://firestore.googleapis.test/v1/projects/${projectId}/documents`,
+        readNextPageToken: getFirebaseNextPageToken,
         URL
       }
     );
@@ -168,11 +181,11 @@ describe('API Firebase REST compiler boundaries', () => {
 
     expect(fetch.mock.calls).toEqual([
       [
-        'https://firestore.googleapis.test/v1/projects/local-project/documents/clubs/club-a/players?pageSize=500',
+        'https://firestore.googleapis.test/v1/projects/local-project/documents/clubs/club-a/players?pageSize=500&mask.fieldPaths=sourceProfileId',
         { headers: { authorization: 'Bearer local-token' } }
       ],
       [
-        'https://firestore.googleapis.test/v1/projects/local-project/documents/clubs/club-a/players?pageSize=500',
+        'https://firestore.googleapis.test/v1/projects/local-project/documents/clubs/club-a/players?pageSize=500&mask.fieldPaths=sourceProfileId',
         { headers: { authorization: 'Bearer local-token' } }
       ]
     ]);
@@ -203,7 +216,7 @@ describe('API Firebase REST compiler boundaries', () => {
         base64Url: (value: string) => Buffer.from(value).toString('base64url'),
         crypto: { createSign: vi.fn(() => signer) },
         fetch: tokenFetch,
-        fetchFirebase: (_category: string, input: string, init: unknown) => tokenFetch(input, init),
+        withFirebaseResponse: withFixtureResponse(tokenFetch),
         getRecordProperty: getFirebaseRecordProperty,
         URLSearchParams
       }
@@ -226,7 +239,7 @@ describe('API Firebase REST compiler boundaries', () => {
       {
         encodeURIComponent,
         fetch: listingFetch,
-        fetchFirebase: (_category: string, input: string, init: unknown) => listingFetch(input, init),
+        withFirebaseResponse: withFixtureResponse(listingFetch),
         FirebasePublicationError: class extends Error {
           category: string;
           pathRef: string;
@@ -239,6 +252,7 @@ describe('API Firebase REST compiler boundaries', () => {
         },
         getRecordProperty: getFirebaseRecordProperty,
         protectedIdentifier: () => '0123456789abcdef',
+        readNextPageToken: getFirebaseNextPageToken,
         restBase: (projectId: string) => `https://firestore.googleapis.test/v1/projects/${projectId}/documents`
       }
     );

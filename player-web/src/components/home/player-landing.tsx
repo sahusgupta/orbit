@@ -419,12 +419,12 @@ export default function PlayerLanding() {
   const [confirmed,     setConfirmed]     = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const swipeTimeouts = useRef(new Set<ReturnType<typeof setTimeout>>());
 
   // Nav shadow + scroll-driven section tracking via native listener
   useEffect(() => {
-    const onScroll = () => {
-      setScrolled(window.scrollY > 40);
-
+    let frameId: number | null = null;
+    const measureSection = () => {
       const el = scrollRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
@@ -437,18 +437,50 @@ export default function PlayerLanding() {
       setActiveSection(Math.min(3, Math.floor(progress * 4)));
     };
 
+    const onScroll = (event?: Event) => {
+      setScrolled(window.scrollY > 40);
+      if (!event) {
+        measureSection();
+        return;
+      }
+      if (frameId !== null) return;
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        measureSection();
+      });
+    };
+
     window.addEventListener("scroll", onScroll, { passive: true });
-    onScroll(); // run once on mount to set initial state
-    return () => window.removeEventListener("scroll", onScroll);
+    onScroll(); // initial snapshot is synchronous; later scroll events share a frame
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
+    };
+  }, []);
+
+  useEffect(() => {
+    const timeouts = swipeTimeouts.current;
+    return () => {
+      timeouts.forEach((timeout) => clearTimeout(timeout));
+      timeouts.clear();
+    };
+  }, []);
+
+  const scheduleSwipeTimeout = useCallback((callback: () => void, delay: number) => {
+    const timeout = setTimeout(() => {
+      swipeTimeouts.current.delete(timeout);
+      callback();
+    }, delay);
+    swipeTimeouts.current.add(timeout);
   }, []);
 
   const handleSwipe = useCallback((dir: "left" | "right") => {
     if (dir === "right") {
       setConfirmed(true);
-      setTimeout(() => setConfirmed(false), 2400);
+      scheduleSwipeTimeout(() => setConfirmed(false), 2400);
     }
-    setTimeout(() => setCardIdx((n) => n + 1), 300);
-  }, []);
+    scheduleSwipeTimeout(() => setCardIdx((n) => n + 1), 300);
+  }, [scheduleSwipeTimeout]);
 
   return (
     <div className="player-landing bg-[#070D16] text-[#F2EDE3] font-sans">

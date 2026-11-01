@@ -29,18 +29,20 @@ export function filterMapClubs(
   originCoordinate: Coordinate | null
 ) {
   const query = mapQuery.trim().toLowerCase();
+  const distancesByClub = new Map<PlayerClubSnapshot, number | null>();
   return clubs
     .filter((club) => {
       const haystack = `${club.club.name} ${club.club.address ?? ''} ${club.games.map((game) => game.name).join(' ')}`.toLowerCase();
       if (query && !haystack.includes(query)) return false;
       const distance = getClubDistance(club, originCoordinate);
+      distancesByClub.set(club, distance);
       if (mapDistanceFilter !== 'none' && (distance == null || distance > mapDistanceFilter)) return false;
       if (mapVenueFilter === 'casino' && !isCasinoClub(club)) return false;
       if (mapVenueFilter === 'card-house' && getVenueKind(club) !== 'Card house') return false;
       if (mapVenueFilter === 'club' && getVenueKind(club) !== 'Poker club') return false;
       return true;
     })
-    .sort((left, right) => compareOptionalDistances(getClubDistance(left, originCoordinate), getClubDistance(right, originCoordinate)));
+    .sort((left, right) => compareOptionalDistances(distancesByClub.get(left) ?? null, distancesByClub.get(right) ?? null));
 }
 
 export type FilterTournamentsOptions = {

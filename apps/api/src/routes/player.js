@@ -219,7 +219,8 @@ async function listPublicStatePage(options = {}, dependencies = {}) {
   const maxSourcePages = 4;
 
   while (visibleRecords.length <= limit && hasMoreRecords && scannedPages < maxSourcePages) {
-    const page = await listPage({ limit: 50, afterAccountKey });
+    // Discovery consumes authoritative state, not management publication status.
+    const page = await listPage({ limit: 50, afterAccountKey, includePublication: false });
     scannedPages += 1;
     const namedRecords = (page.records || []).filter((record) =>
       isPublicClubName(record.state?.settings?.clubAccount?.clubName)

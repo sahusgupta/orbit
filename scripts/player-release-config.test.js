@@ -24,8 +24,9 @@ const {
 describe('Orbit Player EAS build configuration', () => {
   it('locks the reviewed SDK 58 patches to their installed native runtime', () => {
     const reviewedPatches = {
-      expo: '58.0.21',
+      expo: '58.0.22',
       'expo-asset': '58.0.19',
+      'expo-build-properties': '58.0.12',
       'expo-camera': '58.0.14',
       'expo-constants': '58.0.14',
       'expo-font': '58.0.11',

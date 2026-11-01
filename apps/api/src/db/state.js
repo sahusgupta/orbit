@@ -515,7 +515,7 @@ async function listHistoricalStates(accountKey, excludeRevision = 0) {
     })));
 }
 
-async function mapStateHeader(database, header) {
+async function mapStateHeader(database, header, options = {}) {
   if (!header) return null;
   const revision = Number(header.revision || 0);
   return {
@@ -524,7 +524,9 @@ async function mapStateHeader(database, header) {
     schemaVersion: Number(header.schemaVersion || 2),
     savedAt: header.savedAt,
     revision,
-    publication: revision > 0 ? await getPublicationStatus(header.accountKey, revision) : mapPublication(null),
+    ...(options.includePublication === false ? {} : {
+      publication: revision > 0 ? await getPublicationStatus(header.accountKey, revision) : mapPublication(null)
+    }),
     state: await readStateChunks(database, header.accountKey, revision, header.stateChunkCount)
   };
 }
@@ -562,7 +564,7 @@ async function listStatePage(options = {}) {
     limit: limit + 1
   });
   const page = documents.slice(0, limit);
-  const records = await Promise.all(page.map((document) => mapStateHeader(database, document.data)));
+  const records = await Promise.all(page.map((document) => mapStateHeader(database, document.data, options)));
   return {
     records,
     hasMore: documents.length > limit,
