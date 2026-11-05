@@ -26,7 +26,7 @@ let revision = 0;
 const mockApi = createServer((request, response) => {
   response.setHeader('access-control-allow-origin', target);
   response.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
-  response.setHeader('access-control-allow-headers', 'content-type, x-orbit-mutation-id');
+  response.setHeader('access-control-allow-headers', 'content-type, x-orbit-mutation-id, x-orbit-api-key');
   response.setHeader('content-type', 'application/json; charset=utf-8');
   if (request.method === 'OPTIONS') {
     response.writeHead(204).end();

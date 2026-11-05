@@ -685,6 +685,12 @@ try {
   await addPlayerDialog.getByRole('button', { name: 'Add active member' }).click();
   await page.locator('.profile-card').filter({ hasText: 'Smoke New Player' }).waitFor({ timeout: 10000 });
 
+  const profilePersistenceWaitStarted = Date.now();
+  await page.waitForFunction((key) => {
+    const saved = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return saved.profiles?.some((profile) => profile.name === 'Smoke New Player');
+  }, accountStorageKey, { timeout: 10000 });
+  console.log(JSON.stringify({ check: 'management-profile-persistence-wait', elapsedMs: Date.now() - profilePersistenceWaitStarted }));
   const finalState = await page.evaluate((accountStorageKey) => JSON.parse(window.localStorage.getItem(accountStorageKey) || '{}'), accountStorageKey);
   assert(finalState.sessions?.[0]?.status === 'Running', 'Seeded table did not remain running.');
   assert(finalState.sessions?.[0]?.physicalTableId === 'physical-table-1', 'Seeded game did not remain assigned to Table 1.');
@@ -705,6 +711,9 @@ try {
   }
 
   console.log('Management production-bundle smoke passed: profile add, scanner input, local image OCR, Settings Data import, table start, seating, floor views/actions, table presentation, stable player actions, responsive floor, isolated networking, and clean console.');
+} catch (error) {
+  console.error('Synthetic management smoke failure diagnostics:', JSON.stringify({ pageErrors, consoleErrors, failedRequests }, null, 2));
+  throw error;
 } finally {
   await browser.close();
 }
