@@ -26,23 +26,10 @@ const { logDomainChange, logStateChanges } = require('../http/domainEvents');
 const { protectedIdentifier, redactText } = require('../http/dataProtection');
 const { getManagementAccountService } = require('../managementAccountService');
 const {
-  analyticalReportContainsDeletedPlayer,
-  enforcePlayerPrivacyTombstones
+  analyticalReportContainsDeletedPlayer
 } = require('../accountDeletionService');
-
-function preserveServerManagedState(incomingState, authoritativeState) {
-  let state = { ...incomingState };
-  if (authoritativeState?.selfCheckIn) {
-    state.selfCheckIn = authoritativeState.selfCheckIn;
-  } else {
-    delete state.selfCheckIn;
-  }
-  for (const key of ['membershipQrTokens', 'playerPrivacyTombstones', 'tournamentInterests']) {
-    if (authoritativeState && Object.hasOwn(authoritativeState, key)) state[key] = authoritativeState[key];
-  }
-  state = enforcePlayerPrivacyTombstones(state, authoritativeState);
-  return state;
-}
+const { preserveServerManagedState } = require('../stateProtection');
+const { registerCheckpointRoutes } = require('./checkpoints');
 
 function createAnalyticalReportHandler(dependencies = {}) {
   const readState = dependencies.loadState || loadState;
@@ -341,6 +328,8 @@ function registerClientRoutes(app, liveUpdates, dependencies = {}) {
     asyncRoute(createPublicationRecoveryHandler())
   );
 
+  registerCheckpointRoutes(app);
+
   app.post('/state', asyncRoute(async (request, response) => {
     const state = request.body?.state;
     const expectedRevision = Number(request.body?.expectedRevision);
@@ -354,10 +343,17 @@ function registerClientRoutes(app, liveUpdates, dependencies = {}) {
       response.status(403).json({ ok: false, error: 'Authenticated tenant cannot write another venue account.' });
       return;
     }
-    const previous = await loadState(accountKey);
-    const stateWithServerManagedFields = preserveServerManagedState(state, previous?.state);
-    const result = await saveState(stateWithServerManagedFields, { expectedRevision, mutationId, mutationType: 'desktop-state' });
-    logStateChanges(previous?.state, stateWithServerManagedFields, result.accountKey);
+    let committedPreviousState;
+    let committedNextState;
+    const result = await saveState(state, {
+      expectedRevision, mutationId, mutationType: 'desktop-state',
+      transactionPrecondition: async ({ currentState, nextState }) => {
+        committedPreviousState = currentState;
+        committedNextState = preserveServerManagedState(nextState, currentState);
+        return { nextState: committedNextState };
+      }
+    });
+    if (!result.duplicate) logStateChanges(committedPreviousState, committedNextState, result.accountKey);
     void schedulePublicationDrain();
     response.status(result.duplicate ? 200 : 201).json({ ok: true, ...result });
   }));

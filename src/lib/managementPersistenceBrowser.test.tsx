@@ -167,6 +167,9 @@ describe('management browser persistence orchestration', () => {
     await act(async () => {
       await import('../main');
     });
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
     await flush();
   });
 

@@ -127,6 +127,8 @@
     }
   ],
   "fieldOverrides": [
+    { "collectionGroup": "checkpointChunks", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "checkpointChunks", "fieldPath": "payload", "indexes": [] },
     { "collectionGroup": "orbitMatch", "fieldPath": "preferences", "indexes": [] },
     { "collectionGroup": "orbitMatch", "fieldPath": "decisions", "indexes": [] },
     { "collectionGroup": "orbitMatch", "fieldPath": "undo", "indexes": [] },

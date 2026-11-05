@@ -83,7 +83,7 @@ describe('production dependency gate existing contracts', () => {
   });
 
   it('rejects expired policy before invoking npm or the bundled gate', async () => {
-    vi.mocked(Date.now).mockReturnValue(Date.parse('2026-11-04T00:00:00.000Z'));
+    vi.mocked(Date.now).mockReturnValue(Date.parse('2026-11-09T00:00:00.000Z'));
     await expect(importGate()).rejects.toThrow('Dependency advisory policy expired');
     expect(mocked.spawnSync).not.toHaveBeenCalled();
     expect(mocked.bundled).not.toHaveBeenCalled();

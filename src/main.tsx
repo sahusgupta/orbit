@@ -204,10 +204,13 @@ import {
   loadExistingManagementStateForAccount,
   loadManagementState,
   loadManagementStateFromLocalBridge,
-  saveManagementState
+  saveManagementState,
+  getManagementSaveAdmissionBytes,
+  getManagementDurablePendingAdmission
 } from './app/persistence/managementPersistence';
 import { saveBrowserManagementState } from './app/persistence/browserStateRepository';
 import { compactManagementUsageTelemetry, getManagementStatePayloadBytes, getManagementStatePayloadContributions, getManagementStatePayloadError } from './app/persistence/managementStatePayload';
+import { checkpointSha256 } from './app/persistence/checkpointProtocol';
 import { managementSaveOutcome, type ManagementMutationResult } from './application/management/mutationResult';
 import {
   getCollectionProfile,
@@ -311,6 +314,8 @@ declare global {
       loadState: () => Promise<PersistedStateRecord | null>;
       loadStateForAccount: (access: PilotAccess) => Promise<PersistedStateRecord | null>;
       subscribeToManagementState?: (access: PilotAccess, onEvent: (event: { type: 'change'; revision: number } | { type: 'status'; connected: boolean }) => void) => () => void;
+      getPersistenceCapabilities?: (access?: PilotAccess) => Promise<unknown>;
+      onManagementSaveStatus?: (callback: (status: { accountKey: string; sourceHash: string; ok: boolean; pending: boolean; revision: number; publication: { status: string } }) => void) => () => void;
       saveState: (state: AppState) => Promise<{ ok: boolean; path: string; accountKey?: string }>;
       preserveStateForUpdate: (requestId: string, state: AppState) => Promise<{ ok: boolean }>;
       onPrepareForUpdate: (callback: (requestId: string) => void) => () => void;
@@ -712,6 +717,7 @@ function App() {
   const [tableMutationPending, setTableMutationPending] = useState(false);
   const saveSequenceRef = useRef(0);
   const pendingManagementSaveCountsRef = useRef(new Map<string, number>());
+  const durablePendingStatesRef = useRef(new Map<string, AppState>());
   const pendingManagementSaveRef = useRef<Promise<{ ok: boolean; error?: string }>>(
     Promise.resolve({ ok: true })
   );
@@ -912,6 +918,7 @@ function App() {
 
   useManagementStartupSync({
     getCurrentState: () => stateRef.current,
+    onPendingState: (pending) => { durablePendingStatesRef.current.set(getAccountKeyFromState(pending), pending); },
     hasAuthenticated,
     setHasAuthenticated,
     setSaveStatus,
@@ -955,6 +962,22 @@ function App() {
   }, []);
 
   useManagementUpdatePreservation(state);
+  useEffect(() => window.tableManagerDesktop?.onManagementSaveStatus?.((status) => {
+    if (status.accountKey !== getAccountKeyFromState(stateRef.current)
+      || (pendingManagementSaveCountsRef.current.get(status.accountKey) ?? 0) > 0) return;
+    const retained = durablePendingStatesRef.current.get(status.accountKey);
+    if (!retained || !status.ok) return;
+    const visible = stateRef.current;
+    const generation = saveSequenceRef.current;
+    void checkpointSha256(new TextEncoder().encode(JSON.stringify(visible))).then((sourceHash) => {
+      if (sourceHash !== status.sourceHash || stateRef.current !== visible || saveSequenceRef.current !== generation
+        || durablePendingStatesRef.current.get(status.accountKey) !== retained) return;
+      durablePendingStatesRef.current.delete(status.accountKey);
+      setSaveStatus({ state: status.publication.status === 'failed' ? 'error' : 'saved', message: status.publication.status === 'published'
+        ? 'Server saved; player projection published'
+        : status.publication.status === 'failed' ? 'Server saved; player projection failed and will retry' : 'Server saved; player projection pending' });
+    }).catch(() => undefined);
+  }), []);
 
   useEffect(() => {
     // Backend status is advisory; the shell retains its initial disconnected status if unavailable.
@@ -980,6 +1003,11 @@ function App() {
 
   useManagementPlayerUpdateSync({
     isManagementSavePending: (accountKey) => (pendingManagementSaveCountsRef.current.get(accountKey) ?? 0) > 0,
+    onAuthoritativeState: (canonical) => {
+      if (durablePendingStatesRef.current.delete(getAccountKeyFromState(canonical))) {
+        setSaveStatus({ state: 'saved', message: 'Server state confirmed' });
+      }
+    },
     activeAccountKey,
     announceIncomingPlayerRequest,
     hasAuthenticated,
@@ -1084,12 +1112,21 @@ function App() {
   };
 
   const persist = (nextState: AppState, trackUndo = true, usage?: UsageDescriptor): Promise<ManagementMutationResult> => {
+    const candidateAccount = getAccountKeyFromState(nextState);
+    const checkpointClient = !window.tableManagerDesktop || Boolean(window.tableManagerDesktop.getPersistenceCapabilities);
+    if (durablePendingStatesRef.current.has(candidateAccount) || getManagementDurablePendingAdmission(candidateAccount).pending
+      || (checkpointClient && (pendingManagementSaveCountsRef.current.get(candidateAccount) ?? 0) > 0)) {
+      const error = 'A change is still saving or retained locally. Wait for confirmation, or reconnect and resolve the pending change before accepting another.';
+      setSaveStatus({ state: 'error', message: error });
+      return Promise.resolve({ ok: false, status: 'busy', error });
+    }
     const withUsage = withUsageEvent(nextState, usage);
-    const next = compactManagementUsageTelemetry(withUsage);
+    const maximumBytes = getManagementSaveAdmissionBytes();
+    const next = compactManagementUsageTelemetry(withUsage, maximumBytes);
     const payloadBytes = getManagementStatePayloadBytes(next);
     const action = usage?.action ?? 'Management save';
     mutationDiagnostic(action, 'preflight', { payloadBytes, telemetryPruned: withUsage.usageEvents.length - next.usageEvents.length });
-    const payloadError = getManagementStatePayloadError(next);
+    const payloadError = getManagementStatePayloadError(next, maximumBytes);
     if (payloadError) {
       setSaveStatus({ state: 'error', message: payloadError });
       mutationDiagnostic(action, 'preflight-rejected', { payloadBytes, contributions: JSON.stringify(getManagementStatePayloadContributions(next)) });
@@ -1123,9 +1160,13 @@ function App() {
         return saveManagementState(next);
       })
       .then((result) => {
-        if (saveSequence === saveSequenceRef.current) {
+        if (result.pending) durablePendingStatesRef.current.set(nextAccountKey, next);
+        else if (result.ok) durablePendingStatesRef.current.delete(nextAccountKey);
+        if (saveSequence === saveSequenceRef.current && getAccountKeyFromState(stateRef.current) === nextAccountKey) {
           if (!result.ok) {
-            setSaveStatus({ state: 'error', message: result.error || 'Saved to cache only; server reconciliation required' });
+            setSaveStatus({ state: 'error', message: result.pending
+              ? `Pending locally; server confirmation required. ${result.error || ''}`.trim()
+              : result.error || 'Saved to cache only; server reconciliation required' });
           } else {
             setSaveStatus({
               state: result.cloud === 'failed' ? 'error' : 'saved',
@@ -1143,7 +1184,7 @@ function App() {
       })
       .catch((error) => {
         const message = error instanceof Error ? `Save failed: ${error.message}` : 'Save failed';
-        if (saveSequence === saveSequenceRef.current) {
+        if (saveSequence === saveSequenceRef.current && getAccountKeyFromState(stateRef.current) === nextAccountKey) {
           setSaveStatus({ state: 'error', message });
         }
         return { ok: false, status: 'save-failed', error: message } as const;
@@ -1322,7 +1363,7 @@ function App() {
       } else if (result.adoptedAuthoritative) {
         setSaveStatus({ state: 'saved', message: 'Already updated from the latest server state' });
       }
-    } else if (!result.ok) {
+    } else if (!result.ok && !result.pending) {
       return reconcileFailedStaffTransition(initialState, transition, result.error);
     }
     return result.ok;
@@ -1353,7 +1394,7 @@ function App() {
       const pending = persist(transition.state, true, usage);
       const attemptedState = stateRef.current;
       const result = await pending;
-      if (!result.ok && result.status !== 'preflight-rejected') {
+      if (!result.ok && !result.pending && result.status !== 'preflight-rejected') {
         // Financial/table actions are never replayed automatically after conflicts.
         // Wait out queued saves and reject a reload overtaken by a newer local edit.
         for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -1376,7 +1417,9 @@ function App() {
           break;
         }
       }
-      if (!result.ok) setSaveStatus({ state: 'error', message: result.error });
+      if (!result.ok && getAccountKeyFromState(stateRef.current) === getAccountKeyFromState(initialState)) {
+        setSaveStatus({ state: 'error', message: result.error });
+      }
       return result;
     } finally {
       tableMutationPendingRef.current = false;
@@ -2958,8 +3001,8 @@ function App() {
       const backup = readBackupEnvelope<PersistedAppState>(parsed);
       const restored = normalizeState(backup.state);
       if (!window.confirm(`Restore backup from ${backup.exportedAt || 'unknown date'}? This replaces the current local app state.`)) return;
-      persist(restored, true, { feature: 'Data safety', action: 'Restored backup' });
-      setBackupMessage('Backup restored.');
+      const result = await persist(restored, true, { feature: 'Data safety', action: 'Restored backup' });
+      setBackupMessage(result.ok ? 'Backup committed to the server.' : result.error);
     } catch (error) {
       setBackupMessage(error instanceof Error ? error.message : 'Unable to restore backup.');
     }
@@ -3565,7 +3608,9 @@ function App() {
         staffSelectionAttemptRef.current += 1;
         setTrustedStaffSession(null);
         setUndoAction(null);
-        persist(next, false, { feature: 'Account', action: 'Applied managed pilot renewal', route: 'access' });
+        stateRef.current = next;
+        setState(next);
+        saveBrowserManagementState(next);
         setHasAuthenticated(await restorePersistedSignIn(next));
         setPendingPilotAccess(null);
         setPilotKeyError('');
@@ -3573,13 +3618,27 @@ function App() {
         return true;
       }
     }
-    const next = await loadExistingManagementStateForAccount(access);
+    let next: AppState | null;
+    try { next = await loadExistingManagementStateForAccount(access); }
+    catch (error) {
+      setPilotKeyError(error instanceof Error ? error.message : 'The existing account could not be recovered. Keep pending work and reconnect.');
+      return true; // Handled recovery failure must not enter new-venue setup.
+    }
     if (!next) return false;
     staffSelectionAttemptRef.current += 1;
     setTrustedStaffSession(null);
     setUndoAction(null);
     setHasAuthenticated(await restorePersistedSignIn(next));
-    persist(next, false, { feature: 'Account', action: 'Loaded existing pilot key', route: 'access' });
+    // Loading an authoritative/pending account is hydration, never a new save
+    // with a fresh usage event that could replace an ambiguous pending intent.
+    stateRef.current = next;
+    setState(next);
+    saveBrowserManagementState(next);
+    const admission = getManagementDurablePendingAdmission(getAccountKeyFromState(next));
+    if (admission.pending) durablePendingStatesRef.current.set(getAccountKeyFromState(next), next);
+    setSaveStatus(admission.pending
+      ? { state: 'error', message: admission.error || 'Pending locally; server confirmation required' }
+      : { state: 'idle', message: 'Existing account loaded' });
     setPendingPilotAccess(null);
     setPilotKeyError('');
     window.location.hash = '/floor';

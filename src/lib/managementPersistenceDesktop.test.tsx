@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { seedState } from '../domain/state';
 import type { AppState, PersistedStateRecord, PlayerProfile } from '../domain/types';
+import { createHash, webcrypto } from 'node:crypto';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -21,7 +22,8 @@ const harness = vi.hoisted(() => ({
   desktopPollError: false,
   desktopPollResult: null as unknown,
   desktopSaveError: false,
-  desktopSaveResult: undefined as { ok: boolean; conflict?: boolean; error?: string } | undefined,
+  desktopSaveResult: undefined as { ok: boolean; conflict?: boolean; pending?: boolean; error?: string } | undefined,
+  saveStatusCallback: undefined as ((status: { accountKey: string; sourceHash: string; ok: boolean; pending: boolean; revision: number; publication: { status: string } }) => void) | undefined,
   desktopSaveStates: [] as AppState[],
   fetchCalls: [] as string[],
   floorProps: undefined as unknown,
@@ -58,6 +60,7 @@ vi.mock('react', async (importOriginal) => {
       return result;
     }
   };
+
 });
 
 vi.mock('react-dom/client', async (importOriginal) => {
@@ -243,6 +246,7 @@ describe('management desktop authoritative API persistence orchestration', () =>
         harness.prepareCallback = callback;
         return harness.prepareCleanup;
       }),
+      onManagementSaveStatus: vi.fn((callback) => { harness.saveStatusCallback = callback; return () => undefined; }),
       openWindow: vi.fn(async () => undefined),
       preserveStateForUpdate: vi.fn(async (requestId: string, state: AppState) => {
         harness.preserveCalls.push({ requestId, state });
@@ -283,7 +287,7 @@ describe('management desktop authoritative API persistence orchestration', () =>
   });
 
   it('pins API/cache startup, server save, authoritative polling, preservation, notifications, and cleanup', async () => {
-    expect(getState().games[0].name).toBe('initial-local');
+    expect(getState().games[0].name).toBe('desktop-older');
     expect(harness.loadCloudCalls).toEqual([]);
 
     harness.desktopLoadResult = record('desktop-newer', '2026-08-08T21:30:00.000Z');
@@ -569,4 +573,83 @@ describe('management desktop authoritative API persistence orchestration', () =>
     expect(harness.desktopSaveStates.at(-1)?.tableEvents.some(event => event.id === 'picker-event-B')).toBe(true);
   });
 
+  it('saves check-in, session time, and accounting corrections above the old guard with a checkpoint-capable desktop', async () => {
+    const desktop = window.tableManagerDesktop!;
+    const negotiate = vi.fn(async () => ({ ok: true, checkpoint: { protocol: 'checkpoint-v1', chunkBytes: 262144, maximumSourceBytes: 33554432, maximumChunks: 128, maximumEnvelopeBytes: 400000 } }));
+    desktop.getPersistenceCapabilities = negotiate;
+    try {
+      await mountTable();
+      await replaceState(pad(getState(), 2_100_000));
+      const retained = getState().profiles[0].notes;
+      expect(await invokeFloor('seatInterestAtTable', getState().interests[0], 'table-test', 1)).toMatchObject({ ok: true });
+      expect(await invokeFloor('addPlayerTime', getState().playerSessions[0], 60)).toMatchObject({ ok: true });
+      expect(await invokeFloor('deductPlayerTime', getState().playerSessions[0], 30)).toMatchObject({ ok: true });
+      expect(negotiate).toHaveBeenCalled();
+      const saved = harness.desktopSaveStates.at(-1)!;
+      expect(saved.profiles[0].notes).toBe(retained);
+      expect(saved.playerLedger.some((entry) => entry.type === 'Check-In')).toBe(true);
+      expect(saved.timeFeeLogs.map((entry) => entry.minutes)).toEqual([60, -30]);
+      expect(saved.correctionLog.length).toBeGreaterThan(0);
+      expect(saved.playerSessions[0].timePurchasedMinutes).toBe(30);
+    } finally {
+      delete desktop.getPersistenceCapabilities;
+    }
+  });
+  it('retains provisional intent, rejects a newer action before applying it, and binds background confirmation to the exact source', async () => {
+    await mountTable();
+    harness.desktopSaveResult = { ok: false, pending: true, error: 'Synthetic disconnected API' };
+    vi.stubGlobal('crypto', webcrypto);
+    try {
+      const result = await invokeFloor('seatInterestAtTable', getState().interests[0], 'table-test', 1);
+      expect(result).toMatchObject({ ok: false, pending: true, status: 'save-pending' });
+      const provisional = getState();
+      expect(provisional.playerSessions).toHaveLength(1);
+      expect(provisional.playerLedger.some((entry) => entry.type === 'Check-In')).toBe(true);
+      expect(await invokeFloor('addPlayerTime', provisional.playerSessions[0], 30)).toMatchObject({ ok: false, status: 'busy' });
+      expect(getState()).toBe(provisional);
+      expect(harness.desktopSaveStates).toHaveLength(1);
+      const persistence = await import('../app/persistence/managementPersistence');
+      expect(persistence.getManagementDurablePendingAdmission(accountKey)).toMatchObject({ pending: true });
+      const confirmation = { accountKey, sourceHash: '0'.repeat(64), ok: true, pending: false, revision: 2, publication: { status: 'pending' } };
+      await act(async () => { harness.saveStatusCallback?.(confirmation); await new Promise((resolve) => webcrypto.subtle.digest('SHA-256', new Uint8Array()).then(resolve)); });
+      expect(Reflect.get(harness.shellProps as object, 'saveState')).toBe('error');
+      confirmation.sourceHash = createHash('sha256').update(JSON.stringify(provisional)).digest('hex');
+      await act(async () => { harness.saveStatusCallback?.(confirmation); await new Promise((resolve) => webcrypto.subtle.digest('SHA-256', new Uint8Array()).then(resolve)); });
+      await flush();
+      expect(Reflect.get(harness.shellProps as object, 'saveState')).toBe('saved');
+      harness.desktopPollResult = { schemaVersion: 5, savedAt: now, state: provisional, authoritative: true, revision: 2 };
+      const readsBeforeCanonical = harness.loadForAccountCalls.length;
+      // The null startup record entered the released 60-second failure backoff.
+      // Its authoritative read, rather than the IPC receipt alone, releases the adapter's pending gate.
+      await advance(60_000);
+      expect(harness.loadForAccountCalls.length).toBeGreaterThan(readsBeforeCanonical);
+      expect(persistence.getManagementDurablePendingAdmission(accountKey)).toEqual({ pending: false });
+    } finally {
+      harness.desktopSaveResult = undefined;
+      vi.unstubAllGlobals();
+    }
+  });
+  it('does not confirm the visible account when another account save finishes after hydration', async () => {
+    await mountTable();
+    let acknowledge: (result: { ok: boolean; path: string }) => void = () => { throw new Error('The save did not start.'); };
+    const saved = new Promise<{ ok: boolean; path: string }>((resolve) => { acknowledge = resolve; });
+    const save = vi.spyOn(window.tableManagerDesktop!, 'saveState').mockReturnValueOnce(saved);
+    save.mockClear();
+    let action: Promise<unknown> | undefined;
+    try {
+      const callback = Reflect.get(harness.floorProps as object, 'seatInterestAtTable');
+      if (typeof callback !== 'function') throw new Error('Missing seating callback');
+      await act(async () => {
+        action = Promise.resolve(Reflect.apply(callback, undefined, [getState().interests[0], 'table-test', 1]));
+        await Promise.resolve();
+      });
+      expect(save).toHaveBeenCalledTimes(1);
+      const other = buildState('other-account');
+      other.settings.pilotAccess = { ...access, licenseId: 'another-authenticated-account', authorizationCode: 'another-synthetic-code' };
+      await replaceState(other);
+      await act(async () => { acknowledge({ ok: true, path: 'fixture' }); await action; });
+      expect(getState().settings.pilotAccess?.licenseId).toBe('another-authenticated-account');
+      expect(Reflect.get(harness.shellProps as object, 'saveState')).not.toBe('saved');
+    } finally { save.mockRestore(); }
+  });
 });

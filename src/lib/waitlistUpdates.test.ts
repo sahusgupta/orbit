@@ -6,6 +6,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { RootOptions } from 'react-dom/client';
 import { act } from 'react';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { waitForCapturedManagementSaves } from '../../tests/helpers/managementPendingSave';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -235,9 +236,11 @@ const invokeUpdateInterest = async (session: Session, id: string, patch: Record<
       objectId: updateInterestObjectId,
       functionDeclaration: 'function (id, patch) { return this(id, patch); }',
       arguments: [{ value: id }, { value: patch }],
+      awaitPromise: true,
       returnByValue: true
     });
     if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+    await waitForCapturedManagementSaves(session, updateInterestObjectId);
   });
 };
 

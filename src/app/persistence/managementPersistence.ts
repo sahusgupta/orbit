@@ -1,204 +1,113 @@
 import { rendererFirebaseSyncEnabled } from '../../lib/firebaseConfig';
-import { normalizeState } from '../../domain/state';
-import { getAccountKeyFromState } from '../../domain/licensing';
+import { normalizeState, seedState } from '../../domain/state';
+import { getAccountKeyFromAccess, getAccountKeyFromState } from '../../domain/licensing';
 import type { AppState, PersistedStateRecord, PilotAccess } from '../../domain/types';
 import type { ManagementSaveResult } from '../../domain/managementSaveResult';
-import {
-  loadBrowserManagementState,
-  loadBrowserManagementStateForAccount,
-  saveBrowserManagementState,
-  type BrowserStorage
-} from './browserStateRepository';
+import { checkpointSourceLimit } from './checkpointProtocol';
+import { getManagementStatePayloadBytes, maximumManagementStatePayloadBytes } from './managementStatePayload';
+import { loadBrowserManagementState, loadBrowserManagementStateForAccount, saveBrowserManagementState } from './browserStateRepository';
+import type { createBrowserManagementPersistence } from './browserManagementPersistence';
+import type { DesktopStatePersistence, LocalBridgeReadOptions, ManagementPersistenceDependencies, ManagementStateSubscriptionEvent } from './managementPersistenceContracts';
 
 export type { ManagementSaveResult } from '../../domain/managementSaveResult';
-
-export type ManagementStateSubscriptionEvent =
-  | { type: 'change'; revision: number }
-  | { type: 'status'; connected: boolean };
-
-type DesktopStatePersistence = {
-  loadState?: () => Promise<PersistedStateRecord | null>;
-  loadStateForAccount?: (access: PilotAccess) => Promise<PersistedStateRecord | null>;
-  subscribeToManagementState?: (access: PilotAccess, onEvent: (event: ManagementStateSubscriptionEvent) => void) => () => void;
-  onPrepareForUpdate?: (callback: (requestId: string) => void) => () => void;
-  preserveStateForUpdate?: (requestId: string, state: AppState) => Promise<{ ok: boolean }>;
-  saveState: (state: AppState) => Promise<{
-    ok: boolean;
-    path: string;
-    accountKey?: string;
-    revision?: number;
-    conflict?: boolean;
-    error?: string;
-    publication?: { status?: string };
-  }>;
-  validatePilotAccess?: (access: PilotAccess) => Promise<PilotAccessValidationResult>;
-};
-
-type ManagementPersistenceDependencies = {
-  bridgeBaseUrl: string;
-  fetchState: typeof fetch;
-  firebaseEnabled: boolean;
-  getDesktopPersistence: () => DesktopStatePersistence | undefined;
-  saveFirebaseState: (state: AppState) => Promise<unknown>;
-  storage: BrowserStorage;
-};
-
-export type PilotAccessValidationResult = {
-  ok: boolean;
-  managed: boolean;
-  active: boolean;
-  license?: {
-    licenseId?: string;
-    accountKey?: string;
-    issuedTo?: string;
-    expiresAt?: string;
-    status?: string;
-  } | null;
-  error?: string;
-};
-
-export type LocalBridgeStateResult =
-  | { status: 'missing' }
-  | { status: 'unavailable' }
-  | { status: 'available'; state?: AppState; acceptReadRevision?: () => boolean };
-
-type LocalBridgeReadOptions = { deferRevisionAcceptance?: boolean };
+export { BrowserManagementRecoveryError } from './managementPersistenceContracts';
+export type { LocalBridgeStateResult, PilotAccessValidationResult, ManagementStateSubscriptionEvent } from './managementPersistenceContracts';
 
 const defaultBridgeBaseUrl = (import.meta.env.VITE_ORBIT_LOCAL_API_URL || 'http://127.0.0.1:4629').replace(/\/$/, '');
 
+/** Desktop startup needs only its trusted bridge. Browser recovery loads on use. */
 export const createManagementPersistence = (dependencies: ManagementPersistenceDependencies) => {
-  const bridgeRevisionByAccount = new Map<string, number>();
+  type BrowserPersistence = ReturnType<typeof createBrowserManagementPersistence>;
+  let browser: BrowserPersistence | undefined;
+  let browserLoading: Promise<BrowserPersistence> | undefined;
+  const desktopPendingByAccount = new Map<string, string>();
 
-  const publishStateToLocalBridge = async (state: AppState) => {
-    const accountKey = getAccountKeyFromState(state);
-    const expectedRevision = bridgeRevisionByAccount.get(accountKey) ?? 0;
-    const mutationId = `browser:${accountKey}:${expectedRevision}:${globalThis.crypto.randomUUID()}`;
-    const response = await dependencies.fetchState(`${dependencies.bridgeBaseUrl}/state`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-orbit-mutation-id': mutationId },
-      body: JSON.stringify({ state, expectedRevision, mutationId })
-    });
-    const payload = await response.json().catch(() => ({})) as {
-      ok?: boolean;
-      revision?: number;
-      currentRevision?: number;
-      publication?: { status?: string };
-      error?: string;
-    };
-    if (response.status === 409) {
-      return { ok: false, path: 'orbit-api', accountKey, conflict: true, error: payload.error };
-    }
-    if (!response.ok || !payload.ok) return { ok: false, path: 'orbit-api', accountKey, error: payload.error };
-    bridgeRevisionByAccount.set(accountKey, Number(payload.revision || expectedRevision + 1));
-    return {
-      ok: true,
-      path: 'orbit-api',
-      accountKey,
-      revision: Number(payload.revision || expectedRevision + 1),
-      publication: payload.publication
-    };
-  };
+  const getBrowser = () => browserLoading ??= import('./browserManagementPersistence').then((module) => {
+    browser = module.createBrowserManagementPersistence({ ...dependencies, getDesktopPersistence: () => undefined });
+    return browser;
+  }).catch((error) => {
+    browserLoading = undefined;
+    throw error;
+  });
 
-  const loadStateFromLocalBridge = async (
-    accountKey: string,
-    canAcceptRead?: () => boolean,
-    options?: LocalBridgeReadOptions
-  ): Promise<LocalBridgeStateResult> => {
-    const response = await dependencies.fetchState(
-      `${dependencies.bridgeBaseUrl}/state/${encodeURIComponent(accountKey)}`
-    );
-    if (response.status === 404) return { status: 'missing' };
-    if (!response.ok) return { status: 'unavailable' };
-    const record = await response.json() as { accountKey?: string; revision?: number; state?: AppState };
-    const deferRevisionAcceptance = options?.deferRevisionAcceptance === true;
-    if (!deferRevisionAcceptance && canAcceptRead && !canAcceptRead()) return { status: 'unavailable' };
-    const readAccountKey = record.accountKey;
-    const readRevision = readAccountKey ? Number(record.revision || 0) : 0;
-    const acceptReadRevision = () => {
-      if (deferRevisionAcceptance && canAcceptRead && !canAcceptRead()) return false;
-      if (readAccountKey) {
-        const priorRevision = bridgeRevisionByAccount.get(readAccountKey);
-        if (priorRevision !== undefined && readRevision < priorRevision) return false;
-        bridgeRevisionByAccount.set(readAccountKey, readRevision);
-      }
-      return true;
-    };
-    // Background consumers accept in their resumed synchronous turn. Another
-    // queued microtask may change ownership after this loader resolves.
-    if (deferRevisionAcceptance) {
-      return { status: 'available', state: record.state, acceptReadRevision };
+  const observeDesktopRecord = (record: PersistedStateRecord | null | undefined, access?: PilotAccess) => {
+    if (record) {
+      const accountKey = record.accountKey || (access && getAccountKeyFromAccess(access)) || getAccountKeyFromAccess(record.state.settings?.pilotAccess)
+        || getAccountKeyFromState({ settings: { ...seedState.settings, clubAccount: record.state.settings?.clubAccount } });
+      if (record.pending) desktopPendingByAccount.set(accountKey, 'Pending desktop work is retained. Wait for confirmation or reconcile it before accepting another change.');
+      else if (record.authoritative === true) desktopPendingByAccount.delete(accountKey);
     }
-    if (!acceptReadRevision()) return { status: 'unavailable' };
-    return { status: 'available', state: record.state };
+    return record;
   };
+  const loadDesktopState = () => dependencies.getDesktopPersistence()?.loadState?.().then((record) => observeDesktopRecord(record));
+  const loadDesktopStateForAccount = (access: PilotAccess) => dependencies.getDesktopPersistence()?.loadStateForAccount?.(access)
+    .then((record) => observeDesktopRecord(record, access));
 
   const loadExistingStateForAccount = async (access: PilotAccess): Promise<AppState | null> => {
+    if (!dependencies.getDesktopPersistence()) return (await getBrowser()).loadExistingStateForAccount(access);
     let desktopRecord: PersistedStateRecord | null | undefined;
-    try {
-      desktopRecord = await dependencies.getDesktopPersistence()?.loadStateForAccount?.(access);
-    } catch {
-      // Cloud or desktop lookup failures should not block activation of a valid local pilot key.
+    try { desktopRecord = await loadDesktopStateForAccount(access); }
+    catch {
+      // An unavailable authoritative read can still expose its labelled local cache.
       desktopRecord = undefined;
     }
-    const record = desktopRecord?.state
-      ? desktopRecord
-      : loadBrowserManagementStateForAccount(access, dependencies.storage);
+    const record = desktopRecord?.state ? desktopRecord : loadBrowserManagementStateForAccount(access, dependencies.storage);
     if (!record?.state) return null;
-    return normalizeState({
-      ...record.state,
-      settings: {
-        ...record.state.settings,
-        pilotAccess: access
-      }
-    });
+    return normalizeState({ ...record.state, settings: { ...record.state.settings, pilotAccess: access } });
   };
 
   const registerUpdatePreservation = (getState: () => AppState) => {
     const desktop = dependencies.getDesktopPersistence();
     if (!desktop?.onPrepareForUpdate || !desktop.preserveStateForUpdate) return undefined;
-    return desktop.onPrepareForUpdate((requestId) => {
-      void desktop.preserveStateForUpdate?.(requestId, getState());
-    });
+    return desktop.onPrepareForUpdate((requestId) => { void desktop.preserveStateForUpdate?.(requestId, getState()); });
   };
 
   const saveState = async (state: AppState): Promise<ManagementSaveResult> => {
-    saveBrowserManagementState(state, dependencies.storage);
     const desktop = dependencies.getDesktopPersistence();
-    const result: Awaited<ReturnType<DesktopStatePersistence['saveState']>> = desktop
-      ? await desktop.saveState(state)
-      : await publishStateToLocalBridge(state).catch((error) => ({
-          ok: false,
-          path: 'browser-local-storage',
-          error: error instanceof Error ? error.message : 'Authoritative server save failed.'
-        }));
+    if (!desktop) return (await getBrowser()).saveState(state);
+    if (desktop.getPersistenceCapabilities && getManagementStatePayloadBytes(state) > maximumManagementStatePayloadBytes) {
+      // The main process preserves pending intent even if negotiation is offline.
+      try { await desktop.getPersistenceCapabilities(state.settings.pilotAccess); }
+      catch { /* The durable main-process save still handles unavailable negotiation. */ }
+    }
+    const result: Awaited<ReturnType<DesktopStatePersistence['saveState']>> = await desktop.saveState(state);
+    const accountKey = getAccountKeyFromState(state);
+    if (result.pending) desktopPendingByAccount.set(accountKey, result.error || 'Pending desktop work requires server confirmation.');
+    else if (result.ok) desktopPendingByAccount.delete(accountKey);
+    if (result.ok || result.pending) saveBrowserManagementState(state, dependencies.storage);
     const publicationStatus = String(result.publication?.status || '');
-    return {
-      ...result,
-      cloud: !result.ok
-        ? 'not-committed'
-        : publicationStatus === 'published'
-          ? 'published'
-          : publicationStatus === 'failed'
-            ? 'failed'
-            : 'server-pending'
-    };
+    return { ...result, cloud: !result.ok ? 'not-committed' : publicationStatus === 'published' ? 'published'
+      : publicationStatus === 'failed' ? 'failed' : 'server-pending' };
   };
 
   return {
     getPilotAccessValidator: () => {
-      const validatePilotAccess = dependencies.getDesktopPersistence()?.validatePilotAccess;
-      return validatePilotAccess ? (access: PilotAccess) => validatePilotAccess(access) : undefined;
+      const validate = dependencies.getDesktopPersistence()?.validatePilotAccess;
+      return validate ? (access: PilotAccess) => validate(access) : undefined;
     },
     hasDesktopPersistence: () => Boolean(dependencies.getDesktopPersistence()),
-    loadDesktopState: () => dependencies.getDesktopPersistence()?.loadState?.(),
-    loadDesktopStateForAccount: (access: PilotAccess) =>
-      dependencies.getDesktopPersistence()?.loadStateForAccount?.(access),
+    getDurablePendingAdmission: (accountKey: string): { pending: boolean; error?: string } => {
+      if (dependencies.getDesktopPersistence()) {
+        const error = desktopPendingByAccount.get(accountKey);
+        return { pending: Boolean(error), ...(error ? { error } : {}) };
+      }
+      // Importing an optional read path is not pending business intent. The
+      // renderer's synchronous save counter guards mutations during startup.
+      return browser?.getDurablePendingAdmission(accountKey) ?? { pending: false };
+    },
+    getSaveAdmissionBytes: () => {
+      const desktop = dependencies.getDesktopPersistence();
+      return !desktop || desktop.getPersistenceCapabilities ? checkpointSourceLimit : maximumManagementStatePayloadBytes;
+    },
+    loadDesktopState,
+    loadDesktopStateForAccount,
     subscribeToDesktopStateForAccount: (access: PilotAccess, onEvent: (event: ManagementStateSubscriptionEvent) => void) =>
       dependencies.getDesktopPersistence()?.subscribeToManagementState?.(access, onEvent),
     loadExistingStateForAccount,
     loadState: () => loadBrowserManagementState(dependencies.storage),
-    loadStateFromLocalBridge,
-    publishStateToLocalBridge,
+    loadStateFromLocalBridge: async (accountKey: string, canAcceptRead?: () => boolean, options?: LocalBridgeReadOptions) =>
+      (await getBrowser()).loadStateFromLocalBridge(accountKey, canAcceptRead, options),
+    publishStateToLocalBridge: async (state: AppState) => (await getBrowser()).publishStateToLocalBridge(state),
     registerUpdatePreservation,
     saveDesktopState: (state: AppState) => dependencies.getDesktopPersistence()?.saveState(state),
     saveState
@@ -216,28 +125,19 @@ const getDefaultManagementPersistence = () => defaultManagementPersistence ??= c
 });
 
 export const canUseRendererFirebaseAuth = () => rendererFirebaseSyncEnabled;
-export const getManagementPilotAccessValidator = () =>
-  getDefaultManagementPersistence().getPilotAccessValidator();
-export const hasManagementDesktopPersistence = () =>
-  getDefaultManagementPersistence().hasDesktopPersistence();
-export const loadDesktopManagementState = () =>
-  getDefaultManagementPersistence().loadDesktopState();
-export const loadDesktopManagementStateForAccount = (access: PilotAccess) =>
-  getDefaultManagementPersistence().loadDesktopStateForAccount(access);
+export const getManagementPilotAccessValidator = () => getDefaultManagementPersistence().getPilotAccessValidator();
+export const hasManagementDesktopPersistence = () => getDefaultManagementPersistence().hasDesktopPersistence();
+export const getManagementSaveAdmissionBytes = () => getDefaultManagementPersistence().getSaveAdmissionBytes();
+export const getManagementDurablePendingAdmission = (accountKey: string) => getDefaultManagementPersistence().getDurablePendingAdmission(accountKey);
+export const loadDesktopManagementState = () => getDefaultManagementPersistence().loadDesktopState();
+export const loadDesktopManagementStateForAccount = (access: PilotAccess) => getDefaultManagementPersistence().loadDesktopStateForAccount(access);
 export const subscribeToDesktopManagementStateForAccount = (access: PilotAccess, onEvent: (event: ManagementStateSubscriptionEvent) => void) =>
   getDefaultManagementPersistence().subscribeToDesktopStateForAccount(access, onEvent);
-export const loadExistingManagementStateForAccount = (access: PilotAccess) =>
-  getDefaultManagementPersistence().loadExistingStateForAccount(access);
+export const loadExistingManagementStateForAccount = (access: PilotAccess) => getDefaultManagementPersistence().loadExistingStateForAccount(access);
 export const loadManagementState = () => getDefaultManagementPersistence().loadState();
-export const loadManagementStateFromLocalBridge = (
-  accountKey: string,
-  canAcceptRead?: () => boolean,
-  options?: LocalBridgeReadOptions
-) => getDefaultManagementPersistence().loadStateFromLocalBridge(accountKey, canAcceptRead, options);
-export const publishStateToLocalOrbitBridge = (state: AppState) =>
-  getDefaultManagementPersistence().publishStateToLocalBridge(state);
-export const registerManagementUpdatePreservation = (getState: () => AppState) =>
-  getDefaultManagementPersistence().registerUpdatePreservation(getState);
-export const saveDesktopManagementState = (state: AppState) =>
-  getDefaultManagementPersistence().saveDesktopState(state);
+export const loadManagementStateFromLocalBridge = (accountKey: string, canAcceptRead?: () => boolean, options?: LocalBridgeReadOptions) =>
+  getDefaultManagementPersistence().loadStateFromLocalBridge(accountKey, canAcceptRead, options);
+export const publishStateToLocalOrbitBridge = (state: AppState) => getDefaultManagementPersistence().publishStateToLocalBridge(state);
+export const registerManagementUpdatePreservation = (getState: () => AppState) => getDefaultManagementPersistence().registerUpdatePreservation(getState);
+export const saveDesktopManagementState = (state: AppState) => getDefaultManagementPersistence().saveDesktopState(state);
 export const saveManagementState = (state: AppState) => getDefaultManagementPersistence().saveState(state);

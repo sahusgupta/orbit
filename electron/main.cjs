@@ -163,9 +163,14 @@ const {
   closeDatabase,
   getReportCount,
   migrateLocalAccountToPilotAccess,
+  readPendingState,
   readLocalDatabase,
   storeAnalyticalReport,
-  writeLocalDatabase
+  writeLocalDatabase,
+  writePendingState,
+  acknowledgePendingState,
+  selectPendingTransport,
+  pausePendingState
 } = createLocalStore({
   app,
   encodeState: encodeProtectedState,
@@ -205,9 +210,11 @@ const {
   createSelfCheckInQrKitApi,
   getClientUpdateState,
   getManagementRecoveryStatusApi,
+  getPersistenceCapabilities,
   getRemoteBackendStatus,
   loadStateApiFirst,
   peekStateFromApi,
+  preservePendingState,
   redeemMembershipQrApi,
   saveStateApiFirst,
   saveStateToApi,
@@ -226,6 +233,16 @@ const {
   loadStateWithFirebaseFallback,
   migrateLocalAccountToPilotAccess,
   readLocalDatabase,
+  readPendingState,
+  writePendingState,
+  acknowledgePendingState,
+  selectPendingTransport,
+  pausePendingState,
+  onManagementSaveStatus: (status) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send('management-save-status', status);
+    }
+  },
   saveStateEverywhere,
   storeAnalyticalReport,
   writeLocalDatabase,
@@ -256,6 +273,10 @@ const updateController = createUpdateController({
   getFocusedWindow: () => BrowserWindow.getFocusedWindow(),
   isDev,
   nativeAutoUpdater,
+  preserveStateForUpdate: (state) => {
+    preservePendingState(state);
+    return { ok: true };
+  },
   saveStateToApi,
   sendClientEvent,
   sendClientUpdateEvent,
@@ -310,14 +331,23 @@ ipcMain.handle('unsubscribe-management-state', trustedIpc((sender, subscriptionI
 }, true));
 
 ipcMain.handle('save-state', trustedIpc(async (state) => {
-  const payload = boundedPayload(state);
-  writeOrbitApiLog('info', 'state-ipc-save', { payloadBytes: Buffer.byteLength(JSON.stringify(payload), 'utf8') });
+  const capabilities = await getPersistenceCapabilities(state?.settings?.pilotAccess);
+  // A current bridge can durably retain an oversized pending save even while
+  // capability discovery is offline. HTTP still requires a supported protocol.
+  const payload = boundedPayload(state, 33_554_432);
+  writeOrbitApiLog('info', 'state-ipc-save', { payloadBytes: Buffer.byteLength(JSON.stringify(payload), 'utf8'), checkpointAvailable: Boolean(capabilities.checkpoint) });
   return saveStateApiFirst(payload);
 }));
 
+ipcMain.handle('get-persistence-capabilities', trustedIpc(async (access) =>
+  getPersistenceCapabilities(access ? boundedPayload(access, 16_000) : undefined)
+));
+
 ipcMain.handle('preserve-state-for-update', trustedIpc(async (requestId, state) => {
   if (!/^[a-zA-Z0-9._:-]{1,160}$/.test(String(requestId || ''))) throw new Error('Invalid update request ID.');
-  return updateController.handleRendererStateFlush(requestId, boundedPayload(state));
+  // Update preservation remains a local durability operation even if the API
+  // is offline; an oversized venue must not lose its state during upgrade.
+  return updateController.handleRendererStateFlush(requestId, boundedPayload(state, 33_554_432));
 }));
 
 ipcMain.handle('get-update-status', trustedIpc(() => ({ ...updateController.getStatus(), appVersion: app.getVersion(), sourceSha: String(getRecordProperty(buildMetadata, 'orbitSourceSha') || '') || 'development' })));

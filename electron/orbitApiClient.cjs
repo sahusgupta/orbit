@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { createManagementStateEvents } = require('./managementStateEvents.cjs');
+const { downloadCheckpoint, sourceForState, supportedCheckpoint, uploadCheckpoint } = require('./checkpointTransport.cjs');
 const {
   getAccountKeyFromAccess,
   getAccountKeyFromState,
@@ -11,8 +12,27 @@ const {
   sanitizeAccountKey
 } = require('./runtimeUtils.cjs');
 
-async function readApiResponse(response) {
-  const text = await response.text().catch(() => '');
+async function readApiResponse(response, maximumBytes = 0) {
+  let text;
+  if (maximumBytes && response.body?.getReader) {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let bytes = 0;
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      bytes += part.value.byteLength;
+      if (bytes > maximumBytes) {
+        await reader.cancel();
+        throw new Error('The checkpoint response exceeds its envelope budget.');
+      }
+      chunks.push(Buffer.from(part.value));
+    }
+    text = Buffer.concat(chunks, bytes).toString('utf8');
+  } else {
+    text = await response.text().catch(() => '');
+    if (maximumBytes && Buffer.byteLength(text, 'utf8') > maximumBytes) throw new Error('The checkpoint response exceeds its envelope budget.');
+  }
   if (!text) return { payload: null, responsePreview: '' };
   try {
     return { payload: JSON.parse(text), responsePreview: '' };
@@ -81,6 +101,71 @@ function createOrbitApiClient(dependencies) {
     if (!context.pending && context.reads === 0 && accountMutationContexts.get(accountKey) === context) {
       accountMutationContexts.delete(accountKey);
     }
+  }
+
+  const capabilitiesByCredential = new Map();
+  const replayAuthByAccount = new Map();
+  const lastReadOutcomeByAccount = new Map();
+  const canonicalCheckpointsByAccount = new Map();
+  const pendingRetries = new Map();
+  const pausedAcknowledgements = new Map();
+  const durablePendingEnabled = typeof dependencies.readPendingState === 'function'
+    && typeof dependencies.writePendingState === 'function'
+    && typeof dependencies.acknowledgePendingState === 'function';
+
+  async function getPersistenceCapabilities(access) {
+    const authKey = getClientAuthKeyFromAccess(access) || getApiConfig().apiKey;
+    const credentialRef = crypto.createHash('sha256').update(authKey).digest('hex');
+    const cached = capabilitiesByCredential.get(credentialRef);
+    if (cached) return cached;
+    const payload = await requestOrbitApi('/state/capabilities', { authKey, returnFailurePayload: true });
+    const result = { ok: Boolean(payload?.ok), checkpoint: payload?.ok === true && supportedCheckpoint(payload?.checkpoint) ? payload.checkpoint : null,
+      ...(payload?.httpStatus ? { httpStatus: payload.httpStatus } : {}),
+      ...(payload?.retryAfterMs ? { retryAfterMs: payload.retryAfterMs } : {}) };
+    if (result.checkpoint) capabilitiesByCredential.set(credentialRef, result);
+    return result;
+  }
+
+  function preservePendingState(state) {
+    const accountKey = getAccountKeyFromState(state);
+    const { sha256 } = sourceForState(state);
+    const existing = dependencies.readPendingState(accountKey);
+    if (existing) {
+      if (existing.sha256 !== sha256) throw new Error('A different pending change requires recovery before this change can be accepted.');
+      return existing;
+    }
+    const expectedRevision = revisionByAccount.get(accountKey) ?? readLocalDatabase(accountKey)?.revision ?? 0;
+    const mutationId = `desktop:${accountKey}:${expectedRevision}:${sha256.slice(0, 32)}`;
+    return dependencies.writePendingState({ accountKey, state, expectedRevision, mutationId, sha256 });
+  }
+
+  function schedulePendingRetry(accountKey, failure) {
+    const status = Number(failure?.httpStatus || 0);
+    if (!durablePendingEnabled) return;
+    if (status && status !== 429 && status < 500) { clearPendingRetry(accountKey); return; }
+    const previous = pendingRetries.get(accountKey);
+    if (previous?.timer) return;
+    const attempts = Number(previous?.attempts || 0) + 1;
+    const requestedRetryAfter = Number(failure?.retryAfterMs || 0);
+    const retryAfter = Number.isFinite(requestedRetryAfter) ? Math.min(Math.max(requestedRetryAfter, 0), 2_147_483_647) : 0;
+    const delay = Math.max(retryAfter, Math.min(60_000, 1000 * 2 ** Math.min(attempts - 1, 6) * (0.75 + Math.random() * 0.5)));
+    const timer = setTimeoutImpl(() => {
+      pendingRetries.set(accountKey, { attempts, timer: undefined });
+      try {
+        const pending = dependencies.readPendingState(accountKey);
+        if (pending) void saveStateToApi(pending.state).catch(() => undefined);
+      } catch {
+        writeOrbitApiLog('warn', 'pending-save-recovery-unavailable', { recoverable: true });
+      }
+    }, delay);
+    timer?.unref?.();
+    pendingRetries.set(accountKey, { attempts, timer });
+  }
+
+  function clearPendingRetry(accountKey) {
+    const retry = pendingRetries.get(accountKey);
+    if (retry?.timer) clearTimeoutImpl(retry.timer);
+    pendingRetries.delete(accountKey);
   }
 
   function enqueueAccountMutation(accountKey, mutation) {
@@ -228,7 +313,8 @@ function createOrbitApiClient(dependencies) {
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
         signal: controller.signal
       });
-      const { payload, responsePreview } = await readApiResponse(response);
+      const boundedResponse = pathname === '/state/capabilities' || pathname.startsWith('/state/checkpoint');
+      const { payload, responsePreview } = await readApiResponse(response, boundedResponse ? 400_000 : 0);
       if (!response.ok || payload?.ok === false) {
         if (method !== 'GET') {
           writeOrbitApiLog('warn', 'sync-update-failed', {
@@ -236,7 +322,10 @@ function createOrbitApiClient(dependencies) {
             error: payload?.error || '', responsePreview
           });
         }
-        return options.returnFailurePayload ? { ...payload, httpStatus: response.status } : null;
+        const retryAfter = response.headers?.get?.('retry-after');
+        const retryAfterMs = retryAfter && /^\d+$/.test(retryAfter)
+          ? Number(retryAfter) * 1000 : retryAfter ? Math.max(0, Date.parse(retryAfter) - nowMs()) : 0;
+        return options.returnFailurePayload ? { ...payload, ...(boundedResponse || durablePendingEnabled && /^\/state(?:\/|$)/.test(pathname) ? { ok: false } : {}), httpStatus: response.status, ...(retryAfterMs ? { retryAfterMs } : {}) } : null;
       }
       return payload;
     } catch (error) {
@@ -323,8 +412,26 @@ function createOrbitApiClient(dependencies) {
   async function peekStateFromApi(accountKey, access) {
     const resolvedAccountKey = sanitizeAccountKey(accountKey || getLocalAccountKey());
     const pathname = resolvedAccountKey ? `/state/${encodeURIComponent(resolvedAccountKey)}` : '/state/latest';
-    const payload = await requestOrbitApi(pathname, { authKey: getClientAuthKeyFromAccess(access) || undefined });
-    if (!payload?.state) return null;
+    const capabilities = durablePendingEnabled && resolvedAccountKey ? await getPersistenceCapabilities(access) : null;
+    let manifestStatus = 0;
+    const payload = capabilities?.checkpoint
+      ? await downloadCheckpoint(async (path, options) => {
+          const response = await requestOrbitApi(path, options);
+          if (path.split('?')[0] === `/state/checkpoint/${encodeURIComponent(resolvedAccountKey)}`) manifestStatus = Number(response?.httpStatus || 0);
+          return response;
+        }, resolvedAccountKey, getClientAuthKeyFromAccess(access) || undefined, canonicalCheckpointsByAccount.get(resolvedAccountKey))
+      : await requestOrbitApi(pathname, { authKey: getClientAuthKeyFromAccess(access) || undefined, returnFailurePayload: durablePendingEnabled });
+    const readRejected = durablePendingEnabled && payload?.ok === false;
+    if (durablePendingEnabled && resolvedAccountKey) lastReadOutcomeByAccount.set(resolvedAccountKey,
+      !readRejected && payload?.state ? 'available' : manifestStatus === 404 || payload?.httpStatus === 404 ? 'missing' : 'unavailable');
+    if (readRejected || !payload?.state) return null;
+    if (capabilities?.checkpoint && payload.revision >= (canonicalCheckpointsByAccount.get(resolvedAccountKey)?.revision || 0)) {
+      // Cache only fully verified server snapshots, never optimistic save input.
+      // Two account snapshots cap this bridge cache at 64 MiB of source data.
+      canonicalCheckpointsByAccount.delete(resolvedAccountKey);
+      canonicalCheckpointsByAccount.set(resolvedAccountKey, structuredClone(payload));
+      while (canonicalCheckpointsByAccount.size > 2) canonicalCheckpointsByAccount.delete(canonicalCheckpointsByAccount.keys().next().value);
+    }
     const record = {
       schemaVersion: payload.schemaVersion || 1,
       savedAt: payload.savedAt || now().toISOString(),
@@ -383,7 +490,8 @@ function createOrbitApiClient(dependencies) {
     try {
       const record = await peekStateFromApi(resolvedAccountKey, access);
       if (!record) return null;
-      const priorRevision = revisionByAccount.get(record.accountKey);
+      const priorRevision = revisionByAccount.get(record.accountKey)
+        ?? (durablePendingEnabled ? readLocalDatabase(record.accountKey)?.revision : undefined);
       // A read can finish after a newer save; never roll its revision or cache back.
       if (priorRevision !== undefined && record.revision < priorRevision) {
         throw new Error('Discarded an outdated Orbit state response.');
@@ -399,7 +507,8 @@ function createOrbitApiClient(dependencies) {
       revisionByAccount.set(record.accountKey, record.revision);
       if (priorRevision !== record.revision) {
         try {
-          writeLocalDatabase(record.state);
+          if (durablePendingEnabled) writeLocalDatabase(record.state, record.revision);
+          else writeLocalDatabase(record.state);
         } catch {
           // The encrypted local cache is non-authoritative and best-effort.
         }
@@ -413,7 +522,15 @@ function createOrbitApiClient(dependencies) {
     }
   }
 
-  function loadStateFromApi(accountKey, access) {
+  async function loadStateFromApi(accountKey, access) {
+    const pending = durablePendingEnabled ? dependencies.readPendingState(accountKey || getLocalAccountKey()) : null;
+    if (pending) {
+      return {
+        schemaVersion: 3, savedAt: pending.createdAt, state: pending.state,
+        accountKey: pending.accountKey, source: 'pending-local-save', authoritative: false,
+        revision: pending.expectedRevision, pending: true, publication: { status: 'not-queued' }
+      };
+    }
     return readStateWithRevisionOwnership(accountKey, access);
   }
 
@@ -584,42 +701,120 @@ function createOrbitApiClient(dependencies) {
   }
 
   async function performStateSave(state, accountKey) {
-    const expectedRevision = revisionByAccount.get(accountKey) || 0;
-    const serializedState = JSON.stringify(state);
-    const stateHash = crypto.createHash('sha256').update(serializedState).digest('hex').slice(0, 32);
-    const payloadBytes = Buffer.byteLength(serializedState, 'utf8');
-    const mutationId = `desktop:${accountKey}:${expectedRevision}:${stateHash}`;
+    const authKey = replayAuthByAccount.get(accountKey) || getClientAuthKeyFromState(state) || undefined;
+    const { source, sha256 } = sourceForState(state);
+    let expectedRevision = revisionByAccount.get(accountKey) ?? (durablePendingEnabled ? readLocalDatabase(accountKey)?.revision : undefined) ?? 0;
+    const stateHash = sha256.slice(0, 32);
+    let mutationId = `desktop:${accountKey}:${expectedRevision}:${stateHash}`;
+    let pending;
+    if (durablePendingEnabled) {
+      try {
+        pending = dependencies.readPendingState(accountKey);
+        if (pending && pending.sha256 !== sha256) {
+          return { ok: false, path: 'pending-local-save', accountKey, pending: false, blockedByPending: true, conflict: true,
+            code: 'PENDING_SAVE_REQUIRES_RECOVERY', error: 'A previous change is retained locally. Recover or reconcile it before accepting another change.' };
+        }
+        if (!pending) pending = preservePendingState(state);
+        if (pending.pauseCode === 'CHECKPOINT_ACK_INVALID' || pausedAcknowledgements.get(accountKey) === pending.mutationId) {
+          return { ok: false, path: 'pending-local-save', accountKey, pending: true, code: 'CHECKPOINT_ACK_INVALID',
+            error: 'The pending checkpoint is retained. Replay is paused until its mismatched acknowledgement has been reconciled.' };
+        }
+        expectedRevision = pending.expectedRevision;
+        mutationId = pending.mutationId;
+      } catch {
+        return { ok: false, path: 'local-persistence', accountKey, localPersistenceFailure: true,
+          error: 'This change could not be durably preserved locally. Free disk space or restore OS-backed encryption, then retry. Existing pending work has been retained.' };
+      }
+    }
     const diagnostic = {
       accountRef: crypto.createHash('sha256').update(accountKey).digest('hex').slice(0, 12),
       expectedRevision, mutationRef: stateHash.slice(0, 12),
-      payloadBytes,
+      payloadBytes: source.length,
       authAvailable: Boolean(getClientAuthKeyFromState(state) || getApiConfig().apiKey)
     };
     writeOrbitApiLog('info', 'state-save-attempt', diagnostic);
-    // Existing request diagnostics measure {} for falsy direct-client inputs.
-    const requestPayloadBytes = state ? payloadBytes : 2;
-    const payload = await performOrbitApiRequest('/state', {
+    const capabilities = durablePendingEnabled ? await getPersistenceCapabilities(authKey ? { authorizationCode: authKey } : state.settings?.pilotAccess) : null;
+    if (capabilities?.httpStatus === 401 || capabilities?.httpStatus === 403) {
+      clearPendingRetry(accountKey);
+      return { ok: false, path: 'pending-local-save', accountKey, pending: true,
+        error: 'Sign in to the same venue again to resume this retained pending save.' };
+    }
+    if (capabilities?.httpStatus === 429 || capabilities?.httpStatus >= 500) {
+      schedulePendingRetry(accountKey, capabilities);
+      return { ok: false, path: 'pending-local-save', accountKey, pending: true,
+        error: 'The change is retained locally while Orbit is unavailable. Server confirmation will retry automatically.' };
+    }
+    // Reuse the serialized source for the envelope-size decision. This keeps
+    // the released legacy path at two state traversals, including the request.
+    const envelopeBytes = durablePendingEnabled
+      ? source.length + Buffer.byteLength(JSON.stringify({ expectedRevision, mutationId }), 'utf8') + 9 : 0;
+    if (envelopeBytes > 2_000_000 && !capabilities?.checkpoint && pending?.transport !== 'checkpoint-v1' && durablePendingEnabled) {
+      schedulePendingRetry(accountKey, capabilities);
+      return { ok: false, path: 'pending-local-save', accountKey, pending: true,
+        error: 'This venue needs compatible checkpoint support on the Orbit API before its retained pending save can be confirmed.' };
+    }
+    if (durablePendingEnabled && !pending.transport) {
+      try {
+        pending = dependencies.selectPendingTransport(accountKey, mutationId, capabilities?.checkpoint ? 'checkpoint-v1' : 'legacy');
+      } catch {
+        return { ok: false, path: 'pending-local-save', accountKey, pending: true,
+          error: 'The change is retained locally, but its transfer could not be durably prepared. Restore local disk access, then retry.' };
+      }
+    }
+    const payload = pending?.transport === 'checkpoint-v1'
+      ? await uploadCheckpoint(requestOrbitApi, pending, authKey)
+      : await performOrbitApiRequest('/state', {
       method: 'POST',
       body: { state, expectedRevision, mutationId },
       headers: { 'x-orbit-mutation-id': mutationId },
-      authKey: getClientAuthKeyFromState(state) || undefined,
+      authKey,
       timeoutMs: 5000,
       returnFailurePayload: true
-    }, requestPayloadBytes);
+      }, state ? source.length : 2);
     writeOrbitApiLog(payload?.ok ? 'info' : 'warn', 'state-api-result', { ...diagnostic, result: payload?.ok ? 'accepted' : payload?.code || 'api-failure', currentRevision: Number(payload?.revision || payload?.currentRevision || 0), httpStatus: payload?.httpStatus || 0 });
     if (payload?.code === 'STATE_REVISION_CONFLICT') {
+      clearPendingRetry(accountKey);
       return {
         ok: false,
         path: 'orbit-api',
         accountKey,
         conflict: true,
+        ...(durablePendingEnabled ? { pending: true } : {}),
         expectedRevision,
         currentRevision: Number(payload.currentRevision || 0),
         error: payload.error || 'Venue state changed elsewhere.'
       };
     }
-    if (!payload?.ok) return null;
+    if (!payload?.ok) {
+      if (payload?.code === 'CHECKPOINT_ACK_INVALID') {
+        pausedAcknowledgements.set(accountKey, mutationId);
+        try { dependencies.pausePendingState?.(accountKey, mutationId); } catch {
+          // The encrypted source still exists. Keep this runtime paused even
+          // when local storage cannot record the additional recovery marker.
+        }
+      }
+      schedulePendingRetry(accountKey, payload);
+      return durablePendingEnabled ? {
+      ok: false, path: 'pending-local-save', accountKey, pending: true,
+      code: payload?.code, httpStatus: payload?.httpStatus,
+      error: payload?.httpStatus === 401 || payload?.httpStatus === 403
+        ? 'Sign in to the same venue again to resume this retained pending save.'
+        : payload?.error || 'The change is retained locally; the server commit is not confirmed.'
+      } : null;
+    }
+    if (durablePendingEnabled && (payload.accountKey !== accountKey
+      || !Number.isSafeInteger(payload.revision) || payload.revision < 1)) {
+      return { ok: false, path: 'pending-local-save', accountKey, pending: true,
+        error: 'The server acknowledgement did not match this venue. The pending change has been retained.' };
+    }
+    clearPendingRetry(accountKey);
     revisionByAccount.set(accountKey, Number(payload.revision || expectedRevision + 1));
+    if (durablePendingEnabled) {
+      try { dependencies.acknowledgePendingState(accountKey, mutationId, Number(payload.revision)); } catch {
+        // The commit is authoritative. Retaining the same operation on disk is
+        // safe: restart retries the receipt rather than repeating its effect.
+      }
+    }
     return {
       ok: true,
       path: 'orbit-api',
@@ -633,9 +828,24 @@ function createOrbitApiClient(dependencies) {
     };
   }
 
-  function saveStateToApi(state) {
+  function saveStateToApi(state, access) {
     const accountKey = getAccountKeyFromState(state);
-    return enqueueAccountMutation(accountKey, () => performStateSave(state, accountKey));
+    if (access) {
+      if (getAccountKeyFromAccess(access) !== accountKey) return Promise.reject(new Error('Pending work belongs to another venue.'));
+      const authKey = getClientAuthKeyFromAccess(access);
+      if (authKey) replayAuthByAccount.set(accountKey, authKey);
+    }
+    return enqueueAccountMutation(accountKey, async () => {
+      const result = await performStateSave(state, accountKey);
+      if ((result?.ok || result?.pending) && typeof dependencies.onManagementSaveStatus === 'function') {
+        dependencies.onManagementSaveStatus({
+          accountKey, ok: Boolean(result.ok), pending: Boolean(result.pending),
+          sourceHash: sourceForState(state).sha256,
+          revision: Number(result.revision || 0), publication: result.publication || { status: 'not-queued' }
+        });
+      }
+      return result;
+    });
   }
 
   async function submitAnalyticalReportToApi(report) {
@@ -727,6 +937,15 @@ function createOrbitApiClient(dependencies) {
   }
 
   async function loadStateApiFirst(accountKey, access) {
+    if (durablePendingEnabled) {
+      const resolvedAccountKey = sanitizeAccountKey(accountKey || getLocalAccountKey());
+      const pending = dependencies.readPendingState(resolvedAccountKey);
+      if (pending) {
+        if (access && getAccountKeyFromAccess(access) !== resolvedAccountKey) throw new Error('Pending work belongs to another venue.');
+        await saveStateToApi(pending.state, access).catch(() => undefined);
+        if (dependencies.readPendingState(resolvedAccountKey)) return loadStateFromApi(resolvedAccountKey, access);
+      }
+    }
     const apiRecord = await loadStateFromApi(accountKey, access);
     if (apiRecord) return apiRecord;
 
@@ -737,7 +956,8 @@ function createOrbitApiClient(dependencies) {
     if (fallbackRecord?.state) {
       // A new durable API database may be initialized once from the characterized
       // local cache. Compare-and-swap revision zero prevents overwriting a venue.
-      const migration = await saveStateToApi(fallbackRecord.state).catch(() => null);
+      const mayInitialize = !durablePendingEnabled || lastReadOutcomeByAccount.get(getAccountKeyFromState(fallbackRecord.state)) === 'missing';
+      const migration = mayInitialize ? await saveStateToApi(fallbackRecord.state).catch(() => null) : null;
       if (migration?.ok) {
         return {
           ...fallbackRecord,
@@ -757,7 +977,8 @@ function createOrbitApiClient(dependencies) {
     const apiResult = await saveStateToApi(state);
     if (apiResult?.ok) {
       try {
-        writeLocalDatabase(state);
+        if (durablePendingEnabled) writeLocalDatabase(state, apiResult.revision);
+        else writeLocalDatabase(state);
       } catch {
         // Local cache writes are best-effort once the standalone API has accepted the state.
       }
@@ -766,7 +987,7 @@ function createOrbitApiClient(dependencies) {
     // A revision conflict means this renderer state is stale. Persisting it to
     // the offline cache would let a later fallback resurrect sessions that the
     // authoritative API has already changed (for example, a QR check-in).
-    if (apiResult?.conflict) return apiResult;
+    if (apiResult?.conflict || apiResult?.pending || apiResult?.localPersistenceFailure) return apiResult;
     const cacheResult = await saveStateEverywhere(state);
     return {
       ...cacheResult,
@@ -789,6 +1010,8 @@ function createOrbitApiClient(dependencies) {
     getClientUpdateState,
     getOrCreateDeviceId,
     getRemoteBackendStatus,
+    getPersistenceCapabilities,
+    preservePendingState,
     getManagementRecoveryStatusApi,
     loadStateApiFirst,
     loadStateFromApi,

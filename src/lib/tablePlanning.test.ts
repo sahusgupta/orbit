@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { Session } from 'node:inspector/promises';
+import { waitForCapturedManagementSaves } from '../../tests/helpers/managementPendingSave';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import type { RootOptions } from 'react-dom/client';
 import { act } from 'react';
@@ -397,8 +398,11 @@ const invokePlanningFunction = async (session: Session, bindingName: PlanningFun
       objectId: functionObjectId,
       functionDeclaration: 'function () { return this.apply(undefined, arguments); }',
       arguments: args.map((value) => ({ value })),
+      awaitPromise: true,
       returnByValue: true
     });
+    // React's native draft setter has no App closure and performs no save.
+    if (bindingName !== 'setStartPlayerDrafts') await waitForCapturedManagementSaves(session, functionObjectId);
   });
 };
 

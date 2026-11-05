@@ -1,0 +1,13 @@
+# Emergency release dependency review
+
+Date: November 5, 2026. Scope: the unchanged root, API, Player and Player Web production locks and the separately bundled ExcelJS browser runtime. No dependency version, lock record, allowlist or reachability exception changes are proposed.
+
+The unmodified advisory gate first failed because its November 3 review deadline had expired. Fresh credential-free public-registry audits of exact manifest/lock copies then each exited zero with a complete version-2 report, an empty vulnerability map and zero findings at every severity. These are current registry findings, not a claim that software has no possible vulnerabilities.
+
+The first bundled-runtime helper failed before artifact analysis because the borrowed dependency junction produced an invalid production inventory (11,226 reported problems). That failure was retained. Fresh lock-preserving root, API and Player installs completed successfully in physical directories with normal lifecycle scripts and unchanged manifests/locks. Their donor junctions were preserved without changing donor files.
+
+The unchanged bundled-runtime helper then passed against the clean root tree. Its actual production inventory contained no unresolved problems; its production Vite artifact proof validated ExcelJS 3.10.0, browser-entry SHA-256 `910c39409857444ff10c0f2340964f8e43800d321c11f7963b8349dfa3ecabc2`, one Browserify table with 484 modules, and 491 Vite modules. The generated ExcelJS dependency closure also returned zero audit findings, requiring no advisory dispositions. Existing byte, module, package, runtime and origin checks remain enforced.
+
+The renewed mandatory review is November 8, 2026. All four production allowlists remain empty. Every new finding still blocks the gate; the existing separately scoped browser-artifact review remains unchanged. After renewal, the complete unmodified `node scripts/audit-production-dependencies.mjs` command passed: all four production scopes and the separately verified bundled-runtime closure reported zero findings. The expiry-test control is updated from November 4 to November 9 so it remains after the reviewed deadline; all 46 dependency-gate tests passed, including rejection before any npm or bundled-gate invocation. No rejection assertion or deadline check was weakened.
+
+Local raw reports and original failures are retained in ignored verification output. No real provider/application imports, install fixes, credential files or production services were involved in the registry audits. API deployment, release publication and installed-client adoption are separate gates.

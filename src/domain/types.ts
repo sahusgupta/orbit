@@ -527,6 +527,7 @@ export type PersistedStateRecord = {
   accountKey?: string;
   revision?: number;
   authoritative?: boolean;
+  pending?: boolean;
   source?: 'api' | 'offline-cache' | 'local-account-migration' | string;
   publication?: {
     status?: 'not-queued' | 'pending' | 'publishing' | 'failed' | 'published' | string;

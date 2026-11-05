@@ -38,6 +38,27 @@ function firestoreOrderHarness() {
 }
 
 describe('state-save duplicate recovery with real Firestore ordering', () => {
+  it('reads checkpoint ownership and preserves its fingerprint before the first authoritative write', async () => {
+    const { state, documents } = firestoreOrderHarness();
+    const accountKey = 'release-example.test';
+    documents.set('orbitStateCheckpoints/test-staging', { id: 'fixture-upload' });
+    const incoming = {
+      games: [], sessions: [], playerSessions: [], profiles: [],
+      settings: { clubAccount: { clubName: 'Release QA', email: 'release@example.test' } }
+    };
+    const options = {
+      expectedRevision: 0, mutationId: 'checkpoint:fixture', mutationFingerprint: 'fixture-fingerprint',
+      transactionPrecondition: async ({ transaction, nextState }) => {
+        expect(await transaction.getDocument('orbitStateCheckpoints/test-staging')).toEqual({ id: 'fixture-upload' });
+        return { nextState: { ...nextState, selfCheckIn: { serverOwned: true } } };
+      }
+    };
+    await expect(state.saveState(incoming, options)).resolves.toMatchObject({ revision: 1, duplicate: false });
+    expect(documents.get(state.mutationPath(accountKey, options.mutationId))).toMatchObject({ fingerprint: options.mutationFingerprint });
+    await expect(state.saveState(incoming, options)).resolves.toMatchObject({ revision: 1, duplicate: true });
+    await expect(state.saveState(incoming, { ...options, mutationFingerprint: 'changed' })).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' });
+  });
+
   it.each([
     { legacy: true, global: false },
     { legacy: true, global: true },

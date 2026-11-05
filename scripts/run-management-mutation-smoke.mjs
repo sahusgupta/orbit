@@ -2,12 +2,13 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { accountKey, testKey } from '../tests/e2e/fixtures/management-mutation-state.mjs';
+import { accountKey, testKey, mutationSmokeAccounts, testKeyFor } from '../tests/e2e/fixtures/management-mutation-state.mjs';
 
 // Inherit only OS/runtime settings; no .env file or service credential is loaded.
 const environment = Object.fromEntries(['PATH', 'Path', 'SystemRoot', 'ComSpec', 'TEMP', 'TMP', 'TMPDIR', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'DISPLAY', 'XAUTHORITY', 'CI'].filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]));
 const userData = await mkdtemp(path.join(tmpdir(), 'orbit-mutation-smoke-'));
 const isolated = { ...environment, NODE_ENV: 'test', ORBIT_FIRESTORE_MEMORY: 'true', ORBIT_API_URL: 'http://127.0.0.1:4185', ORBIT_CLIENT_API_KEY: testKey, ORBIT_CLIENT_ACCOUNT_KEY: accountKey, ORBIT_ALLOW_LEGACY_CLIENT_KEY: 'true', ORBIT_ENABLE_FIREBASE_SYNC: 'false', ORBIT_ENABLE_EMBEDDED_BACKEND: 'false', VITE_E2E_FIXTURE_MODE: 'true', VITE_ENABLE_FIREBASE_SYNC: 'false', VITE_ORBIT_LOCAL_API_URL: 'http://127.0.0.1:4185', TABLEMANAGER_USER_DATA_DIR: userData, ELECTRON_DEV: 'true' };
+isolated.ORBIT_MACHINE_CREDENTIALS_JSON = JSON.stringify(mutationSmokeAccounts.map(venue => ({ id: venue, key: testKeyFor(venue), accountKey: venue, scopes: ['client:write'] })));
 const children = [];
 const launch = (args, env = isolated) => {
   const child = spawn(process.execPath, args, { cwd: process.cwd(), env, stdio: 'inherit', windowsHide: true });

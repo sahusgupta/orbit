@@ -95,6 +95,16 @@ describe('authoritative management transitions', () => {
     expect(loadAuthoritative).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])('retains a provisional projection after durable enqueue with conflict=%s without rebasing the operation', async (conflict) => {
+    const initial: TestState = { marker: 'initial', playerSessions: [{ id: 'target' }] };
+    const save = vi.fn().mockResolvedValue({ ok: false, pending: true, conflict, error: 'Pending locally' });
+    const loadAuthoritative = vi.fn();
+    const result = await commitAuthoritativeTransition({ initialState: initial, transition: closeTarget, save, loadAuthoritative });
+    expect(result).toMatchObject({ ok: false, pending: true, state: closeTarget(initial), retried: false });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(loadAuthoritative).not.toHaveBeenCalled();
+  });
+
   it('reloads once more after a retry conflict so rollback does not use an older revision', async () => {
     const initial: TestState = { marker: 'initial', playerSessions: [{ id: 'target' }] };
     const firstAuthoritative: TestState = {
@@ -132,5 +142,16 @@ describe('authoritative management transitions', () => {
     });
     expect(save).toHaveBeenCalledTimes(2);
     expect(loadAuthoritative).toHaveBeenCalledTimes(2);
+  });
+  it.each([false, true])('retains a retry queued durably after the first revision conflict (conflict=%s)', async (conflict) => {
+    const initial: TestState = { marker: 'initial', playerSessions: [{ id: 'target' }] };
+    const canonical = { ...initial, marker: 'canonical' };
+    const save = vi.fn().mockResolvedValueOnce({ ok: false, conflict: true })
+      .mockResolvedValueOnce({ ok: false, pending: true, conflict, error: 'Pending retry' });
+    const loadAuthoritative = vi.fn().mockResolvedValue(canonical);
+    const result = await commitAuthoritativeTransition({ initialState: initial, transition: closeTarget, save, loadAuthoritative });
+    expect(result).toMatchObject({ ok: false, pending: true, state: closeTarget(canonical), retried: true });
+    expect(loadAuthoritative).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledTimes(2);
   });
 });

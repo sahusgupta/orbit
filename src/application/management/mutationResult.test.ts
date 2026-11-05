@@ -14,4 +14,8 @@ describe('management mutation outcomes', () => {
     expect(mutationActionError(false)).not.toBe('');
     expect(mutationActionError(true)).toBe('');
   });
+  it('reports durable local intent without claiming a server acknowledgement or erasing a retained conflict', () => {
+    expect(managementSaveOutcome({ ok: false, cloud: 'not-committed', pending: true, conflict: true, error: 'Resolve retained intent' }))
+      .toMatchObject({ ok: false, status: 'save-pending', pending: true, conflict: true, error: 'Resolve retained intent' });
+  });
 });

@@ -74,6 +74,7 @@ jobs:
       - name: Exercise Firestore rules against an isolated emulator
         run: npm run test:firestore-rules
       - run: npx playwright install --with-deps chromium
+      - run: npm run e2e:resilient-sync
       - run: npm run e2e:management
       - run: npm run e2e:public
       - run: npm run web:e2e

@@ -48,4 +48,6 @@ The API and Player Web package manifests pin Node 22.x so their Vercel builds us
 
 ## Abort conditions
 
+For management sync incidents, also apply the [server-first checkpoint upgrade and recovery runbook](RESILIENT_SYNC_UPGRADE.md). A rollback must retain oversized-venue save support and pending-operation identity; an old 2 MB client is not a safe fallback.
+
 Do not promote if verification is red, checksums/attestation are absent, the candidate source or version differs, database compatibility is unproven, the owned alert path is unverified, critical smokes are noisy, the candidate evidence has not been reviewed, or the typed solo-maintainer confirmation is absent. Record the failure through the incident runbook; never repair a release by replacing bytes under an existing version.

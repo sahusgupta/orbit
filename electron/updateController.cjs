@@ -154,7 +154,9 @@ function createUpdateController(dependencies) {
     let ok = false;
     try {
       validateStatePayload(state);
-      writeLocalDatabase(state);
+      const preserved = dependencies.preserveStateForUpdate
+        ? dependencies.preserveStateForUpdate(state) : writeLocalDatabase(state);
+      if (preserved?.ok === false) throw new Error('Pending local work requires recovery before this update can be installed.');
       ok = true;
       void saveStateToApi(state).catch((error) => {
         writeOrbitApiLog('warn', 'update-cloud-state-flush-failed', orbitApiErrorDetails(error));

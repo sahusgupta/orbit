@@ -14,6 +14,8 @@ Firestore is Orbit's only persistent datastore. The server-only `orbit*` collect
 
 ## State layout and write behavior
 
+The [resilient sync compatibility bridge](RESILIENT_MANAGEMENT_SYNC.md) adds authenticated, bounded, resumable transport and protected local pending intent above the legacy request limit. It retains this authority and the same publication protocol. See the [upgrade/recovery runbook](../operations/RESILIENT_SYNC_UPGRADE.md); domain commands remain a separate unfinished milestone.
+
 `orbitAccountStates/{accountId}` stores the current revision and a small manifest. The complete state for each revision is gzip-compressed and split into bounded documents under `stateChunks`. The compressed body is capped below Firestore's transaction-size limit so its chunks, account header, mutation receipt, and outbox record remain one atomic commit.
 
 `orbitAccountStates/{accountId}/mutations/{mutationId}` provides tenant-scoped idempotency. Reusing a mutation ID returns its original revision and does not apply a second body. `expectedRevision` is compare-and-swap: a stale value returns `STATE_REVISION_CONFLICT`, so callers must refresh and intentionally replay or reconcile.

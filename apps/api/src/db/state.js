@@ -147,14 +147,14 @@ function encodeState(state) {
   const source = Buffer.from(JSON.stringify(state), 'utf8');
   const compressed = zlib.gzipSync(source, { level: 6 });
   if (compressed.length > maximumCompressedStateBytes) {
-    throw new Error('The authoritative state exceeds the Firestore transaction size limit.');
+    throw Object.assign(new Error('The authoritative state exceeds the Firestore transaction size limit.'), { code: 'STATE_COMPRESSED_LIMIT' });
   }
   const chunks = [];
   for (let offset = 0; offset < compressed.length; offset += stateChunkSize) {
     chunks.push(compressed.subarray(offset, offset + stateChunkSize));
   }
   if (!chunks.length) chunks.push(Buffer.alloc(0));
-  if (chunks.length > maximumStateChunks) throw new Error('The authoritative state exceeds the Firestore transaction size limit.');
+  if (chunks.length > maximumStateChunks) throw Object.assign(new Error('The authoritative state exceeds the Firestore transaction size limit.'), { code: 'STATE_COMPRESSED_LIMIT' });
   return {
     chunks,
     compressedBytes: compressed.length,
@@ -163,8 +163,12 @@ function encodeState(state) {
   };
 }
 
-async function readStateChunks(reader, accountKey, revision, chunkCount) {
+async function readStateChunks(reader, accountKey, revision, chunkCount, options = {}) {
+  if (options.maximumSourceBytes && (!Number.isInteger(chunkCount) || chunkCount < 1 || chunkCount > maximumStateChunks)) {
+    throw new Error('The checkpoint state chunk count is invalid.');
+  }
   const chunks = [];
+  let compressedBytes = 0;
   const count = Number(chunkCount || 0);
   const supportsBatchReads = typeof reader.getDocuments === 'function';
   // Normal states fit in one bounded native read. Retain bounded groups for
@@ -178,11 +182,18 @@ async function readStateChunks(reader, accountKey, revision, chunkCount) {
     for (let offset = 0; offset < paths.length; offset += 1) {
       const chunk = supportsBatchReads ? records[offset] : await reader.getDocument(paths[offset]);
       if (!chunk?.payload) throw new Error(`Authoritative Firestore state chunk ${start + offset} is missing.`);
-      chunks.push(Buffer.from(chunk.payload));
+      const payload = Buffer.from(chunk.payload);
+      compressedBytes += payload.length;
+      if (options.maximumSourceBytes && (payload.length > stateChunkSize || compressedBytes > maximumCompressedStateBytes)) {
+        throw new Error('The checkpoint compressed state exceeds its resource limit.');
+      }
+      chunks.push(payload);
     }
   }
   if (!chunks.length) return null;
-  return JSON.parse(zlib.gunzipSync(Buffer.concat(chunks)).toString('utf8'));
+  const decompressed = zlib.gunzipSync(Buffer.concat(chunks), options.maximumSourceBytes
+    ? { maxOutputLength: options.maximumSourceBytes } : {});
+  return JSON.parse(decompressed.toString('utf8'));
 }
 
 function mapPublication(record) {
@@ -224,6 +235,7 @@ async function saveState(state, options = {}) {
   const savedAt = new Date().toISOString();
   const mutationId = String(options.mutationId || crypto.randomUUID()).trim().slice(0, 180);
   const mutationType = String(options.mutationType || 'state-replace').trim().slice(0, 80);
+  const mutationFingerprint = String(options.mutationFingerprint || '').trim();
   const globalMutationScope = String(options.globalMutationScope || '').trim();
   const globalMutationFingerprint = String(options.globalMutationFingerprint || '').trim();
   if (Boolean(globalMutationScope) !== Boolean(globalMutationFingerprint)) {
@@ -264,6 +276,7 @@ async function saveState(state, options = {}) {
       migrateLegacyMutation = Boolean(existingMutation);
     }
     if (existingMutation) {
+      if (mutationFingerprint && existingMutation.fingerprint !== mutationFingerprint) throw new IdempotencyConflictError();
       // Firestore requires every read before the first queued write, including
       // duplicate retries that migrate a legacy or global idempotency receipt.
       const publication = await transaction.getDocument(publicationPath(accountKey, existingMutation.revision));
@@ -272,6 +285,7 @@ async function saveState(state, options = {}) {
           accountKey,
           mutationRef: mutationReference(accountKey, mutationId),
           mutationType: existingMutation.mutationType || 'legacy',
+          ...(existingMutation.fingerprint ? { fingerprint: existingMutation.fingerprint } : {}),
           revision: Number(existingMutation.revision),
           createdAt: existingMutation.createdAt || savedAt
         });
@@ -301,7 +315,9 @@ async function saveState(state, options = {}) {
     const currentRevision = Number(current?.revision || 0);
     if (currentRevision !== expectedRevision) throw new StateConflictError(accountKey, expectedRevision, currentRevision);
     const previousState = current
-      ? await readStateChunks(transaction, accountKey, currentRevision, current.stateChunkCount)
+      ? await readStateChunks(transaction, accountKey, currentRevision, current.stateChunkCount, {
+          maximumSourceBytes: options.maximumSourceBytes
+        })
       : null;
     let stateToCommit = state;
     let transactionResult = null;
@@ -356,6 +372,7 @@ async function saveState(state, options = {}) {
       accountKey,
       mutationRef: mutationReference(accountKey, mutationId),
       mutationType,
+      ...(mutationFingerprint ? { fingerprint: mutationFingerprint } : {}),
       revision,
       createdAt: savedAt
     });
@@ -494,6 +511,10 @@ async function invalidateAccountStateHistory(accountKey, keepRevision) {
     await database.deleteDocument(`${chunkCollection}/${document.id}`);
     deletedChunks += 1;
   }
+  // Staged repair snapshots can also retain pre-deletion private data. Their
+  // local durable source remains recoverable, but this server staging slot must
+  // be removed whenever privacy invalidates historical revisions.
+  await require('./checkpointStaging').invalidateAccountCheckpoint(normalized);
   return { cancelledPublications, migratedMutations, deletedChunks };
 }
 
@@ -531,9 +552,9 @@ async function mapStateHeader(database, header, options = {}) {
   };
 }
 
-async function loadStateRevision(accountKey, revision, chunkCount) {
+async function loadStateRevision(accountKey, revision, chunkCount, options = {}) {
   const database = await getDatabase();
-  return readStateChunks(database, sanitizeAccountKey(accountKey), Number(revision), Number(chunkCount));
+  return readStateChunks(database, sanitizeAccountKey(accountKey), Number(revision), Number(chunkCount), options);
 }
 
 async function loadState(accountKey) {
@@ -618,6 +639,7 @@ module.exports = {
   legacyMutationPath,
   mutationPath,
   mutationReference,
+  maximumCompressedStateBytes,
   opaqueReference,
   publicationCollection,
   publicationDocumentId,

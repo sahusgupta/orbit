@@ -285,15 +285,16 @@ describe('persisted account restore boundary', () => {
     expect(localStorage.getItem(accountStorageKey)).toBeNull();
   });
 
-  it('returns false when neither a desktop bridge nor a local account record exists', async () => {
+  it('handles unavailable browser recovery without entering new-account setup when durable storage cannot be checked', async () => {
     const desktopBridge = Reflect.get(window, 'tableManagerDesktop');
     Reflect.deleteProperty(window, 'tableManagerDesktop');
     try {
       const result = await invokeRestore(inspectorSession);
 
-      expect(result.result.value).toBe(false);
+      expect(result.result.value).toBe(true);
       expect(harness.savedStates).toHaveLength(0);
       expect(localStorage.getItem(accountStorageKey)).toBeNull();
+      expect(document.body.textContent).toContain('Durable browser storage is unavailable');
     } finally {
       Reflect.set(window, 'tableManagerDesktop', desktopBridge);
     }

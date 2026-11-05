@@ -34,6 +34,12 @@ contextBridge.exposeInMainWorld('tableManagerDesktop', {
     };
   },
   saveState: (state) => ipcRenderer.invoke('save-state', state),
+  getPersistenceCapabilities: (access) => ipcRenderer.invoke('get-persistence-capabilities', access),
+  onManagementSaveStatus: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on('management-save-status', listener);
+    return () => ipcRenderer.removeListener('management-save-status', listener);
+  },
   preserveStateForUpdate: (requestId, state) => ipcRenderer.invoke('preserve-state-for-update', requestId, state),
   getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
   installDownloadedUpdate: () => ipcRenderer.invoke('install-downloaded-update'),

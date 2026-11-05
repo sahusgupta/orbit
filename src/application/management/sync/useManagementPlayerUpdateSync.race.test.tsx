@@ -61,6 +61,16 @@ describe.each(['desktop', 'browser'] as const)('%s poll ordering', (mode) => {
     expect(setState).toHaveBeenCalledTimes(1);
     expect(clearUndo).toHaveBeenCalledTimes(1);
   });
+  it('adopts omitted authoritative settings with the revision instead of overwriting them in the next snapshot', async () => {
+    await mount();
+    const canonical = structuredClone(stateRef.current);
+    canonical.settings.lowLight = true;
+    await act(async () => resolveLoad(canonical));
+    expect(stateRef.current.settings.lowLight).toBe(true);
+    const nextLocalSave = { ...stateRef.current, scriptTemplates: [...stateRef.current.scriptTemplates, 'new local action'] };
+    expect(nextLocalSave.settings.lowLight).toBe(true);
+    expect(setState).toHaveBeenCalledTimes(1);
+  });
   it('discards a read started before a newer local action', async () => {
     await mount();
     const oldState = stateRef.current;

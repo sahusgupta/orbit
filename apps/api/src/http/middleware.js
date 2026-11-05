@@ -19,6 +19,19 @@ function requestRouteTemplate(request) {
 }
 
 function handleApiError(error, request, response, _next) {
+  if (error?.name === 'CheckpointError') {
+    if (error.status === 429) response.set('retry-after', '1');
+    response.status(error.status).json({ ok: false, code: error.code, error: error.message });
+    return;
+  }
+  if (error?.code === 'IDEMPOTENCY_CONFLICT') {
+    response.status(409).json({ ok: false, code: error.code, error: 'The operation ID was already used for different content.' });
+    return;
+  }
+  if (error?.type === 'encoding.unsupported') {
+    response.status(415).json({ ok: false, code: 'UNSUPPORTED_CONTENT_ENCODING', error: 'Compressed checkpoint requests are unsupported.' });
+    return;
+  }
   if (error?.name === 'ManagementAccountError' && [400, 404, 409, 503].includes(Number(error.status))) {
     response.status(Number(error.status)).json({
       ok: false,

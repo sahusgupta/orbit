@@ -59,12 +59,19 @@ function createLocalStore(dependencies) {
     return cache;
   }
 
-  function persistCache() {
+  function persistCache(next = getDatabase()) {
     const filePath = getDataPath();
     const temporaryPath = `${filePath}.${process.pid}.tmp`;
     fileSystem.mkdirSync(path.dirname(filePath), { recursive: true });
-    fileSystem.writeFileSync(temporaryPath, JSON.stringify(getDatabase()), 'utf8');
+    fileSystem.writeFileSync(temporaryPath, JSON.stringify(next), 'utf8');
+    // Flush the complete replacement before rename. A terminated process can
+    // leave an unused temporary file, never a partially replaced queue.
+    if (fileSystem.openSync && fileSystem.fsyncSync && fileSystem.closeSync) {
+      const descriptor = fileSystem.openSync(temporaryPath, 'r+');
+      try { fileSystem.fsyncSync(descriptor); } finally { fileSystem.closeSync(descriptor); }
+    }
     fileSystem.renameSync(temporaryPath, filePath);
+    cache = next;
   }
 
   function closeDatabase() {
@@ -82,6 +89,7 @@ function createLocalStore(dependencies) {
     return {
       schemaVersion: Number(record.schemaVersion || 3),
       savedAt: record.savedAt,
+      ...(Number.isSafeInteger(record.revision) ? { revision: record.revision } : {}),
       state: parseState(record.stateJson)
     };
   }
@@ -138,19 +146,119 @@ function createLocalStore(dependencies) {
     };
   }
 
-  function writeLocalDatabase(state) {
+  function writeLocalDatabase(state, revision) {
     validateStatePayload(state);
     const database = getDatabase();
     const savedAt = now().toISOString();
     const accountKey = getAccountKeyFromState(state);
+    // Remote refreshes, update preservation and offline fallback must never
+    // replace the only durable copy of an unacknowledged local intent.
+    if (database.accounts[accountKey]?.pendingSave) {
+      return { ok: false, path: getDataPath(), engine: 'file-cache', accountKey, pending: true };
+    }
     database.accounts[accountKey] = {
       schemaVersion: 3,
       savedAt,
+      ...(Number.isSafeInteger(revision) && revision >= 0 ? { revision }
+        : Number.isSafeInteger(database.accounts[accountKey]?.revision) ? { revision: database.accounts[accountKey].revision } : {}),
       stateJson: encodeState(JSON.stringify(state))
     };
     database.lastOpenedAccountKey = accountKey;
     persistCache();
     return { ok: true, path: getDataPath(), engine: 'file-cache', accountKey };
+  }
+
+  function readPendingState(accountKey) {
+    const database = getDatabase();
+    const key = sanitizeAccountKey(accountKey || database.lastOpenedAccountKey);
+    const record = database.accounts[key];
+    if (!record?.pendingSave) return null;
+    const state = parseState(record.stateJson);
+    validateStatePayload(state);
+    const pending = record.pendingSave;
+    if (getAccountKeyFromState(state) !== key || pending.schemaVersion !== 1
+      || !Number.isSafeInteger(pending.expectedRevision) || pending.expectedRevision < 0
+      || !/^[a-zA-Z0-9._:-]{1,180}$/.test(pending.mutationId)
+      || !/^[a-f0-9]{64}$/.test(pending.sha256)
+      || (pending.transport !== undefined && !['legacy', 'checkpoint-v1'].includes(pending.transport))
+      || (pending.pauseCode !== undefined && pending.pauseCode !== 'CHECKPOINT_ACK_INVALID')
+      || pending.sourceBytes !== Buffer.byteLength(JSON.stringify(state), 'utf8')
+      || pending.sourceBytes > 33_554_432
+      || crypto.createHash('sha256').update(JSON.stringify(state)).digest('hex') !== pending.sha256) {
+      throw new Error('The pending save cannot be recovered safely. Preserve the local cache for recovery.');
+    }
+    return { ...pending, accountKey: key, state };
+  }
+
+  function writePendingState(pending) {
+    validateStatePayload(pending.state);
+    const accountKey = getAccountKeyFromState(pending.state);
+    if (accountKey !== pending.accountKey) throw new Error('Pending save account mismatch.');
+    const serialized = JSON.stringify(pending.state);
+    const sourceBytes = Buffer.byteLength(serialized, 'utf8');
+    if (sourceBytes > 33_554_432) throw new Error('The pending save exceeds the 32 MiB recovery budget.');
+    const database = getDatabase();
+    const existing = readPendingState(accountKey);
+    if (existing) {
+      if (existing.mutationId !== pending.mutationId || existing.sha256 !== pending.sha256) {
+        throw new Error('Resolve the retained pending save before accepting another change.');
+      }
+      return existing;
+    }
+    const pendingBytes = Object.values(database.accounts).reduce((total, record) => total + Number(record.pendingSave?.sourceBytes || 0), 0);
+    if (pendingBytes + sourceBytes > 67_108_864) throw new Error('The pending save queue is full. Reconnect or recover pending venues before accepting this change.');
+    const metadata = {
+      schemaVersion: 1, mutationId: pending.mutationId, expectedRevision: pending.expectedRevision,
+      sha256: pending.sha256, sourceBytes, createdAt: now().toISOString()
+    };
+    const next = {
+      ...database, lastOpenedAccountKey: accountKey,
+      accounts: { ...database.accounts, [accountKey]: {
+        schemaVersion: 3, savedAt: metadata.createdAt, revision: pending.expectedRevision,
+        stateJson: encodeState(serialized), pendingSave: metadata
+      } }
+    };
+    if (Buffer.byteLength(JSON.stringify(next), 'utf8') > 134_217_728) throw new Error('The encrypted local recovery cache is full. Preserve existing pending work before retrying.');
+    // Update the in-memory view only after the encrypted state and operation
+    // metadata were atomically replaced together on disk.
+    persistCache(next);
+    return { ...metadata, accountKey, state: pending.state };
+  }
+
+  function acknowledgePendingState(accountKey, mutationId, revision) {
+    const database = getDatabase();
+    const key = sanitizeAccountKey(accountKey);
+    const record = database.accounts[key];
+    if (!record?.pendingSave || record.pendingSave.mutationId !== mutationId) return false;
+    const nextRecord = { ...record };
+    if (Number.isSafeInteger(revision) && revision >= 1) nextRecord.revision = revision;
+    delete nextRecord.pendingSave;
+    persistCache({ ...database, accounts: { ...database.accounts, [key]: nextRecord } });
+    return true;
+  }
+
+  function selectPendingTransport(accountKey, mutationId, transport) {
+    if (!['legacy', 'checkpoint-v1'].includes(transport)) throw new Error('Unknown pending save transport.');
+    const database = getDatabase();
+    const key = sanitizeAccountKey(accountKey);
+    const record = database.accounts[key];
+    if (!record?.pendingSave || record.pendingSave.mutationId !== mutationId) throw new Error('The pending operation changed before transport selection.');
+    if (record.pendingSave.transport && record.pendingSave.transport !== transport) throw new Error('A pending operation cannot change its receipt namespace.');
+    if (!record.pendingSave.transport) {
+      const nextRecord = { ...record, pendingSave: { ...record.pendingSave, transport } };
+      persistCache({ ...database, accounts: { ...database.accounts, [key]: nextRecord } });
+    }
+    return readPendingState(key);
+  }
+
+  function pausePendingState(accountKey, mutationId) {
+    const database = getDatabase();
+    const key = sanitizeAccountKey(accountKey);
+    const record = database.accounts[key];
+    if (!record?.pendingSave || record.pendingSave.mutationId !== mutationId) return false;
+    if (!record.pendingSave.pauseCode) persistCache({ ...database, accounts: { ...database.accounts,
+      [key]: { ...record, pendingSave: { ...record.pendingSave, pauseCode: 'CHECKPOINT_ACK_INVALID' } } } });
+    return true;
   }
 
   function getReportCount() {
@@ -280,11 +388,16 @@ function createLocalStore(dependencies) {
     getReportCount,
     getSmtpTransport,
     migrateLocalAccountToPilotAccess,
+    readPendingState,
     readLegacyLocalDatabase,
     readLocalDatabase,
     sendReportEmail,
     storeAnalyticalReport,
     validateReportPayload,
+    writePendingState,
+    acknowledgePendingState,
+    selectPendingTransport,
+    pausePendingState,
     writeLocalDatabase
   };
 }

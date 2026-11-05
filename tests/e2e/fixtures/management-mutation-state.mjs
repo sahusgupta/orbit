@@ -1,6 +1,8 @@
 export const accountKey = 'mutation-smoke';
 export const testKey = 'local-mutation-smoke-only';
-export const createMutationState = () => {
+export const mutationSmokeAccounts = [accountKey, ...['401', '403', '503', 'conflict'].map(suffix => `${accountKey}-${suffix}`)];
+export const testKeyFor = (venueAccount) => venueAccount === accountKey ? testKey : `${testKey}-${venueAccount}`;
+export const createMutationState = (venueAccount = accountKey) => {
   const now = new Date().toISOString();
   return {
     games: [{ id: 'smoke-game', name: 'Mutation game', maxSeats: 8, minInRoomForLikely: 2, minFlexibleForLikely: 2, minTotalForViable: 4 }],
@@ -11,7 +13,7 @@ export const createMutationState = () => {
     playerSessions: [], buyIns: [], timeFeeLogs: [], dropLogs: [], playerLedger: [], tableEvents: [], correctionLog: [], usageEvents: [], history: [], inAppNotifications: [], feedback: [], scriptTemplates: [], tournaments: [], revenueTransactions: [], dealerAssignments: [], handCountLogs: [],
     settings: { lowLight: false, showPlayerGrid: true, defaultCollectionMode: 'Time', defaultHourlyFee: 20, defaultEstimatedDropPerSeatHour: 0, defaultTableCap: 8,
       collectionProfiles: [{ gameId: 'smoke-game', collectionMode: 'Time', hourlyFee: 20, estimatedDropPerSeatHour: 0 }],
-      pilotAccess: { authorized: true, authorizationCode: testKey, licenseId: accountKey, issuedTo: 'Synthetic Room', expiresAt: '2099-12-31', activatedAt: now },
+      pilotAccess: { authorized: true, authorizationCode: testKeyFor(venueAccount), licenseId: venueAccount, issuedTo: 'Synthetic Room', expiresAt: '2099-12-31', activatedAt: now },
       clubAccount: { clubName: 'Synthetic Room', accountName: 'Synthetic Account', contactName: 'QA', email: 'qa@example.test', phone: '', address: '' },
       accountLogin: { username: 'synthetic', passwordSalt: 'unused-fixture', passwordHash: 'unused-fixture', createdAt: now }, staffAccounts: [] }
   };

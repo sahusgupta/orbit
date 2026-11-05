@@ -15,13 +15,19 @@ function sendJson(response, statusCode, payload) {
 function readRequestBody(request) {
   return new Promise((resolve, reject) => {
     let body = '';
+    let bodyBytes = 0;
+    let failed = false;
     request.setEncoding('utf8');
     request.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > 2_000_000) {
+      if (failed) return;
+      bodyBytes += Buffer.byteLength(chunk, 'utf8');
+      if (bodyBytes > 2_000_000) {
+        failed = true;
         reject(new Error('Request body is too large.'));
         request.destroy();
+        return;
       }
+      body += chunk;
     });
     request.on('end', () => resolve(body));
     request.on('error', reject);

@@ -81,6 +81,9 @@ function createApp(dependencies = {}) {
   app.use('/webhooks', createRateLimit({ name: 'webhook', maximum: 300, windowMs: 60_000 }));
   app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), handleStripeWebhook);
   app.post('/webhooks/revenuecat', express.json({ limit: '256kb' }), asyncRoute(handleRevenueCatWebhook));
+  // Checkpoint chunks carry raw UTF-8 bytes as base64. Bound the complete
+  // envelope separately; compressed request bodies are deliberately unsupported.
+  app.use('/state/checkpoints', express.json({ limit: 400_000, inflate: false }));
   app.use(express.json({ limit: '2mb' }));
 
   registerHealthRoute(app, startedAt);

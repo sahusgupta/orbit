@@ -2,6 +2,7 @@ import path from 'path';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
+import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const host = '127.0.0.1';
@@ -600,5 +601,39 @@ describe('API route composition', () => {
     ]);
     expect(JSON.stringify(dashboardPayload.managementAccounts)).not.toContain('route-salt');
     expect(JSON.stringify(dashboardPayload.managementAccounts)).not.toContain('route-hash');
+  });
+
+  it('registers authenticated bounded checkpoints ahead of the legacy venue route and parser', async () => {
+    expect((await request('/state/capabilities')).status).toBe(401);
+    const capabilitiesResponse = await request('/state/capabilities', { headers: withClientKey() });
+    expect(capabilitiesResponse.status).toBe(200);
+    expect(await capabilitiesResponse.json()).toMatchObject({ checkpoint: { protocol: 'checkpoint-v1', chunkBytes: 262_144, maximumEnvelopeBytes: 400_000 } });
+    const state = {
+      games: [], sessions: [], playerSessions: [], profiles: [],
+      playerLedger: [{ id: 'retained', amount: 100, note: '♠'.repeat(710_000) }, { id: 'new-receipt', amount: 10 }],
+      settings: { pilotAccess: { licenseId: 'route-venue' } }
+    };
+    const source = Buffer.from(JSON.stringify(state));
+    const manifest = {
+      protocol: 'checkpoint-v1', accountKey: 'route-venue', mutationId: 'production-entry-checkpoint', expectedRevision: 1,
+      sourceBytes: source.length, chunkCount: Math.ceil(source.length / 262_144), sha256: createHash('sha256').update(source).digest('hex')
+    };
+    const post = (pathname, body) => request(pathname, { method: 'POST', headers: withClientKey({ 'content-type': 'application/json' }), body: JSON.stringify(body) });
+    const begin = await post('/state/checkpoints', manifest);
+    expect(begin.status).toBe(201);
+    const begun = await begin.json();
+    if (!begun || typeof begun !== 'object' || !('id' in begun) || typeof begun.id !== 'string') throw new Error('A checkpoint ID is required.');
+    for (let index = 0; index < manifest.chunkCount; index += 1) {
+      const body = { accountKey: manifest.accountKey, data: source.subarray(index * 262_144, (index + 1) * 262_144).toString('base64') };
+      expect((await post(`/state/checkpoints/${begun.id}/chunks/${index}`, body)).status).toBe(200);
+    }
+    const finalized = await post(`/state/checkpoints/${begun.id}/finalize`, { accountKey: manifest.accountKey });
+    expect(finalized.status).toBe(201);
+    expect(await finalized.json()).toMatchObject({ ok: true, revision: 2, publication: { status: 'pending' } });
+    const downloaded = await request('/state/checkpoint/route-venue', { headers: withClientKey() });
+    expect(downloaded.status).toBe(200);
+    expect(await downloaded.json()).toMatchObject({ revision: 2, sourceBytes: source.length, sha256: manifest.sha256 });
+    const oversizeEnvelope = await post('/state/checkpoints', { data: 'x'.repeat(400_000) });
+    expect(oversizeEnvelope.status).toBe(413);
   });
 });

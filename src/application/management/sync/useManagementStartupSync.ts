@@ -18,6 +18,7 @@ type ManagementStartupSyncOptions = {
   setSaveStatus: (status: ManagementSaveStatus) => void;
   setState: Dispatch<SetStateAction<AppState>>;
   clearUndo: () => void;
+  onPendingState?: (state: AppState) => void;
 };
 
 export const useManagementStartupSync = ({
@@ -26,7 +27,8 @@ export const useManagementStartupSync = ({
   setHasAuthenticated,
   setSaveStatus,
   setState,
-  clearUndo
+  clearUndo,
+  onPendingState
 }: ManagementStartupSyncOptions) => {
   useEffect(() => {
     // Browser state initializes the shell while the trusted desktop boundary
@@ -41,12 +43,15 @@ export const useManagementStartupSync = ({
           return;
         }
         const next = normalizeState(record.state);
+        const authenticated = await restorePersistedSignIn(next);
+        if (getCurrentState() !== stateWhenLoadStarted) return;
+        if (record.pending) onPendingState?.(next);
         clearUndo();
         setState(next);
-        setHasAuthenticated(await restorePersistedSignIn(next));
+        setHasAuthenticated(authenticated);
         saveBrowserManagementState(next);
         setSaveStatus(record.authoritative === false
-          ? { state: 'error', message: 'Offline cache loaded; server reconciliation required' }
+          ? { state: 'error', message: record.pending ? 'Pending locally; server confirmation required' : 'Offline cache loaded; server reconciliation required' }
           : { state: 'saved', message: 'Authoritative state loaded' });
       }
     }).catch(() => undefined);

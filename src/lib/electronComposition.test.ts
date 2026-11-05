@@ -91,6 +91,7 @@ describe('Electron IPC and preload composition audit', () => {
       'subscribe-management-state',
       'unsubscribe-management-state',
       'save-state',
+      'get-persistence-capabilities',
       'preserve-state-for-update',
       'get-update-status',
       'install-downloaded-update',
@@ -138,6 +139,8 @@ describe('Electron IPC and preload composition audit', () => {
       'loadStateForAccount',
       'subscribeToManagementState',
       'saveState',
+      'getPersistenceCapabilities',
+      'onManagementSaveStatus',
       'preserveStateForUpdate',
       'getUpdateStatus',
       'installDownloadedUpdate',
@@ -164,6 +167,7 @@ describe('Electron IPC and preload composition audit', () => {
 
     const openWindow = bridge.openWindow as (route: string, context: unknown) => Promise<unknown>;
     const preserveStateForUpdate = bridge.preserveStateForUpdate as (requestId: string, state: unknown) => Promise<unknown>;
+    const getPersistenceCapabilities = bridge.getPersistenceCapabilities as (access: unknown) => Promise<unknown>;
     const getUpdateStatus = bridge.getUpdateStatus as () => Promise<unknown>;
     const installDownloadedUpdate = bridge.installDownloadedUpdate as () => Promise<unknown>;
     const getManagementRecoveryStatus = bridge.getManagementRecoveryStatus as (access: unknown) => Promise<unknown>;
@@ -175,6 +179,7 @@ describe('Electron IPC and preload composition audit', () => {
     const clearManagementSession = bridge.clearManagementSession as (accountKey: string) => Promise<unknown>;
     const recordClientEvent = bridge.recordClientEvent as (...args: unknown[]) => Promise<unknown>;
     await openWindow('table', { sessionId: 'session-1' });
+    await getPersistenceCapabilities({ licenseId: 'synthetic-club' });
     await preserveStateForUpdate('flush-1', { games: [] });
     await getUpdateStatus();
     await installDownloadedUpdate();
@@ -188,6 +193,7 @@ describe('Electron IPC and preload composition audit', () => {
     await recordClientEvent('table-started', 'tables', { tableId: 'table-1' }, 'floor');
     expect(invoke.mock.calls).toEqual([
       ['open-route-window', 'table', { sessionId: 'session-1' }],
+      ['get-persistence-capabilities', { licenseId: 'synthetic-club' }],
       ['preserve-state-for-update', 'flush-1', { games: [] }],
       ['get-update-status'],
       ['install-downloaded-update'],

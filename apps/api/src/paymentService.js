@@ -104,12 +104,12 @@ function resolveAuthoritativeCheckoutProduct(state, body = {}) {
 
 async function requireFirebasePlayer(request, response, next) {
   try {
-    const admin = getAdminSdk();
     const token = String(request.get('authorization') || '').replace(/^Bearer\s+/i, '');
     if (!token) {
       response.status(401).json({ ok: false, error: 'Firebase player sign-in is required.' });
       return;
     }
+    const admin = getAdminSdk();
     request.orbitPlayer = await admin.auth(getAdminApp()).verifyIdToken(token);
     if (!isVerifiedPlayerClaims(request.orbitPlayer)) {
       response.status(403).json({
@@ -251,13 +251,13 @@ async function createMembershipCheckout(request, response, dependencies = {}) {
 }
 
 async function handleRevenueCatWebhook(request, response) {
-  const admin = getAdminSdk();
   const expectedToken = process.env.REVENUECAT_WEBHOOK_AUTH_TOKEN;
   const receivedToken = String(request.get('authorization') || '').replace(/^Bearer\s+/i, '');
   if (!expectedToken || receivedToken !== expectedToken) {
     response.status(401).json({ ok: false, error: 'Invalid RevenueCat webhook authorization.' });
     return;
   }
+  const admin = getAdminSdk();
 
   const event = request.body?.event;
   const playerId = String(event?.app_user_id || '').trim();

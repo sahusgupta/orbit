@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { Session } from 'node:inspector/promises';
+import { waitForCapturedManagementSaves } from '../../tests/helpers/managementPendingSave';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import type { RootOptions } from 'react-dom/client';
 import { act } from 'react';
@@ -392,8 +393,10 @@ const invokeAddPlannedSession = async (session: Session) => {
     await session.post('Runtime.callFunctionOn', {
       objectId: functionObjectId,
       functionDeclaration: 'function () { return this(); }',
+      awaitPromise: true,
       returnByValue: true
     });
+    await waitForCapturedManagementSaves(session, functionObjectId);
   });
 };
 

@@ -1,6 +1,7 @@
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import type { AppState } from '../../../domain/types';
+import type { AppState, PersistedAppState } from '../../../domain/types';
 import { normalizeState } from '../../../domain/state';
+import { getAccountKeyFromState } from '../../../domain/licensing';
 import {
   hasManagementDesktopPersistence,
   loadDesktopManagementStateForAccount,
@@ -26,6 +27,7 @@ type ManagementPlayerUpdateSyncOptions = {
   clearUndo: () => void;
   state: AppState;
   stateRef: MutableRefObject<AppState>;
+  onAuthoritativeState?: (state: AppState) => void;
 };
 
 const incomingPlayerOperationKeys = [
@@ -50,6 +52,20 @@ const hasSameIncomingPlayerOperations = (latestState: AppState, remoteState: App
   incomingPlayerOperationKeys.every((key) =>
     JSON.stringify(latestState[key]) === JSON.stringify(remoteState[key])
   );
+
+// A full-state writer may advance its revision only with the corresponding
+// complete canonical projection. Retain only the current authenticated context
+// and a still-valid, locally verified staff selection.
+export const adoptCanonicalManagementState = (latest: AppState, remote: PersistedAppState): AppState => {
+  const normalized = normalizeState(remote);
+  if (getAccountKeyFromState(latest) !== getAccountKeyFromState(normalized)) throw new Error('The canonical state belongs to another venue.');
+  const selected = latest.settings.staffAccounts.find((staff) => staff.id === latest.settings.activeStaffId);
+  const canonicalStaff = normalized.settings.staffAccounts.find((staff) => staff.id === selected?.id);
+  const selectionValid = selected && canonicalStaff?.active && canonicalStaff.role === selected.role
+    && canonicalStaff.pinHash === selected.pinHash && canonicalStaff.pinSalt === selected.pinSalt;
+  return { ...normalized, settings: { ...normalized.settings, pilotAccess: latest.settings.pilotAccess,
+    activeStaffId: selectionValid ? selected.id : undefined } };
+};
 
 export const mergeIncomingPlayerOperations = (latestState: AppState, remoteState: AppState): AppState => ({
   ...latestState,
@@ -80,7 +96,8 @@ export const useManagementPlayerUpdateSync = ({
   setState,
   clearUndo,
   state,
-  stateRef
+  stateRef,
+  onAuthoritativeState
 }: ManagementPlayerUpdateSyncOptions) => {
   useEffect(() => {
     if (!hasAuthenticated || !activeAccountKey || hasManagementDesktopPersistence()) return;
@@ -108,13 +125,14 @@ export const useManagementPlayerUpdateSync = ({
         if (record.status === 'unavailable') return;
         if (cancelled || !record.state) return;
         const latestState = stateRef.current;
-        const remoteState = normalizeState(record.state);
+        const remoteState = adoptCanonicalManagementState(latestState, record.state);
         const hasSameOperations = hasSameIncomingPlayerOperations(latestState, remoteState);
         if (record.acceptReadRevision && !record.acceptReadRevision()) return;
         bridgeInitialized = true;
-        if (hasSameOperations) return;
-        announceIncomingPlayerRequest(latestState, remoteState);
-        const mergedState = mergeIncomingPlayerOperations(latestState, remoteState);
+        onAuthoritativeState?.(remoteState);
+        if (JSON.stringify(latestState) === JSON.stringify(remoteState)) return;
+        if (!hasSameOperations) announceIncomingPlayerRequest(latestState, remoteState);
+        const mergedState = remoteState;
         clearUndo();
         stateRef.current = mergedState;
         setState(mergedState);
@@ -201,11 +219,12 @@ export const useManagementPlayerUpdateSync = ({
           nextPollAt = Date.now() + localRetryMs;
           return;
         }
-        const remoteState = normalizeState(record.state);
         const latestState = stateRef.current;
-        if (!hasSameIncomingPlayerOperations(latestState, remoteState)) {
-          announceIncomingPlayerRequest(latestState, remoteState);
-          const mergedState = mergeIncomingPlayerOperations(latestState, remoteState);
+        const remoteState = adoptCanonicalManagementState(latestState, record.state);
+        onAuthoritativeState?.(remoteState);
+        if (JSON.stringify(latestState) !== JSON.stringify(remoteState)) {
+          if (!hasSameIncomingPlayerOperations(latestState, remoteState)) announceIncomingPlayerRequest(latestState, remoteState);
+          const mergedState = remoteState;
           clearUndo();
           stateRef.current = mergedState;
           setState(mergedState);

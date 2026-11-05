@@ -13,7 +13,7 @@ This document turns the Refactor P2 classification into repository controls. It 
 
 ## Enforced boundaries
 
-- The durable API database is authoritative. Electron storage is an OS-encrypted offline cache, browser management state is memory-only, and the Player profile uses OS secure storage with a volatile fail-closed fallback.
+- The durable API database is authoritative. Electron storage is an OS-encrypted offline cache with atomic pending snapshot/revision metadata. Browser management cache is memory-only; its separate [pending checkpoint journal](RESILIENT_MANAGEMENT_SYNC.md) encrypts operational data in IndexedDB with a non-extractable key and omits restricted credentials. The Player profile uses OS secure storage with a volatile fail-closed fallback.
 - Electron's optional management "Stay signed in" record is a separate OS-encrypted user-data file containing only an account key, a one-way fingerprint of the stored login verifier, and the pilot-license expiration. It contains no password, password verifier, Firebase credential, or reusable bearer token; sign-out, credential/license changes, corruption, and expiration invalidate it. An unchecked sign-in remains memory-only and idle-expires after 30 minutes.
 - Firebase is a player-safe projection. Only backend publication writes operational projection data; client rules deny projection mutations and scope private records to authenticated recipients.
 - Dashboard access uses a short-lived signed HttpOnly/Secure/SameSite=Lax cookie and CSRF header. Machine credentials are tenant, scope, expiry, and rotation-record bound. Owner access uses a distinct credential.

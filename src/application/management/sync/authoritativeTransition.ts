@@ -1,6 +1,7 @@
 export type AuthoritativeTransitionSaveResult = {
   ok: boolean;
   conflict?: boolean;
+  pending?: boolean;
   error?: string;
 };
 
@@ -24,6 +25,7 @@ export type AuthoritativeTransitionResult<TState> =
       retried: boolean;
       adoptedAuthoritative: false;
       conflict?: boolean;
+      pending?: boolean;
       error?: string;
     };
 
@@ -61,12 +63,17 @@ export async function commitAuthoritativeTransition<TState>({
   if (!firstSave.conflict) {
     return {
       ok: false,
-      state: initialState,
+      state: firstSave.pending ? attemptedState : initialState,
       retried: false,
       adoptedAuthoritative: false,
-      error: firstSave.error
+      error: firstSave.error,
+      ...(firstSave.pending ? { pending: true } : {})
     };
   }
+  if (firstSave.pending) return {
+    ok: false, state: attemptedState, retried: false, adoptedAuthoritative: false,
+    conflict: true, pending: true, error: firstSave.error
+  };
 
   let authoritativeState: TState;
   try {
@@ -113,6 +120,10 @@ export async function commitAuthoritativeTransition<TState>({
       adoptedAuthoritative: false
     };
   }
+  if (retrySave.pending) return {
+    ok: false, state: retriedState, retried: true, adoptedAuthoritative: false,
+    pending: true, conflict: retrySave.conflict, error: retrySave.error
+  };
   if (retrySave.conflict) {
     try {
       authoritativeState = await loadAuthoritative();

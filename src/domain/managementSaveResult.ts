@@ -4,6 +4,7 @@ export type ManagementSaveResult = {
   accountKey?: string;
   revision?: number;
   conflict?: boolean;
+  pending?: boolean;
   error?: string;
   cloud: 'server-pending' | 'published' | 'failed' | 'not-committed';
 };

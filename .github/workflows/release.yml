@@ -138,6 +138,7 @@ jobs:
 
       - name: Run critical production-bundle smoke paths
         run: |
+          npm run e2e:resilient-sync
           npm run e2e:management
           npm run e2e:management:mutations
           npm run e2e:management:focus
