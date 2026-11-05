@@ -16,18 +16,33 @@ for (const venue of mutationSmokeAccounts) {
 }
 const saves = [];
 const controls = new Map(mutationSmokeAccounts.map(venue => [venue, { nextFailure: 0, conflictNext: false, holdChunks: false }]));
+const chronology = new Map(mutationSmokeAccounts.map(venue => [venue, []]));
+const chronologyStarted = Date.now();
+const observe = (venue, event) => {
+  const events = chronology.get(venue);
+  if (events && events.length < 96) events.push({ elapsedMs: Date.now() - chronologyStarted, ...event });
+};
 const server = createServer(async (request, response) => {
   const venue = mutationSmokeAccounts.find(value => request.headers['x-orbit-api-key'] === testKeyFor(value));
   const control = controls.get(venue);
+  const readKind = request.method !== 'GET' ? null : request.url === '/state/capabilities' ? 'capabilities'
+    : request.url === '/state/latest' ? 'latest-state'
+    : /^\/state\/checkpoint\/[^/]+\/\d+\/chunks\/\d+$/.test(request.url || '') ? 'checkpoint-chunk'
+    : request.url?.startsWith('/state/checkpoint/') ? 'checkpoint-manifest'
+    : /^\/state\/[^/]+$/.test(request.url || '') ? 'account-state' : null;
+  if (readKind) {
+    observe(venue, { event: 'read-start', kind: readKind });
+    response.once('finish', () => observe(venue, { event: 'read-finish', kind: readKind, status: response.statusCode }));
+  }
   if (request.url?.startsWith('/__smoke/')) {
     if (!control) { response.writeHead(401).end(); return; }
     if (request.url === '/__smoke/conflict') control.conflictNext = true;
     if (request.url === '/__smoke/hold-chunks') control.holdChunks = true;
-    if (request.url === '/__smoke/resume') control.holdChunks = false;
+    if (request.url === '/__smoke/resume') { control.holdChunks = false; control.nextFailure = 0; }
     if (request.url?.startsWith('/__smoke/fail/')) control.nextFailure = Number(request.url.split('/').at(-1));
     const record = await database.loadState(venue);
     response.setHeader('content-type', 'application/json');
-    response.end(JSON.stringify({ saves: saves.filter(item => item.accountKey === venue), record }));
+    response.end(JSON.stringify({ saves: saves.filter(item => item.accountKey === venue), record, chronology: chronology.get(venue) }));
     return;
   }
   if (control?.holdChunks && request.method === 'POST' && /\/state\/checkpoints\/[a-f0-9]{64}\/chunks\/[2-9][0-9]*$/.test(request.url || '')) {
@@ -41,6 +56,9 @@ const server = createServer(async (request, response) => {
       mutationId: checkpoint?.mutationId ?? request.body?.mutationId,
       payloadBytes: checkpoint?.sourceBytes ?? Buffer.byteLength(JSON.stringify(request.body?.state || {}), 'utf8'),
       protocol: checkpoint ? 'checkpoint-v1' : 'legacy' });
+    observe(venue, { event: 'mutation-start', protocol: checkpoint ? 'checkpoint-v1' : 'legacy',
+      expectedRevision: checkpoint?.expectedRevision, sourceBytes: checkpoint?.sourceBytes });
+    response.once('finish', () => observe(venue, { event: 'mutation-finish', status: response.statusCode }));
     if (control.conflictNext) {
       control.conflictNext = false;
       const record = await database.loadState(venue);
@@ -48,7 +66,6 @@ const server = createServer(async (request, response) => {
     }
     if (control.nextFailure) {
       const status = control.nextFailure;
-      control.nextFailure = 0;
       saves.push({ ...resultDetails(), status });
       response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify({ ok: false, error: 'Synthetic API rejection' }));
       return;

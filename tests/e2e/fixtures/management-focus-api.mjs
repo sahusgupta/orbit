@@ -46,8 +46,13 @@ const server = createServer(async (request, response) => {
     response.end(JSON.stringify({ reads, notifications, watchers: watchers.size, record: await database.loadState(accountKey) }));
     return;
   }
-  if (request.method === 'GET' && request.url === `/state/${accountKey}`) response.on('finish', () => { reads += 1; });
-  if (request.method === 'POST' && request.url === '/state') response.on('finish', () => {
+  const pathname = new URL(request.url || '/', 'http://127.0.0.1:4185').pathname;
+  if (request.method === 'GET' && (pathname === `/state/${encodeURIComponent(accountKey)}`
+    || pathname === `/state/checkpoint/${encodeURIComponent(accountKey)}`)) response.once('finish', () => {
+    if (response.statusCode >= 200 && response.statusCode < 300) reads += 1;
+  });
+  if (request.method === 'POST' && (pathname === '/state'
+    || /^\/state\/checkpoints\/[a-f0-9]{64}\/finalize$/.test(pathname))) response.once('finish', () => {
     if (response.statusCode >= 200 && response.statusCode < 300) void notifyWatchers();
   });
   app(request, response);

@@ -39,7 +39,32 @@ const boot = async (venue, userData, seed = true) => {
     localStorage.setItem('table-manager-state-v1:last-account', key);
     localStorage.setItem('table-manager-state-v1:auth:' + accountKey, JSON.stringify({ expiresAt: '2099-12-31' }));
   }, { state: createMutationState(venue), accountKey: venue });
-  if (seed) await floor.reload();
+  if (seed) {
+    await floor.reload();
+    const canonical = (await snapshot()).record;
+    expect(canonical.revision).toBe(1);
+    const createdAt = canonical.state.settings.accountLogin.createdAt;
+    expect(typeof createdAt).toBe('string');
+    expect(createdAt.length).toBeGreaterThan(0);
+    const notesLength = venue === accountKey ? 710_000 : 0;
+    const adoptionStarted = Date.now();
+    await expect.poll(async () => {
+      const browser = await floor.evaluate(key => {
+        const raw = localStorage.getItem('table-manager-state-v1:' + key);
+        if (!raw) return null;
+        const state = JSON.parse(raw);
+        return { createdAt: state.settings?.accountLogin?.createdAt, notesLength: state.profiles?.[0]?.notes?.length };
+      }, venue);
+      let cache;
+      try { cache = JSON.parse(await readFile(path.join(userData, 'tablemanager-cache.json'), 'utf8')); }
+      catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+      if (cache.format !== 'orbit-local-cache-v1') throw new Error('Unexpected isolated native cache format.');
+      const account = cache.accounts[venue];
+      return browser?.createdAt === createdAt && browser.notesLength === notesLength
+        && account?.revision === 1 && !Object.hasOwn(account, 'pendingSave');
+    }, { timeout: 30_000 }).toBe(true);
+    console.log('Canonical startup adopted:', { venue, elapsedMs: Date.now() - adoptionStarted, revision: 1, notesLength });
+  }
 };
 const pendingRecord = async () => JSON.parse(await readFile(path.join(activeUserData, 'tablemanager-cache.json'), 'utf8')).accounts[activeVenue]?.pendingSave ?? null;
 const openTable = async () => {
@@ -137,6 +162,7 @@ try {
     const retained = await pendingRecord();
     expect((await snapshot()).record.state.playerSessions[0].timePurchasedMinutes).toBe(0);
     if (scenario === '503') {
+      await snapshot('resume');
       await expect.poll(async () => (await snapshot()).record.state.playerSessions[0].timePurchasedMinutes, { timeout: 15_000 }).toBe(30);
       await expect.poll(pendingRecord).toBeNull();
       expect((await snapshot()).record.state.timeFeeLogs).toHaveLength(1);
@@ -153,7 +179,9 @@ try {
   expect(errors).toEqual([]);
   console.log('Management mutation smoke passed: >2MB check-in/time/accounting via real IPC/checkpoint API, interrupted transfer/restart recovery, separate-tenant auth/conflict retention, and transient retry with one accounting effect.');
 } catch (error) {
-  console.error('Isolated API results:', (await snapshot()).saves);
+  const failedSnapshot = await snapshot();
+  console.error('Isolated API results:', failedSnapshot.saves);
+  console.error('Isolated read/save chronology:', failedSnapshot.chronology);
   const diagnostics = await readFile(path.join(process.env.TABLEMANAGER_USER_DATA_DIR, 'orbit-api.log'), 'utf8').catch(() => '');
   console.error('Isolated transport failures:', diagnostics.split('\n').filter(line => line.includes('sync-update-failed')).slice(-3).join('\n'));
   console.error('Isolated renderer diagnostic:', { url: floor?.url(), errors, alerts: await floor?.locator('[role=alert], .seat-picker-error').allTextContents().catch(() => []), body: await floor?.locator('body').innerText().then(text => text.slice(0, 1200)).catch(() => 'unavailable') });
