@@ -166,6 +166,44 @@ describe('production source import characterization', () => {
     expect(importsFor(String.raw`const pattern = /["']/; import /* fixture */ (name);`).computed).toContain('electron/probe.cjs');
     expect(importsFor('const View = () => <p>don\'t</p>; import /* fixture */ (name);', 'src/probe.tsx').computed).toContain('src/probe.tsx');
   });
+  it.each([
+    { label: 'percent-encoded', statement: 'import value from "%65%78%63%65%6c%6a%73";', specifier: '%65%78%63%65%6c%6a%73' },
+    { label: 'mixed-case', statement: 'import value from "ExCeLjS";', specifier: 'ExCeLjS' },
+    { label: 'line-continuation', statement: ['import value from "ex\\', 'celjs";'].join('\n'), specifier: 'exceljs' }
+  ])('retains a $label package import after repeated ordinary token values', ({ statement, specifier }) => {
+    const prefix = 'const ordinary = "plain";\n' + 'void ordinary;\n'.repeat(400);
+    expect(importsFor(prefix + statement, 'src/repeated.ts')).toEqual({
+      imports: [{ path: 'src/repeated.ts', specifier }], computed: []
+    });
+  });
+  it('still rejects an opaque loader after repeated ordinary token values', () => {
+    const prefix = 'const ordinary = "plain";\n' + 'void ordinary;\n'.repeat(400);
+    expect(importsFor(prefix + 'const load = require; load(name);').computed).toContain('electron/probe.cjs');
+  });
+  it('reads changed contents again at the same filename, byte size, and restored modification time', () => {
+    const output = path.resolve('out');
+    fs.mkdirSync(output, { recursive: true });
+    const directory = fs.mkdtempSync(path.join(output, 'audit-guard-review-fixture-'));
+    try {
+      for (const relative of ['src', 'electron', 'apps/api/src']) fs.mkdirSync(path.join(directory, relative), { recursive: true });
+      const target = path.join(directory, 'src', 'changing.ts');
+      fs.writeFileSync(target, 'import value from "otherxx";');
+      const original = fs.statSync(target);
+      expect(productionPackageImports(directory)).toEqual({ imports: [], computed: [] });
+      fs.writeFileSync(target, 'import value from "exceljs";');
+      fs.utimesSync(target, original.atime, original.mtime);
+      expect(fs.statSync(target).size).toBe(original.size);
+      expect(fs.statSync(target).mtime.getTime()).toBe(original.mtime.getTime());
+      expect(productionPackageImports(directory)).toEqual({
+        imports: [{ path: 'src/changing.ts', specifier: 'exceljs' }], computed: []
+      });
+    } finally {
+      if (!directory.startsWith(output + path.sep) || !path.basename(directory).startsWith('audit-guard-review-fixture-')) {
+        throw new Error('Unexpected source-fixture cleanup path.');
+      }
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
   it('characterizes current production source without opaque loading', () => {
     const result = productionPackageImports(process.cwd());
     expect(result.computed).toEqual([]);

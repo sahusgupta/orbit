@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import ts from 'typescript';
+import typescriptModule from 'typescript';
+
+const ts = typescriptModule;
 
 const normalized = value => value.replaceAll('\\', '/');
 const packageAtNode = value => value.slice(value.lastIndexOf('node_modules/') + 'node_modules/'.length);

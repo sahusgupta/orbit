@@ -46,6 +46,14 @@ A known bridge recovery limitation remains: after a background acknowledgement, 
 
 All integration runtime checks use synthetic state, explicitly local endpoints, disabled Firebase sync and a privileged-provider/credential/network isolation guard. No production data or provider effects were used. Original failures and before/after evidence are retained in ignored local verification output. No release, API deployment or installed-client adoption is claimed here.
 
+## Candidate CI follow-up
+
+Hotfix source `74e20561b5974277a56d71c0aed48196a43aa3f4` was committed and pushed. Candidate-only [workflow run 42117997817](https://github.com/sahusgupta/orbit/actions/runs/42117997817) used version `0.1.84`, the stable channel and `promote=false`. It passed installation, immutable-input checks, all security gates and 12 of 13 aggregate verification checks. The only failure was the unchanged production-source analysis test at 5,544 ms against its five-second deadline; 3,318 other unit tests passed and the existing 16 emulator tests remained skipped. Packaging, artifact upload and promotion were skipped. No candidate artifact or public release resulted.
+
+Five added characterizations passed against the original scanner before a change: repeated tokens followed by encoded, mixed-case and line-continuation imports; opaque loaders; and rereading changed contents at the same filename, byte size and restored modification time. All 86 analyzer tests then passed after retaining a local reference to the same pinned TypeScript CommonJS module object. Scanner function bodies, classification rules, filesystem reads, parser checks and deadlines remain unchanged. The complete production inventory is byte-identical: 446 imports, zero opaque loads, 33,173 bytes, SHA-256 `c9cdd8dfba100794f5f83032896e8b6e6eab926e349d175638f41c7ddc2b979a`.
+
+In single controlled local observations, the affected Vitest case fell from 4,040 to 1,793 ms. Normal Node timings did not establish an improvement; no production latency or CPU-profile attribution is claimed. A negative-token memo experiment was removed from the final patch. Candidate CI must verify the final source before packaging or promotion; its outcome is not assumed from the local measurement.
+
 ## Remaining completion gates
 
 This bridge still materializes/replaces bounded full state and globally conflicts. It permits one unresolved snapshot per tenant and deliberately blocks incompatible work. Changed-revision recovery still has documented repeated decompression/read costs. Production versions, venue sizes, growth correlation, real Firestore/provider performance, deployed TTL, adoption and actual rollout remain unverified.
