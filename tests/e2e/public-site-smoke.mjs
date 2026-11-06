@@ -2,18 +2,20 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { chromium } from '@playwright/test';
+import { runPublicReleaseCacheSmoke } from './fixtures/public-release-cache.mjs';
 
 const baseUrl = process.env.ORBIT_PUBLIC_URL || 'http://127.0.0.1:4174';
 const expectedOrigin = process.env.ORBIT_PUBLIC_EXPECTED_ORIGIN || baseUrl;
 const screenshotDir = path.join(os.tmpdir(), 'orbit-public-site-smoke');
 const pages = ['/', '/product.html', '/faq.html', '/support.html', '/privacy.html', '/terms.html', '/404.html', '/500.html'];
+await runPublicReleaseCacheSmoke();
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await context.newPage();
 const pageErrors = [];
 const consoleErrors = [];
 const failedRequests = [];
-const expectedInstallerUrl = 'https://github.com/sahusgupta/orbit/releases/download/v0.1.80/Orbit-0.1.80-x64.exe';
+const expectedInstallerUrl = 'https://github.com/sahusgupta/orbit/releases/download/v0.1.84/Orbit-0.1.84-x64.exe';
 
 page.on('pageerror', (error) => pageErrors.push(error.message));
 page.on('console', (message) => {
@@ -48,8 +50,8 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, 'product-desktop.png'), fullPage: true });
 
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
-  if (await page.locator('#version').innerText() !== '0.1.80') {
-    throw new Error('The same-origin release manifest did not render version 0.1.80.');
+  if (await page.locator('#version').innerText() !== '0.1.84') {
+    throw new Error('The same-origin release manifest did not render version 0.1.84.');
   }
   if (await page.locator('#updated').innerText() !== 'Verified stable release') {
     throw new Error('The same-origin release manifest did not render its verified stable state.');
@@ -57,7 +59,7 @@ try {
   const installerLink = page.locator('#installer-link');
   if (await installerLink.innerText() !== 'Download for Windows'
       || await installerLink.getAttribute('href') !== expectedInstallerUrl) {
-    throw new Error('The release CTA did not render the immutable 0.1.80 installer URL.');
+    throw new Error('The release CTA did not render the immutable 0.1.84 installer URL.');
   }
   await page.screenshot({ path: path.join(screenshotDir, 'home-desktop.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });

@@ -1,5 +1,5 @@
 async function readSameOriginManifest(path) {
-  const response = await fetch(path, { cache: 'force-cache', credentials: 'same-origin' });
+  const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
   if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) return null;
   const payload = await response.json();
   return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null;
