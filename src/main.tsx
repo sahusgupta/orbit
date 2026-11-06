@@ -2149,9 +2149,6 @@ function App() {
       action: 'Started table',
       metadata: { gameId: session.gameId, players: result.selectedPlayerCount + result.alreadySeatedCount }
     });
-    window.setTimeout(() => {
-      setSaveStatus({ state: 'saved', message: `Messaging trigger: ${triggeringCardHouse}` });
-    }, 350);
     // Operational telemetry is best-effort; the completed table transition remains authoritative.
     window.tableManagerDesktop?.recordClientEvent('table-started', 'tables', {
       gameId: session.gameId,
