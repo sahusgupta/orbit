@@ -95,6 +95,7 @@ function checkpointServer() {
       return reply({ ok: true });
     }
     if (pathname === '/state/checkpoint/checkpoint-fixture') {
+      if (!committed) return reply({ ok: false, code: 'CHECKPOINT_STATE_NOT_FOUND' }, 404);
       return reply({ ok: true, ...upload, revision: committed.revision, chunkBytes: capabilities.chunkBytes,
         ...(new URL(url).searchParams.get('knownRevision') === String(committed.revision) ? { notModified: true } : {}) });
     }
@@ -146,7 +147,7 @@ describe('durable desktop checkpoint bridge', () => {
     expect(pending).toMatchObject({ expectedRevision: 0, state: next });
     expect(store.writeLocalDatabase(state('remote older state'))).toMatchObject({ ok: false, pending: true });
     store.closeDatabase();
-    const secondClient = clientFor(store, server);
+    const secondClient = clientFor(store, server, { nowMs: () => pending.retryPolicy.notBeforeMs });
     expect(await secondClient.loadStateApiFirst('checkpoint-fixture', next.settings.pilotAccess)).toMatchObject({ authoritative: true, revision: 1, state: next });
     const starts = server.requests.filter(({ pathname }) => pathname === '/state/checkpoints');
     expect(starts.map(({ body }) => body.mutationId)).toEqual([pending.mutationId, pending.mutationId]);
@@ -161,9 +162,10 @@ describe('durable desktop checkpoint bridge', () => {
     const next = state('Retained accounting');
     expect(await clientFor(store, server).saveStateApiFirst(next)).toMatchObject({ ok: false, pending: true });
     expect(server.effects).toBe(1);
-    const mutationId = store.readPendingState('checkpoint-fixture').mutationId;
+    const pending = store.readPendingState('checkpoint-fixture');
+    const mutationId = pending.mutationId;
     store.closeDatabase();
-    expect(await clientFor(store, server).loadStateApiFirst('checkpoint-fixture', next.settings.pilotAccess)).toMatchObject({ authoritative: true, revision: 1 });
+    expect(await clientFor(store, server, { nowMs: () => pending.retryPolicy.notBeforeMs }).loadStateApiFirst('checkpoint-fixture', next.settings.pilotAccess)).toMatchObject({ authoritative: true, revision: 1 });
     expect(server.effects).toBe(1);
     expect(server.requests.filter(({ pathname }) => pathname === '/state/checkpoints').at(-1).body.mutationId).toBe(mutationId);
     expect(store.readPendingState('checkpoint-fixture')).toBeNull();
@@ -262,7 +264,13 @@ describe('durable desktop checkpoint bridge', () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
     store.closeDatabase();
     const second = clientFor(store, { fetchImpl });
-    expect(await second.loadStateApiFirst('checkpoint-fixture', { ...next.settings.pilotAccess, authorizationCode: 'fresh-synthetic-key' }))
+    const freshAccess = { ...next.settings.pilotAccess, authorizationCode: 'fresh-synthetic-key' };
+    expect(await second.loadStateApiFirst('checkpoint-fixture', freshAccess))
+      .toMatchObject({ authoritative: false, pending: true, state: next });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(await second.resumePendingManagementState(freshAccess)).toMatchObject({ ok: true, pending: true });
+    expect(server.effects).toBe(0);
+    expect(await second.loadStateApiFirst('checkpoint-fixture', freshAccess))
       .toMatchObject({ authoritative: true, revision: 1, state: next });
     expect(server.requests.find(({ pathname }) => pathname === '/state/checkpoints').body.sha256).toBe(before.sha256);
     expect(server.requests.find(({ pathname }) => pathname === '/state/checkpoints').body.mutationId).toBe(before.mutationId);
@@ -313,10 +321,11 @@ describe('durable desktop checkpoint bridge', () => {
       return reply({ ok: true, accountKey: 'checkpoint-fixture', revision: 1, duplicate: true });
     });
     expect(await clientFor(store, { fetchImpl }).saveStateApiFirst(next)).toMatchObject({ ok: false, pending: true });
+    const pending = store.readPendingState('checkpoint-fixture');
     expect(store.readPendingState('checkpoint-fixture').transport).toBe('legacy');
     upgraded = true;
     store.closeDatabase();
-    expect(await clientFor(store, { fetchImpl }).saveStateApiFirst(next)).toMatchObject({ ok: true, duplicate: true });
+    expect(await clientFor(store, { fetchImpl }, { nowMs: () => pending.retryPolicy.notBeforeMs }).saveStateApiFirst(next)).toMatchObject({ ok: true, duplicate: true });
     expect(effects).toBe(1);
     expect(fetchImpl.mock.calls.filter(([url]) => new URL(url).pathname === '/state')).toHaveLength(2);
   });
@@ -333,13 +342,15 @@ describe('durable desktop checkpoint bridge', () => {
       return server.fetchImpl(url, options);
     });
     const scheduled = [];
+    let wallClock = Date.UTC(2026, 10, 5);
     const onManagementSaveStatus = vi.fn();
-    const client = clientFor(store, { fetchImpl }, { onManagementSaveStatus,
+    const client = clientFor(store, { fetchImpl }, { onManagementSaveStatus, nowMs: () => wallClock,
       setTimeoutImpl: (callback, delay) => { scheduled.push({ callback, delay }); return scheduled.length; } });
     expect(await client.saveStateApiFirst(state('transient outage'))).toMatchObject({ ok: false, pending: true });
     const retry = scheduled.find(({ delay }) => delay === 7000);
     expect(retry).toBeDefined();
     expect(server.effects).toBe(0);
+    wallClock = store.readPendingState('checkpoint-fixture').retryPolicy.notBeforeMs;
     retry.callback();
     await vi.waitFor(() => expect(server.effects).toBe(1));
     expect(store.readPendingState('checkpoint-fixture')).toBeNull();
@@ -375,7 +386,7 @@ describe('durable desktop checkpoint bridge', () => {
     const { store } = durableStore();
     const fetchImpl = vi.fn(async () => ({ ...reply({ ok: false }, 429), headers: { get: () => '7' } }));
     const scheduled = [];
-    const client = clientFor(store, { fetchImpl }, { setTimeoutImpl: (_callback, delay) => { scheduled.push(delay); return scheduled.length; } });
+    const client = clientFor(store, { fetchImpl }, { nowMs: () => 1000, setTimeoutImpl: (_callback, delay) => { scheduled.push(delay); return scheduled.length; } });
     expect(await client.saveStateApiFirst(state('rate-limited discovery'))).toMatchObject({ ok: false, pending: true });
     expect(fetchImpl).toHaveBeenCalledOnce();
     expect(scheduled).toContain(7000);

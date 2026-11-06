@@ -330,6 +330,7 @@ declare global {
         license?: { licenseId?: string; accountKey?: string; issuedTo?: string; expiresAt?: string; status?: string } | null;
         error?: string;
       }>;
+      resumePendingManagementState?: (access: PilotAccess) => Promise<{ ok: boolean; pending: boolean; error?: string; code?: string }>;
       getManagementRecoveryStatus: (access: PilotAccess) => Promise<{
         ok: boolean;
         active: boolean;
@@ -718,6 +719,7 @@ function App() {
   const saveSequenceRef = useRef(0);
   const pendingManagementSaveCountsRef = useRef(new Map<string, number>());
   const durablePendingStatesRef = useRef(new Map<string, AppState>());
+  const authResumeCanonicalRequiredAccountsRef = useRef(new Set<string>());
   const pendingManagementSaveRef = useRef<Promise<{ ok: boolean; error?: string }>>(
     Promise.resolve({ ok: true })
   );
@@ -971,7 +973,8 @@ function App() {
     const generation = saveSequenceRef.current;
     void checkpointSha256(new TextEncoder().encode(JSON.stringify(visible))).then((sourceHash) => {
       if (sourceHash !== status.sourceHash || stateRef.current !== visible || saveSequenceRef.current !== generation
-        || durablePendingStatesRef.current.get(status.accountKey) !== retained) return;
+        || durablePendingStatesRef.current.get(status.accountKey) !== retained
+        || authResumeCanonicalRequiredAccountsRef.current.has(status.accountKey)) return;
       durablePendingStatesRef.current.delete(status.accountKey);
       setSaveStatus({ state: status.publication.status === 'failed' ? 'error' : 'saved', message: status.publication.status === 'published'
         ? 'Server saved; player projection published'
@@ -1004,7 +1007,9 @@ function App() {
   useManagementPlayerUpdateSync({
     isManagementSavePending: (accountKey) => (pendingManagementSaveCountsRef.current.get(accountKey) ?? 0) > 0,
     onAuthoritativeState: (canonical) => {
-      if (durablePendingStatesRef.current.delete(getAccountKeyFromState(canonical))) {
+      const accountKey = getAccountKeyFromState(canonical);
+      authResumeCanonicalRequiredAccountsRef.current.delete(accountKey);
+      if (durablePendingStatesRef.current.delete(accountKey)) {
         setSaveStatus({ state: 'saved', message: 'Server state confirmed' });
       }
     },
@@ -1114,7 +1119,8 @@ function App() {
   const persist = (nextState: AppState, trackUndo = true, usage?: UsageDescriptor): Promise<ManagementMutationResult> => {
     const candidateAccount = getAccountKeyFromState(nextState);
     const checkpointClient = !window.tableManagerDesktop || Boolean(window.tableManagerDesktop.getPersistenceCapabilities);
-    if (durablePendingStatesRef.current.has(candidateAccount) || getManagementDurablePendingAdmission(candidateAccount).pending
+    if (durablePendingStatesRef.current.has(candidateAccount) || authResumeCanonicalRequiredAccountsRef.current.has(candidateAccount)
+      || getManagementDurablePendingAdmission(candidateAccount).pending
       || (checkpointClient && (pendingManagementSaveCountsRef.current.get(candidateAccount) ?? 0) > 0)) {
       const error = 'A change is still saving or retained locally. Wait for confirmation, or reconnect and resolve the pending change before accepting another.';
       setSaveStatus({ state: 'error', message: error });
@@ -3218,9 +3224,27 @@ function App() {
     };
   };
 
+  const resumePendingAfterExplicitAuthentication = async (access: PilotAccess, expectedState: AppState, expectedSequence: number) => {
+    if (stateRef.current !== expectedState || saveSequenceRef.current !== expectedSequence
+      || getAccountKeyFromAccess(access) !== getAccountKeyFromState(expectedState)) return;
+    try {
+      const result = await window.tableManagerDesktop?.resumePendingManagementState?.({ ...access });
+      if (result?.pending === true && stateRef.current === expectedState && saveSequenceRef.current === expectedSequence) {
+        durablePendingStatesRef.current.set(getAccountKeyFromAccess(access), expectedState);
+        authResumeCanonicalRequiredAccountsRef.current.add(getAccountKeyFromAccess(access));
+      }
+    } catch { /* A recovery request never changes successful authentication. */ }
+  };
+
   const persistRequestedSignIn = async (next: AppState, staySignedIn: boolean) => {
+    const expectedState = stateRef.current;
+    const expectedSequence = saveSequenceRef.current;
+    const access = next.settings.pilotAccess ? { ...next.settings.pilotAccess } : undefined;
     const persisted = await persistSignIn(next, staySignedIn);
-    if (persisted) return true;
+    if (persisted) {
+      if (access) await resumePendingAfterExplicitAuthentication(access, expectedState, expectedSequence);
+      return true;
+    }
     await signOutOfFirebase().catch(() => undefined);
     setPilotKeyError('Orbit could not securely save this sign-in choice. Check local app storage access and try again.');
     return false;
@@ -3591,6 +3615,9 @@ function App() {
     access: PilotAccess,
     options: { preserveCurrentAccount?: boolean } = {}
   ) => {
+    const expectedState = stateRef.current;
+    const expectedSequence = saveSequenceRef.current;
+    const authenticatedAccess = { ...access };
     if (
       options.preserveCurrentAccount &&
       getAccountKeyFromAccess(access) === getAccountKeyFromState(stateRef.current)
@@ -3598,6 +3625,7 @@ function App() {
       await waitForPendingManagementSaves();
       const current = stateRef.current;
       if (getAccountKeyFromAccess(access) === getAccountKeyFromState(current)) {
+        const canResume = current === expectedState && saveSequenceRef.current === expectedSequence;
         const next = {
           ...current,
           settings: {
@@ -3611,10 +3639,12 @@ function App() {
         stateRef.current = next;
         setState(next);
         saveBrowserManagementState(next);
-        setHasAuthenticated(await restorePersistedSignIn(next));
+        const authenticated = await restorePersistedSignIn(next);
+        setHasAuthenticated(authenticated);
         setPendingPilotAccess(null);
         setPilotKeyError('');
         window.location.hash = '/floor';
+        if (canResume && authenticated) await resumePendingAfterExplicitAuthentication(authenticatedAccess, next, expectedSequence);
         return true;
       }
     }
@@ -3625,10 +3655,13 @@ function App() {
       return true; // Handled recovery failure must not enter new-venue setup.
     }
     if (!next) return false;
+    const canResume = stateRef.current === expectedState && saveSequenceRef.current === expectedSequence;
     staffSelectionAttemptRef.current += 1;
     setTrustedStaffSession(null);
     setUndoAction(null);
-    setHasAuthenticated(await restorePersistedSignIn(next));
+    const authenticated = await restorePersistedSignIn(next);
+    const contextUnchanged = canResume && stateRef.current === expectedState && saveSequenceRef.current === expectedSequence;
+    setHasAuthenticated(authenticated);
     // Loading an authoritative/pending account is hydration, never a new save
     // with a fresh usage event that could replace an ambiguous pending intent.
     stateRef.current = next;
@@ -3642,6 +3675,7 @@ function App() {
     setPendingPilotAccess(null);
     setPilotKeyError('');
     window.location.hash = '/floor';
+    if (contextUnchanged && authenticated) await resumePendingAfterExplicitAuthentication(authenticatedAccess, next, expectedSequence);
     return true;
   };
 

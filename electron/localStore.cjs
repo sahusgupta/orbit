@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const nodemailer = require('nodemailer');
 const path = require('path');
+const { validatePendingRetryPolicy } = require('./pendingReplayPolicy.cjs');
 const { findReplacementAccountRecord, migrateStateToPilotAccess } = require('./accountMigration.cjs');
 const {
   getAccountKeyFromAccess,
@@ -187,7 +188,8 @@ function createLocalStore(dependencies) {
       || crypto.createHash('sha256').update(JSON.stringify(state)).digest('hex') !== pending.sha256) {
       throw new Error('The pending save cannot be recovered safely. Preserve the local cache for recovery.');
     }
-    return { ...pending, accountKey: key, state };
+    const retryPolicy = pending.retryPolicy === undefined ? undefined : validatePendingRetryPolicy(pending.retryPolicy, pending);
+    return { ...pending, ...(retryPolicy ? { retryPolicy } : {}), accountKey: key, state };
   }
 
   function writePendingState(pending) {
@@ -258,6 +260,20 @@ function createLocalStore(dependencies) {
     if (!record?.pendingSave || record.pendingSave.mutationId !== mutationId) return false;
     if (!record.pendingSave.pauseCode) persistCache({ ...database, accounts: { ...database.accounts,
       [key]: { ...record, pendingSave: { ...record.pendingSave, pauseCode: 'CHECKPOINT_ACK_INVALID' } } } });
+    return true;
+  }
+
+  function setPendingRetryPolicy(accountKey, mutationId, policy) {
+    const key = sanitizeAccountKey(accountKey);
+    const pending = readPendingState(key);
+    if (!pending || pending.mutationId !== mutationId) return false;
+    const nextPolicy = policy === null ? null : validatePendingRetryPolicy(policy, pending);
+    const database = getDatabase();
+    const record = database.accounts[key];
+    const pendingSave = { ...record.pendingSave };
+    if (nextPolicy === null) delete pendingSave.retryPolicy;
+    else pendingSave.retryPolicy = nextPolicy;
+    persistCache({ ...database, accounts: { ...database.accounts, [key]: { ...record, pendingSave } } });
     return true;
   }
 
@@ -398,6 +414,7 @@ function createLocalStore(dependencies) {
     acknowledgePendingState,
     selectPendingTransport,
     pausePendingState,
+    setPendingRetryPolicy,
     writeLocalDatabase
   };
 }

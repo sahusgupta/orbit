@@ -3,13 +3,15 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { createManagementStateEvents } = require('./managementStateEvents.cjs');
+const { validatePendingRetryPolicy } = require('./pendingReplayPolicy.cjs');
 const { downloadCheckpoint, sourceForState, supportedCheckpoint, uploadCheckpoint } = require('./checkpointTransport.cjs');
 const {
   getAccountKeyFromAccess,
   getAccountKeyFromState,
   isRecord,
   orbitApiErrorDetails,
-  sanitizeAccountKey
+  sanitizeAccountKey,
+  validateStatePayload
 } = require('./runtimeUtils.cjs');
 
 async function readApiResponse(response, maximumBytes = 0) {
@@ -104,11 +106,14 @@ function createOrbitApiClient(dependencies) {
   }
 
   const capabilitiesByCredential = new Map();
+  const capabilityHttpStatuses = new WeakMap();
   const replayAuthByAccount = new Map();
+  const validatedReplayAuthByAccount = new Map();
   const lastReadOutcomeByAccount = new Map();
   const canonicalCheckpointsByAccount = new Map();
   const pendingRetries = new Map();
   const pausedAcknowledgements = new Map();
+  const unpersistedRetryPolicies = new Map();
   const durablePendingEnabled = typeof dependencies.readPendingState === 'function'
     && typeof dependencies.writePendingState === 'function'
     && typeof dependencies.acknowledgePendingState === 'function';
@@ -118,10 +123,12 @@ function createOrbitApiClient(dependencies) {
     const credentialRef = crypto.createHash('sha256').update(authKey).digest('hex');
     const cached = capabilitiesByCredential.get(credentialRef);
     if (cached) return cached;
-    const payload = await requestOrbitApi('/state/capabilities', { authKey, returnFailurePayload: true });
+    let httpStatus = 0;
+    const payload = await requestOrbitApi('/state/capabilities', { authKey, returnFailurePayload: true, observeHttpStatus: status => { httpStatus = status; } });
     const result = { ok: Boolean(payload?.ok), checkpoint: payload?.ok === true && supportedCheckpoint(payload?.checkpoint) ? payload.checkpoint : null,
       ...(payload?.httpStatus ? { httpStatus: payload.httpStatus } : {}),
       ...(payload?.retryAfterMs ? { retryAfterMs: payload.retryAfterMs } : {}) };
+    capabilityHttpStatuses.set(result, httpStatus);
     if (result.checkpoint) capabilitiesByCredential.set(credentialRef, result);
     return result;
   }
@@ -139,33 +146,94 @@ function createOrbitApiClient(dependencies) {
     return dependencies.writePendingState({ accountKey, state, expectedRevision, mutationId, sha256 });
   }
 
-  function schedulePendingRetry(accountKey, failure) {
-    const status = Number(failure?.httpStatus || 0);
-    if (!durablePendingEnabled) return;
-    if (status && status !== 429 && status < 500) { clearPendingRetry(accountKey); return; }
-    const previous = pendingRetries.get(accountKey);
-    if (previous?.timer) return;
-    const attempts = Number(previous?.attempts || 0) + 1;
-    const requestedRetryAfter = Number(failure?.retryAfterMs || 0);
-    const retryAfter = Number.isFinite(requestedRetryAfter) ? Math.min(Math.max(requestedRetryAfter, 0), 2_147_483_647) : 0;
-    const delay = Math.max(retryAfter, Math.min(60_000, 1000 * 2 ** Math.min(attempts - 1, 6) * (0.75 + Math.random() * 0.5)));
-    const timer = setTimeoutImpl(() => {
-      pendingRetries.set(accountKey, { attempts, timer: undefined });
-      try {
-        const pending = dependencies.readPendingState(accountKey);
-        if (pending) void saveStateToApi(pending.state).catch(() => undefined);
-      } catch {
-        writeOrbitApiLog('warn', 'pending-save-recovery-unavailable', { recoverable: true });
-      }
-    }, delay);
-    timer?.unref?.();
-    pendingRetries.set(accountKey, { attempts, timer });
-  }
-
   function clearPendingRetry(accountKey) {
     const retry = pendingRetries.get(accountKey);
     if (retry?.timer) clearTimeoutImpl(retry.timer);
     pendingRetries.delete(accountKey);
+  }
+
+  function retryPolicyFor(pending) {
+    const fallback = unpersistedRetryPolicies.get(pending.accountKey);
+    if (fallback && fallback.mutationId !== pending.mutationId) unpersistedRetryPolicies.delete(pending.accountKey);
+    const policy = fallback?.mutationId === pending.mutationId ? fallback : pending.retryPolicy;
+    return policy ? validatePendingRetryPolicy(policy, pending) : null;
+  }
+
+  function ensurePendingRetryTimer(accountKey, pending, policy) {
+    if (policy.kind !== 'transient') return;
+    const previous = pendingRetries.get(accountKey);
+    if (previous?.timer && previous.mutationId === pending.mutationId && previous.notBeforeMs === policy.notBeforeMs) return;
+    clearPendingRetry(accountKey);
+    const retry = { mutationId: pending.mutationId, notBeforeMs: policy.notBeforeMs, timer: undefined };
+    retry.timer = setTimeoutImpl(() => {
+      if (pendingRetries.get(accountKey) !== retry) return;
+      pendingRetries.delete(accountKey);
+      try {
+        const current = dependencies.readPendingState(accountKey);
+        if (current?.mutationId === retry.mutationId) void saveStateToApi(current.state, undefined, retry.mutationId).catch(() => undefined);
+      } catch {
+        writeOrbitApiLog('warn', 'pending-save-recovery-unavailable', { recoverable: true });
+      }
+    }, Math.max(0, Math.min(2_147_483_647, policy.notBeforeMs - nowMs())));
+    retry.timer?.unref?.();
+    pendingRetries.set(accountKey, retry);
+  }
+
+  function schedulePendingRetry(accountKey, failure, capabilityUnavailable = false) {
+    if (!durablePendingEnabled) return true;
+    const pending = dependencies.readPendingState(accountKey);
+    if (!pending) return true;
+    const observedStatus = Number(failure?.httpStatus ?? (failure && capabilityHttpStatuses.get(failure)) ?? 0);
+    const status = Number.isSafeInteger(observedStatus) && observedStatus >= 100 && observedStatus <= 599 ? observedStatus : 0;
+    const failureType = capabilityUnavailable ? 'capability' : status === 0 ? 'transport' : status >= 200 && status < 300 ? 'application' : 'http';
+    const previous = retryPolicyFor(pending);
+    const attempts = Math.min(1_000_000, (previous?.attempts || 0) + 1);
+    const retryAfterValue = Number(failure?.retryAfterMs || 0);
+    const retryAfterMs = Number.isFinite(retryAfterValue) ? Math.min(Math.max(retryAfterValue, 0), 2_147_483_647) : 0;
+    const conflict = failure?.code === 'STATE_REVISION_CONFLICT';
+    const kind = status === 401 || status === 403 ? 'auth' : conflict || !capabilityUnavailable && status >= 400 && status < 500 && status !== 429 ? 'permanent' : 'transient';
+    const delay = kind === 'transient'
+      ? Math.max(retryAfterMs, Math.min(60_000, 1000 * 2 ** Math.min(attempts - 1, 6) * (0.75 + Math.random() * 0.5))) : retryAfterMs;
+    const policy = validatePendingRetryPolicy({ schemaVersion: 1, mutationId: pending.mutationId, sha256: pending.sha256,
+      expectedRevision: pending.expectedRevision, kind, httpStatus: status, failureType, ...(conflict ? { code: 'STATE_REVISION_CONFLICT' } : {}), attempts,
+      notBeforeMs: delay ? Math.min(8_640_000_000_000_000, Math.ceil(nowMs() + delay)) : 0 }, pending);
+    clearPendingRetry(accountKey);
+    try {
+      if (typeof dependencies.setPendingRetryPolicy !== 'function' || !dependencies.setPendingRetryPolicy(accountKey, pending.mutationId, policy)) throw new Error('Retry policy not preserved');
+      unpersistedRetryPolicies.delete(accountKey);
+    } catch {
+      // Keep this runtime closed if the additive policy cannot reach disk.
+      // The original encrypted operation remains intact; no durable-policy claim.
+      unpersistedRetryPolicies.set(accountKey, policy);
+      return false;
+    }
+    if (kind === 'transient') ensurePendingRetryTimer(accountKey, pending, policy);
+    return true;
+  }
+
+  function pendingRetryBlock(accountKey, pending) {
+    const policy = retryPolicyFor(pending);
+    if (!policy) return null;
+    if (unpersistedRetryPolicies.has(accountKey)) {
+      try {
+        if (typeof dependencies.setPendingRetryPolicy !== 'function' || !dependencies.setPendingRetryPolicy(accountKey, pending.mutationId, policy)) throw new Error('Retry policy not preserved');
+        unpersistedRetryPolicies.delete(accountKey);
+      } catch {
+        return { ok: false, path: 'pending-local-save', accountKey, pending: true, localPersistenceFailure: true,
+          code: 'PENDING_POLICY_PERSISTENCE_FAILED', error: 'Pending work is retained, but its retry policy could not be preserved. Restore local storage before recovery.' };
+      }
+    }
+    if (policy.kind === 'transient' && nowMs() >= policy.notBeforeMs) {
+      clearPendingRetry(accountKey);
+      return null;
+    }
+    if (policy.kind === 'transient' && !unpersistedRetryPolicies.has(accountKey)) ensurePendingRetryTimer(accountKey, pending, policy);
+    return { ok: false, path: 'pending-local-save', accountKey, pending: true,
+      code: policy.kind === 'auth' ? 'PENDING_AUTHENTICATION_REQUIRED' : policy.kind === 'permanent' ? 'PENDING_RECONCILIATION_REQUIRED' : 'PENDING_RETRY_WAIT',
+      ...(policy.kind === 'transient' ? { retryAfterMs: Math.max(0, policy.notBeforeMs - nowMs()) } : {}),
+      error: policy.kind === 'auth' ? 'Sign in to the same venue again to resume this retained pending save.'
+        : policy.kind === 'permanent' ? 'The retained change needs explicit reconciliation before it can be replayed.'
+          : 'The change is retained locally until its scheduled retry time.' };
   }
 
   function enqueueAccountMutation(accountKey, mutation) {
@@ -296,6 +364,8 @@ function createOrbitApiClient(dependencies) {
     }
     const requestId = randomUUID();
     const method = options.method || 'GET';
+    const durableStateFailure = durablePendingEnabled && options.returnFailurePayload && /^\/state(?:\/|$)/.test(pathname);
+    let responseStatus = 0;
     const started = nowMs();
     const controller = new AbortController();
     const timeout = setTimeoutImpl(() => controller.abort(), options.timeoutMs ?? 3500);
@@ -311,10 +381,13 @@ function createOrbitApiClient(dependencies) {
           ...(options.headers || {})
         },
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
-        signal: controller.signal
+        signal: controller.signal,
+        ...(options.redirect ? { redirect: options.redirect } : {})
       });
+      responseStatus = response.status;
+      if (typeof options.observeHttpStatus === 'function') options.observeHttpStatus(response.status);
       const boundedResponse = pathname === '/state/capabilities' || pathname.startsWith('/state/checkpoint');
-      const { payload, responsePreview } = await readApiResponse(response, boundedResponse ? 400_000 : 0);
+      const { payload, responsePreview } = await readApiResponse(response, boundedResponse ? 400_000 : options.maximumResponseBytes || 0);
       if (!response.ok || payload?.ok === false) {
         if (method !== 'GET') {
           writeOrbitApiLog('warn', 'sync-update-failed', {
@@ -327,7 +400,7 @@ function createOrbitApiClient(dependencies) {
           ? Number(retryAfter) * 1000 : retryAfter ? Math.max(0, Date.parse(retryAfter) - nowMs()) : 0;
         return options.returnFailurePayload ? { ...payload, ...(boundedResponse || durablePendingEnabled && /^\/state(?:\/|$)/.test(pathname) ? { ok: false } : {}), httpStatus: response.status, ...(retryAfterMs ? { retryAfterMs } : {}) } : null;
       }
-      return payload;
+      return payload === null && durableStateFailure ? { ok: false, httpStatus: responseStatus } : payload;
     } catch (error) {
       if (method !== 'GET') {
         writeOrbitApiLog('error', 'sync-update-failed', {
@@ -335,7 +408,7 @@ function createOrbitApiClient(dependencies) {
           timedOut: controller.signal.aborted, ...orbitApiErrorDetails(error)
         });
       }
-      return null;
+      return durableStateFailure ? { ok: false, httpStatus: responseStatus } : null;
     } finally {
       clearTimeoutImpl(timeout);
     }
@@ -719,6 +792,8 @@ function createOrbitApiClient(dependencies) {
           return { ok: false, path: 'pending-local-save', accountKey, pending: true, code: 'CHECKPOINT_ACK_INVALID',
             error: 'The pending checkpoint is retained. Replay is paused until its mismatched acknowledgement has been reconciled.' };
         }
+        const blocked = pendingRetryBlock(accountKey, pending);
+        if (blocked) return blocked;
         expectedRevision = pending.expectedRevision;
         mutationId = pending.mutationId;
       } catch {
@@ -735,7 +810,7 @@ function createOrbitApiClient(dependencies) {
     writeOrbitApiLog('info', 'state-save-attempt', diagnostic);
     const capabilities = durablePendingEnabled ? await getPersistenceCapabilities(authKey ? { authorizationCode: authKey } : state.settings?.pilotAccess) : null;
     if (capabilities?.httpStatus === 401 || capabilities?.httpStatus === 403) {
-      clearPendingRetry(accountKey);
+      schedulePendingRetry(accountKey, capabilities);
       return { ok: false, path: 'pending-local-save', accountKey, pending: true,
         error: 'Sign in to the same venue again to resume this retained pending save.' };
     }
@@ -749,7 +824,7 @@ function createOrbitApiClient(dependencies) {
     const envelopeBytes = durablePendingEnabled
       ? source.length + Buffer.byteLength(JSON.stringify({ expectedRevision, mutationId }), 'utf8') + 9 : 0;
     if (envelopeBytes > 2_000_000 && !capabilities?.checkpoint && pending?.transport !== 'checkpoint-v1' && durablePendingEnabled) {
-      schedulePendingRetry(accountKey, capabilities);
+      schedulePendingRetry(accountKey, capabilities, true);
       return { ok: false, path: 'pending-local-save', accountKey, pending: true,
         error: 'This venue needs compatible checkpoint support on the Orbit API before its retained pending save can be confirmed.' };
     }
@@ -773,7 +848,7 @@ function createOrbitApiClient(dependencies) {
       }, state ? source.length : 2);
     writeOrbitApiLog(payload?.ok ? 'info' : 'warn', 'state-api-result', { ...diagnostic, result: payload?.ok ? 'accepted' : payload?.code || 'api-failure', currentRevision: Number(payload?.revision || payload?.currentRevision || 0), httpStatus: payload?.httpStatus || 0 });
     if (payload?.code === 'STATE_REVISION_CONFLICT') {
-      clearPendingRetry(accountKey);
+      schedulePendingRetry(accountKey, payload);
       return {
         ok: false,
         path: 'orbit-api',
@@ -793,7 +868,8 @@ function createOrbitApiClient(dependencies) {
           // when local storage cannot record the additional recovery marker.
         }
       }
-      schedulePendingRetry(accountKey, payload);
+      if (payload?.code === 'CHECKPOINT_ACK_INVALID') clearPendingRetry(accountKey);
+      else schedulePendingRetry(accountKey, payload);
       return durablePendingEnabled ? {
       ok: false, path: 'pending-local-save', accountKey, pending: true,
       code: payload?.code, httpStatus: payload?.httpStatus,
@@ -808,6 +884,9 @@ function createOrbitApiClient(dependencies) {
         error: 'The server acknowledgement did not match this venue. The pending change has been retained.' };
     }
     clearPendingRetry(accountKey);
+    const validatedAuth = validatedReplayAuthByAccount.get(accountKey);
+    if (validatedAuth?.mutationId === mutationId && replayAuthByAccount.get(accountKey) === validatedAuth.authKey) replayAuthByAccount.delete(accountKey);
+    validatedReplayAuthByAccount.delete(accountKey);
     revisionByAccount.set(accountKey, Number(payload.revision || expectedRevision + 1));
     if (durablePendingEnabled) {
       try { dependencies.acknowledgePendingState(accountKey, mutationId, Number(payload.revision)); } catch {
@@ -828,20 +907,32 @@ function createOrbitApiClient(dependencies) {
     };
   }
 
-  function saveStateToApi(state, access) {
+  function saveStateToApi(state, access, expectedPendingMutationId) {
     const accountKey = getAccountKeyFromState(state);
+    const calledWithPending = durablePendingEnabled ? dependencies.readPendingState(accountKey) : null;
+    const requiredOperation = expectedPendingMutationId || calledWithPending?.mutationId;
+    const validatedAuth = validatedReplayAuthByAccount.get(accountKey);
+    if (validatedAuth && validatedAuth.mutationId !== calledWithPending?.mutationId) {
+      if (replayAuthByAccount.get(accountKey) === validatedAuth.authKey) replayAuthByAccount.delete(accountKey);
+      validatedReplayAuthByAccount.delete(accountKey);
+    }
     if (access) {
       if (getAccountKeyFromAccess(access) !== accountKey) return Promise.reject(new Error('Pending work belongs to another venue.'));
       const authKey = getClientAuthKeyFromAccess(access);
-      if (authKey) replayAuthByAccount.set(accountKey, authKey);
+      if (authKey && (!validatedAuth || validatedAuth.mutationId !== calledWithPending?.mutationId)) replayAuthByAccount.set(accountKey, authKey);
     }
     return enqueueAccountMutation(accountKey, async () => {
+      if (requiredOperation && dependencies.readPendingState(accountKey)?.mutationId !== requiredOperation) {
+        return { ok: false, accountKey, conflict: true, code: 'PENDING_REPLAY_SUPERSEDED',
+          error: 'The retained operation changed or completed. Load canonical state before another save.' };
+      }
       const result = await performStateSave(state, accountKey);
       if ((result?.ok || result?.pending) && typeof dependencies.onManagementSaveStatus === 'function') {
         dependencies.onManagementSaveStatus({
           accountKey, ok: Boolean(result.ok), pending: Boolean(result.pending),
           sourceHash: sourceForState(state).sha256,
-          revision: Number(result.revision || 0), publication: result.publication || { status: 'not-queued' }
+          revision: Number('revision' in result ? result.revision || 0 : 0),
+          publication: 'publication' in result ? result.publication || { status: 'not-queued' } : { status: 'not-queued' }
         });
       }
       return result;
@@ -936,13 +1027,66 @@ function createOrbitApiClient(dependencies) {
     return { updateStatus: lastUpdateStatus, updateEvent: lastUpdateEvent };
   }
 
+  async function resumePendingManagementState(access) {
+    const capturedAccess = isRecord(access) ? { ...access } : null;
+    const accountKey = getAccountKeyFromAccess(capturedAccess);
+    const authKey = getClientAuthKeyFromAccess(capturedAccess);
+    if (!durablePendingEnabled || !accountKey || !authKey) return { ok: false, pending: false, error: 'A current same-venue sign-in is required.' };
+    const pending = dependencies.readPendingState(accountKey);
+    if (!pending) return { ok: true, pending: false };
+    const policy = retryPolicyFor(pending);
+    if (pending.pauseCode || pausedAcknowledgements.get(accountKey) === pending.mutationId || !policy || policy.kind !== 'auth' || policy.notBeforeMs > nowMs()) {
+      return { ok: false, pending: true, code: 'PENDING_RECOVERY_PAUSED' };
+    }
+    const expiresAt = capturedAccess.expiresAt;
+    if (expiresAt !== undefined) {
+      const effectiveExpiry = typeof expiresAt === 'string' ? Date.parse(expiresAt.includes('T') ? expiresAt : expiresAt + 'T23:59:59.999') : Number.NaN;
+      if (!Number.isFinite(effectiveExpiry) || effectiveExpiry <= nowMs()) return { ok: false, pending: true, code: 'PENDING_AUTHENTICATION_REQUIRED' };
+    }
+    const originalPolicy = JSON.stringify(policy);
+    let manifestHttpStatus = 0;
+    const manifest = await requestOrbitApi(`/state/checkpoint/${encodeURIComponent(accountKey)}`, { authKey, returnFailurePayload: true, redirect: 'error', observeHttpStatus: status => { manifestHttpStatus = status; } });
+    const confirmedMissing = pending.expectedRevision === 0 && manifestHttpStatus === 404 && manifest?.code === 'CHECKPOINT_STATE_NOT_FOUND';
+    let proven = confirmedMissing || manifestHttpStatus === 200 && manifest?.ok === true && manifest.notModified !== true && manifest.protocol === 'checkpoint-v1' && manifest.accountKey === accountKey
+      && Number.isSafeInteger(manifest.revision) && manifest.revision >= 1
+      && Number.isSafeInteger(manifest.sourceBytes) && manifest.sourceBytes >= 2 && manifest.sourceBytes <= 33_554_432
+      && manifest.chunkBytes === 262_144 && manifest.chunkCount === Math.ceil(manifest.sourceBytes / 262_144)
+      && manifest.chunkCount <= 128 && typeof manifest.sha256 === 'string' && /^[a-f0-9]{64}$/.test(manifest.sha256);
+    if (!proven && manifestHttpStatus === 404 && manifest?.code !== 'CHECKPOINT_STATE_NOT_FOUND') {
+      // Older small-state servers may not implement checkpoint manifests.
+      let canonicalHttpStatus = 0;
+      const record = await requestOrbitApi(`/state/${encodeURIComponent(accountKey)}`, { authKey, returnFailurePayload: true, redirect: 'error', maximumResponseBytes: 2_000_000, observeHttpStatus: status => { canonicalHttpStatus = status; } });
+      try {
+        validateStatePayload(record?.state);
+        proven = canonicalHttpStatus === 200 && record?.ok === true && record.accountKey === accountKey && getAccountKeyFromState(record.state) === accountKey
+          && Number.isSafeInteger(record.revision) && record.revision >= 1;
+      } catch { proven = false; }
+    }
+    if (!proven) return { ok: false, pending: true, code: 'PENDING_AUTHENTICATION_REQUIRED' };
+    return enqueueAccountMutation(accountKey, async () => {
+      const current = dependencies.readPendingState(accountKey);
+      if (!current || current.mutationId !== pending.mutationId || current.sha256 !== pending.sha256
+        || current.expectedRevision !== pending.expectedRevision || current.transport !== pending.transport || current.pauseCode
+        || pausedAcknowledgements.get(accountKey) === pending.mutationId
+        || JSON.stringify(retryPolicyFor(current)) !== originalPolicy) return { ok: false, pending: Boolean(current), code: 'PENDING_RECOVERY_CHANGED' };
+      try {
+        if (typeof dependencies.setPendingRetryPolicy !== 'function' || !dependencies.setPendingRetryPolicy(accountKey, current.mutationId, null)) throw new Error('Retry policy changed');
+      } catch { return { ok: false, pending: true, code: 'PENDING_POLICY_PERSISTENCE_FAILED' }; }
+      unpersistedRetryPolicies.delete(accountKey);
+      replayAuthByAccount.set(accountKey, authKey);
+      validatedReplayAuthByAccount.set(accountKey, { mutationId: current.mutationId, authKey });
+      clearPendingRetry(accountKey);
+      return { ok: true, pending: true };
+    });
+  }
+
   async function loadStateApiFirst(accountKey, access) {
     if (durablePendingEnabled) {
       const resolvedAccountKey = sanitizeAccountKey(accountKey || getLocalAccountKey());
       const pending = dependencies.readPendingState(resolvedAccountKey);
       if (pending) {
         if (access && getAccountKeyFromAccess(access) !== resolvedAccountKey) throw new Error('Pending work belongs to another venue.');
-        await saveStateToApi(pending.state, access).catch(() => undefined);
+        await saveStateToApi(pending.state, access, pending.mutationId).catch(() => undefined);
         if (dependencies.readPendingState(resolvedAccountKey)) return loadStateFromApi(resolvedAccountKey, access);
       }
     }
@@ -1014,6 +1158,7 @@ function createOrbitApiClient(dependencies) {
     preservePendingState,
     getManagementRecoveryStatusApi,
     loadStateApiFirst,
+    resumePendingManagementState,
     loadStateFromApi,
     peekStateFromApi,
     postClientTelemetry,

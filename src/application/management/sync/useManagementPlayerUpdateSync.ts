@@ -129,13 +129,16 @@ export const useManagementPlayerUpdateSync = ({
         const hasSameOperations = hasSameIncomingPlayerOperations(latestState, remoteState);
         if (record.acceptReadRevision && !record.acceptReadRevision()) return;
         bridgeInitialized = true;
-        onAuthoritativeState?.(remoteState);
-        if (JSON.stringify(latestState) === JSON.stringify(remoteState)) return;
+        if (JSON.stringify(latestState) === JSON.stringify(remoteState)) {
+          onAuthoritativeState?.(remoteState);
+          return;
+        }
         if (!hasSameOperations) announceIncomingPlayerRequest(latestState, remoteState);
         const mergedState = remoteState;
         clearUndo();
         stateRef.current = mergedState;
         setState(mergedState);
+        onAuthoritativeState?.(mergedState);
         saveBrowserManagementState(mergedState);
         setSaveStatus({ state: 'saved', message: 'Player operations synced' });
       } catch {
@@ -221,16 +224,16 @@ export const useManagementPlayerUpdateSync = ({
         }
         const latestState = stateRef.current;
         const remoteState = adoptCanonicalManagementState(latestState, record.state);
-        onAuthoritativeState?.(remoteState);
         if (JSON.stringify(latestState) !== JSON.stringify(remoteState)) {
           if (!hasSameIncomingPlayerOperations(latestState, remoteState)) announceIncomingPlayerRequest(latestState, remoteState);
           const mergedState = remoteState;
           clearUndo();
           stateRef.current = mergedState;
           setState(mergedState);
+          onAuthoritativeState?.(mergedState);
           saveBrowserManagementState(mergedState);
           setSaveStatus({ state: 'saved', message: 'Player operations synced' });
-        }
+        } else onAuthoritativeState?.(remoteState);
         if (recordRevision !== null) lastAcceptedRevision = Math.max(lastAcceptedRevision, recordRevision);
         if (pendingRevision !== null && pendingRevision <= lastAcceptedRevision) pendingRevision = null;
         refreshPending = pendingRevision !== null;

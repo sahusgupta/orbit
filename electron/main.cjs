@@ -170,7 +170,8 @@ const {
   writePendingState,
   acknowledgePendingState,
   selectPendingTransport,
-  pausePendingState
+  pausePendingState,
+  setPendingRetryPolicy
 } = createLocalStore({
   app,
   encodeState: encodeProtectedState,
@@ -215,6 +216,7 @@ const {
   loadStateApiFirst,
   peekStateFromApi,
   preservePendingState,
+  resumePendingManagementState,
   redeemMembershipQrApi,
   saveStateApiFirst,
   saveStateToApi,
@@ -238,6 +240,7 @@ const {
   acknowledgePendingState,
   selectPendingTransport,
   pausePendingState,
+  setPendingRetryPolicy,
   onManagementSaveStatus: (status) => {
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.webContents.send('management-save-status', status);
@@ -362,6 +365,8 @@ ipcMain.handle('get-backend-status', trustedIpc(async () => {
 }));
 
 ipcMain.handle('validate-pilot-access', trustedIpc(async (access) => validatePilotAccessApi(boundedPayload(access, 16_000))));
+
+ipcMain.handle('resume-pending-management-state', trustedIpc(async (access) => resumePendingManagementState(boundedPayload(access, 16_000))));
 
 ipcMain.handle('get-management-recovery-status', trustedIpc(async (access) => getManagementRecoveryStatusApi(boundedPayload(access, 16_000))));
 

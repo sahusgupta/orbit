@@ -97,6 +97,7 @@ describe('Electron IPC and preload composition audit', () => {
       'install-downloaded-update',
       'get-backend-status',
       'validate-pilot-access',
+      'resume-pending-management-state',
       'get-management-recovery-status',
       'complete-management-recovery',
       'generate-self-check-in-kit',
@@ -148,6 +149,7 @@ describe('Electron IPC and preload composition audit', () => {
       'onUpdateStatus',
       'getBackendStatus',
       'validatePilotAccess',
+      'resumePendingManagementState',
       'getManagementRecoveryStatus',
       'completeManagementRecovery',
       'generateSelfCheckInKit',
@@ -171,6 +173,8 @@ describe('Electron IPC and preload composition audit', () => {
     const getUpdateStatus = bridge.getUpdateStatus as () => Promise<unknown>;
     const installDownloadedUpdate = bridge.installDownloadedUpdate as () => Promise<unknown>;
     const getManagementRecoveryStatus = bridge.getManagementRecoveryStatus as (access: unknown) => Promise<unknown>;
+    const resumePendingManagementState = bridge.resumePendingManagementState;
+    if (typeof resumePendingManagementState !== 'function') throw new Error('Expected the explicit pending recovery bridge');
     const completeManagementRecovery = bridge.completeManagementRecovery as (payload: unknown) => Promise<unknown>;
     const generateSelfCheckInKit = bridge.generateSelfCheckInKit as (payload: unknown) => Promise<unknown>;
     const redeemMembershipQr = bridge.redeemMembershipQr as (payload: unknown) => Promise<unknown>;
@@ -183,6 +187,7 @@ describe('Electron IPC and preload composition audit', () => {
     await preserveStateForUpdate('flush-1', { games: [] });
     await getUpdateStatus();
     await installDownloadedUpdate();
+    await resumePendingManagementState({ licenseId: 'club-one', authorizationCode: 'synthetic-retry-access' });
     await getManagementRecoveryStatus({ authorizationCode: 'pilot-code' });
     await completeManagementRecovery({ access: { authorizationCode: 'pilot-code' }, password: 'new-password' });
     await generateSelfCheckInKit({ access: { authorizationCode: 'pilot-code' }, staffToken: 'staff-token' });
@@ -197,6 +202,7 @@ describe('Electron IPC and preload composition audit', () => {
       ['preserve-state-for-update', 'flush-1', { games: [] }],
       ['get-update-status'],
       ['install-downloaded-update'],
+      ['resume-pending-management-state', { licenseId: 'club-one', authorizationCode: 'synthetic-retry-access' }],
       ['get-management-recovery-status', { authorizationCode: 'pilot-code' }],
       ['complete-management-recovery', { access: { authorizationCode: 'pilot-code' }, password: 'new-password' }],
       ['generate-self-check-in-kit', { access: { authorizationCode: 'pilot-code' }, staffToken: 'staff-token' }],

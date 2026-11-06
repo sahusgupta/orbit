@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('tableManagerDesktop', {
   },
   getBackendStatus: () => ipcRenderer.invoke('get-backend-status'),
   validatePilotAccess: (access) => ipcRenderer.invoke('validate-pilot-access', access),
+  resumePendingManagementState: (access) => ipcRenderer.invoke('resume-pending-management-state', access),
   getManagementRecoveryStatus: (access) => ipcRenderer.invoke('get-management-recovery-status', access),
   completeManagementRecovery: (payload) => ipcRenderer.invoke('complete-management-recovery', payload),
   generateSelfCheckInKit: (payload) => ipcRenderer.invoke('generate-self-check-in-kit', payload),
