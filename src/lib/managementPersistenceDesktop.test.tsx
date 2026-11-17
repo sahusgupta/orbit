@@ -6,7 +6,6 @@ import { createRoot } from 'react-dom/client';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { seedState } from '../domain/state';
 import type { AppState, PersistedStateRecord, PlayerProfile } from '../domain/types';
-import { createHash, webcrypto } from 'node:crypto';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -595,10 +594,9 @@ describe('management desktop authoritative API persistence orchestration', () =>
       delete desktop.getPersistenceCapabilities;
     }
   });
-  it('retains provisional intent, rejects a newer action before applying it, and binds background confirmation to the exact source', async () => {
+  it('retains provisional intent, then fetches canonical state immediately on background confirmation', async () => {
     await mountTable();
     harness.desktopSaveResult = { ok: false, pending: true, error: 'Synthetic disconnected API' };
-    vi.stubGlobal('crypto', webcrypto);
     try {
       const result = await invokeFloor('seatInterestAtTable', getState().interests[0], 'table-test', 1);
       expect(result).toMatchObject({ ok: false, pending: true, status: 'save-pending' });
@@ -610,23 +608,30 @@ describe('management desktop authoritative API persistence orchestration', () =>
       expect(harness.desktopSaveStates).toHaveLength(1);
       const persistence = await import('../app/persistence/managementPersistence');
       expect(persistence.getManagementDurablePendingAdmission(accountKey)).toMatchObject({ pending: true });
-      const confirmation = { accountKey, sourceHash: '0'.repeat(64), ok: true, pending: false, revision: 2, publication: { status: 'pending' } };
-      await act(async () => { harness.saveStatusCallback?.(confirmation); await new Promise((resolve) => webcrypto.subtle.digest('SHA-256', new Uint8Array()).then(resolve)); });
-      expect(Reflect.get(harness.shellProps as object, 'saveState')).toBe('error');
-      confirmation.sourceHash = createHash('sha256').update(JSON.stringify(provisional)).digest('hex');
-      await act(async () => { harness.saveStatusCallback?.(confirmation); await new Promise((resolve) => webcrypto.subtle.digest('SHA-256', new Uint8Array()).then(resolve)); });
-      await flush();
-      expect(Reflect.get(harness.shellProps as object, 'saveState')).toBe('saved');
-      harness.desktopPollResult = { schemaVersion: 5, savedAt: now, state: provisional, authoritative: true, revision: 2 };
+      const confirmation = { accountKey, sourceHash: 'a'.repeat(64), ok: true, pending: false, revision: 2, publication: { status: 'pending' } };
       const readsBeforeCanonical = harness.loadForAccountCalls.length;
-      // The null startup record entered the released 60-second failure backoff.
-      // Its authoritative read, rather than the IPC receipt alone, releases the adapter's pending gate.
-      await advance(60_000);
+      await act(async () => {
+        harness.saveStatusCallback?.({ ...confirmation, accountKey: 'another-venue' });
+        harness.saveStatusCallback?.({ ...confirmation, ok: false, pending: true });
+      });
+      await advance(1);
+      expect(harness.loadForAccountCalls).toHaveLength(readsBeforeCanonical);
+      expect(Reflect.get(harness.shellProps as object, 'saveState')).toBe('error');
+      harness.desktopPollResult = { schemaVersion: 5, savedAt: now, state: provisional, authoritative: true, revision: 2 };
+      await act(async () => { harness.saveStatusCallback?.(confirmation); });
+      expect(Reflect.get(harness.shellProps as object, 'saveState')).toBe('error');
+      // A background commit must request canonical state despite the null startup read's backoff.
+      // The receipt alone must not release the adapter's pending gate.
+      expect(persistence.getManagementDurablePendingAdmission(accountKey).pending).toBe(true);
+      await advance(1);
       expect(harness.loadForAccountCalls.length).toBeGreaterThan(readsBeforeCanonical);
       expect(persistence.getManagementDurablePendingAdmission(accountKey)).toEqual({ pending: false });
+      expect(Reflect.get(harness.shellProps as object, 'saveState')).toBe('saved');
+      harness.desktopSaveResult = undefined;
+      expect(await invokeFloor('addPlayerTime', getState().playerSessions[0], 30)).toMatchObject({ ok: true });
+      expect(harness.desktopSaveStates.at(-1)?.playerLedger.filter((entry) => entry.type === 'Check-In')).toHaveLength(1);
     } finally {
       harness.desktopSaveResult = undefined;
-      vi.unstubAllGlobals();
     }
   });
   it('does not confirm the visible account when another account save finishes after hydration', async () => {

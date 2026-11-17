@@ -210,7 +210,6 @@ import {
 } from './app/persistence/managementPersistence';
 import { saveBrowserManagementState } from './app/persistence/browserStateRepository';
 import { compactManagementUsageTelemetry, getManagementStatePayloadBytes, getManagementStatePayloadContributions, getManagementStatePayloadError } from './app/persistence/managementStatePayload';
-import { checkpointSha256 } from './app/persistence/checkpointProtocol';
 import { managementSaveOutcome, type ManagementMutationResult } from './application/management/mutationResult';
 import {
   getCollectionProfile,
@@ -964,24 +963,6 @@ function App() {
   }, []);
 
   useManagementUpdatePreservation(state);
-  useEffect(() => window.tableManagerDesktop?.onManagementSaveStatus?.((status) => {
-    if (status.accountKey !== getAccountKeyFromState(stateRef.current)
-      || (pendingManagementSaveCountsRef.current.get(status.accountKey) ?? 0) > 0) return;
-    const retained = durablePendingStatesRef.current.get(status.accountKey);
-    if (!retained || !status.ok) return;
-    const visible = stateRef.current;
-    const generation = saveSequenceRef.current;
-    void checkpointSha256(new TextEncoder().encode(JSON.stringify(visible))).then((sourceHash) => {
-      if (sourceHash !== status.sourceHash || stateRef.current !== visible || saveSequenceRef.current !== generation
-        || durablePendingStatesRef.current.get(status.accountKey) !== retained
-        || authResumeCanonicalRequiredAccountsRef.current.has(status.accountKey)) return;
-      durablePendingStatesRef.current.delete(status.accountKey);
-      setSaveStatus({ state: status.publication.status === 'failed' ? 'error' : 'saved', message: status.publication.status === 'published'
-        ? 'Server saved; player projection published'
-        : status.publication.status === 'failed' ? 'Server saved; player projection failed and will retry' : 'Server saved; player projection pending' });
-    }).catch(() => undefined);
-  }), []);
-
   useEffect(() => {
     // Backend status is advisory; the shell retains its initial disconnected status if unavailable.
     window.tableManagerDesktop?.getBackendStatus()
@@ -1004,7 +985,7 @@ function App() {
     return () => window.removeEventListener('hashchange', syncRoute);
   }, []);
 
-  useManagementPlayerUpdateSync({
+  const requestDesktopRecoveryRefresh = useManagementPlayerUpdateSync({
     isManagementSavePending: (accountKey) => (pendingManagementSaveCountsRef.current.get(accountKey) ?? 0) > 0,
     onAuthoritativeState: (canonical) => {
       const accountKey = getAccountKeyFromState(canonical);
@@ -1022,6 +1003,14 @@ function App() {
     state,
     stateRef
   });
+
+  useEffect(() => window.tableManagerDesktop?.onManagementSaveStatus?.((status) => {
+    if (!status.ok || status.pending || status.accountKey !== getAccountKeyFromState(stateRef.current)
+      || !durablePendingStatesRef.current.has(status.accountKey)) return;
+    // A receipt cannot release the write hold. Fetch the complete venue state
+    // at the confirmed revision before accepting another change.
+    requestDesktopRecoveryRefresh(status.accountKey, status.revision);
+  }), [requestDesktopRecoveryRefresh]);
 
   useEffect(() => {
     syncSelfCheckInStaffRequests(state.staffRequests);

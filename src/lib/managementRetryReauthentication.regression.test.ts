@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { getAccountKeyFromAccess, getAccountKeyFromState, isPilotAccessActive } from '../domain/licensing';
 import { seedState } from '../domain/state';
 import type { AppState, PilotAccess } from '../domain/types';
-import { checkpointSha256 } from '../app/persistence/checkpointProtocol';
 import { compactManagementUsageTelemetry, getManagementStatePayloadBytes, getManagementStatePayloadError } from '../app/persistence/managementStatePayload';
 import { managementSaveOutcome } from '../application/management/mutationResult';
 
@@ -292,18 +291,18 @@ describe('explicit Main authentication retry-resume boundary', () => {
     expect(h.saveSequenceRef.current).toBe(7);
   });
 
-  it('keeps actual persistence blocked after a matching ACK until the canonical frame is adopted', async () => {
+  it('keeps actual persistence blocked after a successful ACK until the canonical frame is adopted', async () => {
     const h = ports();
     const original = h.stateRef.current;
     original.playerLedger = [{ id: 'original-financial-marker', type: 'Buy-In', playerName: 'Synthetic player', amount: 125.75, timestamp: '2026-11-05T00:00:00.000Z' }];
     const accountKey = getAccountKeyFromState(original);
     const pendingManagementSaveCountsRef = { current: new Map<string, number>() };
-    const hash = vi.fn(checkpointSha256);
+    const requestDesktopRecoveryRefresh = vi.fn();
     const saveManagementState = vi.fn(async (_next: AppState) => ({ ok: true, pending: false, path: 'synthetic-port', cloud: 'server-pending', revision: 2 }));
     const scope = {
       ...h,
       pendingManagementSaveCountsRef,
-      checkpointSha256: hash,
+      requestDesktopRecoveryRefresh,
       pendingManagementSaveRef: { current: Promise.resolve({ ok: true }) },
       getManagementSaveAdmissionBytes: () => 33_554_432,
       compactManagementUsageTelemetry,
@@ -325,11 +324,8 @@ describe('explicit Main authentication retry-resume boundary', () => {
     await expect(persist(oldSnapshot, false)).resolves.toMatchObject({ ok: false, status: 'busy' });
     expect(saveManagementState).not.toHaveBeenCalled();
 
-    const sourceHash = await checkpointSha256(new TextEncoder().encode(JSON.stringify(original)));
-    acknowledge({ accountKey, ok: true, pending: false, sourceHash, revision: 1, publication: { status: 'pending' } });
-    expect(hash).toHaveBeenCalledOnce();
-    await expect(hash.mock.results[0].value).resolves.toBe(sourceHash);
-    await Promise.resolve();
+    acknowledge({ accountKey, ok: true, pending: false, sourceHash: 'a'.repeat(64), revision: 1, publication: { status: 'pending' } });
+    expect(requestDesktopRecoveryRefresh).toHaveBeenCalledExactlyOnceWith(accountKey, 1);
 
     await expect(persist(oldSnapshot, false)).resolves.toMatchObject({ ok: false, status: 'busy' });
     expect(saveManagementState).not.toHaveBeenCalled();

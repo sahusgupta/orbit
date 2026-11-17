@@ -22,6 +22,7 @@ describe('desktop authoritative updates', () => {
   let hidden: boolean;
   let revision: number;
   let listener: ((event: ManagementStateSubscriptionEvent) => void) | undefined;
+  let requestRecovery: ReturnType<typeof useManagementPlayerUpdateSync>;
   const load = vi.mocked(persistence.loadDesktopManagementStateForAccount);
   const subscribe = vi.mocked(persistence.subscribeToDesktopManagementStateForAccount);
   const cleanup = vi.fn();
@@ -58,7 +59,7 @@ describe('desktop authoritative updates', () => {
     ...record(), state: { ...structuredClone(stateRef.current), staffRequests: [{ id, type: 'self-check-in-assistance', playerName: 'Synthetic', reason: 'not-found', status: 'pending', createdAt: '2026-10-28T12:00:00.000Z' }] }
   });
   function Harness() {
-    useManagementPlayerUpdateSync({
+    requestRecovery = useManagementPlayerUpdateSync({
       activeAccountKey: 'poll-test', hasAuthenticated: true,
       announceIncomingPlayerRequest: vi.fn(), isManagementSavePending: () => savePending,
       setSaveStatus: vi.fn(), setState, clearUndo: vi.fn(), state: stateRef.current, stateRef
@@ -119,6 +120,30 @@ describe('desktop authoritative updates', () => {
     await act(async () => { finish?.(older); await vi.advanceTimersByTimeAsync(0); });
     expect(load).toHaveBeenCalledTimes(3); expect(stateRef.current.staffRequests[0].id).toBe('new');
   });
+  it('waits for the confirmed revision when a recovery receipt arrives during an older read', async () => {
+    await mount();
+    let finishOlder: (value: PersistedStateRecord) => void = () => { throw new Error('Older read not started'); };
+    let finishConfirmed: (value: PersistedStateRecord) => void = () => { throw new Error('Recovery read not started'); };
+    load.mockImplementationOnce(() => new Promise((resolve) => { finishOlder = resolve; }));
+    load.mockImplementationOnce(() => new Promise((resolve) => { finishConfirmed = resolve; }));
+    revision = 2;
+    const older = changedRecord('older');
+    await event({ type: 'change', revision: 2 });
+
+    requestRecovery('poll-test', 3);
+    await advance(1);
+    expect(load).toHaveBeenCalledTimes(2);
+    await act(async () => finishOlder(older));
+    await advance(1);
+    expect(setState).not.toHaveBeenCalled();
+    expect(load).toHaveBeenCalledTimes(3);
+
+    revision = 3;
+    await act(async () => finishConfirmed(changedRecord('confirmed')));
+    expect(stateRef.current.staffRequests[0].id).toBe('confirmed');
+    expect(setState).toHaveBeenCalledOnce();
+  });
+
   it('keeps rendering monotonic authoritative progress while newer notifications continue during every read', async () => {
     await mount();
     const pendingLoads: Array<(value: PersistedStateRecord) => void> = [];

@@ -1,4 +1,4 @@
-import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { AppState, PersistedAppState } from '../../../domain/types';
 import { normalizeState } from '../../../domain/state';
 import { getAccountKeyFromState } from '../../../domain/licensing';
@@ -99,6 +99,8 @@ export const useManagementPlayerUpdateSync = ({
   stateRef,
   onAuthoritativeState
 }: ManagementPlayerUpdateSyncOptions) => {
+  const desktopRecoveryRefresh = useRef<(accountKey: string, revision: number) => void>(undefined);
+
   useEffect(() => {
     if (!hasAuthenticated || !activeAccountKey || hasManagementDesktopPersistence()) return;
     let cancelled = false;
@@ -169,6 +171,7 @@ export const useManagementPlayerUpdateSync = ({
     let lastAcceptedRevision = -1;
     let lastAcceptedReadAt = 0;
     let pendingRevision: number | null = null;
+    let recoveryRevision: number | null = null;
     const fallbackIntervalMs = 3_000;
     const watchdogIntervalMs = 5 * 60_000;
     const localRetryMs = 100;
@@ -205,11 +208,13 @@ export const useManagementPlayerUpdateSync = ({
       syncInFlight = true;
       const stateWhenLoadStarted = stateRef.current;
       const notifiedRevisionAtStart = pendingRevision;
+      const recoveryRevisionAtStart = recoveryRevision;
       let readSucceeded = false;
       try {
         const record = await loadDesktopManagementStateForAccount(state.settings.pilotAccess!);
         if (!record?.state || record.authoritative === false) return;
         const recordRevision = isRevision(record.revision) ? record.revision : null;
+        if (recoveryRevision !== null && (record.authoritative !== true || recordRevision === null || recordRevision < recoveryRevision)) return;
         // Legacy polling records remain compatible. A notified revision must be
         // satisfied by an explicitly authoritative, revisioned response.
         if (pendingRevision !== null && (record.authoritative !== true || recordRevision === null)) return;
@@ -236,6 +241,7 @@ export const useManagementPlayerUpdateSync = ({
         } else onAuthoritativeState?.(remoteState);
         if (recordRevision !== null) lastAcceptedRevision = Math.max(lastAcceptedRevision, recordRevision);
         if (pendingRevision !== null && pendingRevision <= lastAcceptedRevision) pendingRevision = null;
+        if (recoveryRevision !== null && recoveryRevision <= lastAcceptedRevision) recoveryRevision = null;
         refreshPending = pendingRevision !== null;
         lastAcceptedReadAt = Date.now();
         nextPollAt = refreshPending ? Date.now() : Date.now() + (streamConnected ? watchdogIntervalMs : fallbackIntervalMs);
@@ -247,6 +253,9 @@ export const useManagementPlayerUpdateSync = ({
         if (readSucceeded) {
           retryDelayMs = 30_000;
           failureRetryAt = 0;
+        } else if (recoveryRevision !== null && recoveryRevision !== recoveryRevisionAtStart) {
+          // The commit arrived during this read. Its result predates recovery.
+          nextPollAt = Date.now();
         } else {
           retryDelayMs = Math.min(retryDelayMs * 2, maximumRetryDelayMs);
           failureRetryAt = Date.now() + retryDelayMs;
@@ -302,6 +311,15 @@ export const useManagementPlayerUpdateSync = ({
       }
     };
 
+    desktopRecoveryRefresh.current = (accountKey, revision) => {
+      if (accountKey !== activeAccountKey || !isRevision(revision) || revision === 0
+        || (recoveryRevision !== null && revision <= recoveryRevision)) return;
+      recoveryRevision = revision;
+      failureRetryAt = 0;
+      nextPollAt = Date.now();
+      scheduleNextPoll();
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
     if (!document.hidden) {
       startSubscription();
@@ -309,9 +327,14 @@ export const useManagementPlayerUpdateSync = ({
     }
     return () => {
       cancelled = true;
+      desktopRecoveryRefresh.current = undefined;
       clearTimer();
       stopSubscription();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [activeAccountKey, hasAuthenticated, state.settings.pilotAccess?.licenseId, state.settings.pilotAccess?.authorizationCode, state.settings.pilotAccess?.expiresAt]);
+
+  return useCallback((accountKey: string, revision: number) => {
+    desktopRecoveryRefresh.current?.(accountKey, revision);
+  }, []);
 };
